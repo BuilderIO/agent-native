@@ -11,26 +11,30 @@ metadata:
 
 # Feature Flags
 
-Feature flags let an app ship dormant code and turn it on in the real runtime
-without another deployment. The framework owns registration, evaluation,
-management actions, audit history, and the Settings UI; each app owns its flag
-definitions and the code paths they guard.
+A feature flag is a boolean declared in app code, evaluated locally by Core,
+and managed from the Analytics fleet control plane. Code owns whether a flag
+exists. Runtime settings own only its rollout state.
+
+Flags let an app deploy dormant code and turn it on in the real environment
+without another deployment. They are not experiments: do not add variants,
+hypotheses, conversion metrics, exposure tracking, or lifecycle states.
 
 ## When to use one
 
-Use a flag for a reversible rollout of a user-facing capability whose code is
-safe to deploy before it is enabled. Flags are especially useful for production
-dogfooding, exact-user or organization pilots, and deterministic percentage
-rollouts.
+Use a flag for a reversible rollout of a user-facing capability whose dormant
+code is safe to deploy. Flags are useful for production dogfooding, exact-user
+or organization pilots, and deterministic percentage rollouts.
 
-Do not use a runtime flag for authentication, authorization, secret handling,
-audit enablement, SSR cache behavior, or another security boundary. A flag may
-hide UI, but the guarded server action must evaluate the same flag itself.
+Do not use a flag for authentication, authorization, secrets, audit enablement,
+SSR cache behavior, or another security boundary. Client hiding is presentation
+only; every guarded server action must evaluate the same registered flag.
 
-## Declare and register
+## Agent workflow
+
+### 1. Declare
 
 Keep definitions in a shared TypeScript module so server and client code use the
-same stable key. Boolean flags are default-off in v1.
+same stable key. Flags are boolean and default-off.
 
 ```ts
 import { defineFeatureFlag } from "@agent-native/core/feature-flags";
@@ -42,23 +46,26 @@ export const FULL_APP_BUILDING = defineFeatureFlag({
 });
 ```
 
-Register definitions from a Nitro plugin before actions are discovered or
-called. Do not add app-specific flags to Core's registry.
+Keys are immutable, never reused, and contain only letters, numbers, dots,
+underscores, or hyphens. Prefer a concise app-owned name. Do not create flag
+definitions or rollout rows from Analytics.
+
+### 2. Register
+
+Register app definitions from a Nitro plugin before actions are discovered.
+Do not add app-specific flags to a Core registry.
 
 ```ts
-import {
-  createFeatureFlagsPlugin,
-} from "@agent-native/core/server";
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
 
 import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
 
 export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
 ```
 
-## Guard both surfaces
+### 3. Guard server and client
 
-Server actions are the enforcement boundary. Evaluate the current action caller
-before doing guarded work:
+The server action is the enforcement boundary:
 
 ```ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -71,77 +78,86 @@ run: async (args, ctx) => {
 }
 ```
 
-Use the client hook only for presentation. It reads the same evaluated action
-result and fails closed while loading or for unknown flags.
+Use the client hook only to hide or reveal hydrated UI:
 
 ```tsx
 import { useFeatureFlag } from "@agent-native/core/client";
 
-const enabled = useFeatureFlagExposure(FULL_APP_BUILDING.key);
+const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
 return enabled ? <FullAppOption /> : null;
 ```
 
-Never evaluate a personalized flag while rendering the public SSR shell. The
-shell is shared and cacheable; evaluate after client hydration or inside an
-authenticated action.
+The client hook intentionally returns false while loading or for an unknown
+flag. Never replace that fail-closed behavior with app-local bucketing or a
+compile-time fallback. Never evaluate personalized flags in the public SSR
+shell; it is shared and cached for every visitor.
 
-## Management actions
+### 4. Verify and roll out
 
-Core mounts these actions in every app:
+1. Verify the off path before changing rollout state.
+2. Confirm the registered flag appears in **Analytics → Feature flags** for the
+   app and is Off by default.
+3. Use **Enable for me** for initial production dogfood.
+4. Expand to exact emails, organization IDs, or a percentage only from
+   Analytics.
+5. Confirm the client presentation and authoritative server action agree.
+
+## Management contract
+
+Core mounts three actions in registered apps:
 
 | Action | Purpose |
 | --- | --- |
-| `get-feature-flags` | Return only the current caller's evaluated boolean values. Safe for ordinary app code. |
-| `list-feature-flags` | Return registered definitions and rollout metadata to an authorized flag operator. |
-| `set-feature-flag` | Atomically turn a flag off, enable it for the current operator, or replace its targeting rules. |
+| `get-feature-flags` | Return the current caller's evaluated boolean values. |
+| `list-feature-flags` | Return definitions and rollout metadata to an authorized operator. |
+| `set-feature-flag` | Atomically turn a flag off, enable it for the operator, or replace targeting rules. |
 
-Centralized operator UIs call the same app-local actions through narrowly scoped
-A2A delegation. Privileged tokens require an exact target audience, org, scope,
-operator role, and audit correlation id. Both list and mutation responses are
-versioned; callers must reject legacy or mismatched persisted rules instead of
-assuming a successful HTTP status means the rollout changed. Management is
-permission-checked and audited on the server. Do not read or write flag settings
-through generic settings routes, raw SQL, or extension tools.
+Analytics calls the app-local operator actions through narrowly scoped A2A
+delegation. Tokens require an exact audience, organization, scope, operator
+role, and audit correlation id. Management is permission-checked and audited
+by the target app. Never manage flags through generic settings routes, raw SQL,
+or per-app toggle UIs.
 
 ## Rollout semantics
 
-Runtime state supports immediate off/on, exact normalized user emails, exact
-organization IDs, and a deterministic percentage. Evaluation is fail-closed:
-missing definitions, missing state, malformed state, and evaluator errors return
-the code default (`false` in v1).
+The operator modes are **Off**, **Targeted**, and **Everyone**. Core stores them
+as `off`, `rules`, and `on`.
 
-An explicit global off wins over every target. Global on enables every caller.
-Otherwise an exact user or organization match enables the caller, followed by
-the stable percentage bucket. A percentage rollout must use Core's evaluator;
-do not invent another hash in app code.
+Targeted rules combine exact normalized emails, exact organization IDs, and a
+percentage with OR semantics. Exact matches are checked first. Percentage
+buckets use Core's stable hash of the flag key and authenticated user identity;
+anonymous callers fail closed. Raising a percentage preserves the users already
+included at a lower percentage. Do not implement bucketing in app code.
 
-Evaluation is side-effect free. Record an exposure only after the user actually
-encounters the gated behavior with `exposeFeatureFlag()` or
-`useFeatureFlagExposure()`; never emit one merely because a guard was checked.
+Unknown definitions, missing state, malformed state, storage errors, and
+evaluation errors all return the code default (`false` in v1). Explicit Off
+wins over every target; Everyone enables every authenticated caller.
 
-## Lifecycle
+## Remove a flag
 
-1. Add the dormant code and register the default-off definition.
-2. Guard UI and every server mutation/read that exposes the capability.
-3. Verify the off path first, then use **Enable for me** for production dogfood.
-4. Expand with exact targets or percentage rollout while watching product and
-   operational signals.
-5. Turn the flag off immediately if rollback is needed. Polling clients roll
-   back on their next refresh, so document any non-instant native poll window.
-6. Once the rollout is permanent, remove the flag, its runtime state, both code
-   branches, and stale tests. A permanent flag is just an if statement with a
-   pension plan.
+After a rollout is permanent:
 
-## Verification
+1. Replace guarded branches with the chosen behavior.
+2. Delete the server and client gates.
+3. Delete the definition and registration entry.
+4. Verify the flag disappears from the Analytics fleet.
+5. Remove stale tests and rollout instructions.
+
+A permanent flag is just an if statement with a pension plan.
+
+## Verification checklist
 
 - Unknown and unregistered keys evaluate false.
-- UI hiding and server action enforcement use the same registered key.
-- Exact-user, organization, percentage, global-on, and global-off paths have
-  focused tests.
+- UI hiding and server enforcement use the same registered key.
+- Exact-user, organization, deterministic percentage, Everyone, and Off paths
+  have focused tests.
+- Increasing a percentage is monotonic; anonymous percentage evaluation is off.
 - Unauthorized callers cannot list targeting details or mutate flags.
-- Mutations are atomic, read back their stored state, emit action refresh, and
-  appear in the audit log with the flag key.
-- Future agents can find this skill from the root `AGENTS.md`, and
+- Mutations are atomic, read back stored state, emit refresh, and appear in the
+  audit log with the flag key.
+- Analytics represents ready, no-definition, unsupported, forbidden, legacy,
+  and unreachable directory apps honestly.
+- Future agents can find this skill from root `AGENTS.md`, and
   `pnpm guard:workspace-skills` passes after syncing generated copies.
 
 ## Related skills
@@ -151,4 +167,3 @@ encounters the gated behavior with `exposeFeatureFlag()` or
 - **audit-log** — inspect automatic action mutation history
 - **reliable-mutations** — make rollout changes atomic and provable
 - **security** — keep security controls out of feature flags
-- **agent-native-toolkit** — framework ownership of shared Settings surfaces

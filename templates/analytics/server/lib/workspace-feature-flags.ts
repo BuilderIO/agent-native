@@ -88,7 +88,7 @@ export function validateWorkspaceFeatureFlagMutation(
     );
   const persistedRules = payload.rules as Record<string, unknown>;
   if (expected.rules) {
-    for (const field of ["mode", "percentage", "rolloutEpoch"] as const) {
+    for (const field of ["mode", "percentage"] as const) {
       if (
         expected.rules[field] !== undefined &&
         persistedRules[field] !== expected.rules[field]
@@ -305,9 +305,6 @@ export async function setWorkspaceFeatureFlag(
             emails: input.rules.emails ?? [],
             orgIds: input.rules.orgIds ?? [],
             percentage: input.rules.percentage ?? 0,
-            ...(input.rules.rolloutEpoch
-              ? { rolloutEpoch: input.rules.rolloutEpoch }
-              : {}),
           },
         }
       : input.operation === "off"

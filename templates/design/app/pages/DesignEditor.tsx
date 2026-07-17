@@ -27,7 +27,7 @@ import {
   RemoteSelectionRings,
   RecentEditHighlights,
   useRecentEdits,
-  useFeatureFlagExposure,
+  useFeatureFlag,
   useT,
   useChangeVersion,
   setAgentChatContextItem,
@@ -8959,10 +8959,7 @@ function DesignEditor() {
     () => readFusionApp(designDataJson),
     [designDataJson],
   );
-  const fullAppBuildingEnabled = useFeatureFlagExposure(
-    FULL_APP_BUILDING.key,
-    Boolean(id && fusionApp),
-  );
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the

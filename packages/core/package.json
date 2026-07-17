@@ -110,7 +110,6 @@
     "./settings": "./dist/settings/index.js",
     "./feature-flags": "./dist/feature-flags/index.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
-    "./feature-flags/actions/get-feature-flag-decision": "./dist/feature-flags/actions/get-feature-flag-decision.js",
     "./feature-flags/actions/list-feature-flags": "./dist/feature-flags/actions/list-feature-flags.js",
     "./feature-flags/actions/set-feature-flag": "./dist/feature-flags/actions/set-feature-flag.js",
     "./localization": "./dist/localization/index.js",

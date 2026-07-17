@@ -43,7 +43,7 @@ describe("fleet feature flag contracts", () => {
     const expected = {
       key: "new-editor",
       orgId: "org-1",
-      rules: { percentage: 50, rolloutEpoch: "epoch-1" },
+      rules: { percentage: 50 },
     };
     expect(() =>
       validateWorkspaceFeatureFlagMutation(
@@ -57,7 +57,7 @@ describe("fleet feature flag contracts", () => {
           contractVersion: 1,
           status: "ready",
           key: "new-editor",
-          rules: { percentage: 25, rolloutEpoch: "epoch-1" },
+          rules: { percentage: 25 },
           scope: { orgId: "org-1" },
         },
         expected,
@@ -65,7 +65,7 @@ describe("fleet feature flag contracts", () => {
     ).toThrow("did not persist");
   });
   it("accepts an exact versioned persisted mutation", () => {
-    const rules = { percentage: 50, rolloutEpoch: "epoch-1" };
+    const rules = { percentage: 50 };
     expect(
       validateWorkspaceFeatureFlagMutation(
         {
@@ -78,24 +78,6 @@ describe("fleet feature flag contracts", () => {
         { key: "new-editor", orgId: "org-1", rules },
       ),
     ).toMatchObject({ contractVersion: 1, key: "new-editor", rules });
-  });
-  it("accepts a server-generated epoch when the caller omitted one", () => {
-    expect(
-      validateWorkspaceFeatureFlagMutation(
-        {
-          contractVersion: 1,
-          status: "ready",
-          key: "new-editor",
-          rules: { mode: "rules", percentage: 25, rolloutEpoch: "generated" },
-          scope: { orgId: "org-1" },
-        },
-        {
-          key: "new-editor",
-          orgId: "org-1",
-          rules: { mode: "rules", percentage: 25 },
-        },
-      ),
-    ).toMatchObject({ contractVersion: 1, key: "new-editor" });
   });
   it("verifies off and enable-for-operator persisted semantics", () => {
     const base = {
@@ -186,7 +168,6 @@ describe("fleet feature flag contracts", () => {
             emails: ["stale@example.com"],
             orgIds: [],
             percentage: 50,
-            rolloutEpoch: "epoch-1",
           },
           scope: { orgId: "org-1" },
         },
@@ -198,7 +179,6 @@ describe("fleet feature flag contracts", () => {
             emails: [],
             orgIds: [],
             percentage: 50,
-            rolloutEpoch: "epoch-1",
           },
         },
       ),
@@ -238,7 +218,7 @@ describe("fleet feature flag contracts", () => {
         appId: "mail",
         key: "new-editor",
         operation: "replace-rules",
-        rules: { mode: "rules", percentage: 50, rolloutEpoch: "epoch-1" },
+        rules: { mode: "rules", percentage: 50 },
       }),
     ).toEqual({
       key: "new-editor",
@@ -248,7 +228,6 @@ describe("fleet feature flag contracts", () => {
         emails: [],
         orgIds: [],
         percentage: 50,
-        rolloutEpoch: "epoch-1",
       },
     });
   });

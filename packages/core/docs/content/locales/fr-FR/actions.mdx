@@ -654,7 +654,7 @@ run: async (args, ctx) => {
 };
 ```
 
-Utilisez `useFeatureFlag(FULL_APP_BUILDING.key)` depuis `@agent-native/core/client` pour masquer ou afficher la surface cliente. Core fournit `get-feature-flags`, `list-feature-flags` et `set-feature-flag`. La gestion vérifie les autorisations et est auditée ; les interfaces de flotte appellent les mêmes actions locales à l’app via une délégation A2A étroitement limitée. L’évaluation n’a pas d’effet de bord : lorsque l’utilisateur rencontre réellement l’expérience protégée, utilisez `exposeFeatureFlag()` côté serveur ou `useFeatureFlagExposure()` dans la surface cliente montée pour émettre une exposition d’expérience explicite. Ne faites jamais transiter les écritures d’indicateurs par des endpoints de réglages génériques ou du SQL brut, et ne placez jamais l’authentification, l’autorisation, l’audit, les secrets ou le cache SSR derrière un indicateur d’exécution.
+Utilisez `useFeatureFlag(FULL_APP_BUILDING.key)` depuis `@agent-native/core/client` pour masquer ou afficher la surface cliente. Core fournit `get-feature-flags`, `list-feature-flags` et `set-feature-flag`. La gestion vérifie les autorisations et est auditée ; les interfaces de flotte appellent les mêmes actions locales à l’app via une délégation A2A étroitement limitée. Ne faites jamais transiter les écritures d’indicateurs par des endpoints de réglages génériques ou du SQL brut, et ne placez jamais l’authentification, l’autorisation, l’audit, les secrets ou le cache SSR derrière un indicateur d’exécution.
 
 ## actions de style CLI hérité {#legacy-cli-actions}
 

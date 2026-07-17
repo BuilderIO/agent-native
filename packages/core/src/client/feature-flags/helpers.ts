@@ -1,4 +1,4 @@
-import type { FeatureFlagRules, ListFeatureFlagsResult } from "./types.js";
+import type { FeatureFlagRules } from "./types.js";
 
 export type EvaluatedFeatureFlags =
   | Record<string, boolean>
@@ -34,12 +34,6 @@ export function featureFlagValue(
   key: string,
 ): boolean {
   return values[key] === true;
-}
-
-export function hasManageableFeatureFlags(
-  result: ListFeatureFlagsResult | undefined,
-): result is ListFeatureFlagsResult & { canManage: true } {
-  return Boolean(result?.canManage && result.flags.length);
 }
 
 /**

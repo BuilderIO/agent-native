@@ -465,28 +465,14 @@ export default defineAction({
           includes: [
             "workspace app flag definitions",
             "rollout state",
-            "active experiment links",
-          ],
-        },
-        {
-          id: "experiments",
-          label: "Product experiments",
-          path: "/agents?view=experiments",
-          adminOnly: true,
-          action: "list-product-experiments",
-          includes: [
-            "experiment lifecycle",
-            "primary conversion results",
-            "sample-ratio warnings",
+            "exact user and organization targeting",
+            "deterministic percentage rollout",
           ],
         },
       ];
       if (screen.agentsView === "dashboards") {
         screen.dashboardUsageStatsAction = "list-dashboard-usage-stats";
       }
-      if (nav?.featureFlagKey) screen.featureFlagKey = nav.featureFlagKey;
-      if (nav?.productExperimentId)
-        screen.productExperimentId = nav.productExperimentId;
       const email = getRequestUserEmail();
       if (email) {
         const orgId = getRequestOrgId() || null;

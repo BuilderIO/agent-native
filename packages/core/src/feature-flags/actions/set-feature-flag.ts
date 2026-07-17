@@ -14,7 +14,6 @@ const rulesSchema = z.object({
   emails: z.array(z.string().email()).max(500).optional(),
   orgIds: z.array(z.string().min(1).max(200)).max(500).optional(),
   percentage: z.number().min(0).max(100).optional(),
-  rolloutEpoch: z.string().min(1).max(200).optional(),
 });
 
 const schema = z.discriminatedUnion("operation", [
@@ -67,11 +66,6 @@ export default defineAction({
           rules = defaultFeatureFlagRules();
         } else if (args.operation === "replace-rules") {
           rules = normalizeFeatureFlagRules(args.rules);
-          // Percentage cohorts are re-salted when their size changes, unless
-          // an experiment supplies its explicitly recorded epoch.
-          if (current.percentage !== rules.percentage && !rules.rolloutEpoch) {
-            rules = { ...rules, rolloutEpoch: crypto.randomUUID() };
-          }
         } else {
           rules = normalizeFeatureFlagRules({
             ...current,

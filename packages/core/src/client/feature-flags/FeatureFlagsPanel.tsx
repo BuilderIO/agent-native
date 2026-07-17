@@ -4,7 +4,6 @@ import {
   IconLoader2,
   IconUserCheck,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import {
@@ -16,71 +15,12 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
-import { useActionMutation, useActionQuery } from "../use-action.js";
 import { normalizeFeatureFlagRules } from "./helpers.js";
 import type {
   FeatureFlagMetadata,
   FeatureFlagRules,
-  ListFeatureFlagsResult,
   SetFeatureFlagInput,
 } from "./types.js";
-
-export { hasManageableFeatureFlags } from "./helpers.js";
-
-export function useFeatureFlagsSettings() {
-  return useActionQuery<ListFeatureFlagsResult>("list-feature-flags" as never);
-}
-
-function optimisticRules(
-  flag: FeatureFlagMetadata,
-  input: SetFeatureFlagInput,
-): FeatureFlagRules {
-  if (input.operation === "replace-rules" && input.rules) return input.rules;
-  if (input.operation === "off") {
-    return { version: 1, mode: "off", emails: [], orgIds: [], percentage: 0 };
-  }
-  return { ...flag.rules, mode: "rules" };
-}
-
-function useSetFeatureFlag(onSuccess?: () => void) {
-  const queryClient = useQueryClient();
-  return useActionMutation<unknown, SetFeatureFlagInput>(
-    "set-feature-flag" as never,
-    {
-      onMutate: async (input) => {
-        const queryKey = ["action", "list-feature-flags", undefined];
-        await queryClient.cancelQueries({ queryKey });
-        const previous =
-          queryClient.getQueryData<ListFeatureFlagsResult>(queryKey);
-        queryClient.setQueryData<ListFeatureFlagsResult>(queryKey, (current) =>
-          current
-            ? {
-                ...current,
-                flags: current.flags.map((flag) =>
-                  flag.key === input.key
-                    ? { ...flag, rules: optimisticRules(flag, input) }
-                    : flag,
-                ),
-              }
-            : current,
-        );
-        return previous;
-      },
-      onError: (_error, _input, previous) => {
-        queryClient.setQueryData(
-          ["action", "list-feature-flags", undefined],
-          previous,
-        );
-      },
-      onSettled: () => {
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-feature-flags"],
-        });
-      },
-      onSuccess,
-    },
-  );
-}
 
 function formatActor(actor: FeatureFlagRules["updatedBy"]): string | null {
   if (!actor) return null;
@@ -169,13 +109,6 @@ function TargetingDialog({
         emails: parseList(emails),
         orgIds: parseList(orgIds),
         percentage: nextPercentage,
-        // Keep a running experiment's cohort stable for metadata-only edits.
-        // A percentage change deliberately omits the old epoch so the server
-        // rotates it and does not mix two allocations in one cohort.
-        rolloutEpoch:
-          nextPercentage === flag.rules.percentage
-            ? flag.rules.rolloutEpoch
-            : undefined,
       },
     });
   };
@@ -265,12 +198,10 @@ function FeatureFlagRow({
   flag,
   onMutate,
   isPending,
-  isDisabled,
 }: {
   flag: FeatureFlagMetadata;
   onMutate: (input: SetFeatureFlagInput) => void;
   isPending?: boolean;
-  isDisabled?: boolean;
 }) {
   const t = useT();
   const [targetingOpen, setTargetingOpen] = useState(false);
@@ -318,7 +249,7 @@ function FeatureFlagRow({
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/40 disabled:opacity-50"
-          disabled={isPending || isDisabled}
+          disabled={isPending}
           onClick={() =>
             onMutate({
               key: flag.key,
@@ -332,7 +263,7 @@ function FeatureFlagRow({
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-          disabled={isPending || isDisabled}
+          disabled={isPending}
           onClick={() => onMutate({ key: flag.key, operation: "off" })}
         >
           <IconBolt className="size-3.5" />
@@ -341,7 +272,7 @@ function FeatureFlagRow({
         <button
           type="button"
           className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-          disabled={isPending || isDisabled}
+          disabled={isPending}
           onClick={() => setTargetingOpen(true)}
           aria-label={t("featureFlags.advancedFor", {
             name: flag.displayName ?? flag.key,
@@ -369,14 +300,11 @@ export function FeatureFlagsEditor({
   onMutate,
   isPending,
   error,
-  disabledKeys = [],
 }: {
   flags: FeatureFlagMetadata[];
   onMutate: (input: SetFeatureFlagInput) => void;
   isPending?: boolean;
   error?: Error | null;
-  /** Flags owned by a running experiment and therefore not editable here. */
-  disabledKeys?: string[];
 }) {
   const t = useT();
   const sortedFlags = useMemo(
@@ -414,7 +342,6 @@ export function FeatureFlagsEditor({
               flag={flag}
               onMutate={onMutate}
               isPending={isPending}
-              isDisabled={disabledKeys.includes(flag.key)}
             />
           ))}
         </div>
@@ -427,18 +354,5 @@ export function FeatureFlagsEditor({
         <p className="pt-3 text-sm text-destructive">{error.message}</p>
       ) : null}
     </section>
-  );
-}
-
-/** Backward-compatible action-bound wrapper; fleet UIs should use FeatureFlagsEditor. */
-export function FeatureFlagsPanel({ flags }: { flags: FeatureFlagMetadata[] }) {
-  const setFlag = useSetFeatureFlag();
-  return (
-    <FeatureFlagsEditor
-      flags={flags}
-      onMutate={setFlag.mutate}
-      isPending={setFlag.isPending}
-      error={setFlag.error}
-    />
   );
 }

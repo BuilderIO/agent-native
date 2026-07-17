@@ -690,20 +690,14 @@ export {
 } from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
-  FeatureFlagsPanel,
   FeatureFlagsEditor,
-  trackFeatureFlagExposure,
   evaluatedFeatureFlagValues,
   featureFlagValue,
-  hasManageableFeatureFlags,
   useFeatureFlag,
-  useFeatureFlagExposure,
   useFeatureFlags,
-  useFeatureFlagsSettings,
   type FeatureFlagActor,
   type FeatureFlagMetadata,
   type FeatureFlagRules,
-  type ListFeatureFlagsResult,
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {

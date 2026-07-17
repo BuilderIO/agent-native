@@ -804,7 +804,7 @@ const messages = {
     overview: "Overview",
     conversations: "Conversations",
     evals: "Evals",
-    experiments: "Agent experiments",
+    experiments: "Experiments",
     feedback: "Feedback",
     variants: "Variants",
     created: "Created",

@@ -639,12 +639,10 @@ Use `useFeatureFlag(FULL_APP_BUILDING.key)` from
 `@agent-native/core/client` to hide or reveal the client surface. Core mounts
 `get-feature-flags`, `list-feature-flags`, and `set-feature-flag`. Management
 is permission-checked and audited; fleet operator UIs call the same app-local
-actions through narrowly scoped A2A delegation. Evaluation is side-effect free:
-when a user actually sees a gated experience, use `exposeFeatureFlag()` on the
-server or `useFeatureFlagExposure()` in the mounted client surface to emit an
-explicit experiment exposure. Never route flag writes through generic settings
-endpoints or raw SQL, and never put authentication, authorization, audit,
-secrets, or SSR cache behavior behind a runtime flag.
+actions through narrowly scoped A2A delegation. Analytics is the sole operator
+UI; apps should not add their own flag settings panels. Never route flag writes
+through generic settings endpoints or raw SQL, and never put authentication,
+authorization, audit, secrets, or SSR cache behavior behind a runtime flag.
 
 ## Legacy CLI-style actions {#legacy-cli-actions}
 

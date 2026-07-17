@@ -1,26 +1,30 @@
-# Centralized feature flags and experiments — work ledger
+# Centralized feature flags — work ledger
 
-- **complete — Core contract**
-  - Verified: versioned list states, scoped A2A auth and audit lineage,
-    controlled editor, exact decisions, exposure helpers, docs, skills, locales,
-    typecheck, and focused tests.
-- **complete — Analytics backend**
-  - Verified: fleet actions, experiment schema/lifecycle/readouts,
-    reconciliation, running-flag locks, migrations, typecheck, and focused tests.
-- **complete — Analytics UI**
-  - Verified: sibling admin views, mixed-state fleet UI, controlled editing,
-    experiment workflow, navigation/application-state parity, i18n, changelog,
-    typecheck, and focused tests.
-- **complete — integrated verification and independent QA**
-  - Verified: repository guards, Core and Analytics typechecks, focused suites,
-    the broad Framework workspace run, and the frozen browser story against a
-    disposable three-app fleet. The browser pass caught and verified a fix for
-    transient partial rule envelopes in the shared editor.
-  - Note: the broad Framework run's only failures were Design browser tests on
-    a worker without the Playwright Chromium executable; all other workspace
-    project suites passed.
-- **parked — remote stakeholder adjustments**
-  - Owner: orchestrator
-  - Next: incorporate later product feedback only if it changes the settled
-    Analytics/Core/Dispatch boundary.
-  - Resurface: when feedback arrives or before the PR leaves draft.
+## Settled
+
+- Boolean, source-declared flags only.
+- Analytics is the sole rollout-management UI.
+- Targeted rollout supports exact emails, organization IDs, and a stable
+  percentage with OR semantics.
+- Experiment lifecycle, variants, hypotheses, metrics, and exposure tracking
+  are non-goals.
+- Per-app management panels are removed; server enforcement and client
+  presentation share the registered key.
+- Fable reviewed and agreed with the reduced architecture.
+
+## Verified
+
+- Core, Analytics, Design, and Clips focused tests pass.
+- Core, Analytics, Design, and Clips typechecks pass.
+- The Core package build and workspace skill synchronization guard pass.
+- Browser QA covers ready, no-definition, and unreachable apps plus the
+  Off/Targeted/Everyone rollout editor.
+- Product experiment, exposure, decision, and rollout-epoch surfaces are absent
+  from the shipped feature-flag paths.
+
+## Deferred
+
+- Audit-history timeline UI.
+- Orphaned rollout-state discovery and cleanup.
+- Personalized SSR hydration.
+- Non-boolean flags or product experimentation.

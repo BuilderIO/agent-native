@@ -77,22 +77,10 @@ export default defineAction({
       .optional()
       .describe("Session recording id to open (used with view=sessions)"),
     agentsView: z
-      .enum(["monitoring", "dashboards", "database", "flags", "experiments"])
+      .enum(["monitoring", "dashboards", "database", "flags"])
       .optional()
       .describe(
-        "Admin subview to open (monitoring, dashboard usage, app databases, feature flags, or product experiments)",
-      ),
-    featureFlagKey: z
-      .string()
-      .optional()
-      .describe(
-        "Feature flag key to select when navigating to agentsView=flags",
-      ),
-    productExperimentId: z
-      .string()
-      .optional()
-      .describe(
-        "Product experiment id to select when navigating to agentsView=experiments",
+        "Admin subview to open (monitoring, dashboard usage, app databases, or feature flags)",
       ),
     dbAdminConnectionId: z
       .string()
@@ -135,8 +123,6 @@ export default defineAction({
       !args.extensionId &&
       !args.recordingId &&
       !args.agentsView &&
-      !args.featureFlagKey &&
-      !args.productExperimentId &&
       !args.dbAdminConnectionId &&
       !args.monitoringView &&
       !args.monitorId &&
@@ -172,16 +158,6 @@ export default defineAction({
     }
     if (args.agentsView) {
       nav.agentsView = args.agentsView;
-      if (!args.view) nav.view = "agents";
-    }
-    if (args.featureFlagKey) {
-      nav.featureFlagKey = args.featureFlagKey;
-      nav.agentsView = "flags";
-      if (!args.view) nav.view = "agents";
-    }
-    if (args.productExperimentId) {
-      nav.productExperimentId = args.productExperimentId;
-      nav.agentsView = "experiments";
       if (!args.view) nav.view = "agents";
     }
     if (args.dbAdminConnectionId) {
@@ -220,9 +196,6 @@ export default defineAction({
     if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
     if (nav.recordingId) parts.push(`recording:${nav.recordingId}`);
     if (nav.agentsView) parts.push(`agents:${nav.agentsView}`);
-    if (nav.featureFlagKey) parts.push(`flag:${nav.featureFlagKey}`);
-    if (nav.productExperimentId)
-      parts.push(`experiment:${nav.productExperimentId}`);
     if (nav.dbAdminConnectionId)
       parts.push(`db-admin:${nav.dbAdminConnectionId}`);
     if (nav.monitoringView) parts.push(`monitoring:${nav.monitoringView}`);

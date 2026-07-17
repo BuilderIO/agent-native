@@ -43,11 +43,6 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/get-feature-flags",
   },
   {
-    name: "get-feature-flag-decision",
-    specifier:
-      "@agent-native/core/feature-flags/actions/get-feature-flag-decision",
-  },
-  {
     name: "list-feature-flags",
     specifier: "@agent-native/core/feature-flags/actions/list-feature-flags",
   },

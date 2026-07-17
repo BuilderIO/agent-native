@@ -654,7 +654,7 @@ run: async (args, ctx) => {
 };
 ```
 
-Use `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar ou revelar a superfície do cliente. O Core disponibiliza `get-feature-flags`, `list-feature-flags` e `set-feature-flag`. O gerenciamento verifica permissões e é auditado; interfaces de frota chamam as mesmas actions locais do app por delegação A2A estritamente limitada. A avaliação não tem efeito colateral: quando o usuário realmente encontra a experiência protegida, use `exposeFeatureFlag()` no servidor ou `useFeatureFlagExposure()` na superfície cliente montada para emitir uma exposição explícita de experimento. Nunca encaminhe gravações de flags por endpoints genéricos de configurações ou SQL bruto, nem coloque autenticação, autorização, auditoria, segredos ou cache SSR atrás de uma flag de runtime.
+Use `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar ou revelar a superfície do cliente. O Core disponibiliza `get-feature-flags`, `list-feature-flags` e `set-feature-flag`. O gerenciamento verifica permissões e é auditado; interfaces de frota chamam as mesmas actions locais do app por delegação A2A estritamente limitada. Nunca encaminhe gravações de flags por endpoints genéricos de configurações ou SQL bruto, nem coloque autenticação, autorização, auditoria, segredos ou cache SSR atrás de uma flag de runtime.
 
 ## actions estilo CLI legado {#legacy-cli-actions}
 

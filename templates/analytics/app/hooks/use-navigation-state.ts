@@ -18,8 +18,6 @@ interface NavigationState {
   extensionId?: string;
   recordingId?: string;
   agentsView?: string;
-  featureFlagKey?: string;
-  productExperimentId?: string;
   dbAdminConnectionId?: string;
   monitoringView?: string;
   monitorId?: string;
@@ -83,14 +81,6 @@ export function useNavigationState() {
       } else if (pathname === "/agents") {
         state.view = "agents";
         state.agentsView = searchParams.get("view") || "monitoring";
-        if (state.agentsView === "flags") {
-          const flag = searchParams.get("flag");
-          if (flag) state.featureFlagKey = flag;
-        }
-        if (state.agentsView === "experiments") {
-          const experiment = searchParams.get("experiment");
-          if (experiment) state.productExperimentId = experiment;
-        }
         if (state.agentsView === "database") {
           const dbAdminConnectionId = searchParams.get("db");
           if (dbAdminConnectionId)
@@ -141,18 +131,11 @@ export function useNavigationState() {
         cmd.view === "agents" &&
         (cmd.agentsView === "database" ||
           cmd.agentsView === "dashboards" ||
-          cmd.agentsView === "flags" ||
-          cmd.agentsView === "experiments")
+          cmd.agentsView === "flags")
       ) {
         const params = new URLSearchParams({ view: cmd.agentsView });
         if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {
           params.set("db", cmd.dbAdminConnectionId);
-        }
-        if (cmd.agentsView === "flags" && cmd.featureFlagKey) {
-          params.set("flag", cmd.featureFlagKey);
-        }
-        if (cmd.agentsView === "experiments" && cmd.productExperimentId) {
-          params.set("experiment", cmd.productExperimentId);
         }
         return `/agents?${params.toString()}`;
       }

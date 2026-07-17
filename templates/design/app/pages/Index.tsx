@@ -1,7 +1,7 @@
 import {
   useActionQuery,
   useActionMutation,
-  useFeatureFlagExposure,
+  useFeatureFlag,
   useT,
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
@@ -96,10 +96,7 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
-  const fullAppBuildingEnabled = useFeatureFlagExposure(
-    FULL_APP_BUILDING.key,
-    showNewPrompt,
-  );
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined

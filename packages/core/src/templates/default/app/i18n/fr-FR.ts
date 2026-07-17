@@ -505,7 +505,7 @@ const messages = {
     overview: "Vue d'ensemble",
     conversations: "Conversations",
     evals: "Évaluations",
-    experiments: "Expériences d’agent",
+    experiments: "Expériences",
     feedback: "Retour",
     variants: "Variants",
     created: "Created",

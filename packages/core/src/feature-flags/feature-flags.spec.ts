@@ -68,26 +68,34 @@ describe("feature flag registry", () => {
 });
 
 describe("feature flag evaluator", () => {
-  it("returns percentage decision metadata and salts epoch buckets", async () => {
-    const rules = store.normalizeFeatureFlagRules({
+  it("keeps percentage rollouts deterministic and monotonic", () => {
+    const tenPercent = store.normalizeFeatureFlagRules({
       mode: "rules",
-      percentage: 50,
-      rolloutEpoch: "experiment-1",
+      percentage: 10,
     });
-    const decision = store.evaluateFeatureFlagDecisionRules(
-      "new-editor",
-      rules,
-      { userEmail: "alice@example.com" },
-    );
-    expect(decision).toMatchObject({
-      rolloutEpoch: "experiment-1",
-      rolloutPercentage: 50,
-      userKey: "alice@example.com",
+    const twentyFivePercent = store.normalizeFeatureFlagRules({
+      mode: "rules",
+      percentage: 25,
     });
-    expect(["percentage-control", "percentage-treatment"]).toContain(
-      decision.reason,
+    const identities = Array.from(
+      { length: 1_000 },
+      (_, index) => `user-${index}`,
     );
-    expect(decision.bucket).toBeTypeOf("number");
+    const firstCohort = identities.filter((userKey) =>
+      store.evaluateFeatureFlagRules("new-editor", tenPercent, { userKey }),
+    );
+
+    expect(firstCohort.length).toBeGreaterThan(0);
+    expect(
+      firstCohort.every((userKey) =>
+        store.evaluateFeatureFlagRules("new-editor", twentyFivePercent, {
+          userKey,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      store.evaluateFeatureFlagRules("new-editor", twentyFivePercent, {}),
+    ).toBe(false);
   });
   it("fails closed, honors exact email/org targets, and is deterministic", () => {
     const off = store.defaultFeatureFlagRules();

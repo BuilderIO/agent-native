@@ -95,13 +95,11 @@ const defaultTools = [
       "agent monitoring",
       "observability",
       "evals",
-      "experiments",
       "feedback",
       "database",
       "db admin",
       "dashboard usage",
       "dashboard audit",
-      "ab testing",
       "llm",
     ],
   },
@@ -110,12 +108,6 @@ const defaultTools = [
     nameKey: "agents.featureFlags",
     href: "/agents?view=flags",
     keywords: ["flags", "rollout", "release", "targeting"],
-  },
-  {
-    id: "product-experiments",
-    nameKey: "agents.productExperiments",
-    href: "/agents?view=experiments",
-    keywords: ["agent experiments", "ab testing", "conversion", "experiment"],
   },
   {
     id: "explorer",
@@ -578,9 +570,7 @@ export function CommandPalette() {
             <CommandGroup key="tools" heading={t("commandPalette.groupTools")}>
               {defaultTools
                 .filter((tool) =>
-                  ["agents", "feature-flags", "product-experiments"].includes(
-                    tool.id,
-                  )
+                  ["agents", "feature-flags"].includes(tool.id)
                     ? canManageOrg
                     : true,
                 )

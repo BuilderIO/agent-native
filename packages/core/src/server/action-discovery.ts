@@ -575,10 +575,6 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/get-feature-flags.js"),
     ],
     [
-      "get-feature-flag-decision",
-      () => import("../feature-flags/actions/get-feature-flag-decision.js"),
-    ],
-    [
       "list-feature-flags",
       () => import("../feature-flags/actions/list-feature-flags.js"),
     ],
