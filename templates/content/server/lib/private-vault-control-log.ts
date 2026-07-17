@@ -60,6 +60,17 @@ export interface PrivateVaultControlLogServiceOptions {
     entry: SignedControlLogEntry;
     current: ControlLogState;
   }): Promise<boolean>;
+  /**
+   * Verifies the exact encrypted recovery wrap committed by an ordinary epoch
+   * rotation. Replay invokes this for every persisted rotating edge, so the
+   * implementation must resolve the immutable wrap by its signed commitment.
+   */
+  verifyRecoveryWrapRotation?(input: {
+    scope: PrivateVaultControlLogScope;
+    commit: ControlMembershipCommit;
+    entry: SignedControlLogEntry;
+    current: ControlLogState;
+  }): Promise<boolean>;
   now?: () => Date;
 }
 
@@ -97,6 +108,19 @@ interface VerifiedReduction {
   state: ControlLogState;
   entryHash: string;
   idempotent: boolean;
+}
+
+type PrivateVaultControlLogTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
+
+export interface PrivateVaultVerifiedControlAppend {
+  tx: PrivateVaultControlLogTransaction;
+  scope: PrivateVaultControlLogScope;
+  entry: SignedControlLogEntry;
+  state: ControlLogState;
+  entryHash: string;
+  serverReceivedAt: string;
 }
 
 function normalizeScope(
@@ -237,6 +261,15 @@ export function createPrivateVaultControlLogService(
                 current: recoveryCurrent,
               })
           : undefined,
+        verifyRecoveryWrapRotation: options.verifyRecoveryWrapRotation
+          ? ({ commit, entry: rotationEntry, current: rotationCurrent }) =>
+              options.verifyRecoveryWrapRotation!({
+                scope,
+                commit,
+                entry: rotationEntry,
+                current: rotationCurrent,
+              })
+          : undefined,
       });
     } catch (error) {
       if (
@@ -323,11 +356,87 @@ export function createPrivateVaultControlLogService(
     return state;
   }
 
+  async function loadVerifiedEntry(
+    scopeInput: PrivateVaultControlLogScope,
+    entryBytes: Uint8Array,
+  ): Promise<{
+    entry: SignedControlLogEntry;
+    prior: ControlLogState | null;
+    state: ControlLogState;
+    current: ControlLogState;
+    entryHash: string;
+  }> {
+    const scope = normalizeScope(scopeInput);
+    const encodedBytes = encodeStoredBytes(entryBytes);
+    let candidate: SignedControlLogEntry;
+    try {
+      candidate = decodeSignedControlLogEntry(entryBytes);
+    } catch {
+      throw new PrivateVaultControlLogError("invalid_entry");
+    }
+    if (candidate.vaultId !== scope.vaultId) {
+      throw new PrivateVaultControlLogError("invalid_entry");
+    }
+    const rows = (await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultControlLogEntries)
+      .where(scopedEntry(scope))
+      .orderBy(
+        asc(schema.contentEncryptedVaultControlLogEntries.sequence),
+      )) as StoredEntryRow[];
+    const [head] = (await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultControlHeads)
+      .where(scopedHead(scope))
+      .limit(1)) as StoredHeadRow[];
+    const current = await replayRows(scope, rows);
+    if (!current || !head || !headMatchesState(head, current)) {
+      throw new PrivateVaultControlLogError("persisted_state_tampered");
+    }
+    const index = rows.findIndex(
+      (row) =>
+        row.sequence === candidate.sequence &&
+        row.entryId === candidate.envelopeId,
+    );
+    const stored = index >= 0 ? rows[index] : undefined;
+    if (
+      !stored ||
+      stored.entryBytesBase64url !== encodedBytes ||
+      stored.vaultId !== candidate.vaultId ||
+      stored.previousHash !== candidate.previousHash ||
+      stored.signerEndpointId !== candidate.signerEndpointId ||
+      stored.signedAt !== candidate.createdAt
+    ) {
+      throw new PrivateVaultControlLogError("invalid_entry");
+    }
+    const prior =
+      index === 0 ? null : await replayRows(scope, rows.slice(0, index));
+    const state = await replayRows(scope, rows.slice(0, index + 1));
+    if (
+      !state ||
+      state.sequence !== candidate.sequence ||
+      state.headHash !== stored.entryHash
+    ) {
+      throw new PrivateVaultControlLogError("persisted_state_tampered");
+    }
+    return {
+      entry: candidate,
+      prior,
+      state,
+      current,
+      entryHash: stored.entryHash,
+    };
+  }
+
   async function appendOnce(
     scopeInput: PrivateVaultControlLogScope,
     input: {
       entryBytes: Uint8Array;
       expectedHead: PrivateVaultControlLogExpectedHead;
+      /** Additional metadata committed atomically with a newly appended edge. */
+      onVerifiedAppend?: (
+        append: PrivateVaultVerifiedControlAppend,
+      ) => Promise<void>;
     },
   ): Promise<{ state: ControlLogState; idempotent: boolean }> {
     const scope = normalizeScope(scopeInput);
@@ -344,17 +453,21 @@ export function createPrivateVaultControlLogService(
     const receivedAt = now().toISOString();
 
     return getDb().transaction(async (tx) => {
+      // A conditional no-op update is the shared row-serialization boundary
+      // for append versus disable/delete. A plain SELECT under Postgres READ
+      // COMMITTED would leave a check-then-mutate race.
       const [vault] = await tx
-        .select({ vaultId: schema.contentEncryptedVaults.vaultId })
-        .from(schema.contentEncryptedVaults)
+        .update(schema.contentEncryptedVaults)
+        .set({ vaultState: "active" })
         .where(
           and(
             eq(schema.contentEncryptedVaults.vaultId, scope.vaultId),
             eq(schema.contentEncryptedVaults.ownerEmail, scope.ownerEmail),
             eq(schema.contentEncryptedVaults.orgId, scope.orgId),
+            eq(schema.contentEncryptedVaults.vaultState, "active"),
           ),
         )
-        .limit(1);
+        .returning({ vaultId: schema.contentEncryptedVaults.vaultId });
       if (!vault) throw new PrivateVaultControlLogError("not_found");
 
       const rows = (await tx
@@ -474,6 +587,14 @@ export function createPrivateVaultControlLogService(
           throw new PrivateVaultControlLogError("concurrent_append");
         }
       }
+      await input.onVerifiedAppend?.({
+        tx,
+        scope,
+        entry: candidate,
+        state: reduced.state,
+        entryHash: reduced.entryHash,
+        serverReceivedAt: receivedAt,
+      });
       return { state: reduced.state, idempotent: false };
     });
   }
@@ -484,6 +605,9 @@ export function createPrivateVaultControlLogService(
       input: {
         entryBytes: Uint8Array;
         expectedHead: PrivateVaultControlLogExpectedHead;
+        onVerifiedAppend?: (
+          append: PrivateVaultVerifiedControlAppend,
+        ) => Promise<void>;
       },
     ) {
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -503,6 +627,7 @@ export function createPrivateVaultControlLogService(
     },
 
     loadVerifiedState,
+    loadVerifiedEntry,
 
     async resolveBrokerAuthorization(
       scopeInput: PrivateVaultControlLogScope,

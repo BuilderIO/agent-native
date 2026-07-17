@@ -1184,6 +1184,27 @@ const runContentMigrations = runMigrations(
       ALTER TABLE content_encrypted_vault_ciphertext_staging
         ADD COLUMN IF NOT EXISTS recovery_wrap_hash TEXT`,
     },
+    {
+      version: 83,
+      name: "content-private-vault-genesis-admission-anchor",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_genesis_admissions (
+        vault_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        control_entry_id TEXT NOT NULL,
+        control_entry_hash TEXT NOT NULL,
+        signer_endpoint_id TEXT NOT NULL,
+        bootstrap_transcript_hash TEXT NOT NULL,
+        authorized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_genesis_admission_entry_unique
+        ON content_encrypted_vault_genesis_admissions (vault_id, control_entry_id, control_entry_hash);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_genesis_admission_scope_idx
+        ON content_encrypted_vault_genesis_admissions (owner_email, org_id, vault_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

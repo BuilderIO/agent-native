@@ -127,7 +127,11 @@ async function createVault(vaultId: string) {
     });
 }
 
-function service(recoveryAuthorized = false, clock = AT) {
+function service(
+  recoveryAuthorized = false,
+  clock = AT,
+  recoveryWrapAuthorized = false,
+) {
   return createService({
     authorizeGenesis: async ({ scope: candidateScope, entry: candidate }) => {
       const expectedEndpoint = authorizedGenesis.get(candidateScope.vaultId);
@@ -137,6 +141,9 @@ function service(recoveryAuthorized = false, clock = AT) {
       );
     },
     verifyRecoveryAuthorization: recoveryAuthorized
+      ? async () => true
+      : undefined,
+    verifyRecoveryWrapRotation: recoveryWrapAuthorized
       ? async () => true
       : undefined,
     now: () => new Date(clock),
@@ -433,6 +440,65 @@ describe("Private Vault signed control-log persistence", () => {
     ).resolves.toMatchObject({
       state: { activeMembers: [recovered.member], epoch: 2 },
     });
+  });
+
+  it("requires and replays the exact external recovery-wrap verifier for ordinary rotation", async () => {
+    const vaultId = "vault:ordinary-rotation-wrap";
+    const initialized = await initialize(vaultId, 21);
+    const secondary = await identity(22, "endpoint:rotation-secondary");
+    const enrollment = await entry({
+      vaultId,
+      state: initialized.state,
+      signer: initialized.owner,
+      inner: commit(vaultId, {
+        ceremonyKind: "add_device",
+        previousMembershipHash: initialized.state.membershipHash,
+        activeMembers: [initialized.owner.member, secondary.member].sort(
+          (left, right) => left.endpointId.localeCompare(right.endpointId),
+        ),
+      }),
+    });
+    const enrolled = await service().append(scope(vaultId), {
+      entryBytes: encodeSignedControlLogEntry(enrollment),
+      expectedHead: {
+        sequence: initialized.state.sequence,
+        hash: initialized.state.headHash,
+      },
+    });
+    const rotation = await entry({
+      vaultId,
+      state: enrolled.state,
+      signer: initialized.owner,
+      inner: commit(vaultId, {
+        ceremonyKind: "remove_device",
+        epoch: 2,
+        previousMembershipHash: enrolled.state.membershipHash,
+        activeMembers: [initialized.owner.member],
+        removedEndpointIds: [secondary.member.endpointId],
+        rotationCompleted: true,
+        recoveryWrapHash: "d7".repeat(32),
+      }),
+    });
+    const input = {
+      entryBytes: encodeSignedControlLogEntry(rotation),
+      expectedHead: {
+        sequence: enrolled.state.sequence,
+        hash: enrolled.state.headHash,
+      },
+    };
+
+    await expect(service().append(scope(vaultId), input)).rejects.toMatchObject(
+      { code: "invalid_entry" },
+    );
+    await expect(
+      service(false, AT, true).append(scope(vaultId), input),
+    ).resolves.toMatchObject({ state: { epoch: 2 } });
+    await expect(
+      service(false, AT, true).loadVerifiedState(scope(vaultId)),
+    ).resolves.toMatchObject({ epoch: 2 });
+    await expect(
+      service().loadVerifiedState(scope(vaultId)),
+    ).rejects.toMatchObject({ code: "persisted_state_tampered" });
   });
 
   it("verifies a genesis signature before invoking external authorization", async () => {

@@ -21,6 +21,9 @@ describe("Content auth public surface", () => {
 
   it("exempts only the self-authenticating retention worker from user sessions", () => {
     expect(authPluginSource).toContain('"/api/private-vault/retention/run"');
+    expect(authPluginSource).toContain(
+      '"/api/private-vault/control-log/append"',
+    );
     expect(authPluginSource).not.toMatch(/["']\/api\/private-vault\/?["']/);
   });
 });

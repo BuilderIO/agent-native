@@ -496,6 +496,38 @@ export const contentEncryptedVaults = table(
   ],
 );
 
+/**
+ * Immutable account-authorized trust anchor for the first signed control edge.
+ * Only public, content-free commitments are retained; admitting a candidate is
+ * a separate signed-desktop ceremony, never an effect of control-log replay.
+ */
+export const contentEncryptedVaultGenesisAdmissions = table(
+  "content_encrypted_vault_genesis_admissions",
+  {
+    vaultId: text("vault_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    controlEntryId: text("control_entry_id").notNull(),
+    controlEntryHash: text("control_entry_hash").notNull(),
+    signerEndpointId: text("signer_endpoint_id").notNull(),
+    bootstrapTranscriptHash: text("bootstrap_transcript_hash").notNull(),
+    authorizedAt: text("authorized_at").notNull().default(now()),
+  },
+  (admission) => [
+    uniqueIndex("content_encrypted_vault_genesis_admission_entry_unique").on(
+      admission.vaultId,
+      admission.controlEntryId,
+      admission.controlEntryHash,
+    ),
+    index("content_encrypted_vault_genesis_admission_scope_idx").on(
+      admission.ownerEmail,
+      admission.orgId,
+      admission.vaultId,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultEndpoints = table(
   "content_encrypted_vault_endpoints",
   {

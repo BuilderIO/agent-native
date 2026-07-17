@@ -184,6 +184,19 @@ interpretations are normative for implementation:
    and only `CLEANED` may CAS to a next-generation `PREPARED` ceremony. Missing
    spool plus missing or different receipt is rollback, not crash recovery.
 
+   The hosted append is a cookie-free native endpoint authenticated by an
+   endpoint-signed, body-bound, one-use request proof. It resolves physical
+   account scope only from the request's signed vault ID and the active vault
+   row. The encrypted recovery wrap is staged in protected-ciphertext storage
+   before one SQL transaction appends the verified control edge, advances the
+   CAS head, inserts the immutable wrap binding, and commits the staging
+   tombstone. A receipt is issued only after authenticated replay and exact
+   Blob readback. If later control edges have already advanced, retry replays
+   through the latest head but authenticates the historical signer from the
+   exact predecessor of the committed edge and returns that edge's same
+   canonical receipt; a later removal cannot strand a safely committed client
+   in `CONSUMED`.
+
 10. **Authorization and reference equality.** The expected control head and
     role-tagged enrolled signer set are frozen in start/state. Signed and
     control-head steps

@@ -21,6 +21,9 @@ export default createAuthPlugin({
     // bearer verifier. It must be reachable by the platform scheduler without
     // granting the rest of the Private Vault API a public session bypass.
     "/api/private-vault/retention/run",
+    // Cookie-free native endpoint. It authenticates a body-bound request proof
+    // against the replay-verified signed control head before any mutation.
+    "/api/private-vault/control-log/append",
     "/p",
     "/_agent-native/actions/get-public-document",
     "/_agent-native/agent-chat",

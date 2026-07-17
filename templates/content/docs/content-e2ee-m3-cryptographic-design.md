@@ -104,6 +104,14 @@ client delete the spool and fsync its containing directory, then CAS to
 missing spool without the exact retained receipt is rollback, never a cleanup
 retry; `CLEANED` idempotence also requires the same receipt bytes.
 
+Hosted acknowledgement is bound to the exact historical control edge, not to
+the accident of that edge still being the latest head. The server replays and
+authenticates the complete latest log, the edge's canonical stored bytes, its
+predecessor-authorized signer, immutable recovery-wrap binding, and exact Blob
+bytes before returning the same canonical receipt. This lets a lost response
+recover after a later valid edge or signer removal without weakening rollback
+or fork detection.
+
 ## Object and stream format
 
 Object headers bind suite, vault/object ID, monotonic revision, epoch, chunk count, plaintext length, content-type tag, DEK-wrap reference, writer endpoint, and signature. Titles and filenames live only inside ciphertext.
