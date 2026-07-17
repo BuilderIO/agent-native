@@ -111,7 +111,7 @@ export async function readCreativeContextMedia(input: {
     throw new Error("Creative context media is not accessible");
   const media = detail
     ? input.mediaId
-      ? detail.media.find((entry) => entry.id === input.mediaId) ?? null
+      ? (detail.media.find((entry) => entry.id === input.mediaId) ?? null)
       : null
     : pending?.mediaId
       ? { id: pending.mediaId, mimeType: pending.mimeType }

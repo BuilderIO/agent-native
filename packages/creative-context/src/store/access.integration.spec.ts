@@ -565,6 +565,10 @@ describe("creative context access and revocation", () => {
         "2026-07-16T00:00:00.000Z",
       ],
     });
+    await exec.execute({
+      sql: "UPDATE creative_context_items SET thumbnail_blob_ref = ? WHERE id = ?",
+      args: ["creative-context-blob:v1:pending-preview-opaque", "allowed"],
+    });
     const bobProof = await asBob(() =>
       assertGenerationArtifactAccess(
         artifact,
@@ -1593,6 +1597,49 @@ describe("creative context access and revocation", () => {
         }),
       }),
     ]);
+    const proposedItem =
+      ownPending.memberships[0]?.pendingSubmission?.proposedItem;
+    expect(proposedItem).toMatchObject({
+      id: expect.any(String),
+      itemVersionId: expect.any(String),
+    });
+    expect(JSON.stringify(ownPending)).not.toContain("pending-preview-opaque");
+    await expect(
+      asBob(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      storageKey: "creative-context-blob:v1:pending-preview-opaque",
+    });
+    await expect(
+      asAlice(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      storageKey: "creative-context-blob:v1:pending-preview-opaque",
+    });
+    await expect(
+      asDrew(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      asCarol(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toBeNull();
     await expect(
       asDrew(() =>
         store.listContextMemberships({ contextId: context!.id, limit: 10 }),
