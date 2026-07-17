@@ -1335,10 +1335,20 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     examples: [
       {
-        label: "List events",
-        method: "GET",
-        path: "/api/projects/{projectId}/events/",
+        label: "Aggregate events with HogQL",
+        method: "POST",
+        path: "/api/projects/{projectId}/query/",
+        body: {
+          query: {
+            kind: "HogQLQuery",
+            query:
+              "SELECT event, count() AS events FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event ORDER BY events DESC LIMIT 100",
+          },
+        },
       },
+    ],
+    notes: [
+      "Prefer the query endpoint with a bounded HogQL projection or server-side aggregation over paging raw events into the agent context.",
     ],
   },
   prometheus: {
