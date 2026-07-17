@@ -204,6 +204,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  toolCallable: false,
   needsApproval: requiresProviderApiApproval,
   run: async (args) => {
     if (args.stageAs) {

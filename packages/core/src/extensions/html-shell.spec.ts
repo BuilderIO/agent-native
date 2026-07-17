@@ -88,7 +88,8 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("appAction('call-mcp-tool'");
     expect(html).toContain("var providerApi = {");
     expect(html).toContain("appAction('provider-api-catalog'");
-    expect(html).toContain("appAction('provider-api-request'");
+    expect(html).not.toContain("appAction('provider-api-request'");
+    expect(html).not.toContain("request: function(params)");
     expect(html).toContain("mcp: mcp");
     expect(html).toContain("providerApi: providerApi");
     expect(html).not.toContain("accessToken");

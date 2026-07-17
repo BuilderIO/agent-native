@@ -273,7 +273,8 @@ export default {
 
 Preset ids are `context7`, `sentry`, `notion`, `semgrep`, `linear`,
 `atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
-`vercel`, `github`, `slack`, `asana`, and `hubspot`.
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`,
+`webflow`, `paypal`, `box`, `netlify`, and `zapier`.
 
 The directory distinguishes endpoints that support the framework's generic
 OAuth flow from providers that require a vendor-approved client or a
@@ -285,7 +286,7 @@ the vendor setup note before enabling one in a production catalog.
 ### Atlassian / Jira
 
 The Atlassian preset uses Atlassian Rovo MCP's OAuth 2.1 endpoint,
-`https://mcp.atlassian.com/v1/mcp/authv2`, and exposes Jira and Confluence
+`https://mcp.atlassian.com/v1/mcp`, and exposes Jira and Confluence
 tools. Creating Jira tickets requires the Atlassian permissions that cover
 Jira writes; the user still only sees the projects and content allowed by
 their Atlassian account.
@@ -350,13 +351,17 @@ To invoke a tool after inspecting its contract, use
 `agentNative.mcp.callTool(serverId, toolName, arguments)`. For regular OAuth
 provider connectors used by Analytics, Dispatch, Mail, Content, Calendar, and
 other templates, use `agentNative.providerApi.catalog(...)` and
-`agentNative.providerApi.request(...)`; those helpers call the template's
-`provider-api-*` actions and resolve the granted connection server-side. The
-same helpers are available under `agentNative.connectors.mcp` and
+`agentNative.providerApi.docs(...)` to discover the granted provider API. Raw
+`provider-api-request` is intentionally host/agent-only: exposing arbitrary
+method/path requests to shared extensions would make an extension an
+authenticated write proxy. Extensions should use `agentNative.mcp.callTool(...)`
+or a purpose-built app action for bounded provider operations. The discovery
+helpers are also available under `agentNative.connectors.mcp` and
 `agentNative.connectors.providerApi`.
 
 Local-file extensions must explicitly allow `list-mcp-tools`,
-`call-mcp-tool`, and any `provider-api-*` action they use in `extension.json`.
+`call-mcp-tool`, and any explicitly supported provider action they use in
+`extension.json`.
 Database-backed extensions use the existing extension role and action gates.
 Never pass a raw bearer token or arbitrary provider URL from extension code.
 

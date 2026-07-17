@@ -248,7 +248,7 @@ Los servidores MCP (Protocolo de contexto modelo) le brindan a su agente nuevas 
 
 Los identificadores de los ajustes preestablecidos son `context7`, `sentry`, `notion`, `semgrep`, `linear`,
 `atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
-`vercel`, `github`, `slack`, `asana` y `hubspot`.
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`, `webflow`, `paypal`, `box`, `netlify` y `zapier`.
 
 El directorio distingue los puntos de conexión que admiten el flujo OAuth
 genérico de los proveedores que requieren un cliente aprobado por el proveedor
@@ -262,7 +262,7 @@ de conexión ni tokens.
 ### Atlassian / Jira
 
 El ajuste preestablecido de Atlassian usa el punto de conexión OAuth 2.1 de Atlassian Rovo MCP,
-`https://mcp.atlassian.com/v1/mcp/authv2`, y proporciona herramientas de Jira y Confluence. Para crear incidencias de Jira se necesitan los permisos de Atlassian que permiten escribir en Jira; el usuario solo puede ver los proyectos y el contenido a los que su cuenta de Atlassian tiene acceso.
+`https://mcp.atlassian.com/v1/mcp`, y proporciona herramientas de Jira y Confluence. Para crear incidencias de Jira se necesitan los permisos de Atlassian que permiten escribir en Jira; el usuario solo puede ver los proyectos y el contenido a los que su cuenta de Atlassian tiene acceso.
 
 Los administradores de una organización de Atlassian pueden controlar si un cliente OAuth tiene permiso para conectarse. Antes de establecer la conexión, es posible que un administrador deba añadir el origen HTTPS real de la aplicación a la lista de dominios de confianza en **Administración de Atlassian → Rovo → Servidor Rovo MCP → Dominios** y habilitar los permisos necesarios de **Lectura**, **Escritura** y **Búsqueda** en **Permisos**. El dominio debe ser el host en el que se ejecuta la aplicación agent-native; no copie `https://builder.io/**` en otro despliegue salvo que ese sea su origen real. Consulte la [guía de configuración de Rovo MCP](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/) y los [controles de administración](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/) de Atlassian.
 

@@ -57,19 +57,16 @@ template exposes them:
 
 ```javascript
 const catalog = await agentNative.providerApi.catalog({ provider: "github" });
-const response = await agentNative.providerApi.request({
-  provider: "github",
-  method: "GET",
-  path: "/user/repos",
-});
+const docs = await agentNative.providerApi.docs({ provider: "github" });
 ```
 
 These helpers are also available as
 `agentNative.connectors.mcp` and `agentNative.connectors.providerApi`. They
 are action-backed, so the host enforces authentication, app grants, provider
 allow-lists, audit behavior, and any local-file `permissions.appActions`
-declarations. A missing provider action is an explicit setup error; it is not
-a reason to fall back to raw `fetch` or to put a token in extension code.
+declarations. Extensions can discover provider APIs and use connected MCP tools,
+but they cannot issue arbitrary provider requests. Use a purpose-built app action
+for a bounded operation instead.
 
 ### `appFetch(path, options)` — Call allowed framework endpoints
 

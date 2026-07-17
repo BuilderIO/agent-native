@@ -68,7 +68,7 @@ describe("MCP integration catalog", () => {
     );
 
     expect(atlassian).toMatchObject({
-      url: "https://mcp.atlassian.com/v1/mcp/authv2",
+      url: "https://mcp.atlassian.com/v1/mcp",
       authMode: "oauth",
       docsUrl:
         "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
@@ -90,20 +90,60 @@ describe("MCP integration catalog", () => {
       (integration) => integration.id === "figma",
     );
 
-    expect(context7?.logoUrl).toBe("https://context7.com/favicon.ico");
-    expect(semgrep?.logoUrl).toBe("https://semgrep.dev/favicon.ico");
+    expect(context7?.logoUrl).toMatch(
+      /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
+    );
+    expect(semgrep?.logoUrl).toMatch(
+      /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
+    );
     expect(cloudflare).toMatchObject({
       url: "https://mcp.cloudflare.com/mcp",
       authMode: "oauth",
       connectionMode: "oauth",
       availability: "ready",
-      logoUrl: "https://cdn.simpleicons.org/cloudflare",
     });
+    expect(cloudflare?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
     expect(figma).toMatchObject({
       url: "https://mcp.figma.com/mcp",
       connectionMode: "manual",
       availability: "client-restricted",
       setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
+    });
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(24);
+    expect(
+      new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
+        .size,
+    ).toBe(24);
+    for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      expect(integration.logoUrl).toMatch(
+        /^data:image\/(?:svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
+      );
+      expect(["verified", "preflight-only", "restricted"]).toContain(
+        integration.verification,
+      );
+    }
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
+    ).toMatchObject({
+      availability: "provider-setup",
+      verification: "restricted",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "intercom"),
+    ).toMatchObject({ url: "https://mcp.intercom.com/mcp" });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "zapier"),
+    ).toMatchObject({
+      url: "https://mcp.zapier.com/api/v1/connect",
+      authMode: "headers",
+      availability: "provider-setup",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "paypal"),
+    ).toMatchObject({
+      url: "https://mcp.paypal.com/sse",
+      authMode: "oauth",
+      availability: "ready",
     });
   });
 

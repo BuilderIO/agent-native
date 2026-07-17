@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Dialog,
@@ -405,6 +406,14 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.addYourOwn")}
               </button>
+              <AgentAskPopover
+                label={t("mcpIntegrations.addSomething")}
+                title={t("mcpIntegrations.addSomethingTitle")}
+                placeholder={t("mcpIntegrations.addSomethingPlaceholder")}
+                prompt=""
+                context="The user wants to add an MCP or provider integration that is not in the current directory. Research the provider's official remote MCP endpoint and OAuth, client-registration, or allowlist requirements. Prefer Streamable HTTP endpoints over legacy SSE, reuse an existing provider OAuth connector when appropriate, and never ask the user to paste credentials into a prompt. If this should become a reusable preset, update the integration catalog, official docs link, bundled logo, localization, and tests."
+                className="h-9 whitespace-nowrap border-dashed px-3 text-[12px] font-medium"
+              />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-7">
               {error && (
@@ -456,6 +465,13 @@ export function McpIntegrationDialog({
                                   : t("mcpIntegrations.status.setupRequired")}
                             </span>
                           )}
+                          <span className="ms-1 mt-0.5 inline-flex rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                            {integration.verification === "verified"
+                              ? t("mcpIntegrations.status.verified")
+                              : integration.verification === "restricted"
+                                ? t("mcpIntegrations.status.restricted")
+                                : t("mcpIntegrations.status.preflightOnly")}
+                          </span>
                         </div>
                       </div>
                       <p className="mt-1 line-clamp-2 flex-1 text-[12px] leading-relaxed text-muted-foreground">

@@ -247,7 +247,7 @@ MCP (मॉडल कॉन्टेक्स्ट प्रोटोकॉल)
 
 प्रीसेट आईडी `context7`, `sentry`, `notion`, `semgrep`, `linear`,
 `atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
-`vercel`, `github`, `slack`, `asana` और `hubspot` हैं।
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`, `webflow`, `paypal`, `box`, `netlify` और `zapier` हैं।
 
 डायरेक्टरी उन एंडपॉइंट्स को अलग दिखाती है जो सामान्य OAuth फ्लो का समर्थन
 करते हैं और उन प्रदाताओं को भी जो प्रदाता-अनुमोदित क्लाइंट या पहले से पंजीकृत
@@ -261,7 +261,7 @@ OAuth ऐप मांगते हैं। ऐसे प्रदाता ख
 ### Atlassian / Jira
 
 Atlassian प्रीसेट, Atlassian Rovo MCP के OAuth 2.1 एंडपॉइंट
-`https://mcp.atlassian.com/v1/mcp/authv2` का उपयोग करता है और Jira तथा Confluence टूल उपलब्ध कराता है। Jira टिकट बनाने के लिए Atlassian की वे अनुमतियां आवश्यक हैं जो Jira में लिखने की अनुमति देती हैं; उपयोगकर्ता को फिर भी केवल वही प्रोजेक्ट और सामग्री दिखाई देती है जिसकी अनुमति उसके Atlassian खाते को है।
+`https://mcp.atlassian.com/v1/mcp` का उपयोग करता है और Jira तथा Confluence टूल उपलब्ध कराता है। Jira टिकट बनाने के लिए Atlassian की वे अनुमतियां आवश्यक हैं जो Jira में लिखने की अनुमति देती हैं; उपयोगकर्ता को फिर भी केवल वही प्रोजेक्ट और सामग्री दिखाई देती है जिसकी अनुमति उसके Atlassian खाते को है।
 
 Atlassian संगठन के व्यवस्थापक नियंत्रित कर सकते हैं कि किसी OAuth क्लाइंट को कनेक्ट करने की अनुमति है या नहीं। कनेक्ट करने से पहले, किसी व्यवस्थापक को ऐप का वास्तविक HTTPS ओरिजिन **Atlassian Administration → Rovo → Rovo MCP server → Domains** के अंतर्गत विश्वसनीय डोमेन सूची में जोड़ना पड़ सकता है और **Permissions** के अंतर्गत आवश्यक **Read**, **Write** और **Search** अनुमतियां सक्षम करनी पड़ सकती हैं। डोमेन वही होस्ट होना चाहिए जहां agent-native ऐप चलता है; `https://builder.io/**` को किसी अन्य डिप्लॉयमेंट में कॉपी न करें, जब तक कि वह उसका वास्तविक ओरिजिन न हो। Atlassian की [Rovo MCP सेटअप गाइड](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/) और [व्यवस्थापक नियंत्रण](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/) देखें।
 

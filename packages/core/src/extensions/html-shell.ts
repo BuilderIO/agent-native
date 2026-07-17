@@ -450,9 +450,6 @@ export function buildExtensionHtml(
       docs: function(params) {
         return appAction('provider-api-docs', params || {});
       },
-      request: function(params) {
-        return appAction('provider-api-request', params || {});
-      },
     };
 
     async function appFetch(path, options) {
