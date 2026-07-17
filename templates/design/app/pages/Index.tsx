@@ -8,6 +8,7 @@ import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -109,6 +110,7 @@ export default function Index() {
   );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -810,6 +812,21 @@ export default function Index() {
                     <TooltipContent>{t("home.clearSelection")}</TooltipContent>
                   </Tooltip>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setContextDesigns(
+                        designs.filter((design) =>
+                          selectedDesignIds.has(design.id),
+                        ),
+                      )
+                    }
+                    className="cursor-pointer"
+                  >
+                    <IconPlus className="w-3.5 h-3.5" />
+                    Add to context…
+                  </Button>
+                  <Button
                     variant="destructive"
                     size="sm"
                     onClick={() => setBulkDeleteOpen(true)}
@@ -937,6 +954,16 @@ export default function Index() {
                             {t("home.duplicate")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setContextDesigns([design]);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <IconPlus className="w-3.5 h-3.5 me-2" />
+                            Add to context…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
@@ -953,6 +980,21 @@ export default function Index() {
           </>
         )}
       </main>
+
+      <CreativeContextShareSheet
+        open={contextDesigns.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setContextDesigns([]);
+        }}
+        resources={contextDesigns.map((design) => ({
+          appId: "design",
+          resourceType: "design",
+          resourceId: design.id,
+          title: design.title,
+          updatedAt: design.updatedAt ?? design.createdAt,
+          preview: { kind: "document", label: "Design" },
+        }))}
+      />
 
       <PromptPopover
         open={showNewPrompt}

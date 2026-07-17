@@ -13,7 +13,10 @@ import {
   useT,
   type CollabUser,
 } from "@agent-native/core/client";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  CreativeContextShareTab,
+} from "@agent-native/creative-context/client";
 import {
   useDroppable,
   DndContext,
@@ -505,6 +508,7 @@ export default function SqlDashboardPage() {
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -1530,6 +1534,18 @@ export default function SqlDashboardPage() {
             {(canEdit && !archivedAt) || canManage ? (
               <DropdownMenuSeparator />
             ) : null}
+            {dashboardId && canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDashboardActionsOpen(false);
+                  setContextSheetOpen(true);
+                }}
+              >
+                <IconPlus className="mr-2 h-3.5 w-3.5" />
+                Add to context…
+              </DropdownMenuItem>
+            ) : null}
             {dashboardId ? (
               <>
                 <DropdownMenuSeparator />
@@ -1600,6 +1616,22 @@ export default function SqlDashboardPage() {
             open={historyOpen}
             onOpenChange={setHistoryOpen}
             canRestore={canEdit && !archivedAt}
+          />
+        ) : null}
+        {dashboardId ? (
+          <CreativeContextShareSheet
+            open={contextSheetOpen}
+            onOpenChange={setContextSheetOpen}
+            resource={{
+              appId: "analytics",
+              resourceType: "dashboard",
+              resourceId: dashboardId,
+              title: dashboard.name,
+              updatedAt: dashboardUpdatedAt ?? undefined,
+              visibility: dashboardVisibility ?? undefined,
+              preview: { kind: "document", label: "SQL dashboard" },
+            }}
+            canManage={canManage}
           />
         ) : null}
         {canManage ? (

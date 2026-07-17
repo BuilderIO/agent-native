@@ -1,6 +1,6 @@
 ---
 name: creative-context
-description: Search and reuse imported brand examples before generating decks, designs, assets, or content.
+description: Search and reuse approved brand examples before generating decks, designs, content, assets, or dashboards.
 ---
 
 # Creative Context
