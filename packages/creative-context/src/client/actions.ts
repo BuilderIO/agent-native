@@ -144,40 +144,56 @@ export interface ManageContextMembershipResult {
 }
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function contextSummary(value: unknown): CreativeContextSummary | null {
   const source = record(value);
-  if (!source || typeof source.id !== "string" || typeof source.name !== "string") {
+  if (
+    !source ||
+    typeof source.id !== "string" ||
+    typeof source.name !== "string"
+  ) {
     return null;
   }
   return {
     id: source.id,
     name: source.name,
-    description: typeof source.description === "string" ? source.description : null,
-    itemCount: typeof source.itemCount === "number" ? source.itemCount : undefined,
+    description:
+      typeof source.description === "string" ? source.description : null,
+    itemCount:
+      typeof source.itemCount === "number" ? source.itemCount : undefined,
     updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
     policy:
-      source.policy === "open" || source.policy === "review" || source.policy === "admins-only"
+      source.policy === "open" ||
+      source.policy === "review" ||
+      source.policy === "admins-only"
         ? source.policy
         : undefined,
   };
 }
 
-export function parseCreativeContexts(value: unknown): CreativeContextSummary[] {
+export function parseCreativeContexts(
+  value: unknown,
+): CreativeContextSummary[] {
   const source = Array.isArray(value)
     ? value
-    : record(value)?.contexts ?? record(value)?.items ?? [];
+    : (record(value)?.contexts ?? record(value)?.items ?? []);
   return Array.isArray(source)
-    ? source.map(contextSummary).filter((item): item is CreativeContextSummary => Boolean(item))
+    ? source
+        .map(contextSummary)
+        .filter((item): item is CreativeContextSummary => Boolean(item))
     : [];
 }
 
-export function parseContextMemberships(value: unknown): CreativeContextMembership[] {
+export function parseContextMemberships(
+  value: unknown,
+): CreativeContextMembership[] {
   const source = Array.isArray(value)
     ? value
-    : record(value)?.memberships ?? record(value)?.items ?? [];
+    : (record(value)?.memberships ?? record(value)?.items ?? []);
   if (!Array.isArray(source)) return [];
   return source.flatMap((value) => {
     const item = record(value);
@@ -191,19 +207,27 @@ export function parseContextMemberships(value: unknown): CreativeContextMembersh
     ) {
       return [];
     }
-    return [{
-      id: item.id,
-      contextId: item.contextId,
-      appId: item.appId,
-      resourceType: item.resourceType,
-      resourceId: item.resourceId,
-      rank: item.rank === "canonical" || item.rank === "exemplar" ? item.rank : "normal",
-      purpose: typeof item.purpose === "string" ? item.purpose : null,
-      note: typeof item.note === "string" ? item.note : null,
-      status: item.status === "pending" || item.status === "withdrawn" ? item.status : "active",
-      updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
-      context: contextSummary(item.context),
-    }];
+    return [
+      {
+        id: item.id,
+        contextId: item.contextId,
+        appId: item.appId,
+        resourceType: item.resourceType,
+        resourceId: item.resourceId,
+        rank:
+          item.rank === "canonical" || item.rank === "exemplar"
+            ? item.rank
+            : "normal",
+        purpose: typeof item.purpose === "string" ? item.purpose : null,
+        note: typeof item.note === "string" ? item.note : null,
+        status:
+          item.status === "pending" || item.status === "withdrawn"
+            ? item.status
+            : "active",
+        updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
+        context: contextSummary(item.context) ?? undefined,
+      },
+    ];
   });
 }
 

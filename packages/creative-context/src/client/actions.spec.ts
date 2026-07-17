@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  parseContextMemberships,
-  parseCreativeContexts,
-} from "./actions.js";
+import { parseContextMemberships, parseCreativeContexts } from "./actions.js";
 
 describe("creative context client action contracts", () => {
   it("accepts the canonical list result and tolerates an array result", () => {

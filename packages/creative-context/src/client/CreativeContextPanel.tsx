@@ -826,7 +826,10 @@ function ContextPreviewSheet({
         </SheetHeader>
         {manifest?.hasPreview ? (
           <img
-            src={creativeContextMediaUrl({ itemId: manifest.itemId, itemVersionId: manifest.itemVersionId })}
+            src={creativeContextMediaUrl({
+              itemId: manifest.itemId,
+              itemVersionId: manifest.itemVersionId,
+            })}
             alt=""
             className="mt-5 max-h-[70vh] w-full rounded-md border border-border object-contain"
           />
@@ -846,7 +849,12 @@ function ContextRail({
   disabled,
   onSelect,
 }: {
-  contexts: Array<{ id: string; name: string; description?: string | null; itemCount?: number }>;
+  contexts: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+    itemCount?: number;
+  }>;
   selectedContextId: string | null | undefined;
   disabled: boolean;
   onSelect: (contextId: string) => void;
@@ -856,7 +864,9 @@ function ContextRail({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Contexts</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Choose the reusable context that should guide this work.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Choose the reusable context that should guide this work.
+          </p>
         </div>
         <Badge variant="outline">{contexts.length}</Badge>
       </div>
@@ -870,11 +880,20 @@ function ContextRail({
             onClick={() => onSelect(context.id)}
             className={`min-w-40 rounded-md border px-3 py-2 text-start transition-colors disabled:opacity-60 ${selectedContextId === context.id ? "border-foreground/25 bg-accent text-foreground" : "border-border text-muted-foreground hover:bg-accent/50 hover:text-foreground"}`}
           >
-            <span className="block truncate text-sm font-medium">{context.name}</span>
-            <span className="mt-0.5 block truncate text-xs">{context.description || `${context.itemCount ?? 0} items`}</span>
+            <span className="block truncate text-sm font-medium">
+              {context.name}
+            </span>
+            <span className="mt-0.5 block truncate text-xs">
+              {context.description || `${context.itemCount ?? 0} items`}
+            </span>
           </button>
         ))}
-        {!contexts.length ? <p className="py-2 text-sm text-muted-foreground">Create a context from a resource’s Share tab to start organizing the Library.</p> : null}
+        {!contexts.length ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            Create a context from a resource’s Share tab to start organizing the
+            Library.
+          </p>
+        ) : null}
       </div>
     </aside>
   );
@@ -1564,8 +1583,12 @@ export function CreativeContextPanel({
   }
 
   const loading =
-    sourcesQuery.isLoading || packsQuery.isLoading || contextsQuery.isLoading || contextState.isLoading;
-  const unavailable = sourcesQuery.error || packsQuery.error || contextsQuery.error;
+    sourcesQuery.isLoading ||
+    packsQuery.isLoading ||
+    contextsQuery.isLoading ||
+    contextState.isLoading;
+  const unavailable =
+    sourcesQuery.error || packsQuery.error || contextsQuery.error;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 p-6 lg:p-10">
@@ -1583,7 +1606,11 @@ export function CreativeContextPanel({
             (org?.orgId ? (
               <ScopeControl scope={libraryScope} onChange={setLibraryScope} />
             ) : null)}
-          <CreativeContextChip state={contextState.state} packs={packs} contexts={contexts} />
+          <CreativeContextChip
+            state={contextState.state}
+            packs={packs}
+            contexts={contexts}
+          />
         </div>
       </header>
 
@@ -1606,7 +1633,10 @@ export function CreativeContextPanel({
             disabled={savingState}
             onSelect={(contextId) => void selectContext(contextId)}
           />
-          <Tabs value={libraryView} onValueChange={(value) => setLibraryView(value as LibraryView)}>
+          <Tabs
+            value={libraryView}
+            onValueChange={(value) => setLibraryView(value as LibraryView)}
+          >
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="items">Items</TabsTrigger>
               <TabsTrigger value="sources">Sources</TabsTrigger>
@@ -1615,25 +1645,103 @@ export function CreativeContextPanel({
             </TabsList>
             <TabsContent value="items">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {reviewedItems.filter((item) => item.curationStatus !== "review").map((item) => (
-                  <button key={item.id} type="button" onClick={() => setPreviewManifest({ title: item.title, kind: item.kind, itemId: item.id, itemVersionId: item.currentVersionId, hasPreview: Boolean(item.thumbnailBlobRef) })} className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40">
-                    {item.thumbnailBlobRef ? <AccessScopedThumbnail itemId={item.id} itemVersionId={item.currentVersionId} className="aspect-video w-full object-cover" /> : <div className="flex aspect-video items-center justify-center bg-muted text-muted-foreground"><IconFileText className="size-5" /></div>}
-                    <span className="block truncate p-3 text-sm font-medium">{item.title}</span>
-                  </button>
-                ))}
+                {reviewedItems
+                  .filter((item) => item.curationStatus !== "review")
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() =>
+                        setPreviewManifest({
+                          title: item.title,
+                          kind: item.kind,
+                          itemId: item.id,
+                          itemVersionId: item.currentVersionId,
+                          hasPreview: Boolean(item.thumbnailBlobRef),
+                        })
+                      }
+                      className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40"
+                    >
+                      {item.thumbnailBlobRef ? (
+                        <AccessScopedThumbnail
+                          itemId={item.id}
+                          itemVersionId={item.currentVersionId}
+                          className="aspect-video w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex aspect-video items-center justify-center bg-muted text-muted-foreground">
+                          <IconFileText className="size-5" />
+                        </div>
+                      )}
+                      <span className="block truncate p-3 text-sm font-medium">
+                        {item.title}
+                      </span>
+                    </button>
+                  ))}
               </div>
-              {!reviewedItems.filter((item) => item.curationStatus !== "review").length ? <p className="py-4 text-sm text-muted-foreground">Approved items appear here after they are reviewed from a source.</p> : null}
+              {!reviewedItems.filter((item) => item.curationStatus !== "review")
+                .length ? (
+                <p className="py-4 text-sm text-muted-foreground">
+                  Approved items appear here after they are reviewed from a
+                  source.
+                </p>
+              ) : null}
             </TabsContent>
             <TabsContent value="approvals">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {reviewedItems.filter((item) => item.curationStatus === "review").map((item) => (
-                  <article key={item.id} className="rounded-md border border-border p-3"><p className="truncate text-sm font-medium">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">Awaiting review</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void reviewContextItem("approve", item.id)}>Approve</Button><Button size="sm" variant="outline" onClick={() => void reviewContextItem("exclude", item.id)}>Exclude</Button></div></article>
-                ))}
+                {reviewedItems
+                  .filter((item) => item.curationStatus === "review")
+                  .map((item) => (
+                    <article
+                      key={item.id}
+                      className="rounded-md border border-border p-3"
+                    >
+                      <p className="truncate text-sm font-medium">
+                        {item.title}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Awaiting review
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            void reviewContextItem("approve", item.id)
+                          }
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void reviewContextItem("exclude", item.id)
+                          }
+                        >
+                          Exclude
+                        </Button>
+                      </div>
+                    </article>
+                  ))}
               </div>
-              {!reviewedItems.filter((item) => item.curationStatus === "review").length ? <p className="py-4 text-sm text-muted-foreground">Open a source review queue to approve pending items.</p> : null}
+              {!reviewedItems.filter((item) => item.curationStatus === "review")
+                .length ? (
+                <p className="py-4 text-sm text-muted-foreground">
+                  Open a source review queue to approve pending items.
+                </p>
+              ) : null}
             </TabsContent>
-            <TabsContent value="sources"><p className="text-sm text-muted-foreground">Sources and their review queues are managed below.</p></TabsContent>
-            <TabsContent value="settings"><p className="text-sm text-muted-foreground">Automatic selection is the default. Exact context packs remain available as an advanced provenance pin.</p></TabsContent>
+            <TabsContent value="sources">
+              <p className="text-sm text-muted-foreground">
+                Sources and their review queues are managed below.
+              </p>
+            </TabsContent>
+            <TabsContent value="settings">
+              <p className="text-sm text-muted-foreground">
+                Automatic selection is the default. Exact context packs remain
+                available as an advanced provenance pin.
+              </p>
+            </TabsContent>
           </Tabs>
           <section className="space-y-3">
             <div>

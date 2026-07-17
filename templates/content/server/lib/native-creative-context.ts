@@ -15,11 +15,11 @@ export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter 
     const access = await resolveAccess("document", reference.resourceId);
     if (!access) throw new Error("Document not found");
     const initial = access.resource as typeof schema.documents.$inferSelect;
+    if (reference.expectedUpdatedAt && reference.expectedUpdatedAt !== initial.updatedAt) throw new Error("Document changed before it could be submitted to Context.");
     await flushOpenDocumentEditorToSql({ documentId: initial.id, ownerEmail: initial.ownerEmail ?? null });
     const refreshed = await resolveAccess("document", initial.id);
     if (!refreshed) throw new Error("Document not found");
     const document = refreshed.resource as typeof schema.documents.$inferSelect;
-    if (reference.expectedUpdatedAt && reference.expectedUpdatedAt !== document.updatedAt) throw new Error("Document changed before it could be submitted to Context.");
     const contentHash = createHash("sha256").update(document.content).digest("hex");
     const versionId = nanoid();
     await getDb().insert(schema.documentVersions).values({ id: versionId, ownerEmail: document.ownerEmail, documentId: document.id, title: document.title, content: document.content, createdAt: new Date().toISOString() });

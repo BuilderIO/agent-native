@@ -182,11 +182,20 @@ export function CreativeContextComposerChip({
           ) : null}
           {packs.length ? (
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Advanced: pin an exact pack</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger>
+                Advanced: pin an exact pack
+              </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-64">
                 {packs.slice(0, 8).map((pack) => (
-                  <DropdownMenuItem key={pack.id} onSelect={() => void selectPack(pack.id)}>
-                    {contextState.state.pinnedPackId === pack.id ? <IconCheck /> : <IconPin />}
+                  <DropdownMenuItem
+                    key={pack.id}
+                    onSelect={() => void selectPack(pack.id)}
+                  >
+                    {contextState.state.pinnedPackId === pack.id ? (
+                      <IconCheck />
+                    ) : (
+                      <IconPin />
+                    )}
                     <span className="truncate">{pack.name}</span>
                   </DropdownMenuItem>
                 ))}
