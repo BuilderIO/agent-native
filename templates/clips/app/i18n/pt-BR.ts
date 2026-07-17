@@ -1354,6 +1354,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     couldNotImportLoom: "Não foi possível importar esse Loom.",
     recordingReadyToUpload: "A gravação está pronta para upload",
     recordingSaved: "Gravação salva",
+    markerAdded: "{{kind}} adicionado",
     noLocalRecordingData:
       "Não há dados de gravação locais disponíveis para download.",
     recordingDownloadStarted: "Download da gravação iniciado",

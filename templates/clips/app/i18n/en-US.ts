@@ -1330,6 +1330,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     couldNotImportLoom: "Could not import that Loom.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
+    markerAdded: "{{kind}} added",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
     backToLibrary: "Back to library",

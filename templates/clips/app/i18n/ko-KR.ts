@@ -1332,6 +1332,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     couldNotImportLoom: "해당 Loom을 가져올 수 없습니다.",
     recordingReadyToUpload: "녹화 업로드 준비 완료",
     recordingSaved: "녹화가 저장되었습니다",
+    markerAdded: "{{kind}} 추가됨",
     noLocalRecordingData: "다운로드할 로컬 녹화 데이터가 없습니다.",
     recordingDownloadStarted: "녹화 다운로드가 시작되었습니다",
     backToLibrary: "라이브러리로 돌아가기",

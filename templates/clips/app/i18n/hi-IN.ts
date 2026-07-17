@@ -1325,6 +1325,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     couldNotImportLoom: "Could not import that Loom. (स्थानीयकृत)",
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
+    markerAdded: "{{kind}} added (स्थानीयकृत)",
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",

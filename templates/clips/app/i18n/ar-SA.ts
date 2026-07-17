@@ -1339,6 +1339,7 @@ const messages = {
     couldNotImportLoom: "Could not import that Loom. (مترجم)",
     recordingReadyToUpload: "Recording is ready to upload (مترجم)",
     recordingSaved: "Recording saved (مترجم)",
+    markerAdded: "{{kind}} added (مترجم)",
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",

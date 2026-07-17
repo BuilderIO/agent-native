@@ -1361,6 +1361,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     couldNotImportLoom: "Impossible d’importer ce Loom.",
     recordingReadyToUpload: "L’enregistrement est prêt à être envoyé",
     recordingSaved: "Enregistrement sauvegardé",
+    markerAdded: "{{kind}} ajouté",
     noLocalRecordingData:
       "Aucune donnée d’enregistrement locale n’est disponible au téléchargement.",
     recordingDownloadStarted: "Téléchargement de l’enregistrement démarré",

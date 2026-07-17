@@ -1285,6 +1285,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     couldNotImportLoom: "无法导入该 Loom。",
     recordingReadyToUpload: "录制已准备好上传",
     recordingSaved: "录制已保存",
+    markerAdded: "已添加{{kind}}",
     noLocalRecordingData: "没有可下载的本地录制数据。",
     recordingDownloadStarted: "录制下载已开始",
     backToLibrary: "返回资料库",

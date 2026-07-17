@@ -42,6 +42,7 @@ import {
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
+import { annotationKindLabel } from "@/lib/annotation-kinds";
 import {
   createBrowserDiagnosticsCapture,
   type BrowserDiagnosticsCapture,
@@ -2414,8 +2415,11 @@ export default function RecordRoute() {
         kind,
       });
       setMarkerCount(capturedMarkersRef.current.length);
+      toast.info(
+        t("recordRoute.markerAdded", { kind: annotationKindLabel(kind, t) }),
+      );
     },
-    [uiState],
+    [uiState, t],
   );
 
   // -------------------------------------------------------------------------

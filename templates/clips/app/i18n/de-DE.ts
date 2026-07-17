@@ -1366,6 +1366,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     couldNotImportLoom: "Dieses Loom konnte nicht importiert werden.",
     recordingReadyToUpload: "Aufnahme ist bereit zum Hochladen",
     recordingSaved: "Aufnahme gespeichert",
+    markerAdded: "{{kind}} hinzugefügt",
     noLocalRecordingData:
       "Es sind keine lokalen Aufnahmedaten zum Herunterladen verfügbar.",
     recordingDownloadStarted: "Download der Aufnahme gestartet",

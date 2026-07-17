@@ -1279,6 +1279,7 @@ const messages = {
     couldNotImportLoom: "無法匯入該 Loom。",
     recordingReadyToUpload: "錄製已準備好上傳",
     recordingSaved: "錄製已儲存",
+    markerAdded: "已新增{{kind}}",
     noLocalRecordingData: "沒有可下載的本機錄製資料。",
     recordingDownloadStarted: "已開始下載錄製",
     backToLibrary: "返回媒體庫",

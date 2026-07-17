@@ -1346,6 +1346,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     couldNotImportLoom: "その Loom をインポートできませんでした。",
     recordingReadyToUpload: "録画のアップロード準備ができました",
     recordingSaved: "録画を保存しました",
+    markerAdded: "{{kind}}を追加しました",
     noLocalRecordingData:
       "ダウンロードできるローカルの録画データがありません。",
     recordingDownloadStarted: "録画のダウンロードを開始しました",
