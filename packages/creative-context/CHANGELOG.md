@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.5.1
+
+### Patch Changes
+
+- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
+
 ## 0.5.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.14.14
+
+### Patch Changes
+
+- 8e0afec: Keep empty Dispatch chat navigation from automatically opening the AgentSidebar.
+
 ## 0.14.13
 
 ### Patch Changes
