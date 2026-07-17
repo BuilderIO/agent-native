@@ -833,6 +833,34 @@ describe("integrations plugin routes", () => {
     expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
+  it("contains a failed confirmed-delivery requeue transition", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(3);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: { status: "delivered", messageRefs: ["reply-sent"] },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    recordIntegrationResponseDeliveryMock.mockRejectedValueOnce(
+      new Error("history database unavailable"),
+    );
+    markTaskDeliveryRetryableMock.mockRejectedValueOnce(
+      new Error("retry transition unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/process-task", "POST", {
+        taskId: task.id,
+      }),
+    ).resolves.toMatchObject({ status: 500 });
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
+  });
+
   it("delivers persisted system notices from the fresh task processor", async () => {
     process.env.NODE_ENV = "development";
     const sendSystemNotice = vi.fn(async () => {});

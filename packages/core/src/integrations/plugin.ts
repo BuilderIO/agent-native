@@ -1803,22 +1803,39 @@ export function createIntegrationsPlugin(
               await failTaskDeliveryTransition(
                 taskId,
                 `Could not safely checkpoint the delivery receipt: ${transitionMessage}`,
-              );
+              ).catch((failureTransitionError) => {
+                console.error(
+                  "[integrations] Failed to contain delivery receipt transition failure:",
+                  failureTransitionError,
+                );
+              });
             }
           } else if (confirmedDeliveryRetryPayload) {
-            await markTaskDeliveryRetryable(
-              taskId,
-              confirmedDeliveryRetryPayload,
-              `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
-            );
-            console.error("[integrations] process-task failure:", err);
-            setResponseStatus(event, 202);
-            return { ok: true, taskId, retrying: "response-delivery" };
+            try {
+              await markTaskDeliveryRetryable(
+                taskId,
+                confirmedDeliveryRetryPayload,
+                `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
+              );
+              console.error("[integrations] process-task failure:", err);
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "response-delivery" };
+            } catch (transitionError) {
+              console.error(
+                "[integrations] Failed to requeue confirmed delivery history:",
+                transitionError,
+              );
+            }
           } else if (deliveryRetryTransitionStarted) {
             await failTaskDeliveryTransition(
               taskId,
               `Could not safely checkpoint the delivery retry: ${errorMessage}`,
-            );
+            ).catch((transitionError) => {
+              console.error(
+                "[integrations] Failed to contain delivery retry transition failure:",
+                transitionError,
+              );
+            });
           } else if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
             await markTaskFailed(taskId, errorMessage);
           } else {

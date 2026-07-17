@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -9,6 +10,7 @@ const createThreadMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
 const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -51,6 +53,7 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  getOrgA2ASecret: getOrgA2ASecretMock,
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
@@ -242,6 +245,7 @@ describe("integration webhook handler engine resolution", () => {
     getThreadMock.mockResolvedValue({ threadData: "{}" });
     updateThreadDataMock.mockResolvedValue(undefined);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    getOrgA2ASecretMock.mockResolvedValue(null);
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
     getOwnerApiKeyMock.mockResolvedValue(undefined);
     isLocalDatabaseMock.mockReturnValue(true);
@@ -588,6 +592,67 @@ describe("integration webhook handler engine resolution", () => {
       );
     },
   );
+
+  it("retains organization-signed artifact identity in delivery and thread checkpoints", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const orgSecret = "org-only-a2a-secret-for-webhook-artifacts";
+    vi.stubEnv("A2A_SECRET", "");
+    getOrgA2ASecretMock.mockResolvedValue(orgSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "tool_start", id: "delegate", tool: "call-agent" });
+      send({
+        type: "tool_done",
+        id: "delegate",
+        tool: "call-agent",
+        result: downstream,
+      });
+      send({ type: "text", text: "The Content agent filed the ask." });
+    });
+
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(
+        vi.fn(async () => ({ status: "delivered" as const })),
+      ),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    const staged = JSON.parse(stageTaskDeliveryPayloadMock.mock.calls[0][1]);
+    expect(staged.artifacts).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.at(-1).metadata.integrationArtifacts).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
 
   it(
     "preserves a successful mutation and returns a delivery-only checkpoint when receipt proof is missing",

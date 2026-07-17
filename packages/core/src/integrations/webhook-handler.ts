@@ -44,7 +44,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread, getThread } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
+import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import {
@@ -859,11 +859,13 @@ async function processIncomingMessage(
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
   let orgId: string | null | undefined;
+  let artifactSecrets: string[];
   let runnableActions: Record<string, ActionEntry>;
   let tools: ReturnType<typeof actionsToEngineTools>;
   let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
     orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
+    artifactSecrets = await resolveIntegrationArtifactSecrets(orgId);
     // Attach tool-search on a shallow copy so framework additions merged in
     // by `createIntegrationsPlugin` (integration memory, `call-agent`) can be
     // deferred behind it without mutating the plugin's long-lived registry.
@@ -1121,7 +1123,9 @@ async function processIncomingMessage(
                 : {}),
               internalThreadId: threadId,
               ...buildDeliveryHistoryMessageIds(incoming),
-              artifacts: extractA2AArtifactIdentities(toolResults),
+              artifacts: extractA2AArtifactIdentities(toolResults, {
+                persistedArtifactSecrets: artifactSecrets,
+              }),
             };
             if (opts.taskId) {
               await stageTaskDeliveryPayload(
@@ -1230,6 +1234,7 @@ async function processIncomingMessage(
             deliveredResponse,
             toolResults,
             stagedDeliveryPayload,
+            artifactSecrets,
           );
           if (outgoingForDelivery && stagedDeliveryPayload) {
             if (!threadCheckpoint) {
@@ -1283,6 +1288,7 @@ async function processIncomingMessage(
                 undefined,
                 collectToolResultSummaries(completedRun),
                 stagedDeliveryPayload,
+                artifactSecrets,
               );
             }
             if (usage) {
@@ -1769,6 +1775,7 @@ async function persistThreadData(
     IntegrationResponseDeliveryTaskPayload,
     "userMessageId" | "assistantMessageId"
   >,
+  artifactSecrets: readonly string[] = [],
 ): Promise<{ userMessageId: string; assistantMessageId?: string } | undefined> {
   try {
     let repo: any;
@@ -1803,7 +1810,9 @@ async function persistThreadData(
     const assistantMsg = existingAssistantMsg ?? builtAssistantMsg;
     if (assistantMsg) {
       assistantMsg.metadata.integrationDeliveryAttempted = true;
-      const artifactIdentities = extractA2AArtifactIdentities(toolResults);
+      const artifactIdentities = extractA2AArtifactIdentities(toolResults, {
+        persistedArtifactSecrets: artifactSecrets,
+      });
       if (artifactIdentities.length > 0) {
         assistantMsg.metadata.integrationArtifacts = artifactIdentities;
       }
@@ -1835,6 +1844,23 @@ async function persistThreadData(
     // Best-effort persistence
     return undefined;
   }
+}
+
+async function resolveIntegrationArtifactSecrets(
+  orgId: string | null | undefined,
+): Promise<string[]> {
+  const secrets: string[] = [];
+  const add = (secret: string | null | undefined) => {
+    const value = secret?.trim();
+    if (value && !secrets.includes(value)) secrets.push(value);
+  };
+  add(process.env.A2A_SECRET);
+  if (orgId) {
+    try {
+      add(await getOrgA2ASecret(orgId));
+    } catch {}
+  }
+  return secrets;
 }
 
 export async function recordIntegrationResponseDelivery(
