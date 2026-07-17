@@ -339,6 +339,8 @@ anc_pv_valid_state_matrix(const AncPrivateVaultCustodySnapshot *snapshot,
            snapshot->active_epoch == 0 && !has_active_key &&
            snapshot->pending_epoch == 1 && has_pending_key &&
            !snapshot->authority_anchor_present &&
+           (snapshot->record_version == ANC_PV_CUSTODY_LEGACY_VERSION ||
+            snapshot->expected_edge_present) &&
            snapshot->recovery_generation == 0;
   }
   if (snapshot->pending_kind == ANC_PV_CUSTODY_PENDING_RECOVERY) {

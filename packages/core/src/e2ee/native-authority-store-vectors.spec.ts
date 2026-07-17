@@ -334,13 +334,23 @@ async function custodyStatus(record: Uint8Array) {
     return { ok: false, error: "absent_edge_nonzero" };
   if (edge) {
     if (isZero(transcript)) return { ok: false, error: "descendant_edge" };
-    if (sequence === 0) {
+    if (!anchor) {
       if (next !== 0 || !isZero(previous))
         return { ok: false, error: "genesis_previous_head" };
     } else if (next !== sequence + 1 || !sodium.memcmp(previous, head)) {
       return { ok: false, error: "descendant_edge" };
     }
   }
+  const lifecycle = record[8]!;
+  const pendingKind = record[10]!;
+  if (
+    version === 2 &&
+    pendingKind === 1 &&
+    (lifecycle !== 1 || anchor || !edge)
+  )
+    return { ok: false, error: "state_matrix" };
+  if (lifecycle === 2 && pendingKind === 0 && edge)
+    return { ok: false, error: "state_matrix" };
   return { ok: true, presence: { anchor, expectedEdge: edge } };
 }
 
@@ -607,6 +617,32 @@ describe("anc/v1 native AuthorityStore vectors", () => {
 
   it("maps v2 presence bits and v1 compatibility exactly", async () => {
     const fixture = await corpus();
+    const bootstrap = fixture.custodyCases.find(
+      ({ name }) =>
+        name === "v2_bootstrap_stage_pending_genesis_unanchored_expected_edge",
+    );
+    const official = fixture.custodyCases.find(
+      ({ name }) => name === "v2_official_final_genesis_active_anchored",
+    );
+    expect(bootstrap).toBeDefined();
+    expect(official).toBeDefined();
+    // Both are generation 1 by design, but they are fixtures for separate
+    // bootstrap-stage and official-repository namespaces—not sequential
+    // commits through the same CustodyRepository generation fence. The wire
+    // custody record has no namespace field, so names and lifecycle pin it.
+    for (const [testCase, lifecycle] of [
+      [bootstrap!, 1],
+      [official!, 2],
+    ] as const) {
+      const { record, secrets } = await reconstructCustody(testCase);
+      try {
+        expect(readU64(record, 16), testCase.name).toBe(1);
+        expect(record[8], testCase.name).toBe(lifecycle);
+      } finally {
+        record.fill(0);
+        for (const secret of secrets) secret.fill(0);
+      }
+    }
     for (const testCase of fixture.custodyCases) {
       const { record, secrets } = await reconstructCustody(testCase);
       try {

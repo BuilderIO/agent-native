@@ -52,6 +52,7 @@ describe("anc/v1 suite freeze", () => {
       "enrollment-authorization",
       "genesis-recovery-confirmation",
       "genesis-authorization",
+      "genesis-bootstrap-transcript",
       "recovery-wrap",
       "recovery-replacement-confirmation",
       "recovery-authorization",
@@ -182,6 +183,20 @@ describe("anc/v1 suite freeze", () => {
       signedGenesisCommit: 375,
       signature: 376,
     });
+    expect(E2EE_ENVELOPE_FIELDS.genesisBootstrapTranscript).toEqual({
+      ceremonyId: 380,
+      endpointId: 381,
+      endpointSigningPublicKey: 382,
+      endpointKeyAgreementPublicKey: 383,
+      enrollmentRef: 384,
+      recoveryId: 385,
+      recoverySigningPublicKey: 386,
+      recoveryKeyAgreementPublicKey: 387,
+      recoveryGeneration: 388,
+      epoch: 389,
+      recoveryWrapHash: 390,
+      recoveryConfirmationHash: 391,
+    });
     expect(E2EE_ENVELOPE_FIELDS.recoveryWrap).toEqual({
       ceremonyId: 400,
       recoveryGeneration: 401,
@@ -259,6 +274,7 @@ describe("anc/v1 suite freeze", () => {
     expect(E2EE_SIZE_LIMITS.chunkPlaintextBytes).toBe(1024 * 1024);
     expect(E2EE_SIZE_LIMITS.objectPlaintextBytes).toBe(256 * 1024 * 1024);
     expect(E2EE_SIZE_LIMITS.enrollmentAuthorizationBytes).toBe(256 * 1024);
+    expect(E2EE_SIZE_LIMITS.genesisBootstrapTranscriptBytes).toBe(4 * 1024);
     expect(E2EE_LIFETIME_LIMITS_SECONDS).toEqual({
       internalGrantMaximum: 2_592_000,
       disclosureDefault: 86_400,

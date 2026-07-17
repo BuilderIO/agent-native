@@ -36,6 +36,7 @@ export const E2EE_DOMAIN_TAGS = Object.freeze([
   "enrollment-authorization",
   "genesis-recovery-confirmation",
   "genesis-authorization",
+  "genesis-bootstrap-transcript",
   "recovery-wrap",
   "recovery-replacement-confirmation",
   "recovery-authorization",
@@ -153,6 +154,20 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     recoveryConfirmation: 374,
     signedGenesisCommit: 375,
     signature: 376,
+  }),
+  genesisBootstrapTranscript: Object.freeze({
+    ceremonyId: 380,
+    endpointId: 381,
+    endpointSigningPublicKey: 382,
+    endpointKeyAgreementPublicKey: 383,
+    enrollmentRef: 384,
+    recoveryId: 385,
+    recoverySigningPublicKey: 386,
+    recoveryKeyAgreementPublicKey: 387,
+    recoveryGeneration: 388,
+    epoch: 389,
+    recoveryWrapHash: 390,
+    recoveryConfirmationHash: 391,
   }),
   recoveryWrap: Object.freeze({
     ceremonyId: 400,
@@ -345,6 +360,7 @@ export const E2EE_RECOVERY_KDF = Object.freeze({
 
 export const E2EE_SIZE_LIMITS = Object.freeze({
   controlEnvelopeBytes: 64 * 1024,
+  genesisBootstrapTranscriptBytes: 4 * 1024,
   objectHeaderBytes: 16 * 1024,
   chunkPlaintextBytes: 1024 * 1024,
   objectPlaintextBytes: 256 * 1024 * 1024,

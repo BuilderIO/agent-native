@@ -23,7 +23,7 @@
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "3d8e9e20ae123b49a9b4c26250f866f90dd045b933d1cc3ee5b542f98fad770d"
+      "sha256": "74721a1caa9da468caec951c1acb85a92e985c87e4b10aa4131da63c77e3a324"
     },
     {
       "path": "packages/core/src/e2ee/lifecycle-codecs.ts",

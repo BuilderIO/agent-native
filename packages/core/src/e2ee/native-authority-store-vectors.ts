@@ -443,9 +443,13 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     record.fill(0);
     recordTemplate.fill(0);
   };
+  // Bootstrap-stage pending custody and the first official repository record
+  // intentionally both use generation 1. They occupy separate namespaces;
+  // the fixed custody record itself has no namespace field and these are not
+  // sequential commits through one CustodyRepository generation fence.
   const genesis = {
     ...base,
-    flags: 3,
+    flags: 2,
     lifecycle: 1,
     pendingKind: 1,
     rotationPhase: 1,
@@ -457,12 +461,38 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     pendingEpochKey,
     recoveryGeneration: 0,
     anchoredSequence: 0,
-    anchoredHead: pattern(0x61),
-    membershipDigest: pattern(0x62),
-    snapshotDigest: pattern(0x63),
+    anchoredHead: zeros,
+    membershipDigest: zeros,
+    signedAtMs: 0,
+    snapshotDigest: zeros,
+    freshnessMs: 0,
     expectedNextSequence: 0,
     expectedPreviousHead: zeros,
     pendingTranscriptDigest: pattern(0x64),
+  } satisfies CustodyValues;
+  const finalGenesis = {
+    ...base,
+    flags: 1,
+    lifecycle: 2,
+    pendingKind: 0,
+    rotationPhase: 0,
+    enrollmentPhase: 0,
+    ceremonyId: "",
+    custodyGeneration: 1,
+    activeEpoch: 1,
+    activeEpochKey,
+    pendingEpoch: 0,
+    pendingEpochKey: zeros,
+    recoveryGeneration: 1,
+    anchoredSequence: 0,
+    anchoredHead: pattern(0x61),
+    membershipDigest: pattern(0x62),
+    signedAtMs: 1_721_111_110_000,
+    snapshotDigest: pattern(0x63),
+    freshnessMs: 1_721_111_110_500,
+    expectedNextSequence: 0,
+    expectedPreviousHead: zeros,
+    pendingTranscriptDigest: zeros,
   } satisfies CustodyValues;
   const absent = {
     ...base,
@@ -495,14 +525,21 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     removalTimeMs: 1_721_111_113_000,
   } satisfies CustodyValues;
   await addCustody(
-    "v2_genesis_sequence_zero_present",
+    "v2_bootstrap_stage_pending_genesis_unanchored_expected_edge",
     genesis,
     "accept",
     null,
     {
-      anchor: true,
+      anchor: false,
       expectedEdge: true,
     },
+  );
+  await addCustody(
+    "v2_official_final_genesis_active_anchored",
+    finalGenesis,
+    "accept",
+    null,
+    { anchor: true, expectedEdge: false },
   );
   await addCustody("v2_anchor_and_edge_absent", absent, "accept", null, {
     anchor: false,
@@ -559,6 +596,32 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "absent_edge_nonzero",
     ],
     [
+      "v2_pending_genesis_hybrid_anchor_and_edge",
+      {
+        ...genesis,
+        flags: 3,
+        anchoredHead: pattern(0x61),
+        membershipDigest: pattern(0x62),
+        signedAtMs: 1_721_111_110_000,
+        snapshotDigest: pattern(0x63),
+        freshnessMs: 1_721_111_110_500,
+        expectedNextSequence: 1,
+        expectedPreviousHead: pattern(0x61),
+      },
+      "state_matrix",
+    ],
+    [
+      "v2_final_genesis_hybrid_expected_edge",
+      {
+        ...finalGenesis,
+        flags: 3,
+        expectedNextSequence: 1,
+        expectedPreviousHead: finalGenesis.anchoredHead,
+        pendingTranscriptDigest: pattern(0x64),
+      },
+      "state_matrix",
+    ],
+    [
       "v2_genesis_previous_head_nonzero",
       { ...genesis, expectedPreviousHead: pattern(0x82) },
       "genesis_previous_head",
@@ -588,7 +651,16 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     ["v1_flags_nonzero", { ...base, version: 1, flags: 1 }, "v1_flags"],
     [
       "v1_sequence_zero_nonzero_anchor",
-      { ...genesis, version: 1, flags: 0 },
+      {
+        ...genesis,
+        version: 1,
+        flags: 0,
+        anchoredHead: pattern(0x61),
+        membershipDigest: pattern(0x62),
+        signedAtMs: 1_721_111_110_000,
+        snapshotDigest: pattern(0x63),
+        freshnessMs: 1_721_111_110_500,
+      },
       "v1_sequence_zero_anchor",
     ],
     ["unknown_custody_version", { ...base, version: 3 }, "unknown_version"],
