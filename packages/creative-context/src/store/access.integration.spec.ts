@@ -1506,7 +1506,7 @@ describe("creative context access and revocation", () => {
         "source-1",
         "user",
         "bob@example.test",
-        "editor",
+        "admin",
         "alice@example.test",
         timestamp,
       ],
@@ -1632,6 +1632,122 @@ describe("creative context access and revocation", () => {
         publishedItem: expect.objectContaining({ id: expect.any(String) }),
       }),
     ]);
+
+    const approvedVersionId =
+      approvedForViewer.memberships[0]!.publishedItemVersionId;
+    await asAlice(() =>
+      store.ingestItems({
+        sourceId: "source-1",
+        items: [
+          {
+            externalId: "allowed",
+            kind: "slide",
+            title: "allowed title update",
+            content: "new source version pending review",
+            contentHash: "allowed-hash-v3",
+            upstreamAccess: "available",
+          },
+        ],
+      }),
+    );
+    await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: "allowed",
+        confirmBroaderPublication: true,
+      }),
+    );
+    const viewerDuringUpdate = await asCarol(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(viewerDuringUpdate.memberships[0]).toMatchObject({
+      publishedItemVersionId: approvedVersionId,
+      pendingSubmissionId: null,
+      pendingSubmission: null,
+    });
+    const reviewerDuringUpdate = await asAlice(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(reviewerDuringUpdate.memberships[0]).toMatchObject({
+      publishedItemVersionId: approvedVersionId,
+      pendingSubmission: expect.objectContaining({ status: "pending" }),
+    });
+  });
+
+  it("applies open and admins-only publication policies to editor submissions", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asUser = <T>(userEmail: string, fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail, orgId: "org-1" }, fn);
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      asUser("alice@example.test", fn);
+    const asBob = <T>(fn: () => Promise<T>) => asUser("bob@example.test", fn);
+    await exec.execute({
+      sql: "UPDATE creative_context_sources SET visibility = 'org' WHERE id = 'source-1'",
+      args: [],
+    });
+    const [open, adminsOnly] = await Promise.all([
+      asAlice(() =>
+        store.createCreativeContext({
+          name: "Open",
+          kind: "specialty",
+          approvalPolicy: "open",
+        }),
+      ),
+      asAlice(() =>
+        store.createCreativeContext({
+          name: "Admin publishing",
+          kind: "specialty",
+          approvalPolicy: "admins-only",
+        }),
+      ),
+    ]);
+    for (const [id, contextId] of [
+      ["open-editor", open!.id],
+      ["admins-editor", adminsOnly!.id],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_shares
+          (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+          VALUES (?, ?, 'user', 'bob@example.test', 'editor', 'alice@example.test', ?)`,
+        args: [id, contextId, "2026-07-17T00:00:00.000Z"],
+      });
+    }
+    const openSubmission = await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: open!.id,
+        itemId: "allowed",
+      }),
+    );
+    expect(openSubmission.submission).toMatchObject({ status: "approved" });
+
+    const governedSubmission = await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: adminsOnly!.id,
+        itemId: "allowed",
+      }),
+    );
+    expect(governedSubmission.submission).toMatchObject({ status: "pending" });
+    await expect(
+      asBob(() =>
+        store.manageContextMembership({
+          operation: "approve",
+          contextId: adminsOnly!.id,
+          membershipId: governedSubmission.membershipId,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asAlice(() =>
+        store.manageContextMembership({
+          operation: "approve",
+          contextId: adminsOnly!.id,
+          membershipId: governedSubmission.membershipId,
+        }),
+      ),
+    ).resolves.toEqual({ approved: true });
   });
 
   it("serializes concurrent Default creation to one scope-owned context", async () => {
