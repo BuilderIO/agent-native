@@ -63,6 +63,14 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "local Radix context-menu implementation pending toolkit sync",
   ],
 
+  // popover.tsx — forms keeps a wider collision boundary so form-editor
+  // controls remain within the viewport on narrow screens.
+  [
+    "popover.tsx",
+    "forms",
+    "viewport-safe collision padding for form-editor controls",
+  ],
+
   // dropdown-menu.tsx — brain uses the newer shadcn data-slot implementation.
   [
     "dropdown-menu.tsx",
@@ -73,14 +81,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   // input.tsx — mail uses h-9 instead of h-10 for intentional compact sizing
   // in its dense UI.
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
-
-  // popover.tsx — forms wraps the toolkit primitive with collision padding and
-  // a viewport-width cap so builder popovers stay on-screen.
-  [
-    "popover.tsx",
-    "forms",
-    "forms builder needs collision padding and a viewport-width cap",
-  ],
 
   // macros.tsx primitives — macros has a distinct visual system while the
   // shared canonical primitives re-export toolkit UI.
