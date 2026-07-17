@@ -141,6 +141,18 @@ describe("useAgentChatHomeHandoffLinks", () => {
 
     const event = clickLink(container, "chrome-link");
 
+    expect(event.defaultPrevented).toBe(false);
+    expect(pathname(container)).toBe("/");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
+    expect(consumeAgentChatHomeHandoff("chat")).toBe(false);
+  });
+
+  it("intercepts app chrome links after chat activity marks a handoff", () => {
+    markAgentChatHomeHandoff("chat");
+    ({ container, root } = renderProbe());
+
+    const event = clickLink(container, "chrome-link");
+
     expect(event.defaultPrevented).toBe(true);
     expect(pathname(container)).toBe("/dashboard");
     expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();

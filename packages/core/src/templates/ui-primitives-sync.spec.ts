@@ -63,6 +63,14 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "local Radix context-menu implementation pending toolkit sync",
   ],
 
+  // popover.tsx — forms keeps a wider collision boundary so form-editor
+  // controls remain within the viewport on narrow screens.
+  [
+    "popover.tsx",
+    "forms",
+    "viewport-safe collision padding for form-editor controls",
+  ],
+
   // dropdown-menu.tsx — brain uses the newer shadcn data-slot implementation.
   [
     "dropdown-menu.tsx",

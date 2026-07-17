@@ -7,6 +7,14 @@ function readSource(): string {
 }
 
 describe("StitchManager layout", () => {
+  it("loads playable media fields for the stitch queue", () => {
+    const source = readSource();
+
+    expect(source).toContain(
+      'useActionQuery("list-recordings", {\n    includeMedia: true,\n  })',
+    );
+  });
+
   it("keeps long recording lists scrollable without pushing the footer away", () => {
     const source = readSource();
 

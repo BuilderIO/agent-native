@@ -1499,6 +1499,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/creative-context':
+        specifier: workspace:*
+        version: link:../../packages/creative-context
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit

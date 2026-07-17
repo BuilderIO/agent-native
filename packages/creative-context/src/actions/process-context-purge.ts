@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { serializePublicJob } from "../server/public-serialization.js";
 import {
   getJob,
   purgeContextSourceArtifacts,
@@ -18,7 +19,9 @@ export default defineAction({
     }
     const result = await purgeContextSourceArtifacts(job.sourceId);
     return {
-      job: await updateJob(job.id, { status: "completed", result }),
+      job: serializePublicJob(
+        await updateJob(job.id, { status: "completed", result }),
+      ),
       result,
     };
   },

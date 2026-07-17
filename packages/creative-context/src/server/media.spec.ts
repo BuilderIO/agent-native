@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(async (_context, fn) => fn()),
   readPrivateArtifact: vi.fn(async () => new Uint8Array([1, 2, 3])),
   getCreativeContextItem: vi.fn(),
+  readPendingCreativeContextMedia: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -31,6 +32,7 @@ vi.mock("../connectors/private-artifacts.js", () => ({
 
 vi.mock("../store/index.js", () => ({
   getCreativeContextItem: mocks.getCreativeContextItem,
+  readPendingCreativeContextMedia: mocks.readPendingCreativeContextMedia,
 }));
 
 vi.mock("./context.js", () => ({
@@ -43,7 +45,7 @@ function event() {
   return {
     req: {
       method: "GET",
-      url: "http://app.example/_agent-native/creative-context/media?itemId=item-1",
+      url: "http://app.example/_agent-native/creative-context/media?itemId=item-1&itemVersionId=version-1",
       headers: new Headers({ origin: "http://app.example" }),
     },
   };
@@ -62,6 +64,7 @@ describe("creative context media route", () => {
       version: { id: "version-1" },
       media: [],
     });
+    mocks.readPendingCreativeContextMedia.mockReset().mockResolvedValue(null);
     await createCreativeContextMediaPlugin()({});
   });
 
@@ -86,7 +89,32 @@ describe("creative context media route", () => {
     );
     expect(mocks.getCreativeContextItem).toHaveBeenCalledWith(
       "item-1",
-      undefined,
+      "version-1",
     );
+  });
+
+  it("uses the narrow pending-submission path only after generic item access fails", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "bob@example.test",
+      orgId: "org-1",
+    });
+    mocks.getCreativeContextItem.mockResolvedValue(null);
+    mocks.readPendingCreativeContextMedia.mockResolvedValue({
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      mediaId: null,
+      storageKey: "creative-context-blob:v1:example",
+      mimeType: "image/png",
+    });
+
+    const response = await mocks.handler!(event());
+
+    expect(response.status).toBe(200);
+    expect(mocks.readPendingCreativeContextMedia).toHaveBeenCalledWith({
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      mediaId: undefined,
+    });
+    expect(await response.text()).not.toContain("creative-context-blob");
   });
 });

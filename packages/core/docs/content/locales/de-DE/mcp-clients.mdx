@@ -246,7 +246,28 @@ Das bedeutet, dass Benutzer, die die Claude-in-Chrome-Erweiterung installiert ha
 MCP-Server (Model Context Protocol) geben Ihrem Agenten neue Fähigkeiten – wie die Verbindung zu Zapier, Cloudflare, Composio oder den internen Tools Ihres Unternehmens. Sobald die Verbindung hergestellt ist, kann der Agent diese Tools genauso verwenden wie die integrierten.
 
 Die Preset-IDs sind `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`atlassian`, `supabase`, `neon` und `stripe`.
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`, `webflow`, `paypal`, `box`, `netlify` und `zapier`.
+
+Das Verzeichnis unterscheidet Endpunkte mit dem generischen OAuth-Ablauf von
+Anbietern, die einen vom Anbieter genehmigten Client oder eine vorab registrierte
+OAuth-Anwendung benötigen. Solche Einträge bleiben zur Entdeckung sichtbar und
+verlinken auf die offiziellen Einrichtungsanweisungen, zeigen aber keinen
+irreführenden Ein-Klick-Verbindungsbutton. Sandboxed Erweiterungen verwenden
+`agentNative.mcp.listTools`, `agentNative.mcp.callTool` sowie
+`agentNative.providerApi.catalog(...)` und `agentNative.providerApi.docs(...)`
+über die Host-Aktionen, um verbundene Daten zu ermitteln; Verbindungs-URLs,
+Zugriffs- und Refresh-Tokens werden ihnen niemals übergeben. Der rohe
+`provider-api-request`-Aufruf bleibt bewusst dem Host und dem Agenten
+vorbehalten: Stünde er beliebigen Methoden-/Pfad-Anfragen gemeinsam genutzter
+Erweiterungen offen, könnte eine Erweiterung zu einem authentifizierten
+Schreib-Proxy werden. Erweiterungen sollten stattdessen `agentNative.mcp.callTool(...)`
+oder eine dafür vorgesehene App-Aktion für begrenzte Anbieteroperationen verwenden.
+
+Lokale Datei-Erweiterungen müssen `list-mcp-tools`, `call-mcp-tool` und jede
+unterstützte Anbieteraktion, die sie verwenden, ausdrücklich in `extension.json`
+freigeben. Die Discovery-Helfer sind auch unter `agentNative.connectors.mcp`
+und `agentNative.connectors.providerApi` verfügbar.
 
 ### Atlassian / Jira
 

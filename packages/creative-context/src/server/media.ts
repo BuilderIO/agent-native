@@ -11,7 +11,10 @@ import {
   readPrivateArtifact,
 } from "../connectors/private-artifacts.js";
 import { CREATIVE_CONTEXT_MEDIA_ROUTE } from "../media-url.js";
-import { getCreativeContextItem } from "../store/index.js";
+import {
+  getCreativeContextItem,
+  readPendingCreativeContextMedia,
+} from "../store/index.js";
 import { getCreativeContext } from "./context.js";
 
 const SAFE_MIME_TYPES = new Set([
@@ -20,6 +23,8 @@ const SAFE_MIME_TYPES = new Set([
   "image/webp",
   "image/gif",
   "image/svg+xml",
+  "video/mp4",
+  "video/webm",
 ]);
 
 export function createCreativeContextMediaPlugin(): NitroPluginDef {
@@ -95,23 +100,37 @@ export async function readCreativeContextMedia(input: {
   }
   if (!itemId) throw new Error("Creative context media was not found");
   const detail = await getCreativeContextItem(itemId, itemVersionId);
-  if (!detail) throw new Error("Creative context media is not accessible");
-  const media = input.mediaId
-    ? detail.media.find((entry) => entry.id === input.mediaId)
-    : null;
-  const handle = parsePrivateBlobHandle(
-    media?.storageKey ?? detail.item.thumbnailBlobRef,
-  );
+  const pending = detail
+    ? null
+    : await readPendingCreativeContextMedia({
+        mediaId: input.mediaId,
+        itemId,
+        itemVersionId,
+      });
+  if (!detail && !pending)
+    throw new Error("Creative context media is not accessible");
+  const media =
+    detail && input.mediaId
+      ? (detail.media.find((entry) => entry.id === input.mediaId) ?? null)
+      : null;
+  const storageKey = detail
+    ? (media?.storageKey ?? detail.item.thumbnailBlobRef)
+    : pending?.storageKey;
+  const handle = parsePrivateBlobHandle(storageKey);
   if (!handle) throw new Error("Creative context media has no private blob");
   return {
     data: await readPrivateArtifact(
       handle,
       getCreativeContext().connectorContext,
     ),
-    mimeType: media?.mimeType ?? handle.mimeType ?? "application/octet-stream",
-    itemId: detail.item.id,
-    itemVersionId: detail.version.id,
-    mediaId: media?.id ?? null,
+    mimeType:
+      media?.mimeType ??
+      (detail ? detail.version.mimeType : pending?.mimeType) ??
+      handle.mimeType ??
+      "application/octet-stream",
+    itemId: detail?.item.id ?? pending!.itemId,
+    itemVersionId: detail?.version.id ?? pending!.itemVersionId,
+    mediaId: media?.id ?? pending?.mediaId ?? null,
     media,
   };
 }

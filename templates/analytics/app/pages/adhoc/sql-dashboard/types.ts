@@ -99,8 +99,14 @@ export interface SqlPanelConfig {
   /**
    * Extension panels only (`chartType: "extension"`): id of the extension to
    * render inline as a sandboxed iframe instead of running the SQL pipeline.
+   * Kept for dashboards saved before slot-backed dashboard boxes.
    */
   extensionId?: string;
+  /**
+   * Extension panels only: a named extension-point slot. The dashboard renders
+   * its installed extensions as this panel's box and supplies dashboard context.
+   */
+  extensionSlotId?: string;
 }
 
 export interface SqlPanel {

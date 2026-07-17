@@ -6,7 +6,6 @@ import {
   createAgentNativeQueryClient,
   getLocaleInitScript,
   getThemeInitScript,
-  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useCommandMenuShortcut,
   useT,
@@ -153,7 +152,6 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
     (path: string) => {
-      if (path !== "/") markAgentChatHomeHandoff("plans");
       navigateWithAgentChatViewTransition(navigate, path);
       setCmdkOpen(false);
     },

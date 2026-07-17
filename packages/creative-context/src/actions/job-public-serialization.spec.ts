@@ -3,14 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   continueJob: vi.fn(),
   createJob: vi.fn(),
+  getJob: vi.fn(),
   getContextSource: vi.fn(),
+  purgeContextSourceArtifacts: vi.fn(),
+  updateJob: vi.fn(),
   dispatchCreativeContextImportJob: vi.fn(async () => undefined),
 }));
 
 vi.mock("../store/index.js", () => ({
   continueJob: mocks.continueJob,
   createJob: mocks.createJob,
+  getJob: mocks.getJob,
   getContextSource: mocks.getContextSource,
+  purgeContextSourceArtifacts: mocks.purgeContextSourceArtifacts,
+  updateJob: mocks.updateJob,
 }));
 
 vi.mock("../jobs/index.js", () => ({
@@ -22,6 +28,7 @@ vi.mock("../server/context.js", () => ({
 }));
 
 import continueImport from "./continue-context-import.js";
+import processPurge from "./process-context-purge.js";
 import startEnrichment from "./start-context-enrichment.js";
 import startImport from "./start-context-import.js";
 
@@ -85,10 +92,20 @@ describe("creative context job action serialization", () => {
     vi.clearAllMocks();
     mocks.continueJob.mockResolvedValue(privateJob);
     mocks.createJob.mockResolvedValue(privateJob);
+    mocks.getJob.mockResolvedValue({
+      ...privateJob,
+      kind: "purge",
+    });
     mocks.getContextSource.mockResolvedValue({
       id: "source-1",
       ownerEmail: "owner@example.test",
     });
+    mocks.purgeContextSourceArtifacts.mockResolvedValue({
+      sourceId: "source-1",
+      purgedItems: 2,
+      purgedBlobs: 1,
+    });
+    mocks.updateJob.mockResolvedValue(privateJob);
   });
 
   it("redacts continuation job capabilities and provider URLs", async () => {
@@ -118,5 +135,9 @@ describe("creative context job action serialization", () => {
         eagerLimit: 25,
       }),
     );
+  });
+
+  it("redacts completed purge job capabilities and provider URLs", async () => {
+    expectPublicJob(await processPurge.run({ jobId: "job-1" }));
   });
 });

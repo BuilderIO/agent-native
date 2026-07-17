@@ -3,9 +3,20 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+} from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
+import { sanitizePublicMetadata } from "../server/public-serialization.js";
 import type {
   ContextPackDetail,
   ContextPackMember,
@@ -19,6 +30,16 @@ import {
   requireActor,
   stringifyJson,
 } from "./helpers.js";
+
+type ResolvedPackMember = {
+  itemId: string;
+  itemVersionId: string;
+  reason?: string;
+  score?: number;
+  scoreMetadata?: Record<string, unknown>;
+};
+
+const MAX_NATIVE_PACK_DEPENDENCIES = 256;
 
 export function assertImmutablePackMembership(operation: string): never {
   throw new Error(
@@ -48,15 +69,9 @@ async function resolveBrandDnaVersion(
   return dnaVersionId;
 }
 
-async function resolveMembers(members: ContextPackMemberInput[]): Promise<
-  Array<{
-    itemId: string;
-    itemVersionId: string;
-    reason?: string;
-    score?: number;
-    scoreMetadata?: Record<string, unknown>;
-  }>
-> {
+async function resolveMembers(
+  members: ContextPackMemberInput[],
+): Promise<ResolvedPackMember[]> {
   const { getDb, schema } = getCreativeContext();
   const itemIds = members.map((member) => member.itemId);
   if (new Set(itemIds).size !== itemIds.length) {
@@ -73,12 +88,34 @@ async function resolveMembers(members: ContextPackMemberInput[]): Promise<
       schema.contextSources,
       eq(schema.contextSources.id, schema.contextItems.sourceId),
     )
+    .leftJoin(
+      schema.creativeContextMemberships,
+      and(
+        eq(
+          schema.creativeContextMemberships.publishedItemId,
+          schema.contextItems.id,
+        ),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    )
+    .leftJoin(
+      schema.creativeContexts,
+      eq(
+        schema.creativeContexts.id,
+        schema.creativeContextMemberships.contextId,
+      ),
+    )
     .where(
       and(
         inArray(schema.contextItems.id, itemIds),
-        accessFilter(schema.contextSources, schema.contextSourceShares),
-        ne(schema.contextSources.upstreamAccess, "restricted"),
-        ne(schema.contextSources.status, "archived"),
+        or(
+          and(
+            accessFilter(schema.contextSources, schema.contextSourceShares),
+            ne(schema.contextSources.upstreamAccess, "restricted"),
+            ne(schema.contextSources.status, "archived"),
+          ),
+          accessFilter(schema.creativeContexts, schema.creativeContextShares),
+        ),
         eq(schema.contextItems.curationStatus, "included"),
         ne(schema.contextItems.curationRank, "ignored"),
         eq(schema.contextItems.status, "active"),
@@ -130,12 +167,140 @@ async function resolveMembers(members: ContextPackMemberInput[]): Promise<
   });
 }
 
+async function includeNativeArtifactDependencies(
+  explicitMembers: ResolvedPackMember[],
+): Promise<ResolvedPackMember[]> {
+  if (!explicitMembers.length) return explicitMembers;
+  const { getDb, schema } = getCreativeContext();
+  const members = [...explicitMembers];
+  const byItemId = new Map(members.map((member) => [member.itemId, member]));
+  const sourceByVersion = new Map<string, string>();
+  const initialItems = await getDb()
+    .select({
+      itemId: schema.contextItems.id,
+      itemVersionId: schema.contextItemVersions.id,
+      sourceId: schema.contextItems.sourceId,
+    })
+    .from(schema.contextItemVersions)
+    .innerJoin(
+      schema.contextItems,
+      eq(schema.contextItems.id, schema.contextItemVersions.itemId),
+    )
+    .where(
+      inArray(
+        schema.contextItemVersions.id,
+        explicitMembers.map((member) => member.itemVersionId),
+      ),
+    );
+  for (const item of initialItems as Array<{
+    itemId: string;
+    itemVersionId: string;
+    sourceId: string;
+  }>) {
+    sourceByVersion.set(item.itemVersionId, item.sourceId);
+  }
+
+  let frontier = explicitMembers.map((member) => member.itemVersionId);
+  let dependencyCount = 0;
+  while (frontier.length) {
+    const edges = await getDb()
+      .select({
+        fromItemVersionId: schema.contextEdges.fromItemVersionId,
+        toItemId: schema.contextEdges.toItemId,
+        toItemVersionId: schema.contextEdges.toItemVersionId,
+        toExternalId: schema.contextEdges.toExternalId,
+        childSourceId: schema.contextItems.sourceId,
+        childVersionId: schema.contextItemVersions.id,
+      })
+      .from(schema.contextEdges)
+      .leftJoin(
+        schema.contextItems,
+        eq(schema.contextItems.id, schema.contextEdges.toItemId),
+      )
+      .leftJoin(
+        schema.contextItemVersions,
+        and(
+          eq(
+            schema.contextItemVersions.id,
+            schema.contextEdges.toItemVersionId,
+          ),
+          eq(schema.contextItemVersions.itemId, schema.contextEdges.toItemId),
+        ),
+      )
+      .where(
+        and(
+          inArray(schema.contextEdges.fromItemVersionId, frontier),
+          eq(schema.contextEdges.relation, "contains-native-child"),
+        ),
+      )
+      .orderBy(
+        asc(schema.contextEdges.fromItemVersionId),
+        asc(schema.contextEdges.toExternalId),
+      );
+    const next: string[] = [];
+    for (const edge of edges as Array<{
+      fromItemVersionId: string;
+      toItemId: string | null;
+      toItemVersionId: string | null;
+      toExternalId: string | null;
+      childSourceId: string | null;
+      childVersionId: string | null;
+    }>) {
+      if (
+        !edge.toItemId ||
+        !edge.toItemVersionId ||
+        !edge.childSourceId ||
+        !edge.childVersionId
+      ) {
+        throw new Error(
+          `Native artifact child ${edge.toExternalId ?? "(unknown)"} has no immutable version reference`,
+        );
+      }
+      const parentSourceId = sourceByVersion.get(edge.fromItemVersionId);
+      if (!parentSourceId || parentSourceId !== edge.childSourceId) {
+        throw new Error(
+          "Native artifact dependencies must stay within the pinned source snapshot",
+        );
+      }
+      const existing = byItemId.get(edge.toItemId);
+      if (existing) {
+        if (existing.itemVersionId !== edge.toItemVersionId) {
+          throw new Error(
+            "A native artifact dependency conflicts with an explicitly pinned item version",
+          );
+        }
+        continue;
+      }
+      dependencyCount += 1;
+      if (dependencyCount > MAX_NATIVE_PACK_DEPENDENCIES) {
+        throw new Error(
+          "Native artifact pack dependencies exceed the safe limit",
+        );
+      }
+      const dependency: ResolvedPackMember = {
+        itemId: edge.toItemId,
+        itemVersionId: edge.toItemVersionId,
+        reason: "Native artifact dependency",
+      };
+      members.push(dependency);
+      byItemId.set(dependency.itemId, dependency);
+      sourceByVersion.set(dependency.itemVersionId, edge.childSourceId);
+      next.push(dependency.itemVersionId);
+    }
+    frontier = [...new Set(next)];
+  }
+  return members;
+}
+
 export async function createContextPack(input: {
   name: string;
   description?: string | null;
   derivedFromPackId?: string;
   brandDnaVersionId?: string | null;
   contextMode?: string;
+  baseContextId?: string | null;
+  specialtyContextId?: string | null;
+  selectionReason?: string | null;
   request?: Record<string, unknown>;
   members: ContextPackMemberInput[];
   pinned?: boolean;
@@ -144,10 +309,12 @@ export async function createContextPack(input: {
   const actor = requireActor();
   const timestamp = nowIso();
   const id = newId("ccp");
-  const [resolvedMembers, brandDnaVersionId] = await Promise.all([
+  const [explicitMembers, brandDnaVersionId] = await Promise.all([
     resolveMembers(input.members),
     resolveBrandDnaVersion(input.brandDnaVersionId),
   ]);
+  const resolvedMembers =
+    await includeNativeArtifactDependencies(explicitMembers);
   if (input.derivedFromPackId) {
     await assertAccess(
       "creative-context-pack",
@@ -157,6 +324,18 @@ export async function createContextPack(input: {
       { skipResourceBody: true },
     );
   }
+  const contextAccess = input.baseContextId
+    ? await resolveAccess("creative-context", input.baseContextId)
+    : null;
+  if (input.baseContextId && !contextAccess) {
+    throw new Error("Base Creative Context not found or not accessible");
+  }
+  const inheritedShares = input.baseContextId
+    ? await getDb()
+        .select()
+        .from(schema.creativeContextShares)
+        .where(eq(schema.creativeContextShares.resourceId, input.baseContextId))
+    : [];
   await getDb().transaction(async (tx: any) => {
     await tx.insert(schema.contextPacks).values({
       id,
@@ -165,11 +344,14 @@ export async function createContextPack(input: {
       derivedFromPackId: input.derivedFromPackId ?? null,
       brandDnaVersionId,
       contextMode: input.contextMode ?? "manual",
+      baseContextId: input.baseContextId ?? null,
+      specialtyContextId: input.specialtyContextId ?? null,
+      selectionReason: input.selectionReason ?? null,
       request: stringifyJson(input.request),
       archivedAt: null,
       ownerEmail: actor.ownerEmail,
       orgId: actor.orgId,
-      visibility: "private",
+      visibility: contextAccess?.resource.visibility ?? "private",
       createdAt: timestamp,
     });
     if (resolvedMembers.length) {
@@ -185,6 +367,19 @@ export async function createContextPack(input: {
           scoreMetadata: stringifyJson(member.scoreMetadata),
           ownerEmail: actor.ownerEmail,
           orgId: actor.orgId,
+          createdAt: timestamp,
+        })),
+      );
+    }
+    if (inheritedShares.length) {
+      await tx.insert(schema.contextPackShares).values(
+        (inheritedShares as any[]).map((share) => ({
+          id: newId("ccpsh"),
+          resourceId: id,
+          principalType: share.principalType,
+          principalId: share.principalId,
+          role: share.role,
+          createdBy: actor.ownerEmail,
           createdAt: timestamp,
         })),
       );
@@ -241,6 +436,9 @@ export async function deriveContextPack(input: {
         ? base.brandDnaVersionId
         : input.brandDnaVersionId,
     contextMode: base.contextMode,
+    baseContextId: base.baseContextId,
+    specialtyContextId: base.specialtyContextId,
+    selectionReason: base.selectionReason,
     request: base.request,
     members: Array.from(members.values()),
     pinned: input.pinned,
@@ -338,12 +536,37 @@ export async function listContextPacks(input: {
             schema.contextSources,
             eq(schema.contextSources.id, schema.contextItems.sourceId),
           )
+          .leftJoin(
+            schema.creativeContextPublishedSnapshots,
+            and(
+              eq(
+                schema.creativeContextPublishedSnapshots.itemId,
+                schema.contextPackMembers.itemId,
+              ),
+              eq(
+                schema.creativeContextPublishedSnapshots.itemVersionId,
+                schema.contextPackMembers.itemVersionId,
+              ),
+              eq(
+                schema.creativeContextPublishedSnapshots.sourceId,
+                schema.contextItems.sourceId,
+              ),
+            ),
+          )
           .where(
             and(
               inArray(schema.contextPackMembers.packId, ids),
-              accessFilter(schema.contextSources, schema.contextSourceShares),
-              ne(schema.contextSources.upstreamAccess, "restricted"),
-              ne(schema.contextSources.status, "archived"),
+              or(
+                and(
+                  accessFilter(
+                    schema.contextSources,
+                    schema.contextSourceShares,
+                  ),
+                  ne(schema.contextSources.upstreamAccess, "restricted"),
+                  ne(schema.contextSources.status, "archived"),
+                ),
+                isNotNull(schema.creativeContextPublishedSnapshots.id),
+              ),
               eq(schema.contextItems.curationStatus, "included"),
               ne(schema.contextItems.curationRank, "ignored"),
               eq(schema.contextItems.status, "active"),
@@ -375,7 +598,11 @@ export async function listContextPacks(input: {
       derivedFromPackId: row.derivedFromPackId ?? null,
       brandDnaVersionId: row.brandDnaVersionId ?? null,
       contextMode: row.contextMode,
-      request: parseJson(row.request, {}),
+      baseContextId: row.baseContextId ?? null,
+      specialtyContextId: row.specialtyContextId ?? null,
+      selectionReason: row.selectionReason ?? null,
+      request: (sanitizePublicMetadata(parseJson(row.request, {})) ??
+        {}) as Record<string, unknown>,
       memberCount: memberCount.get(row.id) ?? 0,
       pinned: pinned.has(row.id),
       archivedAt: row.archivedAt ?? null,
@@ -414,12 +641,34 @@ export async function getContextPack(
         schema.contextSources,
         eq(schema.contextSources.id, schema.contextItems.sourceId),
       )
+      .leftJoin(
+        schema.creativeContextPublishedSnapshots,
+        and(
+          eq(
+            schema.creativeContextPublishedSnapshots.itemId,
+            schema.contextPackMembers.itemId,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.itemVersionId,
+            schema.contextPackMembers.itemVersionId,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.sourceId,
+            schema.contextItems.sourceId,
+          ),
+        ),
+      )
       .where(
         and(
           eq(schema.contextPackMembers.packId, packId),
-          accessFilter(schema.contextSources, schema.contextSourceShares),
-          ne(schema.contextSources.upstreamAccess, "restricted"),
-          ne(schema.contextSources.status, "archived"),
+          or(
+            and(
+              accessFilter(schema.contextSources, schema.contextSourceShares),
+              ne(schema.contextSources.upstreamAccess, "restricted"),
+              ne(schema.contextSources.status, "archived"),
+            ),
+            isNotNull(schema.creativeContextPublishedSnapshots.id),
+          ),
           eq(schema.contextItems.curationStatus, "included"),
           ne(schema.contextItems.curationRank, "ignored"),
           eq(schema.contextItems.status, "active"),
@@ -446,7 +695,9 @@ export async function getContextPack(
     ordinal: member.ordinal,
     reason: member.reason ?? null,
     score: member.score ?? null,
-    scoreMetadata: parseJson(member.scoreMetadata, {}),
+    scoreMetadata: (sanitizePublicMetadata(
+      parseJson(member.scoreMetadata, {}),
+    ) ?? {}) as Record<string, unknown>,
   }));
   return {
     id: row.id,
@@ -455,7 +706,11 @@ export async function getContextPack(
     derivedFromPackId: row.derivedFromPackId ?? null,
     brandDnaVersionId: row.brandDnaVersionId ?? null,
     contextMode: row.contextMode,
-    request: parseJson(row.request, {}),
+    baseContextId: row.baseContextId ?? null,
+    specialtyContextId: row.specialtyContextId ?? null,
+    selectionReason: row.selectionReason ?? null,
+    request: (sanitizePublicMetadata(parseJson(row.request, {})) ??
+      {}) as Record<string, unknown>,
     memberCount: members.length,
     pinned: Boolean(pinRows[0]),
     archivedAt: row.archivedAt ?? null,

@@ -22,4 +22,12 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("enabled: !!shareId && !sessionLoading");
     expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
   });
+
+  it("keeps editor shares editable and shows their insights", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain('viewerRole === "editor"');
+    expect(route).toContain("role={viewerRole ??");
+    expect(route).toContain("<InsightsPanel");
+    expect(route).toContain("{viewerCanEdit ? (");
+  });
 });

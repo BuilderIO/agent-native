@@ -5,16 +5,14 @@ import type {
 } from "@agent-native/core/private-blob";
 import type { ProviderApiRuntime } from "@agent-native/core/provider-api";
 
-import type { NormalizedContextItem, UpstreamAccess } from "../types.js";
+import type {
+  ContextSourceKind,
+  NormalizedContextItem,
+  UpstreamAccess,
+} from "../types.js";
 import type { RenderedPageProvider } from "./rendered-page.js";
 
-export type ContextConnectorKind =
-  | "manual"
-  | "upload"
-  | "google-slides"
-  | "figma"
-  | "notion"
-  | "website";
+export type ContextConnectorKind = Exclude<ContextSourceKind, "native-app">;
 
 export interface ContextConnectorInventoryItem {
   externalId: string;

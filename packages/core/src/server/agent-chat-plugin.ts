@@ -69,7 +69,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -4137,6 +4137,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             callerHasRunAccess(owner, runId, "viewer", { orgId });
           const canEditRun = (runId: string) =>
             callerHasRunAccess(owner, runId, "editor", { orgId });
+          const canEditThread = (threadId: string) =>
+            callerHasThreadAccess(owner, threadId, "editor", { orgId });
+
+          // Route: POST /runs/turn/:turnId/abort
+          // Covers the short window where the client has sent a turn but the
+          // server has not yet created its background run id.
+          const turnAbortMatch =
+            url.match(/\/runs\/turn\/([^/?]+)\/abort/) ||
+            url.match(/^\/turn\/([^/?]+)\/abort/);
+          if (turnAbortMatch && method === "POST") {
+            const turnId = decodeURIComponent(turnAbortMatch[1]);
+            const body = await readBody(event).catch(() => null);
+            const threadId =
+              typeof body?.threadId === "string" ? body.threadId : "";
+            if (
+              !/^[a-zA-Z0-9_-]{1,160}$/.test(turnId) ||
+              !threadId ||
+              !(await canEditThread(threadId))
+            ) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            await markTurnAborted(threadId, turnId);
+            return { ok: true };
+          }
 
           // Route: GET /runs/list?goalId=agent-team|agent-harness
           // Returns background agents in the Code hub-compatible run shape.
@@ -5180,6 +5205,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               workerBody = {
                 ...parsedPayload,
+                ...(prepared.body.internalContinuation === true
+                  ? { internalContinuation: true }
+                  : {}),
                 [AGENT_CHAT_BACKGROUND_RUN_FIELD]: preparedMarker,
               };
             }

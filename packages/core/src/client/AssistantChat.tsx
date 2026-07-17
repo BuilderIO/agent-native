@@ -38,7 +38,9 @@ import React, {
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   ACTIVE_RUN_STATE_EVENT,
+  clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
+  getPendingTurn,
   getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
@@ -172,6 +174,7 @@ import {
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
 import { useT } from "./i18n.js";
+import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -2239,6 +2242,14 @@ const AssistantChatInner = forwardRef<
   // (unsupported format, size cap, body-size rejection, drop errors).
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [composerText, setComposerText] = useState("");
+  const handleComposerTextChange = useCallback(
+    (text: string) => {
+      setComposerText(text);
+      onComposerTextChange?.(text);
+    },
+    [onComposerTextChange],
+  );
   const dropDepthRef = useRef(0);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
@@ -4272,6 +4283,7 @@ const AssistantChatInner = forwardRef<
       }
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+      const pendingTurn = threadId ? getPendingTurn(threadId) : null;
       userStoppedRunRef.current = {
         at: Date.now(),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
@@ -4283,6 +4295,16 @@ const AssistantChatInner = forwardRef<
         fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
           method: "POST",
         }).catch(() => {});
+      } else if (pendingTurn && threadId) {
+        clearPendingTurnIfMatches(threadId, pendingTurn.turnId);
+        fetch(
+          `${apiUrl}/runs/turn/${encodeURIComponent(pendingTurn.turnId)}/abort`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threadId }),
+          },
+        ).catch(() => {});
       }
       if (isReconnecting) {
         reconnectAbortRef.current?.abort();
@@ -5382,6 +5404,9 @@ const AssistantChatInner = forwardRef<
                 </MessageScrollerProvider>
 
                 {showComposerSlot ? composerSlot : null}
+                {isActiveComposer && (
+                  <McpConnectionSuggestion text={composerText} />
+                )}
                 {showCenteredEmptyThreadFooterSlot ? (
                   <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
                     {resolvedThreadFooterSlot}
@@ -5488,7 +5513,7 @@ const AssistantChatInner = forwardRef<
                             focusRef={tiptapRef}
                             onTextChange={
                               isActiveComposer
-                                ? onComposerTextChange
+                                ? handleComposerTextChange
                                 : undefined
                             }
                             disabled={isComposerDisabled}

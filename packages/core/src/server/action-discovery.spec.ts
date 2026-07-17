@@ -354,6 +354,7 @@ describe("action discovery", () => {
       }
       expect(registry["list-mcp-tools"].http).toEqual({ method: "GET" });
       expect(registry["call-mcp-tool"].http).toBeUndefined();
+      expect(registry["call-mcp-tool"].toolCallable).toBe(false);
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

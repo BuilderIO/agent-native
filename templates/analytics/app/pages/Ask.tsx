@@ -3,6 +3,7 @@ import {
   useAgentChatContext,
   useT,
 } from "@agent-native/core/client";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -54,10 +55,13 @@ export default function AskPage() {
         composerLayoutVariant="hero"
         composerPlaceholder={t("common.askPlaceholder")}
         composerSlot={
-          <div className="analytics-chat-intro">
-            <h1>{t("common.askIntroTitle")}</h1>
-            <p>{t("common.askIntroBody")}</p>
-          </div>
+          <>
+            <CreativeContextComposerChip />
+            <div className="analytics-chat-intro">
+              <h1>{t("common.askIntroTitle")}</h1>
+              <p>{t("common.askIntroBody")}</p>
+            </div>
+          </>
         }
       />
     </div>

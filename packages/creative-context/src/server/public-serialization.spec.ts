@@ -32,6 +32,7 @@ describe("creative context public serialization", () => {
         token: "secret-token",
         values: [PRIVATE_HANDLE, "safe"],
       },
+      nativeClone: { handle: "opaque-native-handle" },
     });
     expect(result).toEqual({ safe: "caption", nested: { values: ["safe"] } });
   });

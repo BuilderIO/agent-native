@@ -1,6 +1,7 @@
 import {
   appBasePath,
   appPath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   useAgentRouteState,
 } from "@agent-native/core/client";
@@ -54,7 +55,9 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
         routerPath(location.pathname) === "/chat" &&
         pathnameFromPath(path) !== "/chat"
       ) {
-        markAgentChatHomeHandoff("dispatch");
+        if (isAgentChatHomeHandoffActive("dispatch")) {
+          markAgentChatHomeHandoff("dispatch");
+        }
       }
     },
   });

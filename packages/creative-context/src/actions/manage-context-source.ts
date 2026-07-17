@@ -1,6 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { CREATIVE_CONTEXT_SOURCE_KINDS } from "../types.js";
+
+const importableSourceKinds = CREATIVE_CONTEXT_SOURCE_KINDS.filter(
+  (kind) => kind !== "native-app",
+) as ["manual", "upload", "google-slides", "figma", "notion", "website"];
+
 import {
   archiveContextSource,
   createContextSource,
@@ -18,14 +24,7 @@ const schema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("create"),
     name: z.string().trim().min(1).max(200),
-    kind: z.enum([
-      "manual",
-      "upload",
-      "google-slides",
-      "figma",
-      "notion",
-      "website",
-    ]),
+    kind: z.enum(importableSourceKinds),
     externalRef: z.string().max(2000).optional(),
     connectionId: z.string().max(500).optional(),
     config: z.record(z.string(), z.unknown()).optional(),
@@ -74,9 +73,7 @@ const agentInputSchema = z.object({
   ]),
   sourceId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(200).optional(),
-  kind: z
-    .enum(["manual", "upload", "google-slides", "figma", "notion", "website"])
-    .optional(),
+  kind: z.enum(importableSourceKinds).optional(),
   externalRef: z.string().max(2000).optional(),
   connectionId: z.string().max(500).optional(),
   config: z.record(z.string(), z.unknown()).optional(),

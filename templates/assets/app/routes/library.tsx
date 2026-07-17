@@ -2155,16 +2155,10 @@ export function LibraryWorkspace({
           ) : routeSelectedLibraryId || hasLibraries ? (
             <div className="min-w-0">
               {routeSelectedLibraryId ? (
-                <>
-                  <LibraryCandidateStage
-                    activeLibraryId={routeSelectedLibraryId}
-                    foldersByLibraryId={foldersByLibraryId}
-                  />
-                  <BrandKitDetailRoute
-                    libraryId={routeSelectedLibraryId}
-                    headerMode="actions"
-                  />
-                </>
+                <BrandKitDetailRoute
+                  libraryId={routeSelectedLibraryId}
+                  headerMode="actions"
+                />
               ) : (
                 <AllAssetsBrowser foldersByLibraryId={foldersByLibraryId} />
               )}

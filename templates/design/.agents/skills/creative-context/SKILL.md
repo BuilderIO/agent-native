@@ -35,9 +35,11 @@ role cannot silently stand in for another:
 
 1. Follow the user's explicit instructions and the object currently selected in
    the app.
-2. Read the `creative-context` application-state record. If
-   `pinnedPackId` is set, prefer that immutable pack. Otherwise use
-   `currentPackId` when it records context already selected for this session.
+2. Read the `creative-context` application-state record. If `pinnedPackId` is
+   set, replay that immutable pack. Otherwise honor `selectedContextId`; when it
+   is unset, let retrieval use Default plus at most one app-bound or
+   semantically matching specialty context. `currentPackId` is the receipt from
+   the latest materialized generation, not a replacement for context selection.
 3. Call `search-creative-context` with a narrow query for exact facts, visual
    language, audience guidance, prior decisions, or reusable references.
 4. Call `get-context-item` only for the specific search result versions
@@ -60,6 +62,7 @@ The single state key is `creative-context`:
 ```json
 {
   "contextMode": "auto",
+  "selectedContextId": null,
   "currentPackId": null,
   "pinnedPackId": null
 }
@@ -114,3 +117,8 @@ If `nativeCode.content` is `null` and `oversized` is true, use the named
 `get-context-item`, but the inline content is only the validated manifest shell.
 Never concatenate a truncated fragment or use delimited `version.content` as
 HTML.
+
+For an app-created Design snapshot, use
+`clone-creative-context-design-native` instead. That typed action resolves the
+exact approved private file/Yjs payload and duplicates it through Design's
+native path. Generic context actions must never receive or return that payload.

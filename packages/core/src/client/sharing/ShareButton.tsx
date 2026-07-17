@@ -261,6 +261,7 @@ function handleSharePopoverInteractOutside(
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
   const shareTabDefaultValue = props.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
@@ -294,6 +295,10 @@ export function ShareButton(props: ShareButtonProps) {
       if (pendingVisibility === null) sharesQuery.refetch();
     }
   };
+
+  useEffect(() => {
+    setInviteEmail("");
+  }, [props.resourceType, props.resourceId]);
 
   const handleShareTabChange = (value: string) => {
     setActiveShareTab(value);
@@ -399,6 +404,8 @@ export function ShareButton(props: ShareButtonProps) {
       >
         <SharePanel
           {...props}
+          inviteEmail={inviteEmail}
+          onInviteEmailChange={setInviteEmail}
           sharesQuery={sharesQuery}
           visibilityOverride={pendingVisibility}
           onVisibilityChange={handleVisibilityChange}
@@ -575,6 +582,8 @@ function mergeMembers(existing: OrgMember[], next: OrgMember[]): OrgMember[] {
 
 function SharePanel(
   props: ShareButtonProps & {
+    inviteEmail: string;
+    onInviteEmailChange: (email: string) => void;
     sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
     visibilityOverride: Visibility | null;
     onVisibilityChange: (visibility: Visibility) => Promise<void>;
@@ -591,17 +600,18 @@ function SharePanel(
     visibilityOverride,
     onVisibilityChange,
     onClose,
+    inviteEmail,
+    onInviteEmailChange,
   } = props;
 
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
 
-  const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
   const [shareError, setShareError] = useState<string | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const hasInviteEmail = email.trim().length > 0;
+  const hasInviteEmail = inviteEmail.trim().length > 0;
 
   // Optimistic overlays so clicks feel instant.
   const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
@@ -685,7 +695,10 @@ function SharePanel(
       .map((s) => ({ ...s, role: roleOverrides[keyOf(s)] ?? s.role })),
     ...pendingAdds,
   ];
-  const memberSearch = useOrgMemberSearch(email, canManage && suggestionsOpen);
+  const memberSearch = useOrgMemberSearch(
+    inviteEmail,
+    canManage && suggestionsOpen,
+  );
   const excludedMemberEmails = new Set<string>();
   if (data?.ownerEmail) excludedMemberEmails.add(data.ownerEmail.toLowerCase());
   for (const s of shares) {
@@ -726,7 +739,7 @@ function SharePanel(
   };
 
   const handleAdd = () => {
-    const trimmed = email.trim();
+    const trimmed = inviteEmail.trim();
     if (!trimmed) return;
     const optimistic: Share = {
       id: `pending-${trimmed}`,
@@ -739,7 +752,7 @@ function SharePanel(
     if (inFlight.has(k)) return;
     setShareError(null);
     setPendingAdds((p) => [...p, optimistic]);
-    setEmail("");
+    onInviteEmailChange("");
     setSuggestionsOpen(false);
     addInFlight(k);
     share.mutate(
@@ -762,7 +775,7 @@ function SharePanel(
         onError: (err: any) => {
           setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
           clearInFlight(k);
-          setEmail(trimmed);
+          onInviteEmailChange(trimmed);
           setShareError(extractShareErrorMessage(err));
         },
       },
@@ -898,15 +911,15 @@ function SharePanel(
         <div className="mb-4 space-y-2">
           <div className="flex items-stretch gap-2">
             <MemberAutocomplete
-              value={email}
+              value={inviteEmail}
               open={suggestionsOpen}
               onOpenChange={setSuggestionsOpen}
               onValueChange={(next) => {
-                setEmail(next);
+                onInviteEmailChange(next);
                 if (shareError) setShareError(null);
               }}
               onSelectMember={(member) => {
-                setEmail(member.email);
+                onInviteEmailChange(member.email);
                 setSuggestionsOpen(false);
                 if (shareError) setShareError(null);
               }}
@@ -920,6 +933,14 @@ function SharePanel(
               search={memberSearch}
             />
             <RoleSelect value={role} onChange={setRole} />
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={!hasInviteEmail}
+              className={BUTTON_PRIMARY_SM}
+            >
+              Add
+            </button>
           </div>
           {shareError ? (
             <div

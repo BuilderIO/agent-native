@@ -78,8 +78,14 @@ vi.mock("../server/self-dispatch.js", () => ({
     fireInternalDispatchMock(...args),
 }));
 
-const { insertRun, claimBackgroundRun, reapIfStale, reapAllStaleRuns } =
-  await import("./run-store.js");
+const {
+  insertRun,
+  claimBackgroundRun,
+  isTurnAborted,
+  markTurnAborted,
+  reapIfStale,
+  reapAllStaleRuns,
+} = await import("./run-store.js");
 
 let seq = 0;
 function ids(): { runId: string; thread: string; turn: string } {
@@ -126,10 +132,37 @@ function rowsForTurn(turnId: string): Array<{ id: string; status: string }> {
 const STALE_PAST_MS = 5 * 60_000; // comfortably past BACKGROUND_RUN_STALE_MS (90s)
 
 describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () => {
+  it("records an early Stop as a turn marker before any real run exists", async () => {
+    currentClient = makeRawClient(true);
+    const { thread, turn } = ids();
+
+    await markTurnAborted(thread, turn);
+
+    expect(await isTurnAborted(thread, turn)).toBe(true);
+    expect(await isTurnAborted(thread, `${turn}-other`)).toBe(false);
+    const marker = sqlite
+      .prepare(`SELECT status, dispatch_mode FROM agent_runs WHERE id = ?`)
+      .get(`turn-abort-${turn}`) as
+      | { status: string; dispatch_mode: string }
+      | undefined;
+    expect(marker).toEqual({ status: "aborted", dispatch_mode: "turn-abort" });
+  });
+
+  it("also aborts a run inserted after the caller's first cancellation check", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+
+    await markTurnAborted(thread, turn);
+
+    expect(await isTurnAborted(thread, turn)).toBe(true);
+    expect(readRow(runId)?.status).toBe("aborted");
+  });
+
   it("creates exactly one unclaimed recovery successor for a dead claimed background worker, and does not stack a second on a re-reap", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    const payload = JSON.stringify({ internalContinuation: true, foo: "bar" });
+    const payload = JSON.stringify({ message: "original ingress", foo: "bar" });
     await insertRun(runId, thread, turn, {
       dispatchMode: "background",
       dispatchPayload: payload,
@@ -158,7 +191,11 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(successorRow?.status).toBe("running");
     const successorFull = readRow(successorRow!.id);
     expect(successorFull?.dispatch_mode).toBe("background");
-    expect(successorFull?.dispatch_payload).toBe(payload);
+    expect(JSON.parse(successorFull?.dispatch_payload ?? "null")).toEqual({
+      message: "original ingress",
+      foo: "bar",
+      internalContinuation: true,
+    });
 
     // Re-reaping the now-terminal row is a no-op (status is no longer
     // 'running', so the conditional UPDATE's WHERE clause can't match) — at

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canSubmitComposerContent,
+  canRemoveVoicePreview,
   compactComposerModelName,
   compactComposerReasoningEffortLabel,
   createTiptapComposerExtensions,
@@ -16,6 +17,7 @@ import {
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
   isComposerEditorUsable,
+  formatVoiceTranscriptForComposer,
   MODEL_SELECTOR_POPOVER_STYLE,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
@@ -345,5 +347,44 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldShowModelSelectorSkeleton(true, 0)).toBe(true);
     expect(shouldShowModelSelectorSkeleton(true, 2)).toBe(false);
     expect(shouldShowModelSelectorSkeleton(false, 0)).toBe(false);
+  });
+});
+
+describe("voice composer insertion", () => {
+  it("adds sentence punctuation and a trailing separator to dictated text", () => {
+    expect(formatVoiceTranscriptForComposer("  First sentence  ")).toBe(
+      "First sentence. ",
+    );
+    expect(formatVoiceTranscriptForComposer("Already done? ")).toBe(
+      "Already done? ",
+    );
+    expect(formatVoiceTranscriptForComposer("   ")).toBe("");
+  });
+
+  it("only removes a live preview when its range still contains the preview", () => {
+    expect(
+      canRemoveVoicePreview({
+        documentSize: 20,
+        anchor: 4,
+        previewText: "draft",
+        currentText: "draft",
+      }),
+    ).toBe(true);
+    expect(
+      canRemoveVoicePreview({
+        documentSize: 6,
+        anchor: 4,
+        previewText: "draft",
+        currentText: "",
+      }),
+    ).toBe(false);
+    expect(
+      canRemoveVoicePreview({
+        documentSize: 20,
+        anchor: 4,
+        previewText: "draft",
+        currentText: "sent",
+      }),
+    ).toBe(false);
   });
 });

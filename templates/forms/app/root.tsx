@@ -8,6 +8,7 @@ import {
   useCommandMenuShortcut,
   getThemeInitScript,
   configureTracking,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   setClientAppState,
@@ -199,7 +200,11 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (location.pathname === "/ask" && path !== "/ask") {
+      if (
+        location.pathname === "/ask" &&
+        path !== "/ask" &&
+        isAgentChatHomeHandoffActive("forms")
+      ) {
         markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);

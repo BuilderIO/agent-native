@@ -710,7 +710,7 @@ describe("mountActionRoutes", () => {
   // Tools-bridge gating (audit H5)
   // ---------------------------------------------------------------------
 
-  it("refuses tools-bridge calls when toolCallable === false", async () => {
+  it("refuses extension tools-bridge calls to provider-api-request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
@@ -719,7 +719,7 @@ describe("mountActionRoutes", () => {
       ),
     };
     const actions: Record<string, ActionEntry> = {
-      "share-resource": {
+      "provider-api-request": {
         toolCallable: false,
         run: vi.fn(async () => ({ ok: true })),
       } as any,
@@ -736,9 +736,9 @@ describe("mountActionRoutes", () => {
 
     expect(event._status).toBe(403);
     expect(result).toEqual({
-      error: "Action 'share-resource' is not callable from tools.",
+      error: "Action 'provider-api-request' is not callable from tools.",
     });
-    expect(actions["share-resource"].run).not.toHaveBeenCalled();
+    expect(actions["provider-api-request"].run).not.toHaveBeenCalled();
   });
 
   it("allows tools-bridge calls when toolCallable === true", async () => {

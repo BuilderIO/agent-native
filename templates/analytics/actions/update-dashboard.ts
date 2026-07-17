@@ -369,8 +369,12 @@ export function validateDashboardConfig(
         cfg && typeof cfg.extensionId === "string"
           ? cfg.extensionId.trim()
           : "";
-      if (!extensionId) {
-        return `panel[${i}].config.extensionId is required for extension panels (the id of the extension to render inline)`;
+      const extensionSlotId =
+        cfg && typeof cfg.extensionSlotId === "string"
+          ? cfg.extensionSlotId.trim()
+          : "";
+      if (!extensionId && !extensionSlotId) {
+        return `panel[${i}].config.extensionId or config.extensionSlotId is required for extension panels`;
       }
     }
     if (

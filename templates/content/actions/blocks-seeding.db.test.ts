@@ -155,6 +155,62 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
     expect(resolveInsideTransaction).toHaveBeenCalledOnce();
   });
 
+  it("rejects document access revoked after preflight", async () => {
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const db = getDb();
+      const spaceId =
+        await createContentDatabaseModule.resolveContentDatabaseSpace({}, db);
+      const now = new Date().toISOString();
+      const documentId = `revoked_${Math.random().toString(36).slice(2, 10)}`;
+      const shareId = `share_${Math.random().toString(36).slice(2, 10)}`;
+
+      await db.insert(schema.documents).values({
+        id: documentId,
+        spaceId,
+        ownerEmail: "other-owner@example.com",
+        title: "Revoked document",
+        content: "",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.documentShares).values({
+        id: shareId,
+        resourceId: documentId,
+        principalType: "user",
+        principalId: OWNER,
+        role: "editor",
+        createdBy: "other-owner@example.com",
+        createdAt: now,
+      });
+
+      await expect(
+        createContentDatabaseModule.resolveContentDatabaseSpace(
+          { documentId },
+          db,
+        ),
+      ).resolves.toBe(spaceId);
+
+      await db
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, shareId));
+
+      await expect(
+        db.transaction((tx: any) =>
+          createContentDatabaseModule.createContentDatabaseRecord(
+            { documentId },
+            { db: tx, spaceId },
+          ),
+        ),
+      ).rejects.toThrow(`No editor access to document ${documentId}`);
+
+      const databases = await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.documentId, documentId));
+      expect(databases).toEqual([]);
+    });
+  });
   it("round-trips owned descriptions and returns one live root-to-database row context path", async () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const rootId = `root_${suffix}`;

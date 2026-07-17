@@ -16,6 +16,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
@@ -24,6 +25,39 @@ import {
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
+}
+
+type RecordingMediaFields = {
+  id: string;
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
+  videoUrl?: string | null;
+  videoFormat?: string | null;
+};
+
+export function resolveListRecordingMedia(
+  recording: RecordingMediaFields,
+  includeMedia: boolean,
+): { videoUrl: string | null; videoFormat: "webm" | "mp4" | null } {
+  if (!includeMedia) {
+    return { videoUrl: null, videoFormat: null };
+  }
+
+  return {
+    videoUrl: resolvePlayerVideoUrl(
+      {
+        id: recording.id,
+        sourceAppName: recording.sourceAppName,
+        sourceWindowTitle: recording.sourceWindowTitle,
+        videoUrl: recording.videoUrl,
+      },
+      { proxyRemoteMedia: true },
+    ),
+    videoFormat:
+      recording.videoFormat === "webm" || recording.videoFormat === "mp4"
+        ? recording.videoFormat
+        : null,
+  };
 }
 
 export default defineAction({
@@ -67,6 +101,13 @@ export default defineAction({
       )
       .default(false)
       .describe("Return only the total count, skipping the row payload"),
+    includeMedia: z
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean(),
+      )
+      .default(false)
+      .describe("Include playable media fields for editor workflows"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -225,6 +266,12 @@ export default defineAction({
           hasCamera: schema.recordings.hasCamera,
           width: schema.recordings.width,
           height: schema.recordings.height,
+          videoUrl: args.includeMedia
+            ? schema.recordings.videoUrl
+            : sql<string | null>`NULL`,
+          videoFormat: args.includeMedia
+            ? schema.recordings.videoFormat
+            : sql<string | null>`NULL`,
         },
         transcriptStatus: schema.recordingTranscripts.status,
         // Compute the has-text signal in SQL instead of shipping the full
@@ -313,6 +360,7 @@ export default defineAction({
         hasCamera: Boolean(r.hasCamera),
         width: r.width,
         height: r.height,
+        ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
       };

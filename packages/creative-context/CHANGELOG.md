@@ -1,5 +1,21 @@
 # @agent-native/creative-context
 
+## 0.5.1
+
+### Patch Changes
+
+- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
+
+## 0.5.0
+
+### Minor Changes
+
+- 149c0ee: Add bounded, app-owned native resource update checks and Library update submission controls.
+
+### Patch Changes
+
+- 149c0ee: Add governed creative-context sharing, host-backed native clone actions, and a reusable organization-admin permission helper.
+
 ## 0.4.0
 
 ### Minor Changes

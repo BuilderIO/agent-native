@@ -14,6 +14,7 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useCallback, useEffect } from "react";
 
+import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
@@ -511,6 +512,14 @@ export function IntegrationsPanel() {
         <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
           {t("integrations.addChatIntegration")}
         </div>
+        <AgentAskPopover
+          label={t("integrations.addSomething")}
+          title={t("integrations.addSomethingTitle")}
+          placeholder={t("integrations.addSomethingPlaceholder")}
+          prompt=""
+          context="The user wants to add a chat or workspace integration that is not in the current directory. Research the provider's official OAuth or MCP setup, explain any app registration or allowlist requirements, and add a reusable integration preset when it is supported. Never ask the user to paste credentials into a prompt."
+          className="mb-2 h-7 w-full justify-center border-dashed px-2 text-[10px]"
+        />
         <AddIntegrationPicker
           connectedIds={connectedIds}
           onSelect={(p) => {
@@ -533,17 +542,27 @@ export function IntegrationsPanel() {
             {t("integrations.chatIntegrationsDescription")}
           </div>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setShowPicker(true)}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <IconPlus size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <IconPlus size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
+          </Tooltip>
+          <AgentAskPopover
+            label={t("integrations.addSomething")}
+            title={t("integrations.addSomethingTitle")}
+            placeholder={t("integrations.addSomethingPlaceholder")}
+            prompt=""
+            context="The user wants to add a chat or workspace integration that is not in the current directory. Research the provider's official OAuth or MCP setup, explain any app registration or allowlist requirements, and add a reusable integration preset when it is supported. Never ask the user to paste credentials into a prompt."
+            className="h-7 px-2 text-[10px]"
+          />
+        </div>
       </div>
 
       {loading ? (
