@@ -78,6 +78,25 @@ describe("installErrorCapture auto-capture filtering", () => {
     dispose();
   });
 
+  it("drops stackless stale module loader failures", () => {
+    const { listeners } = installBrowser();
+    const send = vi.fn();
+
+    const dispose = installErrorCapture({ send });
+    fireError(listeners, {
+      message: "Importing a module script failed.",
+    });
+    fireRejection(
+      listeners,
+      new TypeError(
+        "Failed to fetch dynamically imported module: /assets/route.js",
+      ),
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it("drops browser extension injected-script fetch failures", () => {
     const { listeners } = installBrowser();
     const send = vi.fn();
