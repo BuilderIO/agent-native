@@ -2112,58 +2112,94 @@ export function CreativeContextPanel({
                   );
                   const medium = imageMedium ?? playbackMedium ?? item.media[0];
                   const sheetMedium = playbackMedium ?? medium;
+                  const updateAvailable =
+                    membership.nativeUpdateStatus?.state === "update-available";
                   return (
-                    <button
+                    <article
                       key={membership.id}
-                      type="button"
-                      onClick={() =>
-                        setPreviewManifest({
-                          title: item.title,
-                          kind: item.kind,
-                          itemId: item.id,
-                          itemVersionId: item.itemVersionId,
-                          preview: item.preview,
-                          media: sheetMedium ?? null,
-                          gallery: item.media.filter((candidate) =>
-                            candidate.mimeType?.startsWith("image/"),
-                          ),
-                          posterUrl:
-                            playbackMedium && imageMedium
-                              ? imageMedium.url
-                              : undefined,
-                        })
-                      }
-                      className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40"
+                      className="overflow-hidden rounded-md border border-border"
                     >
-                      <div className="aspect-video overflow-hidden">
-                        <ContextPreviewVisual
-                          compact
-                          manifest={{
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewManifest({
                             title: item.title,
                             kind: item.kind,
                             itemId: item.id,
                             itemVersionId: item.itemVersionId,
                             preview: item.preview,
-                            media: medium ?? null,
-                            gallery: item.media,
-                          }}
-                        />
-                      </div>
-                      <span className="block p-3">
-                        <span className="block truncate text-sm font-medium">
-                          {item.title}
+                            media: sheetMedium ?? null,
+                            gallery: item.media.filter((candidate) =>
+                              candidate.mimeType?.startsWith("image/"),
+                            ),
+                            posterUrl:
+                              playbackMedium && imageMedium
+                                ? imageMedium.url
+                                : undefined,
+                          })
+                        }
+                        className="block w-full text-start transition-colors hover:bg-accent/40"
+                      >
+                        <span className="block aspect-video overflow-hidden">
+                          <ContextPreviewVisual
+                            compact
+                            manifest={{
+                              title: item.title,
+                              kind: item.kind,
+                              itemId: item.id,
+                              itemVersionId: item.itemVersionId,
+                              preview: item.preview,
+                              media: medium ?? null,
+                              gallery: item.media,
+                            }}
+                          />
                         </span>
-                        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                          <span>{item.kind}</span>
-                          <span>·</span>
-                          <span className="capitalize">{membership.rank}</span>
-                          <Badge variant="secondary">Published</Badge>
+                        <span className="block p-3">
+                          <span className="block truncate text-sm font-medium">
+                            {item.title}
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                            <span>{item.kind}</span>
+                            <span>·</span>
+                            <span className="capitalize">
+                              {membership.rank}
+                            </span>
+                            <Badge variant="secondary">Published</Badge>
+                            {updateAvailable ? (
+                              <Badge variant="outline">
+                                {t("creativeContext.updateAvailable")}
+                              </Badge>
+                            ) : null}
+                          </span>
+                          <span className="mt-1 block truncate font-mono text-[10px] text-muted-foreground">
+                            Version {item.itemVersionId.slice(0, 12)}
+                          </span>
                         </span>
-                        <span className="mt-1 block truncate font-mono text-[10px] text-muted-foreground">
-                          Version {item.itemVersionId.slice(0, 12)}
-                        </span>
-                      </span>
-                    </button>
+                      </button>
+                      {updateAvailable &&
+                      selectedLibraryContext?.access.canSubmit ? (
+                        <div className="border-t border-border/70 p-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            disabled={updatingMembershipId === membership.id}
+                            onClick={() =>
+                              setMembershipUpdateCandidate({
+                                id: membership.id,
+                                title: item.title,
+                              })
+                            }
+                          >
+                            <IconRefresh />
+                            {updatingMembershipId === membership.id
+                              ? t("creativeContext.submittingUpdate")
+                              : t("creativeContext.submitUpdate")}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </article>
                   );
                 })}
               </div>

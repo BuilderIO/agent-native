@@ -8,6 +8,12 @@ import { and, inArray } from "drizzle-orm";
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
 
+interface DocumentPreviewBlock {
+  kind: "heading" | "paragraph" | "bullet" | "quote" | "code";
+  text: string;
+  level?: number;
+}
+
 function documentPreview(markdown: string) {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   const headings = lines
@@ -27,7 +33,9 @@ function documentPreview(markdown: string) {
     .trim()
     .slice(0, 1_500);
   let inCode = false;
-  const blocks = lines.slice(0, 240).flatMap((rawLine) => {
+  const blocks = lines
+    .slice(0, 240)
+    .flatMap<DocumentPreviewBlock>((rawLine) => {
     const line = rawLine.trim();
     if (/^```/.test(line)) {
       inCode = !inCode;
@@ -59,7 +67,7 @@ function documentPreview(markdown: string) {
       ];
     }
     return [{ kind: "paragraph" as const, text: line.slice(0, 600) }];
-  });
+    });
   return {
     type: "document" as const,
     headings,
