@@ -23500,7 +23500,6 @@ function DesignEditor() {
               resourceType: "design",
               resourceId: id ?? "",
               title: design?.title ?? "Untitled design",
-              updatedAt: design?.updatedAt ?? undefined,
               preview: { kind: "document", label: "Design project" },
             }}
           />
