@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core";
 import {
+  listAppState,
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
@@ -31,9 +32,12 @@ import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
 import {
+  DESIGN_REPROMPT_PENDING_STATE_PREFIX,
+  DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
   designRepromptPendingStateKey,
   designRepromptProposalStateKey,
   isNodeRewriteProposal,
+  isPendingDesignReprompt,
 } from "../shared/node-rewrite.js";
 
 interface ReviewThreadSummary {
@@ -327,40 +331,81 @@ export default defineAction({
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
-        const proposalStates = await Promise.all(
-          files.map(async (file) => ({
-            file,
-            value: await readAppState(
-              designRepromptProposalStateKey(designId, file.id),
-            ),
-          })),
+        const proposalPrefix = `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:`;
+        const pendingPrefix = `${DESIGN_REPROMPT_PENDING_STATE_PREFIX}${designId}:`;
+        const [proposalEntries, pendingEntries] = await Promise.all([
+          listAppState(proposalPrefix),
+          listAppState(pendingPrefix),
+        ]);
+        const filesById = new Map(files.map((file) => [file.id, file]));
+        const pendingByFileId = new Map(
+          pendingEntries.flatMap(({ key, value }) => {
+            if (
+              !isPendingDesignReprompt(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !== designRepromptPendingStateKey(designId, value.fileId)
+            ) {
+              return [];
+            }
+            return [[value.fileId, value] as const];
+          }),
         );
-        const pendingCandidateReviews = proposalStates.flatMap((entry) => {
-          if (!isNodeRewriteProposal(entry.value)) return [];
-          const proposal = entry.value;
-          return [
-            {
+        const proposalsByReprompt = new Map(
+          proposalEntries.flatMap(({ key, value }) => {
+            if (
+              !isNodeRewriteProposal(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !==
+                designRepromptProposalStateKey(
+                  designId,
+                  value.fileId,
+                  value.repromptId,
+                )
+            ) {
+              return [];
+            }
+            return [[`${value.fileId}:${value.repromptId}`, value] as const];
+          }),
+        );
+        const proposalsByFileId = new Map(
+          [...pendingByFileId.entries()].flatMap(([fileId, pending]) => {
+            const current = proposalsByReprompt.get(
+              `${fileId}:${pending.repromptId}`,
+            );
+            const prior = pending.priorRepromptId
+              ? proposalsByReprompt.get(`${fileId}:${pending.priorRepromptId}`)
+              : undefined;
+            const proposal =
+              current ??
+              (prior?.proposalId === pending.priorProposalId
+                ? prior
+                : undefined);
+            return proposal ? [[fileId, proposal] as const] : [];
+          }),
+        );
+        const pendingCandidateReviews = [...proposalsByFileId.values()].map(
+          (proposal) => {
+            const file = filesById.get(proposal.fileId)!;
+            return {
               proposalId: proposal.proposalId,
               fileId: proposal.fileId,
-              filename: proposal.filename || entry.file.filename,
+              filename: proposal.filename || file.filename,
               candidateCount: proposal.variants.length,
               chosenIndex: proposal.chosenIndex,
               target: proposal.target,
               createdAt: proposal.createdAt,
-            },
-          ];
-        });
+            };
+          },
+        );
         if (pendingCandidateReviews.length > 0) {
           (screen.design as Record<string, unknown>).pendingCandidateReviews =
             pendingCandidateReviews;
         }
         if (activeScreen?.id) {
-          const pendingReprompt = await readAppState(
-            designRepromptPendingStateKey(designId, activeScreen.id),
-          );
-          const proposal = proposalStates.find(
-            (entry) => entry.file.id === activeScreen.id,
-          )?.value;
+          const pendingReprompt = pendingByFileId.get(activeScreen.id);
+          const proposal = proposalsByFileId.get(activeScreen.id);
           if (pendingReprompt || proposal) {
             (screen.design as Record<string, unknown>).reprompt = {
               pending: pendingReprompt ?? null,

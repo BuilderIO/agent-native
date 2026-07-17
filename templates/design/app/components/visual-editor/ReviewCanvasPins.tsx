@@ -1,5 +1,6 @@
 import {
   buildReviewThreads,
+  callAction,
   ReviewCommentComposer,
   setClientAppState,
   useCreateReviewComment,
@@ -901,7 +902,11 @@ export function ReviewCanvasPins({
         setDraftComposerOpen(false);
         toast.success(t("designEditor.nodeRewrite.sent"));
       } catch (error) {
-        await setClientAppState(stateKey, null).catch(() => {});
+        await callAction("cancel-node-rewrite-request", {
+          designId: resourceId,
+          fileId: targetId,
+          repromptId,
+        }).catch(() => {});
         toast.error(
           error instanceof Error && error.message
             ? error.message

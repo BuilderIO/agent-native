@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
-  deleteAppState,
+  compareAndSetAppState,
   listAppState,
   readAppState,
 } from "@agent-native/core/application-state";
@@ -19,6 +19,7 @@ import {
   DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
   designRepromptPendingStateKey,
   designRepromptProposalStateKey,
+  isPendingDesignReprompt,
   spliceNodeRewriteVariant,
   type NodeHtmlPreviewBridgeMessage,
   type NodeRewriteProposal,
@@ -89,6 +90,7 @@ async function resolveProposal(proposalId: string): Promise<{
   const expectedKey = designRepromptProposalStateKey(
     proposal.designId,
     proposal.fileId,
+    proposal.repromptId,
   );
   if (match.key !== expectedKey) {
     throw new Error("Node rewrite proposal state is scoped to the wrong file.");
@@ -139,23 +141,23 @@ async function resolveEditableDesignFile(
 async function clearProposalState(
   proposalKey: string,
   proposal: NodeRewriteProposal,
+  pending: Record<string, unknown>,
 ): Promise<void> {
   const pendingKey = designRepromptPendingStateKey(
     proposal.designId,
     proposal.fileId,
   );
-  const [currentProposal, currentPending] = await Promise.all([
-    readAppState(proposalKey),
-    readAppState(pendingKey),
+  const [proposalCleared] = await Promise.all([
+    compareAndSetAppState(
+      proposalKey,
+      proposal as unknown as Record<string, unknown>,
+      null,
+    ),
+    compareAndSetAppState(pendingKey, pending, null),
   ]);
-  await Promise.all([
-    currentProposal?.proposalId === proposal.proposalId
-      ? deleteAppState(proposalKey)
-      : Promise.resolve(false),
-    currentPending?.repromptId === proposal.repromptId
-      ? deleteAppState(pendingKey)
-      : Promise.resolve(false),
-  ]);
+  if (!proposalCleared) {
+    throw new Error("Node rewrite proposal changed while it was resolving.");
+  }
 }
 
 export default defineAction({
@@ -171,6 +173,19 @@ export default defineAction({
   }),
   run: async ({ proposalId, resolution, variantIndex }) => {
     const { key: proposalKey, proposal } = await resolveProposal(proposalId);
+    const pendingKey = designRepromptPendingStateKey(
+      proposal.designId,
+      proposal.fileId,
+    );
+    const pending = await readAppState(pendingKey);
+    if (
+      !isPendingDesignReprompt(pending) ||
+      pending.repromptId !== proposal.repromptId
+    ) {
+      throw new Error(
+        "A newer regeneration request replaced this proposal. Review the latest candidates instead.",
+      );
+    }
     const restoreMessage: NodeHtmlPreviewBridgeMessage = {
       type: "node-html-preview",
       proposalId,
@@ -180,7 +195,7 @@ export default defineAction({
 
     if (resolution === "reject") {
       await assertAccess("design", proposal.designId, "editor");
-      await clearProposalState(proposalKey, proposal);
+      await clearProposalState(proposalKey, proposal, pending);
       return {
         proposalId,
         repromptId: proposal.repromptId,
@@ -225,7 +240,7 @@ export default defineAction({
       content: rewrite.content,
       expectedVersionHash: proposal.baseVersionHash,
     });
-    await clearProposalState(proposalKey, proposal);
+    await clearProposalState(proposalKey, proposal, pending);
 
     return {
       proposalId,

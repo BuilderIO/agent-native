@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createMutate: vi.fn(),
   replyMutate: vi.fn(),
   resolveMutate: vi.fn(),
+  callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
 }));
@@ -46,6 +47,7 @@ const comment = vi.hoisted(
 );
 
 vi.mock("@agent-native/core/client", () => ({
+  callAction: mocks.callAction,
   buildReviewThreads: (comments: ReviewComment[]) =>
     comments.map((root) => ({ root, replies: [] })),
   ReviewCommentComposer: (props: {
@@ -63,6 +65,11 @@ vi.mock("@agent-native/core/client", () => ({
         type="button"
         data-review-test-type
         onClick={() => props.onChange("Make the background darker")}
+      />
+      <button
+        type="button"
+        data-review-test-question
+        onClick={() => props.onChange("What is this section for?")}
       />
       <button
         type="button"
@@ -119,6 +126,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     mocks.createMutate.mockReset();
     mocks.replyMutate.mockReset();
     mocks.resolveMutate.mockReset();
+    mocks.callAction.mockClear();
     mocks.setClientAppState.mockClear();
     mocks.sendToAgent.mockClear();
     canvas = document.createElement("div");
@@ -571,5 +579,98 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       pinsBeforePreview.length - 1,
     );
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets composer-local mode when a reprompt replaces an open comment draft", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    const iframeDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: iframeDocument,
+    });
+    iframeDocument.body.innerHTML =
+      '<section data-agent-native-node-id="hero">Hero</section>';
+    iframe.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+        right: 800,
+        bottom: 600,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    Object.defineProperty(iframeDocument, "elementFromPoint", {
+      configurable: true,
+      value: () => iframeDocument.querySelector("[data-agent-native-node-id]"),
+    });
+    canvas.appendChild(iframe);
+
+    const renderPins = (repromptDraftRequest?: {
+      nonce: number;
+      fileId: string;
+      target: { nodeId: string; selector: string };
+    }) => (
+      <ReviewCanvasPins
+        active
+        onClose={vi.fn()}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId="screen-1"
+        canPost
+        canResolve
+        sourceType="inline"
+        sourceVersionHash="hash-1"
+        onDispatchCommentToAgent={vi.fn()}
+        repromptDraftRequest={repromptDraftRequest}
+      />
+    );
+
+    await act(async () => root.render(renderPins()));
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 200,
+            clientY: 180,
+          }),
+        );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-question]")
+        ?.click();
+    });
+    expect(document.body.textContent).toContain(
+      "designEditor.nodeRewrite.willAsk",
+    );
+
+    await act(async () => {
+      root.render(
+        renderPins({
+          nonce: 2,
+          fileId: "screen-1",
+          target: {
+            nodeId: "hero",
+            selector: '[data-agent-native-node-id="hero"]',
+          },
+        }),
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "designEditor.nodeRewrite.willPreview",
+    );
+    expect(document.body.textContent).toContain(
+      "designEditor.nodeRewrite.modeRegenerate",
+    );
   });
 });

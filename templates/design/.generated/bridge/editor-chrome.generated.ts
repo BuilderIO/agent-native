@@ -3534,6 +3534,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (/^<body(?:\\s|>)/i.test(trimmed)) {
         var parsedDocument = new DOMParser().parseFromString(
           "<!doctype html><html><head></head>" + trimmed + "</html>",
+          // i18n-ignore parser scaffold
           "text/html"
         );
         return parsedDocument.body;

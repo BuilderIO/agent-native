@@ -46,7 +46,19 @@ vi.mock("@agent-native/core/application-state", () => ({
       .filter(([key]) => key.startsWith(prefix))
       .map(([key, value]) => ({ key, value })),
   ),
-  deleteAppState: vi.fn(async (key: string) => mocks.state.delete(key)),
+  compareAndSetAppState: vi.fn(
+    async (
+      key: string,
+      expected: Record<string, unknown>,
+      next: Record<string, unknown> | null,
+    ) => {
+      const current = mocks.state.get(key);
+      if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+      if (next) mocks.state.set(key, next);
+      else mocks.state.delete(key);
+      return true;
+    },
+  ),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -130,7 +142,9 @@ describe("node rewrite propose/accept interleave", () => {
       ],
     });
     expect(
-      mocks.state.get(designRepromptProposalStateKey("design_1", "file_1")),
+      mocks.state.get(
+        designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+      ),
     ).toEqual(expect.objectContaining({ proposalId: proposed.proposalId }));
 
     mocks.live.content = mocks.initialContent.replace("Keep", "Human edit");
@@ -144,7 +158,9 @@ describe("node rewrite propose/accept interleave", () => {
     ).rejects.toThrow("Screen changed since proposal");
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(
-      mocks.state.has(designRepromptProposalStateKey("design_1", "file_1")),
+      mocks.state.has(
+        designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+      ),
     ).toBe(true);
     expect(
       mocks.state.has(designRepromptPendingStateKey("design_1", "file_1")),

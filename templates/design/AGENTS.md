@@ -272,11 +272,14 @@ patterns live in `.agents/skills/`.
   assignments and per-frame instructions consumed by `generate-design` and
   `view-screen`; not rendered as canvas overlays).
 - `design-reprompt-pending:<designId>:<fileId>` is the client-captured source
-  selection, instruction, and base hash for a scoped regenerate request.
-- `design-reprompt-proposal:<designId>:<fileId>` is the preview-only subtree
-  proposal. It is cleared with the pending request by `resolve-node-rewrite`.
-  `view-screen` lists unresolved proposals as `pendingCandidateReviews` so the
-  agent can tell the user which screens still need review.
+  selection, instruction, base hash, and authoritative current request id for
+  a scoped regenerate request.
+- `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` is one
+  request-specific preview-only subtree proposal. Candidate payloads have a
+  256 KiB aggregate serialized limit. Resolution and cancellation use atomic
+  compare-and-set cleanup so an older request cannot erase a newer one.
+  `view-screen` lists only proposals paired to the current pending request as
+  `pendingCandidateReviews`.
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
 - `guided-questions` may contain a one-click chat choice for the current

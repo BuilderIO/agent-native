@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => {
     selectChain,
     listAppState: vi.fn(),
     readAppState: vi.fn(),
-    deleteAppState: vi.fn(),
+    compareAndSetAppState: vi.fn(),
     readLiveSourceFile: vi.fn(),
     writeInlineSourceFile: vi.fn(),
     assertAccess: vi.fn(),
@@ -38,9 +38,9 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: mocks.compareAndSetAppState,
   listAppState: mocks.listAppState,
   readAppState: mocks.readAppState,
-  deleteAppState: mocks.deleteAppState,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -112,16 +112,20 @@ describe("resolve-node-rewrite", () => {
     mocks.selectChain.limit.mockResolvedValue([mocks.file]);
     mocks.listAppState.mockResolvedValue([
       {
-        key: designRepromptProposalStateKey("design_1", "file_1"),
+        key: designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
         value: proposal(),
       },
     ]);
-    mocks.readAppState.mockImplementation(async (key: string) =>
-      key === designRepromptProposalStateKey("design_1", "file_1")
-        ? proposal()
-        : { repromptId: "reprompt_1" },
-    );
-    mocks.deleteAppState.mockResolvedValue(true);
+    mocks.readAppState.mockResolvedValue({
+      repromptId: "reprompt_1",
+      designId: "design_1",
+      fileId: "file_1",
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      instruction: "Make it darker",
+      createdAt: "2026-07-16T00:00:00.000Z",
+    });
+    mocks.compareAndSetAppState.mockResolvedValue(true);
     mocks.readLiveSourceFile.mockResolvedValue({
       content: mocks.file.content,
       versionHash: "hash_base",
@@ -165,12 +169,16 @@ describe("resolve-node-rewrite", () => {
         versionHash: "hash_next",
       }),
     );
-    expect(mocks.deleteAppState).toHaveBeenCalledTimes(2);
-    expect(mocks.deleteAppState).toHaveBeenCalledWith(
-      designRepromptProposalStateKey("design_1", "file_1"),
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+      proposal(),
+      null,
     );
-    expect(mocks.deleteAppState).toHaveBeenCalledWith(
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       designRepromptPendingStateKey("design_1", "file_1"),
+      expect.objectContaining({ repromptId: "reprompt_1" }),
+      null,
     );
   });
 
@@ -182,7 +190,7 @@ describe("resolve-node-rewrite", () => {
 
     expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
-    expect(mocks.deleteAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
     expect(result).toEqual(
       expect.objectContaining({
         resolution: "reject",
@@ -197,22 +205,21 @@ describe("resolve-node-rewrite", () => {
     );
   });
 
-  it("preserves a newer pending refinement while resolving the visible proposal", async () => {
-    const pendingKey = designRepromptPendingStateKey("design_1", "file_1");
-    mocks.readAppState.mockImplementation(async (key: string) =>
-      key === pendingKey ? { repromptId: "reprompt_2" } : proposal(),
-    );
-
-    await action.run({
-      proposalId: "proposal_1",
-      resolution: "reject",
+  it("refuses to resolve a proposal superseded by a newer request", async () => {
+    mocks.readAppState.mockResolvedValue({
+      repromptId: "reprompt_2",
+      designId: "design_1",
+      fileId: "file_1",
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      instruction: "Make it warmer",
+      createdAt: "2026-07-16T00:03:00.000Z",
     });
 
-    expect(mocks.deleteAppState).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteAppState).toHaveBeenCalledWith(
-      designRepromptProposalStateKey("design_1", "file_1"),
-    );
-    expect(mocks.deleteAppState).not.toHaveBeenCalledWith(pendingKey);
+    await expect(
+      action.run({ proposalId: "proposal_1", resolution: "reject" }),
+    ).rejects.toThrow("newer regeneration request");
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("fails closed on a version mismatch and leaves proposal state intact", async () => {
@@ -226,7 +233,7 @@ describe("resolve-node-rewrite", () => {
       action.run({ proposalId: "proposal_1", resolution: "accept" }),
     ).rejects.toThrow("Screen changed since proposal");
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
-    expect(mocks.deleteAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("does not clear state when the chosen variant index is invalid", async () => {
@@ -238,6 +245,6 @@ describe("resolve-node-rewrite", () => {
       }),
     ).rejects.toThrow("out of range");
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
-    expect(mocks.deleteAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 });

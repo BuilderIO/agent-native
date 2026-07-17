@@ -6,13 +6,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  readClientAppState: vi.fn(),
+  callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
   sendToAgent: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client", () => ({
-  readClientAppState: mocks.readClientAppState,
+  callAction: mocks.callAction,
   setClientAppState: mocks.setClientAppState,
   useActionMutation: () => ({
     isPending: false,
@@ -95,7 +95,7 @@ describe("NodeRewriteProposal overview positioning", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
-    mocks.readClientAppState.mockReset();
+    mocks.callAction.mockClear();
     mocks.setClientAppState.mockClear();
     mocks.sendToAgent.mockReset();
     proposalSnapshot = {
@@ -115,7 +115,6 @@ describe("NodeRewriteProposal overview positioning", () => {
       chosenIndex: 0,
       createdAt: "2026-07-16T00:00:00.000Z",
     };
-    mocks.readClientAppState.mockResolvedValue(proposalSnapshot);
 
     transformedCanvas = document.createElement("div");
     transformedCanvas.className = "proposal-test-canvas";
@@ -163,7 +162,6 @@ describe("NodeRewriteProposal overview positioning", () => {
       '[data-node-rewrite-proposal="proposal-1"]',
     );
     expect(proposalBeforePreview).not.toBeNull();
-    expect(mocks.readClientAppState).not.toHaveBeenCalled();
 
     await act(async () => {
       window.dispatchEvent(
@@ -198,9 +196,6 @@ describe("NodeRewriteProposal overview positioning", () => {
     mocks.sendToAgent.mockResolvedValue({
       delivered: false,
       reason: "offline",
-    });
-    mocks.readClientAppState.mockResolvedValue({
-      repromptId: "newer-reprompt",
     });
     await act(async () => {
       root.render(
@@ -240,6 +235,13 @@ describe("NodeRewriteProposal overview positioning", () => {
     expect(mocks.setClientAppState).not.toHaveBeenCalledWith(
       "design-reprompt-pending:design-1:screen-1",
       null,
+    );
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "cancel-node-rewrite-request",
+      expect.objectContaining({
+        designId: "design-1",
+        fileId: "screen-1",
+      }),
     );
   });
 

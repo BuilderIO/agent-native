@@ -1,5 +1,5 @@
 import {
-  readClientAppState,
+  callAction,
   setClientAppState,
   useActionMutation,
   useChangeVersion,
@@ -7,7 +7,6 @@ import {
 } from "@agent-native/core/client";
 import {
   designRepromptPendingStateKey,
-  designRepromptProposalStateKey,
   isNodeRewriteProposal,
   type NodeHtmlPreviewBridgeMessage,
   type NodeRewriteProposal,
@@ -191,11 +190,6 @@ export function NodeRewriteProposal({
   const [proposalPopoverSize, setProposalPopoverSize] = useState(
     DEFAULT_PROPOSAL_POPOVER_SIZE,
   );
-  const stateKey = useMemo(
-    () => designRepromptProposalStateKey(designId, fileId),
-    [designId, fileId],
-  );
-
   const getCanvas = useCallback(
     () => document.querySelector<HTMLElement>(canvasSelector), // i18n-ignore DOM query
     [canvasSelector],
@@ -268,18 +262,8 @@ export function NodeRewriteProposal({
     if (!active) return;
     if (proposalSnapshot !== undefined) {
       syncProposal(proposalSnapshot);
-      return;
     }
-    let cancelled = false;
-    void readClientAppState(stateKey)
-      .then((value) => {
-        if (!cancelled) syncProposal(value);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [active, appStateVersion, proposalSnapshot, stateKey, syncProposal]);
+  }, [active, appStateVersion, proposalSnapshot, syncProposal]);
 
   useEffect(() => {
     if (!active || !proposal) return;
@@ -451,6 +435,8 @@ export function NodeRewriteProposal({
       baseVersionHash: proposal.baseVersionHash,
       instruction,
       createdAt: new Date().toISOString(),
+      priorProposalId: proposal.proposalId,
+      priorRepromptId: proposal.repromptId,
     };
     setRefining(true);
     try {
@@ -474,12 +460,11 @@ export function NodeRewriteProposal({
       setRefinement("");
       toast.success(t("designEditor.nodeRewrite.refinementSent"));
     } catch (error) {
-      const currentPending = await readClientAppState<{
-        repromptId?: unknown;
-      }>(pendingKey).catch(() => null);
-      if (currentPending?.repromptId === repromptId) {
-        await setClientAppState(pendingKey, null).catch(() => {});
-      }
+      await callAction("cancel-node-rewrite-request", {
+        designId,
+        fileId,
+        repromptId,
+      }).catch(() => {});
       toast.error(
         error instanceof Error && error.message
           ? error.message

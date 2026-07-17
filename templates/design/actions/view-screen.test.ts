@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
       select: vi.fn(() => selectChain),
     })),
     parseCanvasFrameGeometryById: vi.fn((value) => value ?? []),
+    listAppState: vi.fn(),
     readAppState: vi.fn(),
     readAppStateForCurrentTab: vi.fn(),
     resolveAccess: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@agent-native/core/application-state", () => ({
+  listAppState: mocks.listAppState,
   readAppState: mocks.readAppState,
   readAppStateForCurrentTab: mocks.readAppStateForCurrentTab,
 }));
@@ -85,6 +87,7 @@ import action from "./view-screen.js";
 
 describe("view-screen", () => {
   beforeEach(() => {
+    mocks.listAppState.mockReset();
     mocks.readAppState.mockReset();
     mocks.readAppStateForCurrentTab.mockReset();
     mocks.resolveAccess.mockReset();
@@ -100,6 +103,7 @@ describe("view-screen", () => {
       },
     });
     mocks.readAppState.mockResolvedValue(undefined);
+    mocks.listAppState.mockResolvedValue([]);
     mocks.getReviewStatus.mockResolvedValue(null);
     mocks.getReviewThreadSummary.mockResolvedValue({
       openCount: 0,
@@ -169,25 +173,43 @@ describe("view-screen", () => {
         updatedAt: "2026-06-29T00:00:00.000Z",
       },
     ]);
-    mocks.readAppState.mockImplementation(async (key: string) =>
-      key === "design-reprompt-proposal:design_123:file_checkout"
-        ? {
-            proposalId: "proposal-1",
-            repromptId: "reprompt-1",
-            designId: "design_123",
-            fileId: "file_checkout",
-            filename: "checkout.html",
-            baseVersionHash: "1:abc",
-            target: { nodeId: "hero" },
-            resolvedTarget: { nodeId: "hero", selector: "#hero" },
-            variants: [
-              { html: "<section>One</section>", summary: "One" },
-              { html: "<section>Two</section>", summary: "Two" },
-            ],
-            chosenIndex: 0,
-            createdAt: "2026-07-16T12:00:00.000Z",
-          }
-        : undefined,
+    mocks.listAppState.mockImplementation(async (prefix: string) =>
+      prefix === "design-reprompt-pending:design_123:"
+        ? [
+            {
+              key: "design-reprompt-pending:design_123:file_checkout",
+              value: {
+                repromptId: "reprompt-1",
+                designId: "design_123",
+                fileId: "file_checkout",
+                target: { nodeId: "hero" },
+                baseVersionHash: "1:abc",
+                instruction: "Improve the hero",
+                createdAt: "2026-07-16T11:59:00.000Z",
+              },
+            },
+          ]
+        : [
+            {
+              key: "design-reprompt-proposal:design_123:file_checkout:reprompt-1",
+              value: {
+                proposalId: "proposal-1",
+                repromptId: "reprompt-1",
+                designId: "design_123",
+                fileId: "file_checkout",
+                filename: "checkout.html",
+                baseVersionHash: "1:abc",
+                target: { nodeId: "hero" },
+                resolvedTarget: { nodeId: "hero", selector: "#hero" },
+                variants: [
+                  { html: "<section>One</section>", summary: "One" },
+                  { html: "<section>Two</section>", summary: "Two" },
+                ],
+                chosenIndex: 0,
+                createdAt: "2026-07-16T12:00:00.000Z",
+              },
+            },
+          ],
     );
 
     const result = JSON.parse(await action.run({}));
@@ -206,6 +228,18 @@ describe("view-screen", () => {
     expect(JSON.stringify(result.design.pendingCandidateReviews)).not.toContain(
       "<section>",
     );
+    expect(mocks.listAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.listAppState).toHaveBeenCalledWith(
+      "design-reprompt-proposal:design_123:",
+    );
+    expect(mocks.listAppState).toHaveBeenCalledWith(
+      "design-reprompt-pending:design_123:",
+    );
+    expect(
+      mocks.readAppState.mock.calls.some(([key]) =>
+        String(key).startsWith("design-reprompt-proposal:"),
+      ),
+    ).toBe(false);
   });
 
   it("uses selected overview screen ids when no focused file is available", async () => {

@@ -10,6 +10,7 @@ import { annotateScreenHtmlForPersist } from "./screen-annotation.js";
 export const DESIGN_REPROMPT_PENDING_STATE_PREFIX = "design-reprompt-pending:";
 export const DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX =
   "design-reprompt-proposal:";
+export const MAX_NODE_REWRITE_PROPOSAL_BYTES = 256 * 1024;
 
 export type NodeRewriteTarget = EditIntentTarget;
 
@@ -21,6 +22,8 @@ export interface PendingDesignReprompt {
   baseVersionHash: string;
   instruction: string;
   createdAt: string;
+  priorProposalId?: string;
+  priorRepromptId?: string;
 }
 
 export interface NodeRewriteVariant {
@@ -60,6 +63,22 @@ export function isNodeRewriteProposal(
   );
 }
 
+export function isPendingDesignReprompt(
+  value: unknown,
+): value is PendingDesignReprompt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const pending = value as Partial<PendingDesignReprompt>;
+  return (
+    typeof pending.repromptId === "string" &&
+    typeof pending.designId === "string" &&
+    typeof pending.fileId === "string" &&
+    typeof pending.baseVersionHash === "string" &&
+    typeof pending.instruction === "string" &&
+    typeof pending.createdAt === "string" &&
+    Boolean(pending.target)
+  );
+}
+
 export interface NodeHtmlPreviewBridgeMessage {
   type: "node-html-preview";
   proposalId: string;
@@ -78,8 +97,16 @@ export function designRepromptPendingStateKey(
 export function designRepromptProposalStateKey(
   designId: string,
   fileId: string,
+  repromptId: string,
 ): string {
-  return `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:${fileId}`;
+  return `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:${fileId}:${repromptId}`;
+}
+
+export function designRepromptProposalStatePrefix(
+  designId: string,
+  fileId?: string,
+): string {
+  return `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:${fileId ? `${fileId}:` : ""}`;
 }
 
 function assertSingleElementFragment(

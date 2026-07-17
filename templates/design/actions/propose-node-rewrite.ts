@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
+  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -17,6 +18,7 @@ import type { CodeLayerSource } from "../shared/code-layer.js";
 import {
   designRepromptPendingStateKey,
   designRepromptProposalStateKey,
+  MAX_NODE_REWRITE_PROPOSAL_BYTES,
   resolveNodeRewriteTarget,
   validateNodeRewriteVariant,
   type NodeHtmlPreviewBridgeMessage,
@@ -73,6 +75,8 @@ const pendingRepromptSchema = z.object({
   baseVersionHash: z.string().min(1),
   instruction: z.string(),
   createdAt: z.string(),
+  priorProposalId: z.string().min(1).optional(),
+  priorRepromptId: z.string().min(1).optional(),
 });
 
 interface EditableDesignFile extends SourceWorkspaceFile {
@@ -223,10 +227,46 @@ export default defineAction({
       chosenIndex: 0,
       createdAt: new Date().toISOString(),
     };
+    const serializedProposal = JSON.stringify(proposal);
+    if (
+      Buffer.byteLength(serializedProposal, "utf8") >
+      MAX_NODE_REWRITE_PROPOSAL_BYTES
+    ) {
+      throw new Error(
+        "Generated candidates are too large to preview safely. Use fewer variants or regenerate a smaller selected subtree.",
+      );
+    }
+    const proposalKey = designRepromptProposalStateKey(
+      file.designId,
+      file.id,
+      repromptId,
+    );
     await writeAppState(
-      designRepromptProposalStateKey(file.designId, file.id),
+      proposalKey,
       proposal as unknown as Record<string, unknown>,
     );
+    const currentPending = await readAppState(pendingKey);
+    if (currentPending?.repromptId !== repromptId) {
+      await compareAndSetAppState(
+        proposalKey,
+        proposal as unknown as Record<string, unknown>,
+        null,
+      );
+      throw new Error(
+        "This regeneration was superseded by a newer request before its candidates were published.",
+      );
+    }
+    if (pending.priorProposalId && pending.priorRepromptId) {
+      const priorProposalKey = designRepromptProposalStateKey(
+        file.designId,
+        file.id,
+        pending.priorRepromptId,
+      );
+      const priorProposal = await readAppState(priorProposalKey);
+      if (priorProposal?.proposalId === pending.priorProposalId) {
+        await compareAndSetAppState(priorProposalKey, priorProposal, null);
+      }
+    }
 
     const bridgeMessages: NodeHtmlPreviewBridgeMessage[] = [
       {

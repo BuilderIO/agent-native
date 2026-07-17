@@ -95,8 +95,10 @@ import {
   upsertMotionKeyframeAtTime,
 } from "@shared/motion-timeline";
 import {
+  designRepromptPendingStateKey,
   designRepromptProposalStateKey,
   isNodeRewriteProposal,
+  isPendingDesignReprompt,
   type NodeRewriteProposal,
 } from "@shared/node-rewrite";
 import {
@@ -4870,11 +4872,24 @@ function DesignEditor() {
     }
     let cancelled = false;
     void Promise.all(
-      proposalFileIds.map((fileId) =>
-        readClientAppState(designRepromptProposalStateKey(id, fileId)).catch(
-          () => null,
-        ),
-      ),
+      proposalFileIds.map(async (fileId) => {
+        const pending = await readClientAppState(
+          designRepromptPendingStateKey(id, fileId),
+        ).catch(() => null);
+        if (!isPendingDesignReprompt(pending)) return null;
+        const current = await readClientAppState(
+          designRepromptProposalStateKey(id, fileId, pending.repromptId),
+        ).catch(() => null);
+        if (isNodeRewriteProposal(current)) return current;
+        if (!pending.priorProposalId || !pending.priorRepromptId) return null;
+        const prior = await readClientAppState(
+          designRepromptProposalStateKey(id, fileId, pending.priorRepromptId),
+        ).catch(() => null);
+        return isNodeRewriteProposal(prior) &&
+          prior.proposalId === pending.priorProposalId
+          ? prior
+          : null;
+      }),
     ).then((values) => {
       if (cancelled) return;
       setPendingNodeRewriteProposals(

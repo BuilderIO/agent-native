@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     readLiveSourceFile: vi.fn(),
     readAppState: vi.fn(),
     writeAppState: vi.fn(),
+    compareAndSetAppState: vi.fn(),
     assertAccess: vi.fn(),
     nanoid: vi.fn(),
   };
@@ -37,6 +38,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: mocks.compareAndSetAppState,
   readAppState: mocks.readAppState,
   writeAppState: mocks.writeAppState,
 }));
@@ -101,15 +103,16 @@ describe("propose-node-rewrite", () => {
       createdAt: "2026-07-16T00:00:00.000Z",
     });
     mocks.nanoid.mockReturnValue("proposal_1");
+    mocks.compareAndSetAppState.mockResolvedValue(true);
   });
 
   it("uses client-valid per-design and per-file application-state keys", () => {
     expect(designRepromptPendingStateKey("design_1", "file_1")).toBe(
       "design-reprompt-pending:design_1:file_1",
     );
-    expect(designRepromptProposalStateKey("design_1", "file_1")).toBe(
-      "design-reprompt-proposal:design_1:file_1",
-    );
+    expect(
+      designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+    ).toBe("design-reprompt-proposal:design_1:file_1:reprompt_1");
   });
 
   it("requires a scoped source, target, base hash, and one to three variants", () => {
@@ -153,7 +156,7 @@ describe("propose-node-rewrite", () => {
       designRepromptPendingStateKey("design_1", "file_1"),
     );
     expect(mocks.writeAppState).toHaveBeenCalledWith(
-      designRepromptProposalStateKey("design_1", "file_1"),
+      designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
       expect.objectContaining({
         proposalId: "node-rewrite-proposal_1",
         repromptId: "reprompt_1",
@@ -221,5 +224,60 @@ describe("propose-node-rewrite", () => {
       }),
     ).rejects.toThrow("exactly one root element");
     expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("rejects candidate payloads above the bounded application-state budget", async () => {
+    const largeText = "界".repeat(90_000);
+
+    await expect(
+      action.run({
+        source: { fileId: "file_1" },
+        target,
+        baseVersionHash: "hash_base",
+        repromptId: "reprompt_1",
+        variants: [
+          {
+            html: `<section>${largeText}</section>`,
+            summary: "Large candidate",
+          },
+        ],
+      }),
+    ).rejects.toThrow("too large to preview safely");
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("removes stale candidates when a newer request wins during proposal creation", async () => {
+    const firstPending = await mocks.readAppState();
+    mocks.readAppState
+      .mockReset()
+      .mockResolvedValueOnce(firstPending)
+      .mockResolvedValueOnce({ ...firstPending, repromptId: "reprompt_2" });
+
+    await expect(
+      action.run({
+        source: { fileId: "file_1" },
+        target,
+        baseVersionHash: "hash_base",
+        repromptId: "reprompt_1",
+        variants: [
+          { html: "<section>Changed</section>", summary: "Changed hero" },
+        ],
+      }),
+    ).rejects.toThrow("superseded by a newer request");
+
+    const proposalKey = designRepromptProposalStateKey(
+      "design_1",
+      "file_1",
+      "reprompt_1",
+    );
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      proposalKey,
+      expect.objectContaining({ repromptId: "reprompt_1" }),
+    );
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      proposalKey,
+      expect.objectContaining({ repromptId: "reprompt_1" }),
+      null,
+    );
   });
 });
