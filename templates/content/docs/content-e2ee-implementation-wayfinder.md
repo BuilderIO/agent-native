@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, and the first deployed adversarial proofs are implemented; E2EE runtime milestones remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, and the opaque hosted ciphertext plane have deployed adversarial proof; the broker and product slice remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -140,17 +140,17 @@ The fork therefore needs:
 
 The first isolated integration environment is operational:
 
-| Surface             | Current fork-lab state                                                                                                                                                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Repository          | `3mdistal/agent-native`, development branch `codex/content-e2ee-foundation`; implementation commit `9f08dfce3` includes the Vercel auth cold-start readiness fix                                                                     |
-| Vercel              | Project `agent-native-content-e2ee-lab` (`prj_wO5idRekc7toiCNQuHXH2zxawCvp`), connected to the fork, Node 24, root directory `templates/content`, explicit build command `NITRO_PRESET=vercel AGENT_NATIVE_MODE=database pnpm build` |
-| Stable URL          | `https://agent-native-content-e2ee-lab.vercel.app`                                                                                                                                                                                   |
-| Verified deployment | Production deployment `dpl_CYYgExwSuUtoAdjDJSe1CyKCCSZF`; the stable alias served the final artifact                                                                                                                                 |
-| Git deployment      | Preview deployment `dpl_GjAC7ML18wzphGqbkrygXB969ETj` cloned fork commit `9f08dfc`, ran the configured monorepo build on Vercel Linux/x64, bundled ffmpeg, and reached Ready                                                         |
-| Neon                | Fork-only Neon project `curly-grass-81173036`, Vercel Marketplace resource `store_6SY2k3ZIus8VEFka`, region `iad1`, connected to production, preview, and development environments                                                   |
-| Private blob        | Fork-only Vercel Blob store `content-e2ee-private` (`store_eaA1h4cPWgMjvRFM`), private access, region `iad1`, connected to production, preview, and development environments                                                         |
-| Runtime secrets     | Independent generated values for Better Auth, scoped-secret encryption, and A2A in each environment; values were never copied into source or documentation                                                                           |
-| Runtime mode        | Database mode with Neon-backed migrations and content-free health reporting; serverless ffmpeg target pinned to `x64` for Vercel-hosted builds                                                                                       |
+| Surface             | Current fork-lab state                                                                                                                                                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository          | `3mdistal/agent-native`, development branch `codex/content-e2ee-foundation`; clean source commit `2ce59e4ed` includes the universal protected execution seam, opaque hosted plane, authenticated retention scheduler path, and migration/provider cold-start barrier             |
+| Vercel              | Project `agent-native-content-e2ee-lab` (`prj_wO5idRekc7toiCNQuHXH2zxawCvp`), connected to the fork, Node 24, root directory `templates/content`, explicit build command `NITRO_PRESET=vercel AGENT_NATIVE_MODE=database pnpm build`                                             |
+| Stable URL          | `https://agent-native-content-e2ee-lab.vercel.app`; verified custom lab domain `https://content-e2ee-lab.bwrb.dev`                                                                                                                                                               |
+| Verified deployment | Production deployment `dpl_5xzAPSNsRXpeLCmesHnw4Re94rP6` serves the stable aliases and passed the authenticated retention-scheduler proof. It contains the temporary content-free auth diagnostic used to isolate the outer-session-guard fault; clean source is already pushed. |
+| Git deployment      | Exact-archive preview `dpl_CXwENm12JVfBrwpdM9wuJ4LWEHbn` built commit `15b67184f` on Vercel Linux/x64 and reached Ready; its cold start bound the intended protected-ciphertext generation digest in Neon                                                                        |
+| Neon                | Fork-only Neon project `curly-grass-81173036`, Vercel Marketplace resource `store_6SY2k3ZIus8VEFka`, region `iad1`, connected to production, preview, and development environments                                                                                               |
+| Private blob        | Fork-only Vercel Blob store `content-e2ee-private` (`store_eaA1h4cPWgMjvRFM`), private access, region `iad1`, connected to production, preview, and development environments                                                                                                     |
+| Runtime secrets     | Independent generated values for Better Auth, scoped-secret encryption, and A2A in each environment; values were never copied into source or documentation                                                                                                                       |
+| Runtime mode        | Database mode with Neon-backed migrations and content-free health reporting; serverless ffmpeg target pinned to `x64` for Vercel-hosted builds                                                                                                                                   |
 
 The deployed smoke and isolation proof passed:
 
@@ -162,12 +162,51 @@ The deployed smoke and isolation proof passed:
 - A disposable private-blob probe returned `403` to an anonymous direct URL read, round-tripped byte-for-byte through an authenticated read, and returned not found to an authenticated read after deletion. The probe object was deleted; only status and digest evidence were retained.
 - `AUTH_SKIP_EMAIL_VERIFICATION` was enabled only long enough to create the synthetic QA accounts, then removed before the final deployment. It is absent from the settled production environment.
 
+The PR 4 hosted-plane proof also passed against exact-archive preview
+`dpl_FgSamYDVK92FtemyammmUBW3wqKD`:
+
+- The first health request waited for migrations v73-v78 and the immutable
+  provider binding before returning `200`. An earlier rehearsal deployment
+  exposed the opposite ordering as a fatal cold-start race; the shared
+  migration barrier fixed that reproduced failure, and the corrected runtime
+  emitted no fatal or error log entries.
+- A disposable authenticated account and synthetic vault uploaded 106 bytes
+  produced locally with the frozen `anc/v1` XChaCha20-Poly1305 wrapper. The
+  hosted response returned content-free metadata only; a later GET returned
+  byte-identical ciphertext, the local client decrypted the original private
+  sentinel, and the ciphertext itself did not contain the sentinel.
+- A bounded scan covered 19 relevant Neon tables and 54 rows: every
+  `content_encrypted_vault_*` table plus `agent_audit_log`,
+  `application_state`, `resources`, and `settings`. Neither the private
+  plaintext sentinel nor the local key appeared. The six runtime log entries
+  for registration, login, session, health, upload, and download also contained
+  neither value and had zero fatal/error entries.
+- Deletion changed the object to its terminal state and transactionally queued
+  retention. After evidence capture, the Blob object was absent and the lab was
+  asserted to contain only the disposable vault before nine scoped synthetic
+  hosted rows and the no-longer-referenced binding were removed. A fresh
+  target-specific deployment then recreated exactly one binding whose digest
+  matched the one-use local generation value without printing that value.
+- The platform retention route initially returned `401` before reaching its own
+  bearer check because Content's global user-session guard covered every
+  `/api/*` route. The settled auth configuration exempts only the exact
+  `/api/private-vault/retention/run` path; the broader Private Vault prefix
+  remains session-protected. No bearer and a wrong bearer both returned `401`.
+  The one-use 256-bit bearer returned `200`, `Cache-Control: no-store`, and only
+  zero-valued cleanup counts. Vercel's platform cron runner then invoked the
+  same exact production deployment and its runtime log recorded `200` at
+  `2026-07-17T01:11:10.371Z`.
+
 This proves the fork lab, authentication, Neon persistence, and the exercised document read boundary. It does **not** prove E2EE, privileged-operator blindness, every Content resource type, or complete cross-user isolation. The existing F3/F4 matrix and adversarial suite remain mandatory.
 
 Open lab gaps before E2EE milestone PR 3:
 
 - Connect a synthetic-only agent engine; the current status endpoint reports `configured: false`, so document storage/auth can be tested but agent runs cannot yet be included in the lab evidence.
-- Provision a fork-owned scheduler target before queue or background-run assertions are claimed. The private blob target is provisioned and its basic access/deletion behavior is proven, but Content media must still route through document-scoped handles before revocation is claimed.
+- The fork-owned scheduler is registered for
+  `/api/private-vault/retention/run` at `0 3 * * *` UTC and has an authenticated
+  production invocation. The clean source commit that removes the temporary
+  content-free diagnostic is waiting only for Vercel's 100-deploy Hobby API
+  limit to reset; it does not change the proven auth or retention behavior.
 - Triage the remaining 79 non-strict `agent-native doctor` findings emitted by the Content build. The three findings introduced by the opaque hosted plane are explicitly resolved; the older findings are still a separate noisy-build gap and must not be mistaken for a clean security signal.
 
 ### Exact-SHA upstream handoff
@@ -366,20 +405,26 @@ write immutable Blob -> atomically commit hosted metadata plus the stage
   `AGENT_NATIVE_PROTECTED_CIPHERTEXT_STORAGE_GENERATION`; its one-way digest is
   pinned in SQL and startup refuses a later provider/generation mismatch.
   `CRON_SECRET` (or the manual-run fallback
-  `CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET`) is also required. The fork's
+  `CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET`) is also required. A one-way
+  `CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256` verifier can be pinned
+  when the scheduler and runtime receive deployment credentials through
+  separate platform paths; a malformed verifier fails closed. The fork's
   `vercel.json` invokes `/api/private-vault/retention/run` daily at 03:00 UTC,
   while a warm process also attempts six-hour sweeps. The daily durable trigger
   is compatible with Vercel Hobby limits and remains comfortably inside the
   seven-day contractual maximum.
 
 Focused evidence: 474 Core execution/transport/sink tests passed in the PR4
-gate; 137 Content relay, client, route, staging, retention, migration, and
-hosted-record tests passed. The Content gate includes real temporary-SQLite
+gate; the post-review private-vault regression rerun passed 115 tests across 18
+files, with the earlier full Content PR4 gate passing 137 relay, client, route,
+staging, retention, migration, and hosted-record tests. The Content gate includes real temporary-SQLite
 tests proving that a janitor-owned stage rolls object/job metadata back and a
 writer-owned stage commits metadata plus its tombstone atomically. Core build,
-Content typecheck, and diff validation passed. The deployed fork
-SQL/Blob/event/audit/log dump remains the final PR4 exit proof before PR5
-starts.
+Content typecheck, and diff validation passed. The deployed synthetic
+SQL/Blob/event/audit/log dump contains neither the protected plaintext sentinel
+nor the local key, and the route/tool inventory exposes no hosted decrypt API.
+The authenticated production cron invocation described above closes the final
+PR4 operational gate; PR5 may now proceed.
 
 Estimated size: 25–45 files; 3–4 engineer-weeks. Core changes require a changeset.
 
