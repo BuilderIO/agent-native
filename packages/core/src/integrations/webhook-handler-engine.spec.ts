@@ -680,6 +680,8 @@ describe("integration webhook handler engine resolution", () => {
         status: "delivery-pending",
         payload: {
           kind: "response-delivery",
+          userMessageId: expect.any(String),
+          assistantMessageId: expect.any(String),
           deliveryReceipt: {
             status: "delivered",
             messageRefs: ["provider-reply-1"],
@@ -691,6 +693,91 @@ describe("integration webhook handler engine resolution", () => {
       expect(updateThreadDataMock).not.toHaveBeenCalled();
     },
   );
+
+  it(
+    "retains stable history identity when a confirmed delivery history write fails",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "Updated /page/request_123" });
+      });
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["provider-reply-history"],
+      }));
+      updateThreadDataMock.mockRejectedValueOnce(
+        new Error("history database response lost"),
+      );
+
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          deliveryReceipt: {
+            status: "delivered",
+            messageRefs: ["provider-reply-history"],
+          },
+          userMessageId: expect.stringContaining("integration-fake:thread-qa"),
+          assistantMessageId: expect.stringContaining(
+            "integration-fake:thread-qa",
+          ),
+        },
+        errorMessage: "Integration response history checkpoint failed",
+      });
+      expect(sendResponse).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains a confirmed budget-limit receipt when checkpointing fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    listIntegrationUsageBudgetsMock.mockResolvedValue([
+      { id: "budget-org", subjectType: "org", subjectId: "org-qa" },
+    ]);
+    reserveIntegrationUsageBudgetMock.mockResolvedValueOnce({
+      allowed: false,
+      status: "exhausted",
+    });
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["budget-limit-reply"],
+    }));
+    stageTaskDeliveryPayloadMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("budget receipt checkpoint failed"));
+
+    const result = await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(result).toMatchObject({
+      status: "delivery-pending",
+      payload: {
+        deliveryReceipt: {
+          status: "delivered",
+          messageRefs: ["budget-limit-reply"],
+        },
+      },
+      errorMessage: "budget receipt checkpoint failed",
+    });
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
 
   it("records a confirmed delivery retry as participant-visible context", async () => {
     const { recordIntegrationResponseDelivery } =
@@ -788,6 +875,95 @@ describe("integration webhook handler engine resolution", () => {
     expect(persisted.messages[1].metadata.integrationDelivery.status).toBe(
       "delivered",
     );
+  });
+
+  it("reuses deterministic reconstructed history IDs across delivery retries", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    const payload = {
+      kind: "response-delivery" as const,
+      incoming: {
+        platform: "slack",
+        externalThreadId: "slack-thread",
+        text: "Update the same Design Ask",
+        platformContext: { messageTs: "1001.0001" },
+        timestamp: 1001,
+      },
+      message: {
+        text: "Updated /page/request_123",
+        platformContext: {},
+      },
+      internalThreadId: "thread-qa",
+    };
+    const receipt = {
+      status: "delivered" as const,
+      messageRefs: ["slack-reply-stable"],
+    };
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(payload, receipt);
+    const firstPersisted = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1],
+    );
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: JSON.stringify(firstPersisted),
+    });
+
+    await recordIntegrationResponseDelivery(payload, receipt);
+    const secondPersisted = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1],
+    );
+
+    expect(secondPersisted.messages).toHaveLength(2);
+    expect(secondPersisted.messages.map((message: any) => message.id)).toEqual(
+      firstPersisted.messages.map((message: any) => message.id),
+    );
+  });
+
+  it("reconstructs the exact staged history IDs when the original write did not commit", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update the same Design Ask",
+          platformContext: { messageTs: "1001.0001" },
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        userMessageId: "staged-user-id",
+        assistantMessageId: "staged-assistant-id",
+      },
+      {
+        status: "delivered",
+        messageRefs: ["slack-reply-staged"],
+      },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.map((message: any) => message.id)).toEqual([
+      "staged-user-id",
+      "staged-assistant-id",
+    ]);
   });
 
   it(

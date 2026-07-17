@@ -409,7 +409,7 @@ export async function failTaskDeliveryTransition(
   await ensureTable();
   await getDbExec().execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, error_message = ?, payload = ?, external_event_key = NULL
+          SET status = ?, updated_at = ?, error_message = ?, payload = ?
           WHERE id = ? AND status = 'processing'`,
     args: ["failed", Date.now(), errorMessage.slice(0, 2000), "{}", id],
   });

@@ -148,6 +148,17 @@ function buildEventDedupKey(incoming: IncomingMessage): string {
   return `${incoming.platform}:${incoming.externalThreadId}:${eventReference}`;
 }
 
+function buildDeliveryHistoryMessageIds(incoming: IncomingMessage): {
+  userMessageId: string;
+  assistantMessageId: string;
+} {
+  const eventKey = buildEventDedupKey(incoming);
+  return {
+    userMessageId: `integration-${eventKey}-user`,
+    assistantMessageId: `integration-${eventKey}-assistant`,
+  };
+}
+
 export interface WebhookHandlerOptions {
   adapter: PlatformAdapter;
   /** Resolved system prompt string */
@@ -722,7 +733,7 @@ async function processIncomingMessage(
     const outgoing = adapter.formatAgentResponse(
       "This channel or requester has reached its configured AI usage budget. An admin can review the budget in Messaging settings.",
     );
-    const deliveryPayload: IntegrationResponseDeliveryTaskPayload = {
+    let deliveryPayload: IntegrationResponseDeliveryTaskPayload = {
       kind: "response-delivery",
       incoming,
       message: outgoing,
@@ -743,14 +754,15 @@ async function processIncomingMessage(
           `${incoming.platform} response completed without delivery proof`,
         );
       }
+      deliveryPayload = {
+        ...deliveryPayload,
+        deliveryReceipt: receipt,
+        deliveredAt: new Date().toISOString(),
+      };
       if (opts.taskId) {
         await stageTaskDeliveryPayload(
           opts.taskId,
-          JSON.stringify({
-            ...deliveryPayload,
-            deliveryReceipt: receipt,
-            deliveredAt: new Date().toISOString(),
-          }),
+          JSON.stringify(deliveryPayload),
         );
       }
       return { status: "completed" };
@@ -1108,6 +1120,7 @@ async function processIncomingMessage(
                 ? { placeholderRef: opts.placeholderRef }
                 : {}),
               internalThreadId: threadId,
+              ...buildDeliveryHistoryMessageIds(incoming),
               artifacts: extractA2AArtifactIdentities(toolResults),
             };
             if (opts.taskId) {
@@ -1216,6 +1229,7 @@ async function processIncomingMessage(
             thread,
             deliveredResponse,
             toolResults,
+            stagedDeliveryPayload,
           );
           if (outgoingForDelivery && stagedDeliveryPayload) {
             if (!threadCheckpoint) {
@@ -1268,6 +1282,7 @@ async function processIncomingMessage(
                 thread,
                 undefined,
                 collectToolResultSummaries(completedRun),
+                stagedDeliveryPayload,
               );
             }
             if (usage) {
@@ -1750,6 +1765,10 @@ async function persistThreadData(
     messageRefs?: string[];
   },
   toolResults: A2AToolResultSummary[] = [],
+  messageIds?: Pick<
+    IntegrationResponseDeliveryTaskPayload,
+    "userMessageId" | "assistantMessageId"
+  >,
 ): Promise<{ userMessageId: string; assistantMessageId?: string } | undefined> {
   try {
     let repo: any;
@@ -1762,17 +1781,26 @@ async function persistThreadData(
 
     // Add user message
     const userMsg = {
-      id: `msg-${Date.now()}-user`,
+      id: messageIds?.userMessageId ?? `msg-${Date.now()}-user`,
       role: "user",
       content: [{ type: "text", text: userText }],
       createdAt: new Date().toISOString(),
     };
 
     // Build assistant message from run events
-    const assistantMsg = buildAssistantMessage(
+    const builtAssistantMsg = buildAssistantMessage(
       completedRun.events ?? [],
       completedRun.runId,
     );
+    if (builtAssistantMsg && messageIds?.assistantMessageId) {
+      builtAssistantMsg.id = messageIds.assistantMessageId;
+    }
+    const existingAssistantMsg = builtAssistantMsg
+      ? repo.messages.find(
+          (message: any) => message?.id === builtAssistantMsg.id,
+        )
+      : undefined;
+    const assistantMsg = existingAssistantMsg ?? builtAssistantMsg;
     if (assistantMsg) {
       assistantMsg.metadata.integrationDeliveryAttempted = true;
       const artifactIdentities = extractA2AArtifactIdentities(toolResults);
@@ -1784,9 +1812,11 @@ async function persistThreadData(
       }
     }
 
-    repo.messages.push(userMsg);
-    if (assistantMsg) {
-      repo.messages.push(assistantMsg);
+    if (!repo.messages.some((message: any) => message?.id === userMsg.id)) {
+      repo.messages.push(userMsg);
+    }
+    if (builtAssistantMsg && !existingAssistantMsg) {
+      repo.messages.push(builtAssistantMsg);
     }
 
     const meta = extractThreadMeta(repo);
@@ -1822,41 +1852,30 @@ export async function recordIntegrationResponseDelivery(
     throw new Error("Integration delivery thread data is invalid");
   }
   if (!Array.isArray(repo.messages)) {
-    if (payload.userMessageId || payload.assistantMessageId) {
-      throw new Error("Integration delivery thread has no message history");
-    }
     repo.messages = [];
   }
-  const userMsg = payload.userMessageId
-    ? repo.messages.find(
-        (message: any) => message?.id === payload.userMessageId,
-      )
+  const stableMessageIds = buildDeliveryHistoryMessageIds(payload.incoming);
+  const userMessageId = payload.userMessageId ?? stableMessageIds.userMessageId;
+  const assistantMessageId =
+    payload.assistantMessageId ?? stableMessageIds.assistantMessageId;
+  const userMsg = userMessageId
+    ? repo.messages.find((message: any) => message?.id === userMessageId)
     : undefined;
-  if (payload.userMessageId && !userMsg) {
-    throw new Error(
-      "Integration delivery checkpoint user message was not found",
-    );
-  }
-  let assistantMsg = payload.assistantMessageId
-    ? repo.messages.find(
-        (message: any) => message?.id === payload.assistantMessageId,
-      )
+  let assistantMsg = assistantMessageId
+    ? repo.messages.find((message: any) => message?.id === assistantMessageId)
     : undefined;
-  if (payload.assistantMessageId && !assistantMsg) {
-    throw new Error("Integration delivery checkpoint message was not found");
+  const createdAt = payload.deliveredAt ?? new Date().toISOString();
+  if (!userMsg) {
+    repo.messages.push({
+      id: userMessageId,
+      role: "user",
+      content: [{ type: "text", text: payload.incoming.text }],
+      createdAt,
+    });
   }
   if (!assistantMsg) {
-    const createdAt = payload.deliveredAt ?? new Date().toISOString();
-    if (!userMsg) {
-      repo.messages.push({
-        id: `msg-${Date.now()}-user-delivery-retry`,
-        role: "user",
-        content: [{ type: "text", text: payload.incoming.text }],
-        createdAt,
-      });
-    }
     assistantMsg = {
-      id: `msg-${Date.now()}-assistant-delivery-retry`,
+      id: assistantMessageId,
       role: "assistant",
       content: [{ type: "text", text: payload.message.text }],
       createdAt,

@@ -312,6 +312,7 @@ describe("integration pending task store", () => {
           typeof query !== "string" && query.sql.includes("payload = ?"),
       );
     expect(update?.sql).toContain("WHERE id = ? AND status = 'processing'");
+    expect(update?.sql).not.toContain("external_event_key = NULL");
     expect(update?.args).toEqual([
       "failed",
       expect.any(Number),
