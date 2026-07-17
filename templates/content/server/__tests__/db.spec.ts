@@ -305,7 +305,7 @@ describe("content database migrations", () => {
       join(__dirname, "..", "plugins", "db.ts"),
       "utf8",
     );
-    const migration = source.slice(
+    const legacyMigration = source.slice(
       source.indexOf(
         'name: "content-private-vault-endpoint-request-replay-fence"',
       ),
@@ -318,17 +318,29 @@ describe("content database migrations", () => {
     );
 
     expect(source).toContain("version: 79");
+    expect(legacyMigration).toContain("(vault_id, endpoint_id, nonce)");
+    expect(legacyMigration).toContain("FOREIGN KEY");
+
+    const migration = source.slice(
+      source.indexOf('name: "content-private-vault-content-free-replay-fence"'),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf(
+          'name: "content-private-vault-content-free-replay-fence"',
+        ),
+      ),
+    );
+    expect(source).toContain("version: 80");
     expect(migration).toContain(
-      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces",
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_endpoint_request_nonce_claims_v2",
     );
     expect(migration).toContain(
-      "UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces_unique",
+      "UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonce_claims_v2_unique",
     );
-    expect(migration).toContain("(vault_id, endpoint_id, nonce)");
-    expect(migration).toContain("(expires_at, id)");
-    expect(migration).toContain(
-      "REFERENCES content_encrypted_vault_endpoints(endpoint_id, vault_id, owner_email, org_id) ON DELETE CASCADE",
-    );
+    expect(migration).toContain("(vault_id, endpoint_id, nonce_digest)");
+    expect(migration).toContain("(expires_at_bucket, id)");
+    expect(migration).toContain("claimed_at_bucket INTEGER NOT NULL");
+    expect(migration).not.toContain("FOREIGN KEY");
     for (const forbidden of [
       "proof",
       "signature",

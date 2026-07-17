@@ -3,11 +3,15 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sweep = vi.hoisted(() => vi.fn());
+const deleteExpired = vi.hoisted(() => vi.fn());
 const getHeader = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../lib/private-vault-retention.js", () => ({
   privateVaultRetentionService: { sweep },
+}));
+vi.mock("../../../../lib/private-vault-endpoint-request-nonces.js", () => ({
+  sqlPrivateVaultEndpointRequestNonceStore: { deleteExpired },
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -31,6 +35,7 @@ describe("Private Vault retention cron route", () => {
       failed: 0,
       evidencePurged: 3,
     });
+    deleteExpired.mockResolvedValue(4);
   });
 
   afterEach(() => {
@@ -44,6 +49,7 @@ describe("Private Vault retention cron route", () => {
       statusCode: 503,
     });
     expect(sweep).not.toHaveBeenCalled();
+    expect(deleteExpired).not.toHaveBeenCalled();
   });
 
   it("prefers Vercel's native cron secret", async () => {
@@ -111,6 +117,7 @@ describe("Private Vault retention cron route", () => {
       purged: 2,
       failed: 0,
       evidencePurged: 3,
+      replayClaimsDeleted: 4,
     });
     expect(setResponseHeader).toHaveBeenCalledWith(
       {},

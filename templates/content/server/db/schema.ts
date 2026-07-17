@@ -514,12 +514,6 @@ export const contentEncryptedVaultEndpoints = table(
       endpoint.vaultId,
       endpoint.endpointId,
     ),
-    uniqueIndex("content_encrypted_vault_endpoints_endpoint_scope_unique").on(
-      endpoint.endpointId,
-      endpoint.vaultId,
-      endpoint.ownerEmail,
-      endpoint.orgId,
-    ),
     index("content_encrypted_vault_endpoints_scope_state_idx").on(
       endpoint.ownerEmail,
       endpoint.orgId,
@@ -534,6 +528,34 @@ export const contentEncryptedVaultEndpoints = table(
  * Proofs, signatures, request hashes, routes, and payload bytes are forbidden.
  */
 export const contentEncryptedVaultEndpointRequestNonces = table(
+  "content_encrypted_vault_endpoint_request_nonce_claims_v2",
+  {
+    id: text("id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    nonceDigest: text("nonce_digest").notNull(),
+    claimedAtBucket: integer("claimed_at_bucket").notNull(),
+    expiresAtBucket: integer("expires_at_bucket").notNull(),
+  },
+  (claim) => [
+    uniqueIndex(
+      "content_encrypted_vault_endpoint_request_nonce_claims_v2_unique",
+    ).on(claim.vaultId, claim.endpointId, claim.nonceDigest),
+    index(
+      "content_encrypted_vault_endpoint_request_nonce_claims_v2_expiry_idx",
+    ).on(claim.expiresAtBucket, claim.id),
+  ],
+);
+
+/**
+ * Read/delete-only bridge for the already-published v79 replay table. New
+ * runtime code must never insert here. It can be removed only after every
+ * environment has crossed the disclosed backup-purge horizon.
+ */
+export const contentEncryptedVaultEndpointRequestNoncesLegacy = table(
   "content_encrypted_vault_endpoint_request_nonces",
   {
     id: text("id").primaryKey(),
@@ -542,20 +564,9 @@ export const contentEncryptedVaultEndpointRequestNonces = table(
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id").notNull().default(""),
     nonce: text("nonce").notNull(),
-    claimedAt: text("claimed_at").notNull().default(now()),
+    claimedAt: text("claimed_at").notNull(),
     expiresAt: text("expires_at").notNull(),
   },
-  (claim) => [
-    uniqueIndex("content_encrypted_vault_endpoint_request_nonces_unique").on(
-      claim.vaultId,
-      claim.endpointId,
-      claim.nonce,
-    ),
-    index("content_encrypted_vault_endpoint_request_nonces_expiry_idx").on(
-      claim.expiresAt,
-      claim.id,
-    ),
-  ],
 );
 
 export const contentEncryptedVaultKeyEpochs = table(

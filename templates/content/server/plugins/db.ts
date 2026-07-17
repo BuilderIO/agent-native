@@ -1091,6 +1091,25 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces_expiry_idx
         ON content_encrypted_vault_endpoint_request_nonces (expires_at, id)`,
     },
+    {
+      version: 80,
+      name: "content-private-vault-content-free-replay-fence",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_endpoint_request_nonce_claims_v2 (
+        id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        endpoint_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        nonce_digest TEXT NOT NULL,
+        claimed_at_bucket INTEGER NOT NULL,
+        expires_at_bucket INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonce_claims_v2_unique
+        ON content_encrypted_vault_endpoint_request_nonce_claims_v2 (vault_id, endpoint_id, nonce_digest);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonce_claims_v2_expiry_idx
+        ON content_encrypted_vault_endpoint_request_nonce_claims_v2 (expires_at_bucket, id)`,
+    },
   ],
   { table: "content_migrations" },
 );

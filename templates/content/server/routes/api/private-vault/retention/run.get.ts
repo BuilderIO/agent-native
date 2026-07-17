@@ -7,6 +7,7 @@ import {
   setResponseHeader,
 } from "h3";
 
+import { sqlPrivateVaultEndpointRequestNonceStore } from "../../../../lib/private-vault-endpoint-request-nonces.js";
 import { privateVaultRetentionService } from "../../../../lib/private-vault-retention.js";
 
 type CronAuthenticator =
@@ -61,5 +62,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
 
-  return { ok: true, ...(await privateVaultRetentionService.sweep()) };
+  const [retention, replayClaimsDeleted] = await Promise.all([
+    privateVaultRetentionService.sweep(),
+    sqlPrivateVaultEndpointRequestNonceStore.deleteExpired(
+      new Date().toISOString(),
+    ),
+  ]);
+  return { ok: true, ...retention, replayClaimsDeleted };
 });

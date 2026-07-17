@@ -1,14 +1,17 @@
-import { randomUUID } from "node:crypto";
-
 import {
+  E2EE_ENDPOINT_REQUEST_MAX_FUTURE_SKEW_SECONDS,
   E2EE_ENDPOINT_REQUEST_NONCE_RETENTION_SECONDS,
   opaqueIdSchema,
   protocolTimestampSchema,
 } from "@agent-native/core/e2ee";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { privateVaultReplayFenceRecordSchema } from "../../shared/private-vault-replay-fence.js";
 import { getDb, schema } from "../db/index.js";
+
+const MINUTE_MS = 60_000;
+const LEGACY_BRIDGE_BATCH_SIZE = 50;
 
 const endpointRequestNonceClaimSchema = z
   .object({
@@ -21,21 +24,9 @@ const endpointRequestNonceClaimSchema = z
       .min(32)
       .max(128)
       .regex(/^[0-9a-f]+$/),
-    claimedAt: protocolTimestampSchema,
     expiresAt: protocolTimestampSchema,
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    const lifetimeSeconds =
-      (Date.parse(value.expiresAt) - Date.parse(value.claimedAt)) / 1000;
-    if (lifetimeSeconds < E2EE_ENDPOINT_REQUEST_NONCE_RETENTION_SECONDS) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["expiresAt"],
-        message: "Replay claims must cover the complete nonce retention window",
-      });
-    }
-  });
+  .strict();
 
 export type PrivateVaultEndpointRequestNonceClaim = z.infer<
   typeof endpointRequestNonceClaimSchema
@@ -43,35 +34,187 @@ export type PrivateVaultEndpointRequestNonceClaim = z.infer<
 
 export interface PrivateVaultEndpointRequestNonceStore {
   claim(input: PrivateVaultEndpointRequestNonceClaim): Promise<boolean>;
-  deleteExpired(now: string): Promise<number>;
+  bridgeLegacyClaims(now: string): Promise<number>;
+  deleteExpired(now: string, limit?: number): Promise<number>;
 }
 
-/**
- * The endpoint-state predicate and replay insert are one SQL statement. A
- * concurrent revocation can therefore only win before this claim or in the job
- * mutation's second authorization check; it cannot create an unscoped nonce.
- */
-export const sqlPrivateVaultEndpointRequestNonceStore: PrivateVaultEndpointRequestNonceStore =
-  {
+interface PrivateVaultEndpointRequestNonceStoreOptions {
+  readonly now?: () => Date;
+}
+
+function bucketDown(value: number): number {
+  return Math.floor(value / MINUTE_MS) * MINUTE_MS;
+}
+
+function bucketUp(value: number): number {
+  return Math.ceil(value / MINUTE_MS) * MINUTE_MS;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function replayFenceValues(input: {
+  ownerEmail: string;
+  orgId: string;
+  vaultId: string;
+  endpointId: string;
+  nonce: string;
+  claimedAtMs: number;
+  expiresAtMs: number;
+}) {
+  const [id, nonceDigest] = await Promise.all([
+    sha256Hex(`${input.vaultId}\0${input.endpointId}\0${input.nonce}`),
+    sha256Hex(input.nonce),
+  ]);
+  const logicalRecord = privateVaultReplayFenceRecordSchema.parse({
+    version: 1,
+    vaultId: input.vaultId,
+    endpointId: input.endpointId,
+    nonceDigest,
+    claimedAtBucket: bucketDown(input.claimedAtMs),
+    expiresAtBucket: bucketUp(input.expiresAtMs),
+  });
+  return {
+    id,
+    ownerEmail: input.ownerEmail,
+    orgId: input.orgId,
+    ...logicalRecord,
+  };
+}
+
+async function legacyClaimsByExpiry() {
+  const legacy = schema.contentEncryptedVaultEndpointRequestNoncesLegacy;
+  const rows = await getDb().select().from(legacy);
+  return rows.map((row) => ({
+    ...row,
+    claimedAtMs: Date.parse(protocolTimestampSchema.parse(row.claimedAt)),
+    expiresAtMs: Date.parse(protocolTimestampSchema.parse(row.expiresAt)),
+  }));
+}
+
+async function deleteExpiredBatch(nowMs: number, limit: number) {
+  const claims = schema.contentEncryptedVaultEndpointRequestNonces;
+  const legacy = schema.contentEncryptedVaultEndpointRequestNoncesLegacy;
+  const expiredLegacyIds = (await legacyClaimsByExpiry())
+    .filter((row) => row.expiresAtMs <= nowMs)
+    .sort(
+      (left, right) =>
+        left.expiresAtMs - right.expiresAtMs || left.id.localeCompare(right.id),
+    )
+    .slice(0, limit)
+    .map((row) => row.id);
+  const legacyDeleted =
+    expiredLegacyIds.length === 0
+      ? []
+      : await getDb()
+          .delete(legacy)
+          .where(inArray(legacy.id, expiredLegacyIds))
+          .returning({ id: legacy.id });
+  const remaining = limit - legacyDeleted.length;
+  if (remaining === 0) return legacyDeleted.length;
+  const expired = getDb()
+    .select({ id: claims.id })
+    .from(claims)
+    .where(lte(claims.expiresAtBucket, nowMs))
+    .orderBy(asc(claims.expiresAtBucket), asc(claims.id))
+    .limit(remaining);
+  const deleted = await getDb()
+    .delete(claims)
+    .where(inArray(claims.id, expired))
+    .returning({ id: claims.id });
+  return legacyDeleted.length + deleted.length;
+}
+
+async function deleteAllExpired(nowMs: number) {
+  const claims = schema.contentEncryptedVaultEndpointRequestNonces;
+  const legacy = schema.contentEncryptedVaultEndpointRequestNoncesLegacy;
+  const expiredLegacyIds = (await legacyClaimsByExpiry())
+    .filter((row) => row.expiresAtMs <= nowMs)
+    .map((row) => row.id);
+  const [legacyDeleted, deleted] = await Promise.all([
+    expiredLegacyIds.length === 0
+      ? Promise.resolve([])
+      : getDb()
+          .delete(legacy)
+          .where(inArray(legacy.id, expiredLegacyIds))
+          .returning({ id: legacy.id }),
+    getDb()
+      .delete(claims)
+      .where(lte(claims.expiresAtBucket, nowMs))
+      .returning({ id: claims.id }),
+  ]);
+  return legacyDeleted.length + deleted.length;
+}
+
+export function createPrivateVaultEndpointRequestNonceStore(
+  options: PrivateVaultEndpointRequestNonceStoreOptions = {},
+): PrivateVaultEndpointRequestNonceStore {
+  const now = options.now ?? (() => new Date());
+
+  return {
     claim: async (input) => {
       const parsed = endpointRequestNonceClaimSchema.parse({
         ...input,
         ownerEmail: input.ownerEmail.trim().toLowerCase(),
         orgId: input.orgId.trim(),
       });
-      const id = randomUUID();
+      const claimedAtMs = now().getTime();
+      const expiresAtMs = Date.parse(parsed.expiresAt);
+      if (
+        !Number.isFinite(claimedAtMs) ||
+        expiresAtMs <= claimedAtMs ||
+        expiresAtMs - claimedAtMs >
+          (E2EE_ENDPOINT_REQUEST_NONCE_RETENTION_SECONDS +
+            E2EE_ENDPOINT_REQUEST_MAX_FUTURE_SKEW_SECONDS) *
+            1000
+      ) {
+        return false;
+      }
+
+      const record = await replayFenceValues({
+        ...parsed,
+        claimedAtMs,
+        expiresAtMs,
+      });
       const endpoint = schema.contentEncryptedVaultEndpoints;
       const claims = schema.contentEncryptedVaultEndpointRequestNonces;
+      const legacy = schema.contentEncryptedVaultEndpointRequestNoncesLegacy;
+      const claimedAt = new Date(claimedAtMs).toISOString();
+      const unexpiredLegacyReplay = getDb()
+        .select({ id: legacy.id })
+        .from(legacy)
+        .where(
+          and(
+            eq(legacy.vaultId, parsed.vaultId),
+            eq(legacy.endpointId, parsed.endpointId),
+            eq(legacy.ownerEmail, parsed.ownerEmail),
+            eq(legacy.orgId, parsed.orgId),
+            eq(legacy.nonce, parsed.nonce),
+            gt(legacy.expiresAt, claimedAt),
+          ),
+        );
       const eligibleEndpoint = getDb()
         .select({
-          id: sql<string>`${id}`.as("id"),
+          id: sql<string>`${record.id}`.as("id"),
           vaultId: endpoint.vaultId,
           endpointId: endpoint.endpointId,
           ownerEmail: endpoint.ownerEmail,
           orgId: endpoint.orgId,
-          nonce: sql<string>`${parsed.nonce}`.as("nonce"),
-          claimedAt: sql<string>`${parsed.claimedAt}`.as("claimed_at"),
-          expiresAt: sql<string>`${parsed.expiresAt}`.as("expires_at"),
+          version: sql<number>`${record.version}`.as("version"),
+          nonceDigest: sql<string>`${record.nonceDigest}`.as("nonce_digest"),
+          claimedAtBucket: sql<number>`${record.claimedAtBucket}`.as(
+            "claimed_at_bucket",
+          ),
+          expiresAtBucket: sql<number>`${record.expiresAtBucket}`.as(
+            "expires_at_bucket",
+          ),
         })
         .from(endpoint)
         .where(
@@ -81,6 +224,7 @@ export const sqlPrivateVaultEndpointRequestNonceStore: PrivateVaultEndpointReque
             eq(endpoint.ownerEmail, parsed.ownerEmail),
             eq(endpoint.orgId, parsed.orgId),
             eq(endpoint.endpointState, "online"),
+            notExists(unexpiredLegacyReplay),
           ),
         );
       const inserted = await getDb()
@@ -88,21 +232,58 @@ export const sqlPrivateVaultEndpointRequestNonceStore: PrivateVaultEndpointReque
         .select(eligibleEndpoint)
         .onConflictDoNothing()
         .returning({ id: claims.id });
+
+      // This is opportunistic bounded hygiene, not part of authorization.
+      // Failure preserves the replay fence and never turns cleanup into an oracle.
+      await deleteExpiredBatch(claimedAtMs, 64).catch(() => 0);
       return inserted.length === 1;
     },
-    deleteExpired: async (now) => {
-      const parsedNow = protocolTimestampSchema.parse(now);
-      const deleted = await getDb()
-        .delete(schema.contentEncryptedVaultEndpointRequestNonces)
-        .where(
-          lte(
-            schema.contentEncryptedVaultEndpointRequestNonces.expiresAt,
-            parsedNow,
-          ),
-        )
-        .returning({
-          id: schema.contentEncryptedVaultEndpointRequestNonces.id,
-        });
-      return deleted.length;
+    bridgeLegacyClaims: async (value) => {
+      const nowMs = Date.parse(protocolTimestampSchema.parse(value));
+      const legacyRows = (await legacyClaimsByExpiry()).filter(
+        (row) => row.expiresAtMs > nowMs,
+      );
+      if (legacyRows.length === 0) return 0;
+      const records = await Promise.all(
+        legacyRows.map((row) =>
+          replayFenceValues({
+            ownerEmail: row.ownerEmail,
+            orgId: row.orgId,
+            vaultId: row.vaultId,
+            endpointId: row.endpointId,
+            nonce: row.nonce,
+            claimedAtMs: row.claimedAtMs,
+            expiresAtMs: row.expiresAtMs,
+          }),
+        ),
+      );
+      let insertedCount = 0;
+      for (
+        let offset = 0;
+        offset < records.length;
+        offset += LEGACY_BRIDGE_BATCH_SIZE
+      ) {
+        const inserted = await getDb()
+          .insert(schema.contentEncryptedVaultEndpointRequestNonces)
+          .values(records.slice(offset, offset + LEGACY_BRIDGE_BATCH_SIZE))
+          .onConflictDoNothing()
+          .returning({
+            id: schema.contentEncryptedVaultEndpointRequestNonces.id,
+          });
+        insertedCount += inserted.length;
+      }
+      return insertedCount;
+    },
+    deleteExpired: async (value, limit) => {
+      const nowMs = Date.parse(protocolTimestampSchema.parse(value));
+      if (limit === undefined) return deleteAllExpired(nowMs);
+      if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 1_000) {
+        throw new Error("Invalid replay-fence cleanup limit");
+      }
+      return deleteExpiredBatch(nowMs, limit);
     },
   };
+}
+
+export const sqlPrivateVaultEndpointRequestNonceStore =
+  createPrivateVaultEndpointRequestNonceStore();
