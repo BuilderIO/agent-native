@@ -1759,60 +1759,59 @@ export async function executeProviderApiRequest(
       lastContentType,
       truncated,
       nextCursor,
-    } =
-      await fetchAllPages(pageCfg, async (extra) => {
-        const queryWithCursor = extra?.query
-          ? mergeQueryObjects(
-              substituteUnknown(args.query, placeholders),
-              extra.query,
-            )
-          : substituteUnknown(args.query, placeholders);
-        const pageUrl = buildProviderUrl({
-          config,
-          baseUrl,
-          rawPath: substituteString(args.path, placeholders),
-          query: queryWithCursor,
-        });
-        const bodyWithCursor = extra?.bodyCursor
-          ? setValueAtPath(
-              substituteUnknown(args.body, placeholders),
-              extra.bodyCursor.path,
-              extra.bodyCursor.value,
-            )
-          : substituteUnknown(args.body, placeholders);
-        const pageBody = prepareBody(bodyWithCursor, { ...headers });
-        const requestKey = createProviderRequestDedupeKey({
-          method,
-          url: pageUrl.href,
-          body: pageBody,
-          headers,
-        });
-        const resp = await fetchWithTimeout(pageUrl.href, {
-          method,
-          headers,
-          body: pageBody,
-          maxBytes: effectiveMaxBytes,
-          timeoutMs: clampTimeout(args.timeoutMs),
-          secretValues: auth.secretValues,
-          quota: {
-            identity: quotaIdentity,
-            method,
-            target: describeProviderRequestTarget(
-              pageUrl.href,
-              auth.secretValues,
-            ),
-            requestKey,
-          },
-        });
-        return {
-          text:
-            resp.text ??
-            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
-          contentType: resp.contentType,
-          status: resp.status,
-          ok: resp.ok,
-        };
+    } = await fetchAllPages(pageCfg, async (extra) => {
+      const queryWithCursor = extra?.query
+        ? mergeQueryObjects(
+            substituteUnknown(args.query, placeholders),
+            extra.query,
+          )
+        : substituteUnknown(args.query, placeholders);
+      const pageUrl = buildProviderUrl({
+        config,
+        baseUrl,
+        rawPath: substituteString(args.path, placeholders),
+        query: queryWithCursor,
       });
+      const bodyWithCursor = extra?.bodyCursor
+        ? setValueAtPath(
+            substituteUnknown(args.body, placeholders),
+            extra.bodyCursor.path,
+            extra.bodyCursor.value,
+          )
+        : substituteUnknown(args.body, placeholders);
+      const pageBody = prepareBody(bodyWithCursor, { ...headers });
+      const requestKey = createProviderRequestDedupeKey({
+        method,
+        url: pageUrl.href,
+        body: pageBody,
+        headers,
+      });
+      const resp = await fetchWithTimeout(pageUrl.href, {
+        method,
+        headers,
+        body: pageBody,
+        maxBytes: effectiveMaxBytes,
+        timeoutMs: clampTimeout(args.timeoutMs),
+        secretValues: auth.secretValues,
+        quota: {
+          identity: quotaIdentity,
+          method,
+          target: describeProviderRequestTarget(
+            pageUrl.href,
+            auth.secretValues,
+          ),
+          requestKey,
+        },
+      });
+      return {
+        text:
+          resp.text ??
+          (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+        contentType: resp.contentType,
+        status: resp.status,
+        ok: resp.ok,
+      };
+    });
 
     const allItemsJson = JSON.stringify(items, null, 2);
     const metadata = {
@@ -2720,57 +2719,56 @@ async function executeCustomProviderApiRequest(
       lastContentType,
       truncated,
       nextCursor,
-    } =
-      await fetchAllPages(pageCfg, async (extra) => {
-        const queryWithCursor = extra?.query
-          ? mergeQueryObjects(args.query, extra.query)
-          : args.query;
-        const pageUrl = buildProviderUrl({
-          config: syntheticConfig,
-          baseUrl,
-          rawPath: args.path,
-          query: queryWithCursor,
-        });
-        const bodyWithCursor = extra?.bodyCursor
-          ? setValueAtPath(
-              args.body,
-              extra.bodyCursor.path,
-              extra.bodyCursor.value,
-            )
-          : args.body;
-        const pageBody = prepareBody(bodyWithCursor, { ...headers });
-        const requestKey = createProviderRequestDedupeKey({
-          method,
-          url: pageUrl.href,
-          body: pageBody,
-          headers,
-        });
-        const resp = await fetchWithTimeout(pageUrl.href, {
-          method,
-          headers,
-          body: pageBody,
-          maxBytes: effectiveMaxBytes,
-          timeoutMs: clampTimeout(args.timeoutMs),
-          secretValues: auth.secretValues,
-          quota: {
-            identity: quotaIdentity,
-            method,
-            target: describeProviderRequestTarget(
-              pageUrl.href,
-              auth.secretValues,
-            ),
-            requestKey,
-          },
-        });
-        return {
-          text:
-            resp.text ??
-            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
-          contentType: resp.contentType,
-          status: resp.status,
-          ok: resp.ok,
-        };
+    } = await fetchAllPages(pageCfg, async (extra) => {
+      const queryWithCursor = extra?.query
+        ? mergeQueryObjects(args.query, extra.query)
+        : args.query;
+      const pageUrl = buildProviderUrl({
+        config: syntheticConfig,
+        baseUrl,
+        rawPath: args.path,
+        query: queryWithCursor,
       });
+      const bodyWithCursor = extra?.bodyCursor
+        ? setValueAtPath(
+            args.body,
+            extra.bodyCursor.path,
+            extra.bodyCursor.value,
+          )
+        : args.body;
+      const pageBody = prepareBody(bodyWithCursor, { ...headers });
+      const requestKey = createProviderRequestDedupeKey({
+        method,
+        url: pageUrl.href,
+        body: pageBody,
+        headers,
+      });
+      const resp = await fetchWithTimeout(pageUrl.href, {
+        method,
+        headers,
+        body: pageBody,
+        maxBytes: effectiveMaxBytes,
+        timeoutMs: clampTimeout(args.timeoutMs),
+        secretValues: auth.secretValues,
+        quota: {
+          identity: quotaIdentity,
+          method,
+          target: describeProviderRequestTarget(
+            pageUrl.href,
+            auth.secretValues,
+          ),
+          requestKey,
+        },
+      });
+      return {
+        text:
+          resp.text ??
+          (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+        contentType: resp.contentType,
+        status: resp.status,
+        ok: resp.ok,
+      };
+    });
 
     const allItemsJson = JSON.stringify(items, null, 2);
     const metadata = {

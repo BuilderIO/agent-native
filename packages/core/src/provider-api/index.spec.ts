@@ -1363,6 +1363,47 @@ describe("provider API runtime", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("reports a remaining cursor when fetchAllPages reaches its page budget", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          results: [{ id: "deal-1" }],
+          paging: { next: { after: "page-2" } },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+          maxPages: 1,
+        },
+      }),
+    ).resolves.toMatchObject({
+      items: [{ id: "deal-1" }],
+      pagesRead: 1,
+      totalItems: 1,
+      truncated: true,
+      nextCursor: "page-2",
+    });
+  });
+
   it("retries provider 429s through the shared quota governor", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     const fetchMock = vi.mocked(globalThis.fetch);

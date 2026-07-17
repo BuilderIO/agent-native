@@ -393,12 +393,21 @@ function buildGuidance(options: {
   }
 
   if (options.truncated) {
-    const more = options.hasMore
-      ? `Fetch the next page with offset ${options.offset + options.returned}.`
-      : "This is the last page of the cohort.";
-    guidance.push(
-      `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates. ${more} Narrow the filters or, for exhaustive cohort analysis, use provider-api-request with provider = hubspot and stageAs.`,
-    );
+    if (options.query) {
+      const more = options.hasMore
+        ? "Fetch the next page with the returned nextAfter cursor."
+        : "This query has no usable next cursor.";
+      guidance.push(
+        `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}). This is a partial slice — do NOT treat it as the full cohort. ${more} Narrow the query or use provider-api-request with provider = hubspot and stageAs for a projected corpus.`,
+      );
+    } else {
+      const more = options.hasMore
+        ? `Fetch the next page with offset ${options.offset + options.returned}.`
+        : "This is the last page of the cohort.";
+      guidance.push(
+        `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates. ${more} Narrow the filters or, for exhaustive cohort analysis, use provider-api-request with provider = hubspot and stageAs.`,
+      );
+    }
   }
 
   if (options.searchCoverageLimited) {

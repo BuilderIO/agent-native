@@ -892,7 +892,7 @@ function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
   );
 }
 
-function ChartTooltip({
+export function ChartTooltip({
   active,
   payload,
   label,
@@ -934,6 +934,7 @@ function ChartTooltip({
   const tooltip = (
     <div
       ref={tooltipRef}
+      role="tooltip"
       className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
     >
       {labelText && (
