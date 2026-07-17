@@ -1,8 +1,5 @@
 import { getDbExec } from "../db/client.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "./request-context.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export async function currentRequestUserIsOrgAdmin(
   orgId = getRequestOrgId() ?? undefined,

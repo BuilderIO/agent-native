@@ -209,10 +209,7 @@ export async function previewBrandProfilePromotion(profileId: string) {
     "admin",
   );
   const actor = requireActor();
-  if (
-    !actor.orgId ||
-    !(await currentRequestUserIsOrgAdmin(actor.orgId))
-  ) {
+  if (!actor.orgId || !(await currentRequestUserIsOrgAdmin(actor.orgId))) {
     throw new Error(
       "Brand profile promotion requires an active organization owner or admin.",
     );

@@ -73,9 +73,7 @@ const agentInputSchema = z.object({
   ]),
   sourceId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(200).optional(),
-  kind: z
-    .enum(importableSourceKinds)
-    .optional(),
+  kind: z.enum(importableSourceKinds).optional(),
   externalRef: z.string().max(2000).optional(),
   connectionId: z.string().max(500).optional(),
   config: z.record(z.string(), z.unknown()).optional(),

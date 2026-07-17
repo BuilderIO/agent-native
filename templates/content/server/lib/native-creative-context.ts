@@ -11,7 +11,12 @@ function documentPreview(markdown: string) {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   const headings = lines
     .filter((line) => /^#{1,6}\s+/.test(line))
-    .map((line) => line.replace(/^#{1,6}\s+/, "").trim().slice(0, 160))
+    .map((line) =>
+      line
+        .replace(/^#{1,6}\s+/, "")
+        .trim()
+        .slice(0, 160),
+    )
     .filter(Boolean)
     .slice(0, 8);
   const excerpt = lines

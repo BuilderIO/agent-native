@@ -331,8 +331,7 @@ export function parseCreativeContextSafePreview(
             {
               id: previewString(panel.id, 120) || String(index + 1),
               title: previewString(panel.title, 160) || `Panel ${index + 1}`,
-              visualization:
-                previewString(panel.visualization, 80) || "chart",
+              visualization: previewString(panel.visualization, 80) || "chart",
             },
           ];
         })
