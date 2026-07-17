@@ -141,6 +141,13 @@ export function McpIntegrationDialog({
     [defaultIntegrations, query],
   );
 
+  const selectedRequiresSetup = Boolean(
+    selected &&
+    (selected.connectionMode === "manual" ||
+      selected.availability === "provider-setup" ||
+      selected.availability === "client-restricted"),
+  );
+
   useEffect(() => {
     if (!open) return;
     const initialIntegration = initialIntegrationId
@@ -444,7 +451,8 @@ export function McpIntegrationDialog({
                   const requiresHeaders = integration.authMode === "headers";
                   const setupOnly =
                     integration.connectionMode === "manual" ||
-                    integration.availability === "provider-setup";
+                    integration.availability === "provider-setup" ||
+                    integration.availability === "client-restricted";
                   return (
                     <article
                       key={integration.id}
@@ -726,7 +734,7 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.test")}
               </button>
-              {selected?.authMode === "oauth" ? (
+              {selected?.authMode === "oauth" && !selectedRequiresSetup ? (
                 <button
                   type="button"
                   onClick={() => connectWithOAuth(selected)}
@@ -745,15 +753,29 @@ export function McpIntegrationDialog({
                   {t("mcpIntegrations.connectWithOAuth")}
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={submitForm}
-                disabled={!name.trim() || !url.trim() || busy}
-                className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-              >
-                {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
-                {t("mcpIntegrations.connect")}
-              </button>
+              {selectedRequiresSetup ? (
+                selected?.docsUrl ? (
+                  <a
+                    href={selected.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    {t("mcpIntegrations.viewSetup")}
+                    <IconExternalLink className="h-3 w-3" />
+                  </a>
+                ) : null
+              ) : (
+                <button
+                  type="button"
+                  onClick={submitForm}
+                  disabled={!name.trim() || !url.trim() || busy}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t("mcpIntegrations.connect")}
+                </button>
+              )}
             </div>
           </>
         )}

@@ -826,8 +826,17 @@ function messageTextFromContent(content: unknown): string {
   return content
     .flatMap((part) => {
       if (!part || typeof part !== "object") return [];
-      const text = (part as { type?: unknown; text?: unknown }).text;
-      return typeof text === "string" ? [text] : [];
+      const record = part as {
+        type?: unknown;
+        text?: unknown;
+        result?: unknown;
+      };
+      const values: string[] = [];
+      if (typeof record.text === "string") values.push(record.text);
+      if (record.type === "tool-call" && typeof record.result === "string") {
+        values.push(record.result);
+      }
+      return values;
     })
     .join("\n");
 }
@@ -969,7 +978,8 @@ export function AssistantMessage() {
     thread.messages[thread.messages.length - 1].id === msg.id;
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
-  const responseConnectionText = `${latestUserMessageText(thread.messages)}\n${messageTextFromContent(msg.content)}`;
+  const responseConnectionText = messageTextFromContent(msg.content);
+  const responseConnectionContext = latestUserMessageText(thread.messages);
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
@@ -1131,6 +1141,7 @@ export function AssistantMessage() {
         {isComplete && isLast && (
           <McpConnectionSuggestion
             text={responseConnectionText}
+            contextText={responseConnectionContext}
             variant="response"
           />
         )}

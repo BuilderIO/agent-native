@@ -4960,7 +4960,6 @@ const AssistantChatInner = forwardRef<
   const hasComposerAccessoryAboveStack = Boolean(
     composerError ||
     showComposerSlot ||
-    (isActiveComposer && composerText.trim().length > 0) ||
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
     showScrollToBottom ||

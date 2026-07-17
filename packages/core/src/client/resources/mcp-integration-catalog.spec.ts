@@ -168,6 +168,10 @@ describe("MCP integration catalog", () => {
     expect(
       findMcpIntegrationForText("I cannot read this Notion page")?.id,
     ).toBe("notion");
+    expect(findMcpIntegrationForText("Explain linear algebra")).toBeNull();
+    expect(
+      findMcpIntegrationForText("Connect Linear to read my issues")?.id,
+    ).toBe("linear");
     expect(isMcpConnectionFailureText("I can't read that Notion link")).toBe(
       true,
     );

@@ -657,6 +657,9 @@ function findUrlForText(text: string): URL | null {
   return null;
 }
 
+const MCP_RESOURCE_INTENT_PATTERN =
+  /\b(?:connect|connected|connection|integration|integrate|link|page|document|doc|file|workspace|project|issue|design|board|channel|message|ticket|read|access|open|see|fetch|sync|import)\b/i;
+
 export function findMcpIntegrationForText(
   text: string,
   integrations: DefaultMcpIntegration[] = getDefaultMcpIntegrations(),
@@ -672,6 +675,10 @@ export function findMcpIntegrationForText(
   }
 
   const normalizedText = text.toLowerCase();
+  const hasResourceIntent =
+    MCP_RESOURCE_INTENT_PATTERN.test(normalizedText) ||
+    isMcpConnectionFailureText(normalizedText);
+  if (!hasResourceIntent) return null;
   return (
     integrations.find((integration) => {
       const aliases = [integration.name, integration.provider, integration.id];

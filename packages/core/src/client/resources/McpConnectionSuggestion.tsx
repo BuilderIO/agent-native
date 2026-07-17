@@ -26,6 +26,7 @@ export type McpConnectionSuggestionVariant = "composer" | "response";
 
 interface McpConnectionSuggestionProps {
   text: string;
+  contextText?: string;
   variant?: McpConnectionSuggestionVariant;
 }
 
@@ -68,6 +69,7 @@ function canStartOAuth(integration: DefaultMcpIntegration): boolean {
 
 export function McpConnectionSuggestion({
   text,
+  contextText = "",
   variant = "composer",
 }: McpConnectionSuggestionProps) {
   const t = useT();
@@ -78,10 +80,22 @@ export function McpConnectionSuggestion({
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
-  const integration = useMemo(
+  const textIntegration = useMemo(
     () => findMcpIntegrationForText(text, integrations),
     [integrations, text],
   );
+  const contextIntegration = useMemo(
+    () =>
+      contextText ? findMcpIntegrationForText(contextText, integrations) : null,
+    [contextText, integrations],
+  );
+  const integration =
+    variant === "response" &&
+    textIntegration &&
+    contextIntegration &&
+    textIntegration.id !== contextIntegration.id
+      ? null
+      : (textIntegration ?? contextIntegration);
   const servers = useMemo(
     () => [
       ...(mcpServersQuery.data?.user ?? []),
@@ -91,6 +105,7 @@ export function McpConnectionSuggestion({
   );
   const connected = integration ? isConnected(integration, servers) : false;
   const shouldSuggest =
+    mcpServersQuery.isSuccess &&
     integration &&
     !connected &&
     dismissedId !== integration.id &&
