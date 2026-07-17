@@ -569,6 +569,81 @@ export const contentEncryptedVaultEndpointRequestNoncesLegacy = table(
   },
 );
 
+/**
+ * Canonical endpoint-signed control entries. The encoded bytes are the source
+ * of authority; indexed columns are content-free routing aliases verified from
+ * those bytes before insertion.
+ */
+export const contentEncryptedVaultControlLogEntries = table(
+  "content_encrypted_vault_control_log_entries",
+  {
+    id: text("id").primaryKey(),
+    entryId: text("entry_id").notNull(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    sequence: integer("sequence").notNull(),
+    previousHash: text("previous_hash").notNull(),
+    entryHash: text("entry_hash").notNull(),
+    signerEndpointId: text("signer_endpoint_id").notNull(),
+    signedAt: text("signed_at").notNull(),
+    entryBytesBase64url: text("entry_bytes_base64url").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (entry) => [
+    uniqueIndex("content_encrypted_vault_control_log_entry_unique").on(
+      entry.vaultId,
+      entry.entryId,
+    ),
+    uniqueIndex("content_encrypted_vault_control_log_sequence_unique").on(
+      entry.vaultId,
+      entry.sequence,
+    ),
+    uniqueIndex("content_encrypted_vault_control_log_hash_unique").on(
+      entry.vaultId,
+      entry.entryHash,
+    ),
+    index("content_encrypted_vault_control_log_scope_sequence_idx").on(
+      entry.ownerEmail,
+      entry.orgId,
+      entry.vaultId,
+      entry.sequence,
+    ),
+  ],
+);
+
+/**
+ * CAS projection of the last fully replay-verified control head. It is never
+ * accepted from a caller and is checked against canonical entry replay before
+ * use. Public keys and endpoint roles are admitted endpoint identity metadata.
+ */
+export const contentEncryptedVaultControlHeads = table(
+  "content_encrypted_vault_control_heads",
+  {
+    vaultId: text("vault_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    sequence: integer("sequence").notNull(),
+    headHash: text("head_hash").notNull(),
+    membershipHash: text("membership_hash").notNull(),
+    signedAt: text("signed_at").notNull(),
+    epoch: integer("epoch").notNull(),
+    activeMembersJson: text("active_members_json").notNull(),
+    removedEndpointIdsJson: text("removed_endpoint_ids_json").notNull(),
+    freshnessMode: text("freshness_mode").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (head) => [
+    index("content_encrypted_vault_control_heads_scope_idx").on(
+      head.ownerEmail,
+      head.orgId,
+      head.vaultId,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultKeyEpochs = table(
   "content_encrypted_vault_key_epochs",
   {

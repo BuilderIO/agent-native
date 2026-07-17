@@ -1110,6 +1110,55 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonce_claims_v2_expiry_idx
         ON content_encrypted_vault_endpoint_request_nonce_claims_v2 (expires_at_bucket, id)`,
     },
+    {
+      version: 81,
+      name: "content-private-vault-signed-control-log",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_control_log_entries (
+        id TEXT PRIMARY KEY,
+        entry_id TEXT NOT NULL,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        sequence INTEGER NOT NULL,
+        previous_hash TEXT NOT NULL,
+        entry_hash TEXT NOT NULL,
+        signer_endpoint_id TEXT NOT NULL,
+        signed_at TEXT NOT NULL,
+        entry_bytes_base64url TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_control_log_entry_unique
+        ON content_encrypted_vault_control_log_entries (vault_id, entry_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_control_log_sequence_unique
+        ON content_encrypted_vault_control_log_entries (vault_id, sequence);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_control_log_hash_unique
+        ON content_encrypted_vault_control_log_entries (vault_id, entry_hash);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_control_log_scope_sequence_idx
+        ON content_encrypted_vault_control_log_entries (owner_email, org_id, vault_id, sequence);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_control_heads (
+        vault_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        sequence INTEGER NOT NULL,
+        head_hash TEXT NOT NULL,
+        membership_hash TEXT NOT NULL,
+        signed_at TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        active_members_json TEXT NOT NULL,
+        removed_endpoint_ids_json TEXT NOT NULL,
+        freshness_mode TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_control_heads_scope_idx
+        ON content_encrypted_vault_control_heads (owner_email, org_id, vault_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

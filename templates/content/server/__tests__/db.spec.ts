@@ -201,7 +201,7 @@ describe("content database migrations", () => {
     expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
     expect(
       source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
-    ).toHaveLength(8);
+    ).toHaveLength(10);
     expect(source).toContain(
       "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
@@ -353,5 +353,34 @@ describe("content database migrations", () => {
     ]) {
       expect(migration).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
     }
+  });
+
+  it("adds the endpoint-signed private-vault control log and CAS head", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const start = source.indexOf(
+      'name: "content-private-vault-signed-control-log"',
+    );
+    const migration = source.slice(start, source.indexOf("`,\n    },", start));
+
+    expect(source).toContain("version: 81");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_control_log_entries",
+    );
+    expect(migration).toContain("entry_bytes_base64url TEXT NOT NULL");
+    expect(migration).toContain(
+      "ON content_encrypted_vault_control_log_entries (vault_id, entry_id)",
+    );
+    expect(migration).toContain(
+      "ON content_encrypted_vault_control_log_entries (vault_id, sequence)",
+    );
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_control_heads",
+    );
+    expect(migration).toContain("active_members_json TEXT NOT NULL");
+    expect(migration).toContain("freshness_mode TEXT NOT NULL");
+    expect(migration).not.toMatch(/plaintext|private_key|recovery_secret/i);
   });
 });
