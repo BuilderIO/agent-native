@@ -9,6 +9,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconCheck,
   IconClipboard,
@@ -20,6 +21,7 @@ import {
   IconFolderPlus,
   IconLayoutBottombar,
   IconLayoutGrid,
+  IconLink,
   IconMessageCircle,
   IconPencil,
   IconPhoto,
@@ -3229,7 +3231,9 @@ function AssetActionsMenu({
   onRemoveFromReferences?: () => void;
 }) {
   const t = useT();
+  const [contextOpen, setContextOpen] = useState(false);
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
@@ -3249,6 +3253,15 @@ function AssetActionsMenu({
             <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
             {t("library.viewDetails")}
           </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setContextOpen(true);
+          }}
+        >
+          <IconLink className="mr-2 h-4 w-4 shrink-0" />
+          Add to context
         </DropdownMenuItem>
         {onMoveToReferences ? (
           <DropdownMenuItem
@@ -3313,6 +3326,20 @@ function AssetActionsMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <CreativeContextShareSheet
+      open={contextOpen}
+      onOpenChange={setContextOpen}
+      canManage
+      resource={{
+        appId: "assets",
+        resourceType: "asset",
+        resourceId: asset.id,
+        title: assetDisplayTitle(asset),
+        updatedAt: asset.updatedAt,
+        preview: { kind: "document", label: "Asset" },
+      }}
+    />
+    </>
   );
 }
 
