@@ -56,6 +56,27 @@ export function contentDatabaseByIdQueryKey(databaseId: string) {
   return ["action", "get-content-database", { databaseId }] as const;
 }
 
+export function preserveScopedDatabasePlaceholder<T>(
+  previous: T | undefined,
+  previousQuery: Pick<Query, "queryKey"> | undefined,
+  scope: { documentId?: string; databaseId?: string },
+): T | undefined {
+  const previousParams = previousQuery?.queryKey[2];
+  if (!previousParams || typeof previousParams !== "object") return undefined;
+
+  const params = previousParams as {
+    documentId?: unknown;
+    databaseId?: unknown;
+  };
+  if (scope.documentId !== undefined) {
+    return params.documentId === scope.documentId ? previous : undefined;
+  }
+  if (scope.databaseId !== undefined) {
+    return params.databaseId === scope.databaseId ? previous : undefined;
+  }
+  return undefined;
+}
+
 function isContentDatabaseQueryForDocument(
   queryKey: readonly unknown[],
   documentId: string,
@@ -446,7 +467,10 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
     {
       enabled: !!documentId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          documentId: documentId ?? undefined,
+        }),
       initialData: () =>
         documentId
           ? readCachedContentDatabaseResponse(queryClient, documentId)
@@ -465,7 +489,10 @@ export function useContentDatabaseById(databaseId: string | null) {
     {
       enabled: !!databaseId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          databaseId: databaseId ?? undefined,
+        }),
     },
   );
 }
@@ -716,7 +743,10 @@ export function useContentDatabasePersonalView(databaseId: string | null) {
     {
       enabled: !!databaseId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          databaseId: databaseId ?? undefined,
+        }),
     },
   );
 }

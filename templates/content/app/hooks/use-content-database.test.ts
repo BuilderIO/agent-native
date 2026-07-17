@@ -14,12 +14,49 @@ import {
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("preserveScopedDatabasePlaceholder", () => {
+  const previous = { database: "organization-files" };
+
+  it("preserves data while only pagination changes within one database", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { documentId: "organization-files", limit: 50 },
+          ],
+        },
+        { documentId: "organization-files" },
+      ),
+    ).toBe(previous);
+  });
+
+  it("never carries database rows across workspace database ids", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { databaseId: "organization-files" },
+          ],
+        },
+        { databaseId: "personal-files" },
+      ),
+    ).toBeUndefined();
+  });
+});
 
 function databaseResponse(): ContentDatabaseResponse {
   return {
