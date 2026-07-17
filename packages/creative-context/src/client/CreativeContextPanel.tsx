@@ -87,6 +87,8 @@ import {
   useCreativeContextImportStatus,
   useCreativeContextPack,
   useCreativeContextPacks,
+  useContextMemberships,
+  useManageContextMembership,
   useCreativeContextSearch,
   useCreativeContextSuggestions,
   useCreativeContextSources,
@@ -100,6 +102,7 @@ import {
   useReviewCreativeContextItems,
   useStartCreativeContextImport,
   parseCreativeContexts,
+  parseContextMemberships,
   type CreativeContextConnectionProvider,
   type CreativeContextRootRecommendation,
   type CreativeContextRecommendationProvider,
@@ -808,6 +811,7 @@ interface SafePreviewManifest {
   itemId: string;
   itemVersionId: string;
   hasPreview: boolean;
+  mediaUrl?: string;
 }
 
 function ContextPreviewSheet({
@@ -826,10 +830,13 @@ function ContextPreviewSheet({
         </SheetHeader>
         {manifest?.hasPreview ? (
           <img
-            src={creativeContextMediaUrl({
-              itemId: manifest.itemId,
-              itemVersionId: manifest.itemVersionId,
-            })}
+            src={
+              manifest.mediaUrl ??
+              creativeContextMediaUrl({
+                itemId: manifest.itemId,
+                itemVersionId: manifest.itemVersionId,
+              })
+            }
             alt=""
             className="mt-5 max-h-[70vh] w-full rounded-md border border-border object-contain"
           />
