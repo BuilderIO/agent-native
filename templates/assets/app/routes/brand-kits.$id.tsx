@@ -313,7 +313,8 @@ export default function BrandKitDetailRedirect() {
 }
 
 function libraryTabFromValue(value: unknown): LibraryTab | null {
-  return value === "references" ||
+  return value === "drafts" ||
+    value === "references" ||
     value === "generated" ||
     value === "runs" ||
     value === "settings"
@@ -363,7 +364,7 @@ export function BrandKitDetailRoute({
     useState<HTMLElement | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
   const [activeTab, setActiveTab] = useState<LibraryTab>(
-    () => urlTab ?? "references",
+    () => urlTab ?? "generated",
   );
   const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("cards");
   const [assetScope, setAssetScope] = useState<AssetLibraryScope>("all");
@@ -737,7 +738,7 @@ export function BrandKitDetailRoute({
 
   useEffect(() => {
     const selectableAssets =
-      activeTab === "runs" || activeTab === "settings"
+      activeTab === "runs" || activeTab === "settings" || activeTab === "drafts"
         ? []
         : libraryBoardAssets;
     const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
@@ -1030,9 +1031,112 @@ export function BrandKitDetailRoute({
     );
   }
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const activeSurfaceTab = activeTab === "runs" ? activeTab : "assets";
+  const surfaceTab: LibraryTab =
+    activeTab === "settings" ? "generated" : activeTab;
+  const draftsCount = liveCandidateSlots.length + draftCandidateAssets.length;
   const hideEmptyLanes =
     activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
+  const assetsToolbar = (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <FolderChip
+            active={activeFolderId === "all"}
+            label={t("library.allAssets")}
+            count={libraryAssets.length}
+            onClick={() => setActiveFolderId("all")}
+          />
+          <FolderChip
+            active={activeFolderId === null}
+            label={t("library.unfiled")}
+            count={unfiledCount}
+            onClick={() => setActiveFolderId(null)}
+          />
+          {folders.map((folder) => (
+            <FolderChip
+              key={folder.id}
+              active={activeFolderId === folder.id}
+              label={folder.title}
+              count={
+                libraryAssets.filter((asset) => asset.folderId === folder.id)
+                  .length
+              }
+              onClick={() => setActiveFolderId(folder.id)}
+            />
+          ))}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative">
+            <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("library.searchAssets")}
+              className="h-9 w-full pl-8 pr-8 sm:w-64"
+            />
+            {search && (
+              <button
+                type="button"
+                aria-label={t("library.clearSearch")}
+                className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setSearch("")}
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <Select
+            value={mediaFilter}
+            onValueChange={(value) =>
+              setMediaFilter(value as "all" | "image" | "video")
+            }
+          >
+            <SelectTrigger className="h-9 w-full sm:w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                {t("brandKitDetail.allMedia")}
+              </SelectItem>
+              <SelectItem value="image">
+                {t("brandKitDetail.images")}
+              </SelectItem>
+              <SelectItem value="video">
+                {t("brandKitDetail.videos")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </section>
+  );
+  const renderAssetsBoard = (boardAssets: any[], uploads: PendingUpload[]) => (
+    <AssetSwimlaneBoard
+      libraryId={libraryId}
+      viewMode={assetViewMode}
+      onViewModeChange={setAssetViewMode}
+      scope="all"
+      onScopeChange={setAssetScope}
+      showScopeToggle={false}
+      hideEmptyLanes={hideEmptyLanes}
+      assets={boardAssets}
+      pendingUploads={uploads}
+      folders={folders}
+      promotingReferenceKeys={promotingReferenceKeys}
+      onUploadClick={() => fileInputRef.current?.click()}
+      onDrop={(files) => void upload(files)}
+      onMoveToReferences={(asset, slot) => {
+        void handleMoveToReferences(asset, slot);
+      }}
+      onRemoveFromReferences={(asset) => {
+        void handleRemoveFromReferences(asset);
+      }}
+      selectedIds={selectedAssetIds}
+      onSelectedIdsChange={setSelectedAssetIds}
+      onOptimisticDelete={markAssetsOptimisticallyDeleted}
+      onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
+    />
+  );
   const uploadAction = (
     <Button
       variant="outline"
@@ -1254,117 +1358,65 @@ export function BrandKitDetailRoute({
           </div>
         )}
         <Tabs
-          value={activeSurfaceTab}
-          onValueChange={(value) =>
-            setActiveTab(
-              value === "assets" ? "references" : (value as LibraryTab),
-            )
-          }
+          value={surfaceTab}
+          onValueChange={(value) => setActiveTab(value as LibraryTab)}
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="assets">{t("library.assetsTab")}</TabsTrigger>
+            <TabsTrigger value="drafts" className="gap-1.5">
+              {t("library.drafts")}
+              {draftsCount > 0 ? (
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                  {draftsCount}
+                </span>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="generated">
+              {t("library.generated")}
+            </TabsTrigger>
+            <TabsTrigger value="references">
+              {t("library.references")}
+            </TabsTrigger>
             <TabsTrigger value="runs">{t("library.runs")}</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="assets" className="space-y-5">
-            <section className="space-y-3">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <FolderChip
-                    active={activeFolderId === "all"}
-                    label={t("library.allAssets")}
-                    count={libraryAssets.length}
-                    onClick={() => setActiveFolderId("all")}
-                  />
-                  <FolderChip
-                    active={activeFolderId === null}
-                    label={t("library.unfiled")}
-                    count={unfiledCount}
-                    onClick={() => setActiveFolderId(null)}
-                  />
-                  {folders.map((folder) => (
-                    <FolderChip
-                      key={folder.id}
-                      active={activeFolderId === folder.id}
-                      label={folder.title}
-                      count={
-                        libraryAssets.filter(
-                          (asset) => asset.folderId === folder.id,
-                        ).length
-                      }
-                      onClick={() => setActiveFolderId(folder.id)}
-                    />
-                  ))}
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="relative">
-                    <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder={t("library.searchAssets")}
-                      className="h-9 w-full pl-8 pr-8 sm:w-64"
-                    />
-                    {search && (
-                      <button
-                        type="button"
-                        aria-label={t("library.clearSearch")}
-                        className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                        onClick={() => setSearch("")}
-                      >
-                        <IconX className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <Select
-                    value={mediaFilter}
-                    onValueChange={(value) =>
-                      setMediaFilter(value as "all" | "image" | "video")
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-full sm:w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">
-                        {t("brandKitDetail.allMedia")}
-                      </SelectItem>
-                      <SelectItem value="image">
-                        {t("brandKitDetail.images")}
-                      </SelectItem>
-                      <SelectItem value="video">
-                        {t("brandKitDetail.videos")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+          <TabsContent value="drafts" className="space-y-4">
+            {draftsCount > 0 ? (
+              <LiveCandidatesStage
+                slots={liveCandidateSlots}
+                draftAssets={draftCandidateAssets}
+                libraryId={libraryId}
+                folders={folders}
+                savingSlotId={savingCandidateSlotId}
+                promotingReferenceKeys={promotingReferenceKeys}
+                onSave={(slot, folderId) => {
+                  void handleSaveLiveCandidate(slot, folderId);
+                }}
+                onSaveDraft={(asset, folderId) => {
+                  void handleSaveDraftCandidate(asset, folderId);
+                }}
+                onMoveToReferences={handleMoveLiveCandidateToReferences}
+                onMoveDraftToReferences={(asset) => {
+                  void handleMoveToReferences(asset);
+                }}
+              />
+            ) : (
+              <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
+                <div className="max-w-sm text-sm text-muted-foreground">
+                  {t("library.noDrafts")}
                 </div>
               </div>
-            </section>
-            <AssetSwimlaneBoard
-              libraryId={libraryId}
-              viewMode={assetViewMode}
-              onViewModeChange={setAssetViewMode}
-              scope={assetScope}
-              onScopeChange={setAssetScope}
-              hideEmptyLanes={hideEmptyLanes}
-              assets={libraryBoardAssets}
-              pendingUploads={pendingVisibleUploads}
-              folders={folders}
-              promotingReferenceKeys={promotingReferenceKeys}
-              onUploadClick={() => fileInputRef.current?.click()}
-              onDrop={(files) => void upload(files)}
-              onMoveToReferences={(asset, slot) => {
-                void handleMoveToReferences(asset, slot);
-              }}
-              onRemoveFromReferences={(asset) => {
-                void handleRemoveFromReferences(asset);
-              }}
-              selectedIds={selectedAssetIds}
-              onSelectedIdsChange={setSelectedAssetIds}
-              onOptimisticDelete={markAssetsOptimisticallyDeleted}
-              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
-            />
+            )}
+          </TabsContent>
+
+          <TabsContent value="generated" className="space-y-5">
+            {assetsToolbar}
+            {renderAssetsBoard(saved, pendingVisibleUploads)}
+          </TabsContent>
+
+          <TabsContent value="references" className="space-y-5">
+            {assetsToolbar}
+            {renderAssetsBoard(references, [])}
           </TabsContent>
 
           <TabsContent value="runs">
@@ -1441,7 +1493,7 @@ type PendingUpload = {
   status: "uploading" | "checking";
 };
 
-type LibraryTab = "references" | "generated" | "runs" | "settings";
+type LibraryTab = "drafts" | "references" | "generated" | "runs" | "settings";
 type AssetViewMode = "lanes" | "cards";
 type AssetLibraryScope = "all" | "references";
 
@@ -2014,6 +2066,7 @@ function AssetSwimlaneBoard({
   onViewModeChange,
   scope,
   onScopeChange,
+  showScopeToggle = true,
   hideEmptyLanes,
   assets,
   pendingUploads,
@@ -2033,6 +2086,7 @@ function AssetSwimlaneBoard({
   onViewModeChange: (mode: AssetViewMode) => void;
   scope: AssetLibraryScope;
   onScopeChange: (scope: AssetLibraryScope) => void;
+  showScopeToggle?: boolean;
   hideEmptyLanes: boolean;
   assets: any[];
   pendingUploads: PendingUpload[];
@@ -2520,12 +2574,14 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <AssetScopeToggle
-            value={scope}
-            onChange={onScopeChange}
-            allCount={assets.length}
-            referenceCount={referenceAssets.length}
-          />
+          {showScopeToggle ? (
+            <AssetScopeToggle
+              value={scope}
+              onChange={onScopeChange}
+              allCount={assets.length}
+              referenceCount={referenceAssets.length}
+            />
+          ) : null}
           <AssetViewModeToggle value={viewMode} onChange={onViewModeChange} />
         </div>
       </div>
