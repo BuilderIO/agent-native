@@ -20,6 +20,7 @@ const getIntegrationConfigMock = vi.hoisted(() =>
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const recordIntegrationResponseDeliveryMock = vi.hoisted(() => vi.fn());
 const handleWebhookMock = vi.hoisted(() =>
   vi.fn(async () => ({ status: 200, body: "ok" })),
 );
@@ -110,6 +111,7 @@ vi.mock("./webhook-handler.js", async () => {
     ...actual,
     handleWebhook: handleWebhookMock,
     processIntegrationTask: processIntegrationTaskMock,
+    recordIntegrationResponseDelivery: recordIntegrationResponseDeliveryMock,
   };
 });
 
@@ -787,6 +789,48 @@ describe("integrations plugin routes", () => {
     expect(sendResponse).not.toHaveBeenCalled();
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("keeps a confirmed delivery receipt retryable after history retries exhaust", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn();
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(3);
+    const incoming = JSON.parse(task.payload).incoming;
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: {
+        status: "delivered" as const,
+        messageRefs: ["reply-already-sent"],
+      },
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+    };
+    task.payload = JSON.stringify(deliveryPayload);
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    recordIntegrationResponseDeliveryMock.mockRejectedValueOnce(
+      new Error("history database unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(markTaskDeliveryRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      JSON.stringify(deliveryPayload),
+      expect.stringContaining("history database unavailable"),
+    );
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
   it("delivers persisted system notices from the fresh task processor", async () => {
