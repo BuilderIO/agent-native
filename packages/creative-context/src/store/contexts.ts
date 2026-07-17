@@ -997,6 +997,121 @@ export async function listContextMemberships(input: {
   };
 }
 
+/**
+ * Resolves private media for a pending submission without making the staged
+ * item generally readable. This is intentionally server-only: callers must
+ * already have an authenticated request context and can only read the exact
+ * staged version they submitted or are allowed to review.
+ */
+export async function readPendingCreativeContextMedia(input: {
+  mediaId?: string;
+  itemId?: string;
+  itemVersionId?: string;
+}): Promise<{
+  itemId: string;
+  itemVersionId: string;
+  mediaId: string | null;
+  storageKey: string | null;
+  mimeType: string | null;
+} | null> {
+  const { getDb, schema } = getCreativeContext();
+  const actor = requireActor();
+  let itemId = input.itemId;
+  let itemVersionId = input.itemVersionId;
+  let media: {
+    id: string;
+    itemId: string;
+    itemVersionId: string;
+    storageKey: string | null;
+    mimeType: string | null;
+  } | null = null;
+
+  if (input.mediaId) {
+    const rows = await getDb()
+      .select({
+        id: schema.contextMedia.id,
+        itemId: schema.contextMedia.itemId,
+        itemVersionId: schema.contextMedia.itemVersionId,
+        storageKey: schema.contextMedia.storageKey,
+        mimeType: schema.contextMedia.mimeType,
+      })
+      .from(schema.contextMedia)
+      .where(eq(schema.contextMedia.id, input.mediaId))
+      .limit(1);
+    media = rows[0] ?? null;
+    if (!media) return null;
+    if (
+      (itemId && itemId !== media.itemId) ||
+      (itemVersionId && itemVersionId !== media.itemVersionId)
+    ) {
+      return null;
+    }
+    itemId = media.itemId;
+    itemVersionId = media.itemVersionId;
+  }
+  if (!itemId || !itemVersionId) return null;
+
+  const submissions = await getDb()
+    .select({
+      contextId: schema.creativeContextSubmissions.contextId,
+      submittedBy: schema.creativeContextSubmissions.submittedBy,
+    })
+    .from(schema.creativeContextSubmissions)
+    .where(
+      and(
+        eq(schema.creativeContextSubmissions.status, "pending"),
+        eq(schema.creativeContextSubmissions.stagingItemId, itemId),
+        eq(
+          schema.creativeContextSubmissions.stagingItemVersionId,
+          itemVersionId,
+        ),
+      ),
+    )
+    .limit(1);
+  const submission = submissions[0];
+  if (!submission) return null;
+  const access = await resolveAccess("creative-context", submission.contextId);
+  const canReview = access?.role === "owner" || access?.role === "admin";
+  if (!canReview && submission.submittedBy !== actor.ownerEmail) return null;
+
+  if (media) {
+    return {
+      itemId,
+      itemVersionId,
+      mediaId: media.id,
+      storageKey: media.storageKey,
+      mimeType: media.mimeType,
+    };
+  }
+  const rows = await getDb()
+    .select({
+      thumbnailBlobRef: schema.contextItems.thumbnailBlobRef,
+      mimeType: schema.contextItemVersions.mimeType,
+    })
+    .from(schema.contextItemVersions)
+    .innerJoin(
+      schema.contextItems,
+      eq(schema.contextItems.id, schema.contextItemVersions.itemId),
+    )
+    .where(
+      and(
+        eq(schema.contextItems.id, itemId),
+        eq(schema.contextItemVersions.id, itemVersionId),
+      ),
+    )
+    .limit(1);
+  const item = rows[0];
+  return item
+    ? {
+        itemId,
+        itemVersionId,
+        mediaId: null,
+        storageKey: item.thumbnailBlobRef,
+        mimeType: item.mimeType,
+      }
+    : null;
+}
+
 async function resolveSubmissionItem(input: {
   itemId?: string;
   itemVersionId?: string;

@@ -1047,6 +1047,7 @@ function ContextRail({
   contexts,
   selectedContextId,
   disabled,
+  canCreate,
   onSelect,
   onCreate,
 }: {
@@ -1058,6 +1059,7 @@ function ContextRail({
   }>;
   selectedContextId: string | null | undefined;
   disabled: boolean;
+  canCreate: boolean;
   onSelect: (contextId: string) => void;
   onCreate: () => void;
 }) {
@@ -1094,7 +1096,7 @@ function ContextRail({
           type="button"
           variant="outline"
           className="min-w-40 justify-start"
-          disabled={disabled}
+          disabled={disabled || !canCreate}
           onClick={onCreate}
         >
           <IconPlus /> New context
@@ -1321,6 +1323,8 @@ export function CreativeContextPanel({
   const brandVoicePreview =
     brandProposal?.voiceDescriptors?.join(" · ") ?? brandProposal?.voiceLine;
   const canManageScope = libraryScope === "user" || canManageOrg;
+  const canCreateContext =
+    canManageScope && contexts.some((context) => context.access.canAdmin);
   const proposalCapabilities = suggestionsQuery.data?.capabilities;
   const logoCandidates = proposalCapabilities?.canonicalLogo
     ? (logoCandidatesQuery.data?.candidates ?? [])
@@ -1846,7 +1850,7 @@ export function CreativeContextPanel({
   }
 
   async function createSpecialtyContext() {
-    if (!newContextName.trim()) return;
+    if (!canCreateContext || !newContextName.trim()) return;
     setContextSettingsError(null);
     try {
       const result = await manageContext.mutateAsync({
@@ -1949,6 +1953,7 @@ export function CreativeContextPanel({
             contexts={contexts}
             selectedContextId={contextState.state.selectedContextId}
             disabled={savingState}
+            canCreate={canCreateContext}
             onSelect={(contextId) => void selectContext(contextId)}
             onCreate={() => setLibraryView("settings")}
           />
@@ -2198,11 +2203,13 @@ export function CreativeContextPanel({
                   </div>
                   <Input
                     value={newContextName}
+                    disabled={!canCreateContext}
                     onChange={(event) => setNewContextName(event.target.value)}
                     placeholder="Marketing"
                   />
                   <Select
                     value={newContextPolicy}
+                    disabled={!canCreateContext}
                     onValueChange={(value) =>
                       setNewContextPolicy(
                         value as "open" | "review" | "admins-only",
@@ -2222,7 +2229,11 @@ export function CreativeContextPanel({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={!newContextName.trim() || manageContext.isPending}
+                    disabled={
+                      !canCreateContext ||
+                      !newContextName.trim() ||
+                      manageContext.isPending
+                    }
                     onClick={() => void createSpecialtyContext()}
                   >
                     <IconPlus /> Create context
