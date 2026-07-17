@@ -415,6 +415,10 @@ export async function listContextPacks(input: {
                 schema.creativeContextPublishedSnapshots.itemVersionId,
                 schema.contextPackMembers.itemVersionId,
               ),
+              eq(
+                schema.creativeContextPublishedSnapshots.sourceId,
+                schema.contextItems.sourceId,
+              ),
             ),
           )
           .where(
@@ -514,6 +518,10 @@ export async function getContextPack(
           eq(
             schema.creativeContextPublishedSnapshots.itemVersionId,
             schema.contextPackMembers.itemVersionId,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.sourceId,
+            schema.contextItems.sourceId,
           ),
         ),
       )

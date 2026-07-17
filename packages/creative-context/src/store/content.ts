@@ -1164,6 +1164,10 @@ export async function listAccessibleSearchDocuments(
             schema.creativeContextPublishedSnapshots.itemVersionId,
             schema.contextChunks.itemVersionId,
           ),
+          eq(
+            schema.creativeContextPublishedSnapshots.sourceId,
+            schema.contextItems.sourceId,
+          ),
         ),
       )
       .where(
@@ -1404,6 +1408,10 @@ export async function listAccessibleLexicalCandidates(
             schema.creativeContextPublishedSnapshots.itemVersionId,
             schema.contextChunks.itemVersionId,
           ),
+          eq(
+            schema.creativeContextPublishedSnapshots.sourceId,
+            schema.contextItems.sourceId,
+          ),
         ),
       )
       .where(
@@ -1531,6 +1539,10 @@ export async function getCreativeContextItem(
         eq(
           schema.creativeContextPublishedSnapshots.itemVersionId,
           requestedVersionId,
+        ),
+        eq(
+          schema.creativeContextPublishedSnapshots.sourceId,
+          schema.contextItems.sourceId,
         ),
       ),
     )

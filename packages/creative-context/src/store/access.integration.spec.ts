@@ -1266,6 +1266,169 @@ describe("creative context access and revocation", () => {
     ).rejects.toThrow("unavailable at the pinned source version");
   });
 
+  it("publishes trusted Slides and Figma hierarchies without losing compiler metadata or child pins", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const { reassembleNativeCreativeArtifact } =
+      await import("../native-artifact-reassembly.js");
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const asBob = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "bob@example.test", orgId: "org-1" },
+        fn,
+      );
+    const fidelityReport = {
+      exact: { count: 1 },
+      approximated: { count: 0, reasons: [] },
+      imageFallback: { count: 0, reasons: [] },
+    };
+    for (const fixture of [
+      {
+        app: "slides" as const,
+        format: "slides-html" as const,
+        compiler: "@agent-native/creative-context:google-slides-native",
+      },
+      {
+        app: "design" as const,
+        format: "design-html" as const,
+        compiler: "@agent-native/core/ingestion:figma-node-to-html",
+      },
+    ]) {
+      const rootExternalId = `${fixture.app}:published-root`;
+      const childExternalId = `${fixture.app}:published-child`;
+      const rootHtml = `<!doctype html><html><head></head><body><div data-creative-context-child="${childExternalId}"></div></body></html>`;
+      const childHtml = `<!doctype html><html><head></head><body><div>${fixture.app} child</div></body></html>`;
+      const ingested = await asAlice(() =>
+        store.ingestItems({
+          sourceId: "source-1",
+          items: [
+            {
+              externalId: rootExternalId,
+              kind: "native-manifest",
+              title: `${fixture.app} root`,
+              mimeType: "text/html",
+              content: rootHtml,
+              contentHash: `${fixture.app}-root-v1`,
+              provenance: { compiler: fixture.compiler },
+              metadata: {
+                nativeArtifact: {
+                  schemaVersion: 1,
+                  app: fixture.app,
+                  format: fixture.format,
+                  rootExternalId,
+                  childExternalIds: [childExternalId],
+                  manifest: {
+                    kind: "hierarchical-artboard",
+                    children: [
+                      {
+                        externalId: childExternalId,
+                        sourceNodeId: "child-1",
+                        bounds: { x: 0, y: 0, width: 10, height: 10 },
+                        zOrder: 0,
+                      },
+                    ],
+                  },
+                  fidelityReport,
+                },
+              },
+              edges: [
+                {
+                  relation: "contains-native-child",
+                  toExternalId: childExternalId,
+                },
+              ],
+            },
+            {
+              externalId: childExternalId,
+              kind: "native-child",
+              title: `${fixture.app} child`,
+              mimeType: "text/html",
+              content: childHtml,
+              contentHash: `${fixture.app}-child-v1`,
+              provenance: { compiler: fixture.compiler },
+              metadata: {
+                nativeArtifact: {
+                  schemaVersion: 1,
+                  app: fixture.app,
+                  format: fixture.format,
+                  rootExternalId: childExternalId,
+                  fidelityReport,
+                },
+              },
+            },
+          ],
+        }),
+      );
+      const context = await asAlice(() =>
+        store.createCreativeContext({
+          name: `${fixture.app} fidelity`,
+          kind: "specialty",
+        }),
+      );
+      await asAlice(() =>
+        store.manageContextMembership({
+          operation: "submit",
+          contextId: context!.id,
+          itemId: ingested.itemIds[0],
+          confirmBroaderPublication: true,
+        }),
+      );
+      const membership = (await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 20 }),
+      )).memberships.find((entry) => entry.artifactKey === `source-1:${rootExternalId}`)!;
+      const published = await asBob(() =>
+        store.getCreativeContextItem(
+          membership.publishedItemId!,
+          membership.publishedItemVersionId!,
+        ),
+      );
+      expect(published?.item.provenance.compiler).toBe(fixture.compiler);
+      expect(published?.version.metadata).toMatchObject({
+        nativeArtifact: { app: fixture.app, format: fixture.format },
+      });
+      const reassembled = await asBob(() =>
+        reassembleNativeCreativeArtifact({
+          root: published!,
+          app: fixture.app,
+          format: fixture.format,
+          resolveChild: store.getCreativeContextItemByExternalId,
+        }),
+      );
+      expect(reassembled.html).toContain(`${fixture.app} child`);
+      expect(reassembled.evidence).toHaveLength(2);
+    }
+  });
+
+  it("does not turn a forged compiler id into a trusted published artifact", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const { reassembleNativeCreativeArtifact } =
+      await import("../native-artifact-reassembly.js");
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const ingested = await asAlice(() =>
+      store.ingestItems({
+        sourceId: "source-1",
+        items: [{
+          externalId: "forged-native", kind: "native", title: "Forged", mimeType: "text/html",
+          content: "<!doctype html><html><head></head><body><div>forged</div></body></html>", contentHash: "forged-v1",
+          provenance: { compiler: "attacker/compiler" },
+          metadata: { nativeArtifact: { schemaVersion: 1, app: "design", format: "design-html", rootExternalId: "forged-native", fidelityReport: { exact: { count: 1 }, approximated: { count: 0, reasons: [] }, imageFallback: { count: 0, reasons: [] } } } },
+        }],
+      }),
+    );
+    const context = await asAlice(() => store.createCreativeContext({ name: "forged", kind: "specialty" }));
+    await asAlice(() => store.manageContextMembership({ operation: "submit", contextId: context!.id, itemId: ingested.itemIds[0], confirmBroaderPublication: true }));
+    const membership = (await asAlice(() => store.listContextMemberships({ contextId: context!.id, limit: 10 }))).memberships[0]!;
+    const published = await asAlice(() => store.getCreativeContextItem(membership.publishedItemId!, membership.publishedItemVersionId!));
+    await expect(asAlice(() => reassembleNativeCreativeArtifact({ root: published!, app: "design", format: "design-html", resolveChild: store.getCreativeContextItemByExternalId }))).rejects.toThrow(/trusted native artifact compiler/i);
+  });
+
   it("finds native artifacts through bounded code-token chunks", async () => {
     const { runWithRequestContext, store } = await setup();
     const { performCreativeContextSearch } =
@@ -1576,6 +1739,289 @@ describe("creative context access and revocation", () => {
         chunkId: "allowed-chunk-v1",
       }),
     ]);
+  });
+
+  it("limits pack replay bypasses to context-owned published snapshots", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const asBob = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "bob@example.test", orgId: "org-1" },
+        fn,
+      );
+
+    await exec.execute({
+      sql: `INSERT INTO creative_context_packs
+        (id, name, context_mode, request, created_at, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)` ,
+      args: [
+        "unsafe-pack",
+        "Unsafe library replay",
+        "manual",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+        "private",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_pack_members
+        (id, pack_id, item_id, item_version_id, ordinal, score_metadata,
+         created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "unsafe-member",
+        "unsafe-pack",
+        "allowed",
+        "allowed-v1",
+        0,
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_pack_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "unsafe-pack-share",
+        "unsafe-pack",
+        "user",
+        "bob@example.test",
+        "viewer",
+        "alice@example.test",
+        "2026-07-16T00:00:00.000Z",
+      ],
+    });
+    await exec.execute(
+      "UPDATE creative_context_sources SET upstream_access = 'restricted' WHERE id = 'source-1'",
+    );
+
+    await expect(
+      asBob(() => store.getCreativeContextItem("allowed", "allowed-v1")),
+    ).resolves.toBeNull();
+    await expect(
+      asBob(() =>
+        store.listAccessibleLexicalCandidates({
+          query: "version 1",
+          packId: "unsafe-pack",
+          limit: 10,
+        }),
+      ),
+    ).resolves.toEqual({ results: [], nextCursor: undefined });
+
+    for (const source of [
+      ["context-staging-source", "Context staging"],
+      ["context-published-source", "Context published"],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_sources
+          (id, name, kind, config, upstream_access, status, health_status,
+           item_count, restricted_item_count, owner_email, org_id, visibility,
+           created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          source[0],
+          source[1],
+          "native-app",
+          "{}",
+          "available",
+          "active",
+          "healthy",
+          1,
+          0,
+          "alice@example.test",
+          "org-1",
+          "private",
+          "2026-07-16T00:00:00.000Z",
+          "2026-07-16T00:00:00.000Z",
+        ],
+      });
+    }
+    await exec.execute({
+      sql: `INSERT INTO creative_contexts
+        (id, name, kind, staging_source_id, published_source_id, approval_policy,
+         created_at, updated_at, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "context-owned",
+        "Governed context",
+        "specialty",
+        "context-staging-source",
+        "context-published-source",
+        "review",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+        "private",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_items
+        (id, source_id, external_id, kind, title, current_version_id,
+         current_content_hash, status, upstream_access, curation_status,
+         curation_rank, inventory_state, index_state, tags, colors, provenance,
+         metadata, created_at, updated_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-item",
+        "context-published-source",
+        "published-artifact",
+        "slide",
+        "Published evidence",
+        "published-version",
+        "published-hash",
+        "active",
+        "available",
+        "included",
+        "normal",
+        "available",
+        "pending",
+        "[]",
+        "[]",
+        "{}",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_item_versions
+        (id, item_id, version_number, content_hash, title, content, parse_status,
+         metadata, created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-version",
+        "published-item",
+        1,
+        "published-hash",
+        "Published evidence",
+        "historical governed context evidence",
+        "parsed",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_chunks
+        (id, item_id, item_version_id, ordinal, kind, text, metadata,
+         created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-chunk",
+        "published-item",
+        "published-version",
+        0,
+        "text",
+        "historical governed context evidence",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_memberships
+        (id, context_id, artifact_key, published_item_id, published_item_version_id,
+         rank, status, created_at, updated_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      args: [
+        "removed-membership",
+        "context-owned",
+        "published-artifact",
+        "published-item",
+        "published-version",
+        "normal",
+        "removed",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_published_snapshots
+        (id, context_id, source_id, membership_id, item_id, item_version_id,
+         submission_id, created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-snapshot",
+        "context-owned",
+        "context-published-source",
+        "removed-membership",
+        "published-item",
+        "published-version",
+        "approved-submission",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    const historicalPack = await asAlice(() =>
+      store.createContextPack({
+        name: "Historical governed replay",
+        baseContextId: "context-owned",
+        members: [
+          { itemId: "published-item", itemVersionId: "published-version" },
+        ],
+      }),
+    );
+    await exec.execute({
+      sql: `INSERT INTO creative_context_pack_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "historical-pack-share",
+        historicalPack.id,
+        "user",
+        "bob@example.test",
+        "viewer",
+        "alice@example.test",
+        "2026-07-16T00:00:00.000Z",
+      ],
+    });
+
+    await expect(asBob(() => store.getContextPack(historicalPack.id))).resolves
+      .toMatchObject({
+        members: [
+          expect.objectContaining({
+            itemId: "published-item",
+            itemVersionId: "published-version",
+          }),
+        ],
+      });
+    await expect(
+      asBob(() =>
+        store.getCreativeContextItem("published-item", "published-version"),
+      ),
+    ).resolves.toMatchObject({
+      version: { id: "published-version" },
+    });
+    await expect(
+      asBob(() =>
+        store.listAccessibleLexicalCandidates({
+          query: "historical governed",
+          packId: historicalPack.id,
+          limit: 10,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      results: [
+        expect.objectContaining({ itemVersionId: "published-version" }),
+      ],
+    });
   });
 
   it("allows explicit deprecated search without making removed items retrievable", async () => {
