@@ -34,6 +34,9 @@ mac:
   extendInfo:
     CFBundleIconName: agent-native
     NSMicrophoneUsageDescription: Agent Native uses your microphone for dictation and realtime voice conversations.
+    NSCameraUsageDescription: Agent Native uses your camera for video capture in apps like Clips.
+  entitlements: entitlements.mac.plist
+  entitlementsInherit: entitlements.mac.plist
   notarize: true
   target:
     - target: dmg
