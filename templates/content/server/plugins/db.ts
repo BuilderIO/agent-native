@@ -1069,6 +1069,28 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_retention_due_idx
         ON content_encrypted_vault_retention_queue (phase, due_at, lease_expires_at, trigger_generation)`,
     },
+    {
+      version: 79,
+      name: "content-private-vault-endpoint-request-replay-fence",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoints_endpoint_scope_unique
+        ON content_encrypted_vault_endpoints (endpoint_id, vault_id, owner_email, org_id);
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces (
+        id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        endpoint_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        nonce TEXT NOT NULL,
+        claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (endpoint_id, vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vault_endpoints(endpoint_id, vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces_unique
+        ON content_encrypted_vault_endpoint_request_nonces (vault_id, endpoint_id, nonce);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces_expiry_idx
+        ON content_encrypted_vault_endpoint_request_nonces (expires_at, id)`,
+    },
   ],
   { table: "content_migrations" },
 );

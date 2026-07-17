@@ -514,11 +514,46 @@ export const contentEncryptedVaultEndpoints = table(
       endpoint.vaultId,
       endpoint.endpointId,
     ),
+    uniqueIndex("content_encrypted_vault_endpoints_endpoint_scope_unique").on(
+      endpoint.endpointId,
+      endpoint.vaultId,
+      endpoint.ownerEmail,
+      endpoint.orgId,
+    ),
     index("content_encrypted_vault_endpoints_scope_state_idx").on(
       endpoint.ownerEmail,
       endpoint.orgId,
       endpoint.vaultId,
       endpoint.endpointState,
+    ),
+  ],
+);
+
+/**
+ * Short-lived, content-free replay fence for signed broker requests.
+ * Proofs, signatures, request hashes, routes, and payload bytes are forbidden.
+ */
+export const contentEncryptedVaultEndpointRequestNonces = table(
+  "content_encrypted_vault_endpoint_request_nonces",
+  {
+    id: text("id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    nonce: text("nonce").notNull(),
+    claimedAt: text("claimed_at").notNull().default(now()),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (claim) => [
+    uniqueIndex("content_encrypted_vault_endpoint_request_nonces_unique").on(
+      claim.vaultId,
+      claim.endpointId,
+      claim.nonce,
+    ),
+    index("content_encrypted_vault_endpoint_request_nonces_expiry_idx").on(
+      claim.expiresAt,
+      claim.id,
     ),
   ],
 );

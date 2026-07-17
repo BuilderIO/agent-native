@@ -299,4 +299,47 @@ describe("content database migrations", () => {
       "(phase, due_at, lease_expires_at, trigger_generation)",
     );
   });
+
+  it("adds a content-free durable endpoint-request replay fence", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const migration = source.slice(
+      source.indexOf(
+        'name: "content-private-vault-endpoint-request-replay-fence"',
+      ),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf(
+          'name: "content-private-vault-endpoint-request-replay-fence"',
+        ),
+      ),
+    );
+
+    expect(source).toContain("version: 79");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces",
+    );
+    expect(migration).toContain(
+      "UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoint_request_nonces_unique",
+    );
+    expect(migration).toContain("(vault_id, endpoint_id, nonce)");
+    expect(migration).toContain("(expires_at, id)");
+    expect(migration).toContain(
+      "REFERENCES content_encrypted_vault_endpoints(endpoint_id, vault_id, owner_email, org_id) ON DELETE CASCADE",
+    );
+    for (const forbidden of [
+      "proof",
+      "signature",
+      "body_hash",
+      "method",
+      "path",
+      "payload",
+      "error",
+      "provider",
+    ]) {
+      expect(migration).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
+    }
+  });
 });
