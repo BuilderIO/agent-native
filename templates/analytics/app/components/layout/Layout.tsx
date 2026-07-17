@@ -163,8 +163,6 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isAskRoute && !reportScreenshot,
   });
-  const sidebarScope = chatHomeHandoffActive ? null : analyticsScope;
-
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -294,7 +292,7 @@ export function Layout({ children }: LayoutProps) {
               t("chat.suggestionAnomalies"),
               t("chat.suggestionMrr"),
             ]}
-            scope={sidebarScope}
+            scope={analyticsScope}
             composerSlot={<CreativeContextComposerChip />}
           >
             {contentFrame}

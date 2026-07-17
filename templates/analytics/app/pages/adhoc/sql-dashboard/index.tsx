@@ -142,6 +142,7 @@ import {
   resolveFilterVars,
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
+import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
@@ -271,6 +272,7 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel,
   onEditPanel,
   onSavePanel,
+  dashboardExtensionContext,
 }: {
   panel: SqlPanel;
   vars: Record<string, string>;
@@ -286,6 +288,7 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
+  dashboardExtensionContext: Record<string, unknown>;
 }) {
   const resolved = useMemo(
     () =>
@@ -366,6 +369,23 @@ const PanelCell = memo(function PanelCell({
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
+        extensionContext={
+          panel.chartType === "extension"
+            ? {
+                ...dashboardExtensionContext,
+                panel: {
+                  id: panel.id,
+                  title: panel.title,
+                  slotId:
+                    panel.config?.extensionSlotId ??
+                    dashboardExtensionSlotId(
+                      String(dashboardExtensionContext.dashboardId),
+                      panel.id,
+                    ),
+                },
+              }
+            : undefined
+        }
       />
     </div>
   );
@@ -1966,6 +1986,13 @@ export default function SqlDashboardPage() {
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
+                                dashboardExtensionContext={{
+                                  dashboardId,
+                                  dashboardName: dashboard.name,
+                                  dashboardDescription:
+                                    dashboard.description ?? null,
+                                  filters: vars,
+                                }}
                               />
                               <DashboardDropLine
                                 slot={{

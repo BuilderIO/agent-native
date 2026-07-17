@@ -287,6 +287,58 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
   });
 
+  it("persists a duplicated slide after the optimistic insert", async () => {
+    window.history.pushState({}, "", "/");
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Deck").id;
+    });
+    resolveCreate(new Response("", { status: 200 }));
+
+    const originalSlide = result.current.getDeck(deckId)!.slides[0];
+    vi.useFakeTimers();
+    act(() => {
+      result.current.duplicateSlide(deckId, originalSlide.id);
+    });
+
+    expect(result.current.getDeck(deckId)?.slides).toHaveLength(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        deckId?: string;
+      };
+      return body.deckId === deckId;
+    });
+    expect(patchCall).toBeTruthy();
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+      deckId,
+      operations: [
+        {
+          op: "add-slide",
+          afterSlideId: originalSlide.id,
+          fields: {
+            content: originalSlide.content,
+            notes: originalSlide.notes,
+            layout: originalSlide.layout,
+            background: originalSlide.background,
+          },
+        },
+      ],
+    });
+  });
+
   it("records the first edit after reloading over a pending undo skip", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const { setAccessibleDeck } = setupFetch();

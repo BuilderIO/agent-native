@@ -3,6 +3,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   PromptComposer,
@@ -442,13 +443,17 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
       signInForPlanCreate();
       return;
     }
-    markAgentChatHomeHandoff("plans");
+    if (location.pathname === "/" && isAgentChatHomeHandoffActive("plans")) {
+      markAgentChatHomeHandoff("plans");
+    }
     navigateWithAgentChatViewTransition(navigate, "/plans?create=1");
   };
 
   const openPlanPath = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
     event.preventDefault();
-    markAgentChatHomeHandoff("plans");
+    if (location.pathname === "/" && isAgentChatHomeHandoffActive("plans")) {
+      markAgentChatHomeHandoff("plans");
+    }
     navigateWithAgentChatViewTransition(navigate, path);
   };
 
@@ -738,7 +743,13 @@ export function Sidebar({
             <Link
               to={item.href}
               onClick={() => {
-                if (item.href !== "/") markAgentChatHomeHandoff("plans");
+                if (
+                  item.href !== "/" &&
+                  location.pathname === "/" &&
+                  isAgentChatHomeHandoffActive("plans")
+                ) {
+                  markAgentChatHomeHandoff("plans");
+                }
               }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",

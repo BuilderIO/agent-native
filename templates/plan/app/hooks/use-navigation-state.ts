@@ -1,6 +1,7 @@
 import {
   agentNativePath,
   appBasePath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -108,7 +109,13 @@ export function useNavigationState() {
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
-    if (path !== "/") markAgentChatHomeHandoff("plans");
+    if (
+      location.pathname === "/" &&
+      path !== "/" &&
+      isAgentChatHomeHandoffActive("plans")
+    ) {
+      markAgentChatHomeHandoff("plans");
+    }
     const commitNavigation = () =>
       navigate(path, { replace: true, flushSync: true });
     if (

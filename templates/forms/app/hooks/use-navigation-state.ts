@@ -1,5 +1,6 @@
 import {
   appBasePath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   useAgentRouteState,
 } from "@agent-native/core/client";
@@ -131,7 +132,11 @@ export function useNavigationState() {
     navigateOptions: { flushSync: true, replace: true },
     onNavigate: (_command, path) => {
       void prewarmFormsRoutePath(path);
-      if (location.pathname === "/ask" && path !== "/ask") {
+      if (
+        location.pathname === "/ask" &&
+        path !== "/ask" &&
+        isAgentChatHomeHandoffActive("forms")
+      ) {
         markAgentChatHomeHandoff("forms");
       }
     },

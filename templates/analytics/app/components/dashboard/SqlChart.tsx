@@ -1,5 +1,8 @@
 import { useDemoModeStatus, useT } from "@agent-native/core/client";
-import { EmbeddedExtension } from "@agent-native/core/client/extensions";
+import {
+  EmbeddedExtension,
+  ExtensionSlot,
+} from "@agent-native/core/client/extensions";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -1185,6 +1188,8 @@ interface SqlChartProps {
   className?: string;
   loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /** Dashboard/panel state sent to slot-backed extension boxes. */
+  extensionContext?: Record<string, unknown> | null;
 }
 
 export function SqlChart({
@@ -1192,6 +1197,7 @@ export function SqlChart({
   resolvedSql,
   loadData = true,
   onExportCsvChange,
+  extensionContext,
 }: SqlChartProps) {
   const t = useT();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
@@ -1266,11 +1272,12 @@ export function SqlChart({
     );
   }
 
-  // Extension panels render a sandboxed extension iframe instead of querying a
-  // data source. The extension id lives in config.extensionId.
+  // Extension panels render either a named extension-point slot or a legacy
+  // direct extension iframe instead of querying a data source.
   if (isExtension) {
     const extensionId = panel.config?.extensionId;
-    if (!extensionId) {
+    const slotId = panel.config?.extensionSlotId;
+    if (!extensionId && !slotId) {
       return (
         <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
           <p className="text-sm text-muted-foreground text-center">
@@ -1280,7 +1287,12 @@ export function SqlChart({
       );
     }
     return (
-      <DashboardExtensionPanel extensionId={extensionId} panelId={panel.id} />
+      <DashboardExtensionPanel
+        extensionId={extensionId}
+        panelId={panel.id}
+        slotId={slotId}
+        context={extensionContext}
+      />
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;
@@ -1409,15 +1421,31 @@ export function SqlChart({
 function DashboardExtensionPanel({
   extensionId,
   panelId,
+  slotId,
+  context,
 }: {
-  extensionId: string;
+  extensionId?: string;
   panelId: string;
+  slotId?: string;
+  context?: Record<string, unknown> | null;
 }) {
   const t = useT();
   // Hold the report-readiness marker until the extension iframe paints so
   // dashboard report screenshots don't capture a blank extension panel.
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+
+  if (slotId) {
+    return (
+      <ExtensionSlot
+        id={slotId}
+        context={context}
+        showEmptyAffordance
+        className="min-h-[120px] w-full"
+        toolClassName="w-full"
+      />
+    );
+  }
 
   // Embedding never grants access to the extension itself (same model as
   // ExtensionSlots). A viewer with dashboard-only access who can't see the
@@ -1438,7 +1466,7 @@ function DashboardExtensionPanel({
       data-dashboard-report-loading={ready ? undefined : "true"}
     >
       <EmbeddedExtension
-        extensionId={extensionId}
+        extensionId={extensionId!}
         slotId={`dashboard-panel-${panelId}`}
         className="w-full"
         // Intentional for v1: extension panels are standalone widgets and do not

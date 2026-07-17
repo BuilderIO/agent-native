@@ -69,7 +69,7 @@ export function Layout({ children }: LayoutProps) {
     <HeaderActionsProvider>
       <AgentSidebar
         position="right"
-        defaultOpen
+        defaultOpen={false}
         emptyStateText={t("agent.emptyState")}
         suggestions={[
           t("agent.suggestionPitch"),

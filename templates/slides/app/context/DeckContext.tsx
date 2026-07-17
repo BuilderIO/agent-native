@@ -1920,39 +1920,39 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const duplicateSlide = useCallback(
     (deckId: string, slideId: string) => {
-      markDeckDirty(deckId);
       const before = decksRef.current.find((d) => d.id === deckId);
-      let copiedSlide: Slide | undefined;
+      const original = before?.slides.find((slide) => slide.id === slideId);
+      if (!before || !original) return;
+
+      markDeckDirty(deckId);
+      const copiedSlide: Slide = { ...original, id: nanoid(8) };
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const idx = d.slides.findIndex((s) => s.id === slideId);
           if (idx === -1) return d;
-          const original = d.slides[idx];
-          const copy: Slide = { ...original, id: nanoid(8) };
-          copiedSlide = copy;
           const slides = [...d.slides];
-          slides.splice(idx + 1, 0, copy);
+          slides.splice(idx + 1, 0, copiedSlide);
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
-      if (copiedSlide) {
-        // Granular add-slide op — inserts the copy after the original.
-        const { id: newSlideId, ...rest } = copiedSlide;
-        const op: PatchDeckOp = {
-          op: "add-slide",
-          slideId: newSlideId,
-          afterSlideId: slideId,
-          fields: {
-            content: rest.content,
-            notes: rest.notes,
-            layout: rest.layout,
-            background: rest.background,
-          },
-        };
-        enqueueDeckOp(deckId, op);
-        if (before) recordUndo(before, op, { label: "Duplicate slide" });
-      }
+      // Granular add-slide op — inserts the copy after the original. Build it
+      // from the current deck before scheduling the React state update; the
+      // functional updater runs later and cannot be used to produce the op.
+      const { id: newSlideId, ...rest } = copiedSlide;
+      const op: PatchDeckOp = {
+        op: "add-slide",
+        slideId: newSlideId,
+        afterSlideId: slideId,
+        fields: {
+          content: rest.content,
+          notes: rest.notes,
+          layout: rest.layout,
+          background: rest.background,
+        },
+      };
+      enqueueDeckOp(deckId, op);
+      recordUndo(before, op, { label: "Duplicate slide" });
     },
     [markDeckDirty, recordUndo, setDecksLocal],
   );

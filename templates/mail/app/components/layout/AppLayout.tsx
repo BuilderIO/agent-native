@@ -196,7 +196,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen={!isMobile}
+      defaultOpen={false}
       agentPageHref="/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[

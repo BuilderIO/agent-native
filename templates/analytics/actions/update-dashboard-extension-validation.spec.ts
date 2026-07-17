@@ -51,12 +51,27 @@ describe("validateDashboardConfig — extension panels", () => {
     expect(error).toBeNull();
   });
 
+  it("accepts a slot-backed extension panel without a direct extension id", () => {
+    const error = validateDashboardConfig({
+      name: "Slot-backed widget",
+      panels: [
+        extensionPanel({
+          config: {
+            extensionSlotId:
+              "analytics.dashboard.dashboard-1.panel.pipeline-widget",
+          },
+        }),
+      ],
+    });
+    expect(error).toBeNull();
+  });
+
   it("rejects an extension panel missing config.extensionId", () => {
     const error = validateDashboardConfig({
       name: "Missing Extension Id",
       panels: [extensionPanel({ config: {} })],
     });
-    expect(error).toMatch(/config\.extensionId is required/);
+    expect(error).toMatch(/extensionId or config\.extensionSlotId is required/);
   });
 
   it("rejects an extension panel with an empty config.extensionId", () => {
@@ -64,7 +79,7 @@ describe("validateDashboardConfig — extension panels", () => {
       name: "Empty Extension Id",
       panels: [extensionPanel({ config: { extensionId: "   " } })],
     });
-    expect(error).toMatch(/config\.extensionId is required/);
+    expect(error).toMatch(/extensionId or config\.extensionSlotId is required/);
   });
 
   it("still requires source/sql for non-extension panels", () => {
