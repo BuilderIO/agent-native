@@ -23500,7 +23500,7 @@ function DesignEditor() {
               resourceType: "design",
               resourceId: id ?? "",
               title: design?.title ?? "Untitled design",
-              preview: { kind: "document", label: "Design project" },
+              preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
             }}
           />
         ),

@@ -2606,6 +2606,7 @@ function AssetSwimlaneBoard({
               >
                 <IconLink className="h-4 w-4" />
                 Add to context
+                {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
               </Button>
               <Button
                 type="button"
@@ -3285,6 +3286,7 @@ function AssetActionsMenu({
           >
             <IconLink className="mr-2 h-4 w-4 shrink-0" />
             Add to context
+            {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
           </DropdownMenuItem>
           {onMoveToReferences ? (
             <DropdownMenuItem
@@ -3477,6 +3479,7 @@ function AssetLaneTile({
             >
               <IconLink className="mr-2 h-4 w-4 shrink-0" />
               Add to context
+              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
             </DropdownMenuItem>
             {canMoveToReferences ? (
               <DropdownMenuItem

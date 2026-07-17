@@ -1438,7 +1438,7 @@ export default function SqlDashboardPage() {
                         resourceId: dashboardId,
                         title: dashboard.name,
                         updatedAt: dashboardUpdatedAt ?? undefined,
-                        preview: { kind: "document", label: "SQL dashboard" },
+                        preview: { kind: "document", label: "SQL dashboard" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
                       }}
                     />
                   ),
