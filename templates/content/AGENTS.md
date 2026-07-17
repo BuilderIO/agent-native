@@ -155,6 +155,15 @@ cd templates/content && pnpm action <name> [args]
 | `delete-database-items`                     | `--databaseId <id>` or `--documentId <databaseDocumentId> --itemIds <json-array>` or `--documentIds <json-array>`                                                                                  | Preferred multi-row delete action; delete multiple database row pages atomically while preserving `delete-document` admin semantics                                               |
 | `move-database-item`                        | `--itemId <id>` or `--documentId <id> --position <number>`                                                                                                                                         | Move a database row page to a new zero-based table position                                                                                                                       |
 | `update-content-database-view`              | `--databaseId <id> --viewConfig <json>`                                                                                                                                                            | Persist database views, sorts, filters, hidden properties, and view settings                                                                                                      |
+| `manage-content-database-policy`            | `--databaseId <id> [--schemaLocked true\|false] [--defaultPersonNotificationsEnabled true\|false]`                                                                                                 | Owner-only database locking and default Person-notification policy                                                                                                                |
+| `manage-content-database-validation`        | `--databaseId <id> --validation <json>`                                                                                                                                                            | Owner-only configuration for property IDs required by atomic submissions and by transitions into specific status option IDs                                                       |
+| `list-content-database-hooks`               | `--databaseId <id>`                                                                                                                                                                                | List deterministic owner-managed rules for committed item creation and property transitions                                                                                       |
+| `manage-content-database-hook`              | `--action create\|update\|delete --databaseId <id> [...]`                                                                                                                                          | Owner-only management for deterministic Content Rules; use stable property, option, and Person-property IDs                                                                       |
+| `preview-content-database-hook`             | `--databaseId <id> --hookId <id> --eventId <id>`                                                                                                                                                   | Pure preview of whether one Rule version matches a committed event and which effects it would attempt                                                                             |
+| `list-content-database-hook-executions`     | `--databaseId <id> [--hookId <id>] [--limit <n>]`                                                                                                                                                  | Inspect durable hook execution truth, attempts, and terminal errors                                                                                                               |
+| `manage-content-database-hook-execution`    | `--action retry\|acknowledge --databaseId <id> --executionId <id>`                                                                                                                                 | Owner-only incident control over a durable Rule execution                                                                                                                         |
+| `get-content-notification-preference`       | `--databaseId <id> [--subscriptionId <id>] [--documentId <id>]`                                                                                                                                    | Resolve the current user's personal notification preference with item, rule, database, then global precedence                                                                     |
+| `manage-content-notification-preference`    | `--action set\|remove --target <json> [--enabled true\|false]`                                                                                                                                     | Set or remove the current user's global, database, rule, or item personal-notification override; personal unsubscribe always wins                                                 |
 | `list-document-properties`                  | `--documentId <id> [--format json]`                                                                                                                                                                | List Notion-style property definitions and values for a document                                                                                                                  |
 | `configure-document-property`               | `--documentId <id> [--id <propertyId>] --name <name> --type <type> [--description <text>] [--visibility always_show\|hide_when_empty\|always_hide] [--options <json>]`                             | Create or update a property definition and its option-level guidance                                                                                                              |
 | `duplicate-document-property`               | `--documentId <id> --propertyId <propertyId>`                                                                                                                                                      | Duplicate a property definition and its stored values                                                                                                                             |
@@ -616,6 +625,29 @@ property names, accepts select/status option IDs or labels, rejects unknown
 options, writes primary and additional Blocks fields to their correct stores in
 one transaction, verifies the saved row, and returns `createdItemId`,
 `createdDocumentId`, `urlPath`, and `deepLink`.
+Database owners can use `manage-content-database-validation` to require
+stable property IDs for every atomic form/agent submission and to gate a
+specific status option on other required property IDs. A blocked submission or
+status transition fails before mutation with missing-field evidence. Ordinary
+`add-database-item` creation remains a draft path and may be incomplete.
+Database owners can author deterministic Rules with
+`manage-content-database-hook`. Rules evaluate committed database events, so
+the same rule applies to UI, form, agent, MCP/A2A, and other certified mutation
+origins. Use stable property and option IDs from `get-content-database`; never
+persist labels as rule identity. Inspect actual execution state with
+`list-content-database-hook-executions` instead of inferring delivery from the
+row's current status. Optional all/any condition groups use the same
+deterministic evaluator for preview and execution. Agentic natural-language
+work remains a framework
+Automation subscribed to the same durable Content event, not a second Content
+worker or rule copy.
+
+Person-property additions notify by default. A recipient may always opt out of
+their personal stream globally, per database, per rule, or per item with
+`manage-content-notification-preference`; the most specific override wins.
+Personal Slack/email/browser routing is a recipient preference. A shared Slack
+channel announcement or provider action is owner-controlled workflow behavior
+and must not be represented as another person's personal preference.
 The active view menu can rename, duplicate, delete, or switch an existing
 view's layout between table, list, gallery, calendar, timeline, board, and form while
 preserving its sorts, filters, hidden properties, and layout-specific settings.

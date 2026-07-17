@@ -233,6 +233,313 @@ export interface ContentDatabase {
   updatedAt: string;
 }
 
+export type ContentDatabaseHookTrigger =
+  | { kind: "item_created" }
+  | { kind: "item_submitted" }
+  | {
+      kind: "property_changed";
+      propertyId: string;
+      fromOptionId?: string | null;
+      toOptionId?: string | null;
+    }
+  | {
+      kind: "builder_publication_confirmed";
+      publicationAction?: "publish" | "unpublish" | null;
+    };
+
+export type ContentDatabaseHookEffect =
+  | {
+      version: 1;
+      kind: "notify";
+      recipientPersonPropertyId: string;
+      message?: string;
+    }
+  | {
+      version: 1;
+      kind: "team_slack";
+      webhookKey: string;
+      title?: string;
+      message?: string;
+    }
+  | {
+      version: 1;
+      kind: "webhook";
+      urlKey: string;
+      signatureKey: string;
+      title?: string;
+      message?: string;
+    }
+  | {
+      version: 1;
+      kind: "set_property";
+      propertyId: string;
+      value: unknown;
+    };
+
+export type ContentDatabaseHookCondition =
+  | {
+      propertyId: string;
+      operator: "equals" | "not_equals" | "contains";
+      value: unknown;
+    }
+  | {
+      propertyId: string;
+      operator: "is_empty" | "is_not_empty";
+    };
+
+export interface ContentDatabaseHookConditions {
+  mode: "all" | "any";
+  clauses: ContentDatabaseHookCondition[];
+}
+
+export type ContentDatabaseHookTiming =
+  | { kind: "immediate" }
+  | {
+      kind: "delayed" | "debounced" | "escalation";
+      delayMinutes: number;
+    };
+
+export interface ContentDatabaseHook {
+  id: string;
+  databaseId: string;
+  name: string;
+  enabled: boolean;
+  trigger: ContentDatabaseHookTrigger;
+  conditions?: ContentDatabaseHookConditions;
+  effects: ContentDatabaseHookEffect[];
+  timing: ContentDatabaseHookTiming;
+  /** Compatibility alias for single-effect clients. */
+  effect: ContentDatabaseHookEffect;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ListContentDatabaseHooksResponse {
+  databaseId: string;
+  hooks: ContentDatabaseHook[];
+  triggerAvailability: ContentDatabaseHookTriggerAvailability[];
+}
+
+export interface ContentDatabaseHookTriggerAvailability {
+  kind: ContentDatabaseHookTrigger["kind"];
+  available: boolean;
+  reason?: string;
+}
+
+export type ManageContentDatabaseHookRequest =
+  | {
+      action: "create";
+      databaseId: string;
+      name: string;
+      enabled?: boolean;
+      trigger: ContentDatabaseHookTrigger;
+      conditions?: ContentDatabaseHookConditions;
+      effect: ContentDatabaseHookEffect;
+      timing?: ContentDatabaseHookTiming;
+    }
+  | {
+      action: "create";
+      databaseId: string;
+      name: string;
+      enabled?: boolean;
+      trigger: ContentDatabaseHookTrigger;
+      conditions?: ContentDatabaseHookConditions;
+      effects: ContentDatabaseHookEffect[];
+      timing?: ContentDatabaseHookTiming;
+    }
+  | {
+      action: "update";
+      databaseId: string;
+      hookId: string;
+      name?: string;
+      enabled?: boolean;
+      trigger?: ContentDatabaseHookTrigger;
+      conditions?: ContentDatabaseHookConditions | null;
+      effect?: ContentDatabaseHookEffect;
+      effects?: ContentDatabaseHookEffect[];
+      timing?: ContentDatabaseHookTiming;
+    }
+  | {
+      action: "delete";
+      databaseId: string;
+      hookId: string;
+    };
+
+export interface ManageContentDatabaseHookResponse {
+  databaseId: string;
+  hook?: ContentDatabaseHook;
+  deletedHookId?: string;
+}
+
+export interface ContentHookRuntimeControlValue {
+  evaluatorPaused: boolean;
+  effectsPaused: boolean;
+}
+
+export interface ContentHookRuntimeControlsResponse {
+  databaseId: string;
+  global: ContentHookRuntimeControlValue;
+  database: ContentHookRuntimeControlValue;
+  effective: ContentHookRuntimeControlValue;
+  canManageGlobal: boolean;
+}
+
+export interface ManageContentHookRuntimeControlRequest extends ContentHookRuntimeControlValue {
+  databaseId: string;
+  scope: "global" | "database";
+}
+
+export type ContentDatabaseHookExecutionStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "retrying"
+  | "unknown"
+  | "acknowledged";
+
+export interface ContentDatabaseHookDeliveryAttempt {
+  id: string;
+  effectId: string;
+  notificationId: string | null;
+  channel: string;
+  attempt: number;
+  status: "delivered" | "failed" | "retrying" | "unknown" | "skipped";
+  errorMessage: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ContentDatabaseHookEffectExecution {
+  id: string;
+  kind:
+    | ContentDatabaseHookEffect["kind"]
+    | "notification"
+    | "content_hook_control"
+    | "unknown";
+  status:
+    | "delivered"
+    | "failed"
+    | "retrying"
+    | "unknown"
+    | "skipped"
+    | "suppressed"
+    | "coalesced";
+  result: Record<string, unknown> | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deliveryAttempts: ContentDatabaseHookDeliveryAttempt[];
+}
+
+export interface ContentDatabaseHookExecution {
+  id: string;
+  hookId: string;
+  hookName: string;
+  subscriptionVersion: number;
+  eventId: string;
+  status: ContentDatabaseHookExecutionStatus;
+  attempts: number;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  canRetry: boolean;
+  canAcknowledge: boolean;
+  effects: ContentDatabaseHookEffectExecution[];
+}
+
+export interface ListContentDatabaseHookExecutionsResponse {
+  databaseId: string;
+  executions: ContentDatabaseHookExecution[];
+}
+
+export interface ManageContentDatabaseHookExecutionRequest {
+  action: "retry" | "acknowledge";
+  databaseId: string;
+  executionId: string;
+}
+
+export interface ManageContentDatabaseHookExecutionResponse {
+  databaseId: string;
+  execution: {
+    id: string;
+    eventId: string;
+    subscriptionId: string;
+    subscriptionVersion: number;
+    status: ContentDatabaseHookExecutionStatus;
+    attempt: number;
+    fenceVersion: number;
+    leaseExpiresAt: number | null;
+    errorMessage: string | null;
+  };
+}
+
+export interface PreviewContentDatabaseHookRequest {
+  databaseId: string;
+  hookId: string;
+  eventId: string;
+}
+
+export interface PreviewContentDatabaseHookResponse {
+  databaseId: string;
+  hookId: string;
+  preview: {
+    matched: boolean;
+    event: {
+      id: string;
+      topic: string;
+      subjectId: string;
+      actorContext: Record<string, unknown>;
+      causalEventId: string | null;
+    };
+    effects: Array<Record<string, unknown>>;
+  };
+}
+
+export type ContentNotificationPreferenceTarget =
+  | { scope: "global" }
+  | { scope: "database"; databaseId: string }
+  | { scope: "rule"; databaseId: string; subscriptionId: string }
+  | { scope: "item"; databaseId: string; documentId: string };
+
+export type ManageContentNotificationPreferenceRequest =
+  | {
+      action: "set";
+      target: ContentNotificationPreferenceTarget;
+      enabled: boolean;
+    }
+  | { action: "remove"; target: ContentNotificationPreferenceTarget };
+
+export interface ContentNotificationPreference {
+  id: string;
+  ownerEmail: string;
+  orgId: string;
+  scope: "global" | "database" | "rule" | "item";
+  scopeId: string;
+  databaseId: string | null;
+  subscriptionId: string | null;
+  documentId: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManageContentNotificationPreferenceResponse {
+  target: ContentNotificationPreferenceTarget;
+  preference: ContentNotificationPreference | null;
+}
+
+export interface GetContentNotificationPreferenceResponse {
+  target: ContentNotificationPreferenceTarget;
+  documentId: string | null;
+  preference: {
+    enabled: boolean;
+    source: "item" | "rule" | "database" | "global" | "default";
+    preferenceId: string | null;
+  };
+}
+
 export type ContentDatabaseSortDirection = "asc" | "desc";
 
 export interface ContentDatabaseSort {
@@ -332,6 +639,46 @@ export interface ContentDatabaseViewConfig {
   sorts: ContentDatabaseSort[];
   filters: ContentDatabaseFilter[];
   columnWidths: Record<string, number>;
+  schemaLocked?: boolean;
+  defaultPersonNotificationsEnabled?: boolean;
+  defaultPersonNotificationsPolicyVersion?: number;
+  validation?: ContentDatabaseValidationConfig;
+}
+
+export interface ManageContentDatabasePolicyRequest {
+  databaseId: string;
+  schemaLocked?: boolean;
+  defaultPersonNotificationsEnabled?: boolean;
+}
+
+export interface ManageContentDatabasePolicyResponse {
+  databaseId: string;
+  schemaLocked: boolean;
+  defaultPersonNotificationsEnabled: boolean;
+  defaultPersonNotificationsPolicyVersion: number;
+}
+
+export interface ContentDatabaseStatusRequirement {
+  statusPropertyId: string;
+  statusOptionId: string;
+  requiredPropertyIds: string[];
+}
+
+export interface ContentDatabaseValidationConfig {
+  /** Property definition IDs required for atomic form or agent submissions. */
+  requiredForSubmission: string[];
+  /** Required properties that gate entry into a specific status option. */
+  statusRequirements: ContentDatabaseStatusRequirement[];
+}
+
+export interface ManageContentDatabaseValidationRequest {
+  databaseId: string;
+  validation: ContentDatabaseValidationConfig;
+}
+
+export interface ManageContentDatabaseValidationResponse {
+  databaseId: string;
+  validation: ContentDatabaseValidationConfig;
 }
 
 export interface ContentDatabasePersonalViewOverrides {
@@ -802,6 +1149,7 @@ export interface AddDatabaseItemRequest {
   databaseId: string;
   title?: string;
   propertyValues?: Record<string, DocumentPropertyValue>;
+  submissionIntent?: "draft" | "submitted";
 }
 
 export interface SubmitContentDatabaseFormRequest {

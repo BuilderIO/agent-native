@@ -5,6 +5,10 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  appendContentWorkflowEvent,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
 function clamp(value: number, min: number, max: number) {
@@ -27,7 +31,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Database row document ID"),
     position: z.coerce.number().int().describe("New zero-based row position"),
   }),
-  run: async ({ itemId, documentId, position }) => {
+  run: async ({ itemId, documentId, position }, ctx) => {
     if (!itemId && !documentId) {
       throw new Error("Either itemId or documentId is required.");
     }
@@ -77,6 +81,7 @@ export default defineAction({
     const itemIds = nextItems.map((item) => item.id);
     const documentIds = nextItems.map((item) => item.documentId);
 
+    let workflowEventId = "";
     await db.transaction(async (tx) => {
       await tx
         .update(schema.contentDatabaseItems)
@@ -112,7 +117,24 @@ export default defineAction({
             inArray(schema.documents.id, documentIds),
           ),
         );
+      workflowEventId = await appendContentWorkflowEvent(tx, {
+        topic: "content.database.item.moved",
+        subjectType: "content_database_item",
+        subjectId: row.item.documentId,
+        databaseId: row.item.databaseId,
+        documentId: row.item.documentId,
+        ownerEmail: row.item.ownerEmail,
+        orgId: row.item.orgId,
+        occurredAt: now,
+        actionContext: ctx,
+        payload: {
+          itemId: row.item.id,
+          beforePosition: currentIndex,
+          afterPosition: nextIndex,
+        },
+      });
     });
+    wakeContentWorkflowEvent(workflowEventId);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

@@ -1778,6 +1778,13 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Netlify's generated minute sweep enters this exact route from a dedicated
+    // scheduled-function isolate. The handler itself requires the isolate marker
+    // before touching the durable workflow ledger.
+    if (p === "/_agent-native/workflow/_drain") {
+      return;
+    }
+
     // Read-only agent chat share links. The random token is the bearer secret;
     // the route returns a sanitized transcript plus bounded run summaries and
     // exposes no write surface, live event stream, tool payloads, or owner APIs.

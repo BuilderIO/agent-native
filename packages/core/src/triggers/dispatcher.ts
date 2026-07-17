@@ -1,9 +1,8 @@
 /**
- * Trigger dispatcher — bridges the event bus to the automation system.
+ * Trigger dispatcher — registers event Automations with their dispatch path.
  *
- * On startup, loads all event-triggered jobs from the resources store,
- * subscribes to their events, and dispatches them (condition eval → agent
- * loop) when matching events fire.
+ * Certified durable topics become agentic subscriptions in the shared
+ * workflow engine. Explicitly ephemeral topics retain the process-local bus.
  */
 
 import {
@@ -21,10 +20,31 @@ import {
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { createThread } from "../chat-threads/store.js";
-import { subscribe, unsubscribe } from "../event-bus/index.js";
+import { assertEphemeralEventTopic } from "../event-bus/authority.js";
+import {
+  isCertifiedDurableEventTopic,
+  subscribe,
+  unsubscribe,
+} from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
-import { resourceListAllOwners, resourcePut } from "../resources/store.js";
+import {
+  resourceGetByPath,
+  resourceListAllOwners,
+  resourcePut,
+  type Resource,
+} from "../resources/store.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import {
+  finalizeWorkflowEffect,
+  listWorkflowExecutions,
+  listWorkflowSubscriptions,
+  recordWorkflowEffect,
+  registerWorkflowExecutionHandler,
+  upsertWorkflowSubscription,
+  type ClaimedWorkflowExecution,
+  type WorkflowExecutionHandler,
+  type WorkflowExecutionResult,
+} from "../workflow/index.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
 
@@ -180,6 +200,48 @@ const _eventSubscriptions = new Map<string, string>();
 // deployments; multi-instance would need a conditional DB update.
 const _dispatchingTriggers = new Set<string>();
 let _deps: TriggerDispatcherDeps | null = null;
+let _workflowHandlerUnsubscribe: (() => void) | undefined;
+
+const AUTOMATION_SUBSCRIPTION_DOMAIN = "automation";
+
+export function workflowSubscriptionIdForAutomation(
+  resource: Pick<Resource, "id">,
+): string {
+  return `automation:${resource.id}`;
+}
+
+export async function getDurableAutomationStatus(
+  resource: Pick<Resource, "id">,
+  meta: TriggerFrontmatter,
+): Promise<{
+  lastStatus?: TriggerFrontmatter["lastStatus"];
+  lastRun?: string;
+  lastError?: string;
+} | null> {
+  if (
+    meta.triggerType !== "event" ||
+    !meta.event ||
+    !isCertifiedDurableEventTopic(meta.event)
+  ) {
+    return null;
+  }
+  const [execution] = await listWorkflowExecutions({
+    subscriptionId: workflowSubscriptionIdForAutomation(resource),
+    limit: 1,
+  });
+  if (!execution) return {};
+  const lastStatus: TriggerFrontmatter["lastStatus"] =
+    execution.status === "succeeded"
+      ? "success"
+      : execution.status === "failed" || execution.status === "unknown"
+        ? "error"
+        : "running";
+  return {
+    lastStatus,
+    lastRun: new Date(execution.createdAt).toISOString(),
+    lastError: execution.errorMessage ?? undefined,
+  };
+}
 
 /**
  * Initialize the trigger dispatcher. Call once at server startup.
@@ -189,6 +251,10 @@ export async function initTriggerDispatcher(
   deps: TriggerDispatcherDeps,
 ): Promise<void> {
   _deps = deps;
+  _workflowHandlerUnsubscribe?.();
+  _workflowHandlerUnsubscribe = registerWorkflowExecutionHandler(
+    agenticAutomationHandler,
+  );
   await refreshEventSubscriptions();
 }
 
@@ -201,10 +267,17 @@ export async function refreshEventSubscriptions(): Promise<void> {
     const jobResources = await resourceListAllOwners("jobs/");
     const eventNames = new Set<string>();
 
+    await syncDurableAutomationSubscriptions(jobResources);
+
     for (const resource of jobResources) {
       if (!resource.path.endsWith(".md")) continue;
       const { meta } = parseTriggerFrontmatter(resource.content);
-      if (meta.triggerType === "event" && meta.event && meta.enabled) {
+      if (
+        meta.triggerType === "event" &&
+        meta.event &&
+        meta.enabled &&
+        !isCertifiedDurableEventTopic(meta.event)
+      ) {
         eventNames.add(meta.event);
       }
     }
@@ -230,11 +303,187 @@ export async function refreshEventSubscriptions(): Promise<void> {
   }
 }
 
+interface DurableAutomationConfig extends Record<string, unknown> {
+  domain: typeof AUTOMATION_SUBSCRIPTION_DOMAIN;
+  resourceOwner: string;
+  resourcePath: string;
+  triggerName: string;
+}
+
+function durableAutomationConfig(resource: Resource): DurableAutomationConfig {
+  return {
+    domain: AUTOMATION_SUBSCRIPTION_DOMAIN,
+    resourceOwner: resource.owner,
+    resourcePath: resource.path,
+    triggerName: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+  };
+}
+
+function isAutomationSubscriptionConfig(
+  config: Record<string, unknown>,
+): config is DurableAutomationConfig & Record<string, unknown> {
+  return (
+    config.domain === AUTOMATION_SUBSCRIPTION_DOMAIN &&
+    typeof config.resourceOwner === "string" &&
+    typeof config.resourcePath === "string"
+  );
+}
+
+async function syncDurableAutomationSubscriptions(
+  resources: Resource[],
+): Promise<void> {
+  const desiredIds = new Set<string>();
+  for (const resource of resources) {
+    if (!resource.path.endsWith(".md")) continue;
+    const { meta } = parseTriggerFrontmatter(resource.content);
+    if (
+      meta.triggerType !== "event" ||
+      !meta.event ||
+      !isCertifiedDurableEventTopic(meta.event)
+    ) {
+      continue;
+    }
+    const id = workflowSubscriptionIdForAutomation(resource);
+    desiredIds.add(id);
+    await upsertWorkflowSubscription({
+      id,
+      kind: "agentic",
+      eventPattern: meta.event,
+      ownerEmail:
+        resource.owner === "__shared__"
+          ? (meta.createdBy ?? resource.owner)
+          : resource.owner,
+      orgId: meta.orgId ?? null,
+      config: durableAutomationConfig(resource),
+      enabled: meta.enabled && meta.mode === "agentic",
+    });
+  }
+
+  const existing = await listWorkflowSubscriptions({ kind: "agentic" });
+  for (const subscription of existing) {
+    if (
+      desiredIds.has(subscription.id) ||
+      !isAutomationSubscriptionConfig(subscription.config) ||
+      !subscription.enabled
+    ) {
+      continue;
+    }
+    await upsertWorkflowSubscription({
+      ...subscription,
+      enabled: false,
+    });
+  }
+}
+
+const agenticAutomationHandler: WorkflowExecutionHandler = {
+  kind: "agentic",
+  domain: AUTOMATION_SUBSCRIPTION_DOMAIN,
+  async execute(
+    claim: ClaimedWorkflowExecution,
+  ): Promise<WorkflowExecutionResult> {
+    if (!_deps) {
+      return {
+        status: "retrying",
+        errorMessage: "Automation runtime is not initialized",
+      };
+    }
+    const config = claim.subscription.config;
+    if (!isAutomationSubscriptionConfig(config)) {
+      return {
+        status: "failed",
+        errorMessage: "Automation subscription config is invalid",
+      };
+    }
+    const resource = await resourceGetByPath(
+      config.resourceOwner,
+      config.resourcePath,
+    );
+    if (!resource) {
+      return {
+        status: "failed",
+        errorMessage: "Automation resource no longer exists",
+      };
+    }
+    const { meta, body } = parseTriggerFrontmatter(resource.content);
+    if (
+      !meta.enabled ||
+      meta.mode !== "agentic" ||
+      meta.triggerType !== "event" ||
+      !meta.event ||
+      !isCertifiedDurableEventTopic(meta.event)
+    ) {
+      return { status: "succeeded" };
+    }
+
+    const owner = meta.createdBy || resource.owner;
+    const userApiKey = await getOwnerActiveApiKey(owner);
+    const apiKey = userApiKey || _deps.apiKey;
+    if (!apiKey) {
+      return {
+        status: "failed",
+        errorMessage: `No API key for automation "${config.triggerName}"`,
+      };
+    }
+    if (
+      !(await evaluateCondition(meta.condition, claim.event.payload, apiKey))
+    ) {
+      return { status: "succeeded" };
+    }
+
+    const idempotencyKey = `${claim.eventId}:${claim.subscriptionId}`;
+    const reservation = await recordWorkflowEffect({
+      executionId: claim.id,
+      kind: "agent-run",
+      idempotencyKey,
+    });
+    if (!reservation.created) {
+      if (reservation.effect.status === "delivered") {
+        return { status: "succeeded" };
+      }
+      if (reservation.effect.status === "failed") {
+        return {
+          status: "failed",
+          errorMessage:
+            reservation.effect.errorMessage ?? "Automation agent run failed",
+        };
+      }
+      return {
+        status: "unknown",
+        errorMessage:
+          "Automation effect was reserved previously; refusing to duplicate the agent run",
+      };
+    }
+
+    const outcome = await dispatchAgentic(
+      resource,
+      meta,
+      body,
+      claim.event.payload,
+      {
+        eventId: claim.event.id,
+        emittedAt: new Date(claim.event.occurredAt).toISOString(),
+        owner: claim.event.ownerEmail,
+      },
+      apiKey,
+      false,
+    );
+    const delivered = outcome.status === "succeeded";
+    await finalizeWorkflowEffect({
+      effectId: reservation.effect.id,
+      status: delivered ? "delivered" : "failed",
+      errorMessage: outcome.errorMessage,
+      result: delivered ? { threadStarted: true } : undefined,
+    });
+    return outcome;
+  },
+};
+
 async function handleEvent(
   eventName: string,
   payload: unknown,
   eventMeta: EventMeta,
 ): Promise<void> {
+  assertEphemeralEventTopic("subscribe", eventName);
   if (!_deps) return;
 
   try {
@@ -366,8 +615,14 @@ async function dispatchAgentic(
   payload: unknown,
   eventMeta: EventMeta,
   apiKey: string,
-): Promise<void> {
-  if (!_deps) return;
+  persistResourceStatus = true,
+): Promise<WorkflowExecutionResult> {
+  if (!_deps) {
+    return {
+      status: "retrying",
+      errorMessage: "Automation runtime is not initialized",
+    };
+  }
 
   const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
   const now = new Date();
@@ -385,30 +640,33 @@ async function dispatchAgentic(
       `[triggers] Skipping trigger "${triggerName}": ${validity.reason}. ` +
         `User/membership no longer valid — leaving entry for admin review.`,
     );
+    if (persistResourceStatus) {
+      meta.lastRun = now.toISOString();
+      meta.lastStatus = "skipped";
+      meta.lastError = validity.reason;
+      await resourcePut(
+        resource.owner,
+        resource.path,
+        buildTriggerContent(meta, body),
+      );
+    }
+    return { status: "succeeded" };
+  }
+
+  if (persistResourceStatus) {
     meta.lastRun = now.toISOString();
-    meta.lastStatus = "skipped";
-    meta.lastError = validity.reason;
+    meta.lastStatus = "running";
+    meta.lastError = undefined;
     await resourcePut(
       resource.owner,
       resource.path,
       buildTriggerContent(meta, body),
     );
-    return;
   }
 
-  // Mark as running
-  meta.lastRun = now.toISOString();
-  meta.lastStatus = "running";
-  meta.lastError = undefined;
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(meta, body),
-  );
-
-  await runWithRequestContext(
+  return await runWithRequestContext(
     { userEmail: jobUserEmail, orgId: jobOrgId },
-    async () => {
+    async (): Promise<WorkflowExecutionResult> => {
       try {
         const baseActions = _deps!.getActions();
         const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
@@ -513,23 +771,30 @@ ${body}`;
           }
         }
 
-        meta.lastStatus = "success";
-        await resourcePut(
-          resource.owner,
-          resource.path,
-          buildTriggerContent(meta, body),
-        );
+        if (persistResourceStatus) {
+          meta.lastStatus = "success";
+          await resourcePut(
+            resource.owner,
+            resource.path,
+            buildTriggerContent(meta, body),
+          );
+        }
 
         console.log(`[triggers] "${triggerName}" completed successfully`);
+        return { status: "succeeded" };
       } catch (err: any) {
-        meta.lastStatus = "error";
-        meta.lastError = err?.message?.slice(0, 200) || "Unknown error";
-        await resourcePut(
-          resource.owner,
-          resource.path,
-          buildTriggerContent(meta, body),
-        );
+        const errorMessage = err?.message?.slice(0, 200) || "Unknown error";
+        if (persistResourceStatus) {
+          meta.lastStatus = "error";
+          meta.lastError = errorMessage;
+          await resourcePut(
+            resource.owner,
+            resource.path,
+            buildTriggerContent(meta, body),
+          );
+        }
         console.error(`[triggers] "${triggerName}" failed:`, err?.message);
+        return { status: "failed", errorMessage };
       }
     },
   );

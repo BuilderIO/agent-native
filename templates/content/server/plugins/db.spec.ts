@@ -16,6 +16,16 @@ import * as schema from "../db/schema";
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 
+const CORE_WORKFLOW_TABLE_EXPORTS = new Set([
+  "notificationDeliveryAttempts",
+  "workflowEffects",
+  "workflowEvents",
+  "workflowExecutions",
+  "workflowScheduledWork",
+  "workflowSubscriptions",
+  "workflowSubscriptionVersions",
+]);
+
 interface DrizzleColumn {
   name: string;
 }
@@ -45,6 +55,7 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
 
 describe("content db migrations cover every schema.ts column", () => {
   for (const [exportName, exported] of Object.entries(schema)) {
+    if (CORE_WORKFLOW_TABLE_EXPORTS.has(exportName)) continue;
     if (!isDrizzleTable(exported)) continue;
     const columns = columnsOf(exported as DrizzleTable);
     if (!columns.length) continue;

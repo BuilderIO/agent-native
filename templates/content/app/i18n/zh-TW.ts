@@ -1,5 +1,10 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { databasePolicyMessagesByLocale } from "../database-policy-i18n";
+import { hookMessagesByLocale } from "../hook-i18n";
+import { hookRuntimeMessagesByLocale } from "../hook-runtime-i18n";
+import { validationMessagesByLocale } from "../validation-i18n";
+
 const messages = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
@@ -568,6 +573,10 @@ const messages = {
     updated: "Actualizado {{date}}",
   },
   database: {
+    ...hookMessagesByLocale["zh-TW"],
+    ...hookRuntimeMessagesByLocale["zh-TW"],
+    ...databasePolicyMessagesByLocale["zh-TW"],
+    ...validationMessagesByLocale["zh-TW"],
     formChecked: "已勾選",
     formChooseOption: "選擇一個選項",
     formDescription: "填寫以下問題，將頁面新增至此資料庫。",

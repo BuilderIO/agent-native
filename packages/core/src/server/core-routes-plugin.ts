@@ -101,6 +101,8 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
+import { authorizeWorkflowDrain } from "../workflow/drain-auth.js";
+import { drainWorkflowWork } from "../workflow/runtime.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
@@ -1529,6 +1531,41 @@ export function createCoreRoutesPlugin(
           }),
         );
       }
+
+      getH3App(nitroApp).use(
+        `${P}/workflow/_drain`,
+        defineEventHandler(async (event) => {
+          setResponseHeader(event, "cache-control", "no-store");
+          const scheduledRuntime =
+            (globalThis as Record<string, unknown>)
+              .__AGENT_NATIVE_WORKFLOW_SCHEDULED_RUNTIME__ === true;
+          const configuredSecret =
+            process.env.AGENT_WORKFLOW_DRAIN_SECRET?.trim();
+          const authorization = await authorizeWorkflowDrain({
+            scheduledRuntime,
+            configuredSecret,
+            authorization: getHeader(event, "authorization"),
+          });
+          if (authorization !== "authorized") {
+            setResponseStatus(
+              event,
+              authorization === "unauthorized" ? 401 : 503,
+            );
+            return {
+              error:
+                authorization === "unauthorized"
+                  ? "Unauthorized"
+                  : "Workflow drain is not configured for this runtime",
+            };
+          }
+          const result = await drainWorkflowWork({
+            workerId: "scheduled-workflow",
+            maxItems: 100,
+            maxDurationMs: 20_000,
+          });
+          return { ok: true, ...result };
+        }),
+      );
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,

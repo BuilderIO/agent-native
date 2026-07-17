@@ -1,5 +1,6 @@
 import {
   AgentToggleButton,
+  NotificationsBell,
   PresenceBar,
   appPath,
   useActionMutation,
@@ -12,6 +13,8 @@ import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconBell,
+  IconBellOff,
   IconCopy,
   IconDownload,
   IconDotsVertical,
@@ -58,6 +61,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useContentNotificationPreference,
+  useManageContentNotificationPreference,
+} from "@/hooks/use-content-database";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -258,6 +265,60 @@ interface DocumentToolbarProps {
   canEdit?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
+  notificationDatabaseId?: string;
+}
+
+function ItemNotificationToggle({
+  databaseId,
+  documentId,
+}: {
+  databaseId: string;
+  documentId: string;
+}) {
+  const t = useT();
+  const preference = useContentNotificationPreference({
+    scope: "item",
+    databaseId,
+    documentId,
+  });
+  const managePreference = useManageContentNotificationPreference(databaseId);
+  const enabled = preference.data?.preference.enabled ?? true;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={t(
+            enabled
+              ? "database.unsubscribeFromItem"
+              : "database.subscribeToItem",
+          )}
+          disabled={preference.isLoading || managePreference.isPending}
+          onClick={() =>
+            managePreference.mutate({
+              action: "set",
+              target: { scope: "item", databaseId, documentId },
+              enabled: !enabled,
+            })
+          }
+        >
+          {enabled ? (
+            <IconBell className="size-4" />
+          ) : (
+            <IconBellOff className="size-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {t(
+          enabled ? "database.unsubscribeFromItem" : "database.subscribeToItem",
+        )}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function DocumentToolbar({
@@ -273,6 +334,7 @@ export function DocumentToolbar({
   canEdit = true,
   hideFromSearch = false,
   source,
+  notificationDatabaseId,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -1185,6 +1247,13 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {notificationDatabaseId ? (
+            <ItemNotificationToggle
+              databaseId={notificationDatabaseId}
+              documentId={documentId}
+            />
+          ) : null}
+          <NotificationsBell browserNotifications />
           <AgentToggleButton />
         </div>
       </div>

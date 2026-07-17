@@ -9,6 +9,10 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
+import {
+  appendContentWorkflowEvent,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
@@ -38,7 +42,7 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().describe("Content database ID"),
   }),
-  run: async ({ databaseId }) => {
+  run: async ({ databaseId }, ctx) => {
     const ownership = await assertContentDatabaseLifecycleAccess(databaseId);
     const db = getDb();
     const now = new Date().toISOString();
@@ -47,16 +51,33 @@ export default defineAction({
       ownerBlockId: ownership.database.ownerBlockId,
     });
 
-    await db
-      .update(schema.contentDatabases)
-      .set({
-        deletedAt: null,
-        updatedAt: now,
-        ...(clearInlineOwnership
-          ? { ownerDocumentId: null, ownerBlockId: null }
-          : {}),
-      })
-      .where(eq(schema.contentDatabases.id, databaseId));
+    let workflowEventId = "";
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          deletedAt: null,
+          updatedAt: now,
+          ...(clearInlineOwnership
+            ? { ownerDocumentId: null, ownerBlockId: null }
+            : {}),
+        })
+        .where(eq(schema.contentDatabases.id, databaseId));
+      if (!ownership.database.deletedAt) return;
+      workflowEventId = await appendContentWorkflowEvent(tx, {
+        topic: "content.database.restored",
+        subjectType: "content_database",
+        subjectId: databaseId,
+        databaseId,
+        documentId: ownership.database.documentId,
+        ownerEmail: ownership.database.ownerEmail,
+        orgId: ownership.database.orgId,
+        occurredAt: now,
+        actionContext: ctx,
+        payload: { previousArchivedAt: ownership.database.deletedAt },
+      });
+    });
+    if (workflowEventId) wakeContentWorkflowEvent(workflowEventId);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

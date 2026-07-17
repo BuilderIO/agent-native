@@ -7,6 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  appendContentWorkflowEvent,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -18,7 +22,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Database row document ID"),
     title: z.string().optional().describe("Optional title for the duplicate"),
   }),
-  run: async ({ itemId, documentId, title }) => {
+  run: async ({ itemId, documentId, title }, ctx) => {
     if (!itemId && !documentId) {
       throw new Error("Either itemId or documentId is required.");
     }
@@ -80,6 +84,7 @@ export default defineAction({
       .from(schema.documentShares)
       .where(eq(schema.documentShares.resourceId, row.database.documentId));
 
+    let workflowEventId = "";
     await db.transaction(async (tx) => {
       await tx
         .update(schema.contentDatabaseItems)
@@ -165,7 +170,25 @@ export default defineAction({
       }
 
       await ensureDocumentFilesMembership(tx, nextDocumentId, now);
+      workflowEventId = await appendContentWorkflowEvent(tx, {
+        topic: "content.database.item.created",
+        subjectType: "content_database_item",
+        subjectId: nextDocumentId,
+        databaseId: row.item.databaseId,
+        documentId: nextDocumentId,
+        ownerEmail: row.item.ownerEmail,
+        orgId: row.item.orgId,
+        occurredAt: now,
+        actionContext: ctx,
+        payload: {
+          itemId: nextItemId,
+          sourceItemId: row.item.id,
+          sourceDocumentId: row.document.id,
+          position: nextPosition,
+        },
+      });
     });
+    wakeContentWorkflowEvent(workflowEventId);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

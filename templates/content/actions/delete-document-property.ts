@@ -11,6 +11,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { assertContentDatabaseSchemaUnlocked } from "./_content-database-hooks.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
@@ -29,6 +30,7 @@ export default defineAction({
     const db = getDb();
     const database = await resolvePropertyDatabaseForDocument(document);
     if (!database) throw new Error("Document is not part of a database.");
+    assertContentDatabaseSchemaUnlocked(database);
 
     const [definition] = await db
       .select()

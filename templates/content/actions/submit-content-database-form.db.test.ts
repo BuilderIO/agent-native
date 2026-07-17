@@ -258,6 +258,23 @@ describe("submit-content-database-form", () => {
         ),
       );
     expect(notes.content).toBe("Route through the web design queue.");
+
+    const events = await db
+      .select()
+      .from(schema.workflowEvents)
+      .where(
+        and(
+          eq(schema.workflowEvents.topic, "content.database.item.submitted"),
+          eq(schema.workflowEvents.subjectId, result.createdDocumentId),
+        ),
+      );
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].payload)).toMatchObject({
+      databaseId: seeded.databaseId,
+      documentId: result.createdDocumentId,
+      itemId: result.createdItemId,
+      formViewId: "request-form",
+    });
   });
 
   it("rejects missing required questions without creating a partial row", async () => {
@@ -284,6 +301,55 @@ describe("submit-content-database-form", () => {
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
     expect(after).toHaveLength(before.length);
+  });
+
+  it("enforces database submission requirements even when a form question is optional", async () => {
+    const seeded = await seedFormDatabase();
+    const db = getDb();
+    const [database] = await db
+      .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const viewConfig = JSON.parse(database.viewConfigJson);
+    viewConfig.validation = {
+      requiredForSubmission: [seeded.deadlineId],
+      statusRequirements: [],
+    };
+    await db
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: JSON.stringify(viewConfig) })
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+
+    let error: unknown;
+    try {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "No deadline yet",
+          propertyValues: {
+            Description: "Create an illustration for the launch post.",
+            Priority: "P1 — High",
+          },
+        }),
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({
+      code: "CONTENT_READINESS_REQUIRED",
+      statusCode: 409,
+      details: {
+        phase: "submission",
+        databaseId: seeded.databaseId,
+        missingFields: [{ propertyId: seeded.deadlineId, name: "Deadline" }],
+      },
+    });
+    const items = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
   });
 
   it("rejects unknown option labels before creating a row", async () => {

@@ -275,6 +275,45 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: ["actions/submit-content-database-form.db.test.ts"],
   },
   {
+    id: "database.rules-and-notifications",
+    surface: "database",
+    label:
+      "Configure deterministic database Rules and inspect notification executions",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseHooksPanel.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/components/layout/Header.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+    ],
+    durableEffect:
+      "Owner-authored deterministic subscriptions evaluate actor-aware committed database events through the shared workflow engine and record notification delivery in the core ledger.",
+    uiImplementation:
+      "Database settings use the same Rule management and execution-history actions available to the agent; the shared core bell renders the resulting inbox entries.",
+    status: "action-backed",
+    actions: [
+      "get-content-hook-runtime-controls",
+      "get-content-notification-preference",
+      "list-content-database-hook-executions",
+      "list-content-database-hooks",
+      "manage-content-database-hook-execution",
+      "manage-content-database-hook",
+      "manage-content-database-policy",
+      "manage-content-database-validation",
+      "manage-content-hook-runtime-control",
+      "manage-content-notification-preference",
+      "preview-content-database-hook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-database-hooks.db.test.ts",
+      "app/components/editor/database/DatabaseHooksPanel.layout.test.ts",
+    ],
+  },
+  {
     id: "database.rows",
     surface: "database",
     label: "Add, duplicate, move, open, and delete database rows",

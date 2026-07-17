@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { initTriggerDispatcher } from "./dispatcher.js";
+import {
+  getDurableAutomationStatus,
+  initTriggerDispatcher,
+} from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
@@ -11,15 +15,33 @@ const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
+const upsertWorkflowSubscriptionMock = vi.hoisted(() => vi.fn());
+const listWorkflowSubscriptionsMock = vi.hoisted(() => vi.fn());
+const listWorkflowExecutionsMock = vi.hoisted(() => vi.fn());
+const registerWorkflowExecutionHandlerMock = vi.hoisted(() => vi.fn());
+const recordWorkflowEffectMock = vi.hoisted(() => vi.fn());
+const finalizeWorkflowEffectMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
+  resourceGetByPath: resourceGetByPathMock,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
 }));
 
 vi.mock("../event-bus/index.js", () => ({
+  isCertifiedDurableEventTopic: (topic: string) =>
+    topic === "content" || topic.startsWith("content."),
   subscribe: subscribeMock,
   unsubscribe: unsubscribeMock,
+}));
+
+vi.mock("../workflow/index.js", () => ({
+  finalizeWorkflowEffect: finalizeWorkflowEffectMock,
+  listWorkflowExecutions: listWorkflowExecutionsMock,
+  listWorkflowSubscriptions: listWorkflowSubscriptionsMock,
+  recordWorkflowEffect: recordWorkflowEffectMock,
+  registerWorkflowExecutionHandler: registerWorkflowExecutionHandlerMock,
+  upsertWorkflowSubscription: upsertWorkflowSubscriptionMock,
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
@@ -116,6 +138,7 @@ Respond to the event.`,
       },
     ]);
     resourcePutMock.mockResolvedValue(undefined);
+    resourceGetByPathMock.mockResolvedValue(null);
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);
     runAgentLoopMock.mockResolvedValue({
@@ -126,6 +149,152 @@ Respond to the event.`,
       model: "test-model",
     });
     recordUsageMock.mockResolvedValue(undefined);
+    upsertWorkflowSubscriptionMock.mockResolvedValue(undefined);
+    listWorkflowSubscriptionsMock.mockResolvedValue([]);
+    listWorkflowExecutionsMock.mockResolvedValue([]);
+    registerWorkflowExecutionHandlerMock.mockReturnValue(() => {});
+    recordWorkflowEffectMock.mockResolvedValue({
+      effect: { id: "effect-1", status: "unknown" },
+      created: true,
+    });
+    finalizeWorkflowEffectMock.mockResolvedValue(true);
+  });
+
+  it("registers content event automations with the durable shared engine only", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "durable-resource",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/content-review.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: content.item.changed
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Review the changed item.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    expect(upsertWorkflowSubscriptionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "automation:durable-resource",
+        kind: "agentic",
+        eventPattern: "content.item.changed",
+        enabled: true,
+        config: expect.objectContaining({ domain: "automation" }),
+      }),
+    );
+    expect(subscribeMock).not.toHaveBeenCalledWith(
+      "content.item.changed",
+      expect.anything(),
+    );
+  });
+
+  it("derives durable automation status from the shared execution ledger", async () => {
+    listWorkflowExecutionsMock.mockResolvedValue([
+      {
+        status: "failed",
+        createdAt: Date.parse("2026-07-17T13:00:00.000Z"),
+        errorMessage: "Agent run failed",
+      },
+    ]);
+
+    await expect(
+      getDurableAutomationStatus(
+        { id: "durable-resource" },
+        {
+          schedule: "",
+          enabled: true,
+          triggerType: "event",
+          event: "content.item.changed",
+          mode: "agentic",
+          lastStatus: "success",
+        },
+      ),
+    ).resolves.toEqual({
+      lastStatus: "error",
+      lastRun: "2026-07-17T13:00:00.000Z",
+      lastError: "Agent run failed",
+    });
+    expect(listWorkflowExecutionsMock).toHaveBeenCalledWith({
+      subscriptionId: "automation:durable-resource",
+      limit: 1,
+    });
+  });
+
+  it("runs a claimed durable automation once and records its agent effect", async () => {
+    const durableResource = {
+      id: "durable-resource",
+      owner: "alice+triggers@agent-native.test",
+      path: "jobs/content-review.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: content.item.changed
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Review the changed item.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValue([durableResource]);
+    resourceGetByPathMock.mockResolvedValue(durableResource);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    const handler = registerWorkflowExecutionHandlerMock.mock.calls.at(-1)?.[0];
+    expect(handler).toMatchObject({ kind: "agentic", domain: "automation" });
+
+    const claim = {
+      id: "execution-1",
+      eventId: "event-1",
+      subscriptionId: "automation:durable-resource",
+      event: {
+        id: "event-1",
+        topic: "content.item.changed",
+        ownerEmail: "alice+triggers@agent-native.test",
+        payload: { status: "ready" },
+        occurredAt: Date.parse("2026-07-17T12:00:00.000Z"),
+      },
+      subscription: {
+        config: {
+          domain: "automation",
+          resourceOwner: durableResource.owner,
+          resourcePath: durableResource.path,
+          triggerName: "content-review",
+        },
+      },
+    };
+    expect(await handler.execute(claim)).toEqual({ status: "succeeded" });
+    expect(recordWorkflowEffectMock).toHaveBeenCalledWith({
+      executionId: "execution-1",
+      kind: "agent-run",
+      idempotencyKey: "event-1:automation:durable-resource",
+    });
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    expect(finalizeWorkflowEffectMock).toHaveBeenCalledWith(
+      expect.objectContaining({ effectId: "effect-1", status: "delivered" }),
+    );
+
+    recordWorkflowEffectMock.mockResolvedValueOnce({
+      effect: { id: "effect-1", status: "delivered" },
+      created: false,
+    });
+    expect(await handler.execute(claim)).toEqual({ status: "succeeded" });
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
   });
 
   it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {

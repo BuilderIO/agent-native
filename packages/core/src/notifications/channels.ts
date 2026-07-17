@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 /**
  * Built-in notification channels.
  *
@@ -50,6 +51,7 @@ export function registerBuiltinNotificationChannels(): void {
   registerNotificationChannel(
     createSlackWebhookChannel(process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL),
   );
+  registerNotificationChannel(createPersonalSlackWebhookChannel());
   // Email is always registered so per-notification `metadata.emailRecipients`
   // work without a workspace-wide env flag (same pattern as webhook/slack).
   registerNotificationChannel(createEmailChannel());
@@ -70,28 +72,54 @@ function createWebhookChannel(
         overrideUrlTemplate ??
         metadataString(input.metadata, "webhookUrl") ??
         envUrlTemplate?.trim();
+      const overrideAuthTemplate = deliveryMetadataString(
+        input.metadata,
+        "webhookAuth",
+      );
+      const signatureTemplate = deliveryMetadataString(
+        input.metadata,
+        "webhookSignature",
+      );
       // No-op when neither a per-notification nor workspace URL is set —
       // mirrors email's empty-recipients behavior so notify-all stays quiet.
-      if (!urlTemplate) return false;
-      const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
-        urlTemplate,
-        overrideUrlTemplate ? undefined : authTemplate,
-        meta.owner,
-        "webhook",
-      );
+      if (!urlTemplate) {
+        return { status: "skipped", reason: "No webhook is configured." };
+      }
+      const { url, headers, assertUrlAllowed, resolvedAdditionalSecrets } =
+        await resolveWebhookRequest(
+          urlTemplate,
+          overrideAuthTemplate ??
+            (overrideUrlTemplate ? undefined : authTemplate),
+          meta.owner,
+          "webhook",
+          signatureTemplate ? [signatureTemplate] : [],
+        );
+      if (meta.workflowEffectId) {
+        headers["X-Agent-Native-Idempotency-Key"] = meta.workflowEffectId;
+      }
+      const body = JSON.stringify({
+        severity: input.severity,
+        title: input.title,
+        body: input.body,
+        metadata: scrubDeliveryMetadata(input.metadata),
+        owner: meta.owner,
+        emittedAt: new Date().toISOString(),
+      });
+      const signatureSecret = resolvedAdditionalSecrets[0];
+      if (signatureSecret) {
+        headers["X-Agent-Native-Signature"] = `sha256=${createHmac(
+          "sha256",
+          signatureSecret,
+        )
+          .update(body)
+          .digest("hex")}`;
+      }
       const res = await ssrfSafeFetch(
         url,
         {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            severity: input.severity,
-            title: input.title,
-            body: input.body,
-            metadata: scrubDeliveryMetadata(input.metadata),
-            owner: meta.owner,
-            emittedAt: new Date().toISOString(),
-          }),
+          body,
         },
         { maxRedirects: 3, assertUrlAllowed },
       );
@@ -102,6 +130,10 @@ function createWebhookChannel(
           }`,
         );
       }
+      return {
+        status: "unknown",
+        evidence: { providerAccepted: true, httpStatus: res.status },
+      };
     },
   };
 }
@@ -121,7 +153,12 @@ function createSlackWebhookChannel(
         overrideUrlTemplate ??
         metadataString(input.metadata, "slackWebhookUrl") ??
         envUrlTemplate?.trim();
-      if (!urlTemplate) return false;
+      if (!urlTemplate) {
+        return {
+          status: "skipped",
+          reason: "No team Slack webhook is configured.",
+        };
+      }
       const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
         urlTemplate,
         overrideUrlTemplate ? undefined : authTemplate,
@@ -175,6 +212,56 @@ function createSlackWebhookChannel(
           }`,
         );
       }
+      return {
+        status: "unknown",
+        evidence: { providerAccepted: true, httpStatus: res.status },
+      };
+    },
+  };
+}
+
+function createPersonalSlackWebhookChannel(): NotificationChannel {
+  return {
+    name: "personal-slack",
+    async deliver(input, meta) {
+      const urlTemplate = deliveryMetadataString(
+        input.metadata,
+        "personalSlackWebhookUrl",
+      );
+      if (!urlTemplate) {
+        return {
+          status: "skipped",
+          reason: "No personal Slack webhook is configured.",
+        };
+      }
+      const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
+        urlTemplate,
+        undefined,
+        meta.owner,
+        "personal Slack webhook",
+      );
+      const res = await ssrfSafeFetch(
+        url,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            text: slackText(input.severity, input.title, input.body),
+          }),
+        },
+        { maxRedirects: 3, assertUrlAllowed },
+      );
+      if (!res.ok) {
+        throw new Error(
+          `[notifications] personal Slack webhook ${new URL(url).origin} returned ${res.status}${
+            (await readErrorSnippet(res)) || ""
+          }`,
+        );
+      }
+      return {
+        status: "unknown",
+        evidence: { providerAccepted: true, httpStatus: res.status },
+      };
     },
   };
 }
@@ -184,7 +271,12 @@ function createEmailChannel(): NotificationChannel {
     name: "email",
     async deliver(input) {
       const recipients = notificationEmailRecipients(input.metadata);
-      if (recipients.length === 0) return false;
+      if (recipients.length === 0) {
+        return {
+          status: "skipped",
+          reason: "No email recipient is configured.",
+        };
+      }
       const subject =
         typeof input.metadata?.emailSubject === "string" &&
         input.metadata.emailSubject.trim()
@@ -206,6 +298,10 @@ function createEmailChannel(): NotificationChannel {
           }),
         ),
       );
+      return {
+        status: "unknown",
+        evidence: { providerAccepted: true, recipientCount: recipients.length },
+      };
     },
   };
 }
@@ -215,10 +311,12 @@ async function resolveWebhookRequest(
   authTemplate: string | undefined,
   owner: string,
   label: string,
+  additionalSecretTemplates: string[] = [],
 ): Promise<{
   url: string;
   headers: Record<string, string>;
   assertUrlAllowed: (url: string) => void;
+  resolvedAdditionalSecrets: string[];
 }> {
   // Resolve `${keys.NAME}` references through the same request-scope
   // cascade already used by extension fetches (extensions/routes.ts) and
@@ -252,6 +350,11 @@ async function resolveWebhookRequest(
     );
     headers.Authorization = authResult.resolved;
   }
+  const additionalResults = await Promise.all(
+    additionalSecretTemplates.map((template) =>
+      resolveKeyReferencesWithRequestScopes(template, owner),
+    ),
+  );
 
   // If the user set an allowlist on a referenced key, enforce it here —
   // origin-level check, same rule the automations fetch-tool applies.
@@ -264,7 +367,11 @@ async function resolveWebhookRequest(
     string,
     { name: string; resolvedKey?: ResolvedKey }
   >();
-  for (const result of authResult ? [urlResult, authResult] : [urlResult]) {
+  for (const result of [
+    urlResult,
+    ...(authResult ? [authResult] : []),
+    ...additionalResults,
+  ]) {
     for (const name of result.usedKeys) {
       const resolved = (result.resolvedKeys ?? []).filter(
         (ref) => ref.name === name,
@@ -299,7 +406,14 @@ async function resolveWebhookRequest(
     });
   };
   assertUrlAllowed(url);
-  return { url, headers, assertUrlAllowed };
+  return {
+    url,
+    headers,
+    assertUrlAllowed,
+    resolvedAdditionalSecrets: additionalResults.map(
+      (result) => result.resolved,
+    ),
+  };
 }
 
 function metadataString(
@@ -340,7 +454,10 @@ function scrubDeliveryMetadata(
 function notificationEmailRecipients(
   metadata: Record<string, unknown> | undefined,
 ): string[] {
-  const fromMetadata = stringArray(metadata?.emailRecipients);
+  const fromMetadata = [
+    ...deliveryMetadataStringArray(metadata, "emailRecipients"),
+    ...stringArray(metadata?.emailRecipients),
+  ];
   const fromEnv = commaList(process.env.NOTIFICATIONS_EMAIL_RECIPIENTS);
   const seen = new Set<string>();
   const recipients: string[] = [];
@@ -351,6 +468,17 @@ function notificationEmailRecipients(
     recipients.push(email);
   }
   return recipients;
+}
+
+function deliveryMetadataStringArray(
+  metadata: NotificationInput["metadata"],
+  key: string,
+): string[] {
+  const delivery = metadata?.delivery;
+  if (!delivery || typeof delivery !== "object" || Array.isArray(delivery)) {
+    return [];
+  }
+  return stringArray((delivery as Record<string, unknown>)[key]);
 }
 
 function stringArray(value: unknown): string[] {

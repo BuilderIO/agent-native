@@ -20,6 +20,11 @@ import {
 } from "h3";
 
 import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
+import {
+  getPersonalNotificationRouting,
+  setPersonalNotificationRouting,
+} from "./routing.js";
 import {
   listNotifications,
   countUnread,
@@ -57,6 +62,26 @@ export function createNotificationsHandler() {
       .replace(/\/+$/, "");
     const parts = pathname ? pathname.split("/") : [];
     const owner = await resolveOwner(event);
+
+    // GET /routing — current user's cross-app personal delivery profile.
+    if (method === "GET" && parts.length === 1 && parts[0] === "routing") {
+      return getPersonalNotificationRouting(owner);
+    }
+
+    // PUT /routing — stores booleans and a secret key name, never a secret.
+    if (method === "PUT" && parts.length === 1 && parts[0] === "routing") {
+      try {
+        return await setPersonalNotificationRouting(
+          owner,
+          await readBody(event),
+        );
+      } catch (error) {
+        setResponseStatus(event, 400);
+        return {
+          error: error instanceof Error ? error.message : "Invalid routing",
+        };
+      }
+    }
 
     // GET /  — list
     if (method === "GET" && parts.length === 0) {

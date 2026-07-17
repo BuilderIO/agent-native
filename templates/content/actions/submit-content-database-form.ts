@@ -1,9 +1,8 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -13,19 +12,17 @@ import type {
 } from "../shared/api.js";
 import { contentDatabaseFormQuestions } from "../shared/database-form.js";
 import {
-  blocksStorageTarget,
-  isBlocksPropertyType,
   isEmptyPropertyValue,
   isComputedPropertyType,
   normalizePropertyValue,
   parsePropertyOptions,
-  serializePropertyValue,
   type DocumentPropertyOption,
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import { ensureDocumentFilesMembership } from "./_content-files.js";
-import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
+import { commitContentDatabaseItem } from "./_content-database-item-mutations.js";
+import { assertAtomicSubmissionReady } from "./_content-database-validation.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
   databaseId: z.string().min(1).describe("Content database ID"),
@@ -181,12 +178,10 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async ({
-    databaseId,
-    viewId,
-    title,
-    propertyValues,
-  }): Promise<SubmitContentDatabaseFormResponse> => {
+  run: async (
+    { databaseId, viewId, title, propertyValues },
+    ctx,
+  ): Promise<SubmitContentDatabaseFormResponse> => {
     const db = getDb();
     const [database] = await db
       .select()
@@ -268,226 +263,34 @@ export default defineAction({
         `Required form fields are missing: ${missing.join(", ")}.`,
       );
     }
-
-    const documentId = nanoid();
-    const itemId = nanoid();
-    const now = new Date().toISOString();
-    const primaryBlocks = definitions.find((definition) => {
-      const type = definition.type as DocumentPropertyType;
-      return (
-        isBlocksPropertyType(type) &&
-        blocksStorageTarget(parsePropertyOptions(definition.optionsJson)) ===
-          "document_body"
-      );
+    assertAtomicSubmissionReady({
+      databaseId,
+      config: viewConfig,
+      definitions,
+      values,
     });
-    const primaryContent = primaryBlocks
-      ? values.get(primaryBlocks.id)
-      : undefined;
-    const documentContent =
-      typeof primaryContent === "string" ? primaryContent : "";
-    const standardValues = [...values.entries()].filter(([propertyId]) => {
-      const definition = definitionById.get(propertyId);
-      return (
-        definition &&
-        !isBlocksPropertyType(definition.type as DocumentPropertyType)
-      );
-    });
-    const additionalBlocks = [...values.entries()].filter(([propertyId]) => {
-      const definition = definitionById.get(propertyId);
-      return (
-        definition &&
-        isBlocksPropertyType(definition.type as DocumentPropertyType) &&
-        propertyId !== primaryBlocks?.id
-      );
-    });
-    const createdBy = getRequestUserEmail() ?? database.ownerEmail;
 
-    await db.transaction(async (tx) => {
-      const [maxDocumentPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.ownerEmail, database.ownerEmail),
-            eq(schema.documents.parentId, database.documentId),
-          ),
-        );
-      const [maxItemPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-      const inheritedShares = await tx
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, database.documentId));
-
-      await tx.insert(schema.documents).values({
-        id: documentId,
-        spaceId: database.spaceId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        parentId: database.documentId,
-        title: normalizedTitle,
-        content: documentContent,
-        icon: null,
-        position: (maxDocumentPosition?.max ?? -1) + 1,
-        isFavorite: 0,
-        hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-        visibility: databaseDocument.visibility ?? "private",
-        createdAt: now,
-        updatedAt: now,
-      });
-      await tx.insert(schema.contentDatabaseItems).values({
-        id: itemId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        databaseId,
-        documentId,
-        position: (maxItemPosition?.max ?? -1) + 1,
-        createdAt: now,
-        updatedAt: now,
-      });
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          inheritedShares.map((share) => ({
-            id: nanoid(),
-            resourceId: documentId,
-            principalType: share.principalType,
-            principalId: share.principalId,
-            role: share.role,
-            createdBy,
-            createdAt: now,
-          })),
-        );
-      }
-      if (standardValues.length > 0) {
-        await tx.insert(schema.documentPropertyValues).values(
-          standardValues.map(([propertyId, value]) => ({
-            id: nanoid(),
-            ownerEmail: database.ownerEmail,
-            documentId,
-            propertyId,
-            valueJson: serializePropertyValue(value),
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
-      if (additionalBlocks.length > 0) {
-        await tx.insert(schema.documentBlockFieldContents).values(
-          additionalBlocks.map(([propertyId, value]) => ({
-            id: nanoid(),
-            ownerEmail: database.ownerEmail,
-            documentId,
-            propertyId,
-            content: typeof value === "string" ? value : "",
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
-
-      await ensureDocumentFilesMembership(tx, documentId, now);
-
-      const [savedDocument] = await tx
-        .select({
-          id: schema.documents.id,
-          title: schema.documents.title,
-          content: schema.documents.content,
-        })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, documentId));
-      const [savedItem] = await tx
-        .select({ id: schema.contentDatabaseItems.id })
-        .from(schema.contentDatabaseItems)
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.id, itemId),
-            eq(schema.contentDatabaseItems.documentId, documentId),
-            eq(schema.contentDatabaseItems.databaseId, databaseId),
-          ),
-        );
-      const savedPropertyValues =
-        standardValues.length === 0
-          ? []
-          : await tx
-              .select({
-                propertyId: schema.documentPropertyValues.propertyId,
-                valueJson: schema.documentPropertyValues.valueJson,
-              })
-              .from(schema.documentPropertyValues)
-              .where(
-                and(
-                  eq(schema.documentPropertyValues.documentId, documentId),
-                  inArray(
-                    schema.documentPropertyValues.propertyId,
-                    standardValues.map(([propertyId]) => propertyId),
-                  ),
-                ),
-              );
-      const savedByPropertyId = new Map(
-        savedPropertyValues.map((value) => [value.propertyId, value.valueJson]),
-      );
-      const standardValuesVerified = standardValues.every(
-        ([propertyId, value]) =>
-          savedByPropertyId.get(propertyId) === serializePropertyValue(value),
-      );
-      const savedAdditionalBlocks =
-        additionalBlocks.length === 0
-          ? []
-          : await tx
-              .select({
-                propertyId: schema.documentBlockFieldContents.propertyId,
-                content: schema.documentBlockFieldContents.content,
-              })
-              .from(schema.documentBlockFieldContents)
-              .where(
-                and(
-                  eq(schema.documentBlockFieldContents.documentId, documentId),
-                  inArray(
-                    schema.documentBlockFieldContents.propertyId,
-                    additionalBlocks.map(([propertyId]) => propertyId),
-                  ),
-                ),
-              );
-      const savedBlockByPropertyId = new Map(
-        savedAdditionalBlocks.map((value) => [value.propertyId, value.content]),
-      );
-      const additionalBlocksVerified = additionalBlocks.every(
-        ([propertyId, value]) =>
-          savedBlockByPropertyId.get(propertyId) ===
-          (typeof value === "string" ? value : ""),
-      );
-      if (
-        !savedDocument ||
-        !savedItem ||
-        savedDocument.title !== normalizedTitle ||
-        savedDocument.content !== documentContent ||
-        !standardValuesVerified ||
-        !additionalBlocksVerified
-      ) {
-        throw new Error(
-          "The form submission could not be verified; no row was saved.",
-        );
-      }
+    const mutation = await commitContentDatabaseItem({
+      databaseId,
+      title: normalizedTitle,
+      values,
+      intent: "submitted",
+      formViewId: formView.id,
+      actionContext: ctx,
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     const deepLink = buildDeepLink({
       app: "content",
       view: "editor",
-      params: { documentId },
+      params: { documentId: mutation.documentId },
     });
     return {
       databaseId,
       viewId: formView.id,
-      createdItemId: itemId,
-      createdDocumentId: documentId,
-      urlPath: `/page/${documentId}`,
+      createdItemId: mutation.itemId,
+      createdDocumentId: mutation.documentId,
+      urlPath: `/page/${mutation.documentId}`,
       deepLink,
       verified: true,
     };

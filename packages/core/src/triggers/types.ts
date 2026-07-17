@@ -1,15 +1,15 @@
 /**
  * Extended frontmatter for triggers (superset of JobFrontmatter).
  *
- * Stored as markdown resources under `jobs/` — reuses the same storage
- * and scheduler infrastructure. Event-triggered jobs are skipped by the
- * cron scheduler and dispatched by the event bus instead.
+ * Stored as markdown resources under `jobs/` — reuses the same authoring
+ * surface. Certified durable events run through workflow subscriptions;
+ * explicitly ephemeral events retain the in-process bus path.
  */
 
 export interface TriggerFrontmatter {
   schedule: string;
   enabled: boolean;
-  /** "schedule" = cron-based (legacy jobs). "event" = fires on bus event. */
+  /** "schedule" = cron-based (legacy jobs). "event" = event-triggered. */
   triggerType: "schedule" | "event";
   /** For event triggers: the event name to subscribe to. */
   event?: string;

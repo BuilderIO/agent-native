@@ -680,6 +680,83 @@ function copyNetlifyFunctionIntoWorkspace(
   if (isDurableBackgroundDeployEnabled()) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
   }
+  if (app === "content") {
+    emitNetlifyWorkflowScheduledFunction(
+      workspaceRoot,
+      app,
+      src,
+      workspaceApps,
+    );
+  }
+}
+
+function emitNetlifyWorkflowScheduledFunction(
+  workspaceRoot: string,
+  app: string,
+  srcServerDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  const functionName = `${app}-workflow-scheduled`;
+  const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(srcServerDir, dest);
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+  const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
+  const entry = `globalThis.__AGENT_NATIVE_WORKFLOW_SCHEDULED_RUNTIME__ = true;
+
+const basePath = ${JSON.stringify(basePath)};
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+setBasePathEnv();
+let cachedHandler;
+
+export default async function handler(request) {
+  setBasePathEnv();
+  cachedHandler ??= (await import("./main.mjs")).default;
+  const url = new URL(request.url);
+  url.pathname = basePath + "/_agent-native/workflow/_drain";
+  const rewritten = new Request(url.toString(), {
+    method: "POST",
+    headers: request.headers,
+  });
+  return cachedHandler(rewritten);
+}
+
+export const config = {
+  name: ${JSON.stringify(`${app} workflow scheduled drain`)},
+  generator: "agent-native workspace deploy",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
 }
 
 /**

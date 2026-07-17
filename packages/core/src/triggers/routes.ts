@@ -19,6 +19,7 @@ import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   buildTriggerContent,
+  getDurableAutomationStatus,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
 } from "./dispatcher.js";
@@ -146,6 +147,7 @@ async function resourceToAutomationItem(
   resource: Resource,
 ): Promise<AutomationRouteItem> {
   const { meta, body } = parseTriggerFrontmatter(resource.content);
+  const durableStatus = await getDurableAutomationStatus(resource, meta);
   return {
     id: resource.id,
     name: automationName(resource.path),
@@ -165,9 +167,9 @@ async function resourceToAutomationItem(
     mode: meta.mode,
     domain: meta.domain,
     enabled: meta.enabled,
-    lastStatus: meta.lastStatus,
-    lastRun: meta.lastRun,
-    lastError: meta.lastError,
+    lastStatus: durableStatus ? durableStatus.lastStatus : meta.lastStatus,
+    lastRun: durableStatus ? durableStatus.lastRun : meta.lastRun,
+    lastError: durableStatus ? durableStatus.lastError : meta.lastError,
     nextRun: nextRunForMeta(meta),
     createdBy: meta.createdBy,
     body,

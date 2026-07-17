@@ -62,6 +62,7 @@ import {
   type ContentDatabasePersonalViewOverrides,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
+  type ContentDatabaseValidationConfig,
   type ContentDatabaseColumnCalculation,
   type ContentDatabaseFilter,
   type ContentDatabaseFilterMode,
@@ -96,6 +97,8 @@ import {
   IconArrowRight,
   IconArrowUp,
   IconAdjustmentsHorizontal,
+  IconBell,
+  IconBellOff,
   IconArrowsDiagonal,
   IconArrowsSort,
   IconCalendar,
@@ -165,6 +168,9 @@ import {
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
   useMaterializeBuilderRequiredFields,
+  useManageContentDatabasePolicy,
+  useContentNotificationPreference,
+  useManageContentNotificationPreference,
   useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
   usePreviewBuilderSourceReview,
@@ -246,6 +252,7 @@ import {
   releasePreviewDocumentSaveController,
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
+import { DatabaseHooksPanel } from "./DatabaseHooksPanel";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
@@ -2579,6 +2586,7 @@ function DatabaseTable({
         />
       ) : (
         <DatabaseTableView
+          databaseId={databaseId}
           properties={tableProperties}
           groupableProperties={orderedProperties}
           items={visibleItems}
@@ -2685,10 +2693,17 @@ function DatabaseTable({
       <DatabaseSettingsPanelSheet
         open={settingsOpen}
         panel={settingsPanel}
+        databaseId={databaseId}
         documentId={document.id}
         canEdit={canEdit}
         canManage={document.canManage === true}
         activeView={activeView}
+        validation={viewConfig.validation}
+        schemaLocked={viewConfig.schemaLocked === true}
+        isOwner={document.accessRole === "owner"}
+        defaultPersonNotificationsEnabled={
+          viewConfig.defaultPersonNotificationsEnabled !== false
+        }
         properties={orderedProperties}
         items={items}
         source={source}
@@ -4887,6 +4902,7 @@ function DatabaseItemPreview({
 }
 
 function DatabaseTableView({
+  databaseId,
   properties,
   groupableProperties,
   items,
@@ -4931,6 +4947,7 @@ function DatabaseTableView({
   onDeletedPreviewItems,
   onOpenPage,
 }: {
+  databaseId: string;
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -5462,6 +5479,7 @@ function DatabaseTableView({
             {grouped
               ? groups.map((group) => (
                   <DatabaseGroupedTableSection
+                    databaseId={databaseId}
                     key={group.id}
                     group={group}
                     properties={properties}
@@ -5491,6 +5509,7 @@ function DatabaseTableView({
                 ))
               : items.map((item, index) => (
                   <DatabaseTableRow
+                    databaseId={databaseId}
                     key={item.id}
                     item={item}
                     databaseDocumentId={databaseDocumentId}
@@ -6891,6 +6910,7 @@ function databaseToolbarIconButtonClass(active = false) {
 
 type DatabaseSettingsPanel =
   | "main"
+  | "hooks"
   | "source"
   | "layout"
   | "property_visibility"
@@ -6977,10 +6997,15 @@ function NotionLogoMark({ className }: { className?: string }) {
 function DatabaseSettingsPanelSheet({
   open,
   panel,
+  databaseId,
   documentId,
   canEdit,
   canManage,
   activeView,
+  validation,
+  schemaLocked,
+  isOwner,
+  defaultPersonNotificationsEnabled,
   properties,
   items,
   source,
@@ -7012,10 +7037,15 @@ function DatabaseSettingsPanelSheet({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
+  databaseId: string;
   documentId: string;
   canEdit: boolean;
   canManage: boolean;
   activeView: ContentDatabaseView;
+  validation?: ContentDatabaseValidationConfig;
+  schemaLocked: boolean;
+  isOwner: boolean;
+  defaultPersonNotificationsEnabled: boolean;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
@@ -7114,12 +7144,27 @@ function DatabaseSettingsPanelSheet({
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
         {panel === "main" ? (
           <DatabaseSettingsMainPanel
+            databaseId={databaseId}
             activeView={activeView}
             source={source}
             sourceCount={sources.length || (source ? 1 : 0)}
             propertyCount={properties.length}
             hiddenCount={hiddenCount}
+            canManage={canManage}
+            isOwner={isOwner}
+            defaultPersonNotificationsEnabled={
+              defaultPersonNotificationsEnabled
+            }
             onPanelChange={onPanelChange}
+          />
+        ) : panel === "hooks" ? (
+          <DatabaseHooksPanel
+            databaseId={databaseId}
+            properties={properties}
+            validation={validation}
+            canManage={canManage}
+            schemaLocked={schemaLocked}
+            isOwner={isOwner}
           />
         ) : panel === "source" ? (
           <DatabaseSettingsSourcePanel
@@ -7184,6 +7229,7 @@ function DatabaseSettingsPanelSheet({
 }
 
 function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
+  if (panel === "hooks") return dbText("notificationsAndHooks");
   if (panel === "source") return "Source";
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
@@ -7192,20 +7238,34 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
 }
 
 function DatabaseSettingsMainPanel({
+  databaseId,
   activeView,
   source,
   sourceCount,
   propertyCount,
   hiddenCount,
+  canManage,
+  isOwner,
+  defaultPersonNotificationsEnabled,
   onPanelChange,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   source: ContentDatabaseSource | null;
   sourceCount: number;
   propertyCount: number;
   hiddenCount: number;
+  canManage: boolean;
+  isOwner: boolean;
+  defaultPersonNotificationsEnabled: boolean;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
+  const managePolicy = useManageContentDatabasePolicy();
+  const [defaultNotificationsEnabled, setDefaultNotificationsEnabled] =
+    useState(defaultPersonNotificationsEnabled);
+  useEffect(() => {
+    setDefaultNotificationsEnabled(defaultPersonNotificationsEnabled);
+  }, [defaultPersonNotificationsEnabled]);
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
   const sourceBadgeCount = builderReviewableChangeSets(source).length;
   return (
@@ -7223,6 +7283,51 @@ function DatabaseSettingsMainPanel({
         />
       </div>
       <div className="grid gap-1">
+        {canManage ? (
+          <DatabaseSettingsRow
+            icon={<IconBell className="size-4" />}
+            label={dbText("notificationsAndHooks")}
+            onClick={() => onPanelChange("hooks")}
+          />
+        ) : null}
+        {isOwner ? (
+          <div className="grid gap-0.5">
+            <DatabaseSettingsSwitch
+              label={dbText("defaultPersonNotifications")}
+              checked={defaultNotificationsEnabled}
+              disabled={managePolicy.isPending}
+              onCheckedChange={(enabled) => {
+                setDefaultNotificationsEnabled(enabled);
+                managePolicy.mutate(
+                  {
+                    databaseId,
+                    defaultPersonNotificationsEnabled: enabled,
+                  },
+                  {
+                    onSuccess: () =>
+                      toast.success(
+                        dbText(
+                          enabled
+                            ? "defaultPersonNotificationsEnabled"
+                            : "defaultPersonNotificationsDisabled",
+                        ),
+                      ),
+                    onError: (error) => {
+                      setDefaultNotificationsEnabled(!enabled);
+                      toast.error(dbText("defaultPersonNotificationsFailed"), {
+                        description:
+                          error instanceof Error ? error.message : undefined,
+                      });
+                    },
+                  },
+                );
+              }}
+            />
+            <p className="px-2 text-xs leading-4 text-muted-foreground">
+              {dbText("defaultPersonNotificationsDescription")}
+            </p>
+          </div>
+        ) : null}
         <DatabaseSettingsRow
           icon={<IconPlugConnected className="size-4" />}
           label="Sources"
@@ -17618,6 +17723,7 @@ export function databaseGroupIsCollapsed(
 }
 
 function DatabaseGroupedTableSection({
+  databaseId,
   group,
   properties,
   columnWidths,
@@ -17638,6 +17744,7 @@ function DatabaseGroupedTableSection({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   group: DatabaseBoardGroup;
   properties: DocumentProperty[];
   columnWidths: Record<string, number>;
@@ -17675,6 +17782,7 @@ function DatabaseGroupedTableSection({
         <>
           {group.items.map((item, index) => (
             <DatabaseTableRow
+              databaseId={databaseId}
               key={`${group.id}-${item.id}`}
               item={item}
               databaseDocumentId={databaseDocumentId}
@@ -17739,6 +17847,7 @@ export function databaseItemPropertyForColumn(
 }
 
 function DatabaseTableRow({
+  databaseId,
   item,
   properties,
   columnWidths,
@@ -17764,6 +17873,7 @@ function DatabaseTableRow({
   onPreview,
   onOpenPage,
 }: {
+  databaseId: string;
   item: ContentDatabaseItem;
   properties: ContentDatabaseItem["properties"];
   columnWidths: Record<string, number>;
@@ -17887,6 +17997,7 @@ function DatabaseTableRow({
       })}
       {canEdit ? (
         <RowActionsCell
+          databaseId={databaseId}
           item={item}
           databaseDocumentId={databaseDocumentId}
           rowIndex={rowIndex}
@@ -17903,12 +18014,14 @@ function DatabaseTableRow({
 }
 
 export function RowActionsCell({
+  databaseId,
   item,
   databaseDocumentId,
   onPreviewItem,
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId?: string;
   item: ContentDatabaseItem;
   databaseDocumentId: string;
   rowIndex: number;
@@ -17923,6 +18036,14 @@ export function RowActionsCell({
   const queryClient = useQueryClient();
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const preference = useContentNotificationPreference({
+    scope: "item",
+    databaseId: databaseId ?? "",
+    documentId: item.document.id,
+  });
+  const managePreference = useManageContentNotificationPreference(
+    databaseId ?? "",
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
@@ -17997,6 +18118,36 @@ export function RowActionsCell({
             <IconCopy className="mr-2 size-4 text-muted-foreground" />
             {dbText("duplicateRow")}
           </DropdownMenuItem>
+          {databaseId ? (
+            <DropdownMenuItem
+              disabled={preference.isLoading || managePreference.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                const enabled = preference.data?.preference.enabled ?? true;
+                managePreference.mutate({
+                  action: "set",
+                  target: {
+                    scope: "item",
+                    databaseId,
+                    documentId: item.document.id,
+                  },
+                  enabled: !enabled,
+                });
+                setMenuOpen(false);
+              }}
+            >
+              {preference.data?.preference.enabled === false ? (
+                <IconBell className="mr-2 size-4 text-muted-foreground" />
+              ) : (
+                <IconBellOff className="mr-2 size-4 text-muted-foreground" />
+              )}
+              {dbText(
+                preference.data?.preference.enabled === false
+                  ? "subscribeToItem"
+                  : "unsubscribeFromItem",
+              )}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"

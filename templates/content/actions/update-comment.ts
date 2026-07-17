@@ -16,7 +16,7 @@ export default defineAction({
     content: z.string().optional().describe("New comment text"),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [comment] = await db
       .select({
@@ -35,7 +35,7 @@ export default defineAction({
       throw new Error(`Comment not found: ${args.id}`);
     }
 
-    const userEmail = getRequestUserEmail();
+    const userEmail = ctx?.userEmail ?? getRequestUserEmail();
     if (
       args.resolved === true ||
       args.resolved === false ||
@@ -57,7 +57,7 @@ export default defineAction({
             eq(schema.documentComments.threadId, comment.threadId),
           ),
         );
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {});
       return { ok: true, resolved: true };
     }
 
@@ -71,7 +71,7 @@ export default defineAction({
             eq(schema.documentComments.threadId, comment.threadId),
           ),
         );
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {});
       return { ok: true, resolved: false };
     }
 
@@ -95,7 +95,7 @@ export default defineAction({
         ),
       );
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {});
     return { ok: true };
   },
 });

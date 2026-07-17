@@ -17,6 +17,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  appendContentWorkflowEvent,
+  contentWorkflowFingerprint,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
 
 interface TextEdit {
   find: string;
@@ -235,10 +240,12 @@ export default defineAction({
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
     const db = getDb();
+    const now = new Date().toISOString();
+    let workflowEventId = "";
     await db.transaction(async (tx: any) => {
       await tx
         .update(schema.documents)
-        .set({ content, updatedAt: new Date().toISOString() })
+        .set({ content, updatedAt: now })
         .where(eq(schema.documents.id, id));
       if (creativeContext) {
         await recordGenerationCreativeContext(
@@ -251,7 +258,25 @@ export default defineAction({
           { db: tx },
         );
       }
+      workflowEventId = await appendContentWorkflowEvent(tx, {
+        topic: "content.document.changed",
+        subjectType: "document",
+        subjectId: id,
+        documentId: id,
+        ownerEmail: existing.ownerEmail as string,
+        orgId: (existing.orgId as string | null | undefined) ?? null,
+        occurredAt: now,
+        actionContext: ctx,
+        payload: {
+          changeKind: "surgical_edit",
+          changedFields: ["content"],
+          before: { contentHash: contentWorkflowFingerprint(existing.content) },
+          after: { contentHash: contentWorkflowFingerprint(content) },
+          editCount: changeCount,
+        },
+      });
     });
+    wakeContentWorkflowEvent(workflowEventId);
 
     // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
     // binds the TipTap Y.XmlFragment("default"), so a live editing session is

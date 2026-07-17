@@ -50,6 +50,7 @@
 import path from "path";
 
 import { getDatabaseUrl } from "../../db/client.js";
+import { assertMutationTableIsNotProtected } from "../../db/protected-mutations.js";
 import { parseArgs, fail } from "../utils.js";
 import {
   assertNoRawDbAccessControlPatchTarget,
@@ -774,6 +775,7 @@ When to use db-patch vs other tools:
       `Invalid --column: "${column}". Must be a plain identifier (letters, digits, underscore).`,
     );
   assertNoSensitiveFrameworkTables(table, "patch");
+  assertMutationTableIsNotProtected(table);
   assertNoRawDbAccessControlPatchTarget(table, column);
   assertNoSensitiveFrameworkTables(where, "read");
   validateWhere(where);

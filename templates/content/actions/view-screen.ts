@@ -29,6 +29,7 @@ import {
   formulaValueText,
   isEmptyPropertyValue,
 } from "../shared/properties.js";
+import { listContentDatabaseHooks } from "./_content-database-hooks.js";
 import {
   filterDatabaseContainedDocuments,
   getContentDatabaseResponse,
@@ -650,6 +651,7 @@ export default defineAction({
   http: false,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
+    const hookContext = await readAppStateForCurrentTab("content-hook-context");
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
 
@@ -710,6 +712,13 @@ export default defineAction({
             nav,
             databaseResponse,
           );
+          screen.databaseHooks = {
+            hooks: await listContentDatabaseHooks(database.id),
+            context:
+              isRecord(hookContext) && hookContext.databaseId === database.id
+                ? hookContext
+                : undefined,
+          };
 
           const previewDocumentId =
             typeof nav?.databasePreviewDocumentId === "string"

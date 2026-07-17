@@ -7,6 +7,10 @@ import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
+  appendContentWorkflowEvent,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
+import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
@@ -17,7 +21,7 @@ export default defineAction({
   description:
     "Duplicate multiple page rows in a content database in one atomic batch. Use this for two or more selected/named rows instead of looping duplicate-database-item.",
   schema: databaseRowBatchSchema,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const { database, rows } = await resolveDatabaseRowsForBatch(args);
     if (!database.spaceId) {
@@ -79,6 +83,7 @@ export default defineAction({
       row,
     }));
 
+    const workflowEventIds: string[] = [];
     await db.transaction(async (tx) => {
       await tx
         .update(schema.contentDatabaseItems)
@@ -176,7 +181,29 @@ export default defineAction({
         duplicates.map((duplicate) => duplicate.duplicatedDocumentId),
         now,
       );
+      for (const duplicate of duplicates) {
+        workflowEventIds.push(
+          await appendContentWorkflowEvent(tx, {
+            topic: "content.database.item.created",
+            subjectType: "content_database_item",
+            subjectId: duplicate.duplicatedDocumentId,
+            databaseId: database.id,
+            documentId: duplicate.duplicatedDocumentId,
+            ownerEmail: duplicate.row.item.ownerEmail,
+            orgId: duplicate.row.item.orgId,
+            occurredAt: now,
+            actionContext: ctx,
+            payload: {
+              itemId: duplicate.duplicatedItemId,
+              sourceItemId: duplicate.sourceItemId,
+              sourceDocumentId: duplicate.sourceDocumentId,
+              position: duplicate.position,
+            },
+          }),
+        );
+      }
     });
+    for (const eventId of workflowEventIds) wakeContentWorkflowEvent(eventId);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
