@@ -881,12 +881,25 @@ export async function listContextMemberships(input: {
     membership: any;
     pendingSubmission: any | null;
   }>;
+  const canViewPendingSubmission = (submission: any | null) =>
+    Boolean(
+      submission && (canReview || submission.submittedBy === actor.ownerEmail),
+    );
   const publishedVersionIds = page.flatMap(({ membership }) =>
     membership.publishedItemVersionId
       ? [membership.publishedItemVersionId]
       : [],
   );
-  const [publishedItems, previewMedia] = publishedVersionIds.length
+  const pendingVersionIds = page.flatMap(({ pendingSubmission }) =>
+    canViewPendingSubmission(pendingSubmission) &&
+    pendingSubmission.stagingItemVersionId
+      ? [pendingSubmission.stagingItemVersionId]
+      : [],
+  );
+  const previewVersionIds = [
+    ...new Set([...publishedVersionIds, ...pendingVersionIds]),
+  ];
+  const [previewItems, previewMedia] = previewVersionIds.length
     ? await Promise.all([
         getDb()
           .select({
@@ -903,7 +916,7 @@ export async function listContextMemberships(input: {
             schema.contextItems,
             eq(schema.contextItems.id, schema.contextItemVersions.itemId),
           )
-          .where(inArray(schema.contextItemVersions.id, publishedVersionIds)),
+          .where(inArray(schema.contextItemVersions.id, previewVersionIds)),
         getDb()
           .select({
             id: schema.contextMedia.id,
@@ -912,9 +925,7 @@ export async function listContextMemberships(input: {
             mimeType: schema.contextMedia.mimeType,
           })
           .from(schema.contextMedia)
-          .where(
-            inArray(schema.contextMedia.itemVersionId, publishedVersionIds),
-          ),
+          .where(inArray(schema.contextMedia.itemVersionId, previewVersionIds)),
       ])
     : [[], []];
   const mediaByVersion = new Map<
@@ -932,7 +943,7 @@ export async function listContextMemberships(input: {
     mediaByVersion.set(media.itemVersionId, list);
   }
   const previewByVersion = new Map(
-    (publishedItems as any[]).map((item) => {
+    (previewItems as any[]).map((item) => {
       const preview = sanitizePublicMetadata(
         parseJson<Record<string, unknown>>(item.metadata, {}).preview,
       );
@@ -958,8 +969,7 @@ export async function listContextMemberships(input: {
   );
   return {
     memberships: page.map(({ membership, pendingSubmission }) => {
-      const canViewPending =
-        canReview || pendingSubmission?.submittedBy === actor.ownerEmail;
+      const canViewPending = canViewPendingSubmission(pendingSubmission);
       return {
         ...mapMembership(
           canViewPending
@@ -971,7 +981,14 @@ export async function listContextMemberships(input: {
           : null,
         pendingSubmission:
           canViewPending && pendingSubmission
-            ? mapSubmission(pendingSubmission)
+            ? {
+                ...mapSubmission(pendingSubmission),
+                proposedItem: pendingSubmission.stagingItemVersionId
+                  ? (previewByVersion.get(
+                      pendingSubmission.stagingItemVersionId,
+                    ) ?? null)
+                  : null,
+              }
             : null,
       };
     }),
