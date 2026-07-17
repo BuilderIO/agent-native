@@ -2007,8 +2007,19 @@ export function CreativeContextPanel({
                           }}
                         />
                       </div>
-                      <span className="block truncate p-3 text-sm font-medium">
-                        {item.title}
+                      <span className="block p-3">
+                        <span className="block truncate text-sm font-medium">
+                          {item.title}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          <span>{item.kind}</span>
+                          <span>·</span>
+                          <span className="capitalize">{membership.rank}</span>
+                          <Badge variant="secondary">Published</Badge>
+                        </span>
+                        <span className="mt-1 block truncate font-mono text-[10px] text-muted-foreground">
+                          Version {item.itemVersionId.slice(0, 12)}
+                        </span>
                       </span>
                     </button>
                   );
@@ -2022,41 +2033,90 @@ export function CreativeContextPanel({
             </TabsContent>
             <TabsContent value="approvals">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {pendingContextMemberships.map((membership) => (
-                  <article
-                    key={membership.id}
-                    className="rounded-md border border-border p-3"
-                  >
-                    <p className="truncate text-sm font-medium">
-                      Pending context submission
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Awaiting review
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          void reviewContextMembership(membership.id, "approve")
-                        }
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          void reviewContextMembership(
-                            membership.id,
-                            "request-changes",
-                          )
-                        }
-                      >
-                        Exclude
-                      </Button>
-                    </div>
-                  </article>
-                ))}
+                {pendingContextMemberships.map((membership) => {
+                  const submission = membership.pendingSubmission!;
+                  const item = submission.proposedItem;
+                  const medium = item?.media[0];
+                  return (
+                    <article
+                      key={membership.id}
+                      className="overflow-hidden rounded-md border border-border"
+                    >
+                      {item ? (
+                        <button
+                          type="button"
+                          className="block aspect-video w-full overflow-hidden text-start"
+                          onClick={() =>
+                            setPreviewManifest({
+                              title: item.title,
+                              kind: item.kind,
+                              itemId: item.id,
+                              itemVersionId: item.itemVersionId,
+                              preview: item.preview,
+                              media: medium ?? null,
+                            })
+                          }
+                        >
+                          <ContextPreviewVisual
+                            compact
+                            manifest={{
+                              title: item.title,
+                              kind: item.kind,
+                              itemId: item.id,
+                              itemVersionId: item.itemVersionId,
+                              preview: item.preview,
+                              media: medium ?? null,
+                            }}
+                          />
+                        </button>
+                      ) : null}
+                      <div className="p-3">
+                        <p className="truncate text-sm font-medium">
+                          {item?.title ?? "Pending context submission"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Submitted by {submission.submittedBy}
+                        </p>
+                        {submission.note ? (
+                          <p className="mt-2 line-clamp-3 text-xs text-muted-foreground">
+                            {submission.note}
+                          </p>
+                        ) : null}
+                        {selectedLibraryContext?.access.canReview ? (
+                          <div className="mt-3 flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                void reviewContextMembership(
+                                  membership.id,
+                                  "approve",
+                                )
+                              }
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                void reviewContextMembership(
+                                  membership.id,
+                                  "request-changes",
+                                )
+                              }
+                            >
+                              Request changes
+                            </Button>
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="mt-3">
+                            Awaiting review
+                          </Badge>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
               {!pendingContextMemberships.length ? (
                 <p className="py-4 text-sm text-muted-foreground">

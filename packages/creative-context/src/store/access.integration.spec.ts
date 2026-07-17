@@ -1586,6 +1586,10 @@ describe("creative context access and revocation", () => {
         artifactKey: "source-1:allowed",
         pendingSubmission: expect.objectContaining({
           submittedBy: "bob@example.test",
+          proposedItem: expect.objectContaining({
+            title: "allowed title",
+            itemVersionId: expect.any(String),
+          }),
         }),
       }),
     ]);
@@ -1607,6 +1611,9 @@ describe("creative context access and revocation", () => {
       id: membershipId,
       pendingSubmission: expect.objectContaining({
         submittedBy: "bob@example.test",
+        proposedItem: expect.objectContaining({
+          title: "allowed title",
+        }),
       }),
     });
     expect(

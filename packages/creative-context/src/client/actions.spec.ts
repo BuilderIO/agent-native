@@ -34,7 +34,21 @@ describe("creative context client action contracts", () => {
           privateMetadata: { token: "secret" },
           rank: "canonical",
           status: "active",
-          pendingSubmission: { id: "submission-1", status: "pending" },
+          pendingSubmission: {
+            id: "submission-1",
+            status: "pending",
+            proposedItem: {
+              id: "staged-item",
+              itemVersionId: "staged-version",
+              title: "Proposed deck",
+              kind: "slides-deck",
+              preview: {
+                type: "slides",
+                slides: [{ title: "Preview", cloneHandle: "opaque-handle" }],
+              },
+              privateMetadata: { handle: "secret" },
+            },
+          },
         },
       ],
     });
@@ -45,6 +59,7 @@ describe("creative context client action contracts", () => {
         pendingSubmission: expect.objectContaining({
           id: "submission-1",
           status: "pending",
+          proposedItem: expect.objectContaining({ title: "Proposed deck" }),
         }),
       }),
     ]);
