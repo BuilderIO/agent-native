@@ -2,6 +2,12 @@
 
 #import <sodium.h>
 
+#include <stdatomic.h>
+
+#if ATOMIC_BOOL_LOCK_FREE != 2
+#error "Private Vault requires lock-free atomic bool state"
+#endif
+
 static void *AncPrivateVaultSodiumMalloc(size_t size) {
   return sodium_malloc(size);
 }
@@ -28,7 +34,7 @@ static void AncPrivateVaultSodiumFree(void *memory) { sodium_free(memory); }
   NSLock *_lock;
   void *_memory;
   size_t _length;
-  BOOL _closed;
+  atomic_bool _closed;
   AncPrivateVaultGuardedMemoryFunctions _functions;
 }
 
@@ -85,7 +91,7 @@ static void AncPrivateVaultSodiumFree(void *memory) { sodium_free(memory); }
   result->_lock = [[NSLock alloc] init];
   result->_memory = memory;
   result->_length = length;
-  result->_closed = NO;
+  atomic_init(&result->_closed, false);
   result->_functions = *functions;
   if (status != NULL) *status = AncPrivateVaultGuardedMemoryStatusOK;
   return result;
@@ -101,25 +107,22 @@ static void AncPrivateVaultSodiumFree(void *memory) { sodium_free(memory); }
 }
 
 - (BOOL)isClosed {
-  [_lock lock];
-  const BOOL value = _closed;
-  [_lock unlock];
-  return value;
+  return atomic_load_explicit(&_closed, memory_order_acquire);
 }
 
 - (AncPrivateVaultGuardedMemoryStatus)
     borrow:(AncPrivateVaultGuardedMemoryBorrowBlock)block {
   if (block == nil) return AncPrivateVaultGuardedMemoryStatusInvalid;
   [_lock lock];
-  if (_closed) {
+  if (atomic_load_explicit(&_closed, memory_order_acquire)) {
     [_lock unlock];
     return AncPrivateVaultGuardedMemoryStatusClosed;
   }
   if (_functions.mprotect_readwrite_fn(_memory, _length) != 0) {
+    atomic_store_explicit(&_closed, true, memory_order_release);
     _functions.free_fn(_memory);
     _memory = NULL;
     _length = 0;
-    _closed = YES;
     [_lock unlock];
     return AncPrivateVaultGuardedMemoryStatusProtectionFailed;
   }
@@ -130,13 +133,13 @@ static void AncPrivateVaultSodiumFree(void *memory) { sodium_free(memory); }
     callback_succeeded = NO;
   }
   if (_functions.mprotect_noaccess_fn(_memory, _length) != 0) {
+    atomic_store_explicit(&_closed, true, memory_order_release);
     if (_functions.mprotect_readwrite_fn(_memory, _length) == 0) {
       _functions.memzero_fn(_memory, _length);
     }
     _functions.free_fn(_memory);
     _memory = NULL;
     _length = 0;
-    _closed = YES;
     [_lock unlock];
     return AncPrivateVaultGuardedMemoryStatusProtectionFailed;
   }
@@ -147,23 +150,23 @@ static void AncPrivateVaultSodiumFree(void *memory) { sodium_free(memory); }
 
 - (AncPrivateVaultGuardedMemoryStatus)close {
   [_lock lock];
-  if (_closed) {
+  if (atomic_load_explicit(&_closed, memory_order_acquire)) {
     [_lock unlock];
     return AncPrivateVaultGuardedMemoryStatusOK;
   }
   if (_functions.mprotect_readwrite_fn(_memory, _length) != 0) {
+    atomic_store_explicit(&_closed, true, memory_order_release);
     _functions.free_fn(_memory);
     _memory = NULL;
     _length = 0;
-    _closed = YES;
     [_lock unlock];
     return AncPrivateVaultGuardedMemoryStatusProtectionFailed;
   }
+  atomic_store_explicit(&_closed, true, memory_order_release);
   _functions.memzero_fn(_memory, _length);
   _functions.free_fn(_memory);
   _memory = NULL;
   _length = 0;
-  _closed = YES;
   [_lock unlock];
   return AncPrivateVaultGuardedMemoryStatusOK;
 }

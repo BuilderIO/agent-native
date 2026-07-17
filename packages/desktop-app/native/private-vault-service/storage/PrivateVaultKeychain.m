@@ -6,6 +6,10 @@ NSString *const AncPrivateVaultFenceService =
     @"com.agentnative.desktop.private-vault.anc-v1.fence";
 NSString *const AncPrivateVaultHighWaterService =
     @"com.agentnative.desktop.private-vault.anc-v1.high-water";
+NSString *const AncPrivateVaultCustodyService =
+    @"com.agentnative.desktop.private-vault.anc-v1.custody";
+NSString *const AncPrivateVaultCustodyStageService =
+    @"com.agentnative.desktop.private-vault.anc-v1.custody-stage";
 NSString *const AncPrivateVaultKeychainAccessGroup =
     @"W3PMF2T3MW.com.agentnative.desktop.private-vault";
 
@@ -134,7 +138,9 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                         vaultId:(NSString *)vaultId
                                        recordId:(NSString *)recordId {
   if (![service isEqualToString:AncPrivateVaultFenceService] &&
-      ![service isEqualToString:AncPrivateVaultHighWaterService]) {
+      ![service isEqualToString:AncPrivateVaultHighWaterService] &&
+      ![service isEqualToString:AncPrivateVaultCustodyService] &&
+      ![service isEqualToString:AncPrivateVaultCustodyStageService]) {
     return nil;
   }
   NSString *account = AncAccount(service, vaultId, recordId);
@@ -177,8 +183,7 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
     if (rawResult != NULL) CFRelease(rawResult);
     return AncPrivateVaultKeychainStatusCorrupt;
   }
-  NSData *copied = [(__bridge NSData *)rawResult copy];
-  CFRelease(rawResult);
+  NSData *copied = CFBridgingRelease(rawResult);
   if (copied.length == 0 || copied.length > kMaximumRecordBytes) {
     return AncPrivateVaultKeychainStatusCorrupt;
   }
@@ -199,9 +204,21 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
   NSMutableDictionary *attributes = [base mutableCopy];
   attributes[(__bridge id)kSecAttrAccessible] =
       (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
-  attributes[(__bridge id)kSecValueData] = [data copy];
-  return AncStatusForOSStatus(
-      self.functions.add((__bridge CFDictionaryRef)attributes, NULL));
+  attributes[(__bridge id)kSecValueData] = data;
+  OSStatus mutation =
+      self.functions.add((__bridge CFDictionaryRef)attributes, NULL);
+  NSData *observed = nil;
+  AncPrivateVaultKeychainStatus readback =
+      [self copyDataForService:service
+                       vaultId:vaultId
+                      recordId:recordId
+                          data:&observed];
+  if (readback == AncPrivateVaultKeychainStatusOK)
+    return [observed isEqualToData:data] ? AncPrivateVaultKeychainStatusOK
+                                         : AncPrivateVaultKeychainStatusCorrupt;
+  if (readback != AncPrivateVaultKeychainStatusNotFound) return readback;
+  return mutation == errSecSuccess ? AncPrivateVaultKeychainStatusFailed
+                                   : AncStatusForOSStatus(mutation);
 }
 
 - (AncPrivateVaultKeychainStatus)updateData:(NSData *)data
@@ -214,10 +231,21 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
   if (query == nil || data.length == 0 || data.length > kMaximumRecordBytes) {
     return AncPrivateVaultKeychainStatusInvalid;
   }
-  NSDictionary *attributes = @{(__bridge id)kSecValueData : [data copy]};
-  return AncStatusForOSStatus(self.functions.update(
-      (__bridge CFDictionaryRef)query,
-      (__bridge CFDictionaryRef)attributes));
+  NSDictionary *attributes = @{(__bridge id)kSecValueData : data};
+  OSStatus mutation = self.functions.update((__bridge CFDictionaryRef)query,
+                                            (__bridge CFDictionaryRef)attributes);
+  NSData *observed = nil;
+  AncPrivateVaultKeychainStatus readback =
+      [self copyDataForService:service
+                       vaultId:vaultId
+                      recordId:recordId
+                          data:&observed];
+  if (readback == AncPrivateVaultKeychainStatusOK)
+    return [observed isEqualToData:data] ? AncPrivateVaultKeychainStatusOK
+                                         : AncPrivateVaultKeychainStatusCorrupt;
+  if (readback != AncPrivateVaultKeychainStatusNotFound) return readback;
+  return mutation == errSecSuccess ? AncPrivateVaultKeychainStatusFailed
+                                   : AncStatusForOSStatus(mutation);
 }
 
 - (AncPrivateVaultKeychainStatus)deleteDataForService:(NSString *)service
@@ -227,8 +255,20 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                           vaultId:vaultId
                                          recordId:recordId];
   if (query == nil) return AncPrivateVaultKeychainStatusInvalid;
-  return AncStatusForOSStatus(
-      self.functions.deleteItem((__bridge CFDictionaryRef)query));
+  OSStatus mutation =
+      self.functions.deleteItem((__bridge CFDictionaryRef)query);
+  NSData *observed = nil;
+  AncPrivateVaultKeychainStatus readback =
+      [self copyDataForService:service
+                       vaultId:vaultId
+                      recordId:recordId
+                          data:&observed];
+  if (readback == AncPrivateVaultKeychainStatusNotFound)
+    return AncPrivateVaultKeychainStatusOK;
+  if (readback == AncPrivateVaultKeychainStatusOK)
+    return AncPrivateVaultKeychainStatusFailed;
+  AncPrivateVaultKeychainStatus mapped = AncStatusForOSStatus(mutation);
+  return readback == AncPrivateVaultKeychainStatusFailed ? mapped : readback;
 }
 
 @end

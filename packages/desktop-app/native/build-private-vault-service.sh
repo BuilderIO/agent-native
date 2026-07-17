@@ -11,6 +11,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
+  "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"
@@ -201,6 +202,47 @@ case "${PRIVATE_VAULT_BUILD_FENCE_TESTS:-}" in
   ;;
   *)
     echo "Invalid Private Vault fence-test build mode" >&2
+    exit 1
+    ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_REPOSITORY_TESTS:-}" in
+  "") ;;
+  1)
+  REPOSITORY_TEST_OUTPUT="$OUTPUT_ROOT/.repository-tests"
+  rm -rf "$REPOSITORY_TEST_OUTPUT"
+  mkdir -p "$REPOSITORY_TEST_OUTPUT"
+  compile_repository_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$REPOSITORY_TEST_OUTPUT/private-vault-repository-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -isysroot "$SDK" \
+      -mmacosx-version-min=13.0 \
+      -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" \
+      -I"$SOURCE_ROOT/storage" \
+      -I"$sodium_root/include" \
+      -framework Foundation \
+      -framework Security \
+      -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepositoryTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_repository_test_slice arm64 "$ARM64_SODIUM"
+  compile_repository_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *)
+    echo "Invalid Private Vault repository-test build mode" >&2
     exit 1
     ;;
 esac

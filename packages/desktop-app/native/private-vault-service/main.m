@@ -7,8 +7,11 @@
 
 #include "PrivateVaultServiceIdentity.h"
 #include "Protocol.h"
+#include "PrivateVaultCrypto.h"
+#import "PrivateVaultCustodyRepository.h"
 
 static SecRequirementRef gClientRequirement = NULL;
+static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
 
 static bool PVAuthenticateMessage(xpc_object_t message) {
     if (xpc_get_type(message) != XPC_TYPE_DICTIONARY ||
@@ -115,6 +118,13 @@ static void PVConnectionHandler(xpc_connection_t peer) {
 
 int main(void) {
     @autoreleasepool {
+        if (anc_pv_crypto_init() != ANC_PV_CRYPTO_OK) {
+            return EXIT_FAILURE;
+        }
+        gCustodyRepository = [[AncPrivateVaultCustodyRepository alloc] init];
+        if (gCustodyRepository == nil) {
+            return EXIT_FAILURE;
+        }
         OSStatus status = SecRequirementCreateWithString(
             (__bridge CFStringRef)@PV_CLIENT_REQUIREMENT,
             kSecCSDefaultFlags, &gClientRequirement);

@@ -6,6 +6,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *const AncPrivateVaultFenceService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultHighWaterService;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultCustodyService;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultCustodyStageService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainAccessGroup;
 
 typedef NS_ENUM(NSInteger, AncPrivateVaultKeychainStatus) {
@@ -50,9 +52,8 @@ typedef LAContext * _Nonnull (^AncPrivateVaultLAContextFactory)(void);
                                     vaultId:(NSString *)vaultId
                                    recordId:(NSString *)recordId;
 
-// Storage cleanup is intentionally below the fence abstraction. The fence
-// itself exposes no deletion surface; authenticated whole-vault removal will
-// own this primitive in a later slice.
+// Every mutation performs an exact readback. Delete succeeds only after an
+// absent readback; callers never infer durability from SecItem's status alone.
 - (AncPrivateVaultKeychainStatus)deleteDataForService:(NSString *)service
                                                vaultId:(NSString *)vaultId
                                               recordId:(NSString *)recordId;
