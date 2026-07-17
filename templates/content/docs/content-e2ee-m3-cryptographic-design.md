@@ -251,4 +251,14 @@ real out-of-band SAS comparison, secure endpoint key storage, and operational
 post-compromise broker replacement remain hard implementation requirements for
 the broker/desktop milestone.
 
+Fork runtime checkpoint: the native desktop trust anchor now decodes,
+round-trips, hashes, and verifies the frozen `anc/v1`
+`genesis-recovery-confirmation` and `genesis-bootstrap-transcript` artifacts.
+The production XPC build includes the verifier for both supported architectures,
+and the native runner matches the exact positive corpus while rejecting all 72
+frozen wire, size, range, vault, confirmation, and digest failures. This proves
+native transcript parity only; it deliberately does not claim that genesis
+authorization, durable first-device enrollment, or the enrollment UI already
+exists.
+
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

@@ -453,9 +453,16 @@ redirects, and bounds the content-free receipt before allocation. Native tests
 exercise the coordinator and transport on both arm64 and x86_64. This checkpoint
 also includes a native content-free retry marker, restart discovery, bounded
 backoff, receipt-only cleanup recovery across process death, and aggregate
-signed-main acknowledgement health. It does not close PR 5: complete enrollment
-and recovery product flows, malicious-directory and stolen-session transcripts,
-and the independently packageable broker exit gate still remain.
+signed-main acknowledgement health. The first-device trust path now also has a
+native, public-only genesis recovery-confirmation and bootstrap-transcript
+verifier. It matches the frozen Core bytes and domain-separated digests, rejects
+all 72 frozen malformed or misbound cases on arm64 and x86_64, snapshots caller
+bytes across multi-step verification, and returns immutable decoded results.
+The verifier is compiled into the universal production XPC service and passed an
+independent trust-boundary review. It does not close PR 5: native genesis
+authorization and crash-safe enrollment, complete enrollment and recovery
+product flows, malicious-directory and stolen-session transcripts, and the
+independently packageable broker exit gate still remain.
 
 ### PR 6 — Feature-gated Content Private Vault vertical slice
 
