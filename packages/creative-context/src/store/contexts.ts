@@ -158,7 +158,11 @@ function normalizedFromDetail(
     colors: detail.item.colors,
     provenance: detail.item.provenance,
     thumbnailBlobRef: detail.item.thumbnailBlobRef ?? undefined,
-    metadata: {},
+    // Keep compiler/reassembly manifests while stripping capability-like metadata.
+    metadata: (sanitizePublicMetadata(detail.version.metadata) ?? {}) as Record<
+      string,
+      unknown
+    >,
     chunks: detail.chunks.map((chunk) => ({
       ordinal: chunk.ordinal,
       kind: chunk.kind,

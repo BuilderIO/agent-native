@@ -29,6 +29,7 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
       data: string;
       ownerEmail: string;
       updatedAt: string;
+      visibility?: "private" | "org" | "public";
     };
     if (
       reference.expectedUpdatedAt &&
