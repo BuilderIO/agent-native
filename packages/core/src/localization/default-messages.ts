@@ -697,6 +697,8 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect with OAuth",
+    connectSuggestion: "Connect {{name}} to use this link in chat",
+    dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
     configureTitle: "Configure {{name}}",
@@ -791,6 +793,13 @@ const messages = {
         useCase: "Design files, components, variables, design systems, canvas",
         setupNote:
           "Figma only allows clients listed in its MCP Catalog. Agent Native needs vendor approval before this remote endpoint can complete a connection; use the existing Figma OAuth connector for app-owned workflows in the meantime.",
+      },
+      canva: {
+        description: "Search, create, and update Canva designs and assets.",
+        useCase:
+          "Designs, templates, assets, brand kits, exports, collaboration",
+        setupNote:
+          "Canva MCP uses per-user OAuth and requires clients to allow Canva's canva.com and canva.ai domains. Confirm the current redirect and client setup in Canva's MCP documentation before connecting.",
       },
       vercel: {
         description:

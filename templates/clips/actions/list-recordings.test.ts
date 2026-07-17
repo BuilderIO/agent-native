@@ -112,6 +112,15 @@ describe("list-recordings editor media", () => {
       ),
     ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: "webm" });
   });
+
+  it("drops unsupported media formats from editor rows", () => {
+    expect(
+      resolveListRecordingMedia(
+        { id: "rec-1", videoUrl: "/api/video/rec-1", videoFormat: "mov" },
+        true,
+      ),
+    ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: null });
+  });
 });
 
 describe("list-recordings shared view", () => {

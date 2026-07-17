@@ -46,6 +46,7 @@ type DialogMode = "catalog" | "form";
 interface McpIntegrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialIntegrationId?: string | null;
   defaultScope: McpServerScope;
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
@@ -86,6 +87,7 @@ function compareUrl(value: string): string {
 export function McpIntegrationDialog({
   open,
   onOpenChange,
+  initialIntegrationId = null,
   defaultScope,
   canCreateOrgMcp,
   hasOrg,
@@ -141,19 +143,32 @@ export function McpIntegrationDialog({
 
   useEffect(() => {
     if (!open) return;
-    setMode(showCatalog ? "catalog" : "form");
+    const initialIntegration = initialIntegrationId
+      ? defaultIntegrations.find(
+          (integration) => integration.id === initialIntegrationId,
+        )
+      : null;
+    const initialDefaults =
+      createMcpIntegrationFormDefaults(initialIntegration);
+    setMode(initialIntegration || !showCatalog ? "form" : "catalog");
     setQuery("");
-    setSelected(null);
+    setSelected(initialIntegration ?? null);
     setScope(safeDefaultScope);
-    setName("");
-    setUrl("");
-    setDescription("");
-    setHeadersText("");
+    setName(initialDefaults.name);
+    setUrl(initialDefaults.url);
+    setDescription(initialDefaults.description);
+    setHeadersText(initialDefaults.headersText);
     setBusy(false);
     setQuickBusyId(null);
     setError(null);
     setTestResult(null);
-  }, [open, safeDefaultScope, showCatalog]);
+  }, [
+    defaultIntegrations,
+    initialIntegrationId,
+    open,
+    safeDefaultScope,
+    showCatalog,
+  ]);
 
   useEffect(() => {
     if (open && mode === "form") {

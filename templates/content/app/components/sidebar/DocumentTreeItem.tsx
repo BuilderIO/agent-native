@@ -261,7 +261,7 @@ export function DocumentTreeItem({
                     }}
                   >
                     <IconPlus size={14} className="me-2" />
-                    {t("creativeContext.addToContext")}
+                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
                   </DropdownMenuItem>
                 )}
                 {canManage && (

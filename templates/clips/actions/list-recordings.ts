@@ -32,7 +32,7 @@ type RecordingMediaFields = {
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
-  videoFormat?: "webm" | "mp4" | null;
+  videoFormat?: string | null;
 };
 
 export function resolveListRecordingMedia(
@@ -53,7 +53,10 @@ export function resolveListRecordingMedia(
       },
       { proxyRemoteMedia: true },
     ),
-    videoFormat: recording.videoFormat ?? null,
+    videoFormat:
+      recording.videoFormat === "webm" || recording.videoFormat === "mp4"
+        ? recording.videoFormat
+        : null,
   };
 }
 

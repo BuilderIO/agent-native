@@ -4,10 +4,12 @@ import {
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
+  findMcpIntegrationForText,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
   isMcpIntegrationCatalogAvailable,
+  isMcpConnectionFailureText,
   mcpIntegrationAuthLabel,
   resolveMcpIntegrationScope,
 } from "./mcp-integration-catalog.js";
@@ -109,11 +111,11 @@ describe("MCP integration catalog", () => {
       availability: "client-restricted",
       setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
     });
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(24);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(25);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(24);
+    ).toBe(25);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
@@ -145,6 +147,31 @@ describe("MCP integration catalog", () => {
       authMode: "oauth",
       availability: "ready",
     });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "canva"),
+    ).toMatchObject({
+      url: "https://mcp.canva.com/mcp",
+      connectionMode: "manual",
+      availability: "client-restricted",
+    });
+  });
+
+  it("matches resource links to their MCP preset", () => {
+    expect(
+      findMcpIntegrationForText(
+        "Please read https://www.notion.so/acme/Project-123",
+      )?.id,
+    ).toBe("notion");
+    expect(
+      findMcpIntegrationForText("Canva link: https://canva.com/design/abc")?.id,
+    ).toBe("canva");
+    expect(
+      findMcpIntegrationForText("I cannot read this Notion page")?.id,
+    ).toBe("notion");
+    expect(isMcpConnectionFailureText("I can't read that Notion link")).toBe(
+      true,
+    );
+    expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
   });
 
   it("labels authentication modes for compact badges", () => {

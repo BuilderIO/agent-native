@@ -81,6 +81,7 @@ function registerCreativeContextShareables(): void {
     getResourcePath: getCreativeContextResourcePath,
     getDb,
     allowPublic: false,
+    requireOrgMemberForUserShares: true,
   });
 }
 

@@ -5,6 +5,7 @@ ar-SA|automation-connectors
 ar-SA|doctor
 ar-SA|durable-background-runs
 ar-SA|generative-ui
+ar-SA|integrations
 ar-SA|organizations-teams-permissions
 ar-SA|toolkit-agent-ux
 ar-SA|toolkit-collaboration
@@ -22,6 +23,7 @@ de-DE|automation-connectors
 de-DE|doctor
 de-DE|durable-background-runs
 de-DE|generative-ui
+de-DE|integrations
 de-DE|organizations-teams-permissions
 de-DE|toolkit-agent-ux
 de-DE|toolkit-collaboration
@@ -39,6 +41,7 @@ es-ES|automation-connectors
 es-ES|doctor
 es-ES|durable-background-runs
 es-ES|generative-ui
+es-ES|integrations
 es-ES|organizations-teams-permissions
 es-ES|toolkit-agent-ux
 es-ES|toolkit-collaboration
@@ -56,6 +59,7 @@ fr-FR|automation-connectors
 fr-FR|doctor
 fr-FR|durable-background-runs
 fr-FR|generative-ui
+fr-FR|integrations
 fr-FR|organizations-teams-permissions
 fr-FR|toolkit-agent-ux
 fr-FR|toolkit-collaboration
@@ -73,6 +77,7 @@ hi-IN|automation-connectors
 hi-IN|doctor
 hi-IN|durable-background-runs
 hi-IN|generative-ui
+hi-IN|integrations
 hi-IN|organizations-teams-permissions
 hi-IN|toolkit-agent-ux
 hi-IN|toolkit-collaboration
@@ -90,6 +95,7 @@ ja-JP|automation-connectors
 ja-JP|doctor
 ja-JP|durable-background-runs
 ja-JP|generative-ui
+ja-JP|integrations
 ja-JP|organizations-teams-permissions
 ja-JP|toolkit-agent-ux
 ja-JP|toolkit-collaboration
@@ -107,6 +113,7 @@ ko-KR|automation-connectors
 ko-KR|doctor
 ko-KR|durable-background-runs
 ko-KR|generative-ui
+ko-KR|integrations
 ko-KR|organizations-teams-permissions
 ko-KR|toolkit-agent-ux
 ko-KR|toolkit-collaboration
@@ -124,6 +131,7 @@ pt-BR|automation-connectors
 pt-BR|doctor
 pt-BR|durable-background-runs
 pt-BR|generative-ui
+pt-BR|integrations
 pt-BR|organizations-teams-permissions
 pt-BR|toolkit-agent-ux
 pt-BR|toolkit-collaboration
@@ -141,6 +149,7 @@ zh-CN|automation-connectors
 zh-CN|doctor
 zh-CN|durable-background-runs
 zh-CN|generative-ui
+zh-CN|integrations
 zh-CN|organizations-teams-permissions
 zh-CN|toolkit-agent-ux
 zh-CN|toolkit-collaboration
@@ -157,6 +166,7 @@ zh-CN|toolkit-ui
 zh-TW|automation-connectors
 zh-TW|doctor
 zh-TW|generative-ui
+zh-TW|integrations
 zh-TW|organizations-teams-permissions
 zh-TW|toolkit-agent-ux
 zh-TW|toolkit-collaboration

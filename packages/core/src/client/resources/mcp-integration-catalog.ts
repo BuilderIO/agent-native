@@ -275,6 +275,24 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     keywords: ["design", "figjam", "components", "variables", "canvas"],
   },
   {
+    id: "canva",
+    name: "Canva",
+    provider: "canva",
+    description: "Search, create, and update Canva designs and assets.",
+    descriptionKey: "mcpIntegrations.catalog.canva.description",
+    useCase: "designs, templates, assets, brand kits, exports, collaboration",
+    useCaseKey: "mcpIntegrations.catalog.canva.useCase",
+    url: "https://mcp.canva.com/mcp",
+    authMode: "oauth",
+    connectionMode: "manual",
+    availability: "client-restricted",
+    verification: "restricted",
+    logoUrl: mcpIntegrationLogo("canva"),
+    docsUrl: "https://www.canva.dev/docs/mcp/",
+    setupNoteKey: "mcpIntegrations.catalog.canva.setupNote",
+    keywords: ["design", "templates", "assets", "brand", "exports"],
+  },
+  {
     id: "vercel",
     name: "Vercel",
     provider: "vercel",
@@ -603,6 +621,74 @@ export function filterMcpIntegrations(
       .toLowerCase();
     return haystack.includes(needle);
   });
+}
+
+const MCP_LINK_HOSTS: Record<string, string[]> = {
+  notion: ["notion.so", "notion.site"],
+  canva: ["canva.com", "canva.ai"],
+  figma: ["figma.com"],
+  linear: ["linear.app"],
+  github: ["github.com", "github.dev"],
+  gitlab: ["gitlab.com"],
+  slack: ["slack.com"],
+  asana: ["asana.com"],
+  hubspot: ["hubspot.com"],
+  intercom: ["intercom.com"],
+  monday: ["monday.com"],
+  webflow: ["webflow.com"],
+  paypal: ["paypal.com"],
+  box: ["box.com"],
+  netlify: ["netlify.com"],
+};
+
+function hostMatches(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function findUrlForText(text: string): URL | null {
+  const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
+  for (const candidate of candidates) {
+    try {
+      return new URL(candidate.replace(/[.,!?;:'\"]+$/, ""));
+    } catch {
+      // Ignore prose that only looks like a URL.
+    }
+  }
+  return null;
+}
+
+export function findMcpIntegrationForText(
+  text: string,
+  integrations: DefaultMcpIntegration[] = getDefaultMcpIntegrations(),
+): DefaultMcpIntegration | null {
+  const url = findUrlForText(text);
+  if (url) {
+    const match = integrations.find((integration) =>
+      (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
+        hostMatches(url.hostname.toLowerCase(), domain),
+      ),
+    );
+    if (match) return match;
+  }
+
+  const normalizedText = text.toLowerCase();
+  return (
+    integrations.find((integration) => {
+      const aliases = [integration.name, integration.provider, integration.id];
+      return aliases.some((alias) => {
+        const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(
+          normalizedText,
+        );
+      });
+    }) ?? null
+  );
+}
+
+export function isMcpConnectionFailureText(text: string): boolean {
+  return /\b(?:can(?:not|'t|’t)|could(?: not|n't|n’t)|unable|failed|don't have access|don’t have access|not connected|not able)\b[\s\S]{0,80}\b(?:read|access|open|see|fetch|connect)\b/i.test(
+    text,
+  );
 }
 
 export function createMcpIntegrationFormDefaults(

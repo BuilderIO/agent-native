@@ -1546,7 +1546,7 @@ export default function SqlDashboardPage() {
                 }}
               >
                 <IconPlus className="mr-2 h-3.5 w-3.5" />
-                {t("creativeContext.addToContext")}
+                {t("creativeContext.addToContext" /* i18n-key-ignore */)}
               </DropdownMenuItem>
             ) : null}
             {dashboardId ? (

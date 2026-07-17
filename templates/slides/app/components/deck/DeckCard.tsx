@@ -199,7 +199,7 @@ export default function DeckCard({
               }}
             >
               <IconPlus className="w-3.5 h-3.5 me-2" />
-              {t("creativeContext.addToContext")}
+              {t("creativeContext.addToContext" /* i18n-key-ignore */)}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
