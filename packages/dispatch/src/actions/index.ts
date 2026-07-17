@@ -33,6 +33,7 @@ import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js"
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
+import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
@@ -66,6 +67,7 @@ import providerApiRequest from "./provider-api-request.js";
 import queryStagedDataset from "./query-staged-dataset.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
+import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
@@ -128,6 +130,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
   "list-agent-thread-sources": listAgentThreadSources,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
+  "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
   "list-dispatch-approvals": listDispatchApprovals,
@@ -164,6 +167,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,
+  "remix-workspace-template": remixWorkspaceTemplate,
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,

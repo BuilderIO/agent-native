@@ -3,11 +3,17 @@ import {
   findAgent as defaultFindAgent,
   type DiscoveredAgent,
 } from "../server/agent-discovery.js";
-import { callAgent as defaultCallAgent } from "./client.js";
+import {
+  callAction as defaultCallAction,
+  callAgent as defaultCallAgent,
+} from "./client.js";
+import type { A2AReadOnlyActionResult } from "./types.js";
 
 export type AgentInvocationErrorCode =
   | "missing-target"
   | "missing-prompt"
+  | "missing-action"
+  | "invalid-input"
   | "invalid-url"
   | "self-call"
   | "not-found";
@@ -45,10 +51,17 @@ export interface AgentInvocationResult {
   responseText: string;
 }
 
+export interface AgentActionInvocationResult {
+  target: ResolvedAgentInvocationTarget;
+  action: string;
+  result: A2AReadOnlyActionResult;
+}
+
 export interface AgentInvocationRuntime {
   findAgent: typeof defaultFindAgent;
   discoverAgents: typeof defaultDiscoverAgents;
   callAgent: typeof defaultCallAgent;
+  callAction: typeof defaultCallAction;
 }
 
 export interface ResolveAgentInvocationTargetOptions {
@@ -69,6 +82,18 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   timeoutMs?: number;
   pollIntervalMs?: number;
   includeInvocationHint?: boolean;
+  runtime?: Partial<AgentInvocationRuntime>;
+}
+
+export interface InvokeAgentActionOptions extends ResolveAgentInvocationTargetOptions {
+  target: string;
+  action: string;
+  input?: Record<string, unknown>;
+  apiKey?: string;
+  userEmail?: string;
+  orgDomain?: string;
+  orgSecret?: string;
+  requestTimeoutMs?: number;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -179,6 +204,48 @@ export async function invokeAgent(
     prompt: promptToSend,
     responseText,
   };
+}
+
+/**
+ * Resolve another app and execute one explicitly exposed read-only action on
+ * it. This is the fast A2A path for bounded data operations that do not need a
+ * second model to plan or synthesize.
+ */
+export async function invokeAgentAction(
+  options: InvokeAgentActionOptions,
+): Promise<AgentActionInvocationResult> {
+  const action = options.action.trim();
+  if (!action) {
+    throw new AgentInvocationError(
+      "missing-action",
+      "Error: action is required",
+      { target: options.target },
+    );
+  }
+  const input = options.input ?? {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new AgentInvocationError(
+      "invalid-input",
+      "Error: action input must be an object",
+      { target: options.target },
+    );
+  }
+
+  const target = await resolveAgentInvocationTarget(options.target, {
+    selfAppId: options.selfAppId,
+    selfUrl: options.selfUrl,
+    runtime: options.runtime,
+  });
+  const callAction = options.runtime?.callAction ?? defaultCallAction;
+  const result = await callAction(target.url, action, input, {
+    apiKey: options.apiKey,
+    userEmail: options.userEmail,
+    orgDomain: options.orgDomain,
+    orgSecret: options.orgSecret,
+    requestTimeoutMs: options.requestTimeoutMs,
+  });
+
+  return { target, action, result };
 }
 
 export function buildAgentInvocationPrompt(

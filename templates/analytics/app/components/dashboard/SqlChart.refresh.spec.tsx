@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     error: null,
   },
   createDemoChartTrendRows: vi.fn((rows: Record<string, unknown>[]) => rows),
+  embeddedExtensionProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("@agent-native/core/client", () => ({
@@ -34,6 +35,14 @@ vi.mock("@/lib/sql-query", () => ({
   useSqlQuery: () => mocks.query,
 }));
 
+vi.mock("@agent-native/core/client/extensions", () => ({
+  EmbeddedExtension: (props: Record<string, unknown>) => {
+    mocks.embeddedExtensionProps = props;
+    return null;
+  },
+  ExtensionSlot: () => null,
+}));
+
 import { SqlChart } from "./SqlChart";
 
 describe("SqlChart refresh feedback", () => {
@@ -49,6 +58,7 @@ describe("SqlChart refresh feedback", () => {
     mocks.query.data = { rows: [{ value: 42 }] };
     mocks.query.isLoading = false;
     mocks.query.isFetching = false;
+    mocks.embeddedExtensionProps = null;
   });
 
   afterEach(() => {
@@ -131,5 +141,39 @@ describe("SqlChart refresh feedback", () => {
       ["value"],
       "signups-over-time",
     );
+  });
+
+  it("shows an extension skeleton until the embedded extension is ready", async () => {
+    const panel = {
+      id: "github-metrics",
+      title: "GitHub metrics",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 1,
+      config: { extensionId: "extension-1" },
+    };
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} />);
+    });
+
+    expect(
+      container.querySelector('[data-dashboard-extension-loading="true"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-dashboard-report-loading="true"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      (mocks.embeddedExtensionProps?.onReady as (() => void) | undefined)?.();
+    });
+
+    expect(
+      container.querySelector('[data-dashboard-extension-loading="true"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-dashboard-report-loading="true"]'),
+    ).toBeNull();
   });
 });

@@ -1875,6 +1875,10 @@ export function createAgentChatAdapter(
         }
       };
 
+      const canAttachRun = (candidateRunId: string, candidateTurnId: string) =>
+        attemptedRunIds.includes(candidateRunId) ||
+        (candidateTurnId.length > 0 && candidateTurnId === turnId);
+
       const preparingActionStateForRun = (
         id: string | null,
       ): PreparingActionState | undefined => {
@@ -2097,15 +2101,13 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
-                updateCurrentRunDispatchMode(active.dispatchMode);
-                const activeStatus =
-                  typeof active.status === "string" ? active.status : "";
+                const activeRunId = String(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
-                if (activeStatus !== "running" && activeTurnId !== turnId) {
+                if (!canAttachRun(activeRunId, activeTurnId)) {
                   return false;
                 }
-                const activeRunId = String(active.runId);
+                updateCurrentRunDispatchMode(active.dispatchMode);
                 const previousRunId = runId;
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
@@ -2172,17 +2174,17 @@ export function createAgentChatAdapter(
                   typeof active.dispatchMode === "string"
                     ? active.dispatchMode
                     : "";
+                const activeTurnId =
+                  typeof active.turnId === "string" ? active.turnId : "";
+                if (!canAttachRun(activeRunId, activeTurnId)) return false;
                 updateCurrentRunDispatchMode(dispatchMode);
                 if (activeRunId === interruptedRunId) {
                   if (dispatchMode.startsWith("background")) continue;
                   return false;
                 }
-                const activeTurnId =
-                  typeof active.turnId === "string" ? active.turnId : "";
                 const activeStatus =
                   typeof active.status === "string" ? active.status : "";
                 if (!dispatchMode.startsWith("background")) return false;
-                if (activeTurnId && activeTurnId !== turnId) return false;
                 if (activeStatus !== "running" && activeStatus !== "starting") {
                   return false;
                 }
@@ -2548,10 +2550,7 @@ export function createAgentChatAdapter(
             // Only follow runs belonging to THIS turn (server-chained
             // successors reuse the turnId) or runs we already attached to.
             const isOurRun =
-              activeRunId !== null &&
-              (attemptedRunIds.includes(activeRunId) ||
-                !activeTurnId ||
-                activeTurnId === turnId);
+              activeRunId !== null && canAttachRun(activeRunId, activeTurnId);
 
             if (activeRunId && isOurRun) {
               lastSeenActive = active;
@@ -3100,12 +3099,19 @@ export function createAgentChatAdapter(
                 // active run is one this adapter already consumed, reconnecting
                 // to it replays the terminal auto_continue and exits instead of
                 // posting the continuation. Wait for stale/previous active runs
-                // to clear and retry THIS prompt. A genuinely newer background
-                // run still falls through to the reconnect path below.
-                const shouldRetryConflictingActiveRun =
+                // to clear and retry THIS prompt. An unknown run reported to an
+                // internal continuation is only adoptable after /runs/active
+                // proves it carries this turnId; a bare 409 run id is not
+                // enough ownership evidence.
+                if (
                   activeRunId !== null &&
-                  (!internalContinuationRequest ||
-                    attemptedRunIds.includes(activeRunId));
+                  internalContinuationRequest &&
+                  !attemptedRunIds.includes(activeRunId)
+                ) {
+                  const reconnected = yield* reconnectActiveRunForThread();
+                  if (reconnected) return;
+                }
+                const shouldRetryConflictingActiveRun = activeRunId !== null;
                 if (shouldRetryConflictingActiveRun) {
                   queuedConflictRetries += 1;
                   if (queuedConflictRetries <= MAX_QUEUED_CONFLICT_RETRIES) {
@@ -3156,26 +3162,6 @@ export function createAgentChatAdapter(
                   } as ChatModelRunResult;
                   clearActiveRun();
                   return;
-                }
-                if (activeRunId) {
-                  try {
-                    const previousRunId = runId;
-                    runId = activeRunId;
-                    if (!attemptedRunIds.includes(runId)) {
-                      attemptedRunIds.push(runId);
-                    }
-                    reconnectCursorForRun(activeRunId, previousRunId);
-                    if (threadId) {
-                      setActiveRun({ threadId, runId, lastSeq });
-                    }
-                    const reconnected = yield* reconnectCurrentRun();
-                    if (reconnected) return;
-                    await delay(1000, abortSignal);
-                    if (abortSignal.aborted) return;
-                    continue;
-                  } catch {
-                    // Fall through to the generic response handling below.
-                  }
                 }
               }
 

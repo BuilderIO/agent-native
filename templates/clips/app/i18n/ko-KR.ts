@@ -623,6 +623,16 @@ const messages = {
     languageDescription:
       "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",
     languageLabel: "인터페이스 언어",
+    uploadWorkspaceTitle: "활성 워크스페이스",
+    uploadWorkspaceDescription:
+      "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",
+    uploadWorkspaceLabel: "현재 워크스페이스",
+    uploadWorkspacePlaceholder: "워크스페이스 선택",
+    uploadWorkspaceHint:
+      "변경하면 워크스페이스와 관련된 Clips 화면도 업데이트됩니다.",
+    uploadWorkspaceSaving: "워크스페이스 저장 중…",
+    uploadWorkspaceSaved: "활성 워크스페이스가 업데이트됨",
+    uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
     viewAllUpdates: "모든 업데이트 보기",
@@ -1366,7 +1376,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     uploadFailed: "업로드 실패",
     connectStorageToFinish: "열어서 저장소를 연결하고 저장을 완료하세요.",
     retryFromClipsMenu:
-      "Clips 메뉴에서 다시 시도하세요. 다시 녹화할 필요는 없습니다.",
+      "메뉴 막대에서 Clips를 열어 저장된 업로드를 다시 시도하세요. 다시 녹화할 필요가 없습니다.",
     removeFailedClip: "실패한 클립 제거.",
     remove: "제거",
     viewsCount: "조회수 {{count}}회",

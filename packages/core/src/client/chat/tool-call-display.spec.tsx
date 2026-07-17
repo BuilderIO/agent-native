@@ -15,6 +15,7 @@ import {
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
+  RanToolsSummary,
   WorkedForSummary,
   toolInputPayload,
 } from "./tool-call-display.js";
@@ -705,6 +706,31 @@ describe("ToolCallDisplay native renderers", () => {
     ).toEqual([null]);
   });
 
+  it("collapses older reconnect tool calls behind a summary", () => {
+    const content: ContentPart[] = Array.from({ length: 5 }, (_, index) => ({
+      type: "tool-call" as const,
+      toolCallId: `tc_${index}`,
+      toolName: `tool-${index + 1}`,
+      args: {},
+      result: "done",
+    }));
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Ran 2 tools");
+    expect(container.textContent).not.toContain("tool 1");
+    expect(container.textContent).not.toContain("tool 2");
+    expect(container.textContent).toContain("tool 3");
+    expect(container.textContent).toContain("tool 4");
+    expect(container.textContent).toContain("tool 5");
+  });
+
   it("keeps the latest completed reconnect thought expanded while a tool runs", () => {
     const content: ContentPart[] = [
       { type: "reasoning", text: "Completed thought" },
@@ -1077,6 +1103,56 @@ describe("WorkedForSummary", () => {
     expect(container.textContent).not.toContain(
       "The old thought stays collapsed.",
     );
+  });
+
+  it("shows the completed run duration in the summary label", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5 * 60_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Worked for 5m");
+  });
+});
+
+describe("RanToolsSummary", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("starts collapsed and reveals older tool calls on demand", () => {
+    act(() => {
+      root.render(
+        <RanToolsSummary toolCount={9}>
+          <div>Older tool call</div>
+        </RanToolsSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Ran 9 tools");
+    expect(container.textContent).not.toContain("Older tool call");
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.textContent).toContain("Older tool call");
   });
 });
 

@@ -9,6 +9,9 @@ export type Workspace = "primary" | "secondary";
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 const MAX_CACHE = 200;
+const MAX_CHANNEL_PAGES = 10;
+const MAX_USER_PAGES = 10;
+const SLACK_PAGE_SIZE = 200;
 
 async function getToken(workspace: Workspace): Promise<string> {
   const envKey =
@@ -131,6 +134,41 @@ export interface SlackTeamInfo {
   icon?: { image_68?: string };
 }
 
+export interface SlackPaginationMetadata {
+  cursor_type: "response_metadata" | "latest_ts" | "page" | "none";
+  request_cursor?: string;
+  next_cursor?: string;
+  provider_next_cursor?: string;
+  page?: number;
+  pages?: number;
+  next_page?: number;
+}
+
+export interface SlackCoverageMetadata {
+  requested: number;
+  fetched: number;
+  returned: number;
+  total?: number;
+  pages_fetched: number;
+  coverage_complete: boolean;
+  truncated: boolean;
+  truncation_reasons: string[];
+}
+
+export interface SlackAuthorCoverageMetadata {
+  requested_users: number;
+  resolved_users: number;
+  unresolved_user_ids: string[];
+  requested_bots: number;
+  resolved_bots: number;
+  unresolved_bot_ids: string[];
+  directory_pages_fetched: number;
+  directory_next_cursor?: string;
+  coverage_complete: boolean;
+  truncated: boolean;
+  truncation_reasons: string[];
+}
+
 // User cache (keyed by workspace + userId)
 const userCache = new Map<string, SlackUser>();
 
@@ -165,18 +203,26 @@ export async function getTeamInfo(
   }
 }
 
-export async function listChannels(
+export async function listChannelsWithCoverage(
   workspace: Workspace,
-): Promise<SlackChannel[]> {
+  requestCursor?: string,
+): Promise<{
+  channels: SlackChannel[];
+  total: number;
+  truncated: boolean;
+  pagination: SlackPaginationMetadata;
+  coverage: SlackCoverageMetadata;
+}> {
   const all: SlackChannel[] = [];
-  let cursor: string | undefined;
+  let cursor = requestCursor;
+  let pagesFetched = 0;
 
-  // Paginate through all channels
-  for (let i = 0; i < 10; i++) {
+  // Paginate through the bounded channel directory.
+  for (let i = 0; i < MAX_CHANNEL_PAGES; i++) {
     const params: Record<string, string> = {
       types: "public_channel",
       exclude_archived: "true",
-      limit: "200",
+      limit: String(SLACK_PAGE_SIZE),
     };
     if (cursor) params.cursor = cursor;
 
@@ -186,17 +232,46 @@ export async function listChannels(
     }>(workspace, "conversations.list", params, !cursor); // cache first page only
 
     all.push(...(data.channels || []));
+    pagesFetched += 1;
     cursor = data.response_metadata?.next_cursor;
     if (!cursor) break;
   }
 
-  return all;
+  const truncated = Boolean(cursor);
+  return {
+    channels: all,
+    total: all.length,
+    truncated,
+    pagination: {
+      cursor_type: "response_metadata",
+      ...(requestCursor ? { request_cursor: requestCursor } : {}),
+      ...(cursor ? { next_cursor: cursor } : {}),
+    },
+    coverage: {
+      requested: MAX_CHANNEL_PAGES * SLACK_PAGE_SIZE,
+      fetched: all.length,
+      returned: all.length,
+      pages_fetched: pagesFetched,
+      coverage_complete: !truncated,
+      truncated,
+      truncation_reasons: truncated ? ["page_cap"] : [],
+    },
+  };
+}
+
+export async function listChannels(
+  workspace: Workspace,
+): Promise<SlackChannel[]> {
+  return (await listChannelsWithCoverage(workspace)).channels;
 }
 
 export interface ChannelHistoryResult {
   messages: SlackMessage[];
   has_more: boolean;
   next_cursor?: string; // timestamp of last message
+  truncated: boolean;
+  pagination: SlackPaginationMetadata;
+  coverage: SlackCoverageMetadata;
 }
 
 export async function getChannelHistory(
@@ -215,55 +290,38 @@ export async function getChannelHistory(
     const data = await slackApi<{
       messages: SlackMessage[];
       has_more?: boolean;
+      response_metadata?: { next_cursor?: string };
     }>(workspace, "conversations.history", params, false);
     const messages = data.messages || [];
+    const nextCursor =
+      messages.length > 0 ? messages[messages.length - 1].ts : undefined;
+    const providerNextCursor = data.response_metadata?.next_cursor || undefined;
+    const hasMore = Boolean(data.has_more || providerNextCursor);
     return {
       messages,
-      has_more: !!data.has_more,
-      next_cursor:
-        messages.length > 0 ? messages[messages.length - 1].ts : undefined,
+      has_more: hasMore,
+      next_cursor: nextCursor,
+      truncated: hasMore,
+      pagination: {
+        cursor_type: "latest_ts",
+        ...(cursor ? { request_cursor: cursor } : {}),
+        ...(nextCursor ? { next_cursor: nextCursor } : {}),
+        ...(providerNextCursor
+          ? { provider_next_cursor: providerNextCursor }
+          : {}),
+      },
+      coverage: {
+        requested: Math.min(limit, SLACK_PAGE_SIZE),
+        fetched: messages.length,
+        returned: messages.length,
+        pages_fetched: 1,
+        coverage_complete: !hasMore,
+        truncated: hasMore,
+        truncation_reasons: hasMore ? ["provider_has_more"] : [],
+      },
     };
   } catch (err: any) {
     if (err.message?.includes("not_in_channel")) {
-      // Try to auto-join the channel (requires channels:join scope)
-      try {
-        const token = await getToken(workspace);
-        const joinRes = await fetch(
-          "https://slack.com/api/conversations.join",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ channel: channelId }),
-          },
-        );
-        const joinData = await joinRes.json();
-        if (joinData.ok) {
-          // Joined successfully, retry history
-          const data = await slackApi<{
-            messages: SlackMessage[];
-            has_more?: boolean;
-          }>(
-            workspace,
-            "conversations.history",
-            {
-              channel: channelId,
-              limit: String(Math.min(limit, 200)),
-            },
-            false,
-          );
-          const msgs = data.messages || [];
-          return {
-            messages: msgs,
-            has_more: !!data.has_more,
-            next_cursor: msgs.length > 0 ? msgs[msgs.length - 1].ts : undefined,
-          };
-        }
-      } catch {
-        // join failed, fall through to friendly error
-      }
       throw new Error(
         "Bot is not in this channel. Please invite the bot to the channel in Slack: " +
           "open the channel, click the channel name, go to Integrations > Add apps, " +
@@ -275,28 +333,35 @@ export async function getChannelHistory(
 }
 
 export async function searchMessages(
-  workspace: Workspace,
-  query: string,
-  count = 50,
-): Promise<{ messages: SlackMessage[]; total: number }> {
-  // search.messages requires a user token, but we'll try with bot token
-  // If it fails, we'll fall back to channel history filtering
-  const data = await slackApi<{
-    messages: { matches: SlackMessage[]; total: number };
-  }>(
-    workspace,
-    "search.messages",
-    {
-      query,
-      count: String(Math.min(count, 100)),
-      sort: "timestamp",
-      sort_dir: "desc",
-    },
-    false,
-  );
+  _workspace: Workspace,
+  _query: string,
+  _count = 50,
+): Promise<{
+  messages: SlackMessage[];
+  total: number;
+  unsupported: true;
+  truncated: boolean;
+  pagination: SlackPaginationMetadata;
+  coverage: SlackCoverageMetadata;
+  guidance: string;
+}> {
   return {
-    messages: data.messages?.matches || [],
-    total: data.messages?.total || 0,
+    messages: [],
+    total: 0,
+    unsupported: true,
+    truncated: true,
+    pagination: { cursor_type: "none" },
+    coverage: {
+      requested: 0,
+      fetched: 0,
+      returned: 0,
+      pages_fetched: 0,
+      coverage_complete: false,
+      truncated: true,
+      truncation_reasons: ["bot_token_global_search_unsupported"],
+    },
+    guidance:
+      "Slack search.messages is unavailable with the configured bot credential. Use conversations.history through the shared Slack corpus recipe for a known channel.",
   };
 }
 
@@ -304,10 +369,7 @@ export async function getUserInfo(
   workspace: Workspace,
   userId: string,
 ): Promise<SlackUser> {
-  const cacheKey = scopedCredentialCacheKey(
-    `${workspace}:${userId}`,
-    workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN",
-  );
+  const cacheKey = slackUserCacheKey(workspace, userId);
   const cached = userCache.get(cacheKey);
   if (cached) return cached;
 
@@ -351,38 +413,81 @@ export async function resolveUsers(
   userIds: string[],
   messages?: SlackMessage[],
 ): Promise<Record<string, SlackUser>> {
+  return (await resolveUsersWithCoverage(workspace, userIds, messages)).users;
+}
+
+export async function resolveUsersWithCoverage(
+  workspace: Workspace,
+  userIds: string[],
+  messages?: SlackMessage[],
+): Promise<{
+  users: Record<string, SlackUser>;
+  coverage: SlackAuthorCoverageMetadata;
+}> {
   const unique = [...new Set(userIds)];
   const results: Record<string, SlackUser> = {};
+  const unresolvedUsers = new Set(unique);
+  let directoryPagesFetched = 0;
+  let directoryNextCursor: string | undefined;
+  let directoryError = false;
 
-  await Promise.all(
-    unique.map(async (id) => {
-      try {
-        results[id] = await getUserInfo(workspace, id);
-      } catch {
-        results[id] = {
-          id,
-          name: id,
-          real_name: id,
-          profile: { display_name: id, image_48: "", image_72: "" },
-        };
+  for (const id of unique) {
+    const cacheKey = slackUserCacheKey(workspace, id);
+    const cached = userCache.get(cacheKey);
+    if (!cached) continue;
+    results[id] = cached;
+    unresolvedUsers.delete(id);
+  }
+
+  try {
+    while (unresolvedUsers.size > 0 && directoryPagesFetched < MAX_USER_PAGES) {
+      const params: Record<string, string> = {
+        limit: String(SLACK_PAGE_SIZE),
+      };
+      if (directoryNextCursor) params.cursor = directoryNextCursor;
+      const data = await slackApi<{
+        members: SlackUser[];
+        response_metadata?: { next_cursor?: string };
+      }>(workspace, "users.list", params, true);
+      directoryPagesFetched += 1;
+
+      for (const user of data.members || []) {
+        userCache.set(slackUserCacheKey(workspace, user.id), user);
+        if (!unresolvedUsers.has(user.id)) continue;
+        results[user.id] = user;
+        unresolvedUsers.delete(user.id);
       }
-    }),
-  );
+
+      directoryNextCursor = data.response_metadata?.next_cursor || undefined;
+      if (!directoryNextCursor) break;
+    }
+  } catch {
+    directoryError = true;
+  }
+
+  const unresolvedUserIds = [...unresolvedUsers];
+  for (const id of unresolvedUserIds) {
+    results[id] = fallbackSlackUser(id);
+  }
 
   // Resolve bot users from messages that have bot_id but no user
+  let resolvedBots = 0;
+  const unresolvedBotIds: string[] = [];
+  const botIds: string[] = [];
   if (messages) {
-    const botIds = [
+    botIds.push(
       ...new Set(
         messages
           .filter((m) => m.bot_id && !results[m.bot_id])
           .map((m) => m.bot_id!),
       ),
-    ];
+    );
 
     await Promise.all(
       botIds.map(async (botId) => {
         try {
           const bot = await getBotInfo(workspace, botId);
+          resolvedBots += 1;
           results[botId] = {
             id: botId,
             name: bot.name,
@@ -394,6 +499,7 @@ export async function resolveUsers(
             },
           };
         } catch {
+          unresolvedBotIds.push(botId);
           // Use the username from the message if available
           const msg = messages.find((m) => m.bot_id === botId);
           results[botId] = {
@@ -411,7 +517,53 @@ export async function resolveUsers(
     );
   }
 
-  return results;
+  const directoryTruncated =
+    unresolvedUsers.size > 0 && Boolean(directoryNextCursor);
+  const coverageComplete =
+    unresolvedUserIds.length === 0 && unresolvedBotIds.length === 0;
+  const truncationReasons = [
+    ...(directoryTruncated ? ["user_directory_page_cap"] : []),
+    ...(directoryError ? ["user_directory_error"] : []),
+    ...(unresolvedUserIds.length > 0 && !directoryTruncated && !directoryError
+      ? ["users_not_found"]
+      : []),
+    ...(unresolvedBotIds.length > 0 ? ["bots_not_found"] : []),
+  ];
+
+  return {
+    users: results,
+    coverage: {
+      requested_users: unique.length,
+      resolved_users: unique.length - unresolvedUserIds.length,
+      unresolved_user_ids: unresolvedUserIds,
+      requested_bots: botIds.length,
+      resolved_bots: resolvedBots,
+      unresolved_bot_ids: unresolvedBotIds,
+      directory_pages_fetched: directoryPagesFetched,
+      ...(directoryNextCursor
+        ? { directory_next_cursor: directoryNextCursor }
+        : {}),
+      coverage_complete: coverageComplete,
+      truncated: !coverageComplete,
+      truncation_reasons: truncationReasons,
+    },
+  };
+}
+
+function slackUserCacheKey(workspace: Workspace, userId: string): string {
+  return scopedCredentialCacheKey(
+    `${workspace}:${userId}`,
+    workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN",
+  );
+}
+
+function fallbackSlackUser(id: string): SlackUser {
+  return {
+    id,
+    name: id,
+    real_name: id,
+    profile: { display_name: id, image_48: "", image_72: "" },
+  };
 }
 
 /**

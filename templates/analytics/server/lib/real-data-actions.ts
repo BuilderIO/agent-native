@@ -29,6 +29,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "match-error-issues",
   "gcloud",
   "gong-calls",
+  "gong-native-insights",
   "grafana",
   "hubspot-deals",
   "hubspot-metrics",
@@ -798,6 +799,9 @@ function actionEvidenceTextForSourceRecords(result: {
       transcriptSearch: record.transcriptSearch,
       transcripts: record.transcripts,
     });
+  }
+  if (normalizedName === "gong-native-insights") {
+    return "";
   }
   if (normalizedName === "run-code") {
     return content;

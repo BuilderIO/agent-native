@@ -7,48 +7,33 @@ description: >
 
 # Common Room Integration (Community)
 
-## Connection
+## Use the shared provider API actions
 
-- **Base URL**: `https://api.commonroom.io/community/v1`
-- **Auth**: `Authorization: Bearer $COMMONROOM_API_TOKEN`
-- **Env vars**: `COMMONROOM_API_TOKEN`
-- **Caching**: 10-minute in-memory cache, max 120 entries
+Common Room has no provider-specific action, route, or server client in
+Analytics. Use the shared provider API substrate:
 
-## Server Lib & API Routes
+- `provider-api-catalog` with `provider: "commonroom"` to inspect the
+  registered base URL, authentication, official docs, and examples.
+- `provider-api-docs` before relying on a remembered endpoint, filter, or
+  pagination shape.
+- `provider-api-request` for the authenticated request. The server injects
+  `COMMONROOM_API_TOKEN` as a bearer token; never pass it in action arguments.
 
-- **File**: `server/lib/commonroom.ts`
+For broad member or activity pulls, pass `stageAs` and the documented
+pagination settings, then use `query-staged-dataset` to search or aggregate the
+complete staged cohort.
 
-### Exported Functions
-
-| Function                         | Description                                         |
-| -------------------------------- | --------------------------------------------------- |
-| `getTokenStatus()`               | Check API token validity                            |
-| `getMemberByEmail(email)`        | Look up a member by email (returns null on failure) |
-| `getMembers(params?)`            | Search members (POST with query, cursor, limit)     |
-| `getActivityForMember(memberId)` | Get activity feed for a member                      |
-| `getSegments()`                  | List community segments                             |
-
-### API Routes
-
-| Route                         | Description              |
-| ----------------------------- | ------------------------ |
-| `GET /api/commonroom/members` | Search community members |
-
-## Script Usage
+## Example workflow
 
 ```bash
-# Search by email
-pnpm action commonroom-members --email=user@example.com
-
-# Search by query
-pnpm action commonroom-members --query=search_term
-
-# List segments
-pnpm action commonroom-members --segments
+pnpm action provider-api-catalog --provider=commonroom
+pnpm action provider-api-docs --provider=commonroom
+pnpm action provider-api-request --provider=commonroom --method=GET --path=/members
 ```
 
 ## Key Patterns & Gotchas
 
-- `getMemberByEmail` uses POST `/members/search` and returns single `CommunityMember` or null on error
-- API returns `{ items: ... }` wrappers or raw arrays — code handles both
-- Use for finding community engagement signals to enrich customer profiles
+- Verify member-search, activity, and segment endpoints in
+  `provider-api-docs`; do not rely on the removed bespoke client's assumptions.
+- Report the method, path, filters, returned row count, and pagination coverage.
+- Use raw activity/member evidence for exhaustive or absence-sensitive claims.

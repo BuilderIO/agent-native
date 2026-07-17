@@ -355,6 +355,18 @@ function shouldIgnoreAutoCapturedError(normalized: {
     return true;
   }
 
+  // Route-chunk recovery reloads the current page after stale lazy chunks or
+  // module scripts fail. Browser-level failures have no useful stack, so do
+  // not retain the transient loader noise as an application issue.
+  if (
+    !stack &&
+    /^(?:Importing a module script failed\.?|(?:Failed to fetch|error loading) dynamically imported module(?::.*)?)$/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
+
   if (
     normalized.type === "InvalidStateError" &&
     /^Transition was aborted because of invalid state$/i.test(message)

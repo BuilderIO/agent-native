@@ -20,4 +20,19 @@ describe("selected library actions layout", () => {
     expect(gridSource).toContain('selected.size > 0 && "pb-20"');
     expect(toolbarSource).not.toContain("sticky bottom-4");
   });
+
+  it("moves clips into folders created from either move menu", () => {
+    const gridSource = readSource("./library-grid.tsx");
+    const toolbarSource = readSource("./bulk-action-toolbar.tsx");
+
+    expect(gridSource).toContain("CreateFolderDialog");
+    expect(gridSource).toContain("createFolderTarget");
+    expect(gridSource).toContain('kind: \"single\"');
+    expect(gridSource).toContain('kind: \"bulk\"');
+    expect(gridSource).toContain(
+      "moveRecordings(createFolderTarget.recordingIds",
+    );
+    expect(toolbarSource).toContain("onCreateFolder");
+    expect(toolbarSource).toContain('t(\"navigation.newFolder\")');
+  });
 });

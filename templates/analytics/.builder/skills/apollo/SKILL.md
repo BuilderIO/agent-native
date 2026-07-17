@@ -7,54 +7,32 @@ description: >
 
 # Apollo.io Integration (Contact & Company Enrichment)
 
-## Connection
+## Use the shared provider API actions
 
-- **Base URL**: `https://api.apollo.io`
-- **Auth**: `x-api-key: $APOLLO_API_KEY`
-- **Env vars**: `APOLLO_API_KEY`
-- **Caching**: 10-minute in-memory cache, max 120 entries
+Apollo has no provider-specific action, route, or server client in Analytics.
+Use the shared provider API substrate:
 
-## Server Lib & API Routes
+- `provider-api-catalog` with `provider: "apollo"` to inspect the registered
+  base URL, authentication, official docs, placeholders, and examples.
+- `provider-api-docs` before relying on a remembered endpoint or request body.
+- `provider-api-request` for the authenticated request. The server injects
+  `APOLLO_API_KEY` as `x-api-key`; never pass the key in action arguments.
 
-- **File**: `server/lib/apollo.ts`
+For large searches, pass `stageAs` and the documented pagination settings, then
+use `query-staged-dataset` to filter or aggregate without loading the full
+response into agent context.
 
-### Exported Functions
-
-| Function                              | Description                                         |
-| ------------------------------------- | --------------------------------------------------- |
-| `searchPeople(params)`                | Search people by criteria                           |
-| `enrichPerson(email)`                 | Enrich a contact by email (returns null on failure) |
-| `searchOrganizations(query, params?)` | Search companies                                    |
-| `enrichOrganization(domain)`          | Enrich company by domain (returns null on failure)  |
-
-### API Routes
-
-| Route                    | Description               |
-| ------------------------ | ------------------------- |
-| `GET /api/apollo/search` | Search contacts/companies |
-
-## Script Usage
+## Example workflow
 
 ```bash
-# Search by email
-pnpm action apollo-search --email=user@example.com
-
-# Search by company
-pnpm action apollo-search --company=Example Inc
-
-# Search by domain
-pnpm action apollo-search --domain=example.com
-
-# Find decision-makers
-pnpm action apollo-search --company=Example Inc --title=CTO
-
-# Search by name
-pnpm action apollo-search --name="John Smith"
+pnpm action provider-api-catalog --provider=apollo
+pnpm action provider-api-docs --provider=apollo
+pnpm action provider-api-request --provider=apollo --method=POST --path=/api/v1/mixed_people/search --body='{"q_keywords":"vp marketing","page":1,"per_page":10}'
 ```
 
 ## Key Patterns & Gotchas
 
-- `enrichPerson` and `enrichOrganization` swallow errors and return `null` on failure (try/catch)
-- API uses POST for all searches and enrichment — POST responses are cached for 10 minutes
-- API endpoints: `/v1/mixed_people/search`, `/v1/people/match`, `/v1/mixed_companies/search`, `/v1/organizations/enrich`
-- Pagination info available via `response.pagination?.total_entries`
+- Apollo search and enrichment endpoints use POST; confirm current endpoint
+  paths and payloads through `provider-api-docs` before calling them.
+- Report the method, path, filters, returned row count, and pagination coverage.
+- Do not treat a default page as complete coverage.

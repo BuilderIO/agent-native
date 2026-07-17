@@ -15,6 +15,10 @@ import {
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import {
+  isAuthenticatedReadAction,
+  isAutoReadExcludedActionName,
+} from "../../mcp/build-server.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
@@ -56,6 +60,42 @@ export function filterPublicAgentActions(
         config.readOnly === true &&
         config.requiresAuth !== true &&
         config.isConsequential !== true
+      );
+    }),
+  );
+}
+
+/**
+ * Direct A2A action calls share the authenticated external-agent policy with
+ * MCP, but remain stricter: only explicitly exposed, authenticated read-only
+ * actions can skip the receiver's model loop.
+ */
+export function filterDirectA2AActions(
+  actions: Record<string, ActionEntry>,
+  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
+): Record<string, ActionEntry> {
+  const catalog = new Set(options.connectorCatalog ?? []);
+  const denied = new Set(options.externalAgents?.denyActions ?? []);
+  const autoReads = options.externalAgents?.authenticatedReads === "auto";
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name, entry]) => {
+      const exposure = entry.publicAgent;
+      const selected =
+        catalog.has(name) ||
+        (autoReads &&
+          isAuthenticatedReadAction(entry) &&
+          !isAutoReadExcludedActionName(name));
+      return (
+        selected &&
+        !denied.has(name) &&
+        entry.agentTool !== false &&
+        entry.readOnly === true &&
+        exposure?.expose === true &&
+        exposure.readOnly === true &&
+        exposure.requiresAuth === true &&
+        (entry.needsApproval === undefined || entry.needsApproval === false) &&
+        exposure.isConsequential !== true
       );
     }),
   );

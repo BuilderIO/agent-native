@@ -4,11 +4,12 @@ export type { A2ATokenPayload } from "./server.js";
 export { generateAgentCard } from "./agent-card.js";
 
 // Client
-export { A2AClient, callAgent, signA2AToken } from "./client.js";
+export { A2AClient, callAction, callAgent, signA2AToken } from "./client.js";
 export {
   AgentInvocationError,
   buildAgentInvocationPrompt,
   invokeAgent,
+  invokeAgentAction,
   looksLikeAgentUrl,
   resolveAgentInvocationTarget,
 } from "./invoke.js";
@@ -33,11 +34,15 @@ export type {
   Artifact,
   JsonRpcRequest,
   JsonRpcResponse,
+  A2AReadOnlyActionInvocation,
+  A2AReadOnlyActionResult,
 } from "./types.js";
 export type {
   AgentInvocationErrorCode,
+  AgentActionInvocationResult,
   AgentInvocationResult,
   AgentInvocationRuntime,
+  InvokeAgentActionOptions,
   InvokeAgentOptions,
   ResolveAgentInvocationTargetOptions,
   ResolvedAgentInvocationTarget,

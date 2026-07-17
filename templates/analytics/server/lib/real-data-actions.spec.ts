@@ -26,6 +26,7 @@ import {
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
     expect(hasDataQueryAttempt([{ name: "gong-calls" }])).toBe(true);
+    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(true);
     expect(hasDataQueryAttempt([{ name: "slack-messages" }])).toBe(true);
   });
 

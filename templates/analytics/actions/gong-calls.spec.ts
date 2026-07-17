@@ -263,7 +263,7 @@ describe("gong-calls action", () => {
     });
   });
 
-  it("exhaustive discovery passes the window, returns all calls, and skips transcripts", async () => {
+  it("batches every transcript for a bounded exhaustive account review", async () => {
     searchCalls.mockResolvedValue({
       calls: [
         { id: "c1", title: "Acme sync", started: "2026-05-03T10:00:00Z" },
@@ -274,25 +274,174 @@ describe("gong-calls action", () => {
       matchedCallCount: 2,
       coverageTruncated: false,
     });
+    getCallTranscripts.mockResolvedValue({
+      callTranscripts: [
+        {
+          callId: "c1",
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [{ start: 0, text: "First call evidence." }],
+            },
+          ],
+        },
+        {
+          callId: "c2",
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [{ start: 0, text: "Second call evidence." }],
+            },
+          ],
+        },
+      ],
+    });
 
     const result = (await gongCalls.run({
       company: "Acme",
       exhaustive: true,
       after: "2025-07-01",
-      // includeTranscripts must be ignored in exhaustive mode so the discovery
-      // pass stays cheap and under the function timeout.
+      before: "2025-07-31",
       includeTranscripts: true,
-      transcriptLimit: 5,
     })) as Record<string, any>;
 
     expect(searchCalls).toHaveBeenCalledWith("Acme", 90, 8, {
       exhaustive: true,
       fromDateTime: "2025-07-01T00:00:00.000Z",
+      toDateTime: "2025-08-01T00:00:00.000Z",
     });
-    expect(getCallTranscript).not.toHaveBeenCalled();
-    expect(result.transcripts).toBeUndefined();
+    expect(getCallTranscripts).toHaveBeenCalledTimes(1);
+    expect(getCallTranscripts).toHaveBeenCalledWith(["c1", "c2"]);
+    expect(result.transcripts).toHaveLength(2);
+    expect(result.transcriptCoverage).toEqual({
+      availableCalls: 2,
+      inspectedCalls: 2,
+      successfulCalls: 2,
+      errorCount: 0,
+      coverageComplete: true,
+      scanLimited: false,
+    });
     expect(result.total).toBe(2);
-    expect(result.guidance).toContain("Exhaustive discovery");
+    expect(result.guidance).toContain("complete coverage");
+    expect(result.guidance).toContain("do not fetch these calls again");
+  });
+
+  it("loads a 13-call exhaustive review in one transcript request", async () => {
+    const calls = Array.from({ length: 13 }, (_, index) => ({
+      id: `call-${index + 1}`,
+      title: `Edmunds call ${index + 1}`,
+      started: `2026-05-${String(index + 1).padStart(2, "0")}T10:00:00Z`,
+    }));
+    searchCalls.mockResolvedValue({
+      calls,
+      limit: calls.length,
+      truncated: false,
+      matchedCallCount: calls.length,
+      coverageTruncated: false,
+    });
+    getCallTranscripts.mockResolvedValue({
+      callTranscripts: calls.map((call) => ({
+        callId: call.id,
+        transcript: [{ sentences: [{ start: 0, text: "Evidence." }] }],
+      })),
+    });
+
+    const result = (await gongCalls.run({
+      company: "Edmunds",
+      exhaustive: true,
+      after: "2026-04-18",
+      before: "2026-07-12",
+      includeTranscripts: true,
+    })) as Record<string, any>;
+
+    expect(getCallTranscripts).toHaveBeenCalledTimes(1);
+    expect(getCallTranscripts).toHaveBeenCalledWith(
+      calls.map((call) => call.id),
+    );
+    expect(result.transcriptCoverage).toMatchObject({
+      availableCalls: 13,
+      inspectedCalls: 13,
+      coverageComplete: true,
+    });
+  });
+
+  it("keeps exhaustive discovery metadata-only unless transcripts are requested", async () => {
+    searchCalls.mockResolvedValue({
+      calls: [
+        { id: "c1", title: "Acme sync", started: "2026-05-03T10:00:00Z" },
+      ],
+      limit: 1,
+      truncated: false,
+      matchedCallCount: 1,
+      coverageTruncated: false,
+    });
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      exhaustive: true,
+      after: "2026-05-01",
+      before: "2026-05-31",
+    })) as Record<string, any>;
+
+    expect(getCallTranscripts).not.toHaveBeenCalled();
+    expect(result.transcripts).toBeUndefined();
+    expect(result.guidance).toContain("metadata only");
+  });
+
+  it("caps aggregate transcript excerpts across a large batch", async () => {
+    let activeTranscriptRequests = 0;
+    let maxActiveTranscriptRequests = 0;
+    const calls = Array.from({ length: 50 }, (_, index) => ({
+      id: `c${index + 1}`,
+      title: `Acme call ${index + 1}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    searchCalls.mockResolvedValue({
+      calls,
+      limit: calls.length,
+      truncated: false,
+      matchedCallCount: calls.length,
+      coverageTruncated: false,
+    });
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => {
+      activeTranscriptRequests += 1;
+      maxActiveTranscriptRequests = Math.max(
+        maxActiveTranscriptRequests,
+        activeTranscriptRequests,
+      );
+      await Promise.resolve();
+      activeTranscriptRequests -= 1;
+      return {
+        callTranscripts: callIds.map((callId) => ({
+          callId,
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [{ start: 0, text: "x".repeat(5_000) }],
+            },
+          ],
+        })),
+      };
+    });
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      exhaustive: true,
+      after: "2026-05-01",
+      before: "2026-05-31",
+      includeTranscripts: true,
+      transcriptMaxChars: 100_000,
+    })) as Record<string, any>;
+
+    const transcriptChars = result.transcripts.reduce(
+      (total: number, transcript: { text: string }) =>
+        total + transcript.text.length,
+      0,
+    );
+    expect(result.transcripts).toHaveLength(50);
+    expect(transcriptChars).toBeLessThanOrEqual(60_000);
+    expect(getCallTranscripts).toHaveBeenCalledTimes(3);
+    expect(maxActiveTranscriptRequests).toBe(3);
   });
 
   it("honors string false for transcript loading from GET query params", async () => {

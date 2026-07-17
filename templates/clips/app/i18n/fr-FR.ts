@@ -636,6 +636,16 @@ const messages = {
     languageDescription:
       "Choisissez la langue de l’interface pour ce compte. Clips s’en souviendra sur tous vos appareils.",
     languageLabel: "Langue de l’interface",
+    uploadWorkspaceTitle: "Espace actif",
+    uploadWorkspaceDescription:
+      "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",
+    uploadWorkspaceLabel: "Espace actuel",
+    uploadWorkspacePlaceholder: "Choisir un espace",
+    uploadWorkspaceHint:
+      "Ce changement met également à jour les vues Clips liées à l’espace.",
+    uploadWorkspaceSaving: "Enregistrement de l’espace…",
+    uploadWorkspaceSaved: "Espace actif mis à jour",
+    uploadWorkspaceSaveFailed: "Impossible de mettre à jour l’espace actif",
     whatsNew: "Nouveautés",
     changelogEmpty: "Aucune mise à jour pour le moment.",
     viewAllUpdates: "Voir toutes les mises à jour",
@@ -1391,7 +1401,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     connectStorageToFinish:
       "Ouvrez pour connecter le stockage et terminer l’enregistrement.",
     retryFromClipsMenu:
-      "Réessayez depuis le menu Clips ; inutile de réenregistrer.",
+      "Ouvrez Clips depuis la barre des menus pour réessayer cet envoi enregistré ; inutile de réenregistrer.",
     removeFailedClip: "Supprimer ce clip en échec.",
     remove: "Supprimer",
     viewsCount: "{{count}} vues",

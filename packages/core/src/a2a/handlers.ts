@@ -49,6 +49,8 @@ const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 const MAX_A2A_APPROVED_ACTIONS = 10;
+const MAX_A2A_DIRECT_ACTION_NAME_CHARS = 200;
+const MAX_A2A_DIRECT_ACTION_INPUT_BYTES = 64 * 1024;
 
 function trustedApprovedActions(
   value: unknown,
@@ -1047,6 +1049,60 @@ async function handleCancel(
   return jsonRpcResult(0, sanitizeTaskForResponse(task));
 }
 
+async function handleInvokeReadOnlyAction(
+  params: Record<string, unknown>,
+  event: any,
+  config: A2AConfig,
+): Promise<JsonRpcResponse> {
+  const action = typeof params.action === "string" ? params.action.trim() : "";
+  const input = params.input ?? {};
+
+  if (!action) {
+    return jsonRpcError(0, -32602, "Invalid params: action required");
+  }
+  if (action.length > MAX_A2A_DIRECT_ACTION_NAME_CHARS) {
+    return jsonRpcError(0, -32602, "Invalid params: action is too long");
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return jsonRpcError(0, -32602, "Invalid params: input must be an object");
+  }
+  let inputBytes: number;
+  try {
+    inputBytes = Buffer.byteLength(JSON.stringify(input), "utf8");
+  } catch {
+    return jsonRpcError(0, -32602, "Invalid params: input must be JSON-safe");
+  }
+  if (inputBytes > MAX_A2A_DIRECT_ACTION_INPUT_BYTES) {
+    return jsonRpcError(0, -32602, "Invalid params: input is too large");
+  }
+  if (
+    !event?.context?.__a2aVerifiedEmail ||
+    event?.context?.__a2aAudienceVerified !== true
+  ) {
+    return jsonRpcError(
+      0,
+      -32001,
+      "A verified, audience-bound user identity is required for direct action invocation",
+    );
+  }
+  if (!config.executeReadOnlyAction) {
+    return jsonRpcError(0, -32601, "Direct action invocation not supported");
+  }
+
+  try {
+    const result = await withA2ARequestContext(undefined, event, () =>
+      config.executeReadOnlyAction!({
+        action,
+        input: input as Record<string, unknown>,
+      }),
+    );
+    return jsonRpcResult(0, { action, ...result });
+  } catch (error) {
+    console.error(`[a2a] Direct action ${action} failed:`, error);
+    return jsonRpcError(0, -32000, "Direct action invocation failed");
+  }
+}
+
 /**
  * H3-compatible JSON-RPC handler. Returns JSON directly (H3 serializes it).
  * Streaming is handled via H3's node response when needed.
@@ -1091,6 +1147,10 @@ export async function handleJsonRpcH3(
     }
     case "tasks/cancel": {
       const result = await handleCancel(params, event, config);
+      return { ...result, id } as JsonRpcResponse;
+    }
+    case "actions/invoke": {
+      const result = await handleInvokeReadOnlyAction(params, event, config);
       return { ...result, id } as JsonRpcResponse;
     }
     default:

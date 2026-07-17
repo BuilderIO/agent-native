@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const callAgentMock = vi.hoisted(() => vi.fn());
+const invokeActionMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
@@ -22,7 +23,7 @@ vi.mock("../a2a/client.js", () => ({
       this.taskId = taskId;
     }
   },
-  A2AClient: class A2AClient {},
+  callAction: invokeActionMock,
   callAgent: callAgentMock,
   shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
     !!process.env.A2A_SECRET?.trim() || !orgSecret,
@@ -145,6 +146,104 @@ describe("call-agent action", () => {
       expect.stringContaining("send it"),
       expect.objectContaining({ approvedActions }),
     );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain(
+      "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
+    );
+  });
+
+  it("polls a returned task id without sending another downstream message", async () => {
+    callAgentMock.mockResolvedValueOnce("finished once");
+    const { run, tool } = await import("./call-agent.js");
+
+    const result = await run({
+      agent: "analytics",
+      taskId: "remote-task-1",
+    });
+
+    expect(result).toBe("finished once");
+    expect(tool.parameters.required).toEqual(["agent"]);
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      "",
+      expect.objectContaining({
+        taskId: "remote-task-1",
+        returnRecoverableArtifactsOnTimeout: false,
+      }),
+    );
+  });
+
+  it("directly invokes an exposed read-only action without calling the remote agent", async () => {
+    invokeActionMock.mockResolvedValueOnce({
+      action: "gong-calls",
+      status: "completed",
+      output: '{"total":13}',
+    });
+    const { run } = await import("./call-agent.js");
+    const send = vi.fn();
+
+    const result = await run(
+      {
+        agent: "analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds", days: 90 },
+      },
+      { send } as any,
+    );
+
+    expect(result).toBe('{"total":13}');
+    expect(invokeActionMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      "gong-calls",
+      { company: "Edmunds", days: 90 },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        orgDomain: "builder.io",
+        orgSecret: "org-secret",
+      }),
+    );
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_call",
+      agent: "Slides",
+      status: "start",
+    });
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_call",
+      agent: "Slides",
+      status: "done",
+    });
+  });
+
+  it("tells the model to keep polling the same task after a bounded wait", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    insertA2AContinuationMock.mockRejectedValueOnce(
+      new Error("continuations unavailable"),
+    );
+    const timeout = Object.assign(
+      new Error(
+        "A2A task remote-task-keep did not complete within 300000ms (last state: working)",
+      ),
+      {
+        name: "A2ATaskTimeoutError",
+        taskId: "remote-task-keep",
+      },
+    );
+    callAgentMock.mockRejectedValueOnce(timeout);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "analytics", message: "review all calls" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(result).toContain('taskId "remote-task-keep"');
+    expect(result).toContain(
+      'taskId="remote-task-keep" (omit message) to continue waiting',
+    );
+    expect(result).toContain("Do not send Slides a new check-in");
+    consoleError.mockRestore();
   });
 
   it("queues an integration continuation for structurally equivalent timeout errors", async () => {

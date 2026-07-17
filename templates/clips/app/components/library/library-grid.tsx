@@ -7,6 +7,7 @@ import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +60,10 @@ interface FolderTargetRow {
   name: string;
 }
 
+type CreateFolderTarget =
+  | { kind: "single"; recording: RecordingSummary }
+  | { kind: "bulk"; recordingIds: string[] };
+
 function buildMoveTargets(
   folders: FolderTargetRow[],
   currentFolderId: string | null,
@@ -102,6 +107,8 @@ export function LibraryGrid({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
+  const [createFolderTarget, setCreateFolderTarget] =
+    useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
 
@@ -195,15 +202,18 @@ export function LibraryGrid({
     setSelected(new Set());
   };
 
-  const moveSelected = async (targetFolderId: string | null) => {
-    if (selectedIds.length === 0) return;
+  const moveRecordings = async (
+    ids: string[],
+    targetFolderId: string | null,
+  ) => {
+    if (ids.length === 0) return;
     setIsBulkPending(true);
     try {
       await moveRecording.mutateAsync({
-        ids: selectedIds,
+        ids,
         folderId: targetFolderId,
       });
-      toast.success(t("libraryGrid.clipsMoved", { count: selectedIds.length }));
+      toast.success(t("libraryGrid.clipsMoved", { count: ids.length }));
       clearSelection();
     } catch (err: any) {
       toast.error(err?.message ?? t("libraryGrid.moveFailed"));
@@ -211,6 +221,9 @@ export function LibraryGrid({
       setIsBulkPending(false);
     }
   };
+
+  const moveSelected = (targetFolderId: string | null) =>
+    moveRecordings(selectedIds, targetFolderId);
 
   const moveSingle = async (
     rec: RecordingSummary,
@@ -265,6 +278,22 @@ export function LibraryGrid({
           }}
         />
       )}
+      <CreateFolderDialog
+        open={Boolean(createFolderTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCreateFolderTarget(null);
+        }}
+        spaceId={view === "space" ? spaceId : null}
+        parentId={folderId}
+        onCreated={(folder) => {
+          if (!createFolderTarget) return;
+          if (createFolderTarget.kind === "single") {
+            void moveSingle(createFolderTarget.recording, folder.id);
+          } else {
+            void moveRecordings(createFolderTarget.recordingIds, folder.id);
+          }
+        }}
+      />
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
@@ -352,6 +381,9 @@ export function LibraryGrid({
                     moveTargets={moveTargets}
                     onMove={canMoveSelection ? moveSingle : undefined}
                     isMovePending={moveRecording.isPending}
+                    onCreateFolder={() => {
+                      setCreateFolderTarget({ kind: "single", recording: r });
+                    }}
                     onTrash={
                       canManageRecordings
                         ? (rec) => {
@@ -470,6 +502,12 @@ export function LibraryGrid({
                   }
                 }}
                 onMove={canMoveSelection ? moveSelected : undefined}
+                onCreateFolder={() => {
+                  setCreateFolderTarget({
+                    kind: "bulk",
+                    recordingIds: selectedIds,
+                  });
+                }}
                 onClear={clearSelection}
                 isPending={isBulkPending || moveRecording.isPending}
               />

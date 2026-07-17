@@ -21,6 +21,7 @@ const amplitudeMock = vi.hoisted(() => ({
 }));
 
 const replayMock = vi.hoisted(() => ({
+  emitSessionReplayAgentChatEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
@@ -35,9 +36,11 @@ vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
 vi.mock("./session-replay.js", () => replayMock);
 
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
+const agentChatStateKey = Symbol.for("agent-native.client.agentChatTracking");
 
 function resetPageviewState() {
   delete (globalThis as any)[pageviewStateKey];
+  delete (globalThis as any)[agentChatStateKey];
 }
 
 function setLocation(
@@ -165,6 +168,7 @@ describe("browser analytics pageviews", () => {
     replayMock.maybeStartSessionReplay.mockClear();
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
+    replayMock.emitSessionReplayAgentChatEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -356,6 +360,93 @@ describe("browser analytics pageviews", () => {
       "/sent",
     ]);
     expect(events[1].properties.navigation_type).toBe("pushState");
+  });
+
+  it("initializes a chat surface and de-duplicates repeated run observation", async () => {
+    installBrowser("https://analytics.agent-native.com/ask");
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        orgId: "org_123",
+      },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    replayMock.getSessionReplayContext.mockReturnValue({
+      active: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+      startedAt: "2026-07-17T17:00:00.000Z",
+      startedAtMs: 1784307600000,
+      linkBaseUrl: "https://analytics.agent-native.com",
+    });
+    const { configureTracking, trackAgentChatLifecycle } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    const surfaceEvent = {
+      phase: "surface-mounted" as const,
+      surface: "sidebar",
+      threadId: "thread-1",
+      tabId: "tab-1",
+    };
+    const event = {
+      phase: "run-observed" as const,
+      surface: "sidebar",
+      threadId: "thread-1",
+      runId: "run-1",
+      tabId: "tab-1",
+    };
+    trackAgentChatLifecycle(surfaceEvent);
+    trackAgentChatLifecycle(surfaceEvent);
+    trackAgentChatLifecycle(event);
+    trackAgentChatLifecycle(event);
+    await tick();
+
+    const lifecycleEvents = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "agent_chat_lifecycle");
+    expect(lifecycleEvents).toHaveLength(2);
+    expect(lifecycleEvents[0]).toMatchObject({
+      sessionId: expect.any(String),
+      event: "agent_chat_lifecycle",
+      properties: {
+        phase: "surface-mounted",
+        chat_surface: "sidebar",
+        thread_id: "thread-1",
+        chat_tab_id: "tab-1",
+        replay_status: "active",
+        sessionReplayId: "replay-1",
+      },
+    });
+    expect(lifecycleEvents[1]).toMatchObject({
+      sessionId: expect.any(String),
+      event: "agent_chat_lifecycle",
+      properties: {
+        phase: "run-observed",
+        chat_surface: "sidebar",
+        thread_id: "thread-1",
+        run_id: "run-1",
+        chat_tab_id: "tab-1",
+        replay_status: "active",
+        sessionReplayId: "replay-1",
+      },
+    });
+    expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledTimes(2);
+    expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
+      surfaceEvent,
+    );
+    expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
+      event,
+    );
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {

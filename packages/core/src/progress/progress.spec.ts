@@ -250,4 +250,20 @@ describe("progress action entries", () => {
 
     expect(mockUpdateRun).not.toHaveBeenCalled();
   });
+
+  it("allows blank optional status fields on non-terminal calls", async () => {
+    mockInsertRun.mockResolvedValue(stubRun({ title: "Triage inbox" }));
+    const tool = createProgressToolEntries(() => "boni@local")[
+      "manage-progress"
+    ];
+
+    await expect(
+      tool.run({
+        action: "start",
+        title: "Triage inbox",
+        status: "",
+      }),
+    ).resolves.toContain("Run started");
+    expect(tool.tool.parameters.properties.status.enum).toContain("");
+  });
 });

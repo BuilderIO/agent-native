@@ -373,6 +373,11 @@ export function normalizeFrameFile(file: string | null): string {
   // Strip bundler content hashes in the basename: main.4f3a2b1c.js -> main.js
   out = out.replace(/([._-])[0-9a-fA-F]{8,}(?=\.[a-z0-9]+$)/i, "");
   out = out.replace(/([._-])[0-9a-fA-F]{8,}$/i, "");
+  // Vite also emits eight-character base64url hashes, e.g. entry-CVi_y2nS.js.
+  out = out.replace(
+    /([._-])(?=[A-Za-z0-9_-]{8}\.[a-z0-9]+$)(?=[A-Za-z0-9_-]*[A-Z0-9_])[A-Za-z0-9_-]{8}(?=\.[a-z0-9]+$)/,
+    "",
+  );
   return out;
 }
 
@@ -412,11 +417,15 @@ export function fingerprint(
   frames: ParsedStackFrame[],
   message: string,
 ): string {
+  // The client uses this synthetic type for bare Error rejections. Keep it
+  // in the same group as window errors while retaining the original event
+  // type in the stored occurrence.
+  const groupingType = type === "UnhandledRejection" ? "Error" : type;
   const frame = topFrame(frames);
   const key =
     frame && (frame.file || frame.function)
-      ? `${type}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}`
-      : `${type}|${normalizeMessageForFingerprint(message)}`;
+      ? `${groupingType}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}`
+      : `${groupingType}|${normalizeMessageForFingerprint(message)}`;
   return hashHex(key);
 }
 
@@ -1123,6 +1132,28 @@ function recordingPath(recordingId: string | null): string | null {
   return recordingId ? `/sessions/${recordingId}` : null;
 }
 
+async function accessibleClientRecordingId(
+  scope: ErrorReadScope,
+  recordingId: string,
+): Promise<string | null> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select({ clientRecordingId: schema.sessionRecordings.clientRecordingId })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        accessFilter(
+          schema.sessionRecordings,
+          schema.sessionRecordingShares,
+          accessCtx(scope),
+        ),
+      ),
+    )
+    .limit(1);
+  return row?.clientRecordingId ?? null;
+}
+
 async function sparklinesForIssues(
   issueIds: string[],
 ): Promise<Map<string, number[]>> {
@@ -1194,9 +1225,19 @@ export async function listErrorIssues(
       ),
     ];
     if (sessionRecordingId) {
-      occurrenceConditions.push(
-        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      const clientRecordingId = await accessibleClientRecordingId(
+        scope,
+        sessionRecordingId,
       );
+      const recordingConditions: any[] = [
+        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      ];
+      if (clientRecordingId) {
+        recordingConditions.push(
+          eq(schema.errorEvents.clientRecordingId, clientRecordingId),
+        );
+      }
+      occurrenceConditions.push(or(...recordingConditions));
     }
     if (userId) {
       occurrenceConditions.push(
@@ -1241,6 +1282,13 @@ export async function listErrorIssues(
     .limit(limit);
 
   const sparklines = await sparklinesForIssues(rows.map((row: any) => row.id));
+  const { byId: accessibleLastRecordings } = await resolveAccessibleRecordings(
+    scope,
+    rows
+      .map((row: any) => row.lastSessionRecordingId)
+      .filter((value: unknown): value is string => Boolean(value)),
+    [],
+  );
   const issues = rows.map((row: any) => ({
     id: row.id,
     fingerprint: row.fingerprint,
@@ -1253,8 +1301,17 @@ export async function listErrorIssues(
     lastSeenAt: row.lastSeenAt,
     eventCount: Number(row.eventCount ?? 0),
     usersAffected: Number(row.usersAffected ?? 0),
-    lastSessionRecordingId: row.lastSessionRecordingId ?? null,
-    lastSessionRecordingPath: recordingPath(row.lastSessionRecordingId ?? null),
+    lastSessionRecordingId:
+      row.lastSessionRecordingId &&
+      accessibleLastRecordings.has(row.lastSessionRecordingId)
+        ? row.lastSessionRecordingId
+        : null,
+    lastSessionRecordingPath: recordingPath(
+      row.lastSessionRecordingId &&
+        accessibleLastRecordings.has(row.lastSessionRecordingId)
+        ? row.lastSessionRecordingId
+        : null,
+    ),
     assignee: row.assignee ?? null,
     app: row.app ?? null,
     template: row.template ?? null,
@@ -1390,6 +1447,9 @@ export async function getErrorIssue(
         .filter((value: unknown): value is string => Boolean(value)),
     ),
   ) as string[];
+  if (issueRow.lastSessionRecordingId) {
+    srIds.push(issueRow.lastSessionRecordingId);
+  }
   const clientIds = Array.from(
     new Set(
       eventRows
@@ -1467,9 +1527,16 @@ export async function getErrorIssue(
     lastSeenAt: issueRow.lastSeenAt,
     eventCount: Number(issueRow.eventCount ?? 0),
     usersAffected: Number(issueRow.usersAffected ?? 0),
-    lastSessionRecordingId: issueRow.lastSessionRecordingId ?? null,
+    lastSessionRecordingId:
+      issueRow.lastSessionRecordingId &&
+      byId.has(issueRow.lastSessionRecordingId)
+        ? issueRow.lastSessionRecordingId
+        : null,
     lastSessionRecordingPath: recordingPath(
-      issueRow.lastSessionRecordingId ?? null,
+      issueRow.lastSessionRecordingId &&
+        byId.has(issueRow.lastSessionRecordingId)
+        ? issueRow.lastSessionRecordingId
+        : null,
     ),
     assignee: issueRow.assignee ?? null,
     app: issueRow.app ?? null,

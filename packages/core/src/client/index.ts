@@ -787,6 +787,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackAgentChatLifecycle,
   trackSessionStatus,
   configureTracking,
   setTrackingContentCaptureEnabled,
@@ -811,6 +812,7 @@ export {
   type CaptureExceptionContext,
   type CapturedExceptionEvent,
   type ClientCaptureContext,
+  type AgentChatLifecycleEvent,
   type ConfigureTrackingOptions,
   type ErrorCaptureConfigOptions,
   type ExceptionBreadcrumb,

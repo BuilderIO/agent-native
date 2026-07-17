@@ -809,6 +809,52 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("opens a shared thread link even when URL syncing is not enabled", async () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
+    );
+  });
+
+  it("accepts a shared query thread on a route-owned chat home", async () => {
+    window.history.replaceState(null, "", "/?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/",
+            navigate: vi.fn(),
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
+    );
+  });
+
   it("accepts a route-owned thread id for path-based chat routes", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
     const navigate = vi.fn();

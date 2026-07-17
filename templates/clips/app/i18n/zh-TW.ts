@@ -598,6 +598,15 @@ const messages = {
     languageDescription:
       "選取此帳號的介面語言。Clips 會在不同設備上記住你的選取。",
     languageLabel: "介面語言",
+    uploadWorkspaceTitle: "目前工作區",
+    uploadWorkspaceDescription:
+      "選擇 Clips 用於新錄製內容（包括桌面上傳）的工作區。",
+    uploadWorkspaceLabel: "目前工作區",
+    uploadWorkspacePlaceholder: "選擇工作區",
+    uploadWorkspaceHint: "切換後，Clips 中與工作區相關的檢視也會更新。",
+    uploadWorkspaceSaving: "正在儲存工作區…",
+    uploadWorkspaceSaved: "目前工作區已更新",
+    uploadWorkspaceSaveFailed: "無法更新目前工作區",
     whatsNew: "最新變化",
     changelogEmpty: "暫無更新。",
     viewAllUpdates: "檢視所有更新",
@@ -1302,7 +1311,8 @@ const messages = {
     savedLocally: "已儲存到本機",
     uploadFailed: "上傳失敗",
     connectStorageToFinish: "開啟以連線儲存並完成儲存。",
-    retryFromClipsMenu: "從 Clips 選單重試；不需要重新錄製。",
+    retryFromClipsMenu:
+      "從選單列開啟 Clips 以重試這個已儲存的上傳；不需要重新錄製。",
     removeFailedClip: "移除此失敗剪輯。",
     remove: "移除",
     viewsCount: "{{count}} 次觀看",

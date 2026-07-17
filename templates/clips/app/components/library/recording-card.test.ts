@@ -30,4 +30,20 @@ describe("library recording cards", () => {
     expect(source).not.toContain("canRenameTitle");
     expect(source).not.toContain("onRename");
   });
+
+  it("offers folder creation from the move menu", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("IconFolderPlus");
+    expect(source).toContain('t(\"navigation.newFolder\")');
+    expect(source).toContain("setTimeout(() => onCreateFolder?.(), 0)");
+  });
+
+  it("opens the desktop app for locally saved native uploads", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("attemptOpenDesktopApp");
+    expect(source).toContain("captureInstall.openDesktopApp");
+    expect(source).toContain("nativeUploadPaused");
+  });
 });
