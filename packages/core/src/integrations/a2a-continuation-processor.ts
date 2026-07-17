@@ -171,6 +171,8 @@ async function processClaimedContinuation(
     ...(auth.apiKeyFallbacks ? { fallbackApiKeys: auth.apiKeyFallbacks } : {}),
   });
   const deadline = Date.now() + PROCESSOR_WAIT_MS;
+  const recoverableArtifactSecrets =
+    await resolveContinuationArtifactSecrets(continuation);
   let task: Task | null = null;
   let latestRecoverableArtifactText: string | null = null;
 
@@ -180,6 +182,7 @@ async function processClaimedContinuation(
       const recoverableArtifactText = extractVerifiedRecoverableArtifactText(
         task,
         continuation.agentUrl,
+        recoverableArtifactSecrets,
       );
       if (recoverableArtifactText) {
         latestRecoverableArtifactText = recoverableArtifactText;
@@ -428,6 +431,8 @@ async function deliverAndCompleteA2AContinuation(
       `${deliveryContinuation.platform} response delivery timed out`,
     );
     let persistenceError: unknown;
+    const artifactSecrets =
+      await resolveContinuationArtifactSecrets(deliveryContinuation);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         await persistA2AContinuationDelivery(
@@ -435,6 +440,7 @@ async function deliverAndCompleteA2AContinuation(
           outgoing,
           deliveryReceipt,
           text,
+          artifactSecrets,
         );
         persistenceError = undefined;
         break;
@@ -509,6 +515,7 @@ async function persistA2AContinuationDelivery(
   outgoing: OutgoingMessage,
   receipt: PlatformDeliveryReceipt,
   artifactText: string,
+  artifactSecrets: readonly string[],
 ): Promise<void> {
   const mapping = await getThreadMapping(
     continuation.platform,
@@ -526,9 +533,12 @@ async function persistA2AContinuationDelivery(
   }
   if (!Array.isArray(repo.messages)) repo.messages = [];
 
-  const artifacts = extractA2AArtifactIdentities([
-    { tool: "call-agent", result: artifactText },
-  ]);
+  const artifacts = extractA2AArtifactIdentities(
+    [{ tool: "call-agent", result: artifactText }],
+    {
+      persistedArtifactSecrets: artifactSecrets,
+    },
+  );
   const metadata: Record<string, unknown> = {
     integrationDeliveryAttempted: true,
     integrationDelivery: {
@@ -772,6 +782,24 @@ async function signFreshContinuationTokens(
   return tokens;
 }
 
+async function resolveContinuationArtifactSecrets(
+  continuation: A2AContinuation,
+): Promise<string[]> {
+  const secrets: string[] = [];
+  const add = (secret: string | null | undefined) => {
+    const value = secret?.trim();
+    if (value && !secrets.includes(value)) secrets.push(value);
+  };
+  add(process.env.A2A_SECRET);
+  if (continuation.orgId) {
+    try {
+      const { getOrgA2ASecret } = await import("../org/context.js");
+      add(await getOrgA2ASecret(continuation.orgId));
+    } catch {}
+  }
+  return secrets;
+}
+
 function isLikelyJwt(token: string): boolean {
   return token.split(".").length === 3;
 }
@@ -789,6 +817,7 @@ function extractTaskText(task: Task): string {
 function extractVerifiedRecoverableArtifactText(
   task: Task,
   agentUrl: string,
+  artifactSecrets: readonly string[],
 ): string | null {
   if (task.status.message?.metadata?.agentNativeRecoverableArtifacts !== true) {
     return null;
@@ -799,9 +828,12 @@ function extractVerifiedRecoverableArtifactText(
 
   // Require the signed identity ledger so arbitrary peer progress prose cannot
   // prematurely complete the continuation.
-  const artifacts = extractA2AArtifactIdentities([
-    { tool: "call-agent", result: text },
-  ]);
+  const artifacts = extractA2AArtifactIdentities(
+    [{ tool: "call-agent", result: text }],
+    {
+      persistedArtifactSecrets: artifactSecrets,
+    },
+  );
   return artifacts.length > 0 ? text : null;
 }
 

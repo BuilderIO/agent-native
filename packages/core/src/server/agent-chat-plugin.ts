@@ -331,6 +331,20 @@ export function createSerializedA2ATaskStatusWriter(
   };
 }
 
+export async function resolveA2ARecoverableArtifactSecret(
+  orgId: string | null | undefined = getRequestOrgId(),
+): Promise<string | undefined> {
+  const globalSecret = process.env.A2A_SECRET?.trim();
+  if (globalSecret) return globalSecret;
+  if (!orgId) return undefined;
+  try {
+    const { getOrgA2ASecret } = await import("../org/context.js");
+    return (await getOrgA2ASecret(orgId))?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
   prodCodeExecPromptNote: string,
@@ -1524,6 +1538,8 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
+          const recoverableArtifactSecret =
+            await resolveA2ARecoverableArtifactSecret();
           const recoverableArtifactStatusWriter =
             createSerializedA2ATaskStatusWriter(context.taskId);
           const controller = new AbortController();
@@ -1574,6 +1590,7 @@ export function createAgentChatPlugin(
                         {
                           baseUrl: artifactBaseUrl,
                           includePersistedArtifactMarker: true,
+                          persistedArtifactSecret: recoverableArtifactSecret,
                         },
                       )
                     : null;

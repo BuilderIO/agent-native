@@ -6,11 +6,26 @@ import {
   buildPublicAgentA2ASkills,
   createA2AEngineToolSurface,
   createSerializedA2ATaskStatusWriter,
+  resolveA2ARecoverableArtifactSecret,
   runMCPAgentLoop,
   runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
 
 describe("delegated A2A recoverable artifact checkpoints", () => {
+  it("uses an organization A2A secret when no global secret is configured", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.doMock("../org/context.js", () => ({
+      getOrgA2ASecret: vi.fn(async () => "org-only-a2a-secret"),
+    }));
+
+    await expect(resolveA2ARecoverableArtifactSecret("org-qa")).resolves.toBe(
+      "org-only-a2a-secret",
+    );
+
+    vi.doUnmock("../org/context.js");
+    vi.unstubAllEnvs();
+  });
+
   it("serializes status writes and flushes the latest checkpoint", async () => {
     let releaseFirst!: () => void;
     let releaseSecond!: () => void;
