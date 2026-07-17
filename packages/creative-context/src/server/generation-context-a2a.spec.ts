@@ -54,6 +54,9 @@ vi.mock("./isolated-a2a.js", () => ({
     limit: input.limit,
     contextPackId: input.contextPackId,
     contextPackSource: input.contextPackSource,
+    ...(input.selectedContextId
+      ? { selectedContextId: input.selectedContextId }
+      : {}),
   })),
 }));
 
@@ -215,6 +218,18 @@ describe("generation context isolated A2A routing", () => {
         specialtyContextId: "specialty-1",
         selectionReason: "explicit specialty selection",
       }),
+    );
+  });
+
+  it("forwards a selected specialty to isolated resolution", async () => {
+    mocks.readAppState.mockResolvedValue({
+      contextMode: "auto",
+      selectedContextId: "specialty-1",
+    });
+    await resolveGenerationCreativeContext({ role: "design", query: "hero" });
+    expect(mocks.callA2A).toHaveBeenCalledWith(
+      "resolve",
+      expect.objectContaining({ selectedContextId: "specialty-1" }),
     );
   });
 });
