@@ -7,7 +7,12 @@ import {
   decodeAncV1Envelope,
   encodeAncV1Canonical,
 } from "./canonical.js";
-import { opaqueIdSchema, protocolTimestampSchema } from "./contracts.js";
+import { ceremonyKindSchema } from "./ceremonies.js";
+import {
+  boundedProtocolTokenSchema,
+  opaqueIdSchema,
+  protocolTimestampSchema,
+} from "./contracts.js";
 import {
   ancV1Hash,
   ancV1SignDetached,
@@ -64,6 +69,16 @@ export const controlLogMemberSchema = z
   });
 
 export type ControlLogMember = z.infer<typeof controlLogMemberSchema>;
+
+const membershipCeremonyKindSchema = z.enum([
+  "first_device",
+  "add_device",
+  "add_broker",
+  "remove_device",
+  "remove_broker",
+  "broker_replacement",
+  "recovery",
+]);
 
 const sortedMembersSchema = z
   .array(controlLogMemberSchema)
@@ -127,15 +142,7 @@ export const controlMembershipCommitSchema = z
     type: z.literal("membership_commit"),
     vaultId: opaqueIdSchema,
     ceremonyId: opaqueIdSchema,
-    ceremonyKind: z.enum([
-      "first_device",
-      "add_device",
-      "add_broker",
-      "remove_device",
-      "remove_broker",
-      "broker_replacement",
-      "recovery",
-    ]),
+    ceremonyKind: membershipCeremonyKindSchema,
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     previousMembershipHash: hashSchema.nullable(),
     activeMembers: sortedMembersSchema,
@@ -178,9 +185,22 @@ export const controlContinuityCheckpointSchema = z
   })
   .strict();
 
+export const controlCeremonyAbortSchema = z
+  .object({
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("ceremony_abort"),
+    vaultId: opaqueIdSchema,
+    ceremonyId: opaqueIdSchema,
+    ceremonyKind: ceremonyKindSchema,
+    ceremonyStateHash: hashSchema,
+    reasonCode: boundedProtocolTokenSchema.max(120),
+  })
+  .strict();
+
 export const controlLogInnerEnvelopeSchema = z.discriminatedUnion("type", [
   controlMembershipCommitSchema,
   controlContinuityCheckpointSchema,
+  controlCeremonyAbortSchema,
 ]);
 
 export type ControlMembershipCommit = z.infer<
@@ -189,6 +209,7 @@ export type ControlMembershipCommit = z.infer<
 export type ControlContinuityCheckpoint = z.infer<
   typeof controlContinuityCheckpointSchema
 >;
+export type ControlCeremonyAbort = z.infer<typeof controlCeremonyAbortSchema>;
 export type ControlLogInnerEnvelope = z.infer<
   typeof controlLogInnerEnvelopeSchema
 >;
@@ -257,7 +278,8 @@ export type ControlLogFailureCode =
   | "stale_head"
   | "future_head"
   | "genesis_authorization_required"
-  | "recovery_authorization_required";
+  | "recovery_authorization_required"
+  | "ceremony_abort_authorization_required";
 
 export class ControlLogVerificationError extends Error {
   constructor(readonly code: ControlLogFailureCode) {
@@ -347,6 +369,17 @@ function encodeInnerMap(innerInput: ControlLogInnerEnvelope) {
     );
     return common;
   }
+  if (inner.type === "ceremony_abort") {
+    const fields = E2EE_ENVELOPE_FIELDS.controlCeremonyAbort;
+    common.set(fields.ceremonyId, inner.ceremonyId);
+    common.set(fields.ceremonyKind, inner.ceremonyKind);
+    common.set(
+      fields.ceremonyStateHash,
+      ancV1HexToBytes(inner.ceremonyStateHash),
+    );
+    common.set(fields.reasonCode, inner.reasonCode);
+    return common;
+  }
   const fields = E2EE_ENVELOPE_FIELDS.controlMembership;
   common.set(fields.ceremonyId, inner.ceremonyId);
   common.set(fields.ceremonyKind, inner.ceremonyKind);
@@ -410,6 +443,7 @@ export function decodeControlLogInnerEnvelope(
       ...commonKeys,
       ...Object.values(E2EE_ENVELOPE_FIELDS.controlMembership),
       ...Object.values(E2EE_ENVELOPE_FIELDS.controlContinuity),
+      ...Object.values(E2EE_ENVELOPE_FIELDS.controlCeremonyAbort),
     ],
     {
       maxBytes: E2EE_SIZE_LIMITS.controlEnvelopeBytes,
@@ -421,7 +455,9 @@ export function decodeControlLogInnerEnvelope(
       ? E2EE_ENVELOPE_FIELDS.controlContinuity
       : type === "membership_commit"
         ? E2EE_ENVELOPE_FIELDS.controlMembership
-        : null;
+        : type === "ceremony_abort"
+          ? E2EE_ENVELOPE_FIELDS.controlCeremonyAbort
+          : null;
   if (!typeFields) {
     throw new ControlLogVerificationError("invalid_entry");
   }
@@ -446,6 +482,20 @@ export function decodeControlLogInnerEnvelope(
           isBytes,
         ),
       ),
+    });
+  }
+  if (type === "ceremony_abort") {
+    const fields = E2EE_ENVELOPE_FIELDS.controlCeremonyAbort;
+    return controlCeremonyAbortSchema.parse({
+      suite,
+      type,
+      vaultId,
+      ceremonyId: mapGet(map, fields.ceremonyId, isString),
+      ceremonyKind: mapGet(map, fields.ceremonyKind, isString),
+      ceremonyStateHash: ancV1BytesToHex(
+        mapGet(map, fields.ceremonyStateHash, isBytes),
+      ),
+      reasonCode: mapGet(map, fields.reasonCode, isString),
     });
   }
   if (type !== "membership_commit") {
@@ -769,6 +819,11 @@ export interface VerifyAndReduceControlLogInput {
     entry: SignedControlLogEntry;
     current: ControlLogState;
   }) => Promise<boolean>;
+  readonly verifyCeremonyAbortAuthorization?: (input: {
+    abort: ControlCeremonyAbort;
+    entry: SignedControlLogEntry;
+    current: ControlLogState;
+  }) => Promise<boolean>;
 }
 
 export async function verifyAndReduceControlLogEntry(
@@ -929,6 +984,33 @@ export async function verifyAndReduceControlLogEntry(
             ? "endpoint_witnessed"
             : "eventual_fork_detection",
       },
+      entryHash: hash,
+      idempotent: false,
+    };
+  }
+
+  if (inner.type === "ceremony_abort") {
+    if (
+      signer.role !== "endpoint" ||
+      !input.verifyCeremonyAbortAuthorization ||
+      !(await input.verifyCeremonyAbortAuthorization({
+        abort: inner,
+        entry,
+        current,
+      }))
+    ) {
+      throw new ControlLogVerificationError(
+        "ceremony_abort_authorization_required",
+      );
+    }
+    return {
+      state: controlLogStateSchema.parse({
+        ...current,
+        sequence: entry.sequence,
+        headHash: hash,
+        signedAt: entry.createdAt,
+        freshnessMode: "endpoint_witnessed",
+      }),
       entryHash: hash,
       idempotent: false,
     };
