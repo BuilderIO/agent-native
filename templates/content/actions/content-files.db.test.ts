@@ -53,6 +53,10 @@ beforeAll(async () => {
     sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
     args: ["files-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
   });
+  await getDbExec().execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: ["files-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
+  });
   await runWithRequestContext({ userEmail: OWNER }, () =>
     provisionContentSpaces(getDb(), OWNER),
   );
@@ -151,6 +155,10 @@ describe("Content Files membership reconciliation", () => {
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, "viewer-legacy-org"));
+    const [privateBefore] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "owner-private-org"));
 
     await runWithRequestContext({ userEmail: VIEWER }, () =>
       reconcileContentFilesMemberships(getDb(), VIEWER),
@@ -170,6 +178,11 @@ describe("Content Files membership reconciliation", () => {
       visibility: before!.visibility,
       spaceId: organizationContentSpaceId(viewerOrgId),
     });
+    const [privateAfter] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "owner-private-org"));
+    expect(privateAfter).toEqual(privateBefore);
     const filesDatabase = await getFilesDatabase(
       organizationContentSpaceId(viewerOrgId),
     );
@@ -304,6 +317,140 @@ describe("Content Files membership reconciliation", () => {
     expect(
       orgItems.filter((item: any) => item.databaseId === orgFiles.id),
     ).toHaveLength(1);
+  });
+
+  it("does not expose private source rows or change sets through organization Files", async () => {
+    await createLegacyDocument({
+      id: "source-visible-org",
+      orgId: ORG_ID,
+      title: "Visible source row",
+    });
+    await createLegacyDocument({
+      id: "source-private-org",
+      orgId: ORG_ID,
+      title: "Private source row",
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "private" })
+      .where(eq(schema.documents.id, "source-private-org"));
+    await runWithRequestContext({ userEmail: OWNER, orgId: ORG_ID }, () =>
+      reconcileContentFilesMemberships(getDb(), OWNER),
+    );
+    const filesDatabase = await getFilesDatabase(
+      organizationContentSpaceId(ORG_ID),
+    );
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+          inArray(schema.contentDatabaseItems.documentId, [
+            "source-visible-org",
+            "source-private-org",
+          ]),
+        ),
+      );
+    const itemByDocumentId = new Map(
+      items.map((item: any) => [item.documentId, item]),
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "private-boundary-source",
+      ownerEmail: OWNER,
+      orgId: ORG_ID,
+      databaseId: filesDatabase.id,
+      sourceType: "local-folder",
+      sourceName: "Private boundary source",
+      sourceTable: "private-boundary",
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const documentId of ["source-visible-org", "source-private-org"]) {
+      const item = itemByDocumentId.get(documentId);
+      if (!item) throw new Error(`Missing Files item for ${documentId}`);
+      await getDb()
+        .insert(schema.contentDatabaseSourceRows)
+        .values({
+          id: `${documentId}-source-row`,
+          ownerEmail: OWNER,
+          sourceId: "private-boundary-source",
+          databaseItemId: item.id,
+          documentId,
+          sourceRowId: documentId,
+          sourceQualifiedId: `source:${documentId}`,
+          sourceDisplayKey: documentId,
+          sourceValuesJson: JSON.stringify({ secret: documentId }),
+          createdAt: now,
+          updatedAt: now,
+        });
+      await getDb()
+        .insert(schema.contentDatabaseSourceChangeSets)
+        .values({
+          id: `${documentId}-change-set`,
+          ownerEmail: OWNER,
+          sourceId: "private-boundary-source",
+          databaseItemId: item.id,
+          documentId,
+          summary: `Change for ${documentId}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+    }
+
+    const response = await runWithRequestContext(
+      { userEmail: VIEWER, orgId: ORG_ID },
+      () => getContentDatabaseAction.run({ databaseId: filesDatabase.id }),
+    );
+    expect(response.sources[0]?.rows.map((row) => row.documentId)).toContain(
+      "source-visible-org",
+    );
+    expect(
+      response.sources[0]?.rows.map((row) => row.documentId),
+    ).not.toContain("source-private-org");
+    expect(
+      response.sources[0]?.changeSets.map((changeSet) => changeSet.documentId),
+    ).toContain("source-visible-org");
+    expect(
+      response.sources[0]?.changeSets.map((changeSet) => changeSet.documentId),
+    ).not.toContain("source-private-org");
+
+    await getDb()
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(
+          schema.contentDatabaseSourceChangeSets.sourceId,
+          "private-boundary-source",
+        ),
+      );
+    await getDb()
+      .delete(schema.contentDatabaseSourceRows)
+      .where(
+        eq(
+          schema.contentDatabaseSourceRows.sourceId,
+          "private-boundary-source",
+        ),
+      );
+    await getDb()
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, "private-boundary-source"));
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(
+        inArray(schema.contentDatabaseItems.documentId, [
+          "source-visible-org",
+          "source-private-org",
+        ]),
+      );
+    await getDb()
+      .delete(schema.documents)
+      .where(
+        inArray(schema.documents.id, [
+          "source-visible-org",
+          "source-private-org",
+        ]),
+      );
   });
 
   it("is idempotent and never adds a Files database backing document to a Files database", async () => {
