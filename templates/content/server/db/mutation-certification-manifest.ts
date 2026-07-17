@@ -236,6 +236,7 @@ export const CONTENT_MUTATION_CERTIFICATION_MANIFEST = [
     "documentVersions",
     "documents",
   ]),
+  disabled("server/lib/native-creative-context.ts", ["documentVersions"]),
   disabled("server/lib/notion-sync.ts", ["documentVersions", "documents"]),
 ] as const satisfies readonly ContentMutationManifestEntry[];
 

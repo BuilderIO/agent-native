@@ -5825,6 +5825,13 @@ const editorMessagesByLocale = {
       morePageActions: "更多页面操作",
       noPagesFound: "没有找到页面",
       notifications: "通知",
+      muteNotificationsForPage: "将此页面的通知设为静音",
+      receiveNotificationsForPage: "接收此页面的通知",
+      databasePageNotificationScope:
+        "仅适用于此数据库页面。各行有自己的通知设置。",
+      notificationsMutedForPage: "已将此页面的通知设为静音",
+      notificationsEnabledForPage: "已启用此页面的通知",
+      notificationPreferenceUpdateFailed: "无法更新通知偏好设置",
       notionSync: "概念同步",
       openInNotion: "在概念中打开",
       orgCanFindAndView: "您组织中的任何人都可以查找和查看",
@@ -6166,6 +6173,14 @@ const editorMessagesByLocale = {
       morePageActions: "Más acciones de página",
       noPagesFound: "No se encontraron páginas",
       notifications: "Notificaciones",
+      muteNotificationsForPage: "Silenciar las notificaciones de esta página",
+      receiveNotificationsForPage: "Recibir notificaciones de esta página",
+      databasePageNotificationScope:
+        "Se aplica a esta página de base de datos. Las filas tienen su propia configuración de notificaciones.",
+      notificationsMutedForPage: "Notificaciones silenciadas para esta página",
+      notificationsEnabledForPage: "Notificaciones activadas para esta página",
+      notificationPreferenceUpdateFailed:
+        "No se pudo actualizar la preferencia de notificaciones",
       notionSync: "Sincronización de nociones",
       openInNotion: "Abierto en noción",
       orgCanFindAndView:
@@ -6516,6 +6531,14 @@ const editorMessagesByLocale = {
       morePageActions: "Plus d'actions sur la page",
       noPagesFound: "Aucune page trouvée",
       notifications: "Notifications [fr-FR]",
+      muteNotificationsForPage: "Désactiver les notifications pour cette page",
+      receiveNotificationsForPage: "Recevoir les notifications de cette page",
+      databasePageNotificationScope:
+        "S’applique à cette page de base de données. Les lignes ont leurs propres paramètres de notification.",
+      notificationsMutedForPage: "Notifications désactivées pour cette page",
+      notificationsEnabledForPage: "Notifications activées pour cette page",
+      notificationPreferenceUpdateFailed:
+        "Impossible de mettre à jour les préférences de notification",
       notionSync: "Synchronisation des notions",
       openInNotion: "Ouvrir dans Notion",
       orgCanFindAndView:
@@ -6868,6 +6891,18 @@ const editorMessagesByLocale = {
       morePageActions: "Weitere Seitenaktionen",
       noPagesFound: "Keine Seiten gefunden",
       notifications: "Benachrichtigungen",
+      muteNotificationsForPage:
+        "Benachrichtigungen für diese Seite stummschalten",
+      receiveNotificationsForPage:
+        "Benachrichtigungen für diese Seite erhalten",
+      databasePageNotificationScope:
+        "Gilt für diese Datenbankseite. Zeilen haben eigene Benachrichtigungseinstellungen.",
+      notificationsMutedForPage:
+        "Benachrichtigungen für diese Seite stummgeschaltet",
+      notificationsEnabledForPage:
+        "Benachrichtigungen für diese Seite aktiviert",
+      notificationPreferenceUpdateFailed:
+        "Benachrichtigungseinstellung konnte nicht aktualisiert werden",
       notionSync: "Begriffssynchronisierung",
       openInNotion: "In Notion öffnen",
       orgCanFindAndView:
@@ -7214,6 +7249,13 @@ const editorMessagesByLocale = {
       morePageActions: "その他のページアクション",
       noPagesFound: "ページが見つかりませんでした",
       notifications: "通知",
+      muteNotificationsForPage: "このページの通知をミュート",
+      receiveNotificationsForPage: "このページの通知を受け取る",
+      databasePageNotificationScope:
+        "このデータベースページに適用されます。各行には独自の通知設定があります。",
+      notificationsMutedForPage: "このページの通知をミュートしました",
+      notificationsEnabledForPage: "このページの通知を有効にしました",
+      notificationPreferenceUpdateFailed: "通知設定を更新できませんでした",
       notionSync: "Notionの同期",
       openInNotion: "概念で開く",
       orgCanFindAndView: "組織内の誰でも検索して表示できます",
@@ -7557,6 +7599,14 @@ const editorMessagesByLocale = {
       morePageActions: "추가 페이지 작업",
       noPagesFound: "페이지를 찾을 수 없습니다",
       notifications: "알림",
+      muteNotificationsForPage: "이 페이지 알림 음소거",
+      receiveNotificationsForPage: "이 페이지 알림 받기",
+      databasePageNotificationScope:
+        "이 데이터베이스 페이지에 적용됩니다. 각 행에는 자체 알림 설정이 있습니다.",
+      notificationsMutedForPage: "이 페이지의 알림이 음소거되었습니다",
+      notificationsEnabledForPage: "이 페이지의 알림이 활성화되었습니다",
+      notificationPreferenceUpdateFailed:
+        "알림 환경설정을 업데이트할 수 없습니다",
       notionSync: "노션싱크",
       openInNotion: "노션에서 열기",
       orgCanFindAndView: "조직의 모든 사용자가 찾고 볼 수 있습니다.",
@@ -7903,6 +7953,14 @@ const editorMessagesByLocale = {
       morePageActions: "Mais ações de página",
       noPagesFound: "Nenhuma página encontrada",
       notifications: "Notificações",
+      muteNotificationsForPage: "Silenciar notificações desta página",
+      receiveNotificationsForPage: "Receber notificações desta página",
+      databasePageNotificationScope:
+        "Aplica-se a esta página de banco de dados. As linhas têm suas próprias configurações de notificação.",
+      notificationsMutedForPage: "Notificações silenciadas para esta página",
+      notificationsEnabledForPage: "Notificações ativadas para esta página",
+      notificationPreferenceUpdateFailed:
+        "Não foi possível atualizar a preferência de notificações",
       notionSync: "Sincronização de noções",
       openInNotion: "Aberto em noção",
       orgCanFindAndView:
@@ -8244,6 +8302,13 @@ const editorMessagesByLocale = {
       morePageActions: "अधिक पृष्ठ क्रियाएँ",
       noPagesFound: "कोई पेज नहीं मिला",
       notifications: "सूचनाएं",
+      muteNotificationsForPage: "इस पेज की सूचनाएं म्यूट करें",
+      receiveNotificationsForPage: "इस पेज की सूचनाएं पाएं",
+      databasePageNotificationScope:
+        "यह इस डेटाबेस पेज पर लागू होता है। पंक्तियों की अपनी सूचना सेटिंग होती हैं।",
+      notificationsMutedForPage: "इस पेज की सूचनाएं म्यूट की गईं",
+      notificationsEnabledForPage: "इस पेज की सूचनाएं चालू की गईं",
+      notificationPreferenceUpdateFailed: "सूचना प्राथमिकता अपडेट नहीं की जा सकी",
       notionSync: "धारणा सिंक",
       openInNotion: "धारणा में खोलें",
       orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
@@ -8582,6 +8647,13 @@ const editorMessagesByLocale = {
       morePageActions: "المزيد من إجراءات الصفحة",
       noPagesFound: "لم يتم العثور على صفحات",
       notifications: "الإخطارات",
+      muteNotificationsForPage: "كتم إشعارات هذه الصفحة",
+      receiveNotificationsForPage: "تلقي إشعارات هذه الصفحة",
+      databasePageNotificationScope:
+        "ينطبق على صفحة قاعدة البيانات هذه. للصفوف إعدادات إشعارات خاصة بها.",
+      notificationsMutedForPage: "تم كتم إشعارات هذه الصفحة",
+      notificationsEnabledForPage: "تم تفعيل إشعارات هذه الصفحة",
+      notificationPreferenceUpdateFailed: "تعذر تحديث تفضيل الإشعارات",
       notionSync: "مزامنة الفكرة",
       openInNotion: "فتح في Notion",
       orgCanFindAndView: "يمكن لأي شخص في مؤسستك البحث والعرض",

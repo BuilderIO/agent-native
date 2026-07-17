@@ -512,6 +512,13 @@ const messages = {
       morePageActions: "更多頁面操作",
       noPagesFound: "沒有找到頁面",
       notifications: "通知",
+      muteNotificationsForPage: "將此頁面的通知設為靜音",
+      receiveNotificationsForPage: "接收此頁面的通知",
+      databasePageNotificationScope:
+        "僅適用於此資料庫頁面。各列有自己的通知設定。",
+      notificationsMutedForPage: "已將此頁面的通知設為靜音",
+      notificationsEnabledForPage: "已啟用此頁面的通知",
+      notificationPreferenceUpdateFailed: "無法更新通知偏好設定",
       notionSync: "概念同步",
       notionPageUrlOrId: "Notion 頁面 URL 或頁面 ID",
       open: "開啟",
