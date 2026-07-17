@@ -178,7 +178,7 @@ const mockDb = {
       // explicit-maxStaleMs path inlines a plain `?` and binds a pre-computed
       // cutoff. Distinguish by the SQL fragment, not the arg type.
       const usesBackgroundAwareWindow =
-        /CASE WHEN dispatch_mode LIKE 'background%'/i.test(sql);
+        /WHEN dispatch_mode LIKE 'background%'/i.test(sql);
       const row = rows.find((r) => r.id === id && r.status === "running");
       if (!row) return { rows: [], rowsAffected: 0 };
       const cutoff = usesBackgroundAwareWindow
