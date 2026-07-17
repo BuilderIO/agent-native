@@ -74,6 +74,14 @@ describe("Private Vault XPC service contract", () => {
     ).toContain("state root tests passed");
   });
 
+  it("matches Core's exact control-append body and endpoint-proof vector natively", () => {
+    expect(
+      execFileSync(join(serviceRoot, "run-endpoint-request-tests.sh"), {
+        encoding: "utf8",
+      }),
+    ).toContain("endpoint request tests passed");
+  }, 120_000);
+
   it("declares a macOS 13 XPC bundle and a helper-only keychain group", () => {
     const plist = join(serviceRoot, "Info.plist");
     const entitlements = join(

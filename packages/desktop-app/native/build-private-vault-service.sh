@@ -10,6 +10,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m"
   "$SOURCE_ROOT/control/PrivateVaultControlLog.m"
   "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m"
+  "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
@@ -214,6 +215,33 @@ case "${PRIVATE_VAULT_BUILD_CANONICAL_TESTS:-}" in
   compile_canonical_test_slice x86_64
   ;;
   *) echo "Invalid Private Vault canonical-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_ENDPOINT_REQUEST_TESTS:-}" in
+  "") ;;
+  1)
+  ENDPOINT_REQUEST_TEST_OUTPUT="$OUTPUT_ROOT/.endpoint-request-tests"
+  rm -rf "$ENDPOINT_REQUEST_TEST_OUTPUT"
+  mkdir -p "$ENDPOINT_REQUEST_TEST_OUTPUT"
+  compile_endpoint_request_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$ENDPOINT_REQUEST_TEST_OUTPUT/private-vault-endpoint-request-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRequestTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_endpoint_request_test_slice arm64 "$ARM64_SODIUM"
+  compile_endpoint_request_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *) echo "Invalid Private Vault endpoint-request-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_CONTROL_LOG_TESTS:-}" in

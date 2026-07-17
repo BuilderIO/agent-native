@@ -1,0 +1,233 @@
+#import "PrivateVaultEndpointRequest.h"
+
+#import "PrivateVaultAncCanonical.h"
+#import "PrivateVaultCrypto.h"
+
+NSString *const AncPrivateVaultControlLogAppendPath =
+    @"/api/private-vault/control-log/append";
+NSString *const AncPrivateVaultControlLogAppendContentType =
+    @"application/vnd.agent-native.control-log+cbor";
+
+static const NSUInteger kSignedEntryMaximumBytes = 64 * 1024;
+static const NSUInteger kRecoveryWrapMaximumBytes = 1024 * 1024;
+static const NSUInteger kRequestMaximumBytes = 64 * 1024 + 1024 * 1024 + 256;
+static const uint8_t kBodyHashDomain[] = "anc/v1/endpoint-request-body";
+static const uint8_t kRequestSignatureDomain[] = "anc/v1/endpoint-request";
+
+static void
+AncEndpointRequestSetStatus(AncPrivateVaultEndpointRequestStatus *status,
+                            AncPrivateVaultEndpointRequestStatus value) {
+  if (status != NULL)
+    *status = value;
+}
+
+static BOOL AncEndpointRequestOpaqueId(NSString *value) {
+  if (![value isKindOfClass:NSString.class] || value.length < 8 ||
+      value.length > 160)
+    return NO;
+  NSRegularExpression *pattern = [NSRegularExpression
+      regularExpressionWithPattern:@"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                           options:0
+                             error:nil];
+  return [pattern firstMatchInString:value
+                             options:0
+                               range:NSMakeRange(0, value.length)] != nil;
+}
+
+static BOOL AncEndpointRequestLowerHex(NSString *value, NSUInteger length) {
+  if (![value isKindOfClass:NSString.class] || value.length != length)
+    return NO;
+  NSCharacterSet *invalid = [[NSCharacterSet
+      characterSetWithCharactersInString:@"0123456789abcdef"] invertedSet];
+  return [value rangeOfCharacterFromSet:invalid].location == NSNotFound;
+}
+
+static BOOL AncEndpointRequestTimestamp(NSString *value) {
+  if (![value isKindOfClass:NSString.class] || value.length != 24)
+    return NO;
+  NSRegularExpression *pattern = [NSRegularExpression
+      regularExpressionWithPattern:
+          @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+                           options:0
+                             error:nil];
+  if ([pattern firstMatchInString:value
+                          options:0
+                            range:NSMakeRange(0, value.length)] == nil)
+    return NO;
+  static NSISO8601DateFormatter *formatter;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    formatter = [[NSISO8601DateFormatter alloc] init];
+    formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime |
+                              NSISO8601DateFormatWithFractionalSeconds;
+  });
+  return [formatter dateFromString:value] != nil;
+}
+
+static NSString *AncEndpointRequestHex(const uint8_t *bytes,
+                                       NSUInteger length) {
+  if (bytes == NULL || length == 0)
+    return nil;
+  NSMutableString *result = [NSMutableString stringWithCapacity:length * 2];
+  for (NSUInteger index = 0; index < length; index += 1)
+    [result appendFormat:@"%02x", bytes[index]];
+  return result;
+}
+
+static NSString *AncEndpointRequestBase64URL(NSData *data) {
+  if (data.length == 0)
+    return nil;
+  NSString *value = [data base64EncodedStringWithOptions:0];
+  value = [value stringByReplacingOccurrencesOfString:@"+" withString:@"-"];
+  value = [value stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+  while ([value hasSuffix:@"="])
+    value = [value substringToIndex:value.length - 1];
+  return value;
+}
+
+NSData *AncPrivateVaultControlLogAppendRequestEncode(
+    NSData *signedEntry, NSData *recoveryWrap,
+    AncPrivateVaultEndpointRequestStatus *status) {
+  AncEndpointRequestSetStatus(status,
+                              AncPrivateVaultEndpointRequestStatusInvalid);
+  if (![signedEntry isKindOfClass:NSData.class] ||
+      ![recoveryWrap isKindOfClass:NSData.class] || signedEntry.length == 0 ||
+      signedEntry.length > kSignedEntryMaximumBytes ||
+      recoveryWrap.length == 0 ||
+      recoveryWrap.length > kRecoveryWrapMaximumBytes) {
+    if (signedEntry.length > kSignedEntryMaximumBytes ||
+        recoveryWrap.length > kRecoveryWrapMaximumBytes)
+      AncEndpointRequestSetStatus(status,
+                                  AncPrivateVaultEndpointRequestStatusTooLarge);
+    return nil;
+  }
+  AncPrivateVaultCanonicalValue *envelope =
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue
+            text:@"control-log-rotation-append-request"],
+        @4 : [AncPrivateVaultCanonicalValue bytes:[signedEntry copy]],
+        @5 : [AncPrivateVaultCanonicalValue bytes:[recoveryWrap copy]],
+      }];
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(envelope, &canonicalStatus);
+  if (encoded == nil || canonicalStatus != AncPrivateVaultCanonicalStatusOK ||
+      encoded.length > kRequestMaximumBytes) {
+    AncEndpointRequestSetStatus(
+        status, encoded.length > kRequestMaximumBytes
+                    ? AncPrivateVaultEndpointRequestStatusTooLarge
+                    : AncPrivateVaultEndpointRequestStatusInvalid);
+    return nil;
+  }
+  AncEndpointRequestSetStatus(status, AncPrivateVaultEndpointRequestStatusOK);
+  return encoded;
+}
+
+NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
+    NSString *vaultId, NSString *endpointId, NSData *body, NSString *issuedAt,
+    NSString *nonce, const uint8_t *signingSeed,
+    NSData *expectedSigningPublicKey,
+    AncPrivateVaultEndpointRequestStatus *status) {
+  AncEndpointRequestSetStatus(status,
+                              AncPrivateVaultEndpointRequestStatusInvalid);
+  if (!AncEndpointRequestOpaqueId(vaultId) ||
+      !AncEndpointRequestOpaqueId(endpointId) ||
+      ![body isKindOfClass:NSData.class] || body.length == 0 ||
+      body.length > kRequestMaximumBytes ||
+      !AncEndpointRequestTimestamp(issuedAt) ||
+      !AncEndpointRequestLowerHex(nonce, 32) || signingSeed == NULL ||
+      expectedSigningPublicKey.length != 32) {
+    if (body.length > kRequestMaximumBytes)
+      AncEndpointRequestSetStatus(status,
+                                  AncPrivateVaultEndpointRequestStatusTooLarge);
+    return nil;
+  }
+
+  uint8_t bodyHash[32] = {0};
+  if (anc_pv_blake2b_256_two_part(bodyHash, kBodyHashDomain,
+                                  sizeof kBodyHashDomain, body.bytes,
+                                  body.length) != ANC_PV_CRYPTO_OK) {
+    AncEndpointRequestSetStatus(
+        status, AncPrivateVaultEndpointRequestStatusCryptoFailed);
+    return nil;
+  }
+  NSData *bodyHashData = [NSData dataWithBytes:bodyHash length:sizeof bodyHash];
+  NSString *bodyHashHex = AncEndpointRequestHex(bodyHash, sizeof bodyHash);
+  anc_pv_zeroize(bodyHash, sizeof bodyHash);
+  AncPrivateVaultCanonicalValue *unsignedProof =
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue text:@"endpoint_request"],
+        @4 : [AncPrivateVaultCanonicalValue text:vaultId],
+        @5 : [AncPrivateVaultCanonicalValue text:endpointId],
+        @6 : [AncPrivateVaultCanonicalValue text:@"POST"],
+        @7 : [AncPrivateVaultCanonicalValue
+            text:AncPrivateVaultControlLogAppendPath],
+        @8 : [AncPrivateVaultCanonicalValue bytes:bodyHashData],
+        @9 : [AncPrivateVaultCanonicalValue text:issuedAt],
+        @10 : [AncPrivateVaultCanonicalValue text:nonce],
+      }];
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *unsignedBytes =
+      AncPrivateVaultCanonicalEncode(unsignedProof, &canonicalStatus);
+  if (unsignedBytes == nil ||
+      canonicalStatus != AncPrivateVaultCanonicalStatusOK) {
+    AncEndpointRequestSetStatus(status,
+                                AncPrivateVaultEndpointRequestStatusInvalid);
+    return nil;
+  }
+
+  uint8_t publicKey[32] = {0};
+  uint8_t privateKey[64] = {0};
+  uint8_t signature[64] = {0};
+  BOOL identityMatches =
+      anc_pv_ed25519_seed_keypair(publicKey, privateKey, signingSeed) ==
+          ANC_PV_CRYPTO_OK &&
+      anc_pv_memcmp(publicKey, expectedSigningPublicKey.bytes, 32) ==
+          ANC_PV_CRYPTO_OK;
+  if (!identityMatches) {
+    anc_pv_zeroize(publicKey, sizeof publicKey);
+    anc_pv_zeroize(privateKey, sizeof privateKey);
+    AncEndpointRequestSetStatus(
+        status, AncPrivateVaultEndpointRequestStatusIdentityMismatch);
+    return nil;
+  }
+  NSMutableData *message = [NSMutableData
+      dataWithCapacity:sizeof kRequestSignatureDomain + unsignedBytes.length];
+  [message appendBytes:kRequestSignatureDomain
+                length:sizeof kRequestSignatureDomain];
+  [message appendData:unsignedBytes];
+  BOOL signedProof =
+      anc_pv_ed25519_sign(signature, message.bytes, message.length,
+                          privateKey) == ANC_PV_CRYPTO_OK;
+  anc_pv_zeroize(publicKey, sizeof publicKey);
+  anc_pv_zeroize(privateKey, sizeof privateKey);
+  if (!signedProof) {
+    anc_pv_zeroize(signature, sizeof signature);
+    AncEndpointRequestSetStatus(
+        status, AncPrivateVaultEndpointRequestStatusCryptoFailed);
+    return nil;
+  }
+
+  NSString *signatureHex = AncEndpointRequestHex(signature, sizeof signature);
+  anc_pv_zeroize(signature, sizeof signature);
+  NSString *json = [NSString
+      stringWithFormat:@"{\"version\":1,\"suite\":\"anc/"
+                       @"v1\",\"type\":\"endpoint_request\",\"vaultId\":\"%@\","
+                       @"\"endpointId\":\"%@\",\"method\":\"POST\",\"path\":\"%"
+                       @"@\",\"bodyHash\":\"%@\",\"issuedAt\":\"%@\",\"nonce\":"
+                       @"\"%@\",\"signature\":\"%@\"}",
+                       vaultId, endpointId, AncPrivateVaultControlLogAppendPath,
+                       bodyHashHex, issuedAt, nonce, signatureHex];
+  NSData *jsonBytes = [json dataUsingEncoding:NSUTF8StringEncoding];
+  NSString *header = AncEndpointRequestBase64URL(jsonBytes);
+  if (header.length == 0 || header.length > 8192) {
+    AncEndpointRequestSetStatus(status,
+                                AncPrivateVaultEndpointRequestStatusTooLarge);
+    return nil;
+  }
+  AncEndpointRequestSetStatus(status, AncPrivateVaultEndpointRequestStatusOK);
+  return header;
+}
