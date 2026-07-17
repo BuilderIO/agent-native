@@ -232,6 +232,12 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 請使用這些引數呼叫 `ask_app_status`，直到任務進入終止狀態。Dispatch 應用程式自有的
 `ask_app` 使用相同的持久任務與狀態合約，並在提交與輪詢時都會檢查所選應用程式的授權。
 
+若有界的暫時狀態讀取無法使用，`ask_app_status` 可傳回
+`status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、原始的
+`app` 與 `taskId`，以及 `pollAfterMs` / `poll`。這表示狀態讀取無法使用，並不表示
+持久任務失敗。請以完全相同的 `app` 與 `taskId` 重試 `ask_app_status`；切勿為了復原而
+重新提交 `ask_app`，因為提交可能重複工作。永久性的驗證、找不到與通訊協定錯誤仍然是錯誤。
+
 ## 驗證 {#authentication}
 
 MCP 端點支援標準遠端 MCP OAuth 以及現有的不記名權杖後備：
