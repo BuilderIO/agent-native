@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve chat continuation context when recovering a stale background worker.
+Preserve chat continuation context after stale background workers and make Stop durable before a serverless run id exists.

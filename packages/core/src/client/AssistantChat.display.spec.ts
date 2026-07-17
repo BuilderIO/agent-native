@@ -1647,6 +1647,9 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("resetRunningActivity()");
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
+    expect(helperSource).toContain("getPendingTurn(threadId)");
+    expect(helperSource).toContain("clearPendingTurnIfMatches(");
+    expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
   });
 
   it("wakes the dequeue loop after its startup guard expires", () => {
