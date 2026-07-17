@@ -1039,7 +1039,8 @@ async function resolveSubmissionItem(input: {
             | "private"
             | "org"
             | "public",
-          canManage: sourceAccess.role !== "viewer",
+          canManage:
+            sourceAccess.role === "owner" || sourceAccess.role === "admin",
         }
       : null,
   };
