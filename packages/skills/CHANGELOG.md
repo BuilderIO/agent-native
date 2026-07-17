@@ -1,5 +1,29 @@
 # @agent-native/skills
 
+## 0.2.342
+
+### Patch Changes
+
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+- Updated dependencies [a485fbe]
+  - @agent-native/core@0.106.0
+
 ## 0.2.341
 
 ### Patch Changes
