@@ -51,8 +51,13 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
         contentHash,
         sourceModifiedAt: deck.updatedAt,
         sourceVersion: version.id ?? contentHash,
-        metadata: { preview: { type: "slides", slideCount: slides.length }, children: slides.map((slide, index) => ({ id: slide.id ?? String(index), title: slide.title ?? `Slide ${index + 1}`, text: text(slide.content ?? "").slice(0, 240) })) },
-      }],
+        metadata: { preview: { type: "slides", slideCount: slides.length } },
+        edges: slides.map((slide, index) => ({ relation: "contains", toExternalId: `native:slides:deck:${deck.id}:slide:${slide.id ?? index}` })),
+      }, ...slides.map((slide, index) => {
+        const content = `${text(slide.content ?? "")} ${slide.notes ?? ""}`.trim();
+        const id = slide.id ?? String(index);
+        return { externalId: `native:slides:deck:${deck.id}:slide:${id}`, kind: "slide", title: slide.title ?? `Slide ${index + 1}`, canonicalUrl: `/deck/${deck.id}?slide=${encodeURIComponent(id)}`, mimeType: "text/html", content, summary: content.slice(0, 500), contentHash: hash(`${deck.id}:${id}:${slide.content ?? ""}:${slide.notes ?? ""}`), sourceModifiedAt: deck.updatedAt, sourceVersion: version.id ?? contentHash, metadata: { preview: { type: "slide", index: index + 1 } } };
+      })],
       privateMetadata: { clone: { handle, contentHash, sourceVersion: version.id ?? contentHash, updatedAt: deck.updatedAt } },
     };
   },
