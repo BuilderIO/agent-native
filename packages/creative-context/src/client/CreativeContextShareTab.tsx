@@ -200,12 +200,16 @@ export async function submitCreativeContextResources({
 
 function MembershipRow({
   membership,
-  canManage,
+  canReview,
+  canWithdraw,
+  canRemove,
   busy,
   onAction,
 }: {
   membership: CreativeContextMembership;
-  canManage: boolean;
+  canReview: boolean;
+  canWithdraw: boolean;
+  canRemove: boolean;
   busy: boolean;
   onAction: (
     operation: "approve" | "request-changes" | "withdraw" | "remove",
@@ -229,7 +233,7 @@ function MembershipRow({
         ) : (
           <Badge variant="secondary">Published</Badge>
         )}
-        {pending && canManage ? (
+        {pending && canWithdraw ? (
           <Button
             type="button"
             variant="outline"
@@ -240,7 +244,7 @@ function MembershipRow({
             Withdraw
           </Button>
         ) : null}
-        {pending && canManage ? (
+        {pending && canReview ? (
           <Button
             type="button"
             size="sm"
@@ -250,7 +254,7 @@ function MembershipRow({
             <IconCheck /> Approve
           </Button>
         ) : null}
-        {pending && canManage ? (
+        {pending && canReview ? (
           <Button
             type="button"
             size="sm"
@@ -261,7 +265,7 @@ function MembershipRow({
             Request changes
           </Button>
         ) : null}
-        {canManage ? (
+        {canRemove ? (
           <Button
             type="button"
             size="sm"
@@ -464,7 +468,12 @@ export function CreativeContextShareTab({
                 <MembershipRow
                   key={membership.id}
                   membership={membership}
-                  canManage={canManage}
+                  canReview={selectedContext?.access.canReview === true}
+                  canWithdraw={
+                    selectedContext?.access.canReview === true ||
+                    (canManage && selectedContext?.access.canSubmit === true)
+                  }
+                  canRemove={selectedContext?.access.canAdmin === true}
                   busy={busy}
                   onAction={(operation) => void act(membership.id, operation)}
                 />
@@ -534,6 +543,7 @@ export function CreativeContextShareTab({
                 size="sm"
                 disabled={
                   busy ||
+                  selectedContext?.access.canSubmit !== true ||
                   (needsBroaderPublicationConfirmation &&
                     !confirmedBroaderPublication)
                 }

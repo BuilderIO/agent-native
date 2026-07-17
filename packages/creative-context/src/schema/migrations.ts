@@ -320,4 +320,19 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
         ON creative_context_shares (resource_id, principal_type, principal_id);
     `,
   },
+  {
+    version: 7,
+    name: "creative-context-default-scope-uniqueness",
+    sql: `
+      ALTER TABLE creative_contexts ADD COLUMN default_scope_key TEXT;
+      UPDATE creative_contexts
+      SET default_scope_key = CASE
+        WHEN kind = 'default' AND org_id IS NOT NULL THEN 'org:' || org_id
+        WHEN kind = 'default' THEN 'user:' || owner_email
+        ELSE NULL
+      END;
+      CREATE UNIQUE INDEX IF NOT EXISTS creative_context_default_scope_uidx
+        ON creative_contexts (default_scope_key);
+    `,
+  },
 ];

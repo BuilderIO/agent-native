@@ -57,6 +57,12 @@ export interface CreativeContextSummary {
   updatedAt?: string | null;
   approvalPolicy: CreativeContextPolicy;
   visibility: "private" | "org" | "public";
+  access: {
+    role: "viewer" | "editor" | "admin" | "owner";
+    canSubmit: boolean;
+    canReview: boolean;
+    canAdmin: boolean;
+  };
 }
 
 export interface CreativeContextMembership {
@@ -185,6 +191,13 @@ function contextSummary(value: unknown): CreativeContextSummary | null {
   ) {
     return null;
   }
+  const access = record(source.access);
+  const role =
+    access?.role === "owner" ||
+    access?.role === "admin" ||
+    access?.role === "editor"
+      ? access.role
+      : "viewer";
   return {
     id: source.id,
     name: source.name,
@@ -203,6 +216,12 @@ function contextSummary(value: unknown): CreativeContextSummary | null {
       source.visibility === "org" || source.visibility === "public"
         ? source.visibility
         : "private",
+    access: {
+      role,
+      canSubmit: access?.canSubmit === true,
+      canReview: access?.canReview === true,
+      canAdmin: access?.canAdmin === true,
+    },
   };
 }
 

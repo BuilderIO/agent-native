@@ -7,7 +7,17 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, asc, count, eq, gt, inArray, isNull } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+} from "drizzle-orm";
 
 import { creativeContextMediaUrl } from "../media-url.js";
 import { getCreativeContext } from "../server/context.js";
@@ -34,6 +44,13 @@ import {
 
 type Rank = "canonical" | "exemplar" | "normal";
 
+function defaultContextScopeKey(actor: {
+  ownerEmail: string;
+  orgId?: string | null;
+}) {
+  return actor.orgId ? `org:${actor.orgId}` : `user:${actor.ownerEmail}`;
+}
+
 function mapContext(
   row: any,
   memberCount = 0,
@@ -54,7 +71,7 @@ function mapContext(
     access: {
       role,
       canSubmit: role !== "viewer",
-      canReview: role !== "viewer",
+      canReview: role === "owner" || role === "admin",
       canAdmin: role === "owner" || role === "admin",
     },
   };
@@ -123,12 +140,8 @@ async function assertContextRole(
   });
 }
 
-async function requireReviewer(
-  contextId: string,
-  policy?: CreativeContextApprovalPolicy,
-) {
-  await assertContextRole(contextId, "editor");
-  if (policy === "admins-only") await assertCurrentRequestUserIsOrgAdmin();
+async function requireReviewer(contextId: string) {
+  await assertContextRole(contextId, "admin");
 }
 
 function normalizedFromDetail(
@@ -465,65 +478,74 @@ export async function createCreativeContext(input: {
   const actor = requireActor();
   const timestamp = nowIso();
   if (actor.orgId) await assertCurrentRequestUserIsOrgAdmin(actor.orgId);
+  const defaultScopeKey =
+    input.kind === "default" ? defaultContextScopeKey(actor) : null;
   if (input.kind === "default") {
-    const defaultScope = actor.orgId
-      ? eq(schema.creativeContexts.orgId, actor.orgId)
-      : and(
-          isNull(schema.creativeContexts.orgId),
-          eq(schema.creativeContexts.ownerEmail, actor.ownerEmail),
-        );
     const existing = await getDb()
       .select({ id: schema.creativeContexts.id })
       .from(schema.creativeContexts)
-      .where(and(eq(schema.creativeContexts.kind, "default"), defaultScope))
+      .where(eq(schema.creativeContexts.defaultScopeKey, defaultScopeKey))
       .limit(1);
     if (existing[0]) return getCreativeContextById(existing[0].id);
   }
   const id = newId("ccx"),
     stagingSourceId = newId("ccs"),
     publishedSourceId = newId("ccs");
-  await getDb().transaction(async (tx: any) => {
-    for (const [sourceId, name, purpose] of [
-      [stagingSourceId, `${input.name} staging`, "staging"],
-      [publishedSourceId, `${input.name} published`, "published"],
-    ] as const)
-      await tx.insert(schema.contextSources).values({
-        id: sourceId,
-        name,
-        kind: "native-app",
-        config: stringifyJson({ governedContextId: id, purpose }),
-        upstreamAccess: "available",
-        status: "active",
-        healthStatus: "healthy",
-        itemCount: 0,
-        restrictedItemCount: 0,
+  try {
+    await getDb().transaction(async (tx: any) => {
+      for (const [sourceId, name, purpose] of [
+        [stagingSourceId, `${input.name} staging`, "staging"],
+        [publishedSourceId, `${input.name} published`, "published"],
+      ] as const)
+        await tx.insert(schema.contextSources).values({
+          id: sourceId,
+          name,
+          kind: "native-app",
+          config: stringifyJson({ governedContextId: id, purpose }),
+          upstreamAccess: "available",
+          status: "active",
+          healthStatus: "healthy",
+          itemCount: 0,
+          restrictedItemCount: 0,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          ownerEmail: actor.ownerEmail,
+          orgId: actor.orgId,
+          visibility: "private",
+        });
+      await tx.insert(schema.creativeContexts).values({
+        id,
+        name: input.name,
+        description: input.description ?? null,
+        kind: input.kind,
+        defaultScopeKey,
+        brandProfileId: input.brandProfileId ?? null,
+        stagingSourceId,
+        publishedSourceId,
+        approvalPolicy: input.approvalPolicy ?? "open",
+        archivedAt: null,
         createdAt: timestamp,
         updatedAt: timestamp,
         ownerEmail: actor.ownerEmail,
         orgId: actor.orgId,
-        visibility: "private",
+        visibility: actor.orgId ? "org" : "private",
       });
-    await tx.insert(schema.creativeContexts).values({
-      id,
-      name: input.name,
-      description: input.description ?? null,
-      kind: input.kind,
-      brandProfileId: input.brandProfileId ?? null,
-      stagingSourceId,
-      publishedSourceId,
-      approvalPolicy: input.approvalPolicy ?? "open",
-      archivedAt: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      ownerEmail: actor.ownerEmail,
-      orgId: actor.orgId,
-      visibility: actor.orgId ? "org" : "private",
+      await appendAudit(tx, id, "create", {
+        kind: input.kind,
+        approvalPolicy: input.approvalPolicy ?? "open",
+      });
     });
-    await appendAudit(tx, id, "create", {
-      kind: input.kind,
-      approvalPolicy: input.approvalPolicy ?? "open",
-    });
-  });
+  } catch (error) {
+    if (input.kind === "default") {
+      const existing = await getDb()
+        .select({ id: schema.creativeContexts.id })
+        .from(schema.creativeContexts)
+        .where(eq(schema.creativeContexts.defaultScopeKey, defaultScopeKey))
+        .limit(1);
+      if (existing[0]) return getCreativeContextById(existing[0].id);
+    }
+    throw error;
+  }
   return getCreativeContextById(id);
 }
 
@@ -531,16 +553,15 @@ export async function createCreativeContext(input: {
 export async function ensureDefaultCreativeContext(): Promise<CreativeContextSummary | null> {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
-  const scope = actor.orgId
-    ? eq(schema.creativeContexts.orgId, actor.orgId)
-    : isNull(schema.creativeContexts.orgId);
-  const defaultOwnerScope = actor.orgId
-    ? scope
-    : and(scope, eq(schema.creativeContexts.ownerEmail, actor.ownerEmail));
   const existing = await getDb()
     .select()
     .from(schema.creativeContexts)
-    .where(and(eq(schema.creativeContexts.kind, "default"), defaultOwnerScope))
+    .where(
+      eq(
+        schema.creativeContexts.defaultScopeKey,
+        defaultContextScopeKey(actor),
+      ),
+    )
     .limit(1);
   if (existing[0]) return getCreativeContextById(existing[0].id);
   if (actor.orgId && !(await currentRequestUserIsOrgAdmin(actor.orgId)))
@@ -742,7 +763,7 @@ export async function updateCreativeContext(
     approvalPolicy?: CreativeContextApprovalPolicy;
   },
 ) {
-  await assertContextRole(contextId, "editor");
+  await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
   const values = { ...patch, updatedAt: nowIso() };
   await getDb().transaction(async (tx: any) => {
@@ -807,6 +828,7 @@ export async function listContextMemberships(input: {
   const access = await assertContextRole(input.contextId, "viewer");
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
+  const canReview = access.role === "owner" || access.role === "admin";
   const filters: any[] = [
     eq(schema.creativeContextMemberships.contextId, input.contextId),
   ];
@@ -814,33 +836,37 @@ export async function listContextMemberships(input: {
     filters.push(eq(schema.creativeContextMemberships.status, input.status));
   if (input.cursor)
     filters.push(gt(schema.creativeContextMemberships.id, input.cursor));
+  if (!canReview)
+    filters.push(
+      or(
+        isNotNull(schema.creativeContextMemberships.publishedItemId),
+        eq(schema.creativeContextSubmissions.submittedBy, actor.ownerEmail),
+      ),
+    );
   const rows = await getDb()
-    .select()
+    .select({
+      membership: schema.creativeContextMemberships,
+      pendingSubmission: schema.creativeContextSubmissions,
+    })
     .from(schema.creativeContextMemberships)
+    .leftJoin(
+      schema.creativeContextSubmissions,
+      eq(
+        schema.creativeContextSubmissions.id,
+        schema.creativeContextMemberships.pendingSubmissionId,
+      ),
+    )
     .where(and(...filters))
     .orderBy(asc(schema.creativeContextMemberships.id))
     .limit(input.limit + 1);
-  const page = rows.slice(0, input.limit) as any[];
-  const showPending =
-    access.role === "owner" ||
-    access.role === "editor" ||
-    access.role === "admin";
-  const pendingIds = page
-    .map((row) => row.pendingSubmissionId)
-    .filter(Boolean) as string[];
-  const submissions = pendingIds.length
-    ? await getDb()
-        .select()
-        .from(schema.creativeContextSubmissions)
-        .where(inArray(schema.creativeContextSubmissions.id, pendingIds))
-    : [];
-  const visiblePending = new Map(
-    (submissions as any[])
-      .filter((row) => showPending || row.submittedBy === actor.ownerEmail)
-      .map((row) => [row.id, mapSubmission(row)]),
-  );
-  const publishedVersionIds = page.flatMap((row) =>
-    row.publishedItemVersionId ? [row.publishedItemVersionId] : [],
+  const page = rows.slice(0, input.limit) as Array<{
+    membership: any;
+    pendingSubmission: any | null;
+  }>;
+  const publishedVersionIds = page.flatMap(({ membership }) =>
+    membership.publishedItemVersionId
+      ? [membership.publishedItemVersionId]
+      : [],
   );
   const [publishedItems, previewMedia] = publishedVersionIds.length
     ? await Promise.all([
@@ -904,16 +930,26 @@ export async function listContextMemberships(input: {
     ]),
   );
   return {
-    memberships: page.map((row) => ({
-      ...mapMembership(row),
-      publishedItem: row.publishedItemVersionId
-        ? (previewByVersion.get(row.publishedItemVersionId) ?? null)
-        : null,
-      pendingSubmission: row.pendingSubmissionId
-        ? (visiblePending.get(row.pendingSubmissionId) ?? null)
-        : null,
-    })),
-    nextCursor: rows.length > input.limit ? page.at(-1)?.id : undefined,
+    memberships: page.map(({ membership, pendingSubmission }) => {
+      const canViewPending =
+        canReview || pendingSubmission?.submittedBy === actor.ownerEmail;
+      return {
+        ...mapMembership(
+          canViewPending
+            ? membership
+            : { ...membership, pendingSubmissionId: null },
+        ),
+        publishedItem: membership.publishedItemVersionId
+          ? (previewByVersion.get(membership.publishedItemVersionId) ?? null)
+          : null,
+        pendingSubmission:
+          canViewPending && pendingSubmission
+            ? mapSubmission(pendingSubmission)
+            : null,
+      };
+    }),
+    nextCursor:
+      rows.length > input.limit ? page.at(-1)?.membership.id : undefined,
   };
 }
 
@@ -955,14 +991,19 @@ async function resolveSubmissionItem(input: {
           typeof edge.toItemId === "string",
       )
       .map((edge) =>
-        getCreativeContextItem(edge.toItemId!, edge.toItemVersionId ?? undefined),
+        getCreativeContextItem(
+          edge.toItemId!,
+          edge.toItemVersionId ?? undefined,
+        ),
       ),
   );
   return {
     artifactKey: `${detail.item.sourceId}:${detail.item.externalId}`,
     items: [
       normalizedFromDetail(detail),
-      ...children.flatMap((child) => (child ? [normalizedFromDetail(child)] : [])),
+      ...children.flatMap((child) =>
+        child ? [normalizedFromDetail(child)] : [],
+      ),
     ],
     privateMetadata: {},
     sourceAccess: sourceAccess
@@ -1028,7 +1069,10 @@ async function approveSubmission(
       ownerEmail: context.ownerEmail,
       orgId: context.orgId ?? null,
     });
-    publishedChildren.push({ artifactKey: child.artifactKey, ...publishedChild });
+    publishedChildren.push({
+      artifactKey: child.artifactKey,
+      ...publishedChild,
+    });
   }
   for (const child of publishedChildren) {
     await getDb()
@@ -1070,35 +1114,63 @@ async function approveSubmission(
         .where(
           and(
             eq(schema.creativeContextMemberships.contextId, context.id),
-            eq(schema.creativeContextMemberships.artifactKey, child.artifactKey),
+            eq(
+              schema.creativeContextMemberships.artifactKey,
+              child.artifactKey,
+            ),
           ),
         )
         .limit(1);
       const values = {
-        publishedItemId: child.itemId, publishedItemVersionId: child.itemVersionId,
-        pendingSubmissionId: null, status: "active" as const, updatedAt: timestamp,
+        publishedItemId: child.itemId,
+        publishedItemVersionId: child.itemVersionId,
+        pendingSubmissionId: null,
+        status: "active" as const,
+        updatedAt: timestamp,
       };
       if (existingChild[0]) {
-        await tx.update(schema.creativeContextMemberships).set(values)
+        await tx
+          .update(schema.creativeContextMemberships)
+          .set(values)
           .where(eq(schema.creativeContextMemberships.id, existingChild[0].id));
       } else {
         await tx.insert(schema.creativeContextMemberships).values({
-          id: newId("ccmbr"), contextId: context.id, artifactKey: child.artifactKey,
-          ...values, rank: "normal", purpose: "Native artifact child", createdAt: timestamp,
-          ownerEmail: context.ownerEmail, orgId: context.orgId ?? null,
+          id: newId("ccmbr"),
+          contextId: context.id,
+          artifactKey: child.artifactKey,
+          ...values,
+          rank: "normal",
+          purpose: "Native artifact child",
+          createdAt: timestamp,
+          ownerEmail: context.ownerEmail,
+          orgId: context.orgId ?? null,
         });
       }
     }
     await tx.insert(schema.creativeContextPublishedSnapshots).values([
       {
-        id: newId("ccps"), contextId: context.id, sourceId: context.publishedSourceId,
-        membershipId: membership.id, itemId: published.itemId, itemVersionId: published.itemVersionId,
-        submissionId: submission.id, createdAt: timestamp, ownerEmail: context.ownerEmail, orgId: context.orgId ?? null,
+        id: newId("ccps"),
+        contextId: context.id,
+        sourceId: context.publishedSourceId,
+        membershipId: membership.id,
+        itemId: published.itemId,
+        itemVersionId: published.itemVersionId,
+        submissionId: submission.id,
+        createdAt: timestamp,
+        ownerEmail: context.ownerEmail,
+        orgId: context.orgId ?? null,
       },
       ...publishedChildren.map((child) => ({
-        id: newId("ccps"), contextId: context.id, sourceId: context.publishedSourceId,
-        membershipId: membership.id, itemId: child.itemId, itemVersionId: child.itemVersionId,
-        submissionId: submission.id, createdAt: timestamp, ownerEmail: context.ownerEmail, orgId: context.orgId ?? null,
+        id: newId("ccps"),
+        contextId: context.id,
+        sourceId: context.publishedSourceId,
+        membershipId: membership.id,
+        itemId: child.itemId,
+        itemVersionId: child.itemVersionId,
+        submissionId: submission.id,
+        createdAt: timestamp,
+        ownerEmail: context.ownerEmail,
+        orgId: context.orgId ?? null,
       })),
     ]);
     await appendAudit(tx, context.id, "approve-submission", {
@@ -1315,7 +1387,7 @@ export async function manageContextMembership(input: {
   )[0] as any;
   if (!membership) throw new Error("Context membership not found");
   if (input.operation === "remove") {
-    await requireReviewer(input.contextId, context.approvalPolicy);
+    await requireReviewer(input.contextId);
     await getDb()
       .update(schema.creativeContextMemberships)
       .set({
@@ -1349,7 +1421,7 @@ export async function manageContextMembership(input: {
   if (!submission) throw new Error("No pending submission for this membership");
   if (input.operation === "withdraw") {
     if (submission.submittedBy !== actor.ownerEmail)
-      await requireReviewer(input.contextId, context.approvalPolicy);
+      await requireReviewer(input.contextId);
     await getDb().transaction(async (tx: any) => {
       await tx
         .update(schema.creativeContextSubmissions)
@@ -1366,7 +1438,7 @@ export async function manageContextMembership(input: {
     });
     return { withdrawn: true };
   }
-  await requireReviewer(input.contextId, context.approvalPolicy);
+  await requireReviewer(input.contextId);
   if (input.operation === "request-changes") {
     await getDb().transaction(async (tx: any) => {
       await tx

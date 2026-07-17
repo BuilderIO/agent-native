@@ -332,6 +332,7 @@ export const creativeContexts = table("creative_contexts", {
   name: text("name").notNull(),
   description: text("description"),
   kind: text("kind", { enum: ["default", "specialty"] }).notNull(),
+  defaultScopeKey: text("default_scope_key"),
   brandProfileId: text("brand_profile_id"),
   stagingSourceId: text("staging_source_id").notNull(),
   // This source is owned by the context and is intentionally not a library source.
