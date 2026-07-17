@@ -387,19 +387,19 @@ export function validateDashboardConfig(
   return null;
 }
 
-/**
- * Dry-run each BigQuery panel's SQL so bad column names or type
- * mismatches fail here, with the full BigQuery error text, rather than
- * silently saving a broken dashboard that crashes on render.
- */
+/** Validate every query panel, or only the supplied ids for a targeted edit. */
 export async function validatePanelSql(
   config: Record<string, unknown>,
+  panelIds?: ReadonlySet<string>,
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
+    if (panelIds && (typeof p.id !== "string" || !panelIds.has(p.id))) {
+      continue;
+    }
     // Sections are layout-only and extensions render their own iframe — neither
     // has SQL to dry-run. heatmap, callout, and other query panels still
     // validate normally below.

@@ -354,9 +354,11 @@ export async function instrumentAgentLoop(opts: {
         toolCallCount++;
 
         const isError =
-          typeof event.result === "string" &&
-          (event.result.startsWith("Error") ||
-            event.result.startsWith("Error running "));
+          typeof event.isError === "boolean"
+            ? event.isError
+            : typeof event.result === "string" &&
+              (event.result.startsWith("Error") ||
+                event.result.startsWith("Error running "));
         if (isError) failedTools++;
         else successfulTools++;
 

@@ -37,6 +37,7 @@ const enUS = {
   theme: {
     light: "light",
     dark: "dark",
+    toggle: "Toggle theme",
     label: "Theme: {{theme}}",
   },
   docs: {

@@ -155,6 +155,11 @@
     box-shadow 260ms var(--ease-drawer);
 }
 
+.agent-sidebar-shell[data-agent-sidebar-resizing="true"],
+.agent-sidebar-shell[data-agent-sidebar-resizing="true"] * {
+  transition: none !important;
+}
+
 .agent-native-app-main {
   container: agent-native-main / inline-size;
 }
@@ -235,6 +240,10 @@
   width: 0;
   overflow: clip;
   transition: width 260ms var(--ease-drawer);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-resizing="true"] {
+  transition: none;
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {

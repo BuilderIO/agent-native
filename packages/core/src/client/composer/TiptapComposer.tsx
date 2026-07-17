@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
   IconArrowUp,
@@ -10,6 +11,7 @@ import {
   IconTool,
   IconX,
   IconClipboardList,
+  IconKey,
   IconPencil,
   IconPlugConnected,
 } from "@tabler/icons-react";
@@ -57,6 +59,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "../frame.js";
+import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
@@ -613,6 +616,8 @@ export interface TiptapComposerProps {
     models: string[];
     configured: boolean;
   }>;
+  /** Whether the model list is still being resolved. */
+  modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort */
@@ -821,6 +826,13 @@ export const MODEL_SELECTOR_POPOVER_STYLE = {
   maxHeight: "min(500px, var(--radix-popover-content-available-height, 500px))",
 } satisfies React.CSSProperties;
 
+export function shouldShowModelSelectorSkeleton(
+  isLoading: boolean,
+  engineCount: number,
+): boolean {
+  return isLoading && engineCount === 0;
+}
+
 function friendlyModelName(model: string): string {
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
@@ -948,6 +960,7 @@ function ModelSelector({
   model,
   effort = DEFAULT_REASONING_EFFORT,
   engines,
+  modelListLoading = false,
   onChange,
   onEffortChange,
   providerConnectStatusEnabled = true,
@@ -963,6 +976,7 @@ function ModelSelector({
     models: string[];
     configured: boolean;
   }>;
+  modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   providerConnectStatusEnabled?: boolean;
@@ -970,6 +984,7 @@ function ModelSelector({
   onConnectLocalRuntime?: (engine: string) => void;
   imageModel?: ComposerImageModelMenu;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const autoModelGroup = engines.find((group) => group.models.includes("auto"));
   const providerGroups = useMemo(
@@ -1031,6 +1046,10 @@ function ModelSelector({
   const imageModelLabel =
     imageModel?.options.find((option) => option.value === imageModel.value)
       ?.label ?? imageModel?.value;
+  const showModelListSkeleton = shouldShowModelSelectorSkeleton(
+    modelListLoading,
+    engines.length,
+  );
 
   // When Builder.io isn't connected, surface a one-click connect path —
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
@@ -1114,11 +1133,37 @@ function ModelSelector({
               <span className="flex-1 min-w-0">
                 <span className="block text-[12px] font-medium text-foreground">
                   {!onConnectProvider && builderFlow.connecting
-                    ? "Connecting Builder.io…"
-                    : "Connect Builder.io"}
+                    ? t("agentPanel.connectingBuilder", {
+                        defaultValue: "Connecting Builder.io…",
+                      })
+                    : t("agentPanel.connectBuilderIo", {
+                        defaultValue: "Connect Builder.io",
+                      })}
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
-                  Free credits for Claude, OpenAI &amp; Gemini
+                  {t("agentPanel.builderModelCredits", {
+                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                  })}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={openLlmSettings}
+              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50"
+            >
+              <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-medium text-foreground">
+                  {t("agentPanel.addOwnKeys", {
+                    defaultValue: "Add your own keys",
+                  })}
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  {t("agentPanel.configureProviderKeys", {
+                    defaultValue:
+                      "Configure Anthropic, OpenAI, or another provider",
+                  })}
                 </span>
               </span>
             </button>
@@ -1171,6 +1216,7 @@ function ModelSelector({
             <div className="my-1 border-t border-border" />
           </>
         )}
+        {showModelListSkeleton && <ModelSelectorSkeleton />}
         {autoModelGroup && (
           <button
             type="button"
@@ -1275,7 +1321,7 @@ function ModelSelector({
             </div>
           );
         })}
-        {effortOptions.length > 0 && (
+        {!showModelListSkeleton && effortOptions.length > 0 && (
           <>
             <div className="my-1 border-t border-border" />
             <div className="flex items-center hover:bg-accent/30">
@@ -1323,6 +1369,24 @@ function ModelSelector({
   );
 }
 
+function ModelSelectorSkeleton() {
+  return (
+    <div
+      className="space-y-1 px-2 py-2"
+      role="status"
+      aria-label="Loading models"
+    >
+      <span className="sr-only">Loading models…</span>
+      {["w-24", "w-32", "w-20", "w-28"].map((width, index) => (
+        <div key={index} className="flex items-center gap-1.5 px-1 py-1.5">
+          <Skeleton className="size-3 rounded-sm" />
+          <Skeleton className={`h-3 ${width}`} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type PopoverState = {
   type: "@" | "/";
   position: { top: number; left: number };
@@ -1360,6 +1424,7 @@ export function TiptapComposer({
   selectedModel,
   selectedEffort,
   availableModels,
+  modelListLoading,
   onModelChange,
   onEffortChange,
   providerConnectStatusEnabled,
@@ -2762,6 +2827,7 @@ export function TiptapComposer({
             model={selectedModel}
             effort={selectedEffort}
             engines={availableModels}
+            modelListLoading={modelListLoading}
             onChange={onModelChange}
             onEffortChange={onEffortChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}

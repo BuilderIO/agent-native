@@ -28,6 +28,7 @@ function resetEnv() {
 beforeEach(resetEnv);
 afterEach(() => {
   process.env = ORIGINAL_ENV;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -504,6 +505,7 @@ describe("ask_app — honest routing metadata", () => {
   });
 
   it("retries transient hosted ask_app status fetch failures", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
       apiKey: "signed-org-jwt",
       userEmail: "caller@acme.com",
@@ -546,6 +548,142 @@ describe("ask_app — honest routing metadata", () => {
       status: "completed",
       response: "local answer after retry",
     });
+  });
+
+  it("returns a recoverable polling envelope when transient hosted status reads exhaust their retries", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const sendSpy = vi.spyOn(a2aClient.A2AClient.prototype, "send");
+    const getTaskSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockRejectedValue(new TypeError("fetch failed"));
+
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com" },
+    );
+    const resultPromise = tools.ask_app_status.run({
+      app: "mail",
+      taskId: "task-1",
+    });
+
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      errorCategory: "transport",
+      attempts: 4,
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message: expect.stringMatching(
+        /status could not be read.*may still be running or completed.*retry.*ask_app_status.*do not resubmit ask_app/i,
+      ),
+    });
+    expect(getTaskSpy).toHaveBeenCalledTimes(4);
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(4);
+    expect(warnSpy).toHaveBeenLastCalledWith(
+      "[ask_app_status] tasks/get attempt failed",
+      expect.objectContaining({
+        app: "mail",
+        routedVia: "local",
+        taskId: "task-1",
+        originHost: "mail.example.com",
+        attempt: 4,
+        maxAttempts: 4,
+        errorCategory: "transport",
+        errorName: "TypeError",
+        willRetry: false,
+      }),
+    );
+  });
+
+  it.each([
+    ["rate_limited", new Error("A2A request failed (429): retry later")],
+    ["upstream_5xx", new Error("A2A request failed (503): unavailable")],
+    [
+      "timeout",
+      Object.assign(new TypeError("fetch failed"), {
+        cause: { code: "UND_ERR_CONNECT_TIMEOUT" },
+      }),
+    ],
+  ])(
+    "classifies exhausted hosted ask_app status reads as %s",
+    async (errorCategory, error) => {
+      vi.useFakeTimers();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+        apiKey: "signed-org-jwt",
+        userEmail: "caller@acme.com",
+        orgId: "org-1",
+        orgDomain: "acme.com",
+        orgSecret: "org-secret",
+        metadata: {},
+      });
+      vi.spyOn(a2aClient.A2AClient.prototype, "getTask").mockRejectedValue(
+        error,
+      );
+
+      const tools = getBuiltinCrossAppTools(
+        baseConfig({ askAgent: async () => "unused" }),
+        { origin: "https://mail.example.com" },
+      );
+      const resultPromise = tools.ask_app_status.run({
+        app: "mail",
+        taskId: "task-1",
+      });
+
+      await vi.advanceTimersByTimeAsync(2_500);
+
+      await expect(resultPromise).resolves.toMatchObject({
+        statusRead: "unavailable",
+        retryable: true,
+        errorCategory,
+        attempts: 4,
+      });
+    },
+  );
+
+  it("does not retry permanent hosted ask_app status read errors", async () => {
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const sendSpy = vi.spyOn(a2aClient.A2AClient.prototype, "send");
+    const getTaskSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockRejectedValue(new Error("A2A request failed (404): Not Found"));
+
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com" },
+    );
+
+    await expect(
+      tools.ask_app_status.run({ app: "mail", taskId: "task-missing" }),
+    ).rejects.toThrow(/404.*Not Found/i);
+    expect(getTaskSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).not.toHaveBeenCalled();
   });
 
   it("does not falsely claim delegation when the target is unreachable", async () => {

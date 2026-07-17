@@ -33,6 +33,97 @@ import { parseSkillFrontmatter } from "./skill-frontmatter.js";
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 export const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
 const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
+const PROMPT_CONTEXT_PROVIDER_MAX_CHARS = 8_000;
+
+export interface PromptContextProviderContext {
+  owner: string;
+  compact: boolean;
+  selfAppId?: string;
+  orgId: string | null;
+}
+
+export interface PromptContextProviderContribution {
+  content: string;
+  label?: string;
+  provenance?: ContextSystemProvenance;
+  governance?: ContextGovernanceTier;
+  sourceRef?: ContextManifestSourceRef;
+}
+
+export interface PromptContextProvider {
+  id: string;
+  load(
+    context: PromptContextProviderContext,
+  ):
+    | Promise<PromptContextProviderContribution | null | undefined>
+    | PromptContextProviderContribution
+    | null
+    | undefined;
+}
+
+const promptContextProviders = new Map<string, PromptContextProvider>();
+
+/** Register a package-owned, request-scoped system-context contribution. */
+export function registerPromptContextProvider(
+  provider: PromptContextProvider,
+): () => void {
+  const id = provider.id.trim();
+  if (!/^[a-z][a-z0-9-]{1,63}$/.test(id)) {
+    throw new Error(
+      "Prompt context provider ids must be 2-64 lowercase letters, digits, or hyphens",
+    );
+  }
+  const registered = { ...provider, id };
+  promptContextProviders.set(id, registered);
+  return () => {
+    if (promptContextProviders.get(id) === registered) {
+      promptContextProviders.delete(id);
+    }
+  };
+}
+
+function xmlAttributeEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function loadPromptContextProviderBlocks(
+  context: PromptContextProviderContext,
+): Promise<string[]> {
+  const providers = [...promptContextProviders.values()].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  const settled = await Promise.allSettled(
+    providers.map(async (provider) => ({
+      provider,
+      contribution: await provider.load(context),
+    })),
+  );
+  const blocks: string[] = [];
+  for (const result of settled) {
+    if (result.status !== "fulfilled") continue;
+    const { provider, contribution } = result.value;
+    if (!contribution) continue;
+    const content = contribution.content.trim();
+    if (!content) continue;
+    const boundedContent =
+      content.length <= PROMPT_CONTEXT_PROVIDER_MAX_CHARS
+        ? content
+        : `${content.slice(0, PROMPT_CONTEXT_PROVIDER_MAX_CHARS)}\n[truncated after ${PROMPT_CONTEXT_PROVIDER_MAX_CHARS.toLocaleString()} characters]`;
+    const label = contribution.label?.trim() || provider.id;
+    const provenance = contribution.provenance ?? "runtime-context";
+    const governance = contribution.governance ?? "inherited";
+    const sourceScope = contribution.sourceRef?.scope?.trim() || "provider";
+    const sourcePath = contribution.sourceRef?.path?.trim() || provider.id;
+    blocks.push(
+      `<prompt-context-provider id="${xmlAttributeEscape(provider.id)}" label="${xmlAttributeEscape(label)}" provenance="${provenance}" governance="${governance}" scope="${xmlAttributeEscape(sourceScope)}" path="${xmlAttributeEscape(sourcePath)}">\n${boundedContent.replace(/<\/prompt-context-provider>/gi, "&lt;/prompt-context-provider&gt;")}\n</prompt-context-provider>`,
+    );
+  }
+  return blocks;
+}
 
 export function compactPromptLine(value: string, maxChars: number): string {
   const line = value.replace(/\s+/g, " ").trim();
@@ -140,6 +231,50 @@ export function promptResourceManifestSections(
       sourceRef: {
         ...(path ? { path } : {}),
         scope,
+      },
+    });
+  }
+
+  const providerPattern =
+    /<prompt-context-provider\b([^>]*)>([\s\S]*?)<\/prompt-context-provider>/g;
+  while ((match = providerPattern.exec(prompt))) {
+    const attrs = match[1] ?? "";
+    const id = xmlAttribute(attrs, "id") ?? "prompt-context-provider";
+    const label = xmlAttribute(attrs, "label") ?? id;
+    const provenanceValue = xmlAttribute(attrs, "provenance");
+    const governanceValue = xmlAttribute(attrs, "governance");
+    const provenance = (
+      [
+        "framework-core",
+        "actions-prompt",
+        "template",
+        "enterprise-workspace-core",
+        "sql-workspace",
+        "legacy-app-default",
+        "organization",
+        "personal",
+        "memory",
+        "db-schema",
+        "tools",
+        "model-overlay",
+        "runtime-context",
+      ] as const
+    ).includes(provenanceValue as ContextSystemProvenance)
+      ? (provenanceValue as ContextSystemProvenance)
+      : "runtime-context";
+    const governance = (["required", "inherited", "user"] as const).includes(
+      governanceValue as ContextGovernanceTier,
+    )
+      ? (governanceValue as ContextGovernanceTier)
+      : "inherited";
+    sections.push({
+      label,
+      provenance,
+      governance,
+      content: match[2] ?? "",
+      sourceRef: {
+        path: xmlAttribute(attrs, "path") ?? id,
+        scope: xmlAttribute(attrs, "scope") ?? "provider",
       },
     });
   }
@@ -830,6 +965,15 @@ export async function loadResourcesForPrompt(
     );
     if (organizationResourceIndex) sections.push(organizationResourceIndex);
   }
+
+  sections.push(
+    ...(await loadPromptContextProviderBlocks({
+      owner,
+      compact,
+      selfAppId,
+      orgId,
+    })),
+  );
 
   try {
     const agents = (await discoverAgents(selfAppId)).slice(0, 30);

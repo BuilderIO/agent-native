@@ -192,6 +192,20 @@ re-typing it as a `content` argument.
    extension panel (`chartType: "extension"`, `config.extensionId`), then
    `navigate` to it.
 
+## Repairing An Existing Extension-Backed Dashboard
+
+When the user asks to fix data loading in an existing or migrated
+extension-backed dashboard, treat the current extension body as user-authored
+design. Read the dashboard config and extension once, identify the smallest
+data-loading seam, and call `update-extension` with focused `patches` or
+`edits`. Preserve the existing layout, CSS, copy, and interactions. Do not
+send a reconstructed full `content` body for a data-only repair;
+`update-extension` blocks full-body replacement unless
+`allowFullReplacement: true` is explicitly supplied. Use that flag only for a
+user-requested broad visual rewrite or a complete replacement body supplied by
+the user. If a focused edit fails, inspect the current body and change the
+target rather than retrying the same arguments.
+
 ### Display truncation is cosmetic — do not chase the "missing" tail
 
 A tool result ending in `...[truncated — full result was N chars; only first
@@ -315,6 +329,10 @@ calling other actions from the script are not available.
 type DashboardMutationApi = {
   dashboard: {
     set(patch: DashboardPatch): void;
+    setFilterDefault(
+      filterId: string,
+      value: string | number | boolean | null,
+    ): void;
     panel(id: string): PanelSelection;
     section(id: string): SectionSelection;
     panels(ids: string[]): PanelSelection;
@@ -329,6 +347,7 @@ type DashboardPatch = {
   columns?: number;
   filters?: unknown[];
   variables?: Record<string, string>;
+  parentId?: string;
 };
 
 type PanelTimeScope =
@@ -340,6 +359,7 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   // Use "dashboard" for AI-generated first-party panels by default.
   timeScope?: PanelTimeScope;
+  // Fixed bar width in pixels for bar charts.
 };
 
 type PanelPatch = {
@@ -351,7 +371,8 @@ type PanelPatch = {
     | "amplitude"
     | "first-party"
     | "demo"
-    | "prometheus";
+    | "prometheus"
+    | "program";
   chartType?:
     | "line"
     | "area"
@@ -397,6 +418,14 @@ type PanelSelection = {
   moveBefore(panelId: string): void;
   moveAfter(panelId: string): void;
   moveToIndex(index: number): void;
+  moveNextTo(panelId: string): void;
+  nextTo(panelId: string): void;
+  moveToRow(rowNumber: number): void;
+  moveToRowStart(rowNumber: number): void;
+  moveToRowEnd(rowNumber: number): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
   remove(): void;
   set(patch: PanelPatch): void;
   setTitle(title: string): void;
@@ -404,26 +433,40 @@ type PanelSelection = {
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void;
-  duplicate(newPanelId: string, patch?: PanelPatch): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
 type SectionSelection = PanelSelection & {
   append(panelIds: string[]): void;
 };
 
-type InsertedPanel = {
+type PanelPlacement = {
   atTop(): void;
   atBottom(): void;
   before(panelId: string): void;
   after(panelId: string): void;
   atIndex(index: number): void;
+  nextTo(panelId: string): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
 };
+
+type InsertedPanel = PanelPlacement;
 ```
 
 Examples:
 
 ```ts
 dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
+dashboard
+  .panel("recurring-users-by-template")
+  .duplicate("recurring-users-by-template-bar", {
+    title: "Recurring Signed-In Users by Template (Bar)",
+    chartType: "bar",
+  })
+  .nextTo("recurring-users-by-template");
+dashboard.setFilterDefault("emailFilter", "exclude_builder");
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
   width: 2,

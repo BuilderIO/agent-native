@@ -17,9 +17,9 @@ import {
   IconSun,
   IconMoon,
   IconHistory,
+  IconHierarchy2,
   IconLanguage,
   IconRefresh,
-  IconBrain,
   IconSettings,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -598,7 +598,7 @@ export function CommandPalette() {
                     "access",
                   )}
                 >
-                  <IconBrain className="me-2 h-4 w-4 text-muted-foreground" />
+                  <IconHierarchy2 className="me-2 h-4 w-4 text-muted-foreground" />
                   <span className="truncate">{t("settings.agentTitle")}</span>
                 </CommandItem>
                 {settingsCommands.map((setting) => (

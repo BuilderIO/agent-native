@@ -225,10 +225,10 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Calendar.",
     languageLabel: "Interface language",
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     googleCalendar: "Google Calendar",
     googleDescription: "Connect your Google Calendar to sync events.",
     googleFailed: "Google sign-in failed",

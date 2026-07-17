@@ -16,6 +16,7 @@ import {
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
 import { TeamPage } from "@agent-native/core/client/org";
+import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -112,6 +113,8 @@ export default function SettingsPage() {
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
+            <CreativeContextSettingsLink />
+
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
                 {t("settings.connections")}

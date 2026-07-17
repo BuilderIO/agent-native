@@ -57,10 +57,10 @@ const enUS = {
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     eyebrow: "Customize",
     title: "Customize Brain",
     description:

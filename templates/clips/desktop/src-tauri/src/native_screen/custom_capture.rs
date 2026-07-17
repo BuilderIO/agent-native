@@ -1088,6 +1088,93 @@ impl MixerTimeline {
             (0.0, 0.0)
         }
     }
+
+    fn push_at(
+        &mut self,
+        frame_index: i64,
+        interleaved: &[f32],
+        min_base_frame: i64,
+        max_gap: i64,
+    ) {
+        let frames = interleaved.len() / 2;
+        if frames == 0 {
+            return;
+        }
+        if !self.started {
+            self.started = true;
+            self.base_frame = frame_index.max(min_base_frame);
+        }
+
+        let cur_end = self.end_frame();
+        if frame_index > cur_end {
+            let gap = (frame_index - cur_end).min(max_gap) as usize;
+            self.samples
+                .extend(std::iter::repeat(0.0_f32).take(gap * 2));
+        }
+
+        let overlap_frames = (cur_end - frame_index).max(0) as usize;
+        if overlap_frames < frames {
+            self.samples
+                .extend_from_slice(&interleaved[overlap_frames * 2..]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod mixer_timeline_tests {
+    use super::MixerTimeline;
+
+    fn stereo_frames(values: &[f32]) -> Vec<f32> {
+        values.iter().flat_map(|value| [*value, *value]).collect()
+    }
+
+    #[test]
+    fn trims_overlapping_frames_instead_of_extending_the_timeline() {
+        let mut timeline = MixerTimeline::new();
+        timeline.push_at(0, &stereo_frames(&[1.0, 2.0, 3.0, 4.0]), 0, 96_000);
+        timeline.push_at(3, &stereo_frames(&[4.0, 5.0, 6.0, 7.0]), 0, 96_000);
+
+        assert_eq!(
+            timeline.samples,
+            stereo_frames(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+        );
+        assert_eq!(timeline.end_frame(), 7);
+    }
+
+    #[test]
+    fn ignores_fully_duplicated_buffers() {
+        let mut timeline = MixerTimeline::new();
+        let frames = stereo_frames(&[1.0, 2.0, 3.0]);
+        timeline.push_at(0, &frames, 0, 96_000);
+        timeline.push_at(0, &frames, 0, 96_000);
+
+        assert_eq!(timeline.samples, frames);
+        assert_eq!(timeline.end_frame(), 3);
+    }
+
+    #[test]
+    fn trims_input_that_starts_behind_already_emitted_output() {
+        let mut timeline = MixerTimeline::new();
+        timeline.started = true;
+        timeline.base_frame = 10;
+        timeline.push_at(8, &stereo_frames(&[1.0, 2.0, 3.0, 4.0]), 10, 96_000);
+
+        assert_eq!(timeline.samples, stereo_frames(&[3.0, 4.0]));
+        assert_eq!(timeline.end_frame(), 12);
+    }
+
+    #[test]
+    fn preserves_forward_timestamp_gaps_as_silence() {
+        let mut timeline = MixerTimeline::new();
+        timeline.push_at(0, &stereo_frames(&[1.0, 2.0]), 0, 96_000);
+        timeline.push_at(5, &stereo_frames(&[6.0]), 0, 96_000);
+
+        assert_eq!(
+            timeline.samples,
+            stereo_frames(&[1.0, 2.0, 0.0, 0.0, 0.0, 6.0])
+        );
+        assert_eq!(timeline.end_frame(), 6);
+    }
 }
 
 enum SourceBound {
@@ -1198,19 +1285,7 @@ impl LiveAudioMixer {
             MixSource::System => &mut self.system,
             MixSource::Mic => &mut self.mic,
         };
-        if !timeline.started {
-            timeline.started = true;
-            // Never start behind already-emitted output.
-            timeline.base_frame = frame_index.max(out_pos);
-        }
-        let cur_end = timeline.end_frame();
-        if frame_index > cur_end {
-            let gap = (frame_index - cur_end).min(max_gap) as usize;
-            timeline
-                .samples
-                .extend(std::iter::repeat(0.0_f32).take(gap * 2));
-        }
-        timeline.samples.extend_from_slice(interleaved);
+        timeline.push_at(frame_index, interleaved, out_pos, max_gap);
         timeline.last_push = Some(Instant::now());
     }
 

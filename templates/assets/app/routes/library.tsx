@@ -206,6 +206,7 @@ type HostConfig = {
   styleStrength?: StyleStrength;
   includeLogo?: boolean;
   callerAppId?: string;
+  creativeContextRequestId?: string;
   layout?: PickerLayout;
   autoGenerate?: boolean;
   candidateRunIds?: string[];
@@ -363,6 +364,10 @@ function normalizeHostConfig(value: unknown): HostConfig {
     includeLogo: normalizeBoolean(record.includeLogo),
     callerAppId:
       typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    creativeContextRequestId:
+      typeof record.creativeContextRequestId === "string"
+        ? record.creativeContextRequestId
+        : undefined,
     layout: normalizePickerLayout(record.layout),
     candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
@@ -1006,7 +1011,7 @@ function LibraryKitSelector({
             type="button"
             className="-ml-1.5 inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xl font-semibold leading-tight tracking-tight transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            <span className="block min-w-0 max-w-[min(48rem,calc(100vw-7rem))] truncate sm:max-w-none">
+            <span className="block min-w-0 break-words">
               {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
             </span>
             <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -2216,6 +2221,8 @@ export function AssetPickerSurface() {
       styleStrength: normalizeStyleStrength(params.get("styleStrength")),
       includeLogo: normalizeBoolean(params.get("includeLogo")),
       callerAppId: params.get("callerAppId") ?? undefined,
+      creativeContextRequestId:
+        params.get("creativeContextRequestId") ?? undefined,
       layout: normalizePickerLayout(params.get("layout")),
       candidateRunIds: normalizeCandidateRunIds(
         params.getAll("candidateRunIds").length > 0
@@ -2760,6 +2767,7 @@ export function AssetPickerSurface() {
       includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,
+      creativeContextRequestId: hostConfig.creativeContextRequestId,
     } as any);
   }, [
     count,
@@ -2768,6 +2776,7 @@ export function AssetPickerSurface() {
     effectiveAspectRatio,
     generateBatch,
     hostConfig.callerAppId,
+    hostConfig.creativeContextRequestId,
     hostConfig.includeLogo,
     hostConfig.styleStrength,
     hostConfig.tier,

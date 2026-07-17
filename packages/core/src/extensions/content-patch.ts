@@ -64,6 +64,15 @@ export type ExtensionContentEdit =
       required?: boolean;
     };
 
+export class ExtensionContentEditError extends Error {
+  readonly code = "extension_content_edit_failed";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ExtensionContentEditError";
+  }
+}
+
 export interface ExtensionContentUpdateOpts {
   content?: string;
   patches?: ExtensionLegacyPatch[];
@@ -78,6 +87,19 @@ export interface ExtensionContentUpdateResult {
 }
 
 export async function applyExtensionContentUpdate(
+  currentContent: string,
+  opts: ExtensionContentUpdateOpts,
+): Promise<ExtensionContentUpdateResult> {
+  try {
+    return await applyExtensionContentUpdateUnchecked(currentContent, opts);
+  } catch (error) {
+    if (error instanceof ExtensionContentEditError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ExtensionContentEditError(message);
+  }
+}
+
+async function applyExtensionContentUpdateUnchecked(
   currentContent: string,
   opts: ExtensionContentUpdateOpts,
 ): Promise<ExtensionContentUpdateResult> {

@@ -1,3 +1,4 @@
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
 import {
@@ -17,6 +18,12 @@ import {
 async function requireJiraCredentials(
   event: Parameters<typeof requireCredential>[0],
 ) {
+  const workspaceConnection = await resolveWorkspaceConnectionForApp({
+    appId: "analytics",
+    provider: "jira",
+    requireConnected: true,
+  });
+  if (workspaceConnection.available) return null;
   return (
     (await requireCredential(event, "JIRA_BASE_URL", "Jira")) ||
     (await requireCredential(event, "JIRA_USER_EMAIL", "Jira")) ||

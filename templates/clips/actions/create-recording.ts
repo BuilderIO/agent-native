@@ -18,6 +18,7 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
+  getOrganizationDefaultVisibility,
   nanoid,
   requireOrganizationAccess,
   stringifySpaceIds,
@@ -45,6 +46,8 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
+    const defaultVisibility =
+      await getOrganizationDefaultVisibility(organizationId);
 
     const spaceIds = (args.spaceIds ?? []).filter(
       (value, index, arr) => value && arr.indexOf(value) === index,
@@ -64,7 +67,7 @@ export default defineAction({
       uploadProgress: 0,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
-      visibility: args.visibility ?? "public",
+      visibility: args.visibility ?? defaultVisibility,
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,

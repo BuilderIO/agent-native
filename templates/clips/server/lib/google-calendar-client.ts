@@ -63,6 +63,7 @@ export interface CalendarEvent {
     email?: string;
     displayName?: string;
     responseStatus?: string;
+    self?: boolean;
   }>;
   conferenceData?: {
     entryPoints?: Array<{

@@ -23,10 +23,10 @@ const messages = {
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
     languageLabel: "Interface language",
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage team access and shared workspace resources.",
     openTeamSettings: "Open team settings",
@@ -212,6 +212,17 @@ const messages = {
       "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
     toggleAgent: "Toggle agent",
     openFullView: "Open full view",
+    askAgent: "Ask the agent",
+    askAgentTitle: "Ask the agent",
+    askAgentPlaceholder: "Tell the agent what you want to do…",
+    connectAi: "Connect AI",
+    builderOrOwnKeys:
+      "Use Builder.io (free credits), or add your own provider keys.",
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
+    builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
+    addOwnKeys: "Add your own keys",
+    configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
     voiceMode: {
       entryButtonLabel: "Use microphone",
@@ -220,9 +231,9 @@ const messages = {
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder to use managed voice with free credits, or use your own OpenAI API key.",
-      connectBuilder: "Connect Builder",
-      useOpenAiKey: "Use OpenAI API key",
+        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+      connectBuilder: "Connect Builder.io",
+      useOpenAiKey: "Add your own keys",
       startWithOpenAiKey: "Start with OpenAI key",
       start: "Start voice mode",
       keepDictating: "Keep dictating",
@@ -351,9 +362,19 @@ const messages = {
     organizationMemberNote: "You can manage jobs you created.",
     loading: "Loading…",
     recurringLoadError: "Could not load recurring jobs.",
+    organizationEmptyTitle: "No organization jobs yet",
+    organizationEmptyDescription:
+      "Describe a shared job for this organization.",
+    recurringEmptyTitle: "No recurring jobs yet",
+    recurringEmptyDescription: "Describe what should run and when.",
+    organizationCreateTitle: "Create an organization job",
+    recurringCreateTitle: "Create a recurring job",
+    organizationPrompt:
+      "Create a shared organization job that runs on a schedule and does this: ",
+    recurringPrompt:
+      "Create a recurring job that runs on a schedule and does this: every morning, summarize my inbox.",
     organizationEmpty: "No organization jobs yet.",
-    recurringEmpty:
-      "No recurring jobs yet. Ask the agent: “every morning, summarize my inbox”.",
+    recurringEmpty: "No recurring jobs yet.",
     enabled: "Enabled",
     paused: "Paused",
     disabled: "Disabled",
@@ -370,6 +391,10 @@ const messages = {
       "Automations are personal today, so none are shown in the organization view.",
     automationsDescription:
       "Event-triggered and scheduled agent tasks managed from one place.",
+    automationsEmptyTitle: "No automations yet",
+    automationsEmptyDescription: "Describe what should happen and when.",
+    automationsCreateTitle: "Create an automation",
+    automationPrompt: "Create an automation that does this: ",
     automationsPersonalOnly: "Automations are personal today.",
     deleteRecurringTitle: "Delete recurring job?",
     deleteRecurringDescription:
@@ -378,8 +403,7 @@ const messages = {
     recurringDetails: "Recurring job details",
     instructions: "Instructions",
     automationsLoadError: "Could not load automations.",
-    automationsEmpty:
-      "No automations yet. Ask the agent to set up an event-triggered or scheduled task.",
+    automationsEmpty: "No automations yet.",
     automationEventTrigger: "On {{event}}",
     automationScheduleTrigger: "Scheduled task",
     deleteAutomationTitle: "Delete automation?",
@@ -397,8 +421,7 @@ const messages = {
     personal: "Personal",
     organization: "Organization",
     fireTestEvent: "Fire test event",
-    automationsEmptySettings:
-      'No automations yet. Click "New automation" or ask the agent to set one up.',
+    automationsEmptySettings: "Describe what should happen and when.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -667,6 +690,7 @@ const messages = {
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
+    connectWithOAuth: "Connect with OAuth",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
     configureTitle: "Configure {{name}}",
@@ -682,6 +706,7 @@ const messages = {
     organization: "Organization",
     orgNoOrg: "Join an organization to share MCP servers",
     orgAdminOnly: "Only owners and admins can add org-scope servers",
+    serverNameRequired: "Enter a server name before connecting with OAuth.",
     serverName: "Server name",
     url: "URL",
     fieldDescription: "Description",

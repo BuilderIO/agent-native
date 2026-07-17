@@ -2160,38 +2160,46 @@ export function createIntegrationsPlugin(
             error: err instanceof Error ? err.message : "Slack access denied",
           };
         }
-        const clientId = await resolveSecret("SLACK_CLIENT_ID");
-        const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
-        const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
-        if (!clientId || !clientSecret || !signingSecret) {
-          setResponseStatus(event, 503);
-          return {
-            error:
-              "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
-          };
-        }
-        const redirectUri = resolveOAuthRedirectUri(
-          event,
-          `${P}/slack/oauth/callback`,
-        );
-        if (!redirectUri) {
-          setResponseStatus(event, 400);
-          return { error: "Slack OAuth redirect URL is not allowed." };
-        }
-        const query = getQuery(event);
-        const state = encodeOAuthState({
-          redirectUri,
-          owner: session.email,
-          orgId: org?.orgId ?? session.orgId ?? undefined,
-          app: "agent-native:slack",
-          addAccount: true,
-          returnUrl:
-            typeof query.return === "string" ? query.return : "/messaging",
-        });
-        return sendRedirect(
-          event,
-          buildSlackAuthorizeUrl({ clientId, redirectUri, state }),
-          302,
+        return await runWithRequestContext(
+          {
+            userEmail: session.email,
+            orgId: org?.orgId ?? session.orgId ?? undefined,
+          },
+          async () => {
+            const clientId = await resolveSecret("SLACK_CLIENT_ID");
+            const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
+            const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
+            if (!clientId || !clientSecret || !signingSecret) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
+              };
+            }
+            const redirectUri = resolveOAuthRedirectUri(
+              event,
+              `${P}/slack/oauth/callback`,
+            );
+            if (!redirectUri) {
+              setResponseStatus(event, 400);
+              return { error: "Slack OAuth redirect URL is not allowed." };
+            }
+            const query = getQuery(event);
+            const state = encodeOAuthState({
+              redirectUri,
+              owner: session.email,
+              orgId: org?.orgId ?? session.orgId ?? undefined,
+              app: "agent-native:slack",
+              addAccount: true,
+              returnUrl:
+                typeof query.return === "string" ? query.return : "/messaging",
+            });
+            return sendRedirect(
+              event,
+              buildSlackAuthorizeUrl({ clientId, redirectUri, state }),
+              302,
+            );
+          },
         );
       }),
     );
@@ -2239,17 +2247,17 @@ export function createIntegrationsPlugin(
             orgId: org?.orgId ?? session.orgId ?? null,
             orgRole: org?.role ?? null,
           });
-          const clientId = await resolveSecret("SLACK_CLIENT_ID");
-          const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
-          if (!clientId || !clientSecret) {
-            return oauthErrorPage("Slack OAuth is not configured.");
-          }
           return await runWithRequestContext(
             {
               userEmail: access.ownerEmail,
               orgId: access.orgId ?? undefined,
             },
             async () => {
+              const clientId = await resolveSecret("SLACK_CLIENT_ID");
+              const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
+              if (!clientId || !clientSecret) {
+                return oauthErrorPage("Slack OAuth is not configured.");
+              }
               const oauth = await exchangeSlackOAuthCode({
                 code,
                 clientId,

@@ -6,6 +6,8 @@ export interface ChatThreadScope {
   type: string;
   id: string;
   label?: string;
+  /** Composer context key used by ambient resource context adapters. */
+  contextKey?: string;
 }
 
 export interface ChatThreadSummary {

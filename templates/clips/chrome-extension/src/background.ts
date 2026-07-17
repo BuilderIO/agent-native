@@ -1,3 +1,7 @@
+import {
+  shouldReconcilePersistedRecording,
+  type OffscreenRecordingState,
+} from "./native-recording-state";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("background");
@@ -174,6 +178,7 @@ type OffscreenStatusMessage = {
   storageSetupRequired?: boolean;
   savedToDisk?: boolean;
   savedFilename?: string;
+  recordingStep?: string;
 };
 
 type ExtensionErrorMessage = {
@@ -1154,6 +1159,7 @@ async function startRecordingFromTab(args: {
   settings: ExtensionSettings;
 }) {
   const { tab, settings } = args;
+  await reconcilePersistedNativeRecording();
   // The persisted value is authoritative (survives a worker suspension during
   // arming); the in-memory var is only a same-tick fast path on top of it.
   // Stale (past-TTL) or legacy-shaped guards are treated as absent — see
@@ -1311,7 +1317,6 @@ async function armRecording(args: {
       hasCamera: cameraInvolved,
       hasAudio:
         settings.includeMicrophone || settings.captureSurface !== "camera",
-      visibility: "public",
       mimeType: "video/webm",
       requestStreaming: true,
     });
@@ -1382,6 +1387,7 @@ async function armRecording(args: {
       hasCamera: cameraInvolved,
       startDelayMs,
       authToken,
+      transcriptUrl: actionUrl(settings, "save-browser-transcript"),
     });
   } catch (err) {
     console.error("[clips-bg] arm: BEGIN failed", err);
@@ -1548,6 +1554,10 @@ async function handleOverlayRestart() {
       hasCamera: cameraInvolved,
       startDelayMs: cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000,
       authToken: restartAuthToken,
+      transcriptUrl: actionUrl(
+        settingsFromRecording(recording),
+        "save-browser-transcript",
+      ),
     });
   } catch (err) {
     // Re-arming failed: tear the countdown overlay back down and report the
@@ -1721,7 +1731,48 @@ async function clearNativeRecording(): Promise<void> {
   await chrome.action.setBadgeText({ text: "" });
 }
 
+async function reconcilePersistedNativeRecording(): Promise<void> {
+  const recording = activeNativeRecording;
+  if (!recording) return;
+  if (recording.status === "error" || recording.status === "complete") return;
+
+  try {
+    await ensureOffscreenDocument();
+    const state = await sendOffscreenMessage<OffscreenRecordingState>({
+      type: "CLIPS_OFFSCREEN_STATUS",
+    });
+    if (
+      !shouldReconcilePersistedRecording(
+        recording.status,
+        recording.sessionId,
+        state,
+      )
+    ) {
+      return;
+    }
+  } catch {
+    // A transient wake-up failure must not discard a real recording.
+    return;
+  }
+
+  console.warn(
+    "[clips-bg] clearing persisted recording with no live offscreen session",
+    recording.sessionId,
+  );
+  await deleteSession(recording.sessionId).catch((error) => {
+    console.warn(
+      "[clips-bg] stale recording cleanup could not detach tab",
+      error,
+    );
+  });
+  resetOverlay();
+  await broadcastUnmount();
+  broadcastOverlayState();
+  await clearNativeRecording();
+}
+
 async function handlePopupStatus() {
+  await reconcilePersistedNativeRecording();
   return {
     ok: true,
     activeRecording: activeNativeRecording,
@@ -2354,6 +2405,27 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
           typeof status.savedFilename === "string"
             ? status.savedFilename
             : undefined;
+      }
+      if (
+        status.status === "error" &&
+        status.recordingStep === "recorder-start"
+      ) {
+        await deleteSession(activeNativeRecording.sessionId).catch((error) => {
+          console.warn(
+            "[clips-bg] failed recorder-start cleanup could not detach tab",
+            error,
+          );
+        });
+        await postAction(
+          settingsFromRecording(activeNativeRecording),
+          "trash-recording",
+          { id: activeNativeRecording.recordingId },
+        ).catch(() => undefined);
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        return { ok: true };
       }
       await saveActiveNativeRecording();
       // The offscreen recorder finished its pre-roll and actually started —

@@ -2519,6 +2519,14 @@ function hasUnsupportedYjsSubpathImport(source: string): boolean {
   );
 }
 
+function hasBundledVitestRuntime(source: string): boolean {
+  return (
+    /["'`]@vitest\//.test(source) ||
+    /["'`]vitest\/(?:dist|src)\//.test(source) ||
+    /__vitest_\d+__/.test(source)
+  );
+}
+
 function walkServerJavaScriptFiles(
   dir: string,
   onFile: (filePath: string) => void,
@@ -2731,6 +2739,21 @@ export function assertSingleTemplateNetlifyBuildOutput(
   if (privateYjsImports.length > 0) {
     failures.push(
       `Netlify server bundle imports Nitro's internal tree-shaken _libs/yjs.mjs: ${privateYjsImports.join(", ")}`,
+    );
+  }
+
+  // React Router's filesystem route discovery can accidentally treat a
+  // co-located *.test.ts route as production code. That bundles Vitest into
+  // SSR and only fails when the first request executes the test helpers.
+  const bundledVitestRuntime: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    if (hasBundledVitestRuntime(fs.readFileSync(filePath, "utf-8"))) {
+      bundledVitestRuntime.push(path.relative(projectCwd, filePath));
+    }
+  });
+  if (bundledVitestRuntime.length > 0) {
+    failures.push(
+      `Netlify server bundle contains Vitest test runtime code: ${bundledVitestRuntime.join(", ")}`,
     );
   }
 

@@ -29,6 +29,18 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  delimitUntrustedReference: vi.fn((value: string) => value),
+  getGenerationCreativeContext: vi.fn(async () => null),
+  recordGenerationCreativeContext: vi.fn(async () => undefined),
+  resolveGenerationCreativeContext: vi.fn(async () => ({
+    contextMode: "off",
+    contextPackId: null,
+    reuseLabels: [],
+    results: [],
+  })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),

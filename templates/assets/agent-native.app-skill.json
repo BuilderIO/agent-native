@@ -35,6 +35,10 @@
   ],
   "skills": [
     {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
+    },
+    {
       "path": ".agents/skills/asset-generation",
       "visibility": "both",
       "exportAs": "assets"

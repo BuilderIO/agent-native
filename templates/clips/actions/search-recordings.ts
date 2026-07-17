@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 80;
 
@@ -40,10 +41,6 @@ function recordingDeepLink(
     },
     to: playerPath(recordingId, options),
   });
-}
-
-function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
 }
 
 function buildSnippet(fullText: string, query: string): string | null {
@@ -113,7 +110,7 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const pattern = `%${escapeLike(args.query)}%`;
+    const pattern = buildCaseInsensitiveSearchPattern(args.query);
 
     // Title/description matches on the recordings table
     const recMatches = await db
@@ -132,7 +129,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.recordings, schema.recordingShares),
-          sql`(${schema.recordings.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.recordings.description} LIKE ${pattern} ESCAPE '\\')`,
+          sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
       .limit(args.limit);
@@ -162,7 +159,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.recordings, schema.recordingShares),
-          sql`${schema.recordingTranscripts.fullText} LIKE ${pattern} ESCAPE '\\'`,
+          sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
       .limit(args.limit);
@@ -190,7 +187,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.recordings, schema.recordingShares),
-          sql`${schema.recordingComments.content} LIKE ${pattern} ESCAPE '\\'`,
+          sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
       .limit(args.limit);

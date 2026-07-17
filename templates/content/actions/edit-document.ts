@@ -6,6 +6,13 @@ import {
   searchAndReplace,
 } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -15,6 +22,18 @@ interface TextEdit {
   find: string;
   replace: string;
 }
+
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
 
 export default defineAction({
   description:
@@ -30,6 +49,21 @@ export default defineAction({
       .string()
       .optional()
       .describe("JSON array of {find, replace} objects (batch mode)"),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Exact Creative Context pack used for this edit."),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this edit only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(reuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Exact item versions that influenced this document edit."),
   }),
   http: false,
   run: async (args, ctx) => {
@@ -112,13 +146,112 @@ export default defineAction({
       return { applied: 0, total: edits.length, results };
     }
 
+    const previousGeneration =
+      args.contextModeOverride === "off"
+        ? null
+        : await getGenerationCreativeContext({
+            appId: "content",
+            artifactType: "document",
+            artifactId: id,
+          });
+    let creativeContext:
+      | {
+          contextMode: "off" | "auto" | "pinned";
+          contextPackId: string | null;
+          reuseLabels: CreativeContextReuseLabel[];
+          elementProvenance: Array<{
+            elementId: string;
+            influence:
+              | "reused"
+              | "adapted"
+              | "reference-conditioned"
+              | "generated";
+            itemId?: string;
+            itemVersionId?: string;
+            label?: string;
+          }>;
+        }
+      | undefined;
+    if (
+      previousGeneration ||
+      args.contextPackId ||
+      args.contextModeOverride ||
+      args.reuseLabels.length
+    ) {
+      if (
+        args.contextPackId !== undefined &&
+        previousGeneration?.contextPackId &&
+        args.contextPackId !== previousGeneration.contextPackId
+      ) {
+        throw new Error(
+          "The document edit must preserve the document's creative-context pack",
+        );
+      }
+      const requestedLabels: CreativeContextReuseLabel[] = args.reuseLabels
+        .length
+        ? args.reuseLabels
+        : [
+            {
+              kind: "document",
+              label: "Net-new document edit",
+              dataRole: "untrusted-reference",
+              elementId: id,
+              influence: "generated",
+            },
+          ];
+      const validated = await validateGenerationCreativeContext({
+        contextPackId: args.contextPackId ?? previousGeneration?.contextPackId,
+        contextPackSource:
+          args.contextPackId === undefined ? "inherited" : "explicit",
+        contextModeOverride: args.contextModeOverride,
+        reuseLabels: requestedLabels,
+        reuseLabelsSource: args.reuseLabels.length ? "explicit" : "inherited",
+      });
+      const elementProvenance = validated.reuseLabels.map((label) => ({
+        elementId: id,
+        influence: label.influence ?? ("reference-conditioned" as const),
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      }));
+      const contextMode =
+        validated.contextMode === "off"
+          ? "off"
+          : (previousGeneration?.contextMode ?? validated.contextMode);
+      creativeContext = {
+        contextMode,
+        contextPackId: validated.contextPackId,
+        reuseLabels: validated.reuseLabels,
+        elementProvenance:
+          contextMode === "off"
+            ? elementProvenance
+            : replaceCreativeContextElementProvenance(
+                previousGeneration?.elementProvenance ?? [],
+                elementProvenance,
+              ),
+      };
+    }
+
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
     const db = getDb();
-    await db
-      .update(schema.documents)
-      .set({ content, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, id));
+    await db.transaction(async (tx: any) => {
+      await tx
+        .update(schema.documents)
+        .set({ content, updatedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, id));
+      if (creativeContext) {
+        await recordGenerationCreativeContext(
+          {
+            appId: "content",
+            artifactType: "document",
+            artifactId: id,
+            ...creativeContext,
+          },
+          { db: tx },
+        );
+      }
+    });
 
     // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
     // binds the TipTap Y.XmlFragment("default"), so a live editing session is
@@ -160,6 +293,13 @@ export default defineAction({
       applied: changeCount,
       total: edits.length,
       results,
+      ...(creativeContext
+        ? {
+            contextMode: creativeContext.contextMode,
+            contextPackId: creativeContext.contextPackId,
+            reuseLabels: creativeContext.reuseLabels,
+          }
+        : {}),
     };
   },
 });

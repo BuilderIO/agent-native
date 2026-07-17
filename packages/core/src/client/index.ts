@@ -10,6 +10,10 @@ export {
   reloadForClientCompatibilityMismatch,
   stripBuildCompatibilityCacheBuster,
 } from "./build-compatibility.js";
+export {
+  AgentAskPopover,
+  type AgentAskPopoverProps,
+} from "./AgentAskPopover.js";
 
 export {
   addContextToAgentChat,
@@ -395,7 +399,10 @@ export {
   type BuildAgentNativeExtensionHtmlOptions,
   type CreateHttpAgentNativeExtensionStorageOptions,
 } from "./extensions/portable-extension.js";
-export { injectSessionReplayIframeBootstrap } from "../extensions/session-replay-iframe.js";
+export {
+  buildSessionReplayIframeBootstrap,
+  injectSessionReplayIframeBootstrap,
+} from "../extensions/session-replay-iframe.js";
 export {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
   SESSION_REPLAY_IFRAME_PROBE,
@@ -603,6 +610,8 @@ export {
 } from "./AgentPanel.js";
 export {
   AgentTabsPage,
+  type AgentPageExtraTabContext,
+  type AgentPageExtraTabFactory,
   type AgentTabsPageProps,
 } from "./agent-page/AgentTabsPage.js";
 export type { AgentPageScope, AgentPageTabProps } from "./agent-page/types.js";
@@ -784,6 +793,9 @@ export {
   getAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
+  setTrackingIdentity,
+  getSessionReplayContext,
+  getSessionReplayUrl,
   captureError,
   captureClientException,
   // First-party, Sentry-style error capture (auto + manual API).
@@ -801,8 +813,11 @@ export {
   type ExceptionLevel,
   type FirstTouchAttribution,
   type SessionReplayOptions,
+  type SessionReplayContext,
+  type SessionReplayLinkOptions,
   type SessionReplayStartResult,
   type SessionReplayUrlMatcher,
+  type TrackingIdentityUser,
 } from "./analytics.js";
 export { track } from "./track.js";
 export {

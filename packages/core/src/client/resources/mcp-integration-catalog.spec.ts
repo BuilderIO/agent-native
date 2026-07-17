@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
   filterMcpIntegrations,
@@ -8,6 +9,7 @@ import {
   isCustomMcpIntegrationEnabled,
   isMcpIntegrationCatalogAvailable,
   mcpIntegrationAuthLabel,
+  resolveMcpIntegrationScope,
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
@@ -74,6 +76,35 @@ describe("MCP integration catalog", () => {
     expect(mcpIntegrationAuthLabel("none")).toBe("No auth");
     expect(mcpIntegrationAuthLabel("headers")).toBe("Header");
     expect(mcpIntegrationAuthLabel("oauth")).toBe("OAuth");
+  });
+
+  it("builds an encoded OAuth start URL", () => {
+    const url = buildMcpOAuthStartUrl({
+      name: "Linear & Issues",
+      url: "https://mcp.linear.app/sse?tenant=one&mode=oauth",
+      description: "Read and write issues",
+      scope: "org",
+      returnUrl: "/settings?tab=mcp#linear",
+    });
+    const params = new URL(url, "https://example.com").searchParams;
+
+    expect(new URL(url, "https://example.com").pathname).toBe(
+      "/_agent-native/mcp/servers/oauth/start",
+    );
+    expect(params.get("name")).toBe("Linear & Issues");
+    expect(params.get("url")).toBe(
+      "https://mcp.linear.app/sse?tenant=one&mode=oauth",
+    );
+    expect(params.get("description")).toBe("Read and write issues");
+    expect(params.get("scope")).toBe("org");
+    expect(params.get("return")).toBe("/settings?tab=mcp#linear");
+  });
+
+  it("falls back to personal scope when organization access is unavailable", () => {
+    expect(resolveMcpIntegrationScope("org", false, true)).toBe("user");
+    expect(resolveMcpIntegrationScope("org", true, false)).toBe("user");
+    expect(resolveMcpIntegrationScope("org", true, true)).toBe("org");
+    expect(resolveMcpIntegrationScope("user", true, true)).toBe("user");
   });
 
   it("can hide all default presets while leaving custom setup available", () => {

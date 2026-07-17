@@ -134,6 +134,15 @@ const targets: PackageTarget[] = [
     ],
   },
   {
+    id: "creative-context",
+    name: "@agent-native/creative-context",
+    dir: "packages/creative-context",
+    expectedOutputs: exportedDistOutputs("packages/creative-context"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/creative-context.tsbuildinfo",
+    ],
+  },
+  {
     id: "code-agents-ui",
     name: "@agent-native/code-agents-ui",
     dir: "packages/code-agents-ui",
@@ -186,6 +195,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "shared-app-config",
     "toolkit",
     "core",
+    "creative-context",
     "code-agents-ui",
     "scheduling",
     "dispatch",
@@ -196,6 +206,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "shared-app-config",
     "toolkit",
     "core",
+    "creative-context",
     "code-agents-ui",
     "migrate",
     "pinpoint",

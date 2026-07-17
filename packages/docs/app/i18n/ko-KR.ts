@@ -39,6 +39,7 @@ const koKR = {
   theme: {
     light: "라이트",
     dark: "다크",
+    toggle: "테마 전환",
     label: "테마: {{theme}}",
   },
   docs: {

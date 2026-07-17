@@ -37,6 +37,7 @@ const messages = {
   theme: {
     light: "淺色",
     dark: "深色",
+    toggle: "切換主題",
     label: "主題：{{theme}}",
   },
   docs: {

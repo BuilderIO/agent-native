@@ -68,7 +68,23 @@ function isRuntimeSourceFile(filename: string): boolean {
  * consumers can override a packaged action by dropping a same-named file
  * in their own `actions/` dir.
  */
-const packageActionRegistry: Record<string, ActionEntry> = {};
+const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core.package-action-registry",
+);
+
+function getPackageActionRegistry(): Record<string, ActionEntry> {
+  const sharedGlobal = globalThis as typeof globalThis & {
+    [key: symbol]: unknown;
+  };
+  const existing = sharedGlobal[PACKAGE_ACTION_REGISTRY_KEY];
+  if (existing && typeof existing === "object") {
+    return existing as Record<string, ActionEntry>;
+  }
+
+  const registry: Record<string, ActionEntry> = {};
+  sharedGlobal[PACKAGE_ACTION_REGISTRY_KEY] = registry;
+  return registry;
+}
 
 /**
  * Register a map of actions contributed by a published package.
@@ -87,15 +103,27 @@ const packageActionRegistry: Record<string, ActionEntry> = {};
 export function registerPackageActions(
   actions: Record<string, ActionEntry>,
 ): void {
+  const packageActionRegistry = getPackageActionRegistry();
   for (const [name, entry] of Object.entries(actions)) {
     if (packageActionRegistry[name]) continue;
     packageActionRegistry[name] = entry;
   }
 }
 
-/** Internal — used by `autoDiscoverActions`. Returns a shallow copy. */
-function getPackageActions(): Record<string, ActionEntry> {
-  return { ...packageActionRegistry };
+/**
+ * Merge package-contributed actions without replacing app-local actions.
+ *
+ * This is intentionally callable even when the app passes an explicit static
+ * action registry. Published packages register through import side effects,
+ * while generated app registries only contain app-local action files.
+ */
+export function mergePackageActions(
+  registry: Record<string, ActionEntry>,
+): void {
+  for (const [name, entry] of Object.entries(getPackageActionRegistry())) {
+    if (registry[name]) continue;
+    registry[name] = entry;
+  }
 }
 
 /**
@@ -518,10 +546,7 @@ export async function autoDiscoverActions(
   //     (e.g. @agent-native/dispatch) via `registerPackageActions()` from
   //     import side effects. Merged with skip-existing so the template's
   //     own actions/ files always win on name collision.
-  for (const [name, entry] of Object.entries(getPackageActions())) {
-    if (registry[name]) continue;
-    registry[name] = entry;
-  }
+  mergePackageActions(registry);
 
   // 2. Workspace-core actions — merged in with skipExisting so they can't
   //    overwrite template entries.
@@ -707,6 +732,8 @@ export async function mergeCoreSharingActions(
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
     ],
+    ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
+    ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

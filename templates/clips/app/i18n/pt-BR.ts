@@ -172,7 +172,7 @@ const messages = {
       "O gravador de desktop terminou e salvou uma cópia local, mas Clips não conseguiu carregá-la. Você pode tentar novamente no menu Clips sem gravar novamente.",
     retryLibrary: "Você pode tentar novamente na biblioteca.",
     processingStuck:
-      "O processamento não foi concluído após 30 segundos (status={{status}}). O upload do clipe pode não ter terminado — verifique os logs do servidor para mensagens de fragmentação/finalização.",
+      "O salvamento está demorando mais do que o esperado (status={{status}}). Se você gravou no app para desktop, abra o Clips pela barra de menus para tentar o upload novamente ou baixar uma cópia local salva e verifique outra vez.",
     uploadingAssembling:
       "Carregar e montar seu vídeo – isso geralmente leva apenas alguns segundos.",
     connectStorageImportLoom:
@@ -221,6 +221,9 @@ const messages = {
     autoChapters: "Capítulos automáticos",
     removeFillerWords: "Remover palavras de preenchimento",
     removeSilences: "Remover silêncios (>1,2s)",
+    silenceWorking: "Removendo silêncios…",
+    silenceCompleted: "Remoção de silêncios concluída",
+    silenceFailed: "Falha ao remover silêncios",
     generatePrSummary: "Gerar resumo de PR",
     generateSop: "Gerar SOP",
     generateSopTooltip:
@@ -549,6 +552,9 @@ const messages = {
     brandingUpdated: "Marca atualizada",
     saveFailed: "Falha ao salvar",
     organizationName: "Nome da organização",
+    defaultVisibility: "Visibilidade padrão de novas gravações",
+    defaultVisibilityDescription:
+      "Aplicada a novas gravações, a menos que você escolha outra visibilidade.",
     brandColor: "Cor da marca",
     brandColorPicker: "Seletor de cor da marca",
     useColor: "Usar {{color}}",
@@ -1115,6 +1121,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     desktopTitle: "Desktop app (Localizado)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localizado)",
+    openDesktopApp: "Open desktop app (Localizado)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localizado)",

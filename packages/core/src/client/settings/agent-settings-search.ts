@@ -194,8 +194,8 @@ export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
   return [
     {
       id: "agent",
-      label: "Agent",
-      keywords: "agent model llm limits voice automations",
+      label: "Agent workspace",
+      keywords: "agent workspace model llm limits voice automations",
       searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
     },
     {

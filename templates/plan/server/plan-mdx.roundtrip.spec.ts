@@ -961,6 +961,52 @@ describe("canvas (Artboard/Section/Annotation/Connector) round-trip", () => {
     );
   });
 
+  it("round-trips annotation text that looks like an HTML tag", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Canvas annotation text",
+      canvas: {
+        title: "Board",
+        frames: [],
+        annotations: [
+          {
+            id: "anno-html-like",
+            text: "Inspect the <label> before continuing.",
+          },
+        ],
+      },
+      blocks: [{ id: "rt", type: "rich-text", data: { markdown: "x" } }],
+    };
+
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Canvas annotation text",
+    });
+
+    expect(folder["canvas.mdx"]).toContain("text={");
+    const result = await parsePlanMdxFolder(folder);
+    expect(result.canvas?.annotations?.[0]?.text).toBe(
+      "Inspect the <label> before continuing.",
+    );
+  });
+
+  it("accepts legacy annotation bodies containing HTML-like plain text", async () => {
+    const result = await parsePlanMdxFolder({
+      "plan.mdx":
+        '---\ntitle: "Canvas annotation text"\nversion: 2\n---\n\nBody.\n',
+      "canvas.mdx": `<DesignBoard title="Board">
+  <Annotation id="anno-html-like">
+    Inspect the <label> before continuing.
+  </Annotation>
+</DesignBoard>
+`,
+    });
+
+    expect(result.canvas?.annotations?.[0]?.text).toBe(
+      "Inspect the <label> before continuing.",
+    );
+  });
+
   it("round-trips artboard geometry (x/y/width/height/order)", async () => {
     const content: PlanContent = {
       version: 2,

@@ -560,6 +560,14 @@ and `taskId`; the result includes `pollAfterMs` as a host-friendly interval.
 The task must be created before the first response can time out, so a polling
 URL returned only after a long call is not a reliable recovery contract.
 
+If a bounded transient status read is unavailable, `ask_app_status` can return
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
+original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
+read is unavailable—not that the durable task failed. Retry `ask_app_status`
+with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
+submission can duplicate work. Permanent authentication, not-found, and
+protocol failures remain errors.
+
 ### Per-app tour {#tour}
 
 Every allow-listed template that produces or lists a navigable resource ships a `link` builder, and the ingest-heavy ones ship a GET + `publicAgent` action so a connected agent can pull live state:

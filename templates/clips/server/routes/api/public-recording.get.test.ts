@@ -10,6 +10,7 @@ const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockVerifySharePassword = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
@@ -37,6 +38,10 @@ vi.mock("@agent-native/core/server", () => ({
     mockSignScopedAgentAccessToken(...args),
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
     mockVerifyScopedAgentAccessToken(...args),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
 vi.mock("../../db/index.js", () => ({
@@ -156,6 +161,7 @@ describe("/api/public-recording route", () => {
       event.setCookies.push({ name, value, options });
     });
     mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue(null);
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
     mockVerifySharePassword.mockReturnValue(true);
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
@@ -245,5 +251,37 @@ describe("/api/public-recording route", () => {
       "rec-1",
       expect.objectContaining({ token: "agent-token" }),
     );
+  });
+
+  it("allows an authenticated viewer with an explicit user share", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeRecording({ visibility: "private", password: null }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { id: "rec-1", visibility: "private" },
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("recording", "rec-1", {
+      userEmail: "viewer@example.com",
+      orgId: "org-1",
+    });
+    expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
   });
 });

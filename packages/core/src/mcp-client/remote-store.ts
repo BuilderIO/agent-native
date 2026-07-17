@@ -39,6 +39,15 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
+import {
+  deleteMcpOAuthCredentials,
+  getMcpOAuthAccessToken,
+  saveMcpOAuthCredentials,
+  type McpOAuthCredentialBundle,
+} from "./oauth-client.js";
+import { validateRemoteUrl } from "./remote-url.js";
+
+export { validateRemoteUrl } from "./remote-url.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
 
@@ -70,6 +79,8 @@ export interface StoredRemoteMcpServer {
    * supplied (or for legacy cleartext rows).
    */
   headerSecretKey?: string;
+  /** Reference to the encrypted OAuth credential bundle for this server. */
+  oauthSecretKey?: string;
   /**
    * Trusted first-party Agent-Native app. Only framework-controlled
    * registrations should set this; management routes intentionally do not
@@ -167,123 +178,6 @@ function sanitiseOrgId(orgId: string): string {
   return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
-/**
- * Hostname patterns that are always rejected to prevent SSRF via DNS rebinding
- * or well-known internal service names.
- */
-const BLOCKED_HOSTNAME_PATTERNS: RegExp[] = [
-  /^localhost$/i,
-  /\.localhost$/i,
-  /\.local$/i,
-  /\.internal$/i,
-  // DNS rebind services
-  /\.nip\.io$/i,
-  /\.sslip\.io$/i,
-  /\.xip\.io$/i,
-  /\.localtest\.me$/i,
-  /\.lvh\.me$/i,
-  // Cloud metadata hosts
-  /^metadata\.google\.internal$/i,
-  /^instance-data$/i,
-];
-
-/** Literal IPs that are always rejected (cloud metadata endpoints). */
-const BLOCKED_IPS = new Set([
-  "169.254.169.254", // AWS/GCP/Azure IMDS
-  "100.100.100.200", // Alibaba Cloud metadata
-  "::1",
-]);
-
-/** Parse a dotted-decimal IPv4 string to a 32-bit integer for range checks. */
-function ipv4ToInt(ip: string): number | null {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const part of parts) {
-    const byte = parseInt(part, 10);
-    if (isNaN(byte) || byte < 0 || byte > 255) return null;
-    n = (n << 8) | byte;
-  }
-  return n >>> 0;
-}
-
-function isPrivateIpv4(hostname: string): boolean {
-  const n = ipv4ToInt(hostname);
-  if (n === null) return false;
-  // 10.0.0.0/8
-  if ((n & 0xff000000) >>> 0 === 0x0a000000) return true;
-  // 172.16.0.0/12
-  if ((n & 0xfff00000) >>> 0 === 0xac100000) return true;
-  // 192.168.0.0/16
-  if ((n & 0xffff0000) >>> 0 === 0xc0a80000) return true;
-  // 169.254.0.0/16 (link-local, includes AWS/GCP metadata)
-  if ((n & 0xffff0000) >>> 0 === 0xa9fe0000) return true;
-  // 127.0.0.0/8 (loopback)
-  if ((n & 0xff000000) >>> 0 === 0x7f000000) return true;
-  return false;
-}
-
-function isBlockedHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (BLOCKED_IPS.has(normalized)) return true;
-  if (isPrivateIpv4(normalized)) return true;
-  // IPv6 ULA (fc00::/7) and link-local (fe80::/10)
-  if (normalized === "::1") return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (normalized.startsWith("fe80")) return true;
-  if (normalized.startsWith("::ffff:")) {
-    const mapped = normalized.slice("::ffff:".length);
-    if (isPrivateIpv4(mapped)) return true;
-    const hexMatch = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(mapped);
-    if (hexMatch) {
-      const value =
-        (parseInt(hexMatch[1], 16) << 16) | parseInt(hexMatch[2], 16);
-      const dotted = [
-        (value >>> 24) & 0xff,
-        (value >>> 16) & 0xff,
-        (value >>> 8) & 0xff,
-        value & 0xff,
-      ].join(".");
-      if (isPrivateIpv4(dotted)) return true;
-    }
-  }
-  for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
-    if (pattern.test(normalized)) return true;
-  }
-  return false;
-}
-
-/** Reject obviously-wrong URLs. Allows http only for localhost. */
-export function validateRemoteUrl(raw: string): {
-  ok: boolean;
-  url?: URL;
-  error?: string;
-} {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return { ok: false, error: "Not a valid URL" };
-  }
-  if (url.protocol === "https:") {
-    if (isBlockedHostname(url.hostname)) {
-      return {
-        ok: false,
-        error: `Host "${url.hostname}" is not allowed (private/internal address)`,
-      };
-    }
-    return { ok: true, url };
-  }
-  if (url.protocol === "http:") {
-    const host = url.hostname;
-    if (host === "localhost" || host === "127.0.0.1") {
-      return { ok: true, url };
-    }
-    return { ok: false, error: "Plain http is only allowed for localhost" };
-  }
-  return { ok: false, error: `Unsupported protocol: ${url.protocol}` };
-}
-
 async function readList(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -340,6 +234,58 @@ export async function addRemoteServer(
   return addRemoteServerInternal(scope, scopeId, input);
 }
 
+/**
+ * Persist a remote MCP server whose authorization is managed by the MCP
+ * server's OAuth 2.1 metadata and token endpoints. OAuth credentials are
+ * stored separately from the settings row and never returned to clients.
+ */
+export async function addOAuthRemoteServer(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  input: {
+    name: string;
+    url: string;
+    description?: string;
+    credentials: McpOAuthCredentialBundle;
+  },
+): Promise<
+  { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
+> {
+  const oauthSecretKey = `mcp_oauth:${shortId()}`;
+  try {
+    await saveMcpOAuthCredentials({
+      key: oauthSecretKey,
+      scope,
+      scopeId,
+      credentials: input.credentials,
+    });
+    const result = await addRemoteServerInternal(scope, scopeId, {
+      name: input.name,
+      url: input.url,
+      description: input.description,
+      oauthSecretKey,
+    });
+    if (!result.ok) {
+      await deleteMcpOAuthCredentials({
+        key: oauthSecretKey,
+        scope,
+        scopeId,
+      });
+    }
+    return result;
+  } catch (err: any) {
+    await deleteMcpOAuthCredentials({
+      key: oauthSecretKey,
+      scope,
+      scopeId,
+    }).catch(() => {});
+    return {
+      ok: false,
+      error: `Failed to save MCP OAuth credentials: ${err?.message ?? err}`,
+    };
+  }
+}
+
 export async function addFirstPartyRemoteServer(
   orgId: string,
   input: {
@@ -376,6 +322,7 @@ async function addRemoteServerInternal(
     description?: string;
     firstParty?: boolean;
     firstPartyAppId?: string;
+    oauthSecretKey?: string;
   },
 ): Promise<
   { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
@@ -427,6 +374,7 @@ async function addRemoteServerInternal(
     ...(input.firstPartyAppId
       ? { firstPartyAppId: input.firstPartyAppId }
       : {}),
+    ...(input.oauthSecretKey ? { oauthSecretKey: input.oauthSecretKey } : {}),
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
@@ -546,6 +494,20 @@ export async function removeRemoteServer(
       );
     }
   }
+  if (removed?.oauthSecretKey) {
+    try {
+      await deleteMcpOAuthCredentials({
+        key: removed.oauthSecretKey,
+        scope,
+        scopeId,
+      });
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
+      );
+    }
+  }
   return true;
 }
 
@@ -628,10 +590,23 @@ export async function toHttpServerConfigAsync(
   scopeId: string,
   stored: StoredRemoteMcpServer,
 ): Promise<McpHttpServerConfig> {
+  let headers = await materializeHeaders(scope, scopeId, stored);
+  if (stored.oauthSecretKey) {
+    const accessToken = await getMcpOAuthAccessToken({
+      key: stored.oauthSecretKey,
+      scope,
+      scopeId,
+      serverUrl: stored.url,
+    });
+    if (accessToken) {
+      headers ??= {};
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+  }
   return {
     type: "http",
     url: stored.url,
-    headers: await materializeHeaders(scope, scopeId, stored),
+    headers,
     ...(stored.firstParty ? { firstParty: true } : {}),
     ...(stored.firstPartyAppId
       ? { firstPartyAppId: stored.firstPartyAppId }

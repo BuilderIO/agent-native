@@ -23,6 +23,8 @@ const amplitudeMock = vi.hoisted(() => ({
 const replayMock = vi.hoisted(() => ({
   emitSessionReplayException: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
+  getSessionReplayContext: vi.fn(() => null),
+  getSessionReplayUrl: vi.fn(() => null),
   maybeStartSessionReplay: vi.fn(async () => ({ started: false })),
   startSessionReplay: vi.fn(async () => ({ started: false })),
   stopSessionReplay: vi.fn(async () => undefined),

@@ -14,6 +14,7 @@ import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 export const DASHBOARD_MUTATION_API_TYPES = `type DashboardScript = {
   dashboard: {
     set(patch: DashboardPatch): void;
+    setFilterDefault(filterId: string, value: string | number | boolean | null): void;
     panel(id: string): PanelSelection;
     section(id: string): SectionSelection;
     panels(ids: string[]): PanelSelection;
@@ -41,6 +42,7 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
+  /** Fixed bar width in pixels for bar charts. */
 };
 
 type PanelPatch = {
@@ -96,14 +98,14 @@ type PanelSelection = {
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yAxis.format" or "config.yAxis.format"
-  duplicate(newPanelId: string, patch?: PanelPatch): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
 type SectionSelection = PanelSelection & {
   append(panelIds: string[]): void;
 };
 
-type InsertedPanel = {
+type PanelPlacement = {
   atTop(): void;
   atBottom(): void;
   before(panelId: string): void;
@@ -113,10 +115,14 @@ type InsertedPanel = {
   atRow(rowNumber: number): void; // 1-based visible row number, end of row
   atRowStart(rowNumber: number): void;
   atRowEnd(rowNumber: number): void;
-};`;
+};
+
+type InsertedPanel = PanelPlacement;`;
 
 export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panels(["dau-over-time","wau-over-time"]).moveToTop();',
+  'dashboard.panel("recurring-users-by-template").duplicate("recurring-users-by-template-bar", {"title":"Recurring Signed-In Users by Template (Bar)","chartType":"bar"}).nextTo("recurring-users-by-template");',
+  'dashboard.setFilterDefault("emailFilter","exclude_builder");',
   'dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");',
   'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
@@ -183,6 +189,11 @@ export type DashboardMutationOperation =
   | {
       op: "setDashboard";
       patch: Record<string, unknown>;
+    }
+  | {
+      op: "setFilterDefault";
+      filterId: string;
+      value: string | number | boolean | null;
     };
 
 export interface DashboardMutationResult {
@@ -217,6 +228,7 @@ type DashboardPlacementTarget = PanelOrderTarget | VisualPlacementTarget;
 
 const DASHBOARD_SUBJECTS = [
   "set",
+  "setFilterDefault",
   "panel",
   "section",
   "panels",
@@ -275,6 +287,49 @@ function panelsFromConfig(config: Record<string, unknown>) {
     throw new Error("config.panels must be an array");
   }
   return panels as Array<Record<string, unknown>>;
+}
+
+function requireDashboardFilter(
+  config: Record<string, unknown>,
+  filterId: string,
+): Record<string, unknown> {
+  if (!Array.isArray(config.filters)) {
+    throw new Error("config.filters must be an array");
+  }
+  const filters = config.filters as Array<Record<string, unknown>>;
+  const filter = filters.find((item) => item?.id === filterId);
+  if (!filter) {
+    const ids = filters
+      .map((item) => (typeof item?.id === "string" ? item.id : ""))
+      .filter(Boolean);
+    throw new Error(
+      `filter "${filterId}" was not found. Available filter ids: ${compactList(ids)}.`,
+    );
+  }
+  return filter;
+}
+
+function setFilterDefault(
+  config: Record<string, unknown>,
+  filterId: string,
+  value: string | number | boolean | null,
+): void {
+  const filter = requireDashboardFilter(config, filterId);
+  if (Array.isArray(filter.options) && filter.options.length > 0) {
+    const optionValues = filter.options
+      .map((option) =>
+        option && typeof option === "object" && !Array.isArray(option)
+          ? (option as Record<string, unknown>).value
+          : undefined,
+      )
+      .filter((optionValue) => optionValue !== undefined);
+    if (!optionValues.some((optionValue) => Object.is(optionValue, value))) {
+      throw new Error(
+        `filter "${filterId}" default ${JSON.stringify(value)} is not one of its option values: ${optionValues.map((optionValue) => JSON.stringify(optionValue)).join(", ")}`,
+      );
+    }
+  }
+  filter.default = value;
 }
 
 function panelId(panel: Record<string, unknown>): string {
@@ -895,6 +950,14 @@ export function applyDashboardMutationOperations(
           );
           break;
         }
+        case "setFilterDefault": {
+          setFilterDefault(config, op.filterId, op.value);
+          dashboardFieldsChanged.add(`filters.${op.filterId}.default`);
+          commandLog.push(
+            `setFilterDefault(${op.filterId}: ${JSON.stringify(op.value)})`,
+          );
+          break;
+        }
         default:
           throw new Error(
             `unsupported dashboard mutation op ${(op as any).op}`,
@@ -1304,6 +1367,33 @@ function operationsFromStatement(
     ];
   }
 
+  if (subject.name === "setFilterDefault") {
+    if (commands.length > 0) {
+      throw new Error("dashboard.setFilterDefault(...) cannot be chained");
+    }
+    if (subject.args.length !== 2) {
+      throw new Error(
+        "dashboard.setFilterDefault(...) requires filterId and value",
+      );
+    }
+    const value = subject.args[1];
+    if (
+      value !== null &&
+      !["string", "number", "boolean"].includes(typeof value)
+    ) {
+      throw new Error(
+        "dashboard.setFilterDefault(...) value must be a string, number, boolean, or null",
+      );
+    }
+    return [
+      {
+        op: "setFilterDefault",
+        filterId: assertString(subject.args[0], "filter id"),
+        value: value as string | number | boolean | null,
+      },
+    ];
+  }
+
   if (commands.length === 0) {
     throw new Error(`mutation statement has no command: ${statement}`);
   }
@@ -1370,9 +1460,33 @@ function operationsFromStatement(
 
   requirePanelIds(config, panelIds);
 
-  return commands.flatMap((command) =>
-    operationFromPanelCommand(panelIds, command),
-  );
+  const operations: DashboardMutationOperation[] = [];
+  for (let index = 0; index < commands.length; index++) {
+    const command = commands[index];
+    if (command.name !== "duplicate") {
+      operations.push(...operationFromPanelCommand(panelIds, command));
+      continue;
+    }
+    if (panelIds.length !== 1) {
+      throw new Error("duplicate requires exactly one selected panel");
+    }
+    const placement = commands[index + 1];
+    if (placement && index + 1 !== commands.length - 1) {
+      throw new Error("duplicate accepts at most one placement method");
+    }
+    operations.push({
+      op: "duplicatePanel",
+      panelId: panelIds[0],
+      newPanelId: assertString(command.args[0], "newPanelId"),
+      patch:
+        command.args[1] === undefined
+          ? undefined
+          : assertObject(command.args[1], "duplicate patch"),
+      ...(placement ? targetFromChainCall(placement) : {}),
+    });
+    if (placement) index++;
+  }
+  return operations;
 }
 
 export function parseDashboardMutationScript(
