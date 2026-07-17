@@ -71,13 +71,6 @@ export function getDatabaseUrl(fallback = ""): string {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
   }
-  // Per-PR preview isolation: Netlify injects REVIEW_ID into function runtime
-  // for deploy previews, allowing each PR to bind its own Neon branch URL.
-  const reviewId = process.env.REVIEW_ID;
-  if (reviewId) {
-    const prUrl = process.env[`NETLIFY_DATABASE_URL_PR_${reviewId}`];
-    if (prUrl) return prUrl;
-  }
   return (
     process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || fallback
   );
@@ -114,14 +107,8 @@ export function getMigrationDatabaseUrl(): string {
   const appUnpooled = appName
     ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
     : undefined;
-  // Per-PR preview isolation for migrations (direct/unpooled endpoint)
-  const reviewId = process.env.REVIEW_ID;
-  const prUnpooled = reviewId
-    ? process.env[`NETLIFY_DATABASE_URL_UNPOOLED_PR_${reviewId}`]
-    : undefined;
   const url =
     appUnpooled ||
-    prUnpooled ||
     process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
     process.env.DATABASE_URL_UNPOOLED ||
     getDatabaseUrl();

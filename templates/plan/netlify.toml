@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs plan"
-command = "_p=NETLIFY_DATABASE_URL_PR_${REVIEW_ID:-0} && if [ -n \"${REVIEW_ID:-}\" ] && [ -z \"${!_p:-}\" ]; then echo \"Preview DB var $_p not provisioned yet — failing closed to avoid a shared/production database\"; exit 1; fi && export DATABASE_URL=${!_p:-${NETLIFY_DATABASE_URL:-$DATABASE_URL}} && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build"
 publish = "templates/plan/dist"
 functions = "templates/plan/.netlify/functions-internal"
 
