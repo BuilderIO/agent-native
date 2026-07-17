@@ -25,6 +25,7 @@ vi.mock("../settings/store.js", () => ({
 import {
   getOrgContext,
   resolveOrgIdForEmail,
+  resolveOrgIdForEmailViaEvent,
   createOrganization,
   getOrgDomain,
   getOrgA2ASecret,
@@ -176,13 +177,41 @@ describe("getOrgContext", () => {
     expect(ctx.orgId).toBe("first");
   });
 
-  it("does NOT consult active-org-id when in exactly one org", async () => {
+  it("falls back to the only membership when no active-org preference exists", async () => {
     mockGetSession.mockResolvedValue({ email: "a@b.com" });
     queueSelect([{ orgId: "only", role: "owner", orgName: "Only Co" }]);
     const ctx = await getOrgContext(EVENT);
     expect(ctx.orgId).toBe("only");
-    expect(mockGetUserSetting).not.toHaveBeenCalled();
+    expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
     expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors an explicit Personal choice for a user in exactly one org", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "a@b.com",
+      orgId: "only",
+      orgRole: "owner",
+    });
+    queueSelect([{ orgId: "only", role: "owner", orgName: "Only Co" }]);
+    mockGetUserSetting.mockResolvedValue({ orgId: null });
+
+    expect(await getOrgContext(EVENT)).toEqual({
+      email: "a@b.com",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
+  });
+
+  it("honors an explicit Personal choice for a user in multiple orgs", async () => {
+    mockGetSession.mockResolvedValue({ email: "a@b.com", orgId: "first" });
+    queueSelect([
+      { orgId: "first", role: "owner", orgName: "First Co" },
+      { orgId: "second", role: "member", orgName: "Second Co" },
+    ]);
+    mockGetUserSetting.mockResolvedValue({ orgId: null });
+
+    expect((await getOrgContext(EVENT)).orgId).toBeNull();
   });
 
   it("does not run domain auto-join for a single non-personal org", async () => {
@@ -600,10 +629,26 @@ describe("resolveOrgIdForEmail", () => {
     expect(await resolveOrgIdForEmail("nobody@b.com")).toBeNull();
   });
 
-  it("returns the single membership without consulting active-org-id", async () => {
+  it("returns the single membership when no active-org preference exists", async () => {
     queueSelect([{ org_id: "only" }]);
     expect(await resolveOrgIdForEmail("a@b.com")).toBe("only");
-    expect(mockGetUserSetting).not.toHaveBeenCalled();
+    expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
+  });
+
+  it("returns null for an explicit Personal choice with one membership", async () => {
+    queueSelect([{ org_id: "only" }]);
+    mockGetUserSetting.mockResolvedValue({ orgId: null });
+
+    expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
+  });
+
+  it("keeps an explicit Personal choice during HTTP session org backfill", async () => {
+    queueSelect([{ orgId: "only", role: "owner", orgName: "Only Co" }]);
+    mockGetUserSetting.mockResolvedValue({ orgId: null });
+
+    expect(
+      await resolveOrgIdForEmailViaEvent(makeEvent(), "a@b.com"),
+    ).toBeNull();
   });
 
   it("prefers active-org-id when it is one of multiple memberships", async () => {
