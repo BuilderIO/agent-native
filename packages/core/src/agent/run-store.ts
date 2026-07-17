@@ -42,6 +42,21 @@ export const RUN_STALE_MS = 15_000;
  */
 export const BACKGROUND_RUN_STALE_MS = 90_000;
 
+/**
+ * A row is `background` only while the platform may still be cold-starting the
+ * worker, so it needs the full 90s handoff allowance above. Once that worker
+ * atomically claims the row (`background-processing`), it has already proved
+ * it started and should be reaped sooner if both heartbeat and real progress
+ * stop. This keeps a silent post-claim worker death from holding the client
+ * for the entire cold-start window before the durable successor is created.
+ *
+ * A real long-running tool or nested agent call still sets `in_flight_since`,
+ * which grants the bounded `IN_FLIGHT_RUN_STALE_GRACE_MS` below. Healthy model
+ * work keeps the normal heartbeat moving every 1.5s, so this is only a faster
+ * recovery path for a worker that has genuinely gone silent.
+ */
+export const BACKGROUND_PROCESSING_RUN_STALE_MS = 45_000;
+
 export const STALE_RUN_ERROR_EVENT = {
   type: "error",
   error:
@@ -601,7 +616,7 @@ function backgroundAwareStaleCutoffSql(): string {
   // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
   // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
   // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
-  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
 }
 
 function terminalRunEventExclusionSql(runIdColumn = "id"): string {
