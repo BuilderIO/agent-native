@@ -73,7 +73,8 @@ export function databaseViewGroupingProperty(
   if (
     view.type !== "table" &&
     view.type !== "list" &&
-    view.type !== "gallery"
+    view.type !== "gallery" &&
+    view.type !== "sidebar"
   ) {
     return null;
   }

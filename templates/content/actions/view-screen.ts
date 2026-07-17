@@ -37,14 +37,6 @@ import {
   getDocumentContextPath,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
-import { serializeDocumentSource } from "./_document-source.js";
-import {
-  getLocalFileDocument,
-  getLocalDocumentContextPath,
-  isContentLocalFileMode,
-  isLocalDocumentId,
-  localContentViewScreenSummary,
-} from "./_local-file-documents.js";
 import {
   listPropertiesForDocument,
   serializeDatabase,
@@ -659,53 +651,13 @@ export default defineAction({
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
     const localFilesState = await readAppState("local-files");
+    const contentSpaceState = await readAppState("content-space");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (contentSpaceState) screen.contentSpace = contentSpaceState;
 
     const nav = navigation as NavigationState | null;
-    if (await isContentLocalFileMode()) {
-      screen.localFiles = {
-        ...(await localContentViewScreenSummary()),
-        actions: [
-          "list-documents",
-          "get-document",
-          "create-document",
-          "update-document",
-          "delete-document",
-          "share-local-file-document",
-        ],
-      };
-      if (nav?.documentId && isLocalDocumentId(nav.documentId)) {
-        screen.document = {
-          ...(await getLocalFileDocument(nav.documentId)),
-          contextPath: await getLocalDocumentContextPath(nav.documentId),
-        };
-      } else if (nav?.documentId) {
-        const access = await resolveAccess("document", nav.documentId);
-        if (access) {
-          const doc = access.resource;
-          screen.document = {
-            id: doc.id,
-            parentId: doc.parentId,
-            title: doc.title,
-            content: doc.content,
-            description: doc.description,
-            icon: doc.icon,
-            position: doc.position,
-            isFavorite: parseDocumentFavorite(doc.isFavorite),
-            hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-            visibility: doc.visibility,
-            source: serializeDocumentSource(doc),
-            createdAt: doc.createdAt,
-            updatedAt: doc.updatedAt,
-            contextPath: await getDocumentContextPath(doc),
-          };
-        }
-      }
-      return screen;
-    }
-
     const db = getDb();
 
     if (nav?.view === "local-files") {

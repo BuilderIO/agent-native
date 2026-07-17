@@ -31,11 +31,16 @@ export async function createDb(config: DbConfig) {
 export type DrizzleDb = Awaited<ReturnType<typeof createDb>>;
 
 export { createGetDb } from "./create-get-db.js";
-export { runMigrations } from "./migrations.js";
+export {
+  runMigrations,
+  type MigrationEntry,
+  type MigrationSql,
+} from "./migrations.js";
 export {
   getDbExec,
   createDbExec,
   getDialect,
+  isLocalDatabase,
   isPostgres,
   intType,
   closeDbExec,

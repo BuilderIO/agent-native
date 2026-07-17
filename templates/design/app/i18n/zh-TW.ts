@@ -1,3 +1,5 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 import {
   attachLocalizedKeyboardShortcuts,
   keyboardKeyLabels,
@@ -6,6 +8,7 @@ import {
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",
@@ -423,6 +426,38 @@ const messages = {
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
+    nodeRewrite: {
+      composerTitle: "詢問或變更所選內容",
+      send: "傳送",
+      autoHint: "描述變更或提出問題",
+      willPreview: "將顯示變更預覽供你確認",
+      willAsk: "將在不變更設計的情況下詢問代理",
+      modeAuto: "自動",
+      modePreview: "預覽變更",
+      modeAsk: "詢問代理",
+      modeRegenerate: "重新生成",
+      agentModeOptions: "選擇代理行為",
+      pendingReview: "檢視變更 · {{count}}",
+      pendingReviewMenu: "待檢視的變更",
+      reviewCandidate: "檢視變更",
+      regenerate: "重新生成…",
+      sending: "正在重新生成…",
+      sent: "已傳送重新生成要求",
+      sendFailed: "無法傳送重新生成要求",
+      previewTitle: "已重新生成所選內容",
+      variants: "重新生成方案",
+      variantNumber: "方案 {{count}}：{{summary}}",
+      candidatePosition: "第 {{current}} 個，共 {{total}} 個",
+      previousCandidate: "上一個結果",
+      nextCandidate: "下一個結果",
+      refinePlaceholder: "繼續調整此結果…",
+      refine: "調整結果",
+      refinementSent: "已傳送調整要求",
+      refinementFailed: "無法傳送調整要求",
+      accept: "接受",
+      reject: "拒絕",
+      resolveFailed: "無法處理此提案",
+    },
     autoLayoutSuggestion: {
       menuLabel: "建議自動版面配置…",
       title: "建議自動版面配置",
@@ -982,6 +1017,7 @@ const messages = {
     decideDescription: "用判斷力繼續推進。",
   },
   promptDialog: {
+    ...designTemplateFeatureOverrides["zh-TW"].promptDialog,
     assetsTitle: "Assets",
     assetsImagePicker: "Assets圖片選取器",
     loadingAssetsPicker: "載入 Assets 選取器",
@@ -1121,9 +1157,8 @@ const messages = {
   },
   templatesPage: {
     ...designTemplateFeatureOverrides["zh-TW"].templatesPage,
-    title: "行銷範本",
-    description:
-      "用於發布、廣告、簡報、活動和 PDF 講義的尺寸可編輯的入門設計。",
+    title: "範本",
+    description: "從正確的尺寸與預設值開始，再用提示調整未鎖定的內容。",
     brand: "品牌: {{title}}",
     useTemplate: "使用範本",
     socialSquare: "社交廣場",

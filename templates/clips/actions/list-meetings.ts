@@ -32,7 +32,10 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isSoloCalendarEvent } from "../server/lib/calendar-event-classification.js";
+import {
+  isDeclinedCalendarEvent,
+  isSoloCalendarEvent,
+} from "../server/lib/calendar-event-classification.js";
 import {
   calendarEventToMeetingView,
   eventEndIso,
@@ -88,6 +91,11 @@ export default defineAction({
       .default(false)
       .describe(
         "Exclude calendar events with no active attendee besides the current user. Used by desktop meeting reminders.",
+      ),
+    excludeDeclinedEvents: booleanParam
+      .default(false)
+      .describe(
+        "Exclude calendar events where the current user has declined. Used by desktop meeting reminders.",
       ),
   }),
   http: { method: "GET" },
@@ -190,10 +198,10 @@ export default defineAction({
     // event was emitted here — not merely because some other account returned
     // data or errored.
     const emittedLiveEventKeys = new Set<string>();
-    // Calendar events excluded from desktop reminders because they have no
-    // active attendee besides the current user. Keep the correlated
-    // persisted meeting ids here too, so materialized solo events cannot
-    // re-enter the reminder list through the fallback persisted-row merge.
+    // Calendar events excluded from desktop reminders because they are solo or
+    // declined by the current user. Keep the correlated persisted meeting ids
+    // here too, so materialized events cannot re-enter the reminder list
+    // through the fallback persisted-row merge.
     const excludedLiveEventKeys = new Set<string>();
     // Map a persisted meeting's `calendarEventId` (calendar_events.id) to the
     // Google event externalId so we can match it against the emitted set.
@@ -277,6 +285,16 @@ export default defineAction({
             if (!event.id || event.status === "cancelled") continue;
             if (!isTimedCalendarEvent(event)) continue;
             const cached = cachedByExternalId.get(event.id);
+            if (
+              args.excludeDeclinedEvents &&
+              isDeclinedCalendarEvent({ account, event, currentUserEmail })
+            ) {
+              excludedLiveEventKeys.add(event.id);
+              if (cached?.meetingId) {
+                excludedLiveEventKeys.add(cached.meetingId);
+              }
+              continue;
+            }
             if (
               args.excludePersonalSoloEvents &&
               isSoloCalendarEvent({ account, event, currentUserEmail })

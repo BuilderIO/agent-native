@@ -45,8 +45,7 @@ export function BulkActionToolbar({
   return (
     <div
       className={cn(
-        "sticky bottom-4 mx-auto z-30 flex items-center gap-1 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg",
-        "w-fit",
+        "flex w-fit max-w-full items-center gap-1 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg",
       )}
     >
       <span className="pe-2 text-xs font-medium text-foreground">

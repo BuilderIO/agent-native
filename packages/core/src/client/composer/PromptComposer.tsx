@@ -30,7 +30,7 @@ import {
 
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
-import { BuilderConnectCta, BuilderSetupCard } from "../chat/run-recovery.js";
+import { BuilderSetupCard, BuilderSetupContent } from "../chat/run-recovery.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import {
   fetchAgentEngineConfiguredState,
@@ -136,6 +136,8 @@ export interface PromptComposerProps {
   onSlashCommand?: (command: string) => void;
   /** External model list for hosts that already resolve models outside the app. */
   availableModels?: EngineModelGroup[];
+  /** Whether the external model list is still being resolved. */
+  modelListLoading?: boolean;
   selectedModel?: string;
   selectedEngine?: string;
   selectedEffort?: ReasoningEffort;
@@ -468,6 +470,7 @@ function PromptComposerInner({
   includeDefaultSlashSkills,
   onSlashCommand,
   availableModels,
+  modelListLoading,
   selectedModel,
   selectedEngine,
   selectedEffort,
@@ -501,6 +504,10 @@ function PromptComposerInner({
   const composerModelGroups = showModelSelector
     ? (availableModels ?? models.availableModels)
     : undefined;
+  const composerModelListLoading =
+    showModelSelector &&
+    (modelListLoading ??
+      (availableModels ? availableModels.length === 0 : models.isLoading));
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -595,20 +602,10 @@ function PromptComposerInner({
       ) : null}
       {missingApiKey && useInlineMissingKeySetup ? (
         <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
-          <div className="flex flex-col gap-2">
-            <div className="min-w-0">
-              <p className="text-[12px] font-medium text-foreground">
-                Connect AI
-              </p>
-              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                Connect Builder.io before sending.
-              </p>
-            </div>
-            <BuilderConnectCta
-              variant="compact"
-              onConnected={handleBuilderConnected}
-            />
-          </div>
+          <BuilderSetupContent
+            onConnected={handleBuilderConnected}
+            layout="sidebar"
+          />
         </div>
       ) : null}
       <AgentComposerFrame
@@ -655,6 +652,7 @@ function PromptComposerInner({
           selectedModel={composerModel}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
+          modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}

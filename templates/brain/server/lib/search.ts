@@ -1,3 +1,9 @@
+import {
+  buildSearchSnippet,
+  escapeLikeTerm,
+  normalizeSearchTerms,
+  scoreSearchText as scoreSharedSearchText,
+} from "@agent-native/core/search-utils";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { accessFilter } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
@@ -79,25 +85,6 @@ export interface FederatedSearchCoverage {
     }>;
   };
 }
-
-const STOPWORDS = new Set([
-  "about",
-  "does",
-  "from",
-  "have",
-  "what",
-  "when",
-  "where",
-  "which",
-  "while",
-  "with",
-  "why",
-  "the",
-  "and",
-  "for",
-  "our",
-  "did",
-]);
 
 const APP_ID = "brain";
 const BRAIN_SOURCE_PROVIDERS = [
@@ -197,24 +184,7 @@ const FEDERATED_DELEGATION_TARGETS: Array<{
   },
 ];
 
-export function escapeLikeTerm(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
-export function normalizeSearchTerms(query: string): string[] {
-  const phrase = query
-    .toLowerCase()
-    .split(/[^a-z0-9-]+/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .join(" ");
-  if (!phrase) return [];
-  const tokens = phrase
-    .split(/[^a-z0-9-]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
-  return Array.from(new Set([phrase, ...tokens])).slice(0, 8);
-}
+export { escapeLikeTerm, normalizeSearchTerms };
 
 function likeEscaped(column: unknown, term: string): SQL {
   return sql`lower(${column}) like ${`%${escapeLikeTerm(term)}%`} escape '\\'`;
@@ -319,21 +289,7 @@ export function buildSnippet(
   terms: string[],
   maxLength = 260,
 ): string {
-  const text = cleanText(value);
-  if (text.length <= maxLength) return text;
-  const lower = text.toLowerCase();
-  const firstIndex = terms.reduce((best, term) => {
-    const index = lower.indexOf(term);
-    return index >= 0 && (best < 0 || index < best) ? index : best;
-  }, -1);
-  const start = Math.max(
-    0,
-    (firstIndex < 0 ? 0 : firstIndex) - Math.floor(maxLength / 3),
-  );
-  const end = Math.min(text.length, start + maxLength);
-  const prefix = start > 0 ? "..." : "";
-  const suffix = end < text.length ? "..." : "";
-  return `${prefix}${text.slice(start, end).trim()}${suffix}`;
+  return buildSearchSnippet(value, terms, maxLength);
 }
 
 export function scoreSearchText(
@@ -346,21 +302,15 @@ export function scoreSearchText(
   },
   terms: string[],
 ): number {
-  const title = cleanText(fields.title).toLowerCase();
-  const summary = cleanText(fields.summary).toLowerCase();
-  const body = cleanText(fields.body).toLowerCase();
-  const metadata = cleanText(`${fields.provider ?? ""} ${fields.status ?? ""}`)
-    .toLowerCase()
-    .trim();
-  let score = 0;
-  terms.forEach((term, index) => {
-    const phraseBoost = index === 0 ? 2 : 1;
-    if (title.includes(term)) score += 40 * phraseBoost;
-    if (summary.includes(term)) score += 20 * phraseBoost;
-    if (body.includes(term)) score += 8 * phraseBoost;
-    if (metadata.includes(term)) score += 6 * phraseBoost;
-  });
-  return score;
+  return scoreSharedSearchText(
+    {
+      title: fields.title,
+      summary: fields.summary,
+      body: fields.body,
+      metadata: `${fields.provider ?? ""} ${fields.status ?? ""}`,
+    },
+    terms,
+  );
 }
 
 export function sourceUrlFromMetadata(

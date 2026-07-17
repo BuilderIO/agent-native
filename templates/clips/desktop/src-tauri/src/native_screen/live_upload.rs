@@ -161,6 +161,7 @@ async fn send_live_upload_post_with_retry(
     total: usize,
     is_final: bool,
     duration_ms: Option<u128>,
+    expected_source_bytes: Option<u64>,
     bytes: &[u8],
 ) -> Result<(), String> {
     let rec = &params.recording_id;
@@ -192,6 +193,7 @@ async fn send_live_upload_post_with_retry(
             params.has_camera,
             NativeUploadMode::Buffered,
             false,
+            expected_source_bytes,
             bytes.to_vec(),
         )
         .await;
@@ -258,7 +260,7 @@ async fn live_upload_loop(
                 bytes.len()
             );
             if let Err(e) = send_live_upload_post_with_retry(
-                &client, &ctrl, &params, index, 0, false, None, &bytes,
+                &client, &ctrl, &params, index, 0, false, None, None, &bytes,
             )
             .await
             {
@@ -301,7 +303,15 @@ async fn live_upload_loop(
                     "[live-upload] {rec}: sending tail chunk #{index} offset={offset} size={take} final={is_last}"
                 );
                 if let Err(e) = send_live_upload_post_with_retry(
-                    &client, &ctrl, &params, index, total, is_last, duration, &bytes,
+                    &client,
+                    &ctrl,
+                    &params,
+                    index,
+                    total,
+                    is_last,
+                    duration,
+                    is_last.then_some(final_len),
+                    &bytes,
                 )
                 .await
                 {
@@ -329,6 +339,7 @@ async fn live_upload_loop(
                     index + 1,
                     true,
                     Some(duration_ms),
+                    Some(final_len),
                     &[],
                 )
                 .await

@@ -166,7 +166,7 @@ const messages = {
       "桌面錄影程式已完成並儲存本機副本，但 Clips 無法上傳。您可以從 Clips 選單重試，不需要重新錄製。",
     retryLibrary: "您可以從媒體庫重試。",
     processingStuck:
-      "處理 30 秒後仍未完成（狀態={{status}}）。剪輯可能尚未完成上傳，請查看伺服器記錄中的區塊/完成訊息。",
+      "儲存時間比預期更久（狀態={{status}}）。如果你使用桌面應用程式錄製，請從選單列開啟 Clips 以重試上傳或下載已儲存的本機副本，然後再次檢查。",
     uploadingAssembling: "正在上傳並組裝影片，通常只需要幾秒鐘。",
     connectStorageImportLoom: "連線儲存以匯入這個 Loom。",
     connectStorageFinishClip: "連線儲存以完成此剪輯的儲存。",
@@ -208,6 +208,9 @@ const messages = {
     autoChapters: "自動章節",
     removeFillerWords: "移除口頭禪",
     removeSilences: "消除靜音 (>1.2s)",
+    silenceWorking: "正在消除靜音…",
+    silenceCompleted: "靜音消除完成",
+    silenceFailed: "靜音消除失敗",
     generatePrSummary: "產生 PR 摘要",
     generateSop: "產生 SOP",
     generateSopTooltip:
@@ -424,6 +427,7 @@ const messages = {
     invite: "邀請",
     embed: "嵌入",
     shareLink: "分享連結",
+    shareWithHumans: "與人分享",
     shareWithAgents: "與 Agent 分享",
     copyAgentPrompt: "複製 Agent 提示",
     agentPrompt:
@@ -434,6 +438,8 @@ const messages = {
     retryAgentLink: "重試",
     gifPreview: "GIF 預覽",
     openPlayer: "開啟播放器",
+    chooseFile: "選取檔案",
+    remove: "消除",
     downloadMp4: "下載 MP4",
     embedsNeedPublic: "嵌入需要公開剪輯",
     embedPublicDescription:
@@ -515,6 +521,8 @@ const messages = {
     brandingUpdated: "品牌更新",
     saveFailed: "儲存失敗",
     organizationName: "組織名稱",
+    defaultVisibility: "新錄製內容的預設可見性",
+    defaultVisibilityDescription: "套用於新錄製內容，除非你選擇其他可見性。",
     brandColor: "品牌顏色",
     brandColorPicker: "品牌顏色選取器",
     useColor: "使用 {{color}}",
@@ -1047,6 +1055,7 @@ const messages = {
       "瀏覽器記錄選項已就緒，正在等待 Chrome Web Store URL。",
     desktopTitle: "桌面應用程式",
     desktopDescription: "最適合全域快捷鍵、選單列錄製、會議與重複擷取。",
+    openDesktopApp: "開啟桌面應用程式",
   },
   editableTitle: {
     untitled: "未命名剪輯",
@@ -1168,9 +1177,10 @@ const messages = {
     visibilityOrg: "組織",
     visibilityPublic: "公開",
     passwordProtection: "密碼保護",
-    passwordSetPlaceholder:
-      "已設定密碼。輸入新密碼即可取代；留空並儲存即可清除。",
+    passwordSetPlaceholder: "已設定密碼。輸入新密碼即可取代。",
     noPasswordPlaceholder: "無密碼",
+    passwordWhitespaceOnly: "只有空格不是有效的密碼。",
+    removePassword: "移除",
     expiry: "到期時間",
     viewerOptions: "觀看者選項",
     comments: "留言",

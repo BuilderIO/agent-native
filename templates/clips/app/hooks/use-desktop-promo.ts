@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  hasDownloadedDesktopApp,
-  markDesktopAppDownloaded,
+  hasDismissedDesktopPromo,
+  markDesktopPromoDismissed,
 } from "@/lib/capture-install-options";
 
 function detectDesktopApp(): boolean {
@@ -27,12 +27,12 @@ export function useDesktopPromo() {
 
   useEffect(() => {
     setIsDesktopApp(detectDesktopApp());
-    setDismissed(hasDownloadedDesktopApp());
+    setDismissed(hasDismissedDesktopPromo());
   }, []);
 
   const dismiss = useCallback(() => {
     setDismissed(true);
-    markDesktopAppDownloaded();
+    markDesktopPromoDismissed();
   }, []);
 
   return {

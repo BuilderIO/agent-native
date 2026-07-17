@@ -1187,7 +1187,7 @@ export default function SettingsIndexRoute() {
                     className={cn(
                       "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
                       builderConnected
-                        ? "border-primary/35 bg-primary/5"
+                        ? "border-border bg-muted/20"
                         : "border-border bg-accent/30",
                     )}
                   >
@@ -1201,20 +1201,16 @@ export default function SettingsIndexRoute() {
                         {builderStatusLoading
                           ? t("settings.checkingBuilder")
                           : builderConnected
-                            ? t("settings.builderConnected")
+                            ? t("settings.builderAiAvailable")
                             : t("settings.builderEasySetup")}
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {builderConnected
-                          ? t("settings.builderAiAvailable")
+                          ? t("settings.apiSetupDescription")
                           : t("settings.builderAiDescription")}
                       </p>
                     </div>
-                    {builderConnected ? (
-                      <Badge variant="secondary" className="shrink-0">
-                        {t("common.connected")}
-                      </Badge>
-                    ) : (
+                    {!builderConnected ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -1237,7 +1233,7 @@ export default function SettingsIndexRoute() {
                         )}
                         {t("settings.connectBuilder")}
                       </Button>
-                    )}
+                    ) : null}
                   </div>
 
                   {builderCreditsPaused ? (

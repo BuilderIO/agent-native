@@ -5,6 +5,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
@@ -19,6 +20,12 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
     const { database, rows } = await resolveDatabaseRowsForBatch(args);
+    if (!database.spaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
+    if (rows.some((row) => row.document.spaceId !== database.spaceId)) {
+      throw new Error("Cannot duplicate database rows across Content spaces.");
+    }
 
     await assertAccess("document", database.documentId, "editor");
     for (const row of rows) {
@@ -103,6 +110,7 @@ export default defineAction({
       await tx.insert(schema.documents).values(
         duplicates.map((duplicate) => ({
           id: duplicate.duplicatedDocumentId,
+          spaceId: database.spaceId,
           ownerEmail: duplicate.row.document.ownerEmail,
           orgId: duplicate.row.document.orgId,
           parentId: database.documentId,
@@ -163,6 +171,11 @@ export default defineAction({
           ),
         );
       }
+      await ensureDocumentsFilesMembership(
+        tx,
+        duplicates.map((duplicate) => duplicate.duplicatedDocumentId),
+        now,
+      );
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });

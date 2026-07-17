@@ -64,4 +64,26 @@ describe("useNavigationState selection cleanup", () => {
 
     expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
   });
+
+  it("includes a selected template on both the Templates and New Design views", async () => {
+    await renderProbe("/?templateId=saved-template");
+
+    const calls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = calls[calls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/",
+        search: "?templateId=saved-template",
+      }),
+    ).toEqual({ view: "list", templateId: "saved-template" });
+    expect(
+      config.getNavigationState({
+        pathname: "/templates",
+        search: "?templateId=preset-social-square",
+      }),
+    ).toEqual({
+      view: "templates",
+      templateId: "preset-social-square",
+    });
+  });
 });

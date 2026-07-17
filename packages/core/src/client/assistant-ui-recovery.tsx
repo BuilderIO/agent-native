@@ -38,6 +38,8 @@ export function isAssistantUiRecoverableRenderError(error: unknown): boolean {
 
 type AssistantUiStaleIndexErrorBoundaryProps = {
   resetKey: string;
+  /** Remount children when the recovery scope changes. */
+  remountOnResetKey?: boolean;
   componentName?: string;
   children: React.ReactNode;
 };
@@ -173,10 +175,13 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
       return null;
     }
 
+    const fragmentKey =
+      this.props.remountOnResetKey === false
+        ? String(this.state.retryToken)
+        : `${this.props.resetKey}:${this.state.retryToken}`;
+
     return (
-      <React.Fragment key={`${this.props.resetKey}:${this.state.retryToken}`}>
-        {this.props.children}
-      </React.Fragment>
+      <React.Fragment key={fragmentKey}>{this.props.children}</React.Fragment>
     );
   }
 }
@@ -191,6 +196,7 @@ export function AssistantMessageListErrorBoundary({
   return (
     <AssistantUiStaleIndexErrorBoundary
       resetKey={resetKey}
+      remountOnResetKey={false}
       componentName="AssistantMessageList"
     >
       {children}

@@ -39,12 +39,21 @@ To edit a slide's content:
 
 1. **Inspect the current context**: call `view-screen` to get the active deck,
    slide ID, HTML, and any `slides-selection` style/edit target.
-2. **Modify the content** HTML string for the intended slide.
-3. **Update the slide** with the `update-slide` action using `deckId`,
+2. **Retrieve before generating**: when the edit changes facts, brand language,
+   or layout, follow the `creative-context` skill and query those roles
+   separately. Respect opt-out, pinned packs, and the exact reuse ladder.
+3. **Modify the content** HTML string for the intended slide. Preserve an
+   approved native template or component when it already fits; generate
+   net-new structure only when the relevant corpus is empty.
+4. **Update the slide** with the `update-slide` action using `deckId`,
    `slideId`, and `fullContent`. Do not write deck rows directly and do not add
    raw `/api/decks/:id` PUT calls for normal slide edits.
-4. For browser/editor code, enqueue granular deck operations through
+5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
+
+If retrieval produces a new immutable context pack, keep its `contextPackId`
+and reuse labels with the deck provenance. Existing slide HTML is not proof of
+which source version influenced it.
 
 ## Image Placeholders
 

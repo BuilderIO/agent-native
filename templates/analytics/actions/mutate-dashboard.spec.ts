@@ -136,6 +136,57 @@ describe("mutate-dashboard", () => {
     mocks.seedFromText.mockClear();
   });
 
+  it.each([[], ""])(
+    "ignores an empty auto-serialized operations sibling (%j) when code is present",
+    async (emptyOperations) => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: dashboardConfig(),
+      });
+
+      const args = mutateDashboard.schema.parse({
+        dashboardId: "traffic",
+        id: "",
+        code: 'dashboard.panel("a").setTitle("Alpha");',
+        operations: emptyOperations,
+        dryRun: false,
+        returnTypes: false,
+        returnConfig: false,
+      });
+      const result: any = await mutateDashboard.run(args);
+
+      expect(result.changedPanelIds).toEqual(["a"]);
+      expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("ignores an empty auto-serialized code sibling when operations are present", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    const args = mutateDashboard.schema.parse({
+      dashboardId: "traffic",
+      id: "",
+      code: "",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Alpha" },
+        },
+      ],
+      dryRun: false,
+      returnTypes: false,
+      returnConfig: false,
+    });
+    const result: any = await mutateDashboard.run(args);
+
+    expect(result.changedPanelIds).toEqual(["a"]);
+    expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+  });
+
   it("applies a typed mutation script in one atomic save", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
@@ -165,6 +216,18 @@ describe("mutate-dashboard", () => {
     expect(saved.panels.map((p) => p.id)).toEqual(["b", "c", "a"]);
     expect(saved.panels[2].title).toBe("Alpha");
     expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+  });
+
+  it("advertises one unambiguous code input to the agent", () => {
+    const parameters = mutateDashboard.tool.parameters as {
+      properties: Record<string, { minLength?: number }>;
+      required: string[];
+    };
+
+    expect(Object.keys(parameters.properties)).toEqual(["dashboardId", "code"]);
+    expect(parameters.required).toEqual(["dashboardId", "code"]);
+    expect(parameters.properties.dashboardId.minLength).toBe(1);
+    expect(parameters.properties.code.minLength).toBe(1);
   });
 
   it("accepts structured operations and can dry-run without saving", async () => {
@@ -239,6 +302,122 @@ describe("mutate-dashboard", () => {
     ).rejects.toThrow(/SQL is invalid: bad column/);
 
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("does not let unrelated legacy-invalid SQL block a valid duplicate", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        panels: [
+          panel("valid", "bigquery"),
+          {
+            ...panel("legacy-invalid", "bigquery"),
+            sql: "SELECT legacy_bad_column FROM `project.dataset.table`",
+          },
+        ],
+      },
+    });
+    mocks.dryRunQuery.mockImplementation(async (sql: string) =>
+      sql.includes("legacy_bad_column") ? "bad column" : null,
+    );
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      code: 'dashboard.panel("valid").duplicate("valid-bar", {"chartType":"bar"}).nextTo("valid");',
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.insertedPanelIds).toEqual(["valid-bar"]);
+    expect(result.panelOrder).toEqual(["valid", "valid-bar", "legacy-invalid"]);
+    expect(mocks.dryRunQuery).toHaveBeenCalledTimes(1);
+    expect(mocks.dryRunQuery.mock.calls[0][0]).not.toContain(
+      "legacy_bad_column",
+    );
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("revalidates every panel when dashboard filters change", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        panels: [
+          panel("valid", "bigquery"),
+          {
+            ...panel("legacy-invalid", "bigquery"),
+            sql: "SELECT legacy_bad_column FROM `project.dataset.table`",
+          },
+        ],
+      },
+    });
+    mocks.dryRunQuery.mockImplementation(async (sql: string) =>
+      sql.includes("legacy_bad_column") ? "bad column" : null,
+    );
+
+    await expect(
+      mutateDashboard.run({
+        dashboardId: "traffic",
+        code: 'dashboard.set({"filters":[]});',
+      }),
+    ).rejects.toThrow(/legacy-invalid.*SQL is invalid: bad column/);
+
+    expect(mocks.dryRunQuery).toHaveBeenCalledTimes(2);
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("sets a filter default without validating unrelated legacy-invalid SQL", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        filters: [
+          {
+            id: "emailFilter",
+            type: "select",
+            default: "all",
+            options: [
+              { value: "all", label: "All users" },
+              { value: "exclude_builder", label: "Exclude @builder.io" },
+            ],
+          },
+        ],
+        panels: [
+          panel("valid", "bigquery"),
+          {
+            ...panel("legacy-invalid", "bigquery"),
+            sql: "SELECT legacy_bad_column FROM `project.dataset.table`",
+          },
+        ],
+      },
+    });
+    mocks.dryRunQuery.mockImplementation(async (sql: string) =>
+      sql.includes("legacy_bad_column") ? "bad column" : null,
+    );
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      code: 'dashboard.setFilterDefault("emailFilter","exclude_builder");',
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.dashboardFieldsChanged).toEqual([
+      "filters.emailFilter.default",
+    ]);
+    expect(result.commandLog).toEqual([
+      'setFilterDefault(emailFilter: "exclude_builder")',
+    ]);
+    expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      filters: Array<{ id: string; default: string }>;
+    };
+    expect(saved.filters).toEqual([
+      expect.objectContaining({
+        id: "emailFilter",
+        default: "exclude_builder",
+      }),
+    ]);
   });
 
   it("rejects missing panels without saving", async () => {

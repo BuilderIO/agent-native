@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasUnresolvedTool,
+  isCollapsibleAssistantWorkPart,
+  shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   ThinkingIndicator,
   isHiddenUserMessage,
@@ -101,6 +103,62 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldShowAssistantWorkSummary", () => {
+  it("keeps completed historical work grouped while a later turn runs", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: false,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not group the currently running assistant response", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not group work that still has an unresolved tool", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: false,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isCollapsibleAssistantWorkPart", () => {
+  it("keeps the Builder handoff card outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "connect-builder",
+      }),
+    ).toBe(false);
+  });
+
+  it("still groups ordinary work and reasoning", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "read-file",
+      }),
+    ).toBe(true);
+    expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
 });
 

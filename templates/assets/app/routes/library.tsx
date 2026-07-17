@@ -16,6 +16,8 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client";
 import {
+  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
+  createAgentNativeEmbedEnvelope,
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
 } from "@agent-native/core/embedding";
@@ -204,6 +206,7 @@ type HostConfig = {
   styleStrength?: StyleStrength;
   includeLogo?: boolean;
   callerAppId?: string;
+  creativeContextRequestId?: string;
   layout?: PickerLayout;
   autoGenerate?: boolean;
   candidateRunIds?: string[];
@@ -241,6 +244,31 @@ function isEmbeddedWindow() {
     return window.self !== window.top;
   } catch {
     return true;
+  }
+}
+
+interface StandalonePickerHandoff {
+  handoffId: string;
+  returnOrigin: string;
+}
+
+function standalonePickerHandoff(): StandalonePickerHandoff | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const handoffId = params.get("__an_asset_picker_handoff")?.trim();
+  const rawReturnOrigin = params.get("__an_asset_picker_return_origin")?.trim();
+  if (!handoffId || handoffId.length > 128 || !rawReturnOrigin) return null;
+  try {
+    const parsed = new URL(rawReturnOrigin);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.origin !== rawReturnOrigin
+    ) {
+      return null;
+    }
+    return { handoffId, returnOrigin: parsed.origin };
+  } catch {
+    return null;
   }
 }
 
@@ -336,6 +364,10 @@ function normalizeHostConfig(value: unknown): HostConfig {
     includeLogo: normalizeBoolean(record.includeLogo),
     callerAppId:
       typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    creativeContextRequestId:
+      typeof record.creativeContextRequestId === "string"
+        ? record.creativeContextRequestId
+        : undefined,
     layout: normalizePickerLayout(record.layout),
     candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
@@ -2189,6 +2221,8 @@ export function AssetPickerSurface() {
       styleStrength: normalizeStyleStrength(params.get("styleStrength")),
       includeLogo: normalizeBoolean(params.get("includeLogo")),
       callerAppId: params.get("callerAppId") ?? undefined,
+      creativeContextRequestId:
+        params.get("creativeContextRequestId") ?? undefined,
       layout: normalizePickerLayout(params.get("layout")),
       candidateRunIds: normalizeCandidateRunIds(
         params.getAll("candidateRunIds").length > 0
@@ -2205,6 +2239,10 @@ export function AssetPickerSurface() {
       isEmbeddedWindow() ||
       isEmbedAuthActive(),
     [searchParams],
+  );
+  const standaloneHandoff = useMemo(
+    () => (embedded ? null : standalonePickerHandoff()),
+    [embedded],
   );
   const pickerVariantScopeId = useMemo(
     () =>
@@ -2552,6 +2590,35 @@ export function AssetPickerSurface() {
     [],
   );
 
+  const postStandaloneSelectionMessage = useCallback(
+    (payload: ReturnType<typeof assetPayload>) => {
+      if (
+        !standaloneHandoff ||
+        typeof window === "undefined" ||
+        !window.opener ||
+        window.opener.closed
+      ) {
+        return false;
+      }
+      try {
+        window.opener.postMessage(
+          createAgentNativeEmbedEnvelope(
+            AGENT_NATIVE_EMBED_MESSAGE_TYPES.MESSAGE,
+            {
+              name: "chooseAsset",
+              payload: { ...payload, handoffId: standaloneHandoff.handoffId },
+            },
+          ),
+          standaloneHandoff.returnOrigin,
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [standaloneHandoff],
+  );
+
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
     if (embedded) {
@@ -2572,6 +2639,15 @@ export function AssetPickerSurface() {
           toast.error(t("library.selectedAssetSendFailed"));
         }
       });
+      return;
+    }
+    if (postStandaloneSelectionMessage(payload)) {
+      toast.success(
+        t("assetPicker.selectedAsset", {
+          title: selectedAssetLabel(payload),
+        }),
+      );
+      window.setTimeout(() => window.close(), 0);
       return;
     }
     setStandaloneSelection(payload);
@@ -2691,6 +2767,7 @@ export function AssetPickerSurface() {
       includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,
+      creativeContextRequestId: hostConfig.creativeContextRequestId,
     } as any);
   }, [
     count,
@@ -2699,6 +2776,7 @@ export function AssetPickerSurface() {
     effectiveAspectRatio,
     generateBatch,
     hostConfig.callerAppId,
+    hostConfig.creativeContextRequestId,
     hostConfig.includeLogo,
     hostConfig.styleStrength,
     hostConfig.tier,

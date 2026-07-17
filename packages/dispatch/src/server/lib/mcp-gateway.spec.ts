@@ -559,6 +559,77 @@ describe("askGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("returns a recoverable envelope when transient task status reads exhaust retries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.a2aGetTask.mockRejectedValue(new TypeError("fetch failed"));
+
+    const resultPromise = runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => getGrantedDispatchMcpAppTask("analytics", "task-unavailable"),
+    );
+
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      app: "analytics",
+      routedVia: "a2a",
+      taskId: "task-unavailable",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      errorCategory: "transport",
+      attempts: 4,
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "analytics", taskId: "task-unavailable" },
+      },
+      message: expect.stringMatching(
+        /status could not be read.*may still be running or completed.*retry.*ask_app_status.*do not resubmit ask_app/i,
+      ),
+    });
+    expect(mocks.a2aGetTask).toHaveBeenCalledTimes(4);
+    expect(mocks.a2aSend).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(4);
+    expect(warnSpy).toHaveBeenLastCalledWith(
+      "[ask_app_status] tasks/get attempt failed",
+      expect.objectContaining({
+        app: "analytics",
+        routedVia: "a2a",
+        taskId: "task-unavailable",
+        originHost: "localhost:8086",
+        attempt: 4,
+        maxAttempts: 4,
+        errorCategory: "transport",
+        errorName: "TypeError",
+        willRetry: false,
+      }),
+    );
+  });
+
+  it("does not retry permanent task status read errors", async () => {
+    mocks.a2aGetTask.mockRejectedValueOnce(
+      new Error("A2A request failed (404): Task not found"),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => getGrantedDispatchMcpAppTask("analytics", "task-missing"),
+      ),
+    ).rejects.toThrow(/404.*task not found/i);
+    expect(mocks.a2aGetTask).toHaveBeenCalledTimes(1);
+    expect(mocks.a2aSend).not.toHaveBeenCalled();
+  });
+
   it("rejects delegation to an app outside the grant", async () => {
     mocks.getUserSetting.mockResolvedValue({
       mode: "selected-apps",

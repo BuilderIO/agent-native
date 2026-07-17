@@ -63,12 +63,14 @@ import {
   parseEdits,
   getExcludedRanges,
   formatMs,
+  skipExcludedRange,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 
 import { ChaptersEditor } from "./chapters-editor";
+import { defaultSelectionRange } from "./editor-selection";
 import { EditorToolbar } from "./editor-toolbar";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
@@ -414,13 +416,20 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     if (!recording?.id) return;
     const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
     setPlaybackSpeed(next);
-    if (videoRef.current) videoRef.current.playbackRate = next;
+    if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = next;
+      videoRef.current.playbackRate = next;
+    }
   }, [defaultPreviewSpeed, recording?.id]);
 
   // Keep the editor preview speed visible and in sync with the media element.
+  // `defaultPlaybackRate` is set too so a `videoUrl` source swap that resets
+  // `playbackRate` (some browsers do this on load) falls back to the chosen
+  // speed instead of 1x.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    v.defaultPlaybackRate = playbackSpeed;
     v.playbackRate = playbackSpeed;
   }, [playbackSpeed, videoUrl]);
 
@@ -428,17 +437,25 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     const next = parsePlaybackSpeed(rate) ?? 1.2;
     setPlaybackSpeed(next);
     savePlaybackSpeedPreference(next);
-    if (videoRef.current) videoRef.current.playbackRate = next;
+    if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = next;
+      videoRef.current.playbackRate = next;
+    }
   }, []);
 
   // Keep the playheadMs in sync with the element's currentTime.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const onTime = () => setPlayheadMs(v.currentTime * 1000);
+    const onTime = () => {
+      const rawMs = v.currentTime * 1000;
+      const visibleMs = skipExcludedRange(rawMs, excludedRanges, durationMs);
+      if (visibleMs !== rawMs) v.currentTime = visibleMs / 1000;
+      setPlayheadMs(visibleMs);
+    };
     v.addEventListener("timeupdate", onTime);
     return () => v.removeEventListener("timeupdate", onTime);
-  }, [videoUrl]);
+  }, [durationMs, excludedRanges, videoUrl]);
 
   // Expose the in-editor state so the agent can read "the user is editing and scrubbed to X".
   useEffect(() => {
@@ -510,11 +527,15 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     [recordingId, trim],
   );
 
-  const seek = useCallback((ms: number) => {
-    const v = videoRef.current;
-    if (v) v.currentTime = ms / 1000;
-    setPlayheadMs(ms);
-  }, []);
+  const seek = useCallback(
+    (ms: number) => {
+      const visibleMs = skipExcludedRange(ms, excludedRanges, durationMs);
+      const v = videoRef.current;
+      if (v) v.currentTime = visibleMs / 1000;
+      setPlayheadMs(visibleMs);
+    },
+    [durationMs, excludedRanges],
+  );
 
   // --- keyboard shortcuts -------------------------------------------------
   useEffect(() => {
@@ -584,10 +605,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   }, [playheadMs, recordingId, selectionRange, split, trim, undo]);
 
   // Default selection window so the TrimHandles have something to render.
-  const effectiveSelection = selectionRange ?? {
-    startMs: Math.max(0, playheadMs - 1000),
-    endMs: Math.min(durationMs || 1_000, playheadMs + 1000),
-  };
+  const effectiveSelection =
+    selectionRange ?? defaultSelectionRange(playheadMs, durationMs);
 
   if (playerDataQuery.isLoading) {
     return (
@@ -684,7 +703,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 playheadMs={playheadMs}
                 durationMs={durationMs}
                 excludedRanges={excludedRanges}
-                selectionRange={selectionRange}
+                selectionRange={effectiveSelection}
+                splitPoints={splitPoints}
                 activityRanges={transcriptSegments}
                 onSeek={seek}
                 scrollLeft={scrollLeft}
@@ -707,6 +727,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                     value={effectiveSelection}
                     onChange={setSelectionRange}
                     durationMs={durationMs}
+                    splitPoints={splitPoints}
                   />
                 </div>
               </div>
@@ -727,7 +748,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   durationMs={durationMs}
                   playheadMs={playheadMs}
                   chapters={chapters}
-                  excludedRanges={excludedRanges}
                   splitPoints={splitPoints}
                   onSeek={seek}
                   onClickChapter={(c) => seek(c.startMs)}

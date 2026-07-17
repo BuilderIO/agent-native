@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core";
 import {
+  listAppState,
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
@@ -30,6 +31,14 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
+import {
+  DESIGN_REPROMPT_PENDING_STATE_PREFIX,
+  DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
+  designRepromptPendingStateKey,
+  designRepromptProposalStateKey,
+  isNodeRewriteProposal,
+  isPendingDesignReprompt,
+} from "../shared/node-rewrite.js";
 
 interface ReviewThreadSummary {
   openCount: number;
@@ -244,7 +253,9 @@ export default defineAction({
           width: preset.width,
           height: preset.height,
           lockedLayerCount: 2,
-          source: "starter",
+          designSystemId: null,
+          isBuiltIn: true,
+          source: "built-in",
         };
       } else {
         const templateAccess = await resolveAccess(
@@ -253,6 +264,15 @@ export default defineAction({
         ).catch(() => null);
         if (templateAccess) {
           const template = templateAccess.resource;
+          const linkedDesignSystemId =
+            typeof template.designSystemId === "string"
+              ? template.designSystemId
+              : null;
+          const designSystemAccess = linkedDesignSystemId
+            ? await resolveAccess("design-system", linkedDesignSystemId).catch(
+                () => null,
+              )
+            : null;
           screen.template = {
             id: templateId,
             title: template.title ?? null,
@@ -261,8 +281,10 @@ export default defineAction({
             width: template.width ?? null,
             height: template.height ?? null,
             lockedLayerCount: template.lockedLayerCount ?? 0,
+            designSystemId: designSystemAccess ? linkedDesignSystemId : null,
             visibility: template.visibility ?? "private",
-            source: "saved",
+            isBuiltIn: false,
+            source: "user",
           };
         }
       }
@@ -296,14 +318,101 @@ export default defineAction({
             data = {};
           }
         }
+        const activeScreen = resolveActiveScreen(
+          files,
+          navigation,
+          designSelection,
+        );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen: resolveActiveScreen(files, navigation, designSelection),
+          activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
+        const proposalPrefix = `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:`;
+        const pendingPrefix = `${DESIGN_REPROMPT_PENDING_STATE_PREFIX}${designId}:`;
+        const [proposalEntries, pendingEntries] = await Promise.all([
+          listAppState(proposalPrefix),
+          listAppState(pendingPrefix),
+        ]);
+        const filesById = new Map(files.map((file) => [file.id, file]));
+        const pendingByFileId = new Map(
+          pendingEntries.flatMap(({ key, value }) => {
+            if (
+              !isPendingDesignReprompt(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !== designRepromptPendingStateKey(designId, value.fileId)
+            ) {
+              return [];
+            }
+            return [[value.fileId, value] as const];
+          }),
+        );
+        const proposalsByReprompt = new Map(
+          proposalEntries.flatMap(({ key, value }) => {
+            if (
+              !isNodeRewriteProposal(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !==
+                designRepromptProposalStateKey(
+                  designId,
+                  value.fileId,
+                  value.repromptId,
+                )
+            ) {
+              return [];
+            }
+            return [[`${value.fileId}:${value.repromptId}`, value] as const];
+          }),
+        );
+        const proposalsByFileId = new Map(
+          [...pendingByFileId.entries()].flatMap(([fileId, pending]) => {
+            const current = proposalsByReprompt.get(
+              `${fileId}:${pending.repromptId}`,
+            );
+            const prior = pending.priorRepromptId
+              ? proposalsByReprompt.get(`${fileId}:${pending.priorRepromptId}`)
+              : undefined;
+            const proposal =
+              current ??
+              (prior?.proposalId === pending.priorProposalId
+                ? prior
+                : undefined);
+            return proposal ? [[fileId, proposal] as const] : [];
+          }),
+        );
+        const pendingCandidateReviews = [...proposalsByFileId.values()].map(
+          (proposal) => {
+            const file = filesById.get(proposal.fileId)!;
+            return {
+              proposalId: proposal.proposalId,
+              fileId: proposal.fileId,
+              filename: proposal.filename || file.filename,
+              candidateCount: proposal.variants.length,
+              chosenIndex: proposal.chosenIndex,
+              target: proposal.target,
+              createdAt: proposal.createdAt,
+            };
+          },
+        );
+        if (pendingCandidateReviews.length > 0) {
+          (screen.design as Record<string, unknown>).pendingCandidateReviews =
+            pendingCandidateReviews;
+        }
+        if (activeScreen?.id) {
+          const pendingReprompt = pendingByFileId.get(activeScreen.id);
+          const proposal = proposalsByFileId.get(activeScreen.id);
+          if (pendingReprompt || proposal) {
+            (screen.design as Record<string, unknown>).reprompt = {
+              pending: pendingReprompt ?? null,
+              proposal: proposal ?? null,
+            };
+          }
+        }
         const reviewContext = ctx as ReviewResourceContext | undefined;
         const reviewScope = {
           userEmail: reviewContext?.userEmail ?? null,
@@ -344,7 +453,7 @@ export default defineAction({
           redactReviewIdentity
             ? redactPublicReviewStatusIdentity(reviewStatus)
             : reviewStatus,
-          resolveActiveScreen(files, navigation, designSelection)?.id,
+          activeScreen?.id,
           reviewSummary,
         );
       }

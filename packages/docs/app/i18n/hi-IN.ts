@@ -39,6 +39,7 @@ const hiIN = {
   theme: {
     light: "लाइट",
     dark: "डार्क",
+    toggle: "थीम बदलें",
     label: "थीम: {{theme}}",
   },
   docs: {

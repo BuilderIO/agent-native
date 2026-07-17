@@ -357,6 +357,71 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.ended).toBe(true);
   });
 
+  it("counts explicitly failed tool events whose result has no Error prefix", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+    const { tracer, spans } = createRecordingTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", tool: "mutate", input: {} });
+        send({
+          type: "tool_done",
+          tool: "mutate",
+          result: "Invalid action parameters for mutate: input did not match.",
+          isError: true,
+        });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+        };
+      },
+      loopOpts,
+      runId: "run-explicit-tool-error",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const toolSpan = spans.find((span) => span.name === "tool.call");
+    expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
+    expect(toolSpan?.status?.message).toContain("Invalid action parameters");
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    expect(runSpan?.attributes["agent.tool_calls"]).toBe(1);
+    expect(runSpan?.attributes["agent.successful_tools"]).toBe(0);
+    expect(runSpan?.attributes["agent.failed_tools"]).toBe(1);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      tool_calls: 1,
+      successful_tools: 0,
+      failed_tools: 1,
+    });
+  });
+
   it("no-ops (emits no spans) when no provider is registered", async () => {
     __setAgentTracerForTests(null);
 

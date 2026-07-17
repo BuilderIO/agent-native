@@ -1098,8 +1098,8 @@ Usage:
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
   agent-native content local-files <file-or-folder>
-                                Launch Content in local-file mode for a local
-                                docs/content folder. Use --no-open, --port N,
+                                Connect a local docs/content folder to normal
+                                database-backed Content. Use --no-open, --port N,
                                 or --profile docs/no-bookkeeping as needed.
   agent-native design connect  Start a localhost Design bridge for a running
                                 dev server. Use --url, --port, --root, or

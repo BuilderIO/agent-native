@@ -17,6 +17,97 @@
 import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
+  const workspaceOAuthProviders = [
+    {
+      id: "figma",
+      credentialPrefix: "FIGMA",
+      oauthProvider: "figma",
+      label: "Figma",
+      docsUrl: "https://developers.figma.com/docs/rest-api/oauth-apps/",
+    },
+    {
+      id: "google_drive",
+      credentialPrefix: "GOOGLE",
+      oauthProvider: "google",
+      label: "Google Drive",
+      docsUrl:
+        "https://developers.google.com/identity/protocols/oauth2/web-server",
+    },
+    {
+      id: "github",
+      credentialPrefix: "GITHUB",
+      oauthProvider: "github",
+      label: "GitHub",
+      docsUrl: "https://docs.github.com/apps/oauth-apps/building-oauth-apps",
+    },
+    {
+      id: "hubspot",
+      credentialPrefix: "HUBSPOT",
+      oauthProvider: "hubspot",
+      label: "HubSpot",
+      docsUrl:
+        "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/oauth/oauth-quickstart-guide",
+    },
+    {
+      id: "jira",
+      credentialPrefix: "JIRA",
+      oauthProvider: "jira",
+      label: "Jira Cloud",
+      docsUrl:
+        "https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/",
+    },
+    {
+      id: "sentry",
+      credentialPrefix: "SENTRY",
+      oauthProvider: "sentry",
+      label: "Sentry",
+      docsUrl: "https://docs.sentry.io/api/auth/",
+    },
+    {
+      id: "notion",
+      credentialPrefix: "NOTION",
+      oauthProvider: "notion",
+      label: "Notion",
+      docsUrl: "https://developers.notion.com/docs/authorization",
+    },
+  ] as const;
+
+  for (const provider of workspaceOAuthProviders) {
+    const prefix = provider.credentialPrefix;
+    for (const credential of [
+      { suffix: "CLIENT_ID", label: "OAuth client ID" },
+      { suffix: "CLIENT_SECRET", label: "OAuth client secret" },
+    ] as const) {
+      const key = `${prefix}_${credential.suffix}`;
+      if (!getRequiredSecret(key)) {
+        registerRequiredSecret({
+          key,
+          label: `${provider.label} ${credential.label}`,
+          description: `Workspace-owned ${provider.label} OAuth application credential. Tokens granted by users are stored separately and encrypted.`,
+          docsUrl: provider.docsUrl,
+          scope: "workspace",
+          kind: "api-key",
+          required: false,
+        });
+      }
+    }
+
+    const connectionKey = `${prefix}_CONNECTED`;
+    if (!getRequiredSecret(connectionKey)) {
+      registerRequiredSecret({
+        key: connectionKey,
+        label: `${provider.label} account`,
+        description: `Connect a ${provider.label} account for scoped workspace imports.`,
+        docsUrl: provider.docsUrl,
+        scope: "user",
+        kind: "oauth",
+        required: false,
+        oauthProvider: provider.oauthProvider,
+        oauthConnectUrl: `/_agent-native/connections/oauth/${provider.id}/start`,
+      });
+    }
+  }
+
   if (!getRequiredSecret("OPENAI_API_KEY")) {
     registerRequiredSecret({
       key: "OPENAI_API_KEY",

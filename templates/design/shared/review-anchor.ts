@@ -5,22 +5,25 @@ export interface ReviewAnchorPoint {
 
 export interface DesignReviewAnchor {
   nodeId?: string;
+  selector?: string;
   point: ReviewAnchorPoint;
 }
 
 export interface ResolvedReviewAnchor {
   anchor: DesignReviewAnchor;
   point: ReviewAnchorPoint;
-  source: "node" | "point";
+  source: "node" | "selector" | "point";
 }
 
 export function createElementReviewAnchor(input: {
   nodeId?: string | null;
+  selector?: string | null;
   rect?: { x: number; y: number; width: number; height: number } | null;
   viewportWidth?: number | null;
   viewportHeight?: number | null;
 }): DesignReviewAnchor | null {
   const nodeId = input.nodeId?.trim() ?? "";
+  const selector = input.selector?.trim() ?? "";
   const rect = input.rect;
   const hasRect = Boolean(
     rect &&
@@ -37,7 +40,7 @@ export function createElementReviewAnchor(input: {
     Number.isFinite(input.viewportHeight) &&
     input.viewportHeight > 0,
   );
-  if (!nodeId && !hasRect) return null;
+  if (!nodeId && !selector && !hasRect) return null;
 
   const point = hasRect
     ? {
@@ -58,6 +61,7 @@ export function createElementReviewAnchor(input: {
 
   return {
     ...(nodeId ? { nodeId } : {}),
+    ...(selector ? { selector } : {}),
     point,
   };
 }
@@ -100,16 +104,21 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   if (xPct === null || yPct === null) return null;
 
   const nodeId = typeof record.nodeId === "string" ? record.nodeId.trim() : "";
+  const selector =
+    typeof record.selector === "string" ? record.selector.trim() : "";
   return {
     ...(nodeId ? { nodeId } : {}),
+    ...(selector ? { selector } : {}),
     point: { xPct, yPct },
   };
 }
 
-/** Resolve a node-id position first, then degrade to the stored click point. */
+/** Resolve a node or selector position first, then degrade to the click point. */
 export function resolveReviewAnchor(
   value: unknown,
   resolveNodePoint: (nodeId: string) => ReviewAnchorPoint | null,
+  resolveSelectorPoint: (selector: string) => ReviewAnchorPoint | null = () =>
+    null,
 ): ResolvedReviewAnchor | null {
   const anchor = parseReviewAnchor(value);
   if (!anchor) return null;
@@ -123,6 +132,20 @@ export function resolveReviewAnchor(
           anchor,
           point: { xPct, yPct },
           source: "node",
+        };
+      }
+    }
+  }
+  if (anchor.selector) {
+    const selectorPoint = resolveSelectorPoint(anchor.selector);
+    if (selectorPoint) {
+      const xPct = inBoundsPercentage(selectorPoint.xPct);
+      const yPct = inBoundsPercentage(selectorPoint.yPct);
+      if (xPct !== null && yPct !== null) {
+        return {
+          anchor,
+          point: { xPct, yPct },
+          source: "selector",
         };
       }
     }

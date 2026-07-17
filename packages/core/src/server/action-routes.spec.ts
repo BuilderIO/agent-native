@@ -64,6 +64,45 @@ describe("mountActionRoutes", () => {
     vi.restoreAllMocks();
   });
 
+  it("mounts package actions registered through another core module instance", async () => {
+    const packageCore = await import("./action-discovery.js");
+    const packageRun = vi.fn(async () => ({ source: "package" }));
+    packageCore.registerPackageActions({
+      "cross-instance-package-action": {
+        tool: { description: "Package action", parameters: {} },
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run: packageRun,
+      } as ActionEntry,
+    });
+
+    vi.resetModules();
+    const hostCore = await import("./action-discovery.js");
+    expect(hostCore).not.toBe(packageCore);
+
+    const actions: Record<string, ActionEntry> = {};
+    hostCore.mergePackageActions(actions);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: "http://app.test/_agent-native/actions/cross-instance-package-action",
+      },
+    });
+
+    expect(result).toEqual({ source: "package" });
+    expect(packageRun).toHaveBeenCalledOnce();
+  });
+
   it("uses action error statusCode for HTTP responses", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

@@ -172,7 +172,7 @@ const messages = {
       "L'enregistreur de bureau a terminé et a enregistré une copie locale, mais Clips n'a pas pu la télécharger. Vous pouvez réessayer à partir du menu Clips sans réenregistrer.",
     retryLibrary: "Vous pouvez réessayer depuis la bibliothèque.",
     processingStuck:
-      "Le traitement n'est pas terminé après 30 secondes (status={{status}}). Le téléchargement du clip n'est peut-être pas terminé – vérifiez les journaux du serveur pour les messages de fragmentation/finalisation.",
+      "L’enregistrement prend plus de temps que prévu (statut={{status}}). Si vous avez utilisé l’application de bureau, ouvrez Clips depuis la barre des menus pour réessayer l’envoi ou télécharger une copie locale enregistrée, puis vérifiez à nouveau.",
     uploadingAssembling:
       "Télécharger et assembler votre vidéo : cela ne prend généralement que quelques secondes.",
     connectStorageImportLoom: "Connectez le stockage pour importer ce Loom.",
@@ -224,6 +224,9 @@ const messages = {
     autoChapters: "Chapitres automatiques",
     removeFillerWords: "Supprimer les mots de remplissage",
     removeSilences: "Supprimer les silences (>1,2s)",
+    silenceWorking: "Suppression des silences…",
+    silenceCompleted: "Suppression des silences terminée",
+    silenceFailed: "Échec de la suppression des silences",
     generatePrSummary: "Générer un résumé des relations publiques",
     generateSop: "Générer SOP",
     generateSopTooltip:
@@ -454,6 +457,7 @@ const messages = {
     invite: "Inviter",
     embed: "Intégrer",
     shareLink: "Lien de partage",
+    shareWithHumans: "Partager avec des personnes",
     shareWithAgents: "Partager avec les agents",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
@@ -464,6 +468,8 @@ const messages = {
     retryAgentLink: "Réessayer",
     gifPreview: "aperçu de GIF",
     openPlayer: "Joueur ouvert",
+    chooseFile: "Choisir un fichier",
+    remove: "Retirer",
     downloadMp4: "Télécharger MP4",
     embedsNeedPublic: "Les intégrations nécessitent un clip public",
     embedPublicDescription:
@@ -549,6 +555,9 @@ const messages = {
     brandingUpdated: "Image de marque mise à jour",
     saveFailed: "Échec de l'enregistrement",
     organizationName: "Nom de l'organisation",
+    defaultVisibility: "Visibilité par défaut des nouveaux enregistrements",
+    defaultVisibilityDescription:
+      "S'applique aux nouveaux enregistrements, sauf si vous choisissez une autre visibilité.",
     brandColor: "Couleur de la marque",
     brandColorPicker: "Sélecteur de couleurs de marque",
     useColor: "Utilisez {{color}}",
@@ -1118,6 +1127,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     desktopTitle: "Desktop app (Localisé)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localisé)",
+    openDesktopApp: "Open desktop app (Localisé)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localisé)",
@@ -1245,9 +1255,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     visibilityOrg: "Organization (Localisé)",
     visibilityPublic: "Public (Localisé)",
     passwordProtection: "Password protection (Localisé)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Localisé)",
+    passwordSetPlaceholder: "Password is set — type to replace (Localisé)",
     noPasswordPlaceholder: "No password (Localisé)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (Localisé)",
+    removePassword: "Remove (Localisé)",
     expiry: "Expiry (Localisé)",
     viewerOptions: "Viewer options (Localisé)",
     comments: "Comments (Localisé)",

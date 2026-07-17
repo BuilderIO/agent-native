@@ -6,11 +6,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
-import {
-  deleteLocalFileDocument,
-  isLocalDocumentId,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -365,16 +360,17 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const result = await deleteLocalFileDocument(id);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return result;
-    }
-
     const access = await assertAccess("document", id, "admin");
     const existing = access.resource;
 
     const db = getDb();
+    const [systemDatabase] = await db
+      .select({ systemRole: schema.contentDatabases.systemRole })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.documentId, id));
+    if (systemDatabase?.systemRole) {
+      throw new Error("System Content database documents cannot be deleted");
+    }
     const deleted = await deleteDocumentRecursive(
       db,
       id,

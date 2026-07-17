@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/desktop-app",
-  "version": "0.1.7",
+  "version": "0.1.150",
   "private": true,
   "description": "Agent Native desktop app",
   "homepage": "https://agent-native.com",
@@ -35,6 +35,7 @@
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",
     "@tanstack/react-query": "5.101.2",
+    "electron-log": "5.4.4",
     "electron-updater": "^6.8.3",
     "sonner": "^2.0.7",
     "zod": "^4.4.3"

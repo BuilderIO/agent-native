@@ -64,3 +64,9 @@ export {
   type WorkspaceConnectionCredentialResolutionStatus,
   type WorkspaceConnectionCredentialsResolution,
 } from "./credentials.js";
+
+export {
+  registerWorkspaceConnectionLifecycleListener,
+  type WorkspaceConnectionLifecycleEvent,
+  type WorkspaceConnectionLifecycleListener,
+} from "./lifecycle.js";

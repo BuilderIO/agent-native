@@ -82,5 +82,25 @@ describe("media-worker-contract", () => {
     expect(
       parseMediaWorkerCallback({ jobId: "rec-1", status: "wat" }),
     ).toBeNull();
+    expect(
+      parseMediaWorkerCallback({
+        jobId: "rec-1:compress",
+        status: "done",
+        outputUrl: "https://cdn.builder.io/o/compressed",
+      }),
+    ).toBeNull();
+    expect(
+      parseMediaWorkerCallback({
+        jobId: "rec-1:compress",
+        status: "failed",
+        error: "transcode failed",
+      }),
+    ).toEqual({
+      jobId: "rec-1:compress",
+      status: "failed",
+      error: "transcode failed",
+      outputUrl: undefined,
+      durationMs: undefined,
+    });
   });
 });

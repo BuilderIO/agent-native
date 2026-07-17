@@ -2709,6 +2709,21 @@ function resolveTarget(
   };
 }
 
+export function resolveCodeLayerTarget(
+  html: string,
+  target: EditIntentTarget,
+  options: { source?: CodeLayerSource } = {},
+): { projection: CodeLayerProjection; resolution: EditIntentResolution } {
+  const build = buildProjection(
+    html,
+    options.source ?? { kind: "inline-html" },
+  );
+  return {
+    projection: build.projection,
+    resolution: resolveTarget(build, target),
+  };
+}
+
 function summarizeNode(node: CodeLayerNode): PatchNodeSummary {
   return {
     nodeId: node.id,

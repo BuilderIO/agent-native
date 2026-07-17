@@ -9,6 +9,14 @@ description: >-
 
 The content app can sync documents bidirectionally with Notion. Documents can be linked to Notion pages, pulled from Notion, or pushed to Notion.
 
+Notion sync is not creative-context retrieval. When drafting new copy from a
+synced page, read the `creative-context` skill first and retrieve voice,
+terminology, audience guidance, and factual evidence as separate roles. Apply
+its exact reuse ladder, respect opt-out/pinned packs, and use app-local Notion
+content as the fallback when the shared corpus has no relevant evidence. Keep
+the resulting immutable `contextPackId` and reuse labels with document
+generation provenance; never infer them from a later Notion sync snapshot.
+
 ## Scripts
 
 ### connect-notion-status

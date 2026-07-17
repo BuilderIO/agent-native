@@ -659,11 +659,10 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
-async function gotoAndWaitForNavLink(
+async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
   path: string,
-  linkName: string,
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
@@ -681,7 +680,7 @@ async function gotoAndWaitForNavLink(
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("link", { name: linkName })
+        .getByRole("tablist", { name: "Agent sections" })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -704,7 +703,7 @@ async function gotoAndWaitForNavLink(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show ${linkName} link before timeout: ${message}\n` +
+    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }
@@ -771,12 +770,11 @@ async function runBrowserSmoke(
   browserErrors.length = 0;
   httpErrors.length = 0;
 
-  log("assertion pass: /observability after warmup");
-  await gotoAndWaitForNavLink(
+  log("assertion pass: /agent after warmup");
+  await gotoAndWaitForAgentPage(
     page,
     running,
-    "/observability",
-    "Observability",
+    "/agent",
     browserErrors,
     httpErrors,
   );
@@ -851,7 +849,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → / → /observability",
+      "  checked:  scaffold → install → dev server → auto-login → / → /agent",
     );
     console.log(
       "  checked:  no Unexpected Server Error, no HydratedRouter in dev logs",

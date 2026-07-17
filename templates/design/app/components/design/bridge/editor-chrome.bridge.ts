@@ -2168,6 +2168,17 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
   var selectedEl: Element | null = null;
   var hoveredEl: Element | null = null;
+  type NodeHtmlPreviewSession = {
+    proposalId: string;
+    originalElement: Element;
+    originalOuterHTML: string;
+    startMarker: Comment;
+    endMarker: Comment;
+    currentElement: Element;
+    selectedWasInside: boolean;
+    hoveredWasInside: boolean;
+  };
+  var activeNodeHtmlPreview: NodeHtmlPreviewSession | null = null;
   // Last element an "element-hover" message was actually posted for. Lets
   // the shield's pointermove handler skip getLightElementInfo's two
   // getComputedStyle calls plus the postMessage on every one of the dozens
@@ -5118,6 +5129,178 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       } catch (_err) {}
     }
     return null;
+  }
+
+  function parseNodeHtmlPreviewElement(html: string): Element | null {
+    var trimmed = html.trim();
+    if (/^<body(?:\s|>)/i.test(trimmed)) {
+      var parsedDocument = new DOMParser().parseFromString(
+        "<!doctype html><html><head></head>" + trimmed + "</html>", // i18n-ignore parser scaffold
+        "text/html",
+      );
+      return parsedDocument.body;
+    }
+    var template = document.createElement("template");
+    template.innerHTML = html;
+    var element = template.content.firstElementChild;
+    if (!element || template.content.childElementCount !== 1) return null;
+    for (
+      var child = template.content.firstChild;
+      child;
+      child = child.nextSibling
+    ) {
+      if (child === element) continue;
+      if (child.nodeType !== 3 || String(child.textContent || "").trim()) {
+        return null;
+      }
+    }
+    return element;
+  }
+
+  function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
+    if (!target || typeof target !== "object") return null;
+    var nodeId = (target as { nodeId?: unknown }).nodeId;
+    if (typeof nodeId === "string" && nodeId) {
+      try {
+        var nodeMatch = document.querySelector(
+          '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+        );
+        if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
+          return nodeMatch;
+        }
+      } catch (_err) {}
+    }
+    var selector = (target as { selector?: unknown }).selector;
+    if (typeof selector !== "string" || !selector) return null;
+    try {
+      var selectorMatch = document.querySelector(selector);
+      return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
+        ? selectorMatch
+        : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function postNodeHtmlPreviewApplied(proposalId: string): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:node-html-preview-applied",
+        proposalId: proposalId,
+      },
+      "*",
+    );
+  }
+
+  function replaceNodeHtmlPreviewElement(
+    session: NodeHtmlPreviewSession,
+    nextElement: Element,
+  ): boolean {
+    var parent = session.startMarker.parentNode;
+    if (!parent || session.endMarker.parentNode !== parent) return false;
+    var cursor = session.startMarker.nextSibling;
+    while (cursor && cursor !== session.endMarker) {
+      var next = cursor.nextSibling;
+      parent.removeChild(cursor);
+      cursor = next;
+    }
+    if (cursor !== session.endMarker) return false;
+    nextElement.setAttribute(
+      "data-agent-native-node-rewrite-proposal",
+      session.proposalId,
+    );
+    parent.insertBefore(nextElement, session.endMarker);
+    session.currentElement = nextElement;
+    if (session.selectedWasInside) selectedEl = nextElement;
+    if (session.hoveredWasInside) hoveredEl = nextElement;
+    refreshOverlays();
+    return true;
+  }
+
+  function restoreActiveNodeHtmlPreview(proposalId?: string): boolean {
+    var session = activeNodeHtmlPreview;
+    if (!session || (proposalId && session.proposalId !== proposalId)) {
+      return false;
+    }
+    activeNodeHtmlPreview = null;
+    var parent = session.startMarker.parentNode;
+    if (!parent || session.endMarker.parentNode !== parent) return false;
+    var cursor = session.startMarker.nextSibling;
+    while (cursor && cursor !== session.endMarker) {
+      var next = cursor.nextSibling;
+      parent.removeChild(cursor);
+      cursor = next;
+    }
+    if (cursor !== session.endMarker) return false;
+    parent.insertBefore(session.originalElement, session.endMarker);
+    parent.removeChild(session.startMarker);
+    parent.removeChild(session.endMarker);
+    if (session.selectedWasInside) selectedEl = session.originalElement;
+    if (session.hoveredWasInside) hoveredEl = session.originalElement;
+    refreshOverlays();
+    return session.originalElement.outerHTML === session.originalOuterHTML;
+  }
+
+  function applyNodeHtmlPreview(data: {
+    proposalId?: unknown;
+    target?: unknown;
+    html?: unknown;
+  }): void {
+    var proposalId = data.proposalId;
+    if (
+      typeof proposalId !== "string" ||
+      !proposalId ||
+      typeof data.html !== "string"
+    ) {
+      return;
+    }
+    var nextElement = parseNodeHtmlPreviewElement(data.html);
+    if (!nextElement) return;
+    if (
+      activeNodeHtmlPreview &&
+      activeNodeHtmlPreview.proposalId === proposalId
+    ) {
+      if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
+        postNodeHtmlPreviewApplied(proposalId);
+      }
+      return;
+    }
+    if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
+    var target = resolveNodeHtmlPreviewTarget(data.target);
+    if (!target || !target.parentNode || target === document.documentElement) {
+      return;
+    }
+    var originalOuterHTML = target.outerHTML;
+    nextElement.setAttribute(
+      "data-agent-native-node-rewrite-proposal",
+      proposalId,
+    );
+    var startMarker = document.createComment(
+      "agent-native:node-html-preview:start",
+    );
+    var endMarker = document.createComment(
+      "agent-native:node-html-preview:end",
+    );
+    var parent = target.parentNode;
+    var selectedWasInside = !!selectedEl && target.contains(selectedEl);
+    var hoveredWasInside = !!hoveredEl && target.contains(hoveredEl);
+    parent.insertBefore(startMarker, target);
+    parent.insertBefore(endMarker, target.nextSibling);
+    parent.replaceChild(nextElement, target);
+    activeNodeHtmlPreview = {
+      proposalId: proposalId,
+      originalElement: target,
+      originalOuterHTML: originalOuterHTML,
+      startMarker: startMarker,
+      endMarker: endMarker,
+      currentElement: nextElement,
+      selectedWasInside: selectedWasInside,
+      hoveredWasInside: hoveredWasInside,
+    };
+    if (selectedWasInside) selectedEl = nextElement;
+    if (hoveredWasInside) hoveredEl = nextElement;
+    refreshOverlays();
+    postNodeHtmlPreviewApplied(proposalId);
   }
 
   // Host-driven Layers-panel moves must never inherit findRuntimeTarget's
@@ -11070,6 +11253,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       return;
     }
     if (e.data.type === "replace-document-content") {
+      activeNodeHtmlPreview = null;
       replaceRuntimeDocument(
         e.data.content,
         e.data.forceFullDocument ? "" : e.data.selectedSelector,
@@ -11077,6 +11261,16 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
       );
+      return;
+    }
+    if (e.data.type === "node-html-preview") {
+      if (e.data.operation === "restore") {
+        if (typeof e.data.proposalId === "string") {
+          restoreActiveNodeHtmlPreview(e.data.proposalId);
+        }
+      } else if (e.data.operation === "preview") {
+        applyNodeHtmlPreview(e.data);
+      }
       return;
     }
     if (e.data.type === "delete-element") {

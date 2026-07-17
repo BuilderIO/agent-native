@@ -43,7 +43,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -265,9 +265,15 @@ const MOUSE_INTERACTION = {
 export default function SessionDetailPage() {
   const t = useT();
   const { recordingId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { codeRequiredDialog } = useSendToAgentChat();
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
+  const initialSeekMs = useMemo(() => {
+    const raw = searchParams.get("atMs");
+    if (!raw || !/^\d+$/.test(raw)) return 0;
+    return Number(raw);
+  }, [searchParams]);
 
   return (
     <div className="analytics-session-detail-page flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
@@ -319,7 +325,7 @@ export default function SessionDetailPage() {
         <DetailSkeleton />
       ) : data && recording ? (
         <div className="min-h-0 flex-1">
-          <ReplayWorkbench response={data} />
+          <ReplayWorkbench response={data} initialSeekMs={initialSeekMs} />
         </div>
       ) : null}
     </div>
@@ -428,8 +434,10 @@ function AskSessionPopover({
 
 function ReplayWorkbench({
   response,
+  initialSeekMs,
 }: {
   response: SessionReplayPlaybackResponse;
+  initialSeekMs: number;
 }) {
   const events = useReplayEvents(response);
   const markers = useMemo(() => buildReplayMarkers(events), [events]);
@@ -458,6 +466,7 @@ function ReplayWorkbench({
         events={events}
         markers={markers}
         response={response}
+        initialSeekMs={initialSeekMs}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
       />
@@ -475,12 +484,14 @@ function ReplayPlayer({
   events,
   markers,
   response,
+  initialSeekMs,
   onTimeUpdate,
   registerSeek,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
   response: SessionReplayPlaybackResponse;
+  initialSeekMs: number;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
 }) {
@@ -777,7 +788,7 @@ function ReplayPlayer({
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
-        currentTimeRef.current,
+        initialSeekMs || currentTimeRef.current,
         0,
         Number.isFinite(total) ? total : 0,
       );
@@ -856,6 +867,7 @@ function ReplayPlayer({
     currentTimeRef,
     eventsIdentity,
     eventsRef,
+    initialSeekMs,
     response.isComplete,
     speedRef,
     t,

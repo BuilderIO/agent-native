@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { isAgentActionStopError } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 const extensionRow = {
@@ -551,10 +552,12 @@ describe("extensions/actions", () => {
     const result = (await actions["update-extension"].run({
       id: "ext-zoom",
       content: "<div>Lots of HTML</div>",
+      allowFullReplacement: true,
     })) as any;
 
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: "<div>Lots of HTML</div>",
+      allowFullReplacement: true,
       patches: undefined,
       edits: undefined,
       format: false,
@@ -569,6 +572,119 @@ describe("extensions/actions", () => {
       },
     });
     expect(result.extension).not.toHaveProperty("content");
+  });
+
+  it("blocks full replacement unless the caller explicitly allows it", async () => {
+    const updateExtensionContent = vi.fn();
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    let error: unknown;
+    try {
+      await actions["update-extension"].run({
+        id: "ext-zoom",
+        content: "<div>Replacement</div>",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "extension_full_replacement_requires_explicit_intent",
+    });
+    expect(updateExtensionContent).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported public visibility before changing content", async () => {
+    const updateExtensionContent = vi.fn();
+    const updateExtension = vi.fn();
+    mockExtensionModules({
+      store: { updateExtensionContent, updateExtension },
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    let error: unknown;
+    try {
+      // guard:allow-extension-public — negative test for the runtime rejection path
+      await actions["update-extension"].run({
+        id: "ext-zoom",
+        visibility: "public",
+        content: "<div>Replacement</div>",
+        allowFullReplacement: true,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "extension_public_visibility_unsupported",
+    });
+    expect(updateExtensionContent).not.toHaveBeenCalled();
+    expect(updateExtension).not.toHaveBeenCalled();
+    expect(
+      actions["update-extension"].tool.parameters.properties.visibility,
+    ).toMatchObject({ enum: ["private", "org"] });
+  });
+
+  it("accepts native edit arrays and reports malformed JSON without throwing", async () => {
+    const updateExtensionContent = vi.fn(async () => extensionRow);
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const patches = [{ find: "/api/old", replace: "/api/new" }];
+    await actions["update-extension"].run({
+      id: "ext-zoom",
+      patches,
+    });
+
+    expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
+      content: undefined,
+      allowFullReplacement: false,
+      patches,
+      edits: undefined,
+      format: false,
+    });
+
+    const malformed = await actions["update-extension"].run({
+      id: "ext-zoom",
+      patches: "{not-json",
+    });
+    expect(malformed).toBe(
+      "Error: patches must be a JSON array of { find, replace } objects.",
+    );
+  });
+
+  it("stops on deterministic edit failures instead of inviting identical retries", async () => {
+    const { ExtensionContentEditError } = await import("./content-patch.js");
+    const updateExtensionContent = vi.fn(async () => {
+      throw new ExtensionContentEditError("replace found no matches");
+    });
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    let error: unknown;
+    try {
+      await actions["update-extension"].run({
+        id: "ext-zoom",
+        patches: JSON.stringify([{ find: "missing", replace: "replacement" }]),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "extension_content_edit_failed",
+    });
+    expect((error as { toolResult?: string }).toolResult).toContain(
+      "Do not retry unchanged arguments",
+    );
   });
 
   it("passes granular extension edits and formatting through to the store", async () => {
@@ -627,6 +743,7 @@ describe("extensions/actions", () => {
 
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: undefined,
+      allowFullReplacement: false,
       patches: undefined,
       edits,
       format: true,
@@ -932,6 +1049,105 @@ describe("extensions/actions", () => {
     );
   });
 
+  // ---------------------------------------------------------------------------
+  // Hosting a workspace/shared resource file by reference
+  // (contentFromWorkspaceFile). This is the path for cloning a large extension
+  // body that already exists as a workspace resource — the model must NOT
+  // re-read it into context, paste it inline (it gets cut off mid-stream), or
+  // route it through run-code (mutating actions are blocked there).
+  // ---------------------------------------------------------------------------
+
+  it("create-extension hosts a workspace resource file by reference", async () => {
+    const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(6000)}</div>`;
+    const createExtension = vi.fn(async (data: any) => ({
+      ...extensionRow,
+      id: "ext-new",
+      name: data.name,
+      content: data.content,
+    }));
+    const findRecentDuplicateExtension = vi.fn(async () => null);
+    mockExtensionModules({
+      store: { createExtension, findRecentDuplicateExtension },
+    });
+    const readResource = vi.fn(async () => bigHtml);
+    vi.doMock("../resources/script-helpers.js", () => ({ readResource }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["create-extension"].run(
+      {
+        name: "Intuit Usage",
+        contentFromWorkspaceFile: "intuit-analytics-extension.html",
+      },
+      { caller: "tool" } as any,
+    )) as any;
+
+    expect(result.ok).toBe(true);
+    // Full file body is hosted verbatim — never a re-typed copy.
+    expect(createExtension).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Intuit Usage", content: bigHtml }),
+    );
+    // The result must NOT echo the full body back — only a compact summary.
+    expect(result.extension).not.toHaveProperty("content");
+    expect(result.extension.contentLength).toBe(bigHtml.length);
+    expect(result.extension.contentHash).toBeTruthy();
+    // Resolved across scopes (personal precedence first).
+    expect(readResource).toHaveBeenCalledWith(
+      "intuit-analytics-extension.html",
+      expect.objectContaining({ scope: "personal" }),
+    );
+  });
+
+  it("create-extension errors (creates nothing) when contentFromWorkspaceFile is not found", async () => {
+    const createExtension = vi.fn();
+    mockExtensionModules({ store: { createExtension } });
+    vi.doMock("../resources/script-helpers.js", () => ({
+      readResource: vi.fn(async () => null),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["create-extension"].run(
+      { name: "Missing", contentFromWorkspaceFile: "does-not-exist.html" },
+      { caller: "tool" } as any,
+    )) as any;
+
+    expect(typeof result).toBe("string");
+    expect(result).toContain("did not match any readable");
+    expect(createExtension).not.toHaveBeenCalled();
+  });
+
+  it("update-extension replaces full content from a workspace resource file", async () => {
+    const updateExtensionContent = vi.fn(async () => ({
+      ...extensionRow,
+      content: "<div>from workspace</div>",
+      updatedAt: "2026-05-06T03:00:00.000Z",
+    }));
+    mockExtensionModules({
+      store: { updateExtensionContent },
+      resolveAccessRole: "editor",
+    });
+    vi.doMock("../resources/script-helpers.js", () => ({
+      readResource: vi.fn(async () => "<div>from workspace</div>"),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    await actions["update-extension"].run(
+      {
+        id: "ext-zoom",
+        contentFromWorkspaceFile: "roku-analytics.html",
+        allowFullReplacement: true,
+      },
+      { caller: "tool" } as any,
+    );
+
+    expect(updateExtensionContent).toHaveBeenCalledWith(
+      "ext-zoom",
+      expect.objectContaining({ content: "<div>from workspace</div>" }),
+    );
+  });
+
   it("render-inline-extension returns a transient chat-only extension", async () => {
     const createExtension = vi.fn();
     mockExtensionModules({ store: { createExtension } });
@@ -1010,7 +1226,11 @@ describe("extensions/actions", () => {
     const { createExtensionActionEntries } = await import("./actions.js");
     const actions = createExtensionActionEntries();
     await actions["update-extension"].run(
-      { id: "ext-zoom", contentFromAttachment: "latest" },
+      {
+        id: "ext-zoom",
+        contentFromAttachment: "latest",
+        allowFullReplacement: true,
+      },
       {
         caller: "tool",
         attachments: [
@@ -1026,6 +1246,7 @@ describe("extensions/actions", () => {
 
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: "<div>from paste</div>",
+      allowFullReplacement: true,
       patches: undefined,
       edits: undefined,
       format: false,

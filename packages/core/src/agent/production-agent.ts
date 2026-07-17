@@ -3772,6 +3772,20 @@ export async function runAgentLoop(opts: {
           return usage;
         }
 
+        // A provider can close cleanly after streaming only a partial tool
+        // input. Do not treat that as a completed turn or execute guessed args.
+        const hasEmptyAssistantContent =
+          assistantContent === undefined || assistantContent.length === 0;
+        const hasUnfinishedToolInput =
+          activeToolInputs.size > 0 &&
+          hasEmptyAssistantContent &&
+          streamedAssistantToolCalls.length === 0 &&
+          toolCallErrors.size === 0;
+        if (hasUnfinishedToolInput) {
+          send({ type: "auto_continue", reason: "stream_ended" });
+          return usage;
+        }
+
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
@@ -6524,6 +6538,22 @@ export function createProductionAgentHandler(
               engine,
               expConfig.configs.model,
             );
+            modelSelectionSource = "experiment";
+          }
+        }
+
+        if (modelSelectionSource === "default") {
+          const { resolveHostedDefaultModelExperiment } =
+            await import("../observability/hosted-model-experiment.js");
+          const hostedExperiment = resolveHostedDefaultModelExperiment({
+            userId: ownerEmail,
+            engineName: engine.name,
+            isDefaultModelSelection: true,
+            supportedModels: engine.supportedModels,
+          });
+          if (hostedExperiment) {
+            effectiveModel = hostedExperiment.model;
+            experimentAssignments.push(hostedExperiment.assignment);
             modelSelectionSource = "experiment";
           }
         }

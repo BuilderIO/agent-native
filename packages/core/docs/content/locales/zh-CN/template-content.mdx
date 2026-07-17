@@ -89,9 +89,8 @@ description: "MDX 的开源 Obsidian：编辑本地 Markdown/MDX 文件，生成
 - **在树中组织页面** — 无限嵌套、拖动重新排序、收藏您经常使用的页面。
 - **搜索所有内容**，通过标题和内容进行全文搜索。
 - **像 Obsidian 一样编辑本地 Markdown/MDX 文件。**使用 `/local-files` 视图
-  将工作区导出到文件，在您自己的工具中编辑它们，预览
-  更改，并将其导入回来。在本地文件模式下，内容直接写入
-  选定的 `.md` 或 `.mdx` 文件。
+  将文件夹连接到 Files，使用自己的工具编辑并同步更改，然后在 SQL 应用中
+  审核冲突。
 - **生成丰富的交互式自定义块。**注册本地React组件，
   将它们插入为 MDX，并让代理创建或更新组件文件
   您的文档。
@@ -134,32 +133,18 @@ Native Desktop，并将当前文档树导出为Markdown/MDX
 评论、权限和实时协作；本地文件夹是显式的
 同步表面。
 
-内容还可以在**本地文件模式**下运行，其中文件是内容的来源
-真相而不是SQL文件。将 `agent-native.json` 添加到仓库，设置
-`mode: "local-files"`，并配置`docs/`、`blog/`等根，
-`content/` 和 `resources/`。然后标准内容编辑器填充其
-来自本地 `.md`/`.mdx` 文件的左侧边栏，并将编辑写回
-通过普通文件actions选择文件。将其用于回购优先文档，
-由 MDX 驱动的博客、资源库或黑曜石风格的个人内容
-组件；当您需要托管协作时切换回数据库模式并且
-SQL 支持的共享。请参阅 [Local File Mode](/docs/local-file-mode)
-独立存储库布局、配置、自定义 MDX 组件、本地
-`extensions/`小部件、安全生产指南。
+本地文件夹现在与所有页面使用相同的 SQL 模型。每个页面属于一个空间和它的
+Files 数据库；文件夹是该数据库的数据源适配器。策略、冲突、MDX 组件和旧模式
+迁移请参阅[本地文件夹源](/docs/local-file-mode)。
 
-要将内容本地文件技能安装到现有存储库中：
+要在现有仓库中打开 Content：
 
 ```bash
-npx @agent-native/core@latest skills add content --mode local-files --scope project
+npx @agent-native/core@latest content .
 ```
 
-安装程序会复制您的编码代理的 `content` 技能并写入或
-使用 `docs/`、`blog/`、`content/` 的内容根更新 `agent-native.json`
-和`resources/`。当本地内容应用、Agent Native 桌面或受信任
-本地网桥正在运行，代理应使用内容actions，例如
-`list-documents`、`get-document`、`edit-document`、`update-document` 和
-`share-local-file-document` 而不是原始文件系统写入。没有那个本地
-bridge，已安装的技能仍然为代理提供了回购编辑合同
-安全 Markdown/MDX 编辑。
+CLI 会启动正常的数据库版 Content，注册文件夹源，并在不设置模式环境变量的
+情况下打开连接界面。
 
 ## 对于开发者
 

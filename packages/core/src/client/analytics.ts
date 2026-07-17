@@ -35,7 +35,13 @@ export type {
   SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
+  SessionReplayContext,
+  SessionReplayLinkOptions,
   SessionReplayUrlMatcher,
+} from "./session-replay.js";
+export {
+  getSessionReplayContext,
+  getSessionReplayUrl,
 } from "./session-replay.js";
 
 declare global {
@@ -101,6 +107,10 @@ export type ConfigureTrackingOptions = {
    * Disable this on anonymous/public routes to avoid an expected 401 request.
    */
   llmConnectionStatus?: boolean;
+  /** Disable framework auth refresh when the host owns identity/session state. */
+  authSessionRefresh?: boolean;
+  /** Disable automatic history/pageview events when the host emits its own. */
+  pageviewTracking?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   /**
    * First-party, Sentry-style error capture. Auto-captures uncaught errors
@@ -110,7 +120,7 @@ export type ConfigureTrackingOptions = {
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
 
-type SentryUser = {
+export type TrackingIdentityUser = {
   id?: string;
   email?: string;
   username?: string;
@@ -148,7 +158,7 @@ let _trackingContentCaptureEnabled = true;
 let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
-let _pendingSentryUser: SentryUser | null | undefined = undefined;
+let _pendingSentryUser: TrackingIdentityUser | null | undefined = undefined;
 let _pendingSentryOrgId: string | null | undefined = undefined;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
@@ -905,7 +915,7 @@ function ensureSentry(): void {
  * for filtering Sentry by tenant.
  */
 export function setSentryUser(
-  user: SentryUser | null,
+  user: TrackingIdentityUser | null,
   orgId?: string | null,
 ): void {
   let shouldRetryReplay = false;
@@ -944,6 +954,14 @@ export function setSentryUser(
   if (orgId !== undefined) {
     _pendingSentryOrgId = orgId ?? null;
   }
+}
+
+/** Neutral alias for hosts that own identity outside Sentry. */
+export function setTrackingIdentity(
+  user: TrackingIdentityUser | null,
+  orgId?: string | null,
+): void {
+  setSentryUser(user, orgId);
 }
 
 export interface ClientCaptureContext {
@@ -1050,8 +1068,12 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     if (options.llmConnectionStatus !== false) {
       installLlmConnectionRefresh();
     }
-    installTrackingAuthSessionRefresh();
-    installPageviewTracking();
+    if (options.authSessionRefresh !== false) {
+      installTrackingAuthSessionRefresh();
+    }
+    if (options.pageviewTracking !== false) {
+      installPageviewTracking();
+    }
     maybeInstallSessionReplay(
       options.sessionReplay,
       {
@@ -1371,6 +1393,7 @@ async function startConfiguredSessionReplay(
       return { started: false, reason: "disabled" as const };
     }
     const mod = await import("./session-replay.js");
+    _sessionReplayModuleForCapture = mod;
     if (!_trackingContentCaptureEnabled) {
       return { started: false, reason: "disabled" as const };
     }
@@ -1398,6 +1421,7 @@ export async function startSessionReplay(
     return { started: false, reason: "missing-user-id" };
   }
   const mod = await import("./session-replay.js");
+  _sessionReplayModuleForCapture = mod;
   return mod.startSessionReplay({
     ...configured,
     shouldStart: () =>
@@ -1466,7 +1490,29 @@ function resolveProps(
   for (const [key, value] of Object.entries(llmProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
+  const replayProps = sessionReplayTrackingProperties();
+  for (const [key, value] of Object.entries(replayProps)) {
+    if (enriched[key] === undefined) enriched[key] = value;
+  }
   return applyTrackingIdentity(enriched);
+}
+
+function sessionReplayTrackingProperties(): Record<string, unknown> {
+  const module = _sessionReplayModuleForCapture;
+  if (!module) return {};
+  const context = module.getSessionReplayContext?.();
+  if (!context?.active) return {};
+  const occurredAt = new Date().toISOString();
+  return {
+    sessionReplayId: context.replayId,
+    sessionReplayStartedAt: context.startedAt,
+    sessionReplayAt: occurredAt,
+    ...(module.getSessionReplayUrl
+      ? {
+          sessionReplayUrl: module.getSessionReplayUrl({ at: occurredAt }),
+        }
+      : {}),
+  };
 }
 
 function pageviewKey(): string {

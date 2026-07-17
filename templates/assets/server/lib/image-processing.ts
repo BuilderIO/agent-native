@@ -1,4 +1,5 @@
 import sharp from "sharp";
+export { extractDominantColors } from "@agent-native/core/ingestion";
 
 import type {
   AspectRatio,
@@ -42,28 +43,6 @@ export async function makeThumbnail(buffer: Buffer): Promise<{
       .toBuffer(),
     mimeType: "image/webp",
   };
-}
-
-export async function extractDominantColors(buffer: Buffer): Promise<string[]> {
-  const { data } = await sharp(buffer, { failOn: "none" })
-    .resize(64, 64, { fit: "inside" })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const buckets = new Map<string, number>();
-  for (let i = 0; i < data.length; i += 3) {
-    const r = Math.round(data[i] / 32) * 32;
-    const g = Math.round(data[i + 1] / 32) * 32;
-    const b = Math.round(data[i + 2] / 32) * 32;
-    const key = [r, g, b]
-      .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0"))
-      .join("");
-    buckets.set(key, (buckets.get(key) ?? 0) + 1);
-  }
-  return [...buckets.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([hex]) => `#${hex.toUpperCase()}`);
 }
 
 export async function compositeLogo(input: {

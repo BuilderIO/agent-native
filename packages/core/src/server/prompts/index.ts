@@ -3,10 +3,7 @@
  * agent-chat-plugin.ts has a single clean import.
  */
 
-export {
-  buildFrameworkCore,
-  FIRST_SESSION_PERSONALIZATION,
-} from "./framework-core.js";
+export { buildFrameworkCore } from "./framework-core.js";
 export { buildFrameworkCoreCompact } from "./framework-core-compact.js";
 export {
   sharedRule8,

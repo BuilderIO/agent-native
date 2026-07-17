@@ -96,6 +96,7 @@ export interface ResolveDocumentSyncConflictRequest {
 
 export interface DocumentCreateRequest {
   id?: string;
+  spaceId?: string;
   title?: string;
   parentId?: string | null;
   content?: string;
@@ -289,7 +290,8 @@ export type ContentDatabaseViewType =
   | "gallery"
   | "calendar"
   | "timeline"
-  | "form";
+  | "form"
+  | "sidebar";
 
 export type ContentDatabaseRowDensity = "compact" | "default" | "comfortable";
 export type ContentDatabaseFilterMode = "and" | "or";
@@ -414,7 +416,12 @@ export type ContentDatabaseSourceType =
   | "mock-local"
   | "builder-cms"
   | "local-table"
-  | "notion-database";
+  | "notion-database"
+  | "local-folder";
+export type ContentDatabaseSourceTruthPolicy =
+  | "database_primary"
+  | "source_primary"
+  | "reviewed_bidirectional";
 export type ContentDatabaseSourceSyncState =
   | "idle"
   | "linked"
@@ -433,7 +440,7 @@ export type ContentDatabaseSourceWriteMode =
   | "publish_updates";
 export type BuilderCmsPublicationTransitionIntent = "publish" | "unpublish";
 export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
-export type ContentDatabaseSourceChangeDirection = "outbound";
+export type ContentDatabaseSourceChangeDirection = "incoming" | "outbound";
 export type ContentDatabaseSourceChangeState =
   | "proposed"
   | "pending_push"
@@ -471,6 +478,9 @@ export interface ContentDatabaseSourceCapabilities {
   canStageLocalRevision: boolean;
   liveWritesEnabled: boolean;
   readOnlyRefresh: boolean;
+  canRename?: boolean;
+  canReveal?: boolean;
+  canUseLocalComponents?: boolean;
 }
 
 export interface ContentDatabaseSourceFieldMapping {
@@ -640,6 +650,9 @@ export interface ContentDatabaseSource {
     allowPublicationTransitions?: boolean;
     notes?: string | null;
     readMode?: "fixture" | "builder-api" | string | null;
+    connectionId?: string | null;
+    connectionLabel?: string | null;
+    truthPolicy?: ContentDatabaseSourceTruthPolicy;
     liveReadConfigured?: boolean;
     lastReadEntryCount?: number;
     lastReadMatchedRowCount?: number;
@@ -764,6 +777,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 
 export interface CreateDatabaseRequest {
   documentId?: string;
+  spaceId?: string;
   parentId?: string | null;
   title?: string;
   description?: string;

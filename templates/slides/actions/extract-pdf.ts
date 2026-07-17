@@ -1,7 +1,6 @@
 import fs from "fs";
 
 import { parseArgs } from "@agent-native/core";
-import { PDFParse } from "pdf-parse";
 
 export default async function (args: string[]) {
   const { path: pdfPath } = parseArgs(args);
@@ -11,7 +10,12 @@ export default async function (args: string[]) {
   }
 
   const buf = fs.readFileSync(pdfPath);
-  const pdf = new PDFParse(new Uint8Array(buf));
+  const { CanvasFactory } = await import("pdf-parse/worker");
+  const { PDFParse } = await import("pdf-parse");
+  const pdf = new PDFParse({
+    data: new Uint8Array(buf),
+    CanvasFactory,
+  });
   const result = await pdf.getText();
   const pages = result.pages || [];
   console.log("Total pages:", pages.length);

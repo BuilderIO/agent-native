@@ -5,6 +5,7 @@ import {
   IconCheck,
   IconExternalLink,
   IconBrain,
+  IconHierarchy2,
   IconBrowser,
   IconGitBranch,
   IconCloud,
@@ -3104,7 +3105,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
       id: "agent" | "connections" | "organization" | "workspace",
     ) => {
       const tab = searchTabs.find((candidate) => candidate.id === id);
-      if (!tab) throw new Error(`Missing agent settings tab: ${id}`);
+      if (!tab) throw new Error(`Missing agent workspace tab: ${id}`);
       return tab;
     };
     const agent = searchTab("agent");
@@ -3114,7 +3115,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     return [
       {
         ...agent,
-        icon: IconBrain,
+        icon: IconHierarchy2,
         group: "agent",
         content: (
           <SettingsPanelContent

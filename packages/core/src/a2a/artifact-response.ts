@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 export interface A2AToolResultSummary {
   tool: string;
   result: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
 }
 
 export interface A2AArtifactResponseOptions {
@@ -34,6 +36,7 @@ const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
   "add-database-item",
   "create-document",
   "update-document",
+  "set-document-property",
   "create-deck",
   "duplicate-deck",
   "add-slide",
@@ -545,6 +548,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   const forms = new Map<string, CreatedFormArtifact>();
 
   for (const toolResult of results) {
+    if (toolResult.isError === true || toolResult.completedSideEffect === false)
+      continue;
     if (toolResult.tool === "call-agent") {
       for (const artifact of parseDownstreamArtifactBlock(toolResult.result)) {
         if (artifact.kind === "deck") {
@@ -632,11 +637,23 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       toolResult.tool === "create-document" ||
       toolResult.tool === "update-document"
     ) {
+      if (parsed.conflict === true) continue;
       const id = stringValue(parsed.id);
       if (id) {
         documents.set(id, {
           id,
           title: stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "set-document-property") {
+      const id = stringValue(parsed.documentId);
+      if (id) {
+        documents.set(id, {
+          id,
           url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
         });
       }
@@ -872,6 +889,8 @@ export function extractA2AArtifactIdentities(
   };
 
   for (const result of results) {
+    if (result.isError === true || result.completedSideEffect === false)
+      continue;
     if (result.tool === "call-agent") {
       for (const identity of persistedArtifactIdentitiesFromMarker(
         result.result,
@@ -1537,6 +1556,71 @@ export function buildA2ARecoverableArtifactMessage(
     "The agent is still working on the full response, but these verified artifacts already exist:",
     "",
     "Artifacts:",
+    ...lines,
+  ].join("\n");
+}
+
+function mutationReceiptUrl(
+  identity: A2AArtifactIdentity,
+  baseUrl: string | undefined,
+): string | undefined {
+  if (
+    identity.sourceAction === "call-agent" &&
+    (!identity.url || identity.url.startsWith("/"))
+  ) {
+    return undefined;
+  }
+  if (identity.url) {
+    return identity.url.startsWith("/")
+      ? artifactUrl(baseUrl, identity.url)
+      : identity.url;
+  }
+
+  const path =
+    identity.resourceType === "document"
+      ? `/page/${identity.id}`
+      : identity.resourceType === "deck"
+        ? `/deck/${identity.id}`
+        : identity.resourceType === "dashboard"
+          ? `/adhoc/${identity.id}`
+          : identity.resourceType === "analysis"
+            ? `/analyses/${identity.id}`
+            : identity.resourceType === "image"
+              ? `/image/${identity.id}`
+              : identity.resourceType === "design"
+                ? `/design/${identity.id}`
+                : undefined;
+  return path ? artifactUrl(baseUrl, path) : undefined;
+}
+
+/**
+ * Build a bounded participant-facing receipt from authenticated artifact writes.
+ * Unlike generic artifact recovery, this only trusts identities extracted from
+ * successful write actions (or a signed downstream write ledger), so a read or
+ * an unverified URL cannot be rounded up to a successful mutation.
+ */
+export function buildA2AVerifiedMutationReceipt(
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string | null {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const identities = extractA2AArtifactIdentities(toolResults);
+  if (identities.length === 0) return null;
+
+  const lines = identities.map((identity) => {
+    const label =
+      identity.resourceType.charAt(0).toUpperCase() +
+      identity.resourceType.slice(1);
+    const url = mutationReceiptUrl(identity, baseUrl);
+    return url
+      ? `- ${label}: ${url} (ID: ${identity.id})`
+      : `- ${label} ID: ${identity.id}`;
+  });
+
+  return [
+    "A verified change was saved, but I couldn't generate the detailed summary.",
+    "",
+    "Saved artifacts:",
     ...lines,
   ].join("\n");
 }

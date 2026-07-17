@@ -80,6 +80,12 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Calling app id, for audit grouping, e.g. design."),
+  creativeContextRequestId: z
+    .string()
+    .optional()
+    .describe(
+      "Internal immutable creative-context request ID. Preserve this value when the picker starts generation.",
+    ),
   layout: layoutSchema
     .default("default")
     .describe(
@@ -140,6 +146,12 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   }
   if (args.includeLogo) params.set("includeLogo", "1");
   if (args.callerAppId?.trim()) params.set("callerAppId", args.callerAppId);
+  if (args.creativeContextRequestId?.trim()) {
+    params.set(
+      "creativeContextRequestId",
+      args.creativeContextRequestId.trim(),
+    );
+  }
   if (args.layout === "vertical") params.set("layout", "vertical");
   for (const runId of args.candidateRunIds ?? []) {
     if (runId.trim()) params.append("candidateRunIds", runId.trim());
@@ -215,6 +227,7 @@ const action = defineAction({
         prompt: args.prompt ?? null,
         aspectRatio: args.aspectRatio ?? null,
         presetId: args.presetId ?? null,
+        creativeContextRequestId: args.creativeContextRequestId ?? null,
         layout: args.layout,
         _writeId: `open-asset-picker-${Date.now()}-${Math.random()
           .toString(36)
@@ -252,6 +265,7 @@ const action = defineAction({
       styleStrength: args.styleStrength,
       includeLogo: args.includeLogo,
       callerAppId: args.callerAppId ?? null,
+      creativeContextRequestId: args.creativeContextRequestId ?? null,
       candidateRunIds: args.candidateRunIds ?? [],
       autoGenerate: args.autoGenerate,
     };

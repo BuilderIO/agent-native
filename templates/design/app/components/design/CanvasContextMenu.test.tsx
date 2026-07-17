@@ -169,6 +169,65 @@ describe("CanvasContextMenu Select layer", () => {
   });
 });
 
+describe("CanvasContextMenu regenerate", () => {
+  const candidate = {
+    key: "hero",
+    label: "Hero",
+    screenId: "screen-1",
+    info: {
+      tagName: "section",
+      sourceId: "hero",
+      selector: '[data-agent-native-node-id="hero"]',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 400, height: 240 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    },
+  };
+
+  it("routes an active selection through the reprompt action", async () => {
+    const onReprompt = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canReprompt: true,
+      onReprompt,
+    });
+
+    await act(async () => view.findButton("Regenerate")?.click());
+    expect(onReprompt).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "reprompt", selectedCount: 1 }),
+    );
+    await view.cleanup();
+  });
+
+  it("keeps stacked-layer candidates explicit for reprompting", async () => {
+    const parent = {
+      ...candidate,
+      key: "parent",
+      label: "Parent frame",
+      info: { ...candidate.info, sourceId: "parent" },
+    };
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate, parent],
+      canReprompt: true,
+      onRepromptLayer,
+    });
+
+    const parentButtons = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent?.includes("Parent frame"));
+    await act(async () => parentButtons[parentButtons.length - 1]?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      parent,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    await view.cleanup();
+  });
+});
+
 describe("CanvasContextMenu auto-layout suggestion", () => {
   it("progressively discloses the suggestion beside Add auto layout", async () => {
     const onAddAutoLayout = vi.fn();

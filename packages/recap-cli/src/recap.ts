@@ -3465,6 +3465,8 @@ const RECAP_SHOT_VIEWPORT = {
   height: RECAP_SHOT_MAX_HEIGHT,
 };
 const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
+const RECAP_DOCUMENT_SELECTOR = "[data-plan-document]";
+const RECAP_DOCUMENT_WAIT_TIMEOUT = 30_000;
 
 /**
  * Identity shim for esbuild's `__name` helper, injected into the browser before
@@ -3714,24 +3716,14 @@ export async function runShot(
       // The selectors below are the real readiness signal for screenshots.
       // Some recap pages keep long-lived/background requests open.
     });
-    const selectors = [
-      "[data-plan-document]",
-      "[data-plan-block]",
-      "main article",
-      "[data-testid='plan-document']",
-      "main",
-    ];
-    let matched = false;
-    for (const sel of selectors) {
-      try {
-        await page.waitForSelector(sel, { timeout: 6_000, state: "visible" });
-        matched = true;
-        break;
-      } catch {
-        /* try the next selector */
-      }
-    }
-    await page.waitForTimeout(matched ? 1_200 : 500);
+    // The app shell renders <main> and the loading skeleton before the plan
+    // query resolves. Waiting for the actual document root prevents a
+    // successful-looking screenshot from capturing that transient skeleton.
+    await page.waitForSelector(RECAP_DOCUMENT_SELECTOR, {
+      timeout: RECAP_DOCUMENT_WAIT_TIMEOUT,
+      state: "visible",
+    });
+    await page.waitForTimeout(1_200);
     await page.evaluate(
       (background) => {
         (document.documentElement as HTMLElement).style.zoom = "100%";

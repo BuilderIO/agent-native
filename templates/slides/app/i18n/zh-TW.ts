@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandPresentations: "簡報",
     searchDecks: "搜尋幻燈片",
@@ -100,6 +103,7 @@ const messages = {
     searchImagesPlaceholder: "搜尋圖片...",
     searchForLogosImagesIcons: "搜尋徽標、圖片、圖示...",
     search: "搜尋",
+    searchFailed: "搜尋失敗",
     logoSearchTitle: "徽標搜尋",
     searchCompanyLogo: "搜尋公司以尋找徽標",
     searchCompanyPlaceholder: "搜尋公司名稱（例如：Intuit）",

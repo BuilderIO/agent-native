@@ -441,10 +441,14 @@ jobs:
       # lifecycle builds; skipping scripts avoids native optional builds here.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Source-backed guards import core's compatibility seam, which resolves
-      # the extracted recap package's published-style dist entrypoint.
-      - name: Build recap CLI for source-backed guards
-        run: pnpm --filter @agent-native/recap-cli build
+      # Source-backed guards import published-style package entrypoints, so
+      # build the workspace packages they inspect before loading locale data.
+      - name: Build packages for source-backed guards
+        run: |
+          pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/creative-context build
 
       - name: Run security guards
         run: pnpm guards

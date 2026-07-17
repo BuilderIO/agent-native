@@ -52,7 +52,8 @@ vi.mock("../db/client.js", () => ({
   isPostgres: () => mockPostgres,
 }));
 
-const { saveOAuthTokens } = await import("./store.js");
+const { deleteOAuthTokens, getOAuthTokens, saveOAuthTokens } =
+  await import("./store.js");
 
 function lastInsert(): ExecCall {
   const inserts = execCalls.filter((c) => /^\s*INSERT\b/i.test(c.sql));
@@ -84,6 +85,27 @@ describe("oauth token store", () => {
       existingOwner: "other@example.com",
       attemptedOwner: "steve@builder.io",
     });
+  });
+
+  it("supports owner-scoped reads and deletes for tenant-bound OAuth credentials", async () => {
+    await getOAuthTokens("mcp", "mcp_oauth:test", "org:org-test");
+    await deleteOAuthTokens("mcp", "mcp_oauth:test", "org:org-test");
+
+    const scopedRead = execCalls.find((call) =>
+      /SELECT tokens FROM (?:public\.)?oauth_tokens/i.test(call.sql),
+    );
+    expect(scopedRead?.sql).toContain("AND owner = ?");
+    expect(scopedRead?.args).toEqual(["mcp", "mcp_oauth:test", "org:org-test"]);
+
+    const scopedDelete = execCalls.find((call) =>
+      /DELETE FROM (?:public\.)?oauth_tokens/i.test(call.sql),
+    );
+    expect(scopedDelete?.sql).toContain("AND owner = ?");
+    expect(scopedDelete?.args).toEqual([
+      "mcp",
+      "mcp_oauth:test",
+      "org:org-test",
+    ]);
   });
 
   it("qualifies the real oauth_tokens table on Postgres so temp scoped views cannot shadow OAuth callbacks", async () => {

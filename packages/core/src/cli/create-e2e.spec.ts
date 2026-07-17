@@ -33,6 +33,8 @@ import {
   _getToolkitDependencyVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
+  _githubTarballUrl,
+  _findLocalTemplateFrom,
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
@@ -246,6 +248,24 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
   });
 });
 
+describe("installed package template discovery", () => {
+  it("finds source templates included in an installed core package", () => {
+    const packageRoot = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    const sourceTemplate = path.join(packageRoot, "src", "templates", "chat");
+    const compiledCli = path.join(packageRoot, "dist", "cli");
+    fs.mkdirSync(sourceTemplate, { recursive: true });
+    fs.mkdirSync(compiledCli, { recursive: true });
+    fs.writeFileSync(path.join(sourceTemplate, "package.json"), "{}\n");
+
+    expect(_findLocalTemplateFrom(compiledCli, "chat")).toBe(sourceTemplate);
+  });
+});
+
 describe("standalone scaffold — headless template", { timeout: 60000 }, () => {
   it("creates an action-first app without UI template files or UI dependencies", async () => {
     await createApp("test-app", { template: "headless" });
@@ -293,6 +313,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
     expect(workspaceYaml).toContain('"@typescript/*"');
     expect(workspaceYaml).toContain('"@sentry/*"');
+    expect(workspaceYaml).toContain("fast-xml-parser");
     expect(workspaceYaml).toContain("typescript-7");
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });
@@ -942,6 +963,18 @@ describe("template/core version compatibility", () => {
     // Never fall back to mutable `main`: it can be newer than the installed
     // core package and produce a scaffold that fails during SSR startup.
     expect(candidates).not.toContain("main");
+  });
+
+  it("downloads GitHub tarballs from codeload instead of the GitHub API", () => {
+    expect(
+      _githubTarballUrl(
+        "BuilderIO/agent-native",
+        "@agent-native/core@0.101.13",
+        "tag",
+      ),
+    ).toBe(
+      "https://codeload.github.com/BuilderIO/agent-native/tar.gz/refs/tags/%40agent-native%2Fcore%400.101.13",
+    );
   });
 });
 

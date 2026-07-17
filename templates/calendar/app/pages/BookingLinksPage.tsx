@@ -132,8 +132,6 @@ const PREVIEW_COLLAPSED_STORAGE_KEY = "calendar.bookingLinks.previewCollapsed";
 const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
 const BRAND_ICON_LINK_CLASS =
   "text-[#00B5FF] hover:bg-[#00B5FF]/10 hover:text-[#33C4FF]";
-const BRAND_PILL_LINK_CLASS =
-  "border-[#00B5FF]/35 bg-[#00B5FF]/10 font-semibold text-[#00B5FF] hover:border-[#00B5FF]/55 hover:bg-[#00B5FF]/15 hover:text-[#33C4FF]";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOOKING_SLOT_STEP_MINUTES = 30;
 
@@ -1634,31 +1632,34 @@ export default function BookingLinksPage({
                         <div className="flex shrink-0 items-center gap-2">
                           {link.isActive && (
                             <>
-                              <button
+                              <Button
                                 type="button"
+                                variant="outline"
+                                size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   void copyPreviewUrl(link.slug);
                                 }}
-                                className={cn(
-                                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs sm:px-4 sm:text-sm",
-                                  BRAND_PILL_LINK_CLASS,
-                                )}
+                                className="rounded-full"
                               >
                                 <IconLink className="h-3.5 w-3.5" />
                                 {t("bookingLinks.copyLink")}
-                              </button>
-                              <a
-                                href={bookingPreviewPath(link.slug)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={cn(
-                                  "flex h-9 w-9 items-center justify-center rounded-full border",
-                                  BRAND_PILL_LINK_CLASS,
-                                )}
+                              </Button>
+                              <Button
+                                asChild
+                                variant="outline"
+                                size="icon"
+                                className="h-9 w-9 rounded-full"
+                                aria-label={t("bookingLinks.openBookingLink")}
                               >
-                                <IconExternalLink className="h-4 w-4" />
-                              </a>
+                                <a
+                                  href={bookingPreviewPath(link.slug)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <IconExternalLink className="h-4 w-4" />
+                                </a>
+                              </Button>
                             </>
                           )}
 

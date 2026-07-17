@@ -39,6 +39,7 @@ const esES = {
   theme: {
     light: "claro",
     dark: "oscuro",
+    toggle: "Cambiar tema",
     label: "Tema: {{theme}}",
   },
   docs: {

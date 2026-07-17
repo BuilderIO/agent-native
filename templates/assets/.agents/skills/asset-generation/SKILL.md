@@ -53,36 +53,43 @@ or generated image/video assets that another app can reference by ID and URL.
 
 ## Image Workflows
 
-1. For human-in-the-loop generation, call `generate-asset` first and preserve
+1. Read the `creative-context` skill and retrieve visual references separately
+   from factual evidence. Respect `contextMode: "off"`, pinned packs, and the
+   exact reuse ladder before generation: approved native asset unchanged,
+   compose approved pieces, lightly adapt a real example, condition generation
+   on narrow references, then net-new only when the relevant corpus is empty.
+2. For human-in-the-loop generation, call `generate-asset` first and preserve
    the returned picker/candidate metadata. For unattended generation, pick or
    match the library with `list-libraries` or `match-library`.
    If the user wants a default look rather than a brand library, call
    `list-library-presets` and then `create-library-from-preset`; the resulting
    library is editable and reusable like any other library.
-2. For one asset, call `generate-image`; for multiple independent slots, call
+3. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
-3. Image generation actions are synchronous. After `generate-image` or
+4. Image generation actions are synchronous. After `generate-image` or
    `generate-image-batch` returns, use its returned `images` / asset fields
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs.
-4. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
+5. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
    work, pass `sessionId`.
-5. Let the server choose a small deterministic reference set unless the user
+6. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from
    `assetLibraries.settings.canonicalStyleAssetIds` and
    `assets.metadata.isStyleAnchor`.
-6. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
+7. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
    output, or `tier: "auto"` when there is no clear preference.
    - Model/ratio compatibility: Gemini image models accept any `aspectRatio`, but
      `gpt-image-2` supports only `1:1`, `2:3`, and `3:2`. When the user needs
      another ratio (16:9, 9:16, 4:5, 21:9, …), pick a Gemini model rather than
      `gpt-image-2` — an unsupported pairing is rejected upstream. Source of truth
      is `supportedAspectRatiosForModel` / `MODEL_ASPECT_RATIOS` in `shared/api.ts`.
-7. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-8. Use `refine-image` for feedback on an existing asset, `edit-image` for
+8. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+   Preserve the immutable `contextPackId` and reuse labels on both generation
+   run and output-asset metadata; rendered pixels are not provenance.
+9. Use `refine-image` for feedback on an existing asset, `edit-image` for
    targeted changes, and `restyle-image` with `subjectAssetId` and
    `styleStrength` for subject-preserving brand restyles.
-9. If a designer will take over, call `create-generation-session` or
+10. If a designer will take over, call `create-generation-session` or
    `update-generation-session`, then `prepare-generation-session-continuation`
    when they want a chat preloaded with the session context.
 

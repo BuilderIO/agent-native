@@ -36,6 +36,7 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
+  getOrganizationDefaultVisibility,
   nanoid,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
@@ -52,7 +53,9 @@ export default defineAction({
     visibility: z
       .enum(["private", "org", "public"])
       .optional()
-      .describe("Visibility for the new recording (defaults to 'private')"),
+      .describe(
+        "Visibility for the new recording. When omitted, uses the organization default and falls back to public.",
+      ),
     videoUrl: z
       .string()
       .optional()
@@ -92,10 +95,10 @@ export default defineAction({
       throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
     }
 
-    // Stitch creates a brand-new recording owned by the caller that defaults
-    // to public visibility, so every source must be OWNED by the caller (not
+    // Stitch creates a brand-new recording owned by the caller, so every
+    // source must be OWNED by the caller (not
     // just editor-shared) — otherwise a user with editor access to a
-    // private/org clip could reshare it as a new public recording they own.
+    // private/org clip could reshare it as a new recording they own.
     const sources = await db
       .select()
       .from(schema.recordings)
@@ -117,6 +120,8 @@ export default defineAction({
       assertNativeRecordingMedia(source);
     }
     const organizationId = ordered[0].organizationId;
+    const defaultVisibility =
+      await getOrganizationDefaultVisibility(organizationId);
 
     const totalDuration =
       args.durationMs ??
@@ -152,7 +157,7 @@ export default defineAction({
       hasCamera: ordered.some((r) => Boolean(r.hasCamera)),
       editsJson: serializeEdits(edits),
       ownerEmail,
-      visibility: args.visibility ?? "public",
+      visibility: args.visibility ?? defaultVisibility,
       createdAt: now,
       updatedAt: now,
       // Reuse the first source's thumbnail so the new row has something to show immediately.

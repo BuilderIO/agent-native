@@ -19,6 +19,7 @@ import {
   signShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { asc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -45,7 +46,6 @@ import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   getOrganizationRoleForEmail,
   parseSpaceIds,
-  sameOwnerEmail,
 } from "../../lib/recordings.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
@@ -211,15 +211,24 @@ export default defineEventHandler(async (event) => {
   }
 
   const session = await getSession(event).catch(() => null);
-  const viewerIsOwner = Boolean(
-    session?.email && sameOwnerEmail(session.email, rec.ownerEmail),
-  );
   const tokenAllowsAgentAccess = suppliedAgentAccessToken
     ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
         resourceId: rec.id,
       }).ok
     : false;
+
+  // Share links are public-shell routes, so this endpoint cannot rely on the
+  // authenticated player action to authorize private recordings. Resolve the
+  // same registered access policy here so explicit user/org grants work before
+  // the client redirects to the direct player route.
+  const viewerAccess = session?.email
+    ? await resolveAccess("recording", rec.id, {
+        userEmail: session.email,
+        orgId: session.orgId,
+      })
+    : null;
+  const viewerIsOwner = viewerAccess?.role === "owner";
 
   let viewerIsOrgMember = false;
   if (session?.email && rec.visibility === "org" && rec.organizationId) {
@@ -238,7 +247,7 @@ export default defineEventHandler(async (event) => {
 
   if (
     rec.visibility !== "public" &&
-    !viewerIsOwner &&
+    !viewerAccess &&
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {

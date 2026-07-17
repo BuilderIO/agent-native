@@ -143,6 +143,79 @@ Notes:
   "extension unavailable" message instead of the content. Share the extension to
   the same audience as the dashboard so all viewers can see it.
 
+## Cloning An Extension-Backed Dashboard (e.g. per-customer copies)
+
+When the user asks for a copy of an existing extension-backed dashboard for a
+different customer/org (for example "make an Intuit version of the Roku usage
+dashboard"), follow this playbook. Extension bodies are frequently tens of
+thousands of characters. The reliable path is to read+transform+write the body
+INSIDE `run-code` (where `workspaceRead` returns the full file) and then create
+from that written file — never by pulling the body into chat context first or
+re-typing it as a `content` argument.
+
+1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
+   confirm the target panel is `chartType: "extension"`; grab its
+   `config.extensionId`.
+2. `get-extension` for that id with `forceContent: true` **exactly once**. Reuse
+   that body for the rest of the turn — a second same-run read intentionally
+   omits `content` and returns `contentOmitted` instead. That is not the content
+   disappearing; use the copy you already have. Do NOT try to re-fetch the body
+   with `run-code` (`appAction('get-extension')`) to page past a display
+   truncation — the same-run omit makes it return empty `content`, wasting turns.
+   If you need the full body again, read the workspace resource file (step 5) or
+   set `forceContent: true` on a single native `get-extension`.
+3. Change ONLY the small customer-specific static config (e.g. the
+   `ACCOUNT_USAGE_STATIC` block: company name, title, org-discovery filters,
+   messaging). Prefer a focused `update-extension` edit/patch over regenerating
+   the entire HTML.
+4. **Call `create-extension` / `update-extension` as native tools.** They are
+   mutating actions and are NOT callable from `run-code` / `appAction` (the
+   sandbox bridge only exposes read-only actions). Do not try to create or update
+   an extension from inside `run-code`.
+5. **If the source body already exists as a workspace/shared resource file**
+   (e.g. a pre-built `intuit-analytics-extension.html`), do the read AND the
+   customer swap in ONE `run-code` call, then create from the written file:
+   - Inside `run-code`: `const src = await workspaceRead('<source>.html')`
+     returns the WHOLE file (it auto-pages; there is no 50k cap here), do the
+     small string-replace on the static config block, then
+     `await workspaceWrite('<target>.html', modified)`.
+   - Then call `create-extension` (native) with
+     `contentFromWorkspaceFile: '<target>.html'` and leave `content` empty — the
+     server reads the full file verbatim.
+   Do NOT read the source body with the `resources` read tool (or `get-extension`)
+   first just to transform it: that display is capped and wastes a turn. And do
+   NOT re-emit an 80k+ char body as the `content` argument — it gets cut off
+   mid-stream. `contentFromAttachment` only sees files the user pasted into chat,
+   not workspace resources. `create-extension`/`update-extension` are mutating and
+   cannot run from `run-code`, so only the read+write+transform happens there.
+6. Finally `update-dashboard` to save a new dashboard embedding the new
+   extension panel (`chartType: "extension"`, `config.extensionId`), then
+   `navigate` to it.
+
+## Repairing An Existing Extension-Backed Dashboard
+
+When the user asks to fix data loading in an existing or migrated
+extension-backed dashboard, treat the current extension body as user-authored
+design. Read the dashboard config and extension once, identify the smallest
+data-loading seam, and call `update-extension` with focused `patches` or
+`edits`. Preserve the existing layout, CSS, copy, and interactions. Do not
+send a reconstructed full `content` body for a data-only repair;
+`update-extension` blocks full-body replacement unless
+`allowFullReplacement: true` is explicitly supplied. Use that flag only for a
+user-requested broad visual rewrite or a complete replacement body supplied by
+the user. If a focused edit fails, inspect the current body and change the
+target rather than retrying the same arguments.
+
+### Display truncation is cosmetic — do not chase the "missing" tail
+
+A tool result ending in `...[truncated — full result was N chars; only first
+50,000 shown]` (from the `resources` read tool or `get-extension`) means only the
+DISPLAYED text was capped. The file is intact. `run-code`'s `workspaceRead`
+returns the full N chars, and `contentFromWorkspaceFile` hosts the full file.
+Never read the same file twice or try to "page the rest" to recover the tail —
+that is the single biggest source of wasted turns on clone requests. Decide to
+clone, then go straight to the `run-code` read+transform+write path in step 5.
+
 ## Config Shape
 
 ```jsonc
@@ -256,6 +329,10 @@ calling other actions from the script are not available.
 type DashboardMutationApi = {
   dashboard: {
     set(patch: DashboardPatch): void;
+    setFilterDefault(
+      filterId: string,
+      value: string | number | boolean | null,
+    ): void;
     panel(id: string): PanelSelection;
     section(id: string): SectionSelection;
     panels(ids: string[]): PanelSelection;
@@ -270,6 +347,7 @@ type DashboardPatch = {
   columns?: number;
   filters?: unknown[];
   variables?: Record<string, string>;
+  parentId?: string;
 };
 
 type PanelTimeScope =
@@ -281,6 +359,7 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   // Use "dashboard" for AI-generated first-party panels by default.
   timeScope?: PanelTimeScope;
+  // Fixed bar width in pixels for bar charts.
 };
 
 type PanelPatch = {
@@ -292,7 +371,8 @@ type PanelPatch = {
     | "amplitude"
     | "first-party"
     | "demo"
-    | "prometheus";
+    | "prometheus"
+    | "program";
   chartType?:
     | "line"
     | "area"
@@ -338,6 +418,14 @@ type PanelSelection = {
   moveBefore(panelId: string): void;
   moveAfter(panelId: string): void;
   moveToIndex(index: number): void;
+  moveNextTo(panelId: string): void;
+  nextTo(panelId: string): void;
+  moveToRow(rowNumber: number): void;
+  moveToRowStart(rowNumber: number): void;
+  moveToRowEnd(rowNumber: number): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
   remove(): void;
   set(patch: PanelPatch): void;
   setTitle(title: string): void;
@@ -345,26 +433,40 @@ type PanelSelection = {
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void;
-  duplicate(newPanelId: string, patch?: PanelPatch): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
 type SectionSelection = PanelSelection & {
   append(panelIds: string[]): void;
 };
 
-type InsertedPanel = {
+type PanelPlacement = {
   atTop(): void;
   atBottom(): void;
   before(panelId: string): void;
   after(panelId: string): void;
   atIndex(index: number): void;
+  nextTo(panelId: string): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
 };
+
+type InsertedPanel = PanelPlacement;
 ```
 
 Examples:
 
 ```ts
 dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
+dashboard
+  .panel("recurring-users-by-template")
+  .duplicate("recurring-users-by-template-bar", {
+    title: "Recurring Signed-In Users by Template (Bar)",
+    chartType: "bar",
+  })
+  .nextTo("recurring-users-by-template");
+dashboard.setFilterDefault("emailFilter", "exclude_builder");
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
   width: 2,

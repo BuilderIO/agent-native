@@ -32,4 +32,44 @@ describe("Content skill correction semantics", () => {
       "never omit, downgrade, or silently drop the person",
     );
   });
+
+  it("uses live Content state and sparse patches for corrections", () => {
+    expect(skill).toMatch(
+      /treat Slack history as identity and\s+intent context, not as the current record state/,
+    );
+    expect(skill).toMatch(
+      /A title captured when the row\s+was created is a historical title/,
+    );
+    expect(skill).toMatch(
+      /must call\s+`pull-document` first to flush any open collaborative editor state/,
+    );
+    expect(skill).toMatch(/fail closed\s+if that flush\/read cannot complete/);
+    expect(skill).toMatch(
+      /read the canonical database row from\s+Content immediately before building the update/,
+    );
+    expect(skill).toMatch(
+      /freshly read\s+values as authoritative for every field the correction does not explicitly\s+change/,
+    );
+    expect(skill).toContain("Build corrections as sparse patches");
+    expect(skill).toMatch(
+      /"Keep," "preserve,"\s+"leave as is," and "unchanged" are constraints, not new values/,
+    );
+    expect(skill).toMatch(/omit those\s+fields from the mutation/);
+    expect(skill).toMatch(
+      /Never reconstruct a full-row update from the original Slack request/,
+    );
+  });
+
+  it("distinguishes omitted fields from explicit clears and verifies the result", () => {
+    expect(skill).toContain("Omission and clearing are different operations");
+    expect(skill).toMatch(/An omitted field keeps its\s+live Content value/);
+    expect(skill).toMatch(
+      /Clear a field only when the user explicitly asks to\s+remove, unset, or clear it/,
+    );
+    expect(skill).toMatch(
+      /requested fields\s+changed and the mutation did not include omitted fields/,
+    );
+    expect(skill).toMatch(/Post-write\s+verification is not compare-and-swap/);
+    expect(skill).toMatch(/do not claim the write was conflict-safe/);
+  });
 });

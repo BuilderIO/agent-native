@@ -11,6 +11,7 @@ import {
 import {
   IconAlertTriangle,
   IconArrowLeft,
+  IconDeviceDesktop,
   IconDownload,
   IconDots,
   IconExternalLink,
@@ -443,7 +444,10 @@ export default function ShareRoute() {
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
-    enabled: !!shareId,
+    // Private/org share links are public-shell routes, so the first render can
+    // happen before the browser session is known. Waiting avoids a transient
+    // anonymous 401/404 becoming the authenticated viewer's final state.
+    enabled: !!shareId && !sessionLoading,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
       const rec = payload?.recording;
@@ -616,7 +620,7 @@ export default function ShareRoute() {
     }
   }
 
-  if (dataQ.isLoading) {
+  if (sessionLoading || dataQ.isLoading) {
     return (
       <>
         {agentDiscovery}
@@ -855,6 +859,8 @@ export default function ShareRoute() {
               <Button variant="ghost" size="sm" asChild>
                 <a
                   href={appPath("/")}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="gap-1.5"
                   onClick={() => fireShareCtaClick("try_clips")}
                 >
@@ -965,7 +971,7 @@ export default function ShareRoute() {
                 </h2>
               )}
               {recording.description ? (
-                <p className="text-sm text-muted-foreground line-clamp-2">
+                <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {recording.description}
                 </p>
               ) : null}
@@ -1063,6 +1069,8 @@ export default function ShareRoute() {
                   t("recordingPage.draftQuestions"),
                 ]}
                 browserTabId={getBrowserTabId()}
+                showHeader={false}
+                showTabBar={false}
               />
             ) : (
               <PublicAgentEmptyState
@@ -1213,6 +1221,12 @@ function PublicAgentEmptyState({
           className="w-full gap-2"
           align="center"
           onClick={() => onCtaClick("download")}
+          downloadedChildren={
+            <>
+              <IconDeviceDesktop className="h-4 w-4" />
+              {t("captureInstall.openDesktopApp")}
+            </>
+          }
         >
           <IconDownload className="h-4 w-4" />
           {downloadLabel}

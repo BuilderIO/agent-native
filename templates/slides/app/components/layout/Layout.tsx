@@ -1,5 +1,6 @@
 import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
@@ -78,6 +79,7 @@ export function Layout({ children }: LayoutProps) {
         scope={deckScope}
         browserTabId={TAB_ID}
         agentPageHref="/agent"
+        composerSlot={<CreativeContextComposerChip />}
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (

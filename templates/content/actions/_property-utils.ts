@@ -184,8 +184,10 @@ export function serializeDatabaseViewConfig(
   return JSON.stringify(normalizeDatabaseViewConfig(value));
 }
 
-function defaultDatabaseViewConfig(): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView();
+export function defaultDatabaseViewConfig(
+  type: ContentDatabaseView["type"] = "table",
+): ContentDatabaseViewConfig {
+  const view = defaultDatabaseView({}, type);
   return {
     activeViewId: view.id,
     views: [view],
@@ -258,7 +260,9 @@ function defaultDatabaseView(
                 ? "Timeline"
                 : type === "form"
                   ? "Form"
-                  : "Table",
+                  : type === "sidebar"
+                    ? "Sidebar"
+                    : "Table",
     type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
@@ -289,7 +293,8 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     view.type === "gallery" ||
     view.type === "calendar" ||
     view.type === "timeline" ||
-    view.type === "form"
+    view.type === "form" ||
+    view.type === "sidebar"
       ? view.type
       : "table";
   return {
