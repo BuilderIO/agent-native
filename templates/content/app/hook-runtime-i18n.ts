@@ -43,7 +43,7 @@ const baseHookRuntimeMessagesByLocale: Record<
   ReturnType<typeof messages>
 > = {
   "en-US": messages([
-    "Incident controls",
+    "Rule processing needs attention",
     "Hook processing is paused",
     "Hook processing is active",
     "Pause evaluation or effect delivery without editing your rules.",

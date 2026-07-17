@@ -43,6 +43,7 @@ import {
   SheetTitle,
 } from "@agent-native/toolkit/ui/sheet";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -129,6 +130,7 @@ import {
   IconPencil,
   IconRefresh,
   IconSearch,
+  IconShieldCheck,
   IconTable,
   IconTimeline,
   IconTrash,
@@ -253,6 +255,7 @@ import {
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
 import { DatabaseHooksPanel } from "./DatabaseHooksPanel";
+import { DatabaseValidationPanel } from "./DatabaseValidationPanel";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
@@ -6911,6 +6914,8 @@ function databaseToolbarIconButtonClass(active = false) {
 type DatabaseSettingsPanel =
   | "main"
   | "hooks"
+  | "validation"
+  | "permissions"
   | "source"
   | "layout"
   | "property_visibility"
@@ -7144,7 +7149,6 @@ function DatabaseSettingsPanelSheet({
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
         {panel === "main" ? (
           <DatabaseSettingsMainPanel
-            databaseId={databaseId}
             activeView={activeView}
             source={source}
             sourceCount={sources.length || (source ? 1 : 0)}
@@ -7152,17 +7156,30 @@ function DatabaseSettingsPanelSheet({
             hiddenCount={hiddenCount}
             canManage={canManage}
             isOwner={isOwner}
-            defaultPersonNotificationsEnabled={
-              defaultPersonNotificationsEnabled
-            }
+            validation={validation}
+            schemaLocked={schemaLocked}
             onPanelChange={onPanelChange}
           />
         ) : panel === "hooks" ? (
           <DatabaseHooksPanel
             databaseId={databaseId}
             properties={properties}
+            canManage={canManage}
+            isOwner={isOwner}
+            defaultPersonNotificationsEnabled={
+              defaultPersonNotificationsEnabled
+            }
+          />
+        ) : panel === "validation" ? (
+          <DatabaseValidationPanel
+            databaseId={databaseId}
+            properties={properties}
             validation={validation}
             canManage={canManage}
+          />
+        ) : panel === "permissions" ? (
+          <DatabaseSchemaPermissionsPanel
+            databaseId={databaseId}
             schemaLocked={schemaLocked}
             isOwner={isOwner}
           />
@@ -7230,6 +7247,8 @@ function DatabaseSettingsPanelSheet({
 
 function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
   if (panel === "hooks") return dbText("notificationsAndHooks");
+  if (panel === "validation") return dbText("readiness");
+  if (panel === "permissions") return dbText("lockDatabaseSchema");
   if (panel === "source") return "Source";
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
@@ -7238,7 +7257,6 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
 }
 
 function DatabaseSettingsMainPanel({
-  databaseId,
   activeView,
   source,
   sourceCount,
@@ -7246,10 +7264,10 @@ function DatabaseSettingsMainPanel({
   hiddenCount,
   canManage,
   isOwner,
-  defaultPersonNotificationsEnabled,
+  validation,
+  schemaLocked,
   onPanelChange,
 }: {
-  databaseId: string;
   activeView: ContentDatabaseView;
   source: ContentDatabaseSource | null;
   sourceCount: number;
@@ -7257,15 +7275,10 @@ function DatabaseSettingsMainPanel({
   hiddenCount: number;
   canManage: boolean;
   isOwner: boolean;
-  defaultPersonNotificationsEnabled: boolean;
+  validation?: ContentDatabaseValidationConfig;
+  schemaLocked: boolean;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
-  const managePolicy = useManageContentDatabasePolicy();
-  const [defaultNotificationsEnabled, setDefaultNotificationsEnabled] =
-    useState(defaultPersonNotificationsEnabled);
-  useEffect(() => {
-    setDefaultNotificationsEnabled(defaultPersonNotificationsEnabled);
-  }, [defaultPersonNotificationsEnabled]);
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
   const sourceBadgeCount = builderReviewableChangeSets(source).length;
   return (
@@ -7290,43 +7303,26 @@ function DatabaseSettingsMainPanel({
             onClick={() => onPanelChange("hooks")}
           />
         ) : null}
+        {canManage ? (
+          <DatabaseSettingsRow
+            icon={<IconShieldCheck className="size-4" />}
+            label={dbText("readiness")}
+            value={
+              validation?.requiredForSubmission.length ||
+              validation?.statusRequirements.length
+                ? dbText("submissionRequirementsConfigured")
+                : ""
+            }
+            onClick={() => onPanelChange("validation")}
+          />
+        ) : null}
         {isOwner ? (
-          <div className="grid gap-0.5">
-            <DatabaseSettingsSwitch
-              label={dbText("defaultPersonNotifications")}
-              checked={defaultNotificationsEnabled}
-              disabled={managePolicy.isPending}
-              onCheckedChange={(enabled) => {
-                setDefaultNotificationsEnabled(enabled);
-                managePolicy.mutate(
-                  {
-                    databaseId,
-                    defaultPersonNotificationsEnabled: enabled,
-                  },
-                  {
-                    onSuccess: () =>
-                      toast.success(
-                        dbText(
-                          enabled
-                            ? "defaultPersonNotificationsEnabled"
-                            : "defaultPersonNotificationsDisabled",
-                        ),
-                      ),
-                    onError: (error) => {
-                      setDefaultNotificationsEnabled(!enabled);
-                      toast.error(dbText("defaultPersonNotificationsFailed"), {
-                        description:
-                          error instanceof Error ? error.message : undefined,
-                      });
-                    },
-                  },
-                );
-              }}
-            />
-            <p className="px-2 text-xs leading-4 text-muted-foreground">
-              {dbText("defaultPersonNotificationsDescription")}
-            </p>
-          </div>
+          <DatabaseSettingsRow
+            icon={<IconLock className="size-4" />}
+            label={dbText("lockDatabaseSchema")}
+            value={schemaLocked ? dbText("databaseSchemaLocked") : ""}
+            onClick={() => onPanelChange("permissions")}
+          />
         ) : null}
         <DatabaseSettingsRow
           icon={<IconPlugConnected className="size-4" />}
@@ -7354,6 +7350,59 @@ function DatabaseSettingsMainPanel({
           onClick={() => onPanelChange("group")}
         />
       </div>
+    </div>
+  );
+}
+
+function DatabaseSchemaPermissionsPanel({
+  databaseId,
+  schemaLocked,
+  isOwner,
+}: {
+  databaseId: string;
+  schemaLocked: boolean;
+  isOwner: boolean;
+}) {
+  const managePolicy = useManageContentDatabasePolicy();
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-3">
+      <div className="grid gap-0.5">
+        <label
+          htmlFor={`database-schema-lock-${databaseId}`}
+          className="text-sm font-medium"
+        >
+          {dbText("lockDatabaseSchema")}
+        </label>
+        <p className="text-xs leading-4 text-muted-foreground">
+          {dbText("lockDatabaseSchemaDescription")}
+        </p>
+      </div>
+      <Switch
+        id={`database-schema-lock-${databaseId}`}
+        checked={schemaLocked}
+        disabled={!isOwner || managePolicy.isPending}
+        onCheckedChange={(nextSchemaLocked) =>
+          managePolicy.mutate(
+            { databaseId, schemaLocked: nextSchemaLocked },
+            {
+              onSuccess: () =>
+                toast.success(
+                  dbText(
+                    nextSchemaLocked
+                      ? "databaseSchemaLocked"
+                      : "databaseSchemaUnlocked",
+                  ),
+                ),
+              onError: (error) =>
+                toast.error(dbText("databaseSchemaLockFailed"), {
+                  description:
+                    error instanceof Error ? error.message : undefined,
+                }),
+            },
+          )
+        }
+      />
     </div>
   );
 }

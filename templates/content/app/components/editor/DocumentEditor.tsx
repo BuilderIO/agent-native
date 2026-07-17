@@ -1316,7 +1316,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             canEdit={canEdit}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
-            notificationDatabaseId={document.databaseMembership?.databaseId}
+            notificationDatabaseId={
+              document.database?.id ?? document.databaseMembership?.databaseId
+            }
             isDatabasePage={isDatabasePage}
           />
 

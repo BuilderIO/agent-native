@@ -6,6 +6,10 @@ const databaseViewSource = readFileSync(
   new URL("./DatabaseView.tsx", import.meta.url),
   "utf8",
 );
+const hooksPanelSource = readFileSync(
+  new URL("./DatabaseHooksPanel.tsx", import.meta.url),
+  "utf8",
+);
 const policyActionSource = readFileSync(
   new URL(
     "../../../../actions/manage-content-database-policy.ts",
@@ -40,14 +44,15 @@ describe("default Person notification owner policy", () => {
   });
 
   it("shows a compact owner-only switch through the shared action surface", () => {
-    expect(databaseViewSource).toContain("useManageContentDatabasePolicy()");
-    expect(databaseViewSource).toContain("{isOwner ? (");
-    expect(databaseViewSource).toContain(
+    expect(hooksPanelSource).toContain("useManageContentDatabasePolicy()");
+    expect(hooksPanelSource).toContain("{isOwner ? (");
+    expect(hooksPanelSource).toContain(
       "defaultPersonNotificationsEnabled: enabled",
     );
-    expect(databaseViewSource).toContain(
-      'dbText("defaultPersonNotificationsDescription")',
+    expect(hooksPanelSource).toContain(
+      't("database.defaultPersonNotificationsDescription")',
     );
+    expect(databaseViewSource).toContain('onPanelChange("hooks")');
   });
 
   it("resolves immutable policy history at each event sequence", () => {

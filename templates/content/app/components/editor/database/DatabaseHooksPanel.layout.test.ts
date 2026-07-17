@@ -43,6 +43,9 @@ describe("Content database hooks product surface", () => {
     expect(toolbarSource.match(/<NotificationsBell/g)).toHaveLength(1);
     expect(toolbarSource).toContain("contextualSettings={");
     expect(toolbarSource).toContain("<ItemNotificationSetting");
+    expect(toolbarSource).toContain("<PersonalNotificationSetting");
+    expect(toolbarSource).toContain('scope="database"');
+    expect(toolbarSource).toContain('scope="global"');
     expect(toolbarSource).not.toContain("<ItemNotificationMenuItem");
     expect(toolbarSource).not.toContain("<ItemNotificationToggle");
     expect(toolbarSource.indexOf("<ItemNotificationSetting")).toBeGreaterThan(
@@ -65,6 +68,8 @@ describe("Content database hooks product surface", () => {
   it("mounts the hook panel in the live database settings drill-down", () => {
     expect(databaseViewSource).toContain('| "hooks"');
     expect(databaseViewSource).toContain("<DatabaseHooksPanel");
+    expect(databaseViewSource).toContain("<DatabaseValidationPanel");
+    expect(databaseViewSource).toContain("<DatabaseSchemaPermissionsPanel");
     expect(databaseViewSource).toContain("canManage={canManage}");
     expect(databaseViewSource).toContain(
       'onClick={() => onPanelChange("hooks")}',
@@ -99,7 +104,8 @@ describe("Content database hooks product surface", () => {
     expect(panelSource).toContain("delayMinutes");
     expect(panelSource).toContain("whenBuilderPublicationConfirmed");
     expect(panelSource).toContain("publicationAction");
-    expect(panelSource).toContain("agentJudgmentUsesAutomations");
+    expect(panelSource).not.toContain("agentJudgmentUsesAutomations");
+    expect(panelSource).toContain("<Dialog");
   });
 
   it("progressively discloses stable-ID conditions as the Rule if layer", () => {
@@ -159,6 +165,9 @@ describe("Content database hooks product surface", () => {
     );
     expect(incidentControlsSource).toContain('scope === "database"');
     expect(incidentControlsSource).toContain("data.canManageGlobal");
+    expect(incidentControlsSource).toContain(
+      "if (!controls.isLoading && !needsAttention) return null",
+    );
     expect(incidentControlsSource).toContain("pausedHookEventsNotReplayed");
     expect(incidentControlsSource).not.toContain("fetch(");
   });

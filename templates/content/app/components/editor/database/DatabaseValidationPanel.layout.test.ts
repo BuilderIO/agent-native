@@ -6,10 +6,6 @@ const panelSource = readFileSync(
   new URL("./DatabaseValidationPanel.tsx", import.meta.url),
   "utf8",
 );
-const hooksPanelSource = readFileSync(
-  new URL("./DatabaseHooksPanel.tsx", import.meta.url),
-  "utf8",
-);
 const databaseViewSource = readFileSync(
   new URL("./DatabaseView.tsx", import.meta.url),
   "utf8",
@@ -19,10 +15,11 @@ const hookSource = readFileSync(
   "utf8",
 );
 
-describe("Content database readiness settings", () => {
-  it("mounts readiness beside hook management with the saved database config", () => {
-    expect(hooksPanelSource).toContain("<DatabaseValidationPanel");
-    expect(hooksPanelSource).toContain("validation={validation}");
+describe("Content database validation settings", () => {
+  it("mounts validation in its own settings panel with the saved database config", () => {
+    expect(databaseViewSource).toContain("<DatabaseValidationPanel");
+    expect(databaseViewSource).toContain('panel === "validation"');
+    expect(databaseViewSource).toContain("validation={validation}");
     expect(databaseViewSource).toContain("validation={viewConfig.validation}");
   });
 

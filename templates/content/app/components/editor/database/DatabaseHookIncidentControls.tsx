@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client";
 import { Label } from "@agent-native/toolkit/ui/label";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import { IconPlayerPause } from "@tabler/icons-react";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import {
@@ -13,14 +13,20 @@ import {
 export function DatabaseHookIncidentControls({
   databaseId,
   canManage,
+  hasExecutionIncident = false,
 }: {
   databaseId: string;
   canManage: boolean;
+  hasExecutionIncident?: boolean;
 }) {
   const t = useT();
   const controls = useContentHookRuntimeControls(databaseId);
   const manage = useManageContentHookRuntimeControl(databaseId);
   const data = controls.data;
+  const needsAttention =
+    hasExecutionIncident ||
+    data?.effective.evaluatorPaused ||
+    data?.effective.effectsPaused;
 
   const update = async (
     scope: "global" | "database",
@@ -42,11 +48,13 @@ export function DatabaseHookIncidentControls({
     }
   };
 
+  if (!controls.isLoading && !needsAttention) return null;
+
   return (
     <details className="group border-b border-border pb-4">
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md px-1 py-2 hover:bg-muted/60">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <IconPlayerPause className="size-4" />
+          <IconAlertTriangle className="size-4" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">
@@ -55,7 +63,7 @@ export function DatabaseHookIncidentControls({
           <span className="block truncate text-xs text-muted-foreground">
             {data?.effective.evaluatorPaused || data?.effective.effectsPaused
               ? t("database.hookProcessingPaused")
-              : t("database.hookProcessingActive")}
+              : t("database.executionFailed")}
           </span>
         </span>
       </summary>

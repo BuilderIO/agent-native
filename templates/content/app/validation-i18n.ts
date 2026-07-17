@@ -1,5 +1,5 @@
 const english = {
-  readiness: "Readiness",
+  readiness: "Validation",
   noReadinessRequirements: "No readiness requirements",
   submissionRequirementsConfigured: "Submission requirements",
   statusGatesConfigured: "Status gates",
