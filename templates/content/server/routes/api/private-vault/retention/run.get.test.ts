@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sweep = vi.hoisted(() => vi.fn());
@@ -20,6 +22,7 @@ import handler from "./run.get";
 describe("Private Vault retention cron route", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.stubEnv("CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256", "");
     vi.stubEnv("CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET", "test-secret");
     getHeader.mockReturnValue("Bearer test-secret");
     sweep.mockResolvedValue({
@@ -53,6 +56,44 @@ describe("Private Vault retention cron route", () => {
 
     await expect(handler({} as never)).resolves.toMatchObject({ ok: true });
     expect(sweep).toHaveBeenCalledOnce();
+  });
+
+  it("prefers a one-way verifier when one is configured", async () => {
+    vi.stubEnv(
+      "CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256",
+      createHash("sha256").update("verifier-secret").digest("hex"),
+    );
+    vi.stubEnv("CRON_SECRET", "different-runtime-value");
+    getHeader.mockReturnValue("Bearer verifier-secret");
+
+    await expect(handler({} as never)).resolves.toMatchObject({ ok: true });
+    expect(sweep).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when the configured verifier is malformed", async () => {
+    vi.stubEnv(
+      "CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256",
+      "not-a-sha256-digest",
+    );
+    getHeader.mockReturnValue("Bearer test-secret");
+
+    await expect(handler({} as never)).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    expect(sweep).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed bearer headers in verifier mode", async () => {
+    vi.stubEnv(
+      "CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256",
+      createHash("sha256").update("verifier-secret").digest("hex"),
+    );
+    getHeader.mockReturnValue("Bearer verifier-secret trailing");
+
+    await expect(handler({} as never)).rejects.toMatchObject({
+      statusCode: 401,
+    });
+    expect(sweep).not.toHaveBeenCalled();
   });
 
   it("uses a timing-safe bearer check before sweeping", async () => {
