@@ -23,6 +23,8 @@ import { creativeContextMediaUrl } from "../media-url.js";
 import { getCreativeContext } from "../server/context.js";
 import {
   captureNativeCreativeResource,
+  parseNativeCreativeArtifactKey,
+  resolveNativeCreativeResourceUpdateStatuses,
   type NativeCreativeResourceRef,
 } from "../server/native-resource-capture.js";
 import { sanitizePublicMetadata } from "../server/public-serialization.js";
@@ -1340,6 +1342,70 @@ async function approveSubmission(
       submissionId: submission.id,
       membershipId: membership.id,
     });
+  });
+}
+
+export async function submitLatestContextMembershipUpdate(input: {
+  contextId: string;
+  membershipId: string;
+  note?: string;
+  confirmBroaderPublication?: boolean;
+}) {
+  await assertContextRole(input.contextId, "editor");
+  const configured = getCreativeContext();
+  const { getDb, schema } = configured;
+  const [published] = await getDb()
+    .select({
+      membership: schema.creativeContextMemberships,
+      sourceModifiedAt: schema.contextItemVersions.sourceModifiedAt,
+    })
+    .from(schema.creativeContextMemberships)
+    .innerJoin(
+      schema.contextItemVersions,
+      eq(
+        schema.contextItemVersions.id,
+        schema.creativeContextMemberships.publishedItemVersionId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.creativeContextMemberships.id, input.membershipId),
+        eq(schema.creativeContextMemberships.contextId, input.contextId),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (!published) throw new Error("Published context membership not found");
+
+  const reference = parseNativeCreativeArtifactKey(
+    published.membership.artifactKey,
+  );
+  if (!reference || reference.appId !== configured.connectorContext.appId) {
+    throw new Error(
+      "This context membership is not backed by a native resource in the active app",
+    );
+  }
+  const statuses = await resolveNativeCreativeResourceUpdateStatuses([
+    {
+      key: published.membership.id,
+      ...reference,
+      publishedSourceModifiedAt: published.sourceModifiedAt,
+    },
+  ]);
+  const status = statuses.get(published.membership.id);
+  if (!status)
+    throw new Error("Native resource not found or update status is unavailable");
+  if (status.state !== "update-available")
+    throw new Error("This context membership is already up to date");
+
+  return manageContextMembership({
+    operation: "submit",
+    contextId: input.contextId,
+    nativeResource: status.reference,
+    note: input.note,
+    rank: published.membership.rank,
+    purpose: published.membership.purpose ?? undefined,
+    confirmBroaderPublication: input.confirmBroaderPublication,
   });
 }
 
