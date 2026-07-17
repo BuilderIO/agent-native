@@ -7,6 +7,8 @@ SOURCES=(
   "$SOURCE_ROOT/main.m"
   "$SOURCE_ROOT/Protocol.m"
   "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c"
+  "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m"
+  "$SOURCE_ROOT/control/PrivateVaultControlLog.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m"
@@ -23,14 +25,49 @@ RESOURCES="$CONTENTS/Resources"
 EXECUTABLE="$MACOS/AgentNativePrivateVaultService"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 INTERMEDIATES="$(mktemp -d "${TMPDIR:-/tmp}/agent-native-private-vault-service.XXXXXX")"
-VENDOR_SOURCE="$(bash "$ROOT/native/fetch-private-vault-deps.sh")"
+VENDOR_SOURCE=""
+VENDOR_FETCH_LOCK="$SOURCE_ROOT/.build/vendor-fetch.lock"
+VENDOR_FETCH_LOCK_HELD=0
 THIRD_PARTY_NOTICES="$ROOT/build/THIRD_PARTY_NOTICES.md"
+NOTICE_REPLACEMENT=""
+
+release_vendor_fetch_lock() {
+  [[ "$VENDOR_FETCH_LOCK_HELD" == 1 ]] || return 0
+  local owner=""
+  owner="$(cat "$VENDOR_FETCH_LOCK" 2>/dev/null || true)"
+  # Clear process state before unlinking. If a signal arrives after unlink and
+  # a successor acquires the path, cleanup must never remove its lock.
+  VENDOR_FETCH_LOCK_HELD=0
+  [[ "$owner" == "$$" ]] || return 0
+  rm -f "$VENDOR_FETCH_LOCK"
+}
 
 cleanup() {
-  rm -rf "$VENDOR_SOURCE"
+  release_vendor_fetch_lock
+  [[ -z "$NOTICE_REPLACEMENT" ]] || rm -f "$NOTICE_REPLACEMENT"
+  [[ -z "$VENDOR_SOURCE" ]] || rm -rf "$VENDOR_SOURCE"
   rm -rf "$INTERMEDIATES"
 }
 trap cleanup EXIT
+
+# Dependency download/cache replacement is shared by otherwise independent
+# builds. Serialize only that short fetch/snapshot phase; compilation remains
+# fully parallel and every caller receives a private extracted source tree.
+mkdir -p "$(dirname "$VENDOR_FETCH_LOCK")" "$INTERMEDIATES/vendor-tmp"
+for _attempt in {1..600}; do
+  if /usr/bin/shlock -f "$VENDOR_FETCH_LOCK" -p $$; then
+    VENDOR_FETCH_LOCK_HELD=1
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$VENDOR_FETCH_LOCK_HELD" != 1 ]]; then
+  echo "Timed out waiting for Private Vault dependency cache lock" >&2
+  exit 1
+fi
+VENDOR_SOURCE="$(TMPDIR="$INTERMEDIATES/vendor-tmp" \
+  bash "$ROOT/native/fetch-private-vault-deps.sh")"
+release_vendor_fetch_lock
 
 plutil -lint "$INFO_PLIST" >/dev/null
 plutil -lint "$ENTITLEMENTS" >/dev/null
@@ -73,13 +110,25 @@ ARM64_SODIUM="$(build_libsodium_slice arm64 aarch64-apple-darwin)"
 X86_64_SODIUM="$(build_libsodium_slice x86_64 x86_64-apple-darwin)"
 
 mkdir -p "$(dirname "$THIRD_PARTY_NOTICES")"
+NOTICE_CANDIDATE="$INTERMEDIATES/THIRD_PARTY_NOTICES.md"
 {
   printf '# Third-party notices\n\n'
   cat "$SOURCE_ROOT/third-party/libsodium/NOTICE.md"
   printf '\n## License text\n\n```text\n'
   cat "$SOURCE_ROOT/third-party/libsodium/LICENSE"
   printf '```\n'
-} > "$THIRD_PARTY_NOTICES"
+} > "$NOTICE_CANDIDATE"
+if [[ ! -f "$THIRD_PARTY_NOTICES" || -L "$THIRD_PARTY_NOTICES" ]] ||
+   ! cmp -s "$NOTICE_CANDIDATE" "$THIRD_PARTY_NOTICES"; then
+  NOTICE_REPLACEMENT="$(mktemp "$THIRD_PARTY_NOTICES.tmp.XXXXXX")"
+  chmod 0644 "$NOTICE_REPLACEMENT"
+  [[ -f "$NOTICE_REPLACEMENT" && ! -L "$NOTICE_REPLACEMENT" ]]
+  cp "$NOTICE_CANDIDATE" "$NOTICE_REPLACEMENT"
+  [[ -f "$NOTICE_REPLACEMENT" && ! -L "$NOTICE_REPLACEMENT" ]]
+  mv "$NOTICE_REPLACEMENT" "$THIRD_PARTY_NOTICES"
+  NOTICE_REPLACEMENT=""
+fi
+[[ -f "$THIRD_PARTY_NOTICES" && ! -L "$THIRD_PARTY_NOTICES" ]]
 
 compile_slice() {
   local architecture="$1"
@@ -90,6 +139,7 @@ compile_slice() {
     -mmacosx-version-min=13.0 \
     -arch "$architecture" \
     -I"$SOURCE_ROOT/crypto" \
+    -I"$SOURCE_ROOT/control" \
     -I"$SOURCE_ROOT/storage" \
     -I"$sodium_root/include" \
     -framework Foundation \
@@ -132,6 +182,56 @@ case "${PRIVATE_VAULT_BUILD_CRYPTO_TESTS:-}" in
     echo "Invalid Private Vault crypto-test build mode" >&2
     exit 1
     ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_CANONICAL_TESTS:-}" in
+  "") ;;
+  1)
+  CANONICAL_TEST_OUTPUT="$OUTPUT_ROOT/.canonical-tests"
+  rm -rf "$CANONICAL_TEST_OUTPUT"
+  mkdir -p "$CANONICAL_TEST_OUTPUT"
+  compile_canonical_test_slice() {
+    local architecture="$1"
+    local output="$CANONICAL_TEST_OUTPUT/private-vault-canonical-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/control" -framework Foundation \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonicalTests.m" \
+      -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_canonical_test_slice arm64
+  compile_canonical_test_slice x86_64
+  ;;
+  *) echo "Invalid Private Vault canonical-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_CONTROL_LOG_TESTS:-}" in
+  "") ;;
+  1)
+  CONTROL_LOG_TEST_OUTPUT="$OUTPUT_ROOT/.control-log-tests"
+  rm -rf "$CONTROL_LOG_TEST_OUTPUT"
+  mkdir -p "$CONTROL_LOG_TEST_OUTPUT"
+  compile_control_log_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$CONTROL_LOG_TEST_OUTPUT/private-vault-control-log-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLogTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_control_log_test_slice arm64 "$ARM64_SODIUM"
+  compile_control_log_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *) echo "Invalid Private Vault control-log-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_CUSTODY_TESTS:-}" in
