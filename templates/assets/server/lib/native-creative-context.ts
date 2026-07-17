@@ -133,6 +133,23 @@ export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
                   : undefined,
               metadata: { role: previewIsThumbnail ? "thumbnail" : "preview" },
             },
+            ...(previewIsThumbnail
+              ? [
+                  {
+                    kind: "video" as const,
+                    mimeType: asset.mimeType,
+                    accessMode: "private" as const,
+                    storageKey: serializePrivateBlobHandle(handle),
+                    altText: asset.altText ?? asset.title ?? undefined,
+                    contentHash,
+                    durationMs:
+                      asset.durationSeconds != null
+                        ? Math.round(asset.durationSeconds * 1_000)
+                        : undefined,
+                    metadata: { role: "playback" },
+                  },
+                ]
+              : []),
           ],
         },
       ],

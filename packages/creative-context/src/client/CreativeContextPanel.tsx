@@ -819,6 +819,7 @@ interface SafePreviewManifest {
     mimeType: string | null;
     url: string;
   } | null;
+  posterUrl?: string;
 }
 
 function StructuredPreview({
@@ -995,6 +996,7 @@ function ContextPreviewVisual({
         playsInline
         preload="metadata"
         src={manifest.media.url}
+        poster={manifest.posterUrl}
         className="h-full w-full bg-black object-contain"
       />
     );
@@ -1875,7 +1877,14 @@ export function CreativeContextPanel({
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {publishedContextMemberships.map((membership) => {
                   const item = membership.publishedItem!;
-                  const medium = item.media[0];
+                  const imageMedium = item.media.find((medium) =>
+                    medium.mimeType?.startsWith("image/"),
+                  );
+                  const playbackMedium = item.media.find((medium) =>
+                    medium.mimeType?.startsWith("video/"),
+                  );
+                  const medium = imageMedium ?? playbackMedium ?? item.media[0];
+                  const sheetMedium = playbackMedium ?? medium;
                   return (
                     <button
                       key={membership.id}
@@ -1887,7 +1896,11 @@ export function CreativeContextPanel({
                           itemId: item.id,
                           itemVersionId: item.itemVersionId,
                           preview: item.preview,
-                          media: medium ?? null,
+                          media: sheetMedium ?? null,
+                          posterUrl:
+                            playbackMedium && imageMedium
+                              ? imageMedium.url
+                              : undefined,
                         })
                       }
                       className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40"
