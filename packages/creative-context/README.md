@@ -1,7 +1,8 @@
 # @agent-native/creative-context
 
-Shared creative-library ingestion, immutable evidence, hybrid retrieval, brand
-context, and generation provenance for Agent Native creative apps.
+Shared creative-library ingestion, governed reusable contexts, immutable
+evidence, hybrid retrieval, brand context, and generation provenance for Agent
+Native creative apps.
 
 The package turns Google Slides, Figma, Notion, websites, and uploaded
 PPTX/DOCX/PDF/PNG/JPEG/WebP/GIF/safe-SVG files into a versioned SQL corpus. Binary originals, localized visual
@@ -38,10 +39,46 @@ export default function AgentPage() {
 
 Importing `./server` registers the package actions through the framework's
 package-action registry, applies additive corpus migrations, registers
-shareable sources/profiles/packs, starts resumable import processing, and
-conditionally contributes published brand context to agent prompts. The prompt
+shareable sources/profiles/contexts/packs, starts resumable import processing,
+and conditionally contributes published brand context to agent prompts. Each
+owning app also registers a server-side native capture adapter so its Share
+popover can submit a deck, design, document, asset, or dashboard by resource id
+without sending native payloads through a generic action. The prompt
 contribution is omitted structurally whenever application state contains
 `{ contextMode: "off" }`.
+
+## Governed contexts
+
+A brand profile contains approved identity and DNA. A Creative Context is the
+durable, shareable collection people maintain (for example Default, Marketing,
+Product, or Sales). A context pack is the immutable exact-version receipt for
+one generation.
+
+- Every personal or organization scope has one non-archivable Default context.
+- Requests use Default plus at most one specialty context. Explicit selection
+  wins; an app binding or semantic match supplies the automatic specialty.
+- `open` contexts publish editor submissions immediately. `review` and
+  `admins-only` contexts keep the proposed version private to its submitter and
+  context administrators until approval.
+- The currently approved snapshot remains active while a newer version is
+  pending. Removal affects new retrieval immediately without rewriting old
+  packs.
+- Publishing into a broader context requires source-management permission and
+  explicit confirmation. Acceptance writes an immutable context-owned copy;
+  it never changes the original resource's sharing.
+
+The standard UI is the Context tab in the framework Share popover plus the
+context-first Library. The Library rail selects Default or a specialty and its
+Items, Sources, Approvals, and Settings views show only safe, bounded previews:
+slide filmstrips, design frames, rendered document structure, access-scoped
+media, and dashboards populated with synthetic preview data.
+
+Exact app-native data is a separate private blob capability. Generic list,
+item, pack, status, media, and search responses never expose that capability.
+Only the owning app's typed clone action can resolve it, verify the stored hash
+and resource identity, and create a new editable resource through that app's
+normal persistence path. Imported Google Slides and Figma artifacts continue
+to use the stricter trusted-compiler and native-reassembly path.
 
 ## Retrieval behavior
 
@@ -52,15 +89,19 @@ contribution is omitted structurally whenever application state contains
 - SQLite keeps corpus and lexical/caption search only. Visual queries fail with
   a clear PostgreSQL+pgvector requirement; the package never creates another
   SQLite or vector database.
-- Every context-backed generation snapshots exact `(itemId, itemVersionId)`
-  evidence, lane scores, and reasons into an immutable context pack.
+- Every context-backed generation resolves Default plus zero or one specialty,
+  applies the specialty ranking boost, and snapshots exact
+  `(itemId, itemVersionId)` evidence, lane scores, selection reason, and context
+  ids into an immutable context pack.
 
 Context packs are intentionally ownable and independently shareable instead of
 inheriting broad source visibility. A pack records one generation's request,
 selected evidence, and influence scores, which can reveal private work intent
 even when every underlying source is organization-visible. Only the creator can
-see a new pack; collaborators receive it through an explicit pack share, and
-every member is rechecked against the viewer's current source access.
+see a new pack; collaborators receive it through an explicit pack share.
+Ordinary source evidence remains subject to current source access and
+revocation. Context-owned published snapshots remain replayable at their pinned
+version for authorized pack viewers after membership removal.
 
 ## Isolated deployments
 
@@ -88,7 +129,8 @@ Restricted upstream items default to review and exclusion. Organization copies
 require an organization admin or verified container owner plus a confirmation
 of the exact container and item count. Disconnecting or deleting a source
 tombstones it synchronously so retrieval stops immediately; private blobs are
-purged asynchronously.
+purged asynchronously. Native context submissions use the same fail-closed
+private-blob rule and never fall back to SQL payload storage.
 
 ## Exports
 
