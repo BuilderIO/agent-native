@@ -69,11 +69,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import {
-  isTurnAborted,
-  markTurnAborted,
-  readBackgroundRunClaim,
-} from "../agent/run-store.js";
+import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
