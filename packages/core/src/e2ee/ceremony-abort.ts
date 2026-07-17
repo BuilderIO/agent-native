@@ -7,6 +7,7 @@ import {
 } from "./canonical.js";
 import {
   type CeremonyKind,
+  type CeremonyStep,
   ceremonyKindSchema,
   ceremonyStepSchema,
 } from "./ceremonies.js";
@@ -47,7 +48,7 @@ export interface AncV1CeremonyAbortStateCommitment {
   epoch: number;
   expectedControlSequence: number;
   expectedControlHeadHash: Uint8Array;
-  completedSteps: string[];
+  completedSteps: CeremonyStep[];
   alertCode: string | null;
   incompleteReason: string | null;
   plaintextOutstanding: boolean;
@@ -131,7 +132,7 @@ function nullableToken(value: unknown, name: string): string | null {
   return value === null ? null : token(value, name);
 }
 
-function steps(value: unknown): string[] {
+function steps(value: unknown): CeremonyStep[] {
   if (!Array.isArray(value) || value.length > 48) {
     fail("completedSteps must contain at most 48 ordered steps");
   }
