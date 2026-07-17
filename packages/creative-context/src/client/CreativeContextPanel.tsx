@@ -54,6 +54,7 @@ import {
   IconPhoto,
   IconPlayerPlay,
   IconPin,
+  IconPlus,
   IconRefresh,
   IconSearch,
   IconSlideshow,
@@ -90,6 +91,7 @@ import {
   useCreativeContextPack,
   useCreativeContextPacks,
   useContextMemberships,
+  useManageCreativeContext,
   useManageContextMembership,
   useCreativeContextSearch,
   useCreativeContextSuggestions,
@@ -1046,6 +1048,7 @@ function ContextRail({
   selectedContextId,
   disabled,
   onSelect,
+  onCreate,
 }: {
   contexts: Array<{
     id: string;
@@ -1056,6 +1059,7 @@ function ContextRail({
   selectedContextId: string | null | undefined;
   disabled: boolean;
   onSelect: (contextId: string) => void;
+  onCreate: () => void;
 }) {
   return (
     <aside className="border-b border-border/70 pb-5">
@@ -1086,6 +1090,15 @@ function ContextRail({
             </span>
           </button>
         ))}
+        <Button
+          type="button"
+          variant="outline"
+          className="min-w-40 justify-start"
+          disabled={disabled}
+          onClick={onCreate}
+        >
+          <IconPlus /> New context
+        </Button>
         {!contexts.length ? (
           <p className="py-2 text-sm text-muted-foreground">
             Create a context from a resource’s Share tab to start organizing the
@@ -1266,6 +1279,7 @@ export function CreativeContextPanel({
   const contextMembershipsQuery = useContextMemberships(
     selectedLibraryContextId ? { contextId: selectedLibraryContextId } : null,
   );
+  const manageContext = useManageCreativeContext();
   const manageContextMembership = useManageContextMembership();
   const contextMemberships = parseContextMemberships(
     contextMembershipsQuery.data,
@@ -1276,6 +1290,22 @@ export function CreativeContextPanel({
   const pendingContextMemberships = contextMemberships.filter(
     (membership) => membership.pendingSubmission,
   );
+  const selectedLibraryContext = contexts.find(
+    (context) => context.id === selectedLibraryContextId,
+  );
+  const [contextSettingsName, setContextSettingsName] = useState("");
+  const [contextSettingsDescription, setContextSettingsDescription] =
+    useState("");
+  const [contextSettingsPolicy, setContextSettingsPolicy] = useState<
+    "open" | "review" | "admins-only"
+  >("open");
+  const [newContextName, setNewContextName] = useState("");
+  const [newContextPolicy, setNewContextPolicy] = useState<
+    "open" | "review" | "admins-only"
+  >("open");
+  const [contextSettingsError, setContextSettingsError] = useState<
+    string | null
+  >(null);
   const activePack = packs.find(
     (pack) => pack.id === contextState.state.currentPackId,
   );
@@ -1300,6 +1330,13 @@ export function CreativeContextPanel({
       suggestion.kind === "layout-template" &&
       (suggestion.status === "proposed" || suggestion.status === "promoted"),
   );
+
+  useEffect(() => {
+    setContextSettingsName(selectedLibraryContext?.name ?? "");
+    setContextSettingsDescription(selectedLibraryContext?.description ?? "");
+    setContextSettingsPolicy(selectedLibraryContext?.approvalPolicy ?? "open");
+    setContextSettingsError(null);
+  }, [selectedLibraryContext]);
 
   useEffect(() => {
     if (!previewSourceId || !previewQuery.data) return;
@@ -1788,10 +1825,55 @@ export function CreativeContextPanel({
     }
   }
 
+  async function saveContextSettings() {
+    if (!selectedLibraryContext?.access.canAdmin || !contextSettingsName.trim())
+      return;
+    setContextSettingsError(null);
+    try {
+      await manageContext.mutateAsync({
+        operation: "update",
+        contextId: selectedLibraryContext.id,
+        patch: {
+          name: contextSettingsName.trim(),
+          description: contextSettingsDescription.trim() || null,
+          approvalPolicy: contextSettingsPolicy,
+        },
+      });
+      await contextsQuery.refetch();
+    } catch {
+      setContextSettingsError("Could not update this context.");
+    }
+  }
+
+  async function createSpecialtyContext() {
+    if (!newContextName.trim()) return;
+    setContextSettingsError(null);
+    try {
+      const result = await manageContext.mutateAsync({
+        operation: "create",
+        name: newContextName.trim(),
+        kind: "specialty",
+        approvalPolicy: newContextPolicy,
+      });
+      setNewContextName("");
+      setNewContextPolicy("open");
+      await contextsQuery.refetch();
+      if (result.context?.id) await selectContext(result.context.id);
+    } catch {
+      setContextSettingsError("Could not create this context.");
+    }
+  }
+
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const searchText = query.trim();
-    if (!searchText || !sources.length) return;
+    if (
+      !searchText ||
+      (!sources.length &&
+        !selectedLibraryContextId &&
+        !contextState.state.pinnedPackId)
+    )
+      return;
     setSearchError(null);
     try {
       const result = await searchContext.mutateAsync({
@@ -1868,6 +1950,7 @@ export function CreativeContextPanel({
             selectedContextId={contextState.state.selectedContextId}
             disabled={savingState}
             onSelect={(contextId) => void selectContext(contextId)}
+            onCreate={() => setLibraryView("settings")}
           />
           <Tabs
             value={libraryView}
@@ -1987,10 +2070,110 @@ export function CreativeContextPanel({
               </p>
             </TabsContent>
             <TabsContent value="settings">
-              <p className="text-sm text-muted-foreground">
-                Automatic selection is the default. Exact context packs remain
-                available as an advanced provenance pin.
-              </p>
+              <div className="grid gap-5 lg:grid-cols-2">
+                <section className="space-y-3 rounded-md border border-border p-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Context settings</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Automatic selection uses Default plus at most one matching
+                      specialty. Exact packs remain available under advanced
+                      provenance.
+                    </p>
+                  </div>
+                  <Input
+                    value={contextSettingsName}
+                    disabled={!selectedLibraryContext?.access.canAdmin}
+                    onChange={(event) =>
+                      setContextSettingsName(event.target.value)
+                    }
+                    placeholder="Context name"
+                  />
+                  <Textarea
+                    value={contextSettingsDescription}
+                    disabled={!selectedLibraryContext?.access.canAdmin}
+                    onChange={(event) =>
+                      setContextSettingsDescription(event.target.value)
+                    }
+                    placeholder="When should agents use this context?"
+                    rows={3}
+                  />
+                  <Select
+                    value={contextSettingsPolicy}
+                    disabled={!selectedLibraryContext?.access.canAdmin}
+                    onValueChange={(value) =>
+                      setContextSettingsPolicy(
+                        value as "open" | "review" | "admins-only",
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open publishing</SelectItem>
+                      <SelectItem value="review">Require review</SelectItem>
+                      <SelectItem value="admins-only">Admins only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={
+                      !selectedLibraryContext?.access.canAdmin ||
+                      !contextSettingsName.trim() ||
+                      manageContext.isPending
+                    }
+                    onClick={() => void saveContextSettings()}
+                  >
+                    Save settings
+                  </Button>
+                </section>
+                <section className="space-y-3 rounded-md border border-dashed border-border p-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">New specialty</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Create a focused style such as Marketing, Product, or
+                      Sales. Contexts start open unless you choose review.
+                    </p>
+                  </div>
+                  <Input
+                    value={newContextName}
+                    onChange={(event) => setNewContextName(event.target.value)}
+                    placeholder="Marketing"
+                  />
+                  <Select
+                    value={newContextPolicy}
+                    onValueChange={(value) =>
+                      setNewContextPolicy(
+                        value as "open" | "review" | "admins-only",
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open publishing</SelectItem>
+                      <SelectItem value="review">Require review</SelectItem>
+                      <SelectItem value="admins-only">Admins only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!newContextName.trim() || manageContext.isPending}
+                    onClick={() => void createSpecialtyContext()}
+                  >
+                    <IconPlus /> Create context
+                  </Button>
+                </section>
+              </div>
+              {contextSettingsError ? (
+                <p className="mt-3 text-xs text-destructive">
+                  {contextSettingsError}
+                </p>
+              ) : null}
             </TabsContent>
           </Tabs>
           <section className="space-y-3">
