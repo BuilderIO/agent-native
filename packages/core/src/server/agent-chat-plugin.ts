@@ -13,7 +13,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { buildA2ARecoverableArtifactMessage } from "../a2a/artifact-response.js";
+import {
+  buildA2ARecoverableArtifactMessage,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
   isLoopbackAddress,
@@ -1463,7 +1466,7 @@ export function createAgentChatPlugin(
           // Run the SAME agent loop, then extract the final answer from the
           // event stream so pre-tool narration never leaks as the A2A result.
           const a2aEvents: AgentChatEvent[] = [];
-          const a2aToolResults: Array<{ tool: string; result: string }> = [];
+          const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
           const controller = new AbortController();
 
@@ -1498,6 +1501,8 @@ export function createAgentChatPlugin(
                   a2aToolResults.push({
                     tool: event.tool,
                     result: event.result,
+                    isError: event.isError,
+                    completedSideEffect: event.completedSideEffect,
                   });
                   const recoverableArtifactText =
                     buildA2ARecoverableArtifactMessage(a2aToolResults, {

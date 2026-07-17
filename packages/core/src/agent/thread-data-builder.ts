@@ -719,7 +719,7 @@ export function threadMessageTextForEngine(message: any): string {
 
   const context = [
     "<integration_artifact_context>",
-    "Trusted action history for this conversation. Resource IDs remain stable if participants rename the resource. Use these IDs when a follow-up refers to an earlier artifact, while still deciding from the request whether to update, add, supersede, or create.",
+    "Trusted action history for this conversation. Resource IDs remain stable if participants rename the resource. Fields such as titleAtAction are historical aliases from the time of that action, not current resource state. Use stable IDs to locate an earlier artifact, read its current state before changing it, and omit fields the user did not explicitly ask to change while still deciding whether to update, add, supersede, or create.",
     promptSafeJson(artifacts),
     "</integration_artifact_context>",
   ].join("\n");
