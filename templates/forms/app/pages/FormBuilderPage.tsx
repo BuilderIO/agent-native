@@ -359,10 +359,10 @@ export function FormBuilderPage() {
             <Skeleton className="h-8 w-20 rounded-md" />
           </div>
         </div>
-        {/* Body: builder + properties */}
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-auto p-4 sm:p-6">
-            <div className="max-w-2xl mx-auto space-y-4">
+        {/* Body: builder */}
+        <div className="flex flex-1 overflow-hidden relative">
+          <div className="flex-1 overflow-auto bg-muted/30">
+            <div className="max-w-2xl mx-auto py-4 sm:py-8 px-3 sm:px-4 space-y-4">
               <Skeleton className="h-8 w-2/3" />
               <Skeleton className="h-4 w-1/2" />
               <div className="space-y-3 pt-4">
@@ -377,12 +377,6 @@ export function FormBuilderPage() {
                 ))}
               </div>
             </div>
-          </div>
-          <div className="hidden lg:block w-72 border-s border-border p-4 space-y-4">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
           </div>
         </div>
       </div>
