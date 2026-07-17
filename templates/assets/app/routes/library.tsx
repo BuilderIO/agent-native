@@ -1011,7 +1011,7 @@ function LibraryKitSelector({
             type="button"
             className="-ml-1.5 inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xl font-semibold leading-tight tracking-tight transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            <span className="block min-w-0 max-w-[min(48rem,calc(100vw-7rem))] truncate sm:max-w-none">
+            <span className="block min-w-0 break-words">
               {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
             </span>
             <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
