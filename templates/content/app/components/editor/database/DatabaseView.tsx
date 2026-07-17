@@ -1303,7 +1303,12 @@ function DatabaseTable({
   }
 
   function openWorkspaceFiles(item: ContentDatabaseItem) {
-    if (data?.database.systemRole !== "workspaces") return false;
+    if (
+      data?.database.systemRole !== "workspaces" &&
+      data?.database.systemRole !== "files"
+    ) {
+      return false;
+    }
     void (async () => {
       const spacesResponse =
         contentSpacesQuery.data ?? (await contentSpacesQuery.refetch()).data;
