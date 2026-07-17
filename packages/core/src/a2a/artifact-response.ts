@@ -126,7 +126,13 @@ function withPersistedArtifactMarker(
   toolResults: A2AToolResultSummary[],
   secret = process.env.A2A_SECRET,
 ): string {
-  const identities = extractA2AArtifactIdentities(toolResults).slice(0, 12);
+  const verificationSecrets = [secret, process.env.A2A_SECRET].filter(
+    (value, index, values): value is string =>
+      !!value && values.indexOf(value) === index,
+  );
+  const identities = extractA2AArtifactIdentities(toolResults, {
+    persistedArtifactSecrets: verificationSecrets,
+  }).slice(0, 12);
   if (identities.length === 0 || !secret) return text;
   const payload = Buffer.from(JSON.stringify(identities)).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
