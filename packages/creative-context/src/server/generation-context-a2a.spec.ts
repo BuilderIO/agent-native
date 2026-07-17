@@ -221,6 +221,53 @@ describe("generation context isolated A2A routing", () => {
     );
   });
 
+  it("uses one matching specialty when no explicit or app binding exists", async () => {
+    mocks.hasA2A.mockReturnValue(false);
+    mocks.listCreativeContexts.mockResolvedValue({
+      contexts: [
+        { id: "default-1", kind: "default", name: "Default" },
+        {
+          id: "marketing-1",
+          kind: "specialty",
+          name: "Marketing",
+          description: "Campaigns, launches, and demand generation",
+        },
+        { id: "product-1", kind: "specialty", name: "Product" },
+      ],
+    });
+    mocks.performCreativeContextSearch
+      .mockResolvedValueOnce({
+        results: [
+          {
+            itemId: "base-item",
+            itemVersionId: "base-v1",
+            kind: "slide",
+            title: "Default evidence",
+            score: 0.5,
+            reasons: ["default"],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ results: [] });
+    mocks.createContextPack.mockResolvedValue({ id: "snapshot-1" });
+
+    await resolveGenerationCreativeContext({
+      role: "slides",
+      query: "Build the marketing launch deck",
+    });
+
+    expect(mocks.performCreativeContextSearch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ contextId: "marketing-1" }),
+    );
+    expect(mocks.createContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        specialtyContextId: "marketing-1",
+        selectionReason: "semantic specialty match",
+      }),
+    );
+  });
+
   it("forwards a selected specialty to isolated resolution", async () => {
     mocks.readAppState.mockResolvedValue({
       contextMode: "auto",

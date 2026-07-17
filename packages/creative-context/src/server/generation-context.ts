@@ -17,6 +17,7 @@ import {
 import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
+  CreativeContextSummary,
 } from "../types.js";
 import {
   assertGenerationArtifactAccess,
@@ -36,8 +37,55 @@ import {
   UNTRUSTED_REFERENCE_ROLE,
 } from "./untrusted-reference.js";
 
-export type CreativeGenerationRole = "slides" | "design" | "assets" | "content";
+export type CreativeGenerationRole =
+  | "slides"
+  | "design"
+  | "assets"
+  | "content"
+  | "analytics";
 export type CreativeContextModeOverride = "off";
+
+const SPECIALTY_STOP_WORDS = new Set([
+  "and",
+  "for",
+  "from",
+  "into",
+  "our",
+  "the",
+  "this",
+  "with",
+]);
+
+function specialtyTokens(value: string) {
+  return new Set(
+    value
+      .toLocaleLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((token) => token.length >= 3 && !SPECIALTY_STOP_WORDS.has(token)),
+  );
+}
+
+export function selectSemanticSpecialty(
+  contexts: readonly CreativeContextSummary[],
+  query: string,
+): CreativeContextSummary | null {
+  const queryText = query.toLocaleLowerCase();
+  const queryTokens = specialtyTokens(query);
+  let best: { context: CreativeContextSummary; score: number } | null = null;
+  for (const context of contexts) {
+    if (context.kind !== "specialty") continue;
+    const name = context.name.toLocaleLowerCase().trim();
+    const nameTokens = specialtyTokens(context.name);
+    const descriptionTokens = specialtyTokens(context.description ?? "");
+    let score = name.length >= 3 && queryText.includes(name) ? 4 : 0;
+    for (const token of queryTokens) {
+      if (nameTokens.has(token)) score += 2;
+      else if (descriptionTokens.has(token)) score += 1;
+    }
+    if (score >= 2 && (!best || score > best.score)) best = { context, score };
+  }
+  return best?.context ?? null;
+}
 
 function defaultArtifactAccessTarget(
   identity: GenerationArtifactIdentity,
@@ -289,12 +337,16 @@ export async function resolveGenerationCreativeContextLocal(
       ? selected
       : (contexts.contexts.find((context) => context.kind === "default") ??
         null);
+  const semantic =
+    !selected && !bound
+      ? selectSemanticSpecialty(contexts.contexts, input.query)
+      : null;
   const specialty =
     selected?.kind === "specialty"
       ? selected
       : bound?.kind === "specialty"
         ? bound
-        : null;
+        : semantic;
   const searchInput = {
     query: input.query,
     limit: Math.max(1, Math.min(20, input.limit ?? 8)),
@@ -347,7 +399,9 @@ export async function resolveGenerationCreativeContextLocal(
     selectionReason: specialty
       ? selected?.id === specialty.id
         ? "explicit specialty selection"
-        : "app specialty binding"
+        : bound?.id === specialty.id
+          ? "app specialty binding"
+          : "semantic specialty match"
       : base
         ? "Default context"
         : "legacy accessible corpus fallback",
