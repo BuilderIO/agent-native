@@ -1159,6 +1159,31 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_control_heads_scope_idx
         ON content_encrypted_vault_control_heads (owner_email, org_id, vault_id)`,
     },
+    {
+      version: 82,
+      name: "content-private-vault-recovery-wrap-bindings",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_recovery_wraps (
+        binding_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        recovery_wrap_hash TEXT NOT NULL,
+        control_entry_id TEXT NOT NULL,
+        ciphertext_byte_length INTEGER NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_recovery_wraps_hash_unique
+        ON content_encrypted_vault_recovery_wraps (vault_id, recovery_wrap_hash);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_recovery_wraps_control_entry_unique
+        ON content_encrypted_vault_recovery_wraps (vault_id, control_entry_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_recovery_wraps_scope_idx
+        ON content_encrypted_vault_recovery_wraps (owner_email, org_id, vault_id);
+
+      ALTER TABLE content_encrypted_vault_ciphertext_staging
+        ADD COLUMN IF NOT EXISTS recovery_wrap_hash TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

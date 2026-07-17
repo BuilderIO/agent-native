@@ -10,6 +10,11 @@ const coordinate = {
   revisionId: "revision:test-0001",
   part: "header",
 } as const;
+const recoveryWrapCoordinate = {
+  kind: "recovery-wrap",
+  vaultId: "vault:test-0001",
+  recoveryWrapHash: "a".repeat(64),
+} as const;
 
 async function freshRegistry() {
   vi.resetModules();
@@ -73,6 +78,26 @@ describe("protected ciphertext registry", () => {
     };
     registry.registerProtectedCiphertextProvider(provider);
 
+    const atLimit = new Uint8Array(1024 * 1024);
+    provider.put = vi.fn().mockResolvedValue({
+      locator: {
+        kind: "agent-native.protected-ciphertext",
+        version: 1,
+        provider: provider.id,
+        opaque: true,
+        coordinate: recoveryWrapCoordinate,
+      },
+      byteLength: atLimit.byteLength,
+      created: true,
+    });
+    await expect(
+      registry.putProtectedCiphertext({
+        coordinate: recoveryWrapCoordinate,
+        ciphertext: atLimit,
+        expectedByteLength: atLimit.byteLength,
+      }),
+    ).resolves.toMatchObject({ byteLength: 1024 * 1024, created: true });
+
     await expect(
       registry.putProtectedCiphertext({
         coordinate,
@@ -87,6 +112,42 @@ describe("protected ciphertext registry", () => {
         expectedByteLength: 1,
       }),
     ).rejects.toThrow();
+    expect(provider.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts only canonical recovery-wrap commitments and enforces their 1 MiB cap", async () => {
+    const registry = await freshRegistry();
+    const provider: ProtectedCiphertextProvider = {
+      id: "memory-protected-v1",
+      name: "Memory",
+      isConfigured: () => true,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    };
+    registry.registerProtectedCiphertextProvider(provider);
+
+    await expect(
+      registry.putProtectedCiphertext({
+        coordinate: recoveryWrapCoordinate,
+        ciphertext: new Uint8Array(1024 * 1024 + 1),
+        expectedByteLength: 1024 * 1024 + 1,
+      }),
+    ).rejects.toMatchObject({ name: "ProtectedCiphertextLengthMismatchError" });
+    for (const recoveryWrapHash of [
+      "A".repeat(64),
+      "a".repeat(63),
+      `${"a".repeat(63)}g`,
+      `../${"a".repeat(61)}`,
+    ]) {
+      await expect(
+        registry.putProtectedCiphertext({
+          coordinate: { ...recoveryWrapCoordinate, recoveryWrapHash },
+          ciphertext: new Uint8Array([1]),
+          expectedByteLength: 1,
+        }),
+      ).rejects.toThrow();
+    }
     expect(provider.put).not.toHaveBeenCalled();
   });
 

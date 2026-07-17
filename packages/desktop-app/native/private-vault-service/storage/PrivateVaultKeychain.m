@@ -15,6 +15,8 @@ NSString *const AncPrivateVaultRotationPreparationService =
     @"com.agentnative.desktop.private-vault.anc-v1.rotation-preparation";
 NSString *const AncPrivateVaultRotationPreparationStageService =
     @"com.agentnative.desktop.private-vault.anc-v1.rotation-preparation-stage";
+NSString *const AncPrivateVaultRotationCleanupReceiptService =
+    @"com.agentnative.desktop.private-vault.anc-v1.rotation-cleanup-receipt";
 NSString *const AncPrivateVaultKeychainAccessGroup =
     @"W3PMF2T3MW.com.agentnative.desktop.private-vault";
 NSString *const AncPrivateVaultKeychainStorageDomain =
@@ -251,7 +253,9 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
       ![service isEqualToString:AncPrivateVaultCustodyStageService] &&
       ![service isEqualToString:AncPrivateVaultRotationPreparationService] &&
       ![service
-          isEqualToString:AncPrivateVaultRotationPreparationStageService]) {
+          isEqualToString:AncPrivateVaultRotationPreparationStageService] &&
+      ![service
+          isEqualToString:AncPrivateVaultRotationCleanupReceiptService]) {
     return nil;
   }
   NSString *account = AncAccount(service, vaultId, recordId);

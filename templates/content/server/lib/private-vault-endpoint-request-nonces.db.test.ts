@@ -115,6 +115,10 @@ beforeEach(async () => {
     .update(schema.contentEncryptedVaultEndpoints)
     .set({ endpointState: "online" })
     .where(eq(schema.contentEncryptedVaultEndpoints.endpointState, "offline"));
+  await getDb()
+    .update(schema.contentEncryptedVaults)
+    .set({ vaultState: "active" })
+    .where(eq(schema.contentEncryptedVaults.vaultState, "disabled"));
 });
 
 afterAll(() => {
@@ -134,12 +138,65 @@ function claim(endpointId = ENDPOINT, nonce = "ab".repeat(16)) {
   });
 }
 
+function claimAuthorizedControlRequest(
+  endpointId = ENDPOINT,
+  nonce = "ca".repeat(16),
+) {
+  return store.claimAuthorizedControlRequest({
+    ownerEmail: OWNER,
+    orgId: ORG,
+    vaultId: VAULT,
+    endpointId,
+    nonce,
+    expiresAt: EXPIRES_AT,
+  });
+}
+
 describe("Private Vault durable endpoint-request replay fence", () => {
   it("atomically accepts exactly one of twenty concurrent identical claims", async () => {
     const results = await Promise.all(
       Array.from({ length: 20 }, () => claim()),
     );
     expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("claims signed-control requests without trusting endpoint directory state", async () => {
+    await getDb()
+      .update(schema.contentEncryptedVaultEndpoints)
+      .set({ endpointState: "offline" })
+      .where(eq(schema.contentEncryptedVaultEndpoints.endpointId, ENDPOINT));
+    await expect(claim(ENDPOINT, "c1".repeat(16))).resolves.toBe(false);
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        claimAuthorizedControlRequest(ENDPOINT, "c2".repeat(16)),
+      ),
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("requires the exact active vault scope for signed-control nonce claims", async () => {
+    for (const mixed of [
+      { ownerEmail: SECOND_OWNER, orgId: ORG, vaultId: VAULT },
+      { ownerEmail: OWNER, orgId: SECOND_ORG, vaultId: VAULT },
+      { ownerEmail: OWNER, orgId: ORG, vaultId: SECOND_VAULT },
+      { ownerEmail: OWNER, orgId: ORG, vaultId: "vault:missing" },
+    ]) {
+      await expect(
+        store.claimAuthorizedControlRequest({
+          ...mixed,
+          endpointId: ENDPOINT,
+          nonce: "c3".repeat(16),
+          expiresAt: EXPIRES_AT,
+        }),
+      ).resolves.toBe(false);
+    }
+    await getDb()
+      .update(schema.contentEncryptedVaults)
+      .set({ vaultState: "disabled" })
+      .where(eq(schema.contentEncryptedVaults.vaultId, VAULT));
+    await expect(
+      claimAuthorizedControlRequest(ENDPOINT, "c4".repeat(16)),
+    ).resolves.toBe(false);
   });
 
   it("bridges an unexpired v79 claim until expiry without new raw nonce writes", async () => {

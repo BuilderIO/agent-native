@@ -70,6 +70,11 @@ function commit(
     outstandingJobsResolved: false,
     recoverySnapshotHash: null,
     recoveryAuthorizationHash: null,
+    recoveryGeneration: 1,
+    recoveryId: `recovery:${vaultId}`,
+    recoverySigningPublicKey: "a1".repeat(32),
+    recoveryKeyAgreementPublicKey: "b2".repeat(32),
+    recoveryWrapHash: "c3".repeat(32),
     ...overrides,
   };
 }
@@ -404,6 +409,11 @@ describe("Private Vault signed control-log persistence", () => {
         rotationCompleted: true,
         recoverySnapshotHash: "aa".repeat(32),
         recoveryAuthorizationHash: "bb".repeat(32),
+        recoveryGeneration: initialized.state.recoveryGeneration + 1,
+        recoveryId: "recovery:replacement",
+        recoverySigningPublicKey: "d4".repeat(32),
+        recoveryKeyAgreementPublicKey: "e5".repeat(32),
+        recoveryWrapHash: "f6".repeat(32),
       }),
     });
     const input = {

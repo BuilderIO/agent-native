@@ -925,4 +925,88 @@ AncRotationCoordinatorMakeResult(
   }
 }
 
+- (AncPrivateVaultRotationCoordinatorStatus)
+    finalizeHostedAppendVaultId:(const uint8_t[16])vaultId
+                         receipt:(NSData *)receiptBytes
+                          result:
+                              (AncPrivateVaultRotationCoordinatorResult **)result {
+  if (result != NULL)
+    *result = nil;
+  NSData *canonicalReceipt = [receiptBytes copy];
+  AncPrivateVaultRotationAppendReceipt *receipt =
+      AncPrivateVaultRotationAppendReceiptDecode(canonicalReceipt);
+  if (vaultId == NULL || canonicalReceipt == nil || receipt == nil)
+    return AncPrivateVaultRotationCoordinatorStatusInvalid;
+  NSString *vaultHex = AncRotationCoordinatorHex(
+      vaultId, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+  NSRecursiveLock *operationLock =
+      AncRotationCoordinatorLockForVault(vaultHex);
+  [operationLock lock];
+  @try {
+    AncPrivateVaultRotationPreparationCheckpoint *cleaned = nil;
+    AncPrivateVaultRotationPreparationStoreStatus preparationStatus =
+        [self.preparationStore
+                  cleanConsumedVaultId:vaultId
+                                receipt:canonicalReceipt
+                       authorityStore:self.authorityStore
+                    custodyRepository:self.custodyRepository
+                           checkpoint:&cleaned];
+    if (preparationStatus !=
+            AncPrivateVaultRotationPreparationStoreStatusOK ||
+        cleaned == nil ||
+        cleaned.snapshot.phase !=
+            ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED)
+      return preparationStatus ==
+                     AncPrivateVaultRotationPreparationStoreStatusOK
+                 ? AncPrivateVaultRotationCoordinatorStatusProtectionFailed
+                 : AncRotationCoordinatorStatusForPreparation(
+                       preparationStatus);
+
+    AncPrivateVaultAuthorityCheckpoint *authority = nil;
+    NSError *authorityError = nil;
+    AncPrivateVaultAuthorityStoreStatus authorityStatus =
+        [self.authorityStore loadVaultId:vaultHex
+                              checkpoint:&authority
+                                   error:&authorityError];
+    AncPrivateVaultCustodySnapshot custody = {0};
+    AncPrivateVaultCustodyHandle *custodyHandle = nil;
+    AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+        [self.custodyRepository readVaultId:vaultHex
+                                   snapshot:&custody
+                                     handle:&custodyHandle];
+    BOOL valid = authorityStatus == AncPrivateVaultAuthorityStoreStatusOK &&
+                 authorityError == nil && authority != nil &&
+                 [authority.vaultId isEqualToString:receipt.vaultId] &&
+                 authority.snapshot.sequence == receipt.sequence &&
+                 [authority.snapshot.headHash isEqualToData:receipt.headHash] &&
+                 [authority.snapshot.recoveryWrapHash
+                     isEqualToData:receipt.recoveryWrapHash] &&
+                 custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK &&
+                 custodyHandle != nil &&
+                 custody.custody_generation ==
+                     authority.custodyGeneration &&
+                 custody.anchored_sequence == receipt.sequence &&
+                 AncRotationCoordinatorBytesEqualData(
+                     custody.anchored_head, receipt.headHash, 32);
+    AncPrivateVaultCustodyRepositoryStatus closed =
+        custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusInvalid
+                             : [custodyHandle close];
+    AncPrivateVaultRotationCoordinatorResult *done =
+        valid && closed == AncPrivateVaultCustodyRepositoryStatusOK
+            ? AncRotationCoordinatorMakeResult(vaultHex, cleaned, authority,
+                                               &custody)
+            : nil;
+    anc_pv_custody_snapshot_zero(&custody);
+    if (!valid)
+      return AncPrivateVaultRotationCoordinatorStatusConflict;
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK || done == nil)
+      return AncPrivateVaultRotationCoordinatorStatusProtectionFailed;
+    if (result != NULL)
+      *result = done;
+    return AncPrivateVaultRotationCoordinatorStatusOK;
+  } @finally {
+    [operationLock unlock];
+  }
+}
+
 @end

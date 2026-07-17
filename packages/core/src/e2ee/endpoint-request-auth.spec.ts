@@ -8,6 +8,7 @@ import {
   encodeEndpointRequestUnsignedProof,
   EndpointRequestAuthError,
   verifyEndpointRequestProof,
+  verifyEndpointRequestProofWithIdentity,
 } from "./endpoint-request-auth.js";
 import { ancV1SigningKeypairFromSeed } from "./portable-crypto.js";
 import { e2eeDomainSeparationPrefix } from "./suite.js";
@@ -235,6 +236,66 @@ describe("anc/v1 endpoint request authentication", () => {
     ]) {
       await expect(
         verifyEndpointRequestProof({
+          proof: value.proof,
+          expectedMethod: "POST",
+          expectedPath: "/api/private-vault/jobs/broker/claim",
+          body: value.body,
+          now,
+          resolveAuthorizedEndpoint: async () => resolved,
+          claimNonce: value.claimNonce,
+        }),
+      ).rejects.toMatchObject({ code: "unauthorized_endpoint" });
+    }
+    expect(value.claimNonce).not.toHaveBeenCalled();
+  });
+
+  it("accepts a signed-control endpoint identity without broker freshness semantics", async () => {
+    const value = await fixture();
+    const resolveAuthorizedEndpoint = vi.fn(async () => ({
+      vaultId: "vault-auth-0001",
+      endpointId: "endpoint-auth-0001",
+      state: "active" as const,
+      signingPublicKey: value.pair.publicKey,
+    }));
+    await expect(
+      verifyEndpointRequestProofWithIdentity({
+        proof: value.proof,
+        expectedMethod: "POST",
+        expectedPath: "/api/private-vault/jobs/broker/claim",
+        body: value.body,
+        now,
+        resolveAuthorizedEndpoint,
+        claimNonce: value.claimNonce,
+      }),
+    ).resolves.toEqual({
+      vaultId: "vault-auth-0001",
+      endpointId: "endpoint-auth-0001",
+    });
+    expect(resolveAuthorizedEndpoint).toHaveBeenCalledWith({
+      vaultId: "vault-auth-0001",
+      endpointId: "endpoint-auth-0001",
+      now,
+    });
+  });
+
+  it("keeps generic signed-control identities exact and content-free", async () => {
+    const value = await fixture();
+    for (const resolved of [
+      {
+        vaultId: "vault-auth-other",
+        endpointId: "endpoint-auth-0001",
+        state: "active" as const,
+        signingPublicKey: value.pair.publicKey,
+      },
+      {
+        vaultId: "vault-auth-0001",
+        endpointId: "endpoint-auth-other",
+        state: "active" as const,
+        signingPublicKey: value.pair.publicKey,
+      },
+    ]) {
+      await expect(
+        verifyEndpointRequestProofWithIdentity({
           proof: value.proof,
           expectedMethod: "POST",
           expectedPath: "/api/private-vault/jobs/broker/claim",

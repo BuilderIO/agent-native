@@ -103,6 +103,21 @@ export type AuthorizedEndpointRequestIdentity = z.infer<
   typeof authorizedEndpointRequestIdentitySchema
 >;
 
+export const authorizedEndpointRequestSigningIdentitySchema = z
+  .object({
+    vaultId: opaqueIdSchema,
+    endpointId: opaqueIdSchema,
+    state: z.literal("active"),
+    signingPublicKey: z
+      .instanceof(Uint8Array)
+      .refine((key) => key.length === 32),
+  })
+  .strict();
+
+export type AuthorizedEndpointRequestSigningIdentity = z.infer<
+  typeof authorizedEndpointRequestSigningIdentitySchema
+>;
+
 export type EndpointRequestAuthFailureCode =
   | "invalid_proof"
   | "request_mismatch"
@@ -205,9 +220,29 @@ export interface VerifyEndpointRequestProofInput {
   readonly claimNonce: (claim: EndpointRequestNonceClaim) => Promise<boolean>;
 }
 
-export async function verifyEndpointRequestProof(
-  input: VerifyEndpointRequestProofInput,
-): Promise<{ vaultId: string; endpointId: string }> {
+export interface VerifyEndpointRequestProofWithIdentityInput {
+  readonly proof: unknown;
+  readonly expectedMethod: z.input<typeof endpointRequestMethodSchema>;
+  readonly expectedPath: string;
+  readonly body: Uint8Array;
+  readonly now: Date;
+  /** Resolves an identity from an already verified signed authority source. */
+  readonly resolveAuthorizedEndpoint: (identity: {
+    vaultId: string;
+    endpointId: string;
+    now: Date;
+  }) => Promise<AuthorizedEndpointRequestSigningIdentity | null>;
+  /** Atomically returns true only for the first claim of this nonce. */
+  readonly claimNonce: (claim: EndpointRequestNonceClaim) => Promise<boolean>;
+}
+
+async function parseBoundEndpointRequest(input: {
+  proof: unknown;
+  expectedMethod: z.input<typeof endpointRequestMethodSchema>;
+  expectedPath: string;
+  body: Uint8Array;
+  now: Date;
+}): Promise<{ proof: EndpointRequestProof; issuedAtMs: number }> {
   if (
     !(input.body instanceof Uint8Array) ||
     !Number.isFinite(input.now.getTime())
@@ -246,25 +281,24 @@ export async function verifyEndpointRequestProof(
   ) {
     throw new EndpointRequestAuthError("future");
   }
+  return { proof, issuedAtMs };
+}
 
+export async function verifyEndpointRequestProofWithIdentity(
+  input: VerifyEndpointRequestProofWithIdentityInput,
+): Promise<{ vaultId: string; endpointId: string }> {
+  const { proof, issuedAtMs } = await parseBoundEndpointRequest(input);
   const resolvedIdentity = await input.resolveAuthorizedEndpoint({
     vaultId: proof.vaultId,
     endpointId: proof.endpointId,
-    requiredRole: "broker",
     now: input.now,
   });
   const identity =
-    authorizedEndpointRequestIdentitySchema.safeParse(resolvedIdentity);
-  const verifiedAtMs = identity.success
-    ? Date.parse(identity.data.authenticatedControlHead.verifiedAt)
-    : Number.NaN;
+    authorizedEndpointRequestSigningIdentitySchema.safeParse(resolvedIdentity);
   if (
     !identity.success ||
     identity.data.vaultId !== proof.vaultId ||
-    identity.data.endpointId !== proof.endpointId ||
-    verifiedAtMs > nowMs ||
-    nowMs - verifiedAtMs >=
-      E2EE_LIFETIME_LIMITS_SECONDS.brokerAuthorizationFreshness * 1000
+    identity.data.endpointId !== proof.endpointId
   ) {
     throw new EndpointRequestAuthError("unauthorized_endpoint");
   }
@@ -296,4 +330,42 @@ export async function verifyEndpointRequestProof(
   if (!claimed) throw new EndpointRequestAuthError("replay");
 
   return { vaultId: proof.vaultId, endpointId: proof.endpointId };
+}
+
+export async function verifyEndpointRequestProof(
+  input: VerifyEndpointRequestProofInput,
+): Promise<{ vaultId: string; endpointId: string }> {
+  return verifyEndpointRequestProofWithIdentity({
+    ...input,
+    resolveAuthorizedEndpoint: async ({ vaultId, endpointId, now }) => {
+      const resolvedIdentity = await input.resolveAuthorizedEndpoint({
+        vaultId,
+        endpointId,
+        requiredRole: "broker",
+        now,
+      });
+      const identity =
+        authorizedEndpointRequestIdentitySchema.safeParse(resolvedIdentity);
+      const nowMs = now.getTime();
+      const verifiedAtMs = identity.success
+        ? Date.parse(identity.data.authenticatedControlHead.verifiedAt)
+        : Number.NaN;
+      if (
+        !identity.success ||
+        identity.data.vaultId !== vaultId ||
+        identity.data.endpointId !== endpointId ||
+        verifiedAtMs > nowMs ||
+        nowMs - verifiedAtMs >=
+          E2EE_LIFETIME_LIMITS_SECONDS.brokerAuthorizationFreshness * 1000
+      ) {
+        return null;
+      }
+      return {
+        vaultId: identity.data.vaultId,
+        endpointId: identity.data.endpointId,
+        state: identity.data.state,
+        signingPublicKey: identity.data.signingPublicKey,
+      };
+    },
+  });
 }

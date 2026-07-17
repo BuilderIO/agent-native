@@ -3,6 +3,7 @@ export * from "./canonical.js";
 export * from "./ceremony-abort.js";
 export * from "./contracts.js";
 export * from "./control-log.js";
+export * from "./control-log-append.js";
 export * from "./endpoint-request-auth.js";
 export * from "./enrollment-ceremony-codecs.js";
 export * from "./failure-fixtures.js";

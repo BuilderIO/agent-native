@@ -7,6 +7,18 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@interface AncPrivateVaultRotationAppendReceipt : NSObject
+@property(nonatomic, readonly) NSString *_Nonnull vaultId;
+@property(nonatomic, readonly) NSString *_Nonnull entryId;
+@property(nonatomic, readonly) uint64_t sequence;
+@property(nonatomic, readonly) NSData *_Nonnull headHash;
+@property(nonatomic, readonly) NSData *_Nonnull recoveryWrapHash;
+@property(nonatomic, readonly) uint64_t recoveryWrapByteLength;
+@end
+
+FOUNDATION_EXPORT AncPrivateVaultRotationAppendReceipt *_Nullable
+AncPrivateVaultRotationAppendReceiptDecode(NSData *encoded);
+
 FOUNDATION_EXPORT BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
     const AncPrivateVaultRotationPreparationSnapshot *preparation,
     NSString *vaultId, AncPrivateVaultAuthorityCheckpoint *authority,
@@ -25,6 +37,22 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
                  checkpoint:
                       (AncPrivateVaultRotationPreparationCheckpoint *_Nullable
                            *_Nullable)checkpoint;
+
+/* Trusted-main hosted acknowledgement is an exact sequence/head/recovery-wrap
+ * proof, never a boolean. This method independently rereads the official tuple,
+ * authenticates a retained spool when present, durably deletes it, and only
+ * then CASes the secret-free record to CLEANED. A retry after process death may
+ * observe the spool already absent and completes only against the same official
+ * proof. */
+- (AncPrivateVaultRotationPreparationStoreStatus)
+    cleanConsumedVaultId:(const uint8_t *_Nonnull)vaultId
+                  receipt:(NSData *)receipt
+                 authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+              custodyRepository:
+                  (AncPrivateVaultCustodyRepository *)custodyRepository
+                     checkpoint:
+                         (AncPrivateVaultRotationPreparationCheckpoint *_Nullable
+                              *_Nullable)checkpoint;
 @end
 
 NS_ASSUME_NONNULL_END

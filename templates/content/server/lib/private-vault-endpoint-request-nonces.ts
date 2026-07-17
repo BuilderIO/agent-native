@@ -34,6 +34,14 @@ export type PrivateVaultEndpointRequestNonceClaim = z.infer<
 
 export interface PrivateVaultEndpointRequestNonceStore {
   claim(input: PrivateVaultEndpointRequestNonceClaim): Promise<boolean>;
+  /**
+   * Claims a nonce only after the caller has authenticated the exact endpoint
+   * against signed control authority. Unlike broker claims, this deliberately
+   * does not consult the mutable endpoint-directory projection.
+   */
+  claimAuthorizedControlRequest(
+    input: PrivateVaultEndpointRequestNonceClaim,
+  ): Promise<boolean>;
   bridgeLegacyClaims(now: string): Promise<number>;
   deleteExpired(now: string, limit?: number): Promise<number>;
 }
@@ -158,48 +166,79 @@ export function createPrivateVaultEndpointRequestNonceStore(
 ): PrivateVaultEndpointRequestNonceStore {
   const now = options.now ?? (() => new Date());
 
-  return {
-    claim: async (input) => {
-      const parsed = endpointRequestNonceClaimSchema.parse({
-        ...input,
-        ownerEmail: input.ownerEmail.trim().toLowerCase(),
-        orgId: input.orgId.trim(),
-      });
-      const claimedAtMs = now().getTime();
-      const expiresAtMs = Date.parse(parsed.expiresAt);
-      if (
-        !Number.isFinite(claimedAtMs) ||
-        expiresAtMs <= claimedAtMs ||
-        expiresAtMs - claimedAtMs >
-          (E2EE_ENDPOINT_REQUEST_NONCE_RETENTION_SECONDS +
-            E2EE_ENDPOINT_REQUEST_MAX_FUTURE_SKEW_SECONDS) *
-            1000
-      ) {
-        return false;
-      }
-
-      const record = await replayFenceValues({
+  async function parseClaim(input: PrivateVaultEndpointRequestNonceClaim) {
+    const parsed = endpointRequestNonceClaimSchema.parse({
+      ...input,
+      ownerEmail: input.ownerEmail.trim().toLowerCase(),
+      orgId: input.orgId.trim(),
+    });
+    const claimedAtMs = now().getTime();
+    const expiresAtMs = Date.parse(parsed.expiresAt);
+    if (
+      !Number.isFinite(claimedAtMs) ||
+      expiresAtMs <= claimedAtMs ||
+      expiresAtMs - claimedAtMs >
+        (E2EE_ENDPOINT_REQUEST_NONCE_RETENTION_SECONDS +
+          E2EE_ENDPOINT_REQUEST_MAX_FUTURE_SKEW_SECONDS) *
+          1000
+    ) {
+      return null;
+    }
+    return {
+      parsed,
+      claimedAtMs,
+      expiresAtMs,
+      record: await replayFenceValues({
         ...parsed,
         claimedAtMs,
         expiresAtMs,
-      });
+      }),
+    };
+  }
+
+  function unexpiredLegacyReplay(input: {
+    vaultId: string;
+    endpointId: string;
+    ownerEmail: string;
+    orgId: string;
+    nonce: string;
+    claimedAt: string;
+  }) {
+    const legacy = schema.contentEncryptedVaultEndpointRequestNoncesLegacy;
+    return getDb()
+      .select({ id: legacy.id })
+      .from(legacy)
+      .where(
+        and(
+          eq(legacy.vaultId, input.vaultId),
+          eq(legacy.endpointId, input.endpointId),
+          eq(legacy.ownerEmail, input.ownerEmail),
+          eq(legacy.orgId, input.orgId),
+          eq(legacy.nonce, input.nonce),
+          gt(legacy.expiresAt, input.claimedAt),
+        ),
+      );
+  }
+
+  async function finishClaimHygiene(claimedAtMs: number, inserted: unknown[]) {
+    // This is opportunistic bounded hygiene, not part of authorization.
+    // Failure preserves the replay fence and never turns cleanup into an oracle.
+    await deleteExpiredBatch(claimedAtMs, 64).catch(() => 0);
+    return inserted.length === 1;
+  }
+
+  return {
+    claim: async (input) => {
+      const claim = await parseClaim(input);
+      if (!claim) return false;
+      const { parsed, claimedAtMs, record } = claim;
       const endpoint = schema.contentEncryptedVaultEndpoints;
       const claims = schema.contentEncryptedVaultEndpointRequestNonces;
-      const legacy = schema.contentEncryptedVaultEndpointRequestNoncesLegacy;
       const claimedAt = new Date(claimedAtMs).toISOString();
-      const unexpiredLegacyReplay = getDb()
-        .select({ id: legacy.id })
-        .from(legacy)
-        .where(
-          and(
-            eq(legacy.vaultId, parsed.vaultId),
-            eq(legacy.endpointId, parsed.endpointId),
-            eq(legacy.ownerEmail, parsed.ownerEmail),
-            eq(legacy.orgId, parsed.orgId),
-            eq(legacy.nonce, parsed.nonce),
-            gt(legacy.expiresAt, claimedAt),
-          ),
-        );
+      const legacyReplay = unexpiredLegacyReplay({
+        ...parsed,
+        claimedAt,
+      });
       const eligibleEndpoint = getDb()
         .select({
           id: sql<string>`${record.id}`.as("id"),
@@ -224,7 +263,7 @@ export function createPrivateVaultEndpointRequestNonceStore(
             eq(endpoint.ownerEmail, parsed.ownerEmail),
             eq(endpoint.orgId, parsed.orgId),
             eq(endpoint.endpointState, "online"),
-            notExists(unexpiredLegacyReplay),
+            notExists(legacyReplay),
           ),
         );
       const inserted = await getDb()
@@ -233,10 +272,51 @@ export function createPrivateVaultEndpointRequestNonceStore(
         .onConflictDoNothing()
         .returning({ id: claims.id });
 
-      // This is opportunistic bounded hygiene, not part of authorization.
-      // Failure preserves the replay fence and never turns cleanup into an oracle.
-      await deleteExpiredBatch(claimedAtMs, 64).catch(() => 0);
-      return inserted.length === 1;
+      return finishClaimHygiene(claimedAtMs, inserted);
+    },
+    claimAuthorizedControlRequest: async (input) => {
+      const claim = await parseClaim(input);
+      if (!claim) return false;
+      const { parsed, claimedAtMs, record } = claim;
+      const vault = schema.contentEncryptedVaults;
+      const claims = schema.contentEncryptedVaultEndpointRequestNonces;
+      const claimedAt = new Date(claimedAtMs).toISOString();
+      const legacyReplay = unexpiredLegacyReplay({
+        ...parsed,
+        claimedAt,
+      });
+      const eligibleVault = getDb()
+        .select({
+          id: sql<string>`${record.id}`.as("id"),
+          vaultId: vault.vaultId,
+          endpointId: sql<string>`${parsed.endpointId}`.as("endpoint_id"),
+          ownerEmail: vault.ownerEmail,
+          orgId: vault.orgId,
+          version: sql<number>`${record.version}`.as("version"),
+          nonceDigest: sql<string>`${record.nonceDigest}`.as("nonce_digest"),
+          claimedAtBucket: sql<number>`${record.claimedAtBucket}`.as(
+            "claimed_at_bucket",
+          ),
+          expiresAtBucket: sql<number>`${record.expiresAtBucket}`.as(
+            "expires_at_bucket",
+          ),
+        })
+        .from(vault)
+        .where(
+          and(
+            eq(vault.vaultId, parsed.vaultId),
+            eq(vault.ownerEmail, parsed.ownerEmail),
+            eq(vault.orgId, parsed.orgId),
+            eq(vault.vaultState, "active"),
+            notExists(legacyReplay),
+          ),
+        );
+      const inserted = await getDb()
+        .insert(claims)
+        .select(eligibleVault)
+        .onConflictDoNothing()
+        .returning({ id: claims.id });
+      return finishClaimHygiene(claimedAtMs, inserted);
     },
     bridgeLegacyClaims: async (value) => {
       const nowMs = Date.parse(protocolTimestampSchema.parse(value));

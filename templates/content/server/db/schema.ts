@@ -699,6 +699,39 @@ export const contentEncryptedVaultKeyEnvelopes = table(
   ],
 );
 
+/**
+ * Immutable, content-free binding from a signed control entry to the exact
+ * recovery-wrap ciphertext commitment it activated. The encrypted wrap lives
+ * only in protected-ciphertext storage; SQL never stores its bytes or locator.
+ */
+export const contentEncryptedVaultRecoveryWraps = table(
+  "content_encrypted_vault_recovery_wraps",
+  {
+    bindingId: text("binding_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    recoveryWrapHash: text("recovery_wrap_hash").notNull(),
+    controlEntryId: text("control_entry_id").notNull(),
+    ciphertextByteLength: integer("ciphertext_byte_length").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (binding) => [
+    uniqueIndex("content_encrypted_vault_recovery_wraps_hash_unique").on(
+      binding.vaultId,
+      binding.recoveryWrapHash,
+    ),
+    uniqueIndex(
+      "content_encrypted_vault_recovery_wraps_control_entry_unique",
+    ).on(binding.vaultId, binding.controlEntryId),
+    index("content_encrypted_vault_recovery_wraps_scope_idx").on(
+      binding.ownerEmail,
+      binding.orgId,
+      binding.vaultId,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultGrants = table(
   "content_encrypted_vault_grants",
   {
@@ -1015,6 +1048,7 @@ export const contentEncryptedVaultCiphertextStaging = table(
     objectId: text("object_id"),
     revisionId: text("revision_id"),
     jobId: text("job_id"),
+    recoveryWrapHash: text("recovery_wrap_hash"),
     part: text("part").notNull(),
     stagedAt: text("staged_at").notNull(),
     expiresAt: text("expires_at").notNull(),

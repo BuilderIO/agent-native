@@ -14,6 +14,7 @@ import { getDb, schema } from "../db/index.js";
 
 export const PRIVATE_VAULT_CIPHERTEXT_STAGE_TTL_MS = 24 * 60 * 60 * 1000;
 export const PRIVATE_VAULT_CIPHERTEXT_CLAIM_MS = 5 * 60 * 1000;
+export const PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART = "recovery-wrap";
 
 export type PrivateVaultCiphertextStagePhase =
   | "active"
@@ -38,13 +39,14 @@ const scopeSchema = z
 const stageCoordinateSchema = protectedCiphertextCoordinateSchema.refine(
   (coordinate) =>
     (coordinate.kind === "object" && coordinate.part === "header") ||
-    coordinate.kind === "job",
-  "Only object revision headers and job request/results may be staged",
+    coordinate.kind === "job" ||
+    coordinate.kind === "recovery-wrap",
+  "Only object revision headers, job request/results, and recovery wraps may be staged",
 );
 
 export type PrivateVaultStageCoordinate = Extract<
   ProtectedCiphertextCoordinate,
-  { kind: "object" | "job" }
+  { kind: "object" | "job" | "recovery-wrap" }
 >;
 
 export interface PrivateVaultCiphertextStage {
@@ -160,7 +162,14 @@ function stageValues(entry: PrivateVaultCiphertextStage) {
     revisionId:
       entry.coordinate.kind === "object" ? entry.coordinate.revisionId : null,
     jobId: entry.coordinate.kind === "job" ? entry.coordinate.jobId : null,
-    part: entry.coordinate.part,
+    recoveryWrapHash:
+      entry.coordinate.kind === "recovery-wrap"
+        ? entry.coordinate.recoveryWrapHash
+        : null,
+    part:
+      entry.coordinate.kind === "recovery-wrap"
+        ? PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART
+        : entry.coordinate.part,
     stagedAt: entry.stagedAt,
     expiresAt: entry.expiresAt,
     phase: entry.phase,
@@ -173,21 +182,54 @@ function stageValues(entry: PrivateVaultCiphertextStage) {
 function parseRow(
   row: typeof schema.contentEncryptedVaultCiphertextStaging.$inferSelect,
 ): PrivateVaultCiphertextStage {
+  let physicalCoordinate: unknown;
+  if (
+    row.coordinateKind === "object" &&
+    row.objectId !== null &&
+    row.revisionId !== null &&
+    row.jobId === null &&
+    row.recoveryWrapHash === null
+  ) {
+    physicalCoordinate = {
+      kind: "object",
+      vaultId: row.vaultId,
+      objectId: row.objectId,
+      revisionId: row.revisionId,
+      part: row.part,
+    };
+  } else if (
+    row.coordinateKind === "job" &&
+    row.objectId === null &&
+    row.revisionId === null &&
+    row.jobId !== null &&
+    row.recoveryWrapHash === null
+  ) {
+    physicalCoordinate = {
+      kind: "job",
+      vaultId: row.vaultId,
+      jobId: row.jobId,
+      part: row.part,
+    };
+  } else if (
+    row.coordinateKind === "recovery-wrap" &&
+    row.objectId === null &&
+    row.revisionId === null &&
+    row.jobId === null &&
+    row.recoveryWrapHash !== null &&
+    row.part === PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART
+  ) {
+    physicalCoordinate = {
+      kind: "recovery-wrap",
+      vaultId: row.vaultId,
+      recoveryWrapHash: row.recoveryWrapHash,
+    };
+  } else {
+    throw new Error(
+      "Private Vault staging physical coordinate integrity failure",
+    );
+  }
   const coordinate = stageCoordinateSchema.parse(
-    row.coordinateKind === "object"
-      ? {
-          kind: "object",
-          vaultId: row.vaultId,
-          objectId: row.objectId,
-          revisionId: row.revisionId,
-          part: row.part,
-        }
-      : {
-          kind: "job",
-          vaultId: row.vaultId,
-          jobId: row.jobId,
-          part: row.part,
-        },
+    physicalCoordinate,
   ) as PrivateVaultStageCoordinate;
   const entry = {
     stageId: row.stageId,
@@ -310,7 +352,9 @@ export const sqlPrivateVaultCiphertextStagingStore: PrivateVaultCiphertextStagin
         const resourceId =
           entry.coordinate.kind === "object"
             ? entry.coordinate.objectId
-            : entry.coordinate.jobId;
+            : entry.coordinate.kind === "job"
+              ? entry.coordinate.jobId
+              : entry.coordinate.recoveryWrapHash;
         const [parentTombstone] = await tx
           .select({ id: schema.contentEncryptedVaultRetentionQueue.id })
           .from(schema.contentEncryptedVaultRetentionQueue)
@@ -515,6 +559,34 @@ export const sqlPrivateVaultCiphertextStagingStore: PrivateVaultCiphertextStagin
           )
           .limit(1);
         return Boolean(revision);
+      }
+
+      if (entry.coordinate.kind === "recovery-wrap") {
+        const [binding] = await getDb()
+          .select({
+            recoveryWrapHash:
+              schema.contentEncryptedVaultRecoveryWraps.recoveryWrapHash,
+          })
+          .from(schema.contentEncryptedVaultRecoveryWraps)
+          .where(
+            and(
+              eq(
+                schema.contentEncryptedVaultRecoveryWraps.recoveryWrapHash,
+                entry.coordinate.recoveryWrapHash,
+              ),
+              eq(
+                schema.contentEncryptedVaultRecoveryWraps.vaultId,
+                entry.vaultId,
+              ),
+              eq(
+                schema.contentEncryptedVaultRecoveryWraps.ownerEmail,
+                entry.ownerEmail,
+              ),
+              eq(schema.contentEncryptedVaultRecoveryWraps.orgId, entry.orgId),
+            ),
+          )
+          .limit(1);
+        return Boolean(binding);
       }
 
       const table =

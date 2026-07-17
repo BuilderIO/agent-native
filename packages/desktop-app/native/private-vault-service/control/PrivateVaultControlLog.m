@@ -470,6 +470,13 @@ static AncControlEntry *AncParseEntry(NSData *bytes) {
   return entry;
 }
 
+NSString *AncPrivateVaultControlLogSignedEntryEnvelopeId(NSData *signedEntry) {
+  if (![signedEntry isKindOfClass:NSData.class] || signedEntry.length == 0 ||
+      signedEntry.length > kControlMaximumBytes)
+    return nil;
+  return [AncParseEntry(signedEntry).envelopeId copy];
+}
+
 static AncPrivateVaultControlLogMember *AncFindMember(NSArray *members, NSString *endpointId) {
   for (AncPrivateVaultControlLogMember *member in members)
     if ([member.endpointId isEqualToString:endpointId]) return member;

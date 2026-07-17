@@ -2,13 +2,16 @@
 
 #import "PrivateVaultAuthoritySnapshotInternal.h"
 #import "PrivateVaultAuthorityStore.h"
+#import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultControlLog.h"
+#import "PrivateVaultControlLogInternal.h"
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultCustodyRepository.h"
 #import "PrivateVaultRecoveryWrapInternal.h"
 #import "PrivateVaultRotationCoordinator.h"
 #import "PrivateVaultRotationCoordinatorInternal.h"
 #import "PrivateVaultRotationPreparationStore.h"
+#import "PrivateVaultRotationPreparationStoreInternal.h"
 
 #import <sodium.h>
 
@@ -16,6 +19,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stddef.h>
 #include <stdatomic.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -1032,6 +1036,54 @@ static void AssertAwaiting(const RotationMaterial *material,
   assert([[NSFileManager defaultManager] fileExistsAtPath:environment.spoolPath]);
 }
 
+static void AssertCleaned(const RotationMaterial *material,
+                          CoordinatorEnvironment *environment) {
+  AncPrivateVaultRotationPreparationCheckpoint *checkpoint = nil;
+  assert([environment.preparation readVaultId:material->vaultId
+                                   checkpoint:&checkpoint
+                                       handle:nil] ==
+         AncPrivateVaultRotationPreparationStoreStatusOK);
+  AncPrivateVaultRotationPreparationSnapshot snapshot = checkpoint.snapshot;
+  assert(snapshot.phase == ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED);
+  const uint8_t *cleared =
+      (const uint8_t *)&snapshot +
+      offsetof(AncPrivateVaultRotationPreparationSnapshot, pending_epoch);
+  size_t clearedLength =
+      sizeof snapshot -
+      offsetof(AncPrivateVaultRotationPreparationSnapshot, pending_epoch);
+  uint8_t zero[sizeof snapshot] = {0};
+  assert(sodium_memcmp(cleared, zero, clearedLength) == 0);
+  assert(![NSFileManager.defaultManager
+      fileExistsAtPath:environment.spoolPath]);
+  anc_pv_rotation_preparation_snapshot_zero(&snapshot);
+  anc_pv_zeroize(zero, sizeof zero);
+}
+
+static NSData *AppendReceipt(NSString *vaultId, NSString *entryId,
+                             uint64_t sequence, NSData *headHash,
+                             NSData *recoveryWrapHash,
+                             uint64_t recoveryWrapLength) {
+  AncPrivateVaultCanonicalValue *root =
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue
+                 text:@"control-log-rotation-append-receipt"],
+        @4 : [AncPrivateVaultCanonicalValue text:vaultId],
+        @5 : [AncPrivateVaultCanonicalValue text:entryId],
+        @6 : [AncPrivateVaultCanonicalValue integer:(int64_t)sequence],
+        @7 : [AncPrivateVaultCanonicalValue bytes:headHash],
+        @8 : [AncPrivateVaultCanonicalValue bytes:recoveryWrapHash],
+        @9 : [AncPrivateVaultCanonicalValue
+                 integer:(int64_t)recoveryWrapLength],
+      }];
+  AncPrivateVaultCanonicalStatus status;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(root, &status);
+  assert(encoded != nil &&
+         AncPrivateVaultRotationAppendReceiptDecode(encoded) != nil);
+  return encoded;
+}
+
 static AncPrivateVaultRotationCoordinatorResult *
 ResumeSuccessfully(const RotationMaterial *material,
                    CoordinatorEnvironment *environment) {
@@ -1169,6 +1221,199 @@ static void RunHappyPath(const RotationMaterial *material,
   assert([retry.authorityCheckpoint.frameDigest
       isEqualToData:first.authorityCheckpoint.frameDigest]);
   DestroyEnvironment(environment);
+}
+
+static void RunHostedAppendCleanup(const RotationMaterial *material,
+                                   const RotationKeyMaterial *keys) {
+  CoordinatorEnvironment *environment =
+      CreateEnvironment(material, keys, RotationMutationNone);
+  assert(environment != nil);
+  NSData *spool = [NSData dataWithContentsOfFile:environment.spoolPath];
+  AncPrivateVaultRotationCoordinatorResult *consumed =
+      ResumeSuccessfully(material, environment);
+  AssertConsumed(material, environment, consumed, spool);
+  uint64_t recoveryWrapLength =
+      consumed.preparationCheckpoint.snapshot.recovery_wrap_length;
+  assert(recoveryWrapLength > 0);
+  NSString *entryId = AncPrivateVaultControlLogSignedEntryEnvelopeId(
+      [NSData dataWithBytes:material->signedEntry
+                     length:material->signedEntryLength]);
+  assert(entryId.length > 0);
+  NSData *receipt = AppendReceipt(
+      consumed.vaultId, entryId, consumed.sequence, consumed.headHash,
+      consumed.recoveryWrapHash, recoveryWrapLength);
+
+  NSMutableData *wrongHead = [consumed.headHash mutableCopy];
+  ((uint8_t *)wrongHead.mutableBytes)[0] ^= 0x80;
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:AppendReceipt(
+                                              consumed.vaultId, entryId,
+                                              consumed.sequence, wrongHead,
+                                              consumed.recoveryWrapHash,
+                                              recoveryWrapLength)
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:AppendReceipt(
+                                              consumed.vaultId, entryId,
+                                              consumed.sequence + 1,
+                                              consumed.headHash,
+                                              consumed.recoveryWrapHash,
+                                              recoveryWrapLength)
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
+  NSMutableData *wrongWrapHash = [consumed.recoveryWrapHash mutableCopy];
+  ((uint8_t *)wrongWrapHash.mutableBytes)[0] ^= 0x40;
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:AppendReceipt(
+                                              consumed.vaultId, entryId,
+                                              consumed.sequence,
+                                              consumed.headHash, wrongWrapHash,
+                                              recoveryWrapLength)
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:AppendReceipt(
+                                              consumed.vaultId, entryId,
+                                              consumed.sequence,
+                                              consumed.headHash,
+                                              consumed.recoveryWrapHash,
+                                              recoveryWrapLength + 1)
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:AppendReceipt(
+                                              consumed.vaultId,
+                                              @"entry:receipt-substitution",
+                                              consumed.sequence,
+                                              consumed.headHash,
+                                              consumed.recoveryWrapHash,
+                                              recoveryWrapLength)
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
+  AssertConsumed(material, environment, consumed, spool);
+
+  AncPrivateVaultRotationCoordinatorResult *cleaned = nil;
+  AncPrivateVaultRotationCoordinatorStatus cleanupStatus =
+      [environment.coordinator finalizeHostedAppendVaultId:material->vaultId
+                                                   receipt:receipt
+                                                    result:&cleaned];
+  assert(cleanupStatus == AncPrivateVaultRotationCoordinatorStatusOK);
+  assert(cleaned != nil && cleaned.sequence == consumed.sequence &&
+         [cleaned.headHash isEqualToData:consumed.headHash]);
+  AssertCleaned(material, environment);
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:receipt
+                                   result:&cleaned] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
+  AssertCleaned(material, environment);
+  DestroyEnvironment(environment);
+
+  CoordinatorEnvironment *interrupted =
+      CreateEnvironment(material, keys, RotationMutationNone);
+  assert(interrupted != nil);
+  AncPrivateVaultRotationCoordinatorResult *interruptedConsumed =
+      ResumeSuccessfully(material, interrupted);
+  uint64_t interruptedWrapLength = interruptedConsumed.preparationCheckpoint
+                                       .snapshot.recovery_wrap_length;
+  assert(interruptedWrapLength > 0);
+  NSData *interruptedReceipt = AppendReceipt(
+      interruptedConsumed.vaultId, entryId, interruptedConsumed.sequence,
+      interruptedConsumed.headHash, interruptedConsumed.recoveryWrapHash,
+      interruptedWrapLength);
+  AncPrivateVaultRotationPreparationSetStoreFaultHookForTesting(
+      ^BOOL(AncPrivateVaultRotationPreparationStoreFaultPoint point) {
+        return point ==
+               AncPrivateVaultRotationPreparationStoreFaultAfterSpoolDelete;
+      });
+  assert([interrupted.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:interruptedReceipt
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusStorageFailed);
+  AncPrivateVaultRotationPreparationSetStoreFaultHookForTesting(nil);
+  assert(![NSFileManager.defaultManager
+      fileExistsAtPath:interrupted.spoolPath]);
+  AncPrivateVaultRotationPreparationCheckpoint *stillConsumed = nil;
+  assert([interrupted.preparation readVaultId:material->vaultId
+                                   checkpoint:&stillConsumed
+                                       handle:nil] ==
+         AncPrivateVaultRotationPreparationStoreStatusOK);
+  assert(stillConsumed.snapshot.phase ==
+         ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED);
+  assert([interrupted.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:interruptedReceipt
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
+  AssertCleaned(material, interrupted);
+  DestroyEnvironment(interrupted);
+
+  CoordinatorEnvironment *fenced =
+      CreateEnvironment(material, keys, RotationMutationNone);
+  assert(fenced != nil);
+  AncPrivateVaultRotationCoordinatorResult *fencedConsumed =
+      ResumeSuccessfully(material, fenced);
+  uint64_t fencedWrapLength =
+      fencedConsumed.preparationCheckpoint.snapshot.recovery_wrap_length;
+  NSData *fencedReceipt = AppendReceipt(
+      fencedConsumed.vaultId, entryId, fencedConsumed.sequence,
+      fencedConsumed.headHash, fencedConsumed.recoveryWrapHash,
+      fencedWrapLength);
+  AncPrivateVaultRotationPreparationSetStoreFaultHookForTesting(
+      ^BOOL(AncPrivateVaultRotationPreparationStoreFaultPoint point) {
+        return point ==
+               AncPrivateVaultRotationPreparationStoreFaultAfterCleanupReceiptPersist;
+      });
+  assert([fenced.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:fencedReceipt
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusStorageFailed);
+  AncPrivateVaultRotationPreparationSetStoreFaultHookForTesting(nil);
+  assert([NSFileManager.defaultManager fileExistsAtPath:fenced.spoolPath]);
+  NSData *persistedReceipt = nil;
+  assert([fenced.keychain
+             copyDataForService:AncPrivateVaultRotationCleanupReceiptService
+                        vaultId:fenced.vaultId
+                       recordId:@"rotation-cleanup-receipt"
+                           data:&persistedReceipt] ==
+         AncPrivateVaultKeychainStatusOK);
+  assert([persistedReceipt isEqualToData:fencedReceipt]);
+  assert([fenced.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:fencedReceipt
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
+  AssertCleaned(material, fenced);
+  DestroyEnvironment(fenced);
+
+  CoordinatorEnvironment *missingBeforeAck =
+      CreateEnvironment(material, keys, RotationMutationNone);
+  assert(missingBeforeAck != nil);
+  AncPrivateVaultRotationCoordinatorResult *missingConsumed =
+      ResumeSuccessfully(material, missingBeforeAck);
+  uint64_t missingWrapLength =
+      missingConsumed.preparationCheckpoint.snapshot.recovery_wrap_length;
+  NSData *missingReceipt = AppendReceipt(
+      missingConsumed.vaultId, entryId, missingConsumed.sequence,
+      missingConsumed.headHash, missingConsumed.recoveryWrapHash,
+      missingWrapLength);
+  assert([NSFileManager.defaultManager
+      removeItemAtPath:missingBeforeAck.spoolPath
+                 error:nil]);
+  assert([missingBeforeAck.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:missingReceipt
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusRollbackDetected);
+  DestroyEnvironment(missingBeforeAck);
 }
 
 static void RunCoordinatorCrashRetries(const RotationMaterial *material,
@@ -1475,6 +1720,72 @@ static void RunProcessDeathResume(const RotationMaterial *material,
   DestroyEnvironment(environment);
 }
 
+static void RunProcessDeathCleanup(const RotationMaterial *material,
+                                   const RotationKeyMaterial *keys) {
+  NSString *root = [NSTemporaryDirectory()
+      stringByAppendingPathComponent:
+          [NSString stringWithFormat:@"rotation-cleanup-process-death-%@",
+                                     NSUUID.UUID.UUIDString]];
+  NSString *executable = NSProcessInfo.processInfo.arguments.firstObject;
+  assert(executable.length > 0 && executable.isAbsolutePath);
+  int input[2] = {-1, -1};
+  assert(pipe(input) == 0);
+  posix_spawn_file_actions_t actions;
+  assert(posix_spawn_file_actions_init(&actions) == 0);
+  assert(posix_spawn_file_actions_adddup2(&actions, input[0], STDIN_FILENO) ==
+         0);
+  assert(posix_spawn_file_actions_addclose(&actions, input[0]) == 0);
+  assert(posix_spawn_file_actions_addclose(&actions, input[1]) == 0);
+  char *arguments[] = {(char *)executable.fileSystemRepresentation,
+                       "--cleanup-process-death-child",
+                       (char *)root.fileSystemRepresentation, NULL};
+  pid_t child = 0;
+  assert(posix_spawn(&child, executable.fileSystemRepresentation, &actions,
+                     NULL, arguments, environ) == 0);
+  assert(posix_spawn_file_actions_destroy(&actions) == 0);
+  close(input[0]);
+  assert(WriteExact(input[1], material->stream.bytes,
+                    material->stream.length));
+  close(input[1]);
+  int childStatus = 0;
+  assert(waitpid(child, &childStatus, 0) == child);
+  assert(WIFSIGNALED(childStatus) && WTERMSIG(childStatus) == SIGKILL);
+
+  CoordinatorEnvironment *environment =
+      OpenExistingEnvironment(material, keys, root);
+  assert(environment != nil);
+  assert(![NSFileManager.defaultManager
+      fileExistsAtPath:environment.spoolPath]);
+  AncPrivateVaultRotationPreparationCheckpoint *preparation = nil;
+  assert([environment.preparation readVaultId:material->vaultId
+                                   checkpoint:&preparation
+                                       handle:nil] ==
+         AncPrivateVaultRotationPreparationStoreStatusOK);
+  assert(preparation.snapshot.phase ==
+         ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED);
+  assert(preparation.snapshot.recovery_wrap_length > 0);
+  AncPrivateVaultAuthorityCheckpoint *authority = nil;
+  assert([environment.authority loadVaultId:environment.vaultId
+                                  checkpoint:&authority
+                                       error:nil] ==
+         AncPrivateVaultAuthorityStoreStatusOK);
+  assert(authority != nil);
+  NSString *entryId = AncPrivateVaultControlLogSignedEntryEnvelopeId(
+      [NSData dataWithBytes:material->signedEntry
+                     length:material->signedEntryLength]);
+  NSData *receipt = AppendReceipt(
+      environment.vaultId, entryId, authority.snapshot.sequence,
+      authority.snapshot.headHash, authority.snapshot.recoveryWrapHash,
+      preparation.snapshot.recovery_wrap_length);
+  assert([environment.coordinator
+             finalizeHostedAppendVaultId:material->vaultId
+                                  receipt:receipt
+                                   result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
+  AssertCleaned(material, environment);
+  DestroyEnvironment(environment);
+}
+
 static void RunTamperedSpool(const RotationMaterial *material,
                              const RotationKeyMaterial *keys) {
   CoordinatorEnvironment *environment =
@@ -1540,17 +1851,60 @@ static int RunProcessDeathChild(NSString *root) {
   return 100 + (int)observed;
 }
 
+static int RunCleanupProcessDeathChild(NSString *root) {
+  RotationMaterial material;
+  RotationKeyMaterial keys;
+  if (!ReadMaterial(&material) || !DeriveKeys(&keys))
+    return 90;
+  CoordinatorEnvironment *environment = CreateEnvironmentAtRoot(
+      &material, &keys, RotationMutationNone, root);
+  if (environment == nil)
+    return 91;
+  AncPrivateVaultRotationCoordinatorResult *consumed =
+      ResumeSuccessfully(&material, environment);
+  uint64_t recoveryWrapLength =
+      consumed.preparationCheckpoint.snapshot.recovery_wrap_length;
+  if (recoveryWrapLength == 0)
+    return 92;
+  NSString *entryId = AncPrivateVaultControlLogSignedEntryEnvelopeId(
+      [NSData dataWithBytes:material.signedEntry
+                     length:material.signedEntryLength]);
+  NSData *receipt = AppendReceipt(
+      consumed.vaultId, entryId, consumed.sequence, consumed.headHash,
+      consumed.recoveryWrapHash, recoveryWrapLength);
+  if (receipt == nil)
+    return 93;
+  AncPrivateVaultRotationPreparationSetStoreFaultHookForTesting(
+      ^BOOL(AncPrivateVaultRotationPreparationStoreFaultPoint point) {
+        if (point ==
+            AncPrivateVaultRotationPreparationStoreFaultAfterSpoolDelete)
+          kill(getpid(), SIGKILL);
+        return NO;
+      });
+  AncPrivateVaultRotationCoordinatorStatus observed =
+      [environment.coordinator
+          finalizeHostedAppendVaultId:material.vaultId
+                               receipt:receipt
+                                result:nil];
+  return 100 + (int)observed;
+}
+
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
     assert(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
     if (argc == 3 && strcmp(argv[1], "--process-death-child") == 0)
       return RunProcessDeathChild([NSString stringWithUTF8String:argv[2]]);
+    if (argc == 3 &&
+        strcmp(argv[1], "--cleanup-process-death-child") == 0)
+      return RunCleanupProcessDeathChild(
+          [NSString stringWithUTF8String:argv[2]]);
     assert(argc == 1);
     RotationMaterial material;
     RotationKeyMaterial keys;
     assert(ReadMaterial(&material));
     assert(DeriveKeys(&keys));
     RunHappyPath(&material, &keys);
+    RunHostedAppendCleanup(&material, &keys);
     RunCoordinatorCrashRetries(&material, &keys);
     RunAuthorityCrashRetries(&material, &keys);
     RunRejectedInputs(&material, &keys);
@@ -1559,8 +1913,10 @@ int main(int argc, const char *argv[]) {
     RunCollaboratorSubclassRejection(&material, &keys);
     RunConcurrentResume(&material, &keys);
     RunProcessDeathResume(&material, &keys);
+    RunProcessDeathCleanup(&material, &keys);
     AncPrivateVaultRotationCoordinatorSetFaultHookForTesting(nil);
     AncPrivateVaultAuthoritySetFaultHookForTesting(nil);
+    AncPrivateVaultRotationPreparationSetStoreFaultHookForTesting(nil);
     anc_pv_zeroize(&keys, sizeof keys);
     ClearMaterial(&material);
     puts("Private Vault rotation coordinator tests passed");

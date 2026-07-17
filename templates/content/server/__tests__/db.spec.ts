@@ -201,7 +201,7 @@ describe("content database migrations", () => {
     expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
     expect(
       source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
-    ).toHaveLength(10);
+    ).toHaveLength(11);
     expect(source).toContain(
       "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
@@ -382,5 +382,31 @@ describe("content database migrations", () => {
     expect(migration).toContain("active_members_json TEXT NOT NULL");
     expect(migration).toContain("freshness_mode TEXT NOT NULL");
     expect(migration).not.toMatch(/plaintext|private_key|recovery_secret/i);
+  });
+
+  it("adds immutable content-free recovery-wrap bindings and staging support", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const start = source.indexOf(
+      'name: "content-private-vault-recovery-wrap-bindings"',
+    );
+    const migration = source.slice(start, source.indexOf("`,\n    },", start));
+
+    expect(source).toContain("version: 82");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_recovery_wraps",
+    );
+    expect(migration).toContain("(vault_id, recovery_wrap_hash)");
+    expect(migration).toContain("(vault_id, control_entry_id)");
+    expect(migration).toContain("(owner_email, org_id, vault_id)");
+    expect(migration).toContain(
+      "ADD COLUMN IF NOT EXISTS recovery_wrap_hash TEXT",
+    );
+    expect(migration).not.toMatch(
+      /DROP TABLE|RENAME TO|wrapped_key|blob_handle/i,
+    );
+    expect(migration).not.toMatch(/recovery_wrap_(bytes|ciphertext|locator)/i);
   });
 });

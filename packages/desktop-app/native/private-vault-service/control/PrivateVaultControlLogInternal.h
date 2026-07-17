@@ -21,5 +21,9 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultControlLogReplayResultCopyEvidence(
  * canonical signed entry; this helper intentionally performs no parsing. */
 FOUNDATION_EXPORT NSData *_Nullable
 AncPrivateVaultControlLogSignedEntryDomainHash(NSData *signedEntry);
+/* Strictly parses the complete canonical signed entry and returns its opaque
+ * envelope id. No unverified field other than this exact identifier escapes. */
+FOUNDATION_EXPORT NSString *_Nullable
+AncPrivateVaultControlLogSignedEntryEnvelopeId(NSData *signedEntry);
 
 NS_ASSUME_NONNULL_END

@@ -1,11 +1,11 @@
 import {
-  PROTECTED_CIPHERTEXT_MAX_BYTES,
   PROTECTED_CIPHERTEXT_VERSION,
   ProtectedCiphertextLengthMismatchError,
   ProtectedCiphertextProviderAmbiguousError,
   ProtectedCiphertextStorageUnavailableError,
   protectedCiphertextCoordinateSchema,
   protectedCiphertextLocatorSchema,
+  protectedCiphertextMaximumBytes,
   protectedCiphertextPrefixSchema,
   type ProtectedCiphertextDeleteResult,
   type ProtectedCiphertextLocator,
@@ -100,7 +100,7 @@ export async function putProtectedCiphertext(
     !(input.ciphertext instanceof Uint8Array) ||
     !Number.isSafeInteger(input.expectedByteLength) ||
     input.expectedByteLength < 1 ||
-    input.expectedByteLength > PROTECTED_CIPHERTEXT_MAX_BYTES ||
+    input.expectedByteLength > protectedCiphertextMaximumBytes(coordinate) ||
     input.ciphertext.byteLength !== input.expectedByteLength
   ) {
     throw new ProtectedCiphertextLengthMismatchError();

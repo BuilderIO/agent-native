@@ -94,9 +94,15 @@ the exact official custody/authority tuple; only then CAS preparation to
 bindings and the encrypted spool remain.
 `CONSUMED` means local crypto commit complete while hosted append/ack is still
 pending; a crash retries from the spool using official active N+1. Signed-log
-success is not reported before durable hosted acknowledgement. Only after that
-ack may the client delete the spool and fsync its containing directory, then CAS to `CLEANED`, clearing
-pending epoch/key, edge, length, and digest fields.
+success is not reported before durable hosted acknowledgement. The client
+strictly decodes the canonical content-free receipt, authenticates its vault,
+entry ID, sequence, head, recovery-wrap hash, and exact wrap length against the
+retained spool and official authority, then durably stores that exact receipt in
+OS-protected Keychain before deletion. Only after that receipt fence may the
+client delete the spool and fsync its containing directory, then CAS to
+`CLEANED`, clearing pending epoch/key, edge, length, and digest fields. A
+missing spool without the exact retained receipt is rollback, never a cleanup
+retry; `CLEANED` idempotence also requires the same receipt bytes.
 
 ## Object and stream format
 

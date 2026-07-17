@@ -75,6 +75,17 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
                 (AncPrivateVaultRotationCoordinatorResult *_Nullable *_Nullable)
                     result;
 
+/* Trusted Desktop main calls this only after an exact hosted append receipt.
+ * The receipt is bound to the final official sequence/head and durably reread
+ * recovery wrap; cleanup remains idempotent across a crash after the fsynced
+ * spool deletion. */
+- (AncPrivateVaultRotationCoordinatorStatus)
+    finalizeHostedAppendVaultId:(const uint8_t *_Nullable)vaultId
+                         receipt:(NSData *)receipt
+                          result:
+                              (AncPrivateVaultRotationCoordinatorResult *_Nullable
+                                   *_Nullable)result;
+
 @end
 
 typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorFaultPoint) {

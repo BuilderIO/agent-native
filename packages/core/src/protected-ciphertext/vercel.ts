@@ -1,7 +1,6 @@
 import { del, get, list, put } from "@vercel/blob";
 
 import {
-  PROTECTED_CIPHERTEXT_MAX_BYTES,
   PROTECTED_CIPHERTEXT_VERSION,
   ProtectedCiphertextCollisionError,
   ProtectedCiphertextLengthMismatchError,
@@ -9,6 +8,7 @@ import {
   ProtectedCiphertextStorageUnavailableError,
   protectedCiphertextCoordinateSchema,
   protectedCiphertextLocatorSchema,
+  protectedCiphertextMaximumBytes,
   protectedCiphertextPrefixSchema,
   type ProtectedCiphertextCoordinate,
   type ProtectedCiphertextLocator,
@@ -69,6 +69,9 @@ function coordinatePath(input: ProtectedCiphertextCoordinate): string {
   if (coordinate.kind === "key-envelope") {
     return `${vaultPrefix}/key-envelopes/${coordinate.envelopeId}.bin`;
   }
+  if (coordinate.kind === "recovery-wrap") {
+    return `${vaultPrefix}/recovery-wraps/${coordinate.recoveryWrapHash}.bin`;
+  }
   return `${vaultPrefix}/grants/${coordinate.grantId}.bin`;
 }
 
@@ -95,7 +98,7 @@ function locator(
 
 async function streamToBytes(
   stream: ReadableStream<Uint8Array>,
-  maximumBytes = PROTECTED_CIPHERTEXT_MAX_BYTES,
+  maximumBytes: number,
 ): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -137,14 +140,17 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-async function readBytes(path: string): Promise<Uint8Array | null> {
+async function readBytes(
+  path: string,
+  maximumBytes: number,
+): Promise<Uint8Array | null> {
   const result = await get(path, {
     access: "private",
     useCache: false,
     ...requireCredentials(),
   });
   if (!result || result.statusCode !== 200 || !result.stream) return null;
-  return streamToBytes(result.stream);
+  return streamToBytes(result.stream, maximumBytes);
 }
 
 async function ciphertextExists(path: string): Promise<boolean> {
@@ -164,16 +170,20 @@ export const vercelProtectedCiphertextProvider: ProtectedCiphertextProvider = {
   isConfigured: () => credentials() !== null && storageGeneration() !== null,
   storageGeneration,
   put: async (input) => {
+    const coordinate = protectedCiphertextCoordinateSchema.parse(
+      input.coordinate,
+    );
+    const maximumBytes = protectedCiphertextMaximumBytes(coordinate);
     if (
       !(input.ciphertext instanceof Uint8Array) ||
       !Number.isSafeInteger(input.expectedByteLength) ||
       input.expectedByteLength < 1 ||
-      input.expectedByteLength > PROTECTED_CIPHERTEXT_MAX_BYTES ||
+      input.expectedByteLength > maximumBytes ||
       input.ciphertext.byteLength !== input.expectedByteLength
     ) {
       throw new ProtectedCiphertextLengthMismatchError();
     }
-    const path = coordinatePath(input.coordinate);
+    const path = coordinatePath(coordinate);
     try {
       await put(path, Buffer.from(input.ciphertext), {
         access: "private",
@@ -184,7 +194,7 @@ export const vercelProtectedCiphertextProvider: ProtectedCiphertextProvider = {
         ...requireCredentials(),
       });
       return {
-        locator: locator(input.coordinate),
+        locator: locator(coordinate),
         byteLength: input.ciphertext.byteLength,
         created: true,
       };
@@ -193,8 +203,11 @@ export const vercelProtectedCiphertextProvider: ProtectedCiphertextProvider = {
       // the caller received success. Recover only when the bytes are exact.
       let existing: Uint8Array | null = null;
       try {
-        existing = await readBytes(path);
-      } catch {
+        existing = await readBytes(path, maximumBytes);
+      } catch (readError) {
+        if (readError instanceof ProtectedCiphertextLengthMismatchError) {
+          throw readError;
+        }
         throw putError;
       }
       if (!existing) throw putError;
@@ -202,7 +215,7 @@ export const vercelProtectedCiphertextProvider: ProtectedCiphertextProvider = {
         throw new ProtectedCiphertextCollisionError();
       }
       return {
-        locator: locator(input.coordinate),
+        locator: locator(coordinate),
         byteLength: existing.byteLength,
         created: false,
       };
@@ -215,7 +228,10 @@ export const vercelProtectedCiphertextProvider: ProtectedCiphertextProvider = {
         `Protected ciphertext provider is unavailable: ${parsed.provider}`,
       );
     }
-    const ciphertext = await readBytes(coordinatePath(parsed.coordinate));
+    const ciphertext = await readBytes(
+      coordinatePath(parsed.coordinate),
+      protectedCiphertextMaximumBytes(parsed.coordinate),
+    );
     if (!ciphertext) throw new ProtectedCiphertextNotFoundError();
     return {
       locator: parsed,

@@ -17,6 +17,11 @@ const coordinate = {
   revisionId: "revision:test-0001",
   part: "header",
 } as const;
+const recoveryWrapCoordinate = {
+  kind: "recovery-wrap",
+  vaultId: "vault:test-0001",
+  recoveryWrapHash: "a".repeat(64),
+} as const;
 
 async function subject() {
   vi.resetModules();
@@ -135,6 +140,11 @@ describe("Vercel protected ciphertext provider", () => {
       }),
     ).toContain("/key-envelopes/envelope:test-0001.bin");
     expect(
+      _vercelProtectedCiphertextForTests.coordinatePath(recoveryWrapCoordinate),
+    ).toBe(
+      `agent-native/protected-ciphertext/v1/vault:test-0001/recovery-wraps/${"a".repeat(64)}.bin`,
+    );
+    expect(
       _vercelProtectedCiphertextForTests.coordinatePath({
         kind: "grant",
         vaultId: coordinate.vaultId,
@@ -160,6 +170,35 @@ describe("Vercel protected ciphertext provider", () => {
         coordinate,
         ciphertext: new Uint8Array([1, 2]),
         expectedByteLength: 1,
+      }),
+    ).rejects.toMatchObject({ name: "ProtectedCiphertextLengthMismatchError" });
+    expect(blob.put).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed recovery-wrap paths and over-limit direct writes", async () => {
+    configureToken();
+    const {
+      vercelProtectedCiphertextProvider,
+      _vercelProtectedCiphertextForTests,
+    } = await subject();
+    for (const recoveryWrapHash of [
+      "A".repeat(64),
+      "a".repeat(63),
+      `${"a".repeat(63)}g`,
+      `../${"a".repeat(61)}`,
+    ]) {
+      expect(() =>
+        _vercelProtectedCiphertextForTests.coordinatePath({
+          ...recoveryWrapCoordinate,
+          recoveryWrapHash,
+        }),
+      ).toThrow();
+    }
+    await expect(
+      vercelProtectedCiphertextProvider.put({
+        coordinate: recoveryWrapCoordinate,
+        ciphertext: new Uint8Array(1024 * 1024 + 1),
+        expectedByteLength: 1024 * 1024 + 1,
       }),
     ).rejects.toMatchObject({ name: "ProtectedCiphertextLengthMismatchError" });
     expect(blob.put).not.toHaveBeenCalled();
@@ -219,6 +258,37 @@ describe("Vercel protected ciphertext provider", () => {
         expectedByteLength: 1,
       }),
     ).rejects.toBe(putFailure);
+  });
+
+  it("bounds recovery-wrap streams on immutable collision recovery and reads", async () => {
+    configureToken();
+    const overLimit = new Uint8Array(1024 * 1024 + 1);
+    blob.put.mockRejectedValue(new Error("pathname already exists"));
+    blob.get.mockImplementation(async () => ({
+      statusCode: 200,
+      stream: byteStream(overLimit),
+      blob: { contentType: "application/octet-stream" },
+    }));
+    const { vercelProtectedCiphertextProvider } = await subject();
+
+    await expect(
+      vercelProtectedCiphertextProvider.put({
+        coordinate: recoveryWrapCoordinate,
+        ciphertext: new Uint8Array([1]),
+        expectedByteLength: 1,
+      }),
+    ).rejects.toMatchObject({ name: "ProtectedCiphertextLengthMismatchError" });
+
+    const locator = {
+      kind: "agent-native.protected-ciphertext" as const,
+      version: 1 as const,
+      provider: vercelProtectedCiphertextProvider.id,
+      opaque: true as const,
+      coordinate: recoveryWrapCoordinate,
+    };
+    await expect(
+      vercelProtectedCiphertextProvider.read(locator),
+    ).rejects.toMatchObject({ name: "ProtectedCiphertextLengthMismatchError" });
   });
 
   it("reads without cache, reports not-found, and deletes exact coordinates", async () => {
@@ -326,5 +396,34 @@ describe("Vercel protected ciphertext provider", () => {
       ],
       { token: "test-protected-blob-token" },
     );
+  });
+
+  it("includes recovery wraps in whole-vault prefix deletion", async () => {
+    configureToken();
+    const recoveryWrapPath = `agent-native/protected-ciphertext/v1/vault:test-0001/recovery-wraps/${"a".repeat(64)}.bin`;
+    blob.list.mockResolvedValue({
+      blobs: [{ pathname: recoveryWrapPath }],
+      hasMore: false,
+    });
+    blob.del.mockResolvedValue(undefined);
+    const { vercelProtectedCiphertextProvider } = await subject();
+
+    await expect(
+      vercelProtectedCiphertextProvider.deletePrefix!({
+        scope: "vault",
+        vaultId: coordinate.vaultId,
+      }),
+    ).resolves.toEqual({
+      deleted: 1,
+      provider: vercelProtectedCiphertextProvider.id,
+    });
+    expect(blob.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prefix: "agent-native/protected-ciphertext/v1/vault:test-0001/",
+      }),
+    );
+    expect(blob.del).toHaveBeenCalledWith([recoveryWrapPath], {
+      token: "test-protected-blob-token",
+    });
   });
 });

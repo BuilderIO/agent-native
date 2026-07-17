@@ -128,6 +128,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationPreparationStoreFaultPoint) {
   AncPrivateVaultRotationPreparationStoreFaultBeforeStageDelete = 6,
   AncPrivateVaultRotationPreparationStoreFaultAfterSpoolStage = 7,
   AncPrivateVaultRotationPreparationStoreFaultBeforeSpoolPromote = 8,
+  AncPrivateVaultRotationPreparationStoreFaultAfterSpoolDelete = 9,
+  AncPrivateVaultRotationPreparationStoreFaultAfterCleanupReceiptPersist = 10,
 };
 #if ANC_PRIVATE_VAULT_TESTING
 typedef BOOL (^AncPrivateVaultRotationPreparationStoreFaultTestHook)(
@@ -152,11 +154,11 @@ FOUNDATION_EXPORT void
 #endif
 
 /*
- * CONSUMED and CLEANED are deliberately not exposed here. A later reviewed
- * custody coordinator must prove the exact official custody/authority reread
- * before consuming, and a hosted-ack verifier must prove durable append before
- * cleanup. A boolean escape hatch would turn that cryptographic gate into
- * theater, which is a surprisingly poor storage primitive.
+ * CONSUMED and CLEANED are deliberately not exposed here. The reviewed custody
+ * coordinator owns both transitions through internal capabilities that perform
+ * independent official rereads and exact hosted receipt checks. A boolean
+ * escape hatch would turn that cryptographic gate into theater, which is a
+ * surprisingly poor storage primitive.
  */
 
 /*

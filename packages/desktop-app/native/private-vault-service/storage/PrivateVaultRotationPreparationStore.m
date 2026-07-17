@@ -5,14 +5,114 @@
 #import "PrivateVaultControlLogInternal.h"
 #import "PrivateVaultCustodyRepository.h"
 #import "PrivateVaultRecoveryWrapInternal.h"
+#import "PrivateVaultAncCanonical.h"
 
 #import <sodium.h>
 #import <objc/runtime.h>
 
+#include <stddef.h>
 #include <string.h>
 
 NSString *const AncPrivateVaultRotationPreparationRecordId =
     @"rotation-preparation";
+
+static NSString *const kAncRotationCleanupReceiptRecordId =
+    @"rotation-cleanup-receipt";
+static const NSUInteger kAncRotationCleanupReceiptMaxBytes = 1024;
+static const uint64_t kAncRotationMaxSafeInteger =
+    UINT64_C(9007199254740991);
+
+@interface AncPrivateVaultRotationAppendReceipt ()
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) NSString *entryId;
+@property(nonatomic, readwrite) uint64_t sequence;
+@property(nonatomic, readwrite) NSData *headHash;
+@property(nonatomic, readwrite) NSData *recoveryWrapHash;
+@property(nonatomic, readwrite) uint64_t recoveryWrapByteLength;
+@end
+
+@implementation AncPrivateVaultRotationAppendReceipt
+@end
+
+static BOOL AncRotationReceiptOpaqueId(NSString *value) {
+  NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
+  if (bytes.length < 8 || bytes.length > 160)
+    return NO;
+  const uint8_t *raw = bytes.bytes;
+  for (NSUInteger index = 0; index < bytes.length; index += 1) {
+    uint8_t byte = raw[index];
+    BOOL alphaNumeric = (byte >= 'A' && byte <= 'Z') ||
+                        (byte >= 'a' && byte <= 'z') ||
+                        (byte >= '0' && byte <= '9');
+    if (!alphaNumeric &&
+        (index == 0 ||
+         (byte != '.' && byte != '_' && byte != ':' && byte != '-')))
+      return NO;
+  }
+  return YES;
+}
+
+AncPrivateVaultRotationAppendReceipt *
+AncPrivateVaultRotationAppendReceiptDecode(NSData *encoded) {
+  if (![encoded isKindOfClass:NSData.class] || encoded.length == 0 ||
+      encoded.length > kAncRotationCleanupReceiptMaxBytes)
+    return nil;
+  AncPrivateVaultCanonicalStatus status;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      encoded, kAncRotationCleanupReceiptMaxBytes, &status);
+  if (root == nil || root.type != AncPrivateVaultCanonicalTypeMap)
+    return nil;
+  NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map =
+      root.mapValue;
+  if (map.count != 9)
+    return nil;
+  for (NSUInteger key = 1; key <= 9; key += 1)
+    if (map[@(key)] == nil)
+      return nil;
+  AncPrivateVaultCanonicalValue *suite = map[@1];
+  AncPrivateVaultCanonicalValue *version = map[@2];
+  AncPrivateVaultCanonicalValue *type = map[@3];
+  AncPrivateVaultCanonicalValue *vault = map[@4];
+  AncPrivateVaultCanonicalValue *entry = map[@5];
+  AncPrivateVaultCanonicalValue *sequence = map[@6];
+  AncPrivateVaultCanonicalValue *head = map[@7];
+  AncPrivateVaultCanonicalValue *wrapHash = map[@8];
+  AncPrivateVaultCanonicalValue *wrapLength = map[@9];
+  if (suite.type != AncPrivateVaultCanonicalTypeText ||
+      ![suite.textValue isEqualToString:@"anc/v1"] ||
+      version.type != AncPrivateVaultCanonicalTypeInteger ||
+      version.integerValue != 1 ||
+      type.type != AncPrivateVaultCanonicalTypeText ||
+      ![type.textValue
+          isEqualToString:@"control-log-rotation-append-receipt"] ||
+      vault.type != AncPrivateVaultCanonicalTypeText ||
+      entry.type != AncPrivateVaultCanonicalTypeText ||
+      !AncRotationReceiptOpaqueId(vault.textValue) ||
+      !AncRotationReceiptOpaqueId(entry.textValue) ||
+      sequence.type != AncPrivateVaultCanonicalTypeInteger ||
+      sequence.integerValue < 0 ||
+      (uint64_t)sequence.integerValue > kAncRotationMaxSafeInteger ||
+      head.type != AncPrivateVaultCanonicalTypeBytes ||
+      head.bytesValue.length != ANC_PV_HASH_BYTES ||
+      wrapHash.type != AncPrivateVaultCanonicalTypeBytes ||
+      wrapHash.bytesValue.length != ANC_PV_HASH_BYTES ||
+      wrapLength.type != AncPrivateVaultCanonicalTypeInteger ||
+      wrapLength.integerValue <= 0 ||
+      wrapLength.integerValue > ANC_PV_ROTATION_RECOVERY_WRAP_MAX_BYTES)
+    return nil;
+  NSData *roundTrip = AncPrivateVaultCanonicalEncode(root, &status);
+  if (roundTrip == nil || ![roundTrip isEqualToData:encoded])
+    return nil;
+  AncPrivateVaultRotationAppendReceipt *receipt =
+      [[AncPrivateVaultRotationAppendReceipt alloc] init];
+  receipt.vaultId = [vault.textValue copy];
+  receipt.entryId = [entry.textValue copy];
+  receipt.sequence = (uint64_t)sequence.integerValue;
+  receipt.headHash = [head.bytesValue copy];
+  receipt.recoveryWrapHash = [wrapHash.bytesValue copy];
+  receipt.recoveryWrapByteLength = (uint64_t)wrapLength.integerValue;
+  return receipt;
+}
 
 static NSString *const kAncRotationPreparationBorrowScopeThreadKey =
     @"com.agentnative.private-vault.rotation-preparation.borrow-scope";
@@ -463,6 +563,62 @@ AncRotationPreparationKeychainStatus(AncPrivateVaultKeychainStatus status) {
   case AncPrivateVaultKeychainStatusFailed:
     return AncPrivateVaultRotationPreparationStoreStatusStorageFailed;
   }
+}
+
+static AncPrivateVaultRotationPreparationStoreStatus
+AncRotationPreparationReadCleanupReceipt(AncPrivateVaultKeychain *keychain,
+                                         NSString *vaultId,
+                                         NSData **receipt) {
+  if (receipt != NULL)
+    *receipt = nil;
+  NSData *stored = nil;
+  AncPrivateVaultKeychainStatus status = [keychain
+      copyDataForService:AncPrivateVaultRotationCleanupReceiptService
+                 vaultId:vaultId
+                recordId:kAncRotationCleanupReceiptRecordId
+                    data:&stored];
+  if (status != AncPrivateVaultKeychainStatusOK)
+    return AncRotationPreparationKeychainStatus(status);
+  if (AncPrivateVaultRotationAppendReceiptDecode(stored) == nil)
+    return AncPrivateVaultRotationPreparationStoreStatusCorrupt;
+  if (receipt != NULL)
+    *receipt = stored;
+  return AncPrivateVaultRotationPreparationStoreStatusOK;
+}
+
+static AncPrivateVaultRotationPreparationStoreStatus
+AncRotationPreparationPersistCleanupReceipt(
+    AncPrivateVaultKeychain *keychain, NSString *vaultId, NSData *receipt) {
+  NSData *stored = nil;
+  AncPrivateVaultRotationPreparationStoreStatus read =
+      AncRotationPreparationReadCleanupReceipt(keychain, vaultId, &stored);
+  if (read == AncPrivateVaultRotationPreparationStoreStatusOK &&
+      [stored isEqualToData:receipt])
+    return AncPrivateVaultRotationPreparationStoreStatusOK;
+  AncPrivateVaultKeychainStatus write;
+  if (read == AncPrivateVaultRotationPreparationStoreStatusNotFound) {
+    write = [keychain addData:receipt
+                   forService:AncPrivateVaultRotationCleanupReceiptService
+                      vaultId:vaultId
+                     recordId:kAncRotationCleanupReceiptRecordId];
+  } else if (read == AncPrivateVaultRotationPreparationStoreStatusOK) {
+    write = [keychain updateData:receipt
+                      forService:AncPrivateVaultRotationCleanupReceiptService
+                         vaultId:vaultId
+                        recordId:kAncRotationCleanupReceiptRecordId];
+  } else {
+    return read;
+  }
+  if (write != AncPrivateVaultKeychainStatusOK)
+    return AncRotationPreparationKeychainStatus(write);
+  stored = nil;
+  AncPrivateVaultRotationPreparationStoreStatus verified =
+      AncRotationPreparationReadCleanupReceipt(keychain, vaultId, &stored);
+  if (verified != AncPrivateVaultRotationPreparationStoreStatusOK)
+    return verified;
+  return [stored isEqualToData:receipt]
+             ? AncPrivateVaultRotationPreparationStoreStatusOK
+             : AncPrivateVaultRotationPreparationStoreStatusConflict;
 }
 
 static AncPrivateVaultRotationPreparationStoreStatus
@@ -1734,7 +1890,7 @@ BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
         [authorityStore loadVaultId:vaultHex
                          checkpoint:&authority
                               error:&authorityError];
-    AncPrivateVaultCustodySnapshot custody;
+    AncPrivateVaultCustodySnapshot custody = {0};
     AncPrivateVaultCustodyHandle *custodyHandle = nil;
     AncPrivateVaultCustodyRepositoryStatus custodyStatus =
         [custodyRepository readVaultId:vaultHex
@@ -1874,6 +2030,285 @@ BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
       return;
     }
     preparation.phase = ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED;
+    uint8_t zeroKey[ANC_PV_ROTATION_PREPARATION_PENDING_KEY_BYTES] = {0};
+    AncPrivateVaultGuardedRecord *candidate =
+        [self encodeSnapshot:&preparation keyHandle:nil directKey:zeroKey];
+    anc_pv_zeroize(zeroKey, sizeof zeroKey);
+    if (candidate == nil) {
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusInaccessible;
+      return;
+    }
+    status = [self commitCandidate:candidate
+                           vaultId:vaultId
+                expectedCheckpoint:expected
+                     allowCreation:NO
+                     outCheckpoint:&result];
+    AncRotationPreparationClearRecord(candidate);
+    anc_pv_rotation_preparation_snapshot_zero(&preparation);
+  });
+  if (checkpoint != NULL &&
+      status == AncPrivateVaultRotationPreparationStoreStatusOK)
+    *checkpoint = result;
+  return status;
+}
+
+- (AncPrivateVaultRotationPreparationStoreStatus)
+    cleanConsumedVaultId:(const uint8_t[16])vaultId
+                  receipt:(NSData *)receiptBytes
+                 authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+              custodyRepository:
+                  (AncPrivateVaultCustodyRepository *)custodyRepository
+                     checkpoint:
+                         (AncPrivateVaultRotationPreparationCheckpoint **)checkpoint {
+  if (checkpoint != NULL)
+    *checkpoint = nil;
+  NSData *canonicalReceipt = [receiptBytes copy];
+  AncPrivateVaultRotationAppendReceipt *receipt =
+      AncPrivateVaultRotationAppendReceiptDecode(canonicalReceipt);
+  if (vaultId == NULL || canonicalReceipt == nil || receipt == nil ||
+      object_getClass(self) != AncPrivateVaultRotationPreparationStore.class ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class ||
+      AncRotationPreparationInBorrowScope())
+    return AncPrivateVaultRotationPreparationStoreStatusInvalid;
+
+  __block AncPrivateVaultRotationPreparationStoreStatus status;
+  __block AncPrivateVaultRotationPreparationCheckpoint *result = nil;
+  dispatch_sync(self.queue, ^{
+    AncPrivateVaultGuardedRecord *record ANC_ROTATION_GUARDED_LOCAL = nil;
+    NSData *digest = nil;
+    uint64_t generation = 0;
+    AncPrivateVaultRotationPreparationSnapshot preparation;
+    AncPrivateVaultRotationPreparationKeyHandle *preparationHandle = nil;
+    status = [self reconcileVaultId:vaultId
+                             record:&record
+                           snapshot:&preparation
+                             handle:&preparationHandle
+                    fenceGeneration:&generation
+                             digest:&digest];
+    if (status != AncPrivateVaultRotationPreparationStoreStatusOK)
+      return;
+    AncPrivateVaultRotationPreparationCheckpoint *expected =
+        [[AncPrivateVaultRotationPreparationCheckpoint alloc]
+            initWithFenceGeneration:generation
+                       recordDigest:digest
+                           snapshot:&preparation];
+    if (preparation.phase != ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED &&
+        preparation.phase != ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED) {
+      [preparationHandle close];
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusConflict;
+      return;
+    }
+
+    NSString *vaultHex = AncRotationPreparationHex(
+        vaultId, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+    if (![receipt.vaultId isEqualToString:vaultHex]) {
+      [preparationHandle close];
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusConflict;
+      return;
+    }
+    AncPrivateVaultAuthorityCheckpoint *authority = nil;
+    NSError *authorityError = nil;
+    AncPrivateVaultAuthorityStoreStatus authorityStatus =
+        [authorityStore loadVaultId:vaultHex
+                         checkpoint:&authority
+                              error:&authorityError];
+    AncPrivateVaultCustodySnapshot custody = {0};
+    AncPrivateVaultCustodyHandle *custodyHandle = nil;
+    AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+        [custodyRepository readVaultId:vaultHex
+                              snapshot:&custody
+                                handle:&custodyHandle];
+    AncPrivateVaultRotationPreparationSnapshot tuplePreparation = preparation;
+    if (tuplePreparation.phase == ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED) {
+      tuplePreparation.flags =
+          ANC_PV_ROTATION_PREPARATION_FLAG_EDGE_BOUND |
+          ANC_PV_ROTATION_PREPARATION_FLAG_SPOOL_DURABLE;
+      tuplePreparation.pending_epoch = tuplePreparation.base_epoch + 1;
+      tuplePreparation.expected_sequence = tuplePreparation.base_sequence + 1;
+      memcpy(tuplePreparation.expected_previous_head,
+             tuplePreparation.base_head, ANC_PV_HASH_BYTES);
+      if (authority != nil && authority.snapshot.membershipHash.length == 32)
+        memcpy(tuplePreparation.transcript_digest,
+               authority.snapshot.membershipHash.bytes, ANC_PV_HASH_BYTES);
+    }
+    BOOL tuple = authorityStatus == AncPrivateVaultAuthorityStoreStatusOK &&
+                 authorityError == nil && authority != nil &&
+                 custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK &&
+                 custodyHandle != nil &&
+                 authority.snapshot.sequence == receipt.sequence &&
+                 [authority.snapshot.headHash isEqualToData:receipt.headHash] &&
+                 [authority.snapshot.recoveryWrapHash
+                     isEqualToData:receipt.recoveryWrapHash] &&
+                 (preparation.phase ==
+                          ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED ||
+                  preparation.recovery_wrap_length ==
+                      receipt.recoveryWrapByteLength) &&
+                 AncPrivateVaultRotationPreparationOfficialTupleValid(
+                     &tuplePreparation, vaultHex, authority, &custody);
+    anc_pv_rotation_preparation_snapshot_zero(&tuplePreparation);
+    __block AncPrivateVaultRotationPreparationStoreStatus receiptFenceStatus =
+        AncPrivateVaultRotationPreparationStoreStatusConflict;
+    if (tuple &&
+        preparation.phase == ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED) {
+      NSString *preparationCeremony = AncRotationPreparationHex(
+          preparation.ceremony_id,
+          ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+      __block BOOL artifactsBound = NO;
+      __block AncPrivateVaultRotationPreparationSpoolStatus spoolStatus =
+          AncPrivateVaultRotationPreparationSpoolStatusStorageFailed;
+      AncPrivateVaultCustodyRepositoryStatus borrowed = [custodyHandle
+          borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+        spoolStatus = [self.spool
+                readLiveVaultId:vaultId
+                     ceremonyId:preparation.ceremony_id
+      expectedSignedEntryLength:preparation.signed_entry_length
+     expectedRecoveryWrapLength:preparation.recovery_wrap_length
+            expectedFrameDigest:preparation.encrypted_spool_digest
+                     pendingKey:secrets->active_epoch_key
+                       consumer:^BOOL(const uint8_t *signedEntry,
+                                      size_t signedEntryLength,
+                                      const uint8_t *recoveryWrap,
+                                      size_t recoveryWrapLength) {
+          NSData *signedData =
+              [NSData dataWithBytesNoCopy:(void *)signedEntry
+                                   length:signedEntryLength
+                             freeWhenDone:NO];
+          NSData *wrapData =
+              [NSData dataWithBytesNoCopy:(void *)recoveryWrap
+                                   length:recoveryWrapLength
+                             freeWhenDone:NO];
+          NSData *entryHash =
+              AncPrivateVaultControlLogSignedEntryDomainHash(signedData);
+          NSString *entryId =
+              AncPrivateVaultControlLogSignedEntryEnvelopeId(signedData);
+          AncPrivateVaultControlLogState *officialState =
+              AncPrivateVaultControlLogStateCreateFromAuthenticatedCheckpoint(
+                  authority);
+          NSData *wrapHash = nil;
+          NSString *wrapCeremony = nil;
+          artifactsBound =
+              officialState != nil && entryHash.length == 32 &&
+              [entryHash isEqualToData:receipt.headHash] &&
+              [entryId isEqualToString:receipt.entryId] &&
+              recoveryWrapLength == receipt.recoveryWrapByteLength &&
+              AncPrivateVaultRecoveryWrapVerifyCommittedSuccessor(
+                  wrapData, officialState, authority.snapshot.verifiedAtMs,
+                  &wrapHash, &wrapCeremony) &&
+              [wrapHash
+                  isEqualToData:receipt.recoveryWrapHash] &&
+              [wrapCeremony isEqualToString:preparationCeremony];
+          return artifactsBound;
+        }
+                          error:nil];
+        return (spoolStatus ==
+                    AncPrivateVaultRotationPreparationSpoolStatusOK &&
+                artifactsBound) ||
+               spoolStatus ==
+                   AncPrivateVaultRotationPreparationSpoolStatusNotFound;
+      }];
+      if (borrowed == AncPrivateVaultCustodyRepositoryStatusOK &&
+          spoolStatus == AncPrivateVaultRotationPreparationSpoolStatusOK &&
+          artifactsBound) {
+        receiptFenceStatus = AncRotationPreparationPersistCleanupReceipt(
+            self.keychain, vaultHex, canonicalReceipt);
+      } else if (borrowed == AncPrivateVaultCustodyRepositoryStatusOK &&
+                 spoolStatus ==
+                     AncPrivateVaultRotationPreparationSpoolStatusNotFound) {
+        NSData *storedReceipt = nil;
+        receiptFenceStatus = AncRotationPreparationReadCleanupReceipt(
+            self.keychain, vaultHex, &storedReceipt);
+        if (receiptFenceStatus ==
+            AncPrivateVaultRotationPreparationStoreStatusNotFound)
+          receiptFenceStatus =
+              AncPrivateVaultRotationPreparationStoreStatusRollbackDetected;
+        else if (receiptFenceStatus ==
+                AncPrivateVaultRotationPreparationStoreStatusOK &&
+            ![storedReceipt isEqualToData:canonicalReceipt])
+          receiptFenceStatus =
+              AncPrivateVaultRotationPreparationStoreStatusConflict;
+      }
+      tuple = receiptFenceStatus ==
+              AncPrivateVaultRotationPreparationStoreStatusOK;
+    } else if (tuple && preparation.phase ==
+                            ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED) {
+      NSData *storedReceipt = nil;
+      receiptFenceStatus = AncRotationPreparationReadCleanupReceipt(
+          self.keychain, vaultHex, &storedReceipt);
+      if (receiptFenceStatus ==
+          AncPrivateVaultRotationPreparationStoreStatusNotFound)
+        receiptFenceStatus =
+            AncPrivateVaultRotationPreparationStoreStatusRollbackDetected;
+      tuple = receiptFenceStatus ==
+                  AncPrivateVaultRotationPreparationStoreStatusOK &&
+              [storedReceipt isEqualToData:canonicalReceipt];
+    }
+    AncPrivateVaultCustodyRepositoryStatus custodyClosed =
+        custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusInvalid
+                             : [custodyHandle close];
+    AncPrivateVaultRotationPreparationStoreStatus preparationClosed =
+        [preparationHandle close];
+    if (!tuple ||
+        custodyClosed != AncPrivateVaultCustodyRepositoryStatusOK ||
+        preparationClosed !=
+            AncPrivateVaultRotationPreparationStoreStatusOK) {
+      anc_pv_custody_snapshot_zero(&custody);
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = custodyClosed != AncPrivateVaultCustodyRepositoryStatusOK ||
+                       preparationClosed !=
+                           AncPrivateVaultRotationPreparationStoreStatusOK
+                   ? AncPrivateVaultRotationPreparationStoreStatusInaccessible
+                   : receiptFenceStatus !=
+                             AncPrivateVaultRotationPreparationStoreStatusConflict
+                         ? receiptFenceStatus
+                         : AncPrivateVaultRotationPreparationStoreStatusConflict;
+      return;
+    }
+    anc_pv_custody_snapshot_zero(&custody);
+
+    if (preparation.phase == ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED) {
+      result = expected;
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusOK;
+      return;
+    }
+
+    if (AncRotationPreparationFault(
+            AncPrivateVaultRotationPreparationStoreFaultAfterCleanupReceiptPersist)) {
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusStorageFailed;
+      return;
+    }
+
+    AncPrivateVaultRotationPreparationSpoolStatus deleted =
+        [self.spool deleteVaultId:vaultId
+                       ceremonyId:preparation.ceremony_id
+                            error:nil];
+    if (deleted != AncPrivateVaultRotationPreparationSpoolStatusOK) {
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncRotationPreparationStatusForSpool(deleted, NO);
+      return;
+    }
+    if (AncRotationPreparationFault(
+            AncPrivateVaultRotationPreparationStoreFaultAfterSpoolDelete)) {
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusStorageFailed;
+      return;
+    }
+
+    preparation.phase = ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED;
+    preparation.flags = 0;
+    memset((uint8_t *)&preparation +
+               offsetof(AncPrivateVaultRotationPreparationSnapshot,
+                        pending_epoch),
+           0,
+           sizeof preparation -
+               offsetof(AncPrivateVaultRotationPreparationSnapshot,
+                        pending_epoch));
     uint8_t zeroKey[ANC_PV_ROTATION_PREPARATION_PENDING_KEY_BYTES] = {0};
     AncPrivateVaultGuardedRecord *candidate =
         [self encodeSnapshot:&preparation keyHandle:nil directKey:zeroKey];
