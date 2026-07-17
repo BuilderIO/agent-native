@@ -225,6 +225,45 @@ describe("contentSpaceForCatalogItem", () => {
     ).toBe(builder);
   });
 
+  it("maps workspace references surfaced in the personal Files database", () => {
+    const personal = space({
+      id: "personal",
+      kind: "personal",
+      filesDatabaseId: "personal-files",
+      catalogDocumentId: "personal-reference",
+    });
+    const builder = space({
+      id: "builder",
+      kind: "organization",
+      filesDatabaseId: "builder-files",
+      catalogDocumentId: "builder-reference",
+    });
+    expect(
+      contentSpaceForCatalogItem({
+        databaseId: "personal-files",
+        catalogDatabaseId: "workspaces",
+        documentId: "builder-reference",
+        spaces: [personal, builder],
+      }),
+    ).toBe(builder);
+  });
+
+  it("does not treat workspace references in another space's Files database as selectors", () => {
+    const personal = space({
+      id: "personal",
+      kind: "personal",
+      filesDatabaseId: "personal-files",
+    });
+    expect(
+      contentSpaceForCatalogItem({
+        databaseId: "organization-files",
+        catalogDatabaseId: "workspaces",
+        documentId: "builder-reference",
+        spaces: [personal, space({ catalogDocumentId: "builder-reference" })],
+      }),
+    ).toBeNull();
+  });
+
   it("leaves ordinary database rows on the normal page-open path", () => {
     expect(
       contentSpaceForCatalogItem({
