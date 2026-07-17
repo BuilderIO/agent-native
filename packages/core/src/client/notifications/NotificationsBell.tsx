@@ -7,7 +7,13 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type { PersonalNotificationRouting } from "../../notifications/routing.js";
 import type {
@@ -49,6 +55,8 @@ interface NotificationsBellProps {
   emptyDescription?: string;
   /** Optional notification for parent shells that need to coordinate overlays. */
   onOpenChange?: (open: boolean) => void;
+  /** Optional host-rendered settings for the resource currently in view. */
+  contextualSettings?: ReactNode;
 }
 
 const POLL_MS_DEFAULT = 10_000;
@@ -76,6 +84,7 @@ export function NotificationsBell({
   emptyTitle = "No app notifications yet.",
   emptyDescription,
   onOpenChange,
+  contextualSettings,
 }: NotificationsBellProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -441,6 +450,9 @@ export function NotificationsBell({
                 </div>
               )}
             </div>
+            {contextualSettings ? (
+              <div className="border-t border-border">{contextualSettings}</div>
+            ) : null}
           </>
         )}
       </PopoverContent>

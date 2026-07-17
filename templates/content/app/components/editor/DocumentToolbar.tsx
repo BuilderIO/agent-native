@@ -270,7 +270,7 @@ interface DocumentToolbarProps {
   isDatabasePage?: boolean;
 }
 
-function ItemNotificationMenuItem({
+function ItemNotificationSetting({
   databaseId,
   documentId,
   isDatabasePage,
@@ -312,11 +312,12 @@ function ItemNotificationMenuItem({
   }, [databaseId, documentId, enabled, managePreference, t]);
 
   return (
-    <DropdownMenuItem
-      className="items-start py-2"
+    <button
+      type="button"
+      className="flex w-full items-start px-3 py-2.5 text-start text-sm text-foreground hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-50"
       disabled={preference.isLoading || managePreference.isPending}
       aria-describedby={isDatabasePage ? descriptionId : undefined}
-      onSelect={() => void handleToggle()}
+      onClick={() => void handleToggle()}
     >
       {enabled ? (
         <IconBellOff className="me-2 mt-0.5 h-4 w-4 shrink-0" />
@@ -340,7 +341,7 @@ function ItemNotificationMenuItem({
           </span>
         ) : null}
       </span>
-    </DropdownMenuItem>
+    </button>
   );
 }
 
@@ -860,18 +861,6 @@ export function DocumentToolbar({
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
-              {notificationDatabaseId ? (
-                <>
-                  <DropdownMenuGroup>
-                    <ItemNotificationMenuItem
-                      databaseId={notificationDatabaseId}
-                      documentId={documentId}
-                      isDatabasePage={isDatabasePage}
-                    />
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                </>
-              ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
@@ -1303,7 +1292,18 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          <NotificationsBell browserNotifications />
+          <NotificationsBell
+            browserNotifications
+            contextualSettings={
+              notificationDatabaseId ? (
+                <ItemNotificationSetting
+                  databaseId={notificationDatabaseId}
+                  documentId={documentId}
+                  isDatabasePage={isDatabasePage}
+                />
+              ) : undefined
+            }
+          />
           <AgentToggleButton />
         </div>
       </div>

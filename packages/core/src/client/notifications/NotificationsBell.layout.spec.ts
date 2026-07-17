@@ -25,4 +25,12 @@ describe("NotificationsBell routing layout", () => {
     expect(source).toContain("updatePersonalNotificationRouting");
     expect(source).toContain("listClientNotifications");
   });
+
+  it("keeps host-specific notification settings in the bell menu", () => {
+    expect(source).toContain("contextualSettings?: ReactNode");
+    expect(source).toContain("{contextualSettings}");
+    expect(source.indexOf("{contextualSettings}")).toBeGreaterThan(
+      source.indexOf('className="max-h-96 overflow-y-auto"'),
+    );
+  });
 });

@@ -41,10 +41,12 @@ describe("Content database hooks product surface", () => {
     expect(headerSource).toContain("browserNotifications");
     expect(toolbarSource).toContain("browserNotifications");
     expect(toolbarSource.match(/<NotificationsBell/g)).toHaveLength(1);
-    expect(toolbarSource).toContain("<ItemNotificationMenuItem");
+    expect(toolbarSource).toContain("contextualSettings={");
+    expect(toolbarSource).toContain("<ItemNotificationSetting");
+    expect(toolbarSource).not.toContain("<ItemNotificationMenuItem");
     expect(toolbarSource).not.toContain("<ItemNotificationToggle");
-    expect(toolbarSource.indexOf("<ItemNotificationMenuItem")).toBeLessThan(
-      toolbarSource.indexOf('t("editor.toolbar.versionHistory")'),
+    expect(toolbarSource.indexOf("<ItemNotificationSetting")).toBeGreaterThan(
+      toolbarSource.indexOf("<NotificationsBell"),
     );
     expect(toolbarSource).toContain(
       '"editor.toolbar.muteNotificationsForPage"',
