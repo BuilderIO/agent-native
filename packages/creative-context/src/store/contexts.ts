@@ -1125,7 +1125,12 @@ export async function manageContextMembership(input: {
     input.contextId,
     input.operation === "submit" ? "editor" : "viewer",
   );
-  const context = access.resource as any;
+  const [context] = await getDb()
+    .select()
+    .from(schema.creativeContexts)
+    .where(eq(schema.creativeContexts.id, access.resource.id))
+    .limit(1);
+  if (!context) throw new Error("Creative Context no longer exists");
   const actor = requireActor();
   if (input.operation === "submit") {
     const captured = await resolveSubmissionItem(input);
