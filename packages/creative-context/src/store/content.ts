@@ -1432,6 +1432,14 @@ export async function getCreativeContextItem(
       schema.creativeContexts,
       eq(schema.creativeContexts.id, schema.creativeContextMemberships.contextId),
     )
+    .leftJoin(
+      schema.contextPackMembers,
+      eq(schema.contextPackMembers.itemId, schema.contextItems.id),
+    )
+    .leftJoin(
+      schema.contextPacks,
+      eq(schema.contextPacks.id, schema.contextPackMembers.packId),
+    )
     .where(
       and(
         eq(schema.contextItems.id, itemId),
@@ -1442,6 +1450,7 @@ export async function getCreativeContextItem(
             ne(schema.contextSources.status, "archived"),
           ),
           accessFilter(schema.creativeContexts, schema.creativeContextShares),
+          accessFilter(schema.contextPacks, schema.contextPackShares),
         ),
         eq(schema.contextItems.curationStatus, "included"),
         ne(schema.contextItems.curationRank, "ignored"),

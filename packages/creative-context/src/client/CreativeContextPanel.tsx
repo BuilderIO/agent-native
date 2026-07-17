@@ -1070,6 +1070,21 @@ export function CreativeContextPanel({
     () => parseCreativeContexts(contextsQuery.data),
     [contextsQuery.data],
   );
+  const selectedLibraryContextId =
+    contextState.state.selectedContextId ?? contexts[0]?.id ?? null;
+  const contextMembershipsQuery = useContextMemberships(
+    selectedLibraryContextId ? { contextId: selectedLibraryContextId } : null,
+  );
+  const manageContextMembership = useManageContextMembership();
+  const contextMemberships = parseContextMemberships(
+    contextMembershipsQuery.data,
+  );
+  const publishedContextMemberships = contextMemberships.filter(
+    (membership) => membership.publishedItem,
+  );
+  const pendingContextMemberships = contextMemberships.filter(
+    (membership) => membership.pendingSubmission,
+  );
   const activePack = packs.find(
     (pack) => pack.id === contextState.state.currentPackId,
   );
