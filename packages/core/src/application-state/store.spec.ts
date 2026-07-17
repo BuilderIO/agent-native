@@ -29,13 +29,27 @@ const rawClient = {
     }
   }),
 };
+const atomicBatch = vi.fn(
+  async (statements: readonly (string | { sql: string; args?: unknown[] })[]) =>
+    rawClient.transaction(async (tx) => {
+      const results = [];
+      for (const statement of statements) {
+        results.push(await tx.execute(statement));
+      }
+      return results;
+    }),
+);
 
 const emitAppStateChange = vi.fn();
 const emitAppStateDelete = vi.fn();
-const dbMockState = vi.hoisted(() => ({ localDatabase: true }));
+const dbMockState = vi.hoisted(() => ({
+  localDatabase: true,
+  dialect: "sqlite" as "sqlite" | "postgres" | "d1",
+}));
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => rawClient,
+  getDbExec: () => ({ ...rawClient, atomicBatch }),
+  getDialect: () => dbMockState.dialect,
   intType: () => "INTEGER",
   isConnectionError: () => false,
   isLocalDatabase: () => dbMockState.localDatabase,
@@ -74,6 +88,7 @@ afterEach(() => {
   sqlite.close();
   vi.clearAllMocks();
   dbMockState.localDatabase = true;
+  dbMockState.dialect = "sqlite";
 });
 
 describe("application-state store", () => {
@@ -266,6 +281,112 @@ describe("application-state store", () => {
     ).resolves.toBe(true);
     expect(await appStateGet(SESSION, "pending")).toBeNull();
     expect(await appStateGet(SESSION, "proposal")).toBeNull();
+  });
+
+  it("uses an atomic D1 batch and rolls back every mutation on a mismatch", async () => {
+    dbMockState.dialect = "d1";
+    await appStatePut(SESSION, "pending", { repromptId: "r1" });
+    await appStatePut(SESSION, "proposal", { proposalId: "p1" });
+    atomicBatch.mockClear();
+    emitAppStateChange.mockClear();
+    emitAppStateDelete.mockClear();
+
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        {
+          key: "pending",
+          expectedValue: { repromptId: "r1" },
+          nextValue: null,
+        },
+        {
+          key: "proposal",
+          expectedValue: { proposalId: "stale" },
+          nextValue: null,
+        },
+      ]),
+    ).resolves.toBe(false);
+    expect(atomicBatch).toHaveBeenCalledTimes(1);
+    const statements = atomicBatch.mock.calls[0]![0];
+    expect(statements.slice(1, 3)).toEqual([
+      expect.objectContaining({ sql: expect.stringContaining("WHERE NOT") }),
+      expect.objectContaining({ sql: expect.stringContaining("WHERE NOT") }),
+    ]);
+    expect(
+      statements.some((statement) =>
+        typeof statement === "string"
+          ? /^(?:BEGIN|COMMIT|ROLLBACK)/i.test(statement)
+          : /^(?:BEGIN|COMMIT|ROLLBACK)/i.test(statement.sql),
+      ),
+    ).toBe(false);
+    expect(await appStateGet(SESSION, "pending")).toEqual({ repromptId: "r1" });
+    expect(await appStateGet(SESSION, "proposal")).toEqual({
+      proposalId: "p1",
+    });
+    expect(emitAppStateChange).not.toHaveBeenCalled();
+    expect(emitAppStateDelete).not.toHaveBeenCalled();
+
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        {
+          key: "pending",
+          expectedValue: { repromptId: "r1" },
+          nextValue: null,
+        },
+        {
+          key: "proposal",
+          expectedValue: { proposalId: "p1" },
+          nextValue: null,
+        },
+      ]),
+    ).resolves.toBe(true);
+    expect(await appStateGet(SESSION, "pending")).toBeNull();
+    expect(await appStateGet(SESSION, "proposal")).toBeNull();
+  });
+
+  it("atomically applies mixed D1 update, insert, and delete operations", async () => {
+    dbMockState.dialect = "d1";
+    await appStatePut(SESSION, "pending", { repromptId: "r1" });
+    await appStatePut(SESSION, "prior", { proposalId: "p1" });
+
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        {
+          key: "pending",
+          expectedValue: { repromptId: "r1" },
+          nextValue: { repromptId: "r2" },
+        },
+        {
+          key: "current",
+          expectedValue: null,
+          nextValue: { proposalId: "p2" },
+        },
+        {
+          key: "prior",
+          expectedValue: { proposalId: "p1" },
+          nextValue: null,
+        },
+      ]),
+    ).resolves.toBe(true);
+    expect(await appStateGet(SESSION, "pending")).toEqual({ repromptId: "r2" });
+    expect(await appStateGet(SESSION, "current")).toEqual({ proposalId: "p2" });
+    expect(await appStateGet(SESSION, "prior")).toBeNull();
+  });
+
+  it("propagates non-guard D1 batch failures", async () => {
+    dbMockState.dialect = "d1";
+    await appStatePut(SESSION, "pending", { repromptId: "r1" });
+    atomicBatch.mockRejectedValueOnce(new Error("D1 batch unavailable"));
+
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        {
+          key: "pending",
+          expectedValue: { repromptId: "r1" },
+          nextValue: null,
+        },
+      ]),
+    ).rejects.toThrow("D1 batch unavailable");
+    expect(await appStateGet(SESSION, "pending")).toEqual({ repromptId: "r1" });
   });
 
   it("rejects oversized hosted application_state values", async () => {

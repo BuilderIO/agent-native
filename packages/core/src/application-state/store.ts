@@ -1,5 +1,6 @@
 import {
   getDbExec,
+  getDialect,
   isLocalDatabase,
   isConnectionError,
   isPostgres,
@@ -233,6 +234,22 @@ async function executeAppStateCompareAndSet(
   expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
+  const statement = buildAppStateCompareAndSetStatement(
+    sessionId,
+    key,
+    expectedValue,
+    nextValue,
+  );
+  const result = await client.execute(statement);
+  return result.rowsAffected > 0;
+}
+
+function buildAppStateCompareAndSetStatement(
+  sessionId: string,
+  key: string,
+  expectedValue: Record<string, unknown> | null,
+  nextValue: Record<string, unknown> | null,
+): { sql: string; args: unknown[] } {
   if (expectedValue === null) {
     if (nextValue === null) {
       throw new Error(
@@ -240,30 +257,60 @@ async function executeAppStateCompareAndSet(
       );
     }
     const next = serializeAppStateValue(key, nextValue);
-    const result = await client.execute({
+    return {
       sql: isPostgres()
         ? `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?) ON CONFLICT (session_id, key) DO NOTHING`
         : `INSERT OR IGNORE INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?)`,
       args: [sessionId, key, next, Date.now(), sessionId, key],
-    });
-    return result.rowsAffected > 0;
+    };
   }
 
   const expected = JSON.stringify(expectedValue);
   if (nextValue === null) {
-    const result = await client.execute({
+    return {
       sql: `DELETE FROM application_state WHERE session_id = ? AND key = ? AND value = ?`,
       args: [sessionId, key, expected],
-    });
-    return result.rowsAffected > 0;
+    };
   }
 
   const next = serializeAppStateValue(key, nextValue);
-  const result = await client.execute({
+  return {
     sql: `UPDATE application_state SET value = ?, updated_at = ? WHERE session_id = ? AND key = ? AND value = ?`,
     args: [next, Date.now(), sessionId, key, expected],
-  });
-  return result.rowsAffected > 0;
+  };
+}
+
+function buildD1CompareAndSetGuard(
+  sessionId: string,
+  guardKey: string,
+  operation: AppStateCompareAndSetOperation,
+): { sql: string; args: unknown[] } {
+  const expected = operation.expectedValue;
+  const condition =
+    expected === null
+      ? "NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?)"
+      : "EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ? AND value = ?)";
+  return {
+    sql: `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, '{}', ? WHERE NOT (${condition})`,
+    args:
+      expected === null
+        ? [sessionId, guardKey, Date.now(), sessionId, operation.key]
+        : [
+            sessionId,
+            guardKey,
+            Date.now(),
+            sessionId,
+            operation.key,
+            JSON.stringify(expected),
+          ],
+  };
+}
+
+function isD1CompareAndSetMismatch(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /unique constraint failed:\s*application_state\.session_id,\s*application_state\.key/i.test(
+    message,
+  );
 }
 
 function serializeAppStateValue(
@@ -301,25 +348,76 @@ export async function appStateCompareAndSetMany(
 
   await ensureTable();
   const client = getDbExec();
-  if (!client.transaction) {
-    throw new Error("Application state multi-key CAS requires transactions.");
-  }
-  try {
-    await client.transaction(async (tx) => {
-      for (const operation of orderedOperations) {
-        const changed = await executeAppStateCompareAndSet(
-          tx,
-          sessionId,
-          operation.key,
-          operation.expectedValue,
-          operation.nextValue,
-        );
-        if (!changed) throw APP_STATE_CAS_MISMATCH;
-      }
-    });
-  } catch (error) {
-    if (error === APP_STATE_CAS_MISMATCH) return false;
-    throw error;
+  if (getDialect() === "d1") {
+    if (!client.atomicBatch) {
+      throw new Error(
+        "D1 application-state CAS requires atomic batch support.",
+      );
+    }
+    const guardKey = `__agent_native_cas_guard__:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const guardInsert = {
+      sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, '{}', ?)`,
+      args: [sessionId, guardKey, Date.now()],
+    };
+    const guards = orderedOperations.map((operation) =>
+      buildD1CompareAndSetGuard(sessionId, guardKey, operation),
+    );
+    const mutations = orderedOperations.map((operation) =>
+      buildAppStateCompareAndSetStatement(
+        sessionId,
+        operation.key,
+        operation.expectedValue,
+        operation.nextValue,
+      ),
+    );
+    let results;
+    try {
+      results = await client.atomicBatch([
+        guardInsert,
+        ...guards,
+        ...mutations,
+        {
+          sql: `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
+          args: [sessionId, guardKey],
+        },
+      ]);
+    } catch (error) {
+      if (isD1CompareAndSetMismatch(error)) return false;
+      throw error;
+    }
+    const mutationResults = results.slice(
+      1 + guards.length,
+      1 + guards.length + mutations.length,
+    );
+    if (
+      mutationResults.length !== mutations.length ||
+      mutationResults.some((result) => result.rowsAffected !== 1)
+    ) {
+      throw new Error(
+        "D1 application-state CAS completed without applying every mutation.",
+      );
+    }
+  } else {
+    if (!client.transaction) {
+      throw new Error("Application state multi-key CAS requires transactions.");
+    }
+    try {
+      await client.transaction(async (tx) => {
+        for (const operation of orderedOperations) {
+          const changed = await executeAppStateCompareAndSet(
+            tx,
+            sessionId,
+            operation.key,
+            operation.expectedValue,
+            operation.nextValue,
+          );
+          if (!changed) throw APP_STATE_CAS_MISMATCH;
+        }
+      });
+    } catch (error) {
+      if (error === APP_STATE_CAS_MISMATCH) return false;
+      throw error;
+    }
   }
 
   for (const { key, nextValue } of operations) {
