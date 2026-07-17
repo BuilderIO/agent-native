@@ -74,6 +74,12 @@ export type CreativeContextMessageKey =
   | "influence"
   | "cancel"
   | "saveFailed"
+  | "updateAvailable"
+  | "submitUpdate"
+  | "submittingUpdate"
+  | "submitUpdateTitle"
+  | "submitUpdateDescription"
+  | "submitUpdateFailed"
   | "chooseFiles"
   | "chooseFolder"
   | "dropFiles"
@@ -183,6 +189,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "Influence",
     cancel: "Close",
     saveFailed: "Could not save these changes.",
+    updateAvailable: "Update available",
+    submitUpdate: "Submit update",
+    submittingUpdate: "Submitting…",
+    submitUpdateTitle: "Submit the latest version?",
+    submitUpdateDescription:
+      'Capture the current version of "{{name}}" and send it through this context’s approval policy. This may publish it to a broader audience.',
+    submitUpdateFailed: "Could not submit the latest version.",
     chooseFiles: "Choose files",
     chooseFolder: "Choose folder",
     dropFiles: "Drop PPTX, DOCX, PDF, or image files here.",
@@ -284,6 +297,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "影響",
     cancel: "關閉",
     saveFailed: "無法儲存這些變更。",
+    updateAvailable: "有可用更新",
+    submitUpdate: "提交更新",
+    submittingUpdate: "提交中…",
+    submitUpdateTitle: "提交最新版本？",
+    submitUpdateDescription:
+      "擷取「{{name}}」的目前版本，並依此內容環境的核准政策提交。這可能會將其發布給更廣泛的對象。",
+    submitUpdateFailed: "無法提交最新版本。",
     chooseFiles: "選擇檔案",
     chooseFolder: "選擇資料夾",
     dropFiles: "將 PPTX、DOCX、PDF 或圖片檔案拖放到這裡。",
@@ -383,6 +403,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "影响",
     cancel: "关闭",
     saveFailed: "无法保存这些更改。",
+    updateAvailable: "有可用更新",
+    submitUpdate: "提交更新",
+    submittingUpdate: "正在提交…",
+    submitUpdateTitle: "提交最新版本？",
+    submitUpdateDescription:
+      "捕获“{{name}}”的当前版本，并按此上下文的审批策略提交。这可能会将其发布给更广泛的受众。",
+    submitUpdateFailed: "无法提交最新版本。",
     chooseFiles: "选择文件",
     chooseFolder: "选择文件夹",
     dropFiles: "将 PPTX、DOCX、PDF 或图片文件拖放到此处。",
@@ -488,6 +515,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "Influencia",
     cancel: "Cerrar",
     saveFailed: "No se pudieron guardar estos cambios.",
+    updateAvailable: "Actualización disponible",
+    submitUpdate: "Enviar actualización",
+    submittingUpdate: "Enviando…",
+    submitUpdateTitle: "¿Enviar la versión más reciente?",
+    submitUpdateDescription:
+      "Captura la versión actual de «{{name}}» y envíala mediante la política de aprobación de este contexto. Esto puede publicarla para una audiencia más amplia.",
+    submitUpdateFailed: "No se pudo enviar la versión más reciente.",
     chooseFiles: "Elegir archivos",
     chooseFolder: "Elegir carpeta",
     dropFiles: "Suelta aquí archivos PPTX, DOCX, PDF o imágenes.",
@@ -596,6 +630,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "Influence",
     cancel: "Fermer",
     saveFailed: "Impossible d’enregistrer ces modifications.",
+    updateAvailable: "Mise à jour disponible",
+    submitUpdate: "Envoyer la mise à jour",
+    submittingUpdate: "Envoi…",
+    submitUpdateTitle: "Envoyer la dernière version ?",
+    submitUpdateDescription:
+      "Capturez la version actuelle de « {{name}} » et soumettez-la à la politique d’approbation de ce contexte. Elle peut être publiée auprès d’un public plus large.",
+    submitUpdateFailed: "Impossible d’envoyer la dernière version.",
     chooseFiles: "Choisir des fichiers",
     chooseFolder: "Choisir un dossier",
     dropFiles: "Déposez ici des fichiers PPTX, DOCX, PDF ou image.",
@@ -704,6 +745,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "Einfluss",
     cancel: "Schließen",
     saveFailed: "Diese Änderungen konnten nicht gespeichert werden.",
+    updateAvailable: "Aktualisierung verfügbar",
+    submitUpdate: "Aktualisierung einreichen",
+    submittingUpdate: "Wird eingereicht…",
+    submitUpdateTitle: "Neueste Version einreichen?",
+    submitUpdateDescription:
+      "Erfassen Sie die aktuelle Version von „{{name}}“ und reichen Sie sie gemäß der Freigaberichtlinie dieses Kontexts ein. Dadurch kann sie für ein größeres Publikum veröffentlicht werden.",
+    submitUpdateFailed: "Die neueste Version konnte nicht eingereicht werden.",
     chooseFiles: "Dateien auswählen",
     chooseFolder: "Ordner auswählen",
     dropFiles: "PPTX-, DOCX-, PDF- oder Bilddateien hier ablegen.",
@@ -812,6 +860,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "影響",
     cancel: "閉じる",
     saveFailed: "変更を保存できませんでした。",
+    updateAvailable: "更新があります",
+    submitUpdate: "更新を送信",
+    submittingUpdate: "送信中…",
+    submitUpdateTitle: "最新バージョンを送信しますか？",
+    submitUpdateDescription:
+      "「{{name}}」の現在のバージョンを取得し、このコンテキストの承認ポリシーに従って送信します。より広い対象に公開される場合があります。",
+    submitUpdateFailed: "最新バージョンを送信できませんでした。",
     chooseFiles: "ファイルを選択",
     chooseFolder: "フォルダを選択",
     dropFiles: "PPTX、DOCX、PDF、画像ファイルをここにドロップします。",
@@ -919,6 +974,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "영향",
     cancel: "닫기",
     saveFailed: "변경 사항을 저장할 수 없습니다.",
+    updateAvailable: "업데이트 있음",
+    submitUpdate: "업데이트 제출",
+    submittingUpdate: "제출 중…",
+    submitUpdateTitle: "최신 버전을 제출할까요?",
+    submitUpdateDescription:
+      "“{{name}}”의 현재 버전을 캡처하여 이 컨텍스트의 승인 정책에 따라 제출합니다. 더 넓은 대상에게 게시될 수 있습니다.",
+    submitUpdateFailed: "최신 버전을 제출할 수 없습니다.",
     chooseFiles: "파일 선택",
     chooseFolder: "폴더 선택",
     dropFiles: "PPTX, DOCX, PDF 또는 이미지 파일을 여기에 놓으세요.",
@@ -1026,6 +1088,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "Influência",
     cancel: "Fechar",
     saveFailed: "Não foi possível salvar estas alterações.",
+    updateAvailable: "Atualização disponível",
+    submitUpdate: "Enviar atualização",
+    submittingUpdate: "Enviando…",
+    submitUpdateTitle: "Enviar a versão mais recente?",
+    submitUpdateDescription:
+      "Capture a versão atual de “{{name}}” e envie-a pela política de aprovação deste contexto. Isso pode publicá-la para um público mais amplo.",
+    submitUpdateFailed: "Não foi possível enviar a versão mais recente.",
     chooseFiles: "Escolher arquivos",
     chooseFolder: "Escolher pasta",
     dropFiles: "Solte arquivos PPTX, DOCX, PDF ou imagens aqui.",
@@ -1130,6 +1199,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "प्रभाव",
     cancel: "बंद करें",
     saveFailed: "इन बदलावों को सहेजा नहीं जा सका।",
+    updateAvailable: "अपडेट उपलब्ध है",
+    submitUpdate: "अपडेट सबमिट करें",
+    submittingUpdate: "सबमिट हो रहा है…",
+    submitUpdateTitle: "नवीनतम संस्करण सबमिट करें?",
+    submitUpdateDescription:
+      "“{{name}}” का मौजूदा संस्करण कैप्चर करके इस कॉन्टेक्स्ट की स्वीकृति नीति के अनुसार सबमिट करें। यह बड़े दर्शक वर्ग के लिए प्रकाशित हो सकता है।",
+    submitUpdateFailed: "नवीनतम संस्करण सबमिट नहीं किया जा सका।",
     chooseFiles: "फ़ाइलें चुनें",
     chooseFolder: "फ़ोल्डर चुनें",
     dropFiles: "PPTX, DOCX, PDF या इमेज फ़ाइलें यहाँ छोड़ें।",
@@ -1234,6 +1310,13 @@ export const creativeContextMessagesByLocale: Record<
     influence: "التأثير",
     cancel: "إغلاق",
     saveFailed: "تعذّر حفظ هذه التغييرات.",
+    updateAvailable: "يتوفر تحديث",
+    submitUpdate: "إرسال التحديث",
+    submittingUpdate: "جارٍ الإرسال…",
+    submitUpdateTitle: "إرسال أحدث إصدار؟",
+    submitUpdateDescription:
+      'التقط الإصدار الحالي من "{{name}}" وأرسله وفق سياسة الموافقة لهذا السياق. قد يؤدي ذلك إلى نشره لجمهور أوسع.',
+    submitUpdateFailed: "تعذّر إرسال أحدث إصدار.",
     chooseFiles: "اختيار ملفات",
     chooseFolder: "اختيار مجلد",
     dropFiles: "أفلت ملفات PPTX أو DOCX أو PDF أو الصور هنا.",
