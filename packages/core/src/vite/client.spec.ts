@@ -272,6 +272,26 @@ describe("Vite optimized dependency recovery", () => {
 });
 
 describe("route warmup config", () => {
+  it("compiles the app compatibility epoch and deploy build id into client and server bundles", () => {
+    const previousDeployId = process.env.DEPLOY_ID;
+    process.env.DEPLOY_ID = "deploy-123";
+    try {
+      const config = defineConfig({
+        clientCompatibilityVersion: " content-spaces-v1 ",
+      });
+
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("deploy-123"),
+      );
+      expect(config.define?.__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__).toBe(
+        JSON.stringify("content-spaces-v1"),
+      );
+    } finally {
+      if (previousDeployId === undefined) delete process.env.DEPLOY_ID;
+      else process.env.DEPLOY_ID = previousDeployId;
+    }
+  });
+
   it("enables safe React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(

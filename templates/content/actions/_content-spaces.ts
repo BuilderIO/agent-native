@@ -298,16 +298,7 @@ export async function provisionContentSpaces(
         ).databaseId,
       })),
     ];
-    const provisionableOrganizationSpaceIds = new Set(
-      memberships
-        .filter(
-          (membership) =>
-            membership.role === "owner" || membership.role === "admin",
-        )
-        .map((membership) => organizationContentSpaceId(membership.orgId)),
-    );
     for (const space of spaces.slice(1)) {
-      if (!provisionableOrganizationSpaceIds.has(space.id)) continue;
       const files = await ensureSystemDatabase({
         db: tx,
         spaceId: space.id,
@@ -451,7 +442,6 @@ export async function provisionContentSpaces(
       db,
     });
   for (const membership of memberships) {
-    if (membership.role !== "owner" && membership.role !== "admin") continue;
     const spaceId = organizationContentSpaceId(membership.orgId);
     const [database] = await db
       .select({

@@ -1273,6 +1273,12 @@ export interface ClientConfigOptions {
   /** Additional Vite define constants. */
   define?: UserConfig["define"];
   /**
+   * Browser/server compatibility epoch for app changes that cannot safely run
+   * across a cached client and a newer action backend. Bump only for an
+   * incompatible protocol or data-model transition, not for every deploy.
+   */
+  clientCompatibilityVersion?: string;
+  /**
    * Framework route warmup behavior mounted by AgentSidebar.
    *
    * React Router's native prefetch warms both `.data` and JS, but its `.data`
@@ -2585,6 +2591,13 @@ function createAgentNativeConfig(
   userConfig: UserConfig = {},
 ): UserConfig {
   const cwd = process.cwd();
+  const buildId =
+    process.env.DEPLOY_ID?.trim() ||
+    process.env.COMMIT_REF?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.CF_PAGES_COMMIT_SHA?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
+    "development";
 
   // Workspace env fallback. If this app is inside a workspace, tell Vite to
   // also look for .env files at the workspace root. Per-app .env still wins
@@ -2667,6 +2680,10 @@ function createAgentNativeConfig(
     define: {
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
+      __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
+        options.clientCompatibilityVersion?.trim() || "",
+      ),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),

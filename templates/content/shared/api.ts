@@ -227,6 +227,7 @@ export interface ContentDatabase {
   id: string;
   documentId: string;
   title: string;
+  systemRole?: string | null;
   description?: string;
   viewConfig: ContentDatabaseViewConfig;
   createdAt: string;

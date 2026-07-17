@@ -1,5 +1,7 @@
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 
+export const SELECTED_CONTENT_SPACE_STORAGE_KEY = "content-selected-space";
+
 export type ContentSpaceAvailability = "loading" | "ready" | "error";
 
 export function contentSpaceAvailability(args: {
@@ -51,14 +53,31 @@ export function contentSpaceForActiveOrg(args: {
     : (matching[0] ?? null);
 }
 
+export function contentSpaceForCatalogItem(args: {
+  databaseId: string;
+  catalogDatabaseId: string | undefined;
+  documentId: string;
+  spaces: ContentSpaceSummary[];
+}) {
+  if (args.databaseId !== args.catalogDatabaseId) return null;
+  return (
+    args.spaces.find((space) => space.catalogDocumentId === args.documentId) ??
+    null
+  );
+}
+
 export async function selectContentSpace(args: {
   space: ContentSpaceSummary;
   activeOrgId: string | null | undefined;
   switchOrg: (orgId: string | null) => Promise<unknown>;
+  syncApplicationState: (space: ContentSpaceSummary) => Promise<unknown>;
   persistSelection: (spaceId: string) => void;
+  openFiles: (documentId: string) => void;
 }) {
   if (args.activeOrgId !== args.space.orgId) {
     await args.switchOrg(args.space.orgId);
   }
+  await args.syncApplicationState(args.space);
   args.persistSelection(args.space.id);
+  args.openFiles(args.space.filesDocumentId);
 }

@@ -28,6 +28,26 @@ import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+
+declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
+declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
+
+function requiredClientCompatibilityVersion(): string {
+  const configured =
+    typeof __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__ === "string"
+      ? __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__
+      : process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
+  return configured?.trim() ?? "";
+}
+
+function currentBuildId(): string {
+  const configured =
+    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
+      ? __AGENT_NATIVE_BUILD_ID__
+      : process.env.AGENT_NATIVE_BUILD_ID;
+  return configured?.trim() || "unknown";
+}
+
 /**
  * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
  *
@@ -161,8 +181,8 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,${EMBED_TARGET_HEADER}`
-        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend`,
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
 
@@ -296,6 +316,31 @@ export function mountActionRoutes(
         if (effectiveMethod !== method) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
+        }
+
+        const requiredCompatibility = requiredClientCompatibilityVersion();
+        if (isFrontendActionRequest(event) && requiredCompatibility) {
+          const receivedCompatibility = getHeader(
+            event,
+            "x-agent-native-client-compatibility",
+          );
+          if (receivedCompatibility !== requiredCompatibility) {
+            const serverBuildId = currentBuildId();
+            setResponseStatus(event, 409);
+            setResponseHeader(event, "X-Agent-Native-Client-Mismatch", "1");
+            setResponseHeader(event, "X-Agent-Native-Build-Id", serverBuildId);
+            setResponseHeader(
+              event,
+              "X-Agent-Native-Client-Compatibility",
+              requiredCompatibility,
+            );
+            return {
+              error: "This browser tab must reload before it can use this app.",
+              code: "client_build_mismatch",
+              serverBuildId,
+              requiredCompatibility,
+            };
+          }
         }
 
         // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe

@@ -3,6 +3,13 @@ import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 installRouteChunkRecovery();
 
 export { getBrowserTabId } from "./browser-tab-id.js";
+export {
+  BUILD_CACHE_BUSTER_PARAM,
+  clientBuildId,
+  clientCompatibilityVersion,
+  reloadForClientCompatibilityMismatch,
+  stripBuildCompatibilityCacheBuster,
+} from "./build-compatibility.js";
 
 export {
   addContextToAgentChat,
