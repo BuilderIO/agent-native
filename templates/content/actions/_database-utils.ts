@@ -195,6 +195,24 @@ export function filterContentDatabaseSourceRowsForPage<
   );
 }
 
+export function filterContentDatabaseSourceForVisibleDocuments<
+  TSource extends {
+    rows: Array<{ documentId: string }>;
+    changeSets: Array<{ documentId: string | null }>;
+  },
+>(source: TSource, visibleDocumentIds: ReadonlySet<string>): TSource {
+  return {
+    ...source,
+    rows: source.rows.filter(
+      (row) => !row.documentId || visibleDocumentIds.has(row.documentId),
+    ),
+    changeSets: source.changeSets.filter(
+      (changeSet) =>
+        !changeSet.documentId || visibleDocumentIds.has(changeSet.documentId),
+    ),
+  };
+}
+
 function serializeDocument(
   doc: DocumentListRow,
   membership?: DatabaseMembershipRow,
@@ -355,7 +373,25 @@ export async function getContentDatabaseResponse(
     });
   }
 
-  const sources = await getAllContentDatabaseSourceSnapshots(database);
+  const sourceSnapshots = await getAllContentDatabaseSourceSnapshots(database);
+  const organizationVisibleDocumentIds = organizationFilesItemFilter
+    ? new Set(
+        (
+          await db
+            .select({ documentId: schema.contentDatabaseItems.documentId })
+            .from(schema.contentDatabaseItems)
+            .where(visibleItemFilter)
+        ).map((item) => item.documentId),
+      )
+    : null;
+  const sources = organizationVisibleDocumentIds
+    ? sourceSnapshots.map((source) =>
+        filterContentDatabaseSourceForVisibleDocuments(
+          source,
+          organizationVisibleDocumentIds,
+        ),
+      )
+    : sourceSnapshots;
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );

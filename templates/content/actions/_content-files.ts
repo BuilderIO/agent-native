@@ -239,13 +239,23 @@ export async function reconcileContentFilesMemberships(
   const email = normalizeContentSpaceEmail(userEmail);
   const memberships = await listContentOrganizationMemberships(email);
   const personalSpaceId = personalContentSpaceId(email);
-  const orgSpaceIds = new Map<string, string>();
+  const orgSpaces = new Map<
+    string,
+    { spaceId: string; canReconcilePrivateDocuments: boolean }
+  >();
   for (const membership of memberships) {
     const spaceId = organizationContentSpaceId(membership.orgId);
     await resolveContentSpaceAccess(spaceId);
-    orgSpaceIds.set(membership.orgId, spaceId);
+    orgSpaces.set(membership.orgId, {
+      spaceId,
+      canReconcilePrivateDocuments:
+        membership.role === "owner" || membership.role === "admin",
+    });
   }
-  const accessibleSpaceIds = [personalSpaceId, ...orgSpaceIds.values()];
+  const accessibleSpaceIds = [
+    personalSpaceId,
+    ...[...orgSpaces.values()].map(({ spaceId }) => spaceId),
+  ];
   const now = new Date().toISOString();
   const result: ContentFilesReconciliation = {
     assignedSpaces: 0,
@@ -277,7 +287,7 @@ export async function reconcileContentFilesMemberships(
         );
       result.assignedSpaces += personalLegacyDocuments.length;
     }
-    for (const [orgId, spaceId] of orgSpaceIds) {
+    for (const [orgId, orgSpace] of orgSpaces) {
       const legacyDocuments = await tx
         .select({ id: schema.documents.id })
         .from(schema.documents)
@@ -285,12 +295,19 @@ export async function reconcileContentFilesMemberships(
           and(
             eq(schema.documents.orgId, orgId),
             isNull(schema.documents.spaceId),
+            orgSpace.canReconcilePrivateDocuments
+              ? undefined
+              : or(
+                  eq(schema.documents.ownerEmail, email),
+                  eq(schema.documents.visibility, "org"),
+                  eq(schema.documents.visibility, "public"),
+                ),
           ),
         );
       if (!legacyDocuments.length) continue;
       await tx
         .update(schema.documents)
-        .set({ spaceId, updatedAt: now })
+        .set({ spaceId: orgSpace.spaceId, updatedAt: now })
         .where(
           inArray(
             schema.documents.id,
@@ -300,10 +317,25 @@ export async function reconcileContentFilesMemberships(
       result.assignedSpaces += legacyDocuments.length;
     }
 
-    const documents = await tx
+    const accessibleDocuments = await tx
       .select()
       .from(schema.documents)
       .where(inArray(schema.documents.spaceId, accessibleSpaceIds));
+    const orgSpaceById = new Map(
+      [...orgSpaces.values()].map((space) => [space.spaceId, space]),
+    );
+    const documents = accessibleDocuments.filter((document: any) => {
+      if (document.spaceId === personalSpaceId) {
+        return normalizeContentSpaceEmail(document.ownerEmail) === email;
+      }
+      const orgSpace = orgSpaceById.get(document.spaceId);
+      return (
+        orgSpace?.canReconcilePrivateDocuments === true ||
+        normalizeContentSpaceEmail(document.ownerEmail) === email ||
+        document.visibility === "org" ||
+        document.visibility === "public"
+      );
+    });
     const filesDatabases = await tx
       .select()
       .from(schema.contentDatabases)

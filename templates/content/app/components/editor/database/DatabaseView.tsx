@@ -1309,16 +1309,16 @@ function DatabaseTable({
     ) {
       return false;
     }
+    const spacesResponse = contentSpacesQuery.data;
+    if (!spacesResponse) return false;
+    const space = contentSpaceForCatalogItem({
+      databaseId,
+      catalogDatabaseId: spacesResponse.catalogDatabaseId,
+      documentId: item.document.id,
+      spaces: spacesResponse.spaces,
+    });
+    if (!space) return false;
     void (async () => {
-      const spacesResponse =
-        contentSpacesQuery.data ?? (await contentSpacesQuery.refetch()).data;
-      const space = contentSpaceForCatalogItem({
-        databaseId,
-        catalogDatabaseId: spacesResponse?.catalogDatabaseId,
-        documentId: item.document.id,
-        spaces: spacesResponse?.spaces ?? [],
-      });
-      if (!space) throw new Error("This workspace is no longer available");
       await selectContentSpace({
         space,
         activeOrgId: activeOrgQuery.data?.orgId,
