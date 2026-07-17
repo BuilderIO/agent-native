@@ -716,6 +716,7 @@ const messages = {
     descriptionPlaceholder: "Description (optional)",
     headersPlaceholder: "Authorization: Bearer <token>",
     openSetupDocs: "Open setup docs",
+    viewSetup: "View setup",
     test: "Test",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
@@ -762,11 +763,72 @@ const messages = {
         setupNote:
           "Your Atlassian organization admin may need to allow this app's domain and enable the required Rovo MCP permissions before OAuth can complete.",
       },
+      cloudflare: {
+        description: "Search and operate Cloudflare services through MCP.",
+        useCase:
+          "DNS, Workers, domains, security, observability, platform APIs",
+        setupNote:
+          "Cloudflare's managed MCP directory contains product-specific servers as well as the broad API server. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+      },
+      gitlab: {
+        description:
+          "Read and manage GitLab projects, issues, and merge requests.",
+        useCase: "Repositories, issues, merge requests, CI/CD, code analytics",
+        setupNote:
+          "GitLab MCP is currently beta. On GitLab.com, a top-level group admin must allow MCP access before OAuth can complete; self-managed instances have an equivalent instance setting.",
+      },
+      figma: {
+        description:
+          "Bring Figma design context and canvas actions into an agent.",
+        useCase: "Design files, components, variables, design systems, canvas",
+        setupNote:
+          "Figma only allows clients listed in its MCP Catalog. Agent Native needs vendor approval before this remote endpoint can complete a connection; use the existing Figma OAuth connector for app-owned workflows in the meantime.",
+      },
+      vercel: {
+        description:
+          "Search Vercel docs and inspect projects, deployments, and logs.",
+        useCase: "Deployments, projects, logs, domains, hosting, documentation",
+        setupNote:
+          "Vercel MCP only accepts reviewed and approved AI clients. Agent Native must be added to Vercel's supported-client list before a generic framework connection will work.",
+      },
+      github: {
+        description:
+          "Read repositories, issues, pull requests, and code context.",
+        useCase:
+          "Repositories, issues, pull requests, code, engineering analytics",
+        setupNote:
+          "GitHub's hosted MCP endpoint is currently tied to GitHub Copilot integrations and may reject third-party clients. Use the existing GitHub OAuth connector or provider API actions for Agent Native app workflows.",
+      },
+      slack: {
+        description:
+          "Search Slack conversations and take workspace actions through MCP.",
+        useCase: "Messages, channels, people, company memory, workflows",
+        setupNote:
+          "Slack MCP requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent Native workflows.",
+      },
+      asana: {
+        description:
+          "Search and manage Asana tasks, projects, and work graph data.",
+        useCase: "Tasks, projects, portfolios, planning, workload",
+        setupNote:
+          "Asana's V2 MCP server requires a pre-registered MCP OAuth app and does not support dynamic client registration. Configure an Asana app client before connecting.",
+      },
+      hubspot: {
+        description: "Search and update HubSpot CRM records through MCP.",
+        useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
+        setupNote:
+          "HubSpot MCP requires a HubSpot MCP Auth App and PKCE. Create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+      },
     },
     auth: {
       none: "No auth",
       headers: "Header",
       oauth: "OAuth",
+    },
+    status: {
+      beta: "Beta",
+      setupRequired: "Provider setup",
+      clientRestricted: "Approved clients only",
     },
   },
   observability: {

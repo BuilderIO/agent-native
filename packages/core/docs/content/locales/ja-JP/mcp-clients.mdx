@@ -247,7 +247,16 @@ MCP ツールはノード ランタイムでのみ有効になります — Clou
 MCP (モデル コンテキスト プロトコル) サーバーは、Zapier、Cloudflare、Composio、または会社の内部ツールへの接続など、エージェントに新しい機能を提供します。接続すると、エージェントはこれらのツールを組み込みツールと同じように使用できるようになります。
 
 プリセット ID は `context7`、`sentry`、`notion`、`semgrep`、`linear`、
-`atlassian`、`supabase`、`neon`、`stripe` です。
+`atlassian`、`supabase`、`neon`、`stripe`、`cloudflare`、`gitlab`、`figma`、
+`vercel`、`github`、`slack`、`asana`、`hubspot` です。
+
+ディレクトリでは、汎用 OAuth フローに対応するエンドポイントと、プロバイダー
+が承認したクライアントまたは事前登録済みの OAuth アプリを必要とするプロバイダーを
+区別します。後者も発見用に表示され公式のセットアップ手順へリンクしますが、対応して
+いない場合に誤解を招くワンクリック接続ボタンは表示しません。サンドボックス化された
+拡張機能はホストのアクションを通じて `agentNative.mcp.listTools`、
+`agentNative.mcp.callTool`、`agentNative.providerApi` を使用でき、接続 URL や
+トークンを受け取ることはありません。
 
 ### Atlassian / Jira
 

@@ -246,7 +246,14 @@ MCP 工具仅在 Node 运行时激活 - Cloudflare Workers 和其他边缘
 MCP（模型上下文协议）服务器为您的代理提供新的能力 - 例如连接到 Zapier、Cloudflare、Composio 或您公司的内部工具。连接后，代理可以像使用内置工具一样使用这些工具。
 
 预设 ID 包括 `context7`、`sentry`、`notion`、`semgrep`、`linear`、
-`atlassian`、`supabase`、`neon` 和 `stripe`。
+`atlassian`、`supabase`、`neon`、`stripe`、`cloudflare`、`gitlab`、`figma`、
+`vercel`、`github`、`slack`、`asana` 和 `hubspot`。
+
+目录会区分支持通用 OAuth 流程的端点，以及需要供应商批准的客户端或预先注册的
+OAuth 应用的供应商。后者仍会显示以便发现，并链接到官方设置说明；但在不支持时，
+不会显示容易误导的一键连接按钮。沙盒扩展可以通过主机操作使用
+`agentNative.mcp.listTools`、`agentNative.mcp.callTool` 和
+`agentNative.providerApi`，但不会收到连接 URL 或令牌。
 
 ### Atlassian / Jira
 

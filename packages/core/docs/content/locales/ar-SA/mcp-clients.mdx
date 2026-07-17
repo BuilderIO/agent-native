@@ -246,7 +246,16 @@ MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/
 تمنح خوادم MCP (نموذج سياق البروتوكول) وكيلك قدرات جديدة - مثل الاتصال بـ Zapier، أو Cloudflare، أو Composio، أو الأدوات الداخلية لشركتك. بمجرد الاتصال، يمكن للوكيل استخدام هذه الأدوات تمامًا مثل الأدوات المدمجة فيه.
 
 معرّفات الإعدادات المسبقة هي `context7` و`sentry` و`notion` و`semgrep` و`linear`
-و`atlassian` و`supabase` و`neon` و`stripe`.
+و`atlassian` و`supabase` و`neon` و`stripe` و`cloudflare` و`gitlab` و`figma`
+و`vercel` و`github` و`slack` و`asana` و`hubspot`.
+
+يميّز الدليل بين نقاط النهاية التي تدعم تدفق OAuth العام والمزوّدين الذين
+يتطلبون عميلاً معتمداً من المزوّد أو تطبيق OAuth مسجلاً مسبقاً. تبقى هذه
+الإدخالات متاحة للاكتشاف وترتبط بتعليمات الإعداد الرسمية، لكنها لا تعرض زر
+اتصال بنقرة واحدة عندما لا يكون ذلك مدعوماً. يمكن للإضافات المعزولة استخدام
+`agentNative.mcp.listTools` و`agentNative.mcp.callTool` وواجهات
+`agentNative.providerApi` للوصول إلى البيانات المتصلة عبر إجراءات المضيف؛ ولا
+تتلقى عناوين الاتصال أو رموز الوصول أو الرموز السرية.
 
 ### Atlassian / Jira
 

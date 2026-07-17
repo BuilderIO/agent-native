@@ -32,11 +32,15 @@ describe("MCP integration catalog", () => {
       "supabase",
       "neon",
     ]);
-    expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual([
-      "sentry",
-      "linear",
-      "atlassian",
-    ]);
+    expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        "sentry",
+        "linear",
+        "atlassian",
+        "github",
+        "gitlab",
+      ]),
+    );
     expect(filterMcpIntegrations("jira").map((item) => item.id)).toEqual([
       "atlassian",
     ]);
@@ -69,6 +73,37 @@ describe("MCP integration catalog", () => {
       docsUrl:
         "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
       setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
+    });
+  });
+
+  it("records logo and provider-gating metadata for remote directory entries", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    );
+    const semgrep = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "semgrep",
+    );
+    const cloudflare = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "cloudflare",
+    );
+    const figma = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "figma",
+    );
+
+    expect(context7?.logoUrl).toBe("https://context7.com/favicon.ico");
+    expect(semgrep?.logoUrl).toBe("https://semgrep.dev/favicon.ico");
+    expect(cloudflare).toMatchObject({
+      url: "https://mcp.cloudflare.com/mcp",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      logoUrl: "https://cdn.simpleicons.org/cloudflare",
+    });
+    expect(figma).toMatchObject({
+      url: "https://mcp.figma.com/mcp",
+      connectionMode: "manual",
+      availability: "client-restricted",
+      setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
     });
   });
 

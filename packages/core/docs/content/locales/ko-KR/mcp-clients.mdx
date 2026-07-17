@@ -246,7 +246,15 @@ MCP 도구는 노드 런타임(Cloudflare 작업자 및 기타 에지)에서만 
 MCP(모델 컨텍스트 프로토콜) 서버는 에이전트에 Zapier, Cloudflare, Composio 또는 회사 내부 도구에 연결하는 것과 같은 새로운 기능을 제공합니다. 일단 연결되면 에이전트는 내장된 도구와 마찬가지로 해당 도구를 사용할 수 있습니다.
 
 프리셋 ID는 `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`atlassian`, `supabase`, `neon`, `stripe`입니다.
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana`, `hubspot`입니다.
+
+디렉터리는 일반 OAuth 흐름을 지원하는 엔드포인트와 공급자가 승인한 클라이언트
+또는 사전 등록된 OAuth 앱이 필요한 공급자를 구분합니다. 후자의 항목도 검색을
+위해 표시하고 공식 설정 안내로 연결하지만, 지원되지 않는 경우 오해를 부르는
+원클릭 연결 버튼은 표시하지 않습니다. 샌드박스 확장은 호스트 액션을 통해
+`agentNative.mcp.listTools`, `agentNative.mcp.callTool`,
+`agentNative.providerApi`를 사용할 수 있으며 연결 URL이나 토큰을 받지 않습니다.
 
 ### Atlassian / Jira
 

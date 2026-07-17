@@ -246,7 +246,17 @@ Das bedeutet, dass Benutzer, die die Claude-in-Chrome-Erweiterung installiert ha
 MCP-Server (Model Context Protocol) geben Ihrem Agenten neue Fähigkeiten – wie die Verbindung zu Zapier, Cloudflare, Composio oder den internen Tools Ihres Unternehmens. Sobald die Verbindung hergestellt ist, kann der Agent diese Tools genauso verwenden wie die integrierten.
 
 Die Preset-IDs sind `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`atlassian`, `supabase`, `neon` und `stripe`.
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana` und `hubspot`.
+
+Das Verzeichnis unterscheidet Endpunkte mit dem generischen OAuth-Ablauf von
+Anbietern, die einen vom Anbieter genehmigten Client oder eine vorab registrierte
+OAuth-Anwendung benötigen. Solche Einträge bleiben zur Entdeckung sichtbar und
+verlinken auf die offiziellen Einrichtungsanweisungen, zeigen aber keinen
+irreführenden Ein-Klick-Verbindungsbutton. Sandboxed Erweiterungen verwenden
+`agentNative.mcp.listTools`, `agentNative.mcp.callTool` und
+`agentNative.providerApi` über die Host-Aktionen; Verbindungs-URLs und Tokens
+werden ihnen niemals übergeben.
 
 ### Atlassian / Jira
 

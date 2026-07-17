@@ -268,6 +268,12 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (
+      integration.connectionMode === "manual" ||
+      integration.availability === "provider-setup"
+    ) {
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration);
       return;
@@ -412,42 +418,88 @@ export function McpIntegrationDialog({
                     compareUrl(integration.url),
                   );
                   const requiresHeaders = integration.authMode === "headers";
+                  const setupOnly =
+                    integration.connectionMode === "manual" ||
+                    integration.availability === "provider-setup";
                   return (
                     <article
                       key={integration.id}
                       className="flex min-h-[128px] flex-col rounded-md border border-border bg-card p-4 transition-colors hover:border-border/80 hover:bg-accent/20"
                     >
-                      <h3 className="truncate text-[13px] font-semibold text-foreground">
-                        {integration.name}
-                      </h3>
+                      <div className="flex items-center gap-3">
+                        <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground">
+                          <span aria-hidden="true">
+                            {integration.name.slice(0, 1)}
+                          </span>
+                          <img
+                            src={integration.logoUrl}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            className="absolute inset-1 h-6 w-6 object-contain"
+                            onError={(event) => {
+                              event.currentTarget.hidden = true;
+                            }}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-[13px] font-semibold text-foreground">
+                            {integration.name}
+                          </h3>
+                          {integration.availability !== "ready" && (
+                            <span className="mt-0.5 inline-flex rounded-full border border-amber-500/20 bg-amber-500/5 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300">
+                              {integration.availability === "beta"
+                                ? t("mcpIntegrations.status.beta")
+                                : integration.availability ===
+                                    "client-restricted"
+                                  ? t("mcpIntegrations.status.clientRestricted")
+                                  : t("mcpIntegrations.status.setupRequired")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       <p className="mt-1 line-clamp-2 flex-1 text-[12px] leading-relaxed text-muted-foreground">
                         {t(integration.descriptionKey)}
                       </p>
                       <div className="mt-3 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => quickConnect(integration)}
-                          disabled={busy || connected}
-                          className={cn(
-                            "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium",
-                            connected
-                              ? "border border-border bg-muted text-muted-foreground"
-                              : "bg-primary text-primary-foreground hover:bg-primary/90",
-                            (busy || connected) &&
-                              "cursor-not-allowed opacity-70",
-                          )}
-                        >
-                          {quickBusyId === integration.id ? (
-                            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : null}
-                          {connected
-                            ? t("mcpIntegrations.connected")
-                            : integration.authMode === "oauth"
+                        {connected ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="inline-flex h-8 flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-[12px] font-medium text-muted-foreground opacity-70"
+                          >
+                            {t("mcpIntegrations.connected")}
+                          </button>
+                        ) : setupOnly ? (
+                          <a
+                            href={integration.docsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground hover:bg-accent"
+                          >
+                            {t("mcpIntegrations.viewSetup")}
+                            <IconExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => quickConnect(integration)}
+                            disabled={busy}
+                            className={cn(
+                              "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90",
+                              busy && "cursor-not-allowed opacity-70",
+                            )}
+                          >
+                            {quickBusyId === integration.id ? (
+                              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            {integration.authMode === "oauth"
                               ? t("mcpIntegrations.connectWithOAuth")
                               : requiresHeaders
                                 ? t("mcpIntegrations.configure")
                                 : t("mcpIntegrations.connect")}
-                        </button>
+                          </button>
+                        )}
                         {integration.docsUrl && (
                           <Tooltip>
                             <TooltipTrigger asChild>

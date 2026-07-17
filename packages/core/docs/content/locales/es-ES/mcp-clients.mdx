@@ -247,7 +247,17 @@ Esto significa que los usuarios que han instalado la extensión claude-in-chrome
 Los servidores MCP (Protocolo de contexto modelo) le brindan a su agente nuevas capacidades, como conectarse a Zapier, Cloudflare, Composio o las herramientas internas de su empresa. Una vez conectado, el agente puede utilizar esas herramientas al igual que las integradas.
 
 Los identificadores de los ajustes preestablecidos son `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`atlassian`, `supabase`, `neon` y `stripe`.
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana` y `hubspot`.
+
+El directorio distingue los puntos de conexión que admiten el flujo OAuth
+genérico de los proveedores que requieren un cliente aprobado por el proveedor
+o una aplicación OAuth registrada previamente. Estos últimos siguen visibles
+para su descubrimiento y enlazan a las instrucciones oficiales, pero no muestran
+un botón de conexión de un clic que pueda resultar engañoso. Las extensiones
+aisladas usan `agentNative.mcp.listTools`, `agentNative.mcp.callTool` y
+`agentNative.providerApi` a través de las acciones del host; nunca reciben URL
+de conexión ni tokens.
 
 ### Atlassian / Jira
 

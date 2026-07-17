@@ -37,6 +37,40 @@ auto-mounted at `/_agent-native/actions/:name`.
 </div>
 ```
 
+### Connected MCP and provider APIs
+
+The host injects connector helpers that reuse the current user's or
+organization's server-side grants. OAuth tokens, refresh tokens, client
+secrets, and remote server URLs stay in the parent/runtime and are never
+serialized into the iframe.
+
+```javascript
+const tools = await agentNative.mcp.listTools();
+const linearTools = await agentNative.mcp.listTools("org_linear");
+const result = await agentNative.mcp.callTool("org_linear", "list_issues", {
+  project: "<PROJECT_ID>",
+});
+```
+
+For regular provider connectors, use the shared provider API actions when the
+template exposes them:
+
+```javascript
+const catalog = await agentNative.providerApi.catalog({ provider: "github" });
+const response = await agentNative.providerApi.request({
+  provider: "github",
+  method: "GET",
+  path: "/user/repos",
+});
+```
+
+These helpers are also available as
+`agentNative.connectors.mcp` and `agentNative.connectors.providerApi`. They
+are action-backed, so the host enforces authentication, app grants, provider
+allow-lists, audit behavior, and any local-file `permissions.appActions`
+declarations. A missing provider action is an explicit setup error; it is not
+a reason to fall back to raw `fetch` or to put a token in extension code.
+
 ### `appFetch(path, options)` — Call allowed framework endpoints
 
 General-purpose fetch to allowed framework endpoints (for example,
