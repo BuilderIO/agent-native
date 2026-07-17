@@ -39,6 +39,7 @@ import {
   type PromptComposerSubmitOptions,
   type ReviewThread,
 } from "@agent-native/core/client";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { ReviewComment } from "@agent-native/core/review";
 import type { TweakDefinition } from "@shared/api";
 import {
@@ -23488,6 +23489,27 @@ function DesignEditor() {
           </span>
         ),
         content: shareSendToTab,
+      },
+      {
+        value: "context",
+        label: (
+          <span className={designShareTabLabelClassName}>
+            Context
+          </span>
+        ),
+        content: (
+          <CreativeContextShareTab
+            resource={{
+              appId: "design",
+              resourceType: "design",
+              resourceId: id,
+              title: design.title,
+              updatedAt: activeFile?.updatedAt ?? undefined,
+              preview: { kind: "document", label: "Design project" },
+            }}
+            canManage={canRenderAuthenticatedShare}
+          />
+        ),
       },
     ],
   };

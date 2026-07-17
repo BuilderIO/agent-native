@@ -7,6 +7,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
@@ -711,6 +712,27 @@ export function DocumentToolbar({
                   onCheckedChange: handleHideFromSearchChange,
                 }}
                 variant="compact"
+                shareTabs={{
+                  tabs: [
+                    {
+                      value: "context",
+                      label: "Context",
+                      content: (
+                        <CreativeContextShareTab
+                          resource={{
+                            appId: "content",
+                            resourceType: "document",
+                            resourceId: documentId,
+                            title: documentTitle || "Untitled",
+                            updatedAt: documentUpdatedAt ?? undefined,
+                            preview: { kind: "document", label: "Document" },
+                          }}
+                          canManage={canEdit}
+                        />
+                      ),
+                    },
+                  ],
+                }}
               />
 
               <VersionHistoryPanel

@@ -13,6 +13,7 @@ import {
   useT,
   type CollabUser,
 } from "@agent-native/core/client";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   useDroppable,
   DndContext,
@@ -1424,6 +1425,27 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            shareTabs={{
+              tabs: [
+                {
+                  value: "context",
+                  label: "Context",
+                  content: (
+                    <CreativeContextShareTab
+                      resource={{
+                        appId: "analytics",
+                        resourceType: "dashboard",
+                        resourceId: dashboardId,
+                        title: dashboard.name,
+                        updatedAt: dashboardUpdatedAt ?? undefined,
+                        preview: { kind: "document", label: "SQL dashboard" },
+                      }}
+                      canManage={canManage}
+                    />
+                  ),
+                },
+              ],
+            }}
           />
         ) : null}
         {canEdit ? (
