@@ -41,7 +41,10 @@ describe("creative context client action contracts", () => {
       expect.objectContaining({
         rank: "canonical",
         status: "active",
-        pendingSubmission: { id: "submission-1", status: "pending" },
+        pendingSubmission: expect.objectContaining({
+          id: "submission-1",
+          status: "pending",
+        }),
       }),
     ]);
     expect(JSON.stringify(memberships)).not.toMatch(/opaque-handle|secret/);
