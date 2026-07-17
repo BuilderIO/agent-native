@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
 import { resolveAccess } from "@agent-native/core/sharing";
 import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
-import { nanoid } from "nanoid";
 
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
@@ -34,17 +33,15 @@ export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter 
       const contentHash = createHash("sha256")
         .update(document.content)
         .digest("hex");
-      const versionId = nanoid();
-      await getDb()
-        .insert(schema.documentVersions)
-        .values({
-          id: versionId,
-          ownerEmail: document.ownerEmail,
-          documentId: document.id,
-          title: document.title,
-          content: document.content,
-          createdAt: new Date().toISOString(),
-        });
+      const versionId = randomUUID();
+      await getDb().insert(schema.documentVersions).values({
+        id: versionId,
+        ownerEmail: document.ownerEmail,
+        documentId: document.id,
+        title: document.title,
+        content: document.content,
+        createdAt: new Date().toISOString(),
+      });
       const handle = await putPrivateBlob({
         data: Buffer.from(document.content),
         filename: `${document.id}.md`,
