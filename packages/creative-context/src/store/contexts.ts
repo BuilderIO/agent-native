@@ -1063,18 +1063,18 @@ async function approveSubmission(
         updatedAt: timestamp,
       })
       .where(eq(schema.creativeContextMemberships.id, membership.id));
-    await tx.insert(schema.creativeContextPublishedSnapshots).values({
-      id: newId("ccps"),
-      contextId: context.id,
-      sourceId: context.publishedSourceId,
-      membershipId: membership.id,
-      itemId: published.itemId,
-      itemVersionId: published.itemVersionId,
-      submissionId: submission.id,
-      createdAt: timestamp,
-      ownerEmail: context.ownerEmail,
-      orgId: context.orgId ?? null,
-    });
+    await tx.insert(schema.creativeContextPublishedSnapshots).values([
+      {
+        id: newId("ccps"), contextId: context.id, sourceId: context.publishedSourceId,
+        membershipId: membership.id, itemId: published.itemId, itemVersionId: published.itemVersionId,
+        submissionId: submission.id, createdAt: timestamp, ownerEmail: context.ownerEmail, orgId: context.orgId ?? null,
+      },
+      ...publishedChildren.map((child) => ({
+        id: newId("ccps"), contextId: context.id, sourceId: context.publishedSourceId,
+        membershipId: membership.id, itemId: child.itemId, itemVersionId: child.itemVersionId,
+        submissionId: submission.id, createdAt: timestamp, ownerEmail: context.ownerEmail, orgId: context.orgId ?? null,
+      })),
+    ]);
     await appendAudit(tx, context.id, "approve-submission", {
       submissionId: submission.id,
       membershipId: membership.id,
