@@ -4,6 +4,7 @@ export {
   sodiumNativeAncV1,
 } from "./crypto/sodium-native.js";
 export type { KeyCustodyAdapter } from "./key-custody.js";
+export * from "./native-service.js";
 export {
   PrivateVaultBrokerLifecycleError,
   PrivateVaultBrokerRuntime,
