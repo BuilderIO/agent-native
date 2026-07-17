@@ -74,6 +74,7 @@ export function getDatabaseUrl(fallback = ""): string {
   // Per-PR preview isolation: Netlify injects REVIEW_ID into function runtime
   // for deploy previews, allowing each PR to bind its own Neon branch URL.
   const reviewId = process.env.REVIEW_ID;
+  console.log(`Review Id is ${reviewId}`);
   if (reviewId) {
     const prUrl = process.env[`NETLIFY_DATABASE_URL_PR_${reviewId}`];
     if (prUrl) return prUrl;
