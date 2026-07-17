@@ -8,7 +8,11 @@ FOUNDATION_EXPORT NSString *const AncPrivateVaultFenceService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultHighWaterService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultCustodyService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultCustodyStageService;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultRotationPreparationService;
+FOUNDATION_EXPORT NSString *const
+    AncPrivateVaultRotationPreparationStageService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainAccessGroup;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainStorageDomain;
 
 typedef NS_ENUM(NSInteger, AncPrivateVaultKeychainStatus) {
   AncPrivateVaultKeychainStatusOK = 0,
@@ -25,24 +29,44 @@ typedef struct AncPrivateVaultSecItemFunctions {
                            CFTypeRef _Nullable *_Nullable result);
   OSStatus (*add)(CFDictionaryRef attributes,
                   CFTypeRef _Nullable *_Nullable result);
-  OSStatus (*update)(CFDictionaryRef query,
-                     CFDictionaryRef attributesToUpdate);
+  OSStatus (*update)(CFDictionaryRef query, CFDictionaryRef attributesToUpdate);
   OSStatus (*deleteItem)(CFDictionaryRef query);
 } AncPrivateVaultSecItemFunctions;
 
-typedef LAContext * _Nonnull (^AncPrivateVaultLAContextFactory)(void);
+typedef LAContext *_Nonnull (^AncPrivateVaultLAContextFactory)(void);
+typedef BOOL (^AncPrivateVaultKeychainBytesConsumer)(const uint8_t *bytes,
+                                                     size_t length);
+
+#if ANC_PRIVATE_VAULT_TESTING
+typedef void (^AncPrivateVaultKeychainBoundaryTestHook)(BOOL opened,
+                                                        BOOL writeBoundary);
+FOUNDATION_EXPORT void AncPrivateVaultKeychainSetBoundaryHookForTesting(
+    AncPrivateVaultKeychainBoundaryTestHook _Nullable hook);
+#endif
 
 @interface AncPrivateVaultKeychain : NSObject
 
+/*
+ * Stable identity for one logical secure-storage trust domain. Independent
+ * wrappers over the production access group share the default value; injected
+ * test/back-end adapters must supply a distinct value unless they intentionally
+ * model the same store.
+ */
+@property(nonatomic, copy, readonly) NSString *storageDomain;
+
 - (instancetype)init;
 - (instancetype)initWithFunctions:(AncPrivateVaultSecItemFunctions)functions
-                    contextFactory:(AncPrivateVaultLAContextFactory)factory
+                   contextFactory:(AncPrivateVaultLAContextFactory)factory;
+- (instancetype)initWithFunctions:(AncPrivateVaultSecItemFunctions)functions
+                   contextFactory:(AncPrivateVaultLAContextFactory)factory
+                    storageDomain:(NSString *)storageDomain
     NS_DESIGNATED_INITIALIZER;
 
-- (AncPrivateVaultKeychainStatus)copyDataForService:(NSString *)service
-                                            vaultId:(NSString *)vaultId
-                                           recordId:(NSString *)recordId
-                                               data:(NSData *_Nullable *_Nullable)data;
+- (AncPrivateVaultKeychainStatus)
+    copyDataForService:(NSString *)service
+               vaultId:(NSString *)vaultId
+              recordId:(NSString *)recordId
+                  data:(NSData *_Nullable *_Nullable)data;
 - (AncPrivateVaultKeychainStatus)addData:(NSData *)data
                               forService:(NSString *)service
                                  vaultId:(NSString *)vaultId
@@ -52,11 +76,30 @@ typedef LAContext * _Nonnull (^AncPrivateVaultLAContextFactory)(void);
                                     vaultId:(NSString *)vaultId
                                    recordId:(NSString *)recordId;
 
+/* Secret-bearing callers use these APIs so the sole pageable object is the
+ * tightly scoped CFData supplied by Security.framework. Reads are consumed
+ * synchronously and writes wrap the caller's guarded bytes without copying. */
+- (AncPrivateVaultKeychainStatus)
+    consumeBytesForService:(NSString *)service
+                   vaultId:(NSString *)vaultId
+                  recordId:(NSString *)recordId
+                  consumer:(AncPrivateVaultKeychainBytesConsumer)consumer;
+- (AncPrivateVaultKeychainStatus)addBytes:(const uint8_t *)bytes
+                                   length:(size_t)length
+                               forService:(NSString *)service
+                                  vaultId:(NSString *)vaultId
+                                 recordId:(NSString *)recordId;
+- (AncPrivateVaultKeychainStatus)updateBytes:(const uint8_t *)bytes
+                                      length:(size_t)length
+                                  forService:(NSString *)service
+                                     vaultId:(NSString *)vaultId
+                                    recordId:(NSString *)recordId;
+
 // Every mutation performs an exact readback. Delete succeeds only after an
 // absent readback; callers never infer durability from SecItem's status alone.
 - (AncPrivateVaultKeychainStatus)deleteDataForService:(NSString *)service
-                                               vaultId:(NSString *)vaultId
-                                              recordId:(NSString *)recordId;
+                                              vaultId:(NSString *)vaultId
+                                             recordId:(NSString *)recordId;
 
 @end
 

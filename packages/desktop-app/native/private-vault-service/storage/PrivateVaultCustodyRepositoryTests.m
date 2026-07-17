@@ -204,6 +204,11 @@ static NSData *LegacyRecord(NSData *v2Record) {
   bytes[4] = 0;
   bytes[5] = ANC_PV_CUSTODY_LEGACY_VERSION;
   bytes[13] = 0;
+  if (bytes[10] == ANC_PV_CUSTODY_PENDING_GENESIS) {
+    /* Legacy genesis inferred its expected edge from sequence one. */
+    memset(bytes + 872, 0, 8);
+    bytes[879] = 1;
+  }
   static const uint8_t domain[] =
       "agent-native/private-vault/custody-record/checksum/anc-v1";
   uint8_t input[sizeof domain + 1056];
@@ -1193,6 +1198,10 @@ static void TestLegacyCodecMigrations(void) {
   Fill(genesisSecrets.pendingKey, 32, 0xd1);
   genesis.recovery_generation = 0;
   genesis.authority_anchor_present = 0;
+  genesis.expected_edge_present = 1;
+  genesis.expected_next_sequence = 0;
+  memset(genesis.expected_previous_head, 0, 32);
+  Fill(genesis.pending_transcript_digest, 32, 0xcf);
   genesis.anchored_sequence = 0;
   memset(genesis.anchored_head, 0, 32);
   memset(genesis.membership_digest, 0, 32);
@@ -1209,7 +1218,10 @@ static void TestLegacyCodecMigrations(void) {
   assert(migrated.record_version == ANC_PV_CUSTODY_VERSION &&
          migrated.custody_generation == 2 &&
          migrated.pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS &&
-         !migrated.expected_edge_present);
+         migrated.expected_edge_present &&
+         migrated.expected_next_sequence == 0 &&
+         memcmp(migrated.pending_transcript_digest,
+                genesis.pending_transcript_digest, 32) == 0);
   assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
 
   Reset();

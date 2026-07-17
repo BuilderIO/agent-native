@@ -869,10 +869,16 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
     AncPrivateVaultCustodySnapshot next = current;
     next.record_version = ANC_PV_CUSTODY_VERSION;
     next.custody_generation += 1;
-    next.expected_edge_present = 0;
-    next.expected_next_sequence = 0;
-    memset(next.expected_previous_head, 0, ANC_PV_HASH_BYTES);
-    memset(next.pending_transcript_digest, 0, ANC_PV_HASH_BYTES);
+    if (current.pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS) {
+      next.expected_edge_present = 1;
+      next.expected_next_sequence = 0;
+      memset(next.expected_previous_head, 0, ANC_PV_HASH_BYTES);
+    } else {
+      next.expected_edge_present = 0;
+      next.expected_next_sequence = 0;
+      memset(next.expected_previous_head, 0, ANC_PV_HASH_BYTES);
+      memset(next.pending_transcript_digest, 0, ANC_PV_HASH_BYTES);
+    }
     uint8_t *record = calloc(ANC_PV_CUSTODY_RECORD_BYTES, 1);
     if (record == NULL) {
       status = AncPrivateVaultCustodyRepositoryStatusFailed;
