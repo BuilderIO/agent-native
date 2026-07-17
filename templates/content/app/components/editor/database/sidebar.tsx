@@ -70,11 +70,13 @@ export function ContentFilesSidebarView({
   isLoading,
   labels,
   onSelectView,
+  onOpenItem,
 }: {
   data: ContentDatabaseResponse | undefined;
   overrides: ContentDatabasePersonalViewOverrides | null | undefined;
   isLoading: boolean;
   onSelectView?: (viewId: string) => void;
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
   labels: Omit<
     Parameters<typeof DatabaseSidebarView>[0],
     | "groups"
@@ -151,6 +153,7 @@ export function ContentFilesSidebarView({
         openPagesIn="full_page"
         onClearResultConstraints={() => {}}
         onPreview={() => {}}
+        onOpenItem={onOpenItem}
       />
     </div>
   );
@@ -164,6 +167,7 @@ export function DatabaseSidebarView({
   openPagesIn,
   onClearResultConstraints,
   onPreview,
+  onOpenItem,
   loadingLabel,
   noMatchesLabel,
   clearLabel,
@@ -177,6 +181,7 @@ export function DatabaseSidebarView({
   openPagesIn: ContentDatabaseOpenPagesIn;
   onClearResultConstraints: () => void;
   onPreview: (item: ContentDatabaseItem) => void;
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
   loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
@@ -254,6 +259,7 @@ export function DatabaseSidebarView({
                         item={item}
                         openPagesIn={openPagesIn}
                         onPreview={onPreview}
+                        onOpenItem={onOpenItem}
                         untitledLabel={untitledLabel}
                       />
                     ))}
@@ -267,6 +273,7 @@ export function DatabaseSidebarView({
                 item={item}
                 openPagesIn={openPagesIn}
                 onPreview={onPreview}
+                onOpenItem={onOpenItem}
                 untitledLabel={untitledLabel}
               />
             ))}
@@ -279,16 +286,17 @@ function DatabaseSidebarRow({
   item,
   openPagesIn,
   onPreview,
+  onOpenItem,
   untitledLabel,
 }: {
   item: ContentDatabaseItem;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
   untitledLabel: string;
 }) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
-      openPagesIn !== "preview" ||
       event.defaultPrevented ||
       event.button !== 0 ||
       event.metaKey ||
@@ -298,6 +306,11 @@ function DatabaseSidebarRow({
     ) {
       return;
     }
+    if (onOpenItem?.(item)) {
+      event.preventDefault();
+      return;
+    }
+    if (openPagesIn !== "preview") return;
     event.preventDefault();
     onPreview(item);
   }

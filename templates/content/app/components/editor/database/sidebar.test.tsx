@@ -1,7 +1,11 @@
+// @vitest-environment happy-dom
+
 import type { ContentDatabaseItem } from "@shared/api";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { DatabaseSidebarView, databaseSidebarRows } from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
@@ -68,5 +72,57 @@ describe("DatabaseSidebarView", () => {
 
     expect(markup).toContain('href="/page/page"');
     expect(markup).toContain("Project");
+  });
+
+  it("lets the Files sidebar intercept a workspace reference row", async () => {
+    const onOpenItem = vi.fn(() => true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <DatabaseSidebarView
+            groups={[
+              {
+                id: "all",
+                label: "All pages",
+                items: [item("workspace", "Builder.io")],
+                property: null,
+                value: "all",
+              },
+            ]}
+            grouped={false}
+            isLoading={false}
+            hasActiveConstraints={false}
+            openPagesIn="full_page"
+            loadingLabel="Loading list"
+            noMatchesLabel="No rows match this view"
+            clearLabel="Clear"
+            navigationLabel="Database pages"
+            untitledLabel="Untitled"
+            onClearResultConstraints={() => {}}
+            onPreview={() => {}}
+            onOpenItem={onOpenItem}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    });
+    await act(async () => {
+      container.querySelector("a")?.dispatchEvent(click);
+    });
+
+    expect(onOpenItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "item-workspace" }),
+    );
+    expect(click.defaultPrevented).toBe(true);
+
+    await act(async () => root.unmount());
   });
 });

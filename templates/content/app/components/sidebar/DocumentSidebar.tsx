@@ -122,6 +122,8 @@ import { NotionButton } from "./NotionButton";
 import {
   contentSpaceAvailability,
   contentSpaceForActiveOrg,
+  contentSpaceForCatalogItem,
+  createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "./select-content-space";
@@ -241,6 +243,11 @@ export function DocumentSidebar({
   const ensureContentSpaces = useEnsureContentSpaces();
   const activeOrgQuery = useOrg();
   const activeOrg = activeOrgQuery.data;
+  const activeOrgIdRef = useRef(activeOrg?.orgId);
+  const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  useEffect(() => {
+    activeOrgIdRef.current = activeOrg?.orgId;
+  }, [activeOrg?.orgId]);
   const switchOrg = useSwitchOrg();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const spaceProvisionAttemptedRef = useRef(false);
@@ -299,30 +306,35 @@ export function DocumentSidebar({
   const handleSelectContentSpace = useCallback(
     async (space: (typeof contentSpaces)[number]) => {
       try {
-        await selectContentSpace({
-          space,
-          activeOrgId: activeOrg?.orgId,
-          switchOrg: (orgId) => switchOrg.mutateAsync(orgId),
-          syncApplicationState: (selected) =>
-            setClientAppState(
-              "content-space",
-              {
-                spaceId: selected.id,
-                name: selected.name,
-                kind: selected.kind,
-                filesDatabaseId: selected.filesDatabaseId,
-              },
-              { requestSource: "content-sidebar" },
-            ),
-          persistSelection: setStoredSpaceId,
-          openFiles: (documentId) =>
-            navigate(`/page/${documentId}`, { flushSync: true }),
-        });
+        await workspaceSelectionQueueRef.current(() =>
+          selectContentSpace({
+            space,
+            activeOrgId: activeOrgIdRef.current,
+            switchOrg: async (orgId) => {
+              await switchOrg.mutateAsync(orgId);
+              activeOrgIdRef.current = orgId;
+            },
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-sidebar" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openFiles: (documentId) =>
+              navigate(`/page/${documentId}`, { flushSync: true }),
+          }),
+        );
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
       }
     },
-    [activeOrg?.orgId, navigate, setStoredSpaceId, switchOrg],
+    [navigate, setStoredSpaceId, switchOrg],
   );
   useEffect(() => {
     if (!selectedSpace) return;
@@ -1140,6 +1152,17 @@ export function DocumentSidebar({
             data={filesDatabase.data}
             overrides={filesPersonalView.data?.overrides}
             isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+            onOpenItem={(item) => {
+              const space = contentSpaceForCatalogItem({
+                databaseId: selectedSpace.filesDatabaseId,
+                catalogDatabaseId: contentSpacesQuery.data?.catalogDatabaseId,
+                documentId: item.document.id,
+                spaces: contentSpaces,
+              });
+              if (!space) return false;
+              void handleSelectContentSpace(space);
+              return true;
+            }}
             onSelectView={(viewId) => {
               if (!selectedSpace) return;
               const current = filesPersonalView.data?.overrides;
