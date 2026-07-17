@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.106.2
+
+### Patch Changes
+
+- 7fb8e89: Return a verified artifact receipt when an integration mutation succeeds without a final model summary.
+
 ## 0.106.1
 
 ### Patch Changes
