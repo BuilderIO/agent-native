@@ -489,8 +489,8 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCaseKey: "mcpIntegrations.catalog.zapier.useCase",
     url: "https://mcp.zapier.com/api/v1/connect",
     authMode: "headers",
-    connectionMode: "manual",
-    availability: "provider-setup",
+    connectionMode: "headers",
+    availability: "ready",
     verification: "restricted",
     logoUrl: mcpIntegrationLogo("zapier"),
     docsUrl:
