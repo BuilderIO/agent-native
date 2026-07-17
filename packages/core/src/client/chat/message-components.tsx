@@ -62,6 +62,7 @@ import {
 import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
 import { PastedTextChip } from "../composer/PastedTextChip.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
+import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import { cn } from "../utils.js";
 import {
@@ -819,6 +820,37 @@ function assistantMessageStatusIsTerminal(message: {
   return statusType === "complete" || statusType === "incomplete";
 }
 
+function messageTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const record = part as {
+        type?: unknown;
+        text?: unknown;
+        result?: unknown;
+      };
+      const values: string[] = [];
+      if (typeof record.text === "string") values.push(record.text);
+      if (record.type === "tool-call" && typeof record.result === "string") {
+        values.push(record.result);
+      }
+      return values;
+    })
+    .join("\n");
+}
+
+function latestUserMessageText(messages: readonly unknown[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role === "user") return messageTextFromContent(record.content);
+  }
+  return "";
+}
+
 export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   return content.some((part): boolean => {
@@ -946,6 +978,8 @@ export function AssistantMessage() {
     thread.messages[thread.messages.length - 1].id === msg.id;
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
+  const responseConnectionText = messageTextFromContent(msg.content);
+  const responseConnectionContext = latestUserMessageText(thread.messages);
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
@@ -1103,6 +1137,13 @@ export function AssistantMessage() {
         </MessagePrimitive.GroupedParts>
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
+        )}
+        {isComplete && isLast && (
+          <McpConnectionSuggestion
+            text={responseConnectionText}
+            contextText={responseConnectionContext}
+            variant="response"
+          />
         )}
         {isLast && hasUnresolvedTool && !chatRunning && (
           <RunningActivityStatus label="Thinking" />

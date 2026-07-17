@@ -131,6 +131,7 @@ describe("credential-free Library acceptance", () => {
       contextMode: "off",
       currentPackId: null,
       pinnedPackId: null,
+      selectedContextId: null,
     });
     const offMarkup = renderToStaticMarkup(
       <CreativeContextChip state={off} packs={[pack]} />,

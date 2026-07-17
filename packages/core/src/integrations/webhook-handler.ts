@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 
 import {
   appendA2AArtifactLinks,
+  buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
@@ -83,7 +84,13 @@ const DEFERRED_RESPONSE_MAX_HANDLER_MS = 2_500;
 const EMPTY_INTEGRATION_RESPONSE_MESSAGE =
   "The model finished without a visible answer. Try again, or open the thread in Dispatch to inspect the run.";
 
-type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
+type ToolDoneEvent = {
+  type: "tool_done";
+  tool: string;
+  result: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
+};
 
 /**
  * Build a stable per-event dedup key from the incoming message. The same
@@ -204,6 +211,25 @@ function collectToolResultSummaries(
   return completedRun.events
     .map((runEvent) => runEvent.event)
     .filter((event): event is ToolDoneEvent => event.type === "tool_done")
+    .map((event) => ({
+      tool: event.tool,
+      result: event.result,
+      isError: event.isError,
+      completedSideEffect: event.completedSideEffect,
+    }));
+}
+
+function collectCompletedMutationToolResultSummaries(
+  completedRun: ActiveRun,
+): A2AToolResultSummary[] {
+  return completedRun.events
+    .map((runEvent) => runEvent.event)
+    .filter(
+      (event): event is ToolDoneEvent =>
+        event.type === "tool_done" &&
+        event.completedSideEffect === true &&
+        event.isError !== true,
+    )
     .map((event) => ({ tool: event.tool, result: event.result }));
 }
 
@@ -923,6 +949,18 @@ async function processIncomingMessage(
             queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
 
+          // Compute trusted tool receipts before choosing the empty-answer
+          // fallback. A completed write must not be reported as though nothing
+          // happened merely because the model ran out of time before its prose
+          // summary. Read-only and unverified tool results do not qualify.
+          const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
+          const toolResults = collectToolResultSummaries(completedRun);
+          const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(
+            collectCompletedMutationToolResultSummaries(completedRun),
+            { baseUrl: appBaseUrl || undefined },
+          );
+
           // If the run errored OR produced no text, post a graceful fallback so
           // the user isn't left wondering whether the bot saw their message.
           // Common case: an A2A delegation timed out and the agent loop bailed
@@ -953,7 +991,8 @@ async function processIncomingMessage(
                 "If it was a complex analytics question, opening the analytics app " +
                 "directly is the most reliable way to get an answer right now.";
             } else {
-              responseText = EMPTY_INTEGRATION_RESPONSE_MESSAGE;
+              responseText =
+                verifiedMutationReceipt ?? EMPTY_INTEGRATION_RESPONSE_MESSAGE;
             }
           }
           if (approval?.type === "approval_required") {
@@ -965,9 +1004,6 @@ async function processIncomingMessage(
           // platforms with rich blocks (Slack) can render a button instead
           // of inlining a `<url|text>` link that auto-unfurls into a giant
           // preview card.
-          const baseUrl = process.env.APP_URL || process.env.URL || "";
-          const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
-          const toolResults = collectToolResultSummaries(completedRun);
           if (!suppressPlatformReply) {
             responseText = appendA2AArtifactLinks(responseText, toolResults, {
               baseUrl: appBaseUrl || undefined,

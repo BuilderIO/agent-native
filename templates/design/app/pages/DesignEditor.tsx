@@ -40,6 +40,7 @@ import {
   type ReviewThread,
 } from "@agent-native/core/client";
 import type { ReviewComment } from "@agent-native/core/review";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
@@ -23697,6 +23698,22 @@ function DesignEditor() {
           </span>
         ),
         content: shareSendToTab,
+      },
+      {
+        value: "context",
+        label: <span className={designShareTabLabelClassName}>Context</span>,
+        content: (
+          <CreativeContextShareTab
+            resource={{
+              appId: "design",
+              resourceType: "design",
+              resourceId: id ?? "",
+              title: design?.title ?? "Untitled design",
+              updatedAt: design?.updatedAt ?? undefined,
+              preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+            }}
+          />
+        ),
       },
     ],
   };

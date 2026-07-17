@@ -47,6 +47,7 @@ export interface CreativeContextSearchInput {
   mediaId?: string;
   sourceIds?: string[];
   packId?: string;
+  contextId?: string;
   kinds?: string[];
   tags?: string[];
   colors?: string[];
@@ -184,6 +185,7 @@ export async function performCreativeContextSearch(
   const filters = {
     sourceIds: input.sourceIds,
     packId: input.packId,
+    contextId: input.contextId,
     kinds: input.kinds,
     tags: input.tags,
     colors: input.colors,
@@ -461,6 +463,7 @@ export async function performCreativeContextSearch(
         filters: {
           sourceIds: input.sourceIds,
           packId: input.packId,
+          contextId: input.contextId,
           kinds: input.kinds,
           tags: input.tags,
           colors: input.colors,

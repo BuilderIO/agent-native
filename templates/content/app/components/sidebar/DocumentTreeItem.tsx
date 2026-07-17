@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   SortableContext,
   useSortable,
@@ -114,6 +115,7 @@ export function DocumentTreeItem({
   const hasMenuActions = canEdit || canManage;
   const canCreateChild = canEdit && !isLocalFileNode;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
     sidebarWidth === undefined ? undefined : Math.max(0, sidebarWidth - 8);
@@ -250,6 +252,18 @@ export function DocumentTreeItem({
                   </DropdownMenuItem>
                 )}
                 {canEdit && canManage && <DropdownMenuSeparator />}
+                {canEdit && !isLocalFileNode && (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextSheetOpen(true);
+                    }}
+                  >
+                    <IconPlus size={14} className="me-2" />
+                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                  </DropdownMenuItem>
+                )}
                 {canManage && (
                   <DropdownMenuItem
                     className="text-destructive"
@@ -309,6 +323,21 @@ export function DocumentTreeItem({
           )}
         </div>
       </div>
+
+      <CreativeContextShareSheet
+        open={contextSheetOpen}
+        onOpenChange={setContextSheetOpen}
+        resource={{
+          appId: "content",
+          resourceType: "document",
+          resourceId: node.id,
+          title: node.title || "Untitled",
+          updatedAt: node.updatedAt,
+          visibility: node.visibility,
+          preview: { kind: "document", label: "Document" },
+        }}
+        canManage={canManage}
+      />
 
       {hasChildren && expanded && (
         <SortableContext

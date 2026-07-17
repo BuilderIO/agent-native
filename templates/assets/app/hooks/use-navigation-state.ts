@@ -15,7 +15,8 @@ function optionalParam(params: URLSearchParams, key: string) {
 
 function optionalLibraryTab(params: URLSearchParams) {
   const tab = params.get("tab");
-  return tab === "references" ||
+  return tab === "drafts" ||
+    tab === "references" ||
     tab === "generated" ||
     tab === "runs" ||
     tab === "settings"

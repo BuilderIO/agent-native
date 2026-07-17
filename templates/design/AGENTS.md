@@ -178,6 +178,11 @@ patterns live in `.agents/skills/`.
   `.agents/skills/creative-context/SKILL.md`: explicit request and current
   design first, then a pinned/current pack, then narrow library search. Respect
   `creative-context.contextMode: "off"` without silently restoring a pack.
+- To submit a design to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it captures one immutable live design snapshot.
+  Reuse only a returned opaque native clone reference through the Design clone action.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
   through `index-design-system-with-builder` or the Design System Setup `.fig`

@@ -598,6 +598,7 @@ const messages = {
     untitledTheme: "無標題主題",
   },
   dashboard: {
+    sqlDashboard: "SQL 儀表板",
     historyTitle: "儀表板歷史記錄",
     historyDescription: "還原先前的儀表板狀態。還原前會先保存目前狀態。",
     historyEmpty: "尚無歷史記錄。下一次編輯後，變更會自動保存在這裡。",

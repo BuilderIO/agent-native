@@ -153,6 +153,37 @@ intent:
   explicitly asks for a new artifact. Do not blindly submit another row merely
   because a new Slack message arrived.
 
+For a correction to an existing artifact, treat Slack history as identity and
+intent context, not as the current record state. A title captured when the row
+was created is a historical title: it may help locate the stable document ID,
+but it is not authoritative after the row has been renamed in Content. Once the
+stable ID is known, an external Slack or A2A correction must call
+`pull-document` first to flush any open collaborative editor state; fail closed
+if that flush/read cannot complete. Then read the canonical database row from
+Content immediately before building the update. Treat those freshly read
+values as authoritative for every field the correction does not explicitly
+change.
+
+Build corrections as sparse patches:
+
+- Include only fields the user explicitly asks to change. "Keep," "preserve,"
+  "leave as is," and "unchanged" are constraints, not new values; omit those
+  fields from the mutation so a newer Content-side value cannot be overwritten
+  by stale Slack context.
+- Omission and clearing are different operations. An omitted field keeps its
+  live Content value. Clear a field only when the user explicitly asks to
+  remove, unset, or clear it, and use the empty representation accepted by the
+  current database schema.
+- Never reconstruct a full-row update from the original Slack request. Derive
+  the patch from the correction message and the freshly read canonical row,
+  while preserving the stable document ID.
+- After the mutation, read the row again and verify that the requested fields
+  changed and the mutation did not include omitted fields. Post-write
+  verification is not compare-and-swap: it can reveal an unexpected result but
+  cannot prevent a concurrent edit between the read and a blind metadata or
+  property write. Report an action-provided conflict when one exists; otherwise
+  keep the patch minimal and do not claim the write was conflict-safe.
+
 Apply people fields from verified identity and intent, not from convenient
 guesswork:
 

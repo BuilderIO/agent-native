@@ -11,6 +11,7 @@ const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockResolveAccess = vi.hoisted(() => vi.fn());
+const mockGetOrganizationRoleForEmail = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockVerifySharePassword = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
@@ -66,6 +67,8 @@ vi.mock("../../db/index.js", () => ({
 }));
 
 vi.mock("../../lib/recordings.js", () => ({
+  getOrganizationRoleForEmail: (...args: unknown[]) =>
+    mockGetOrganizationRoleForEmail(...args),
   parseSpaceIds: vi.fn(() => []),
 }));
 
@@ -162,6 +165,7 @@ describe("/api/public-recording route", () => {
     });
     mockGetSession.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue(null);
+    mockGetOrganizationRoleForEmail.mockResolvedValue(null);
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
     mockVerifySharePassword.mockReturnValue(true);
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
@@ -283,5 +287,68 @@ describe("/api/public-recording route", () => {
       orgId: "org-1",
     });
     expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
+  });
+
+  it("allows a signed-in member to open an organization-visible clip", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "member@example.com",
+      orgId: "org-1",
+    });
+    mockGetOrganizationRoleForEmail.mockResolvedValue("member");
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            visibility: "org",
+            organizationId: "org-1",
+            password: null,
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { id: "rec-1", visibility: "org" },
+      viewer: { canEdit: false, isOwner: false, role: "viewer" },
+    });
+    expect(mockGetOrganizationRoleForEmail).toHaveBeenCalledWith(
+      "org-1",
+      "member@example.com",
+    );
+    expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
+  });
+
+  it("preserves an explicit editor grant in the share payload", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "editor@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: makeRecording({ visibility: "private", password: null }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: { canEdit: true, isOwner: false, role: "editor" },
+    });
   });
 });

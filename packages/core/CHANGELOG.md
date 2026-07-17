@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.107.0
+
+### Minor Changes
+
+- 149c0ee: Expand the remote MCP directory with audited provider metadata and brand logos, and expose connected MCP/provider API actions to sandboxed extensions without leaking credentials.
+
+### Patch Changes
+
+- 149c0ee: Add governed creative-context sharing, host-backed native clone actions, and a reusable organization-admin permission helper.
+- 149c0ee: Add a practical guide for organization context, team roles, resource permissions, RBAC, and framework environment variables.
+- 149c0ee: Ensure Office, PowerPoint, and PDF dependencies are bundled into serverless deployments and reject broken Netlify ingestion artifacts.
+- 149c0ee: Harden agent composer dictation cleanup when sending live text and add sentence punctuation and spacing between dictated segments.
+
+## 0.106.3
+
+### Patch Changes
+
+- 10fb9f4: Preserve durable `ask_app` task handles and return retryable status-read details when transient polling transport failures outlast bounded retries.
+
+## 0.106.2
+
+### Patch Changes
+
+- 7fb8e89: Return a verified artifact receipt when an integration mutation succeeds without a final model summary.
+
 ## 0.106.1
 
 ### Patch Changes

@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Dialog,
@@ -45,6 +46,7 @@ type DialogMode = "catalog" | "form";
 interface McpIntegrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialIntegrationId?: string | null;
   defaultScope: McpServerScope;
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
@@ -85,6 +87,7 @@ function compareUrl(value: string): string {
 export function McpIntegrationDialog({
   open,
   onOpenChange,
+  initialIntegrationId = null,
   defaultScope,
   canCreateOrgMcp,
   hasOrg,
@@ -138,21 +141,41 @@ export function McpIntegrationDialog({
     [defaultIntegrations, query],
   );
 
+  const selectedRequiresSetup = Boolean(
+    selected &&
+    (selected.connectionMode === "manual" ||
+      selected.availability === "provider-setup" ||
+      selected.availability === "client-restricted"),
+  );
+
   useEffect(() => {
     if (!open) return;
-    setMode(showCatalog ? "catalog" : "form");
+    const initialIntegration = initialIntegrationId
+      ? defaultIntegrations.find(
+          (integration) => integration.id === initialIntegrationId,
+        )
+      : null;
+    const initialDefaults =
+      createMcpIntegrationFormDefaults(initialIntegration);
+    setMode(initialIntegration || !showCatalog ? "form" : "catalog");
     setQuery("");
-    setSelected(null);
+    setSelected(initialIntegration ?? null);
     setScope(safeDefaultScope);
-    setName("");
-    setUrl("");
-    setDescription("");
-    setHeadersText("");
+    setName(initialDefaults.name);
+    setUrl(initialDefaults.url);
+    setDescription(initialDefaults.description);
+    setHeadersText(initialDefaults.headersText);
     setBusy(false);
     setQuickBusyId(null);
     setError(null);
     setTestResult(null);
-  }, [open, safeDefaultScope, showCatalog]);
+  }, [
+    defaultIntegrations,
+    initialIntegrationId,
+    open,
+    safeDefaultScope,
+    showCatalog,
+  ]);
 
   useEffect(() => {
     if (open && mode === "form") {
@@ -268,6 +291,12 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (
+      integration.connectionMode === "manual" ||
+      integration.availability === "provider-setup"
+    ) {
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration);
       return;
@@ -399,6 +428,14 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.addYourOwn")}
               </button>
+              <AgentAskPopover
+                label={t("mcpIntegrations.addSomething")}
+                title={t("mcpIntegrations.addSomethingTitle")}
+                placeholder={t("mcpIntegrations.addSomethingPlaceholder")}
+                prompt=""
+                context="The user wants to add an MCP or provider integration that is not in the current directory. Research the provider's official remote MCP endpoint and OAuth, client-registration, or allowlist requirements. Prefer Streamable HTTP endpoints over legacy SSE, reuse an existing provider OAuth connector when appropriate, and never ask the user to paste credentials into a prompt. If this should become a reusable preset, update the integration catalog, official docs link, bundled logo, localization, and tests."
+                className="h-9 whitespace-nowrap border-dashed px-3 text-[12px] font-medium"
+              />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-7">
               {error && (
@@ -412,42 +449,101 @@ export function McpIntegrationDialog({
                     compareUrl(integration.url),
                   );
                   const requiresHeaders = integration.authMode === "headers";
+                  const setupOnly =
+                    integration.connectionMode === "manual" ||
+                    integration.availability === "provider-setup" ||
+                    integration.availability === "client-restricted";
                   return (
                     <article
                       key={integration.id}
                       className="flex min-h-[128px] flex-col rounded-md border border-border bg-card p-4 transition-colors hover:border-border/80 hover:bg-accent/20"
                     >
-                      <h3 className="truncate text-[13px] font-semibold text-foreground">
-                        {integration.name}
-                      </h3>
+                      <div className="flex items-center gap-3">
+                        <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground">
+                          <span aria-hidden="true">
+                            {integration.name.slice(0, 1)}
+                          </span>
+                          <img
+                            src={integration.logoUrl}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            className="absolute inset-1 h-6 w-6 object-contain"
+                            onError={(event) => {
+                              event.currentTarget.hidden = true;
+                            }}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-[13px] font-semibold text-foreground">
+                            {integration.name}
+                          </h3>
+                          {integration.availability !== "ready" && (
+                            <span className="mt-0.5 inline-flex rounded-full border border-amber-500/20 bg-amber-500/5 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300">
+                              {integration.availability === "beta"
+                                ? t("mcpIntegrations.status.beta")
+                                : integration.availability ===
+                                    "client-restricted"
+                                  ? t("mcpIntegrations.status.clientRestricted")
+                                  : t("mcpIntegrations.status.setupRequired")}
+                            </span>
+                          )}
+                          <span className="ms-1 mt-0.5 inline-flex rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                            {integration.verification === "verified"
+                              ? t("mcpIntegrations.status.verified")
+                              : integration.verification === "restricted"
+                                ? t("mcpIntegrations.status.restricted")
+                                : t("mcpIntegrations.status.preflightOnly")}
+                          </span>
+                        </div>
+                      </div>
                       <p className="mt-1 line-clamp-2 flex-1 text-[12px] leading-relaxed text-muted-foreground">
                         {t(integration.descriptionKey)}
                       </p>
+                      {integration.setupNoteKey && (
+                        <p className="mt-2 line-clamp-3 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
+                          {t(integration.setupNoteKey)}
+                        </p>
+                      )}
                       <div className="mt-3 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => quickConnect(integration)}
-                          disabled={busy || connected}
-                          className={cn(
-                            "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium",
-                            connected
-                              ? "border border-border bg-muted text-muted-foreground"
-                              : "bg-primary text-primary-foreground hover:bg-primary/90",
-                            (busy || connected) &&
-                              "cursor-not-allowed opacity-70",
-                          )}
-                        >
-                          {quickBusyId === integration.id ? (
-                            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : null}
-                          {connected
-                            ? t("mcpIntegrations.connected")
-                            : integration.authMode === "oauth"
+                        {connected ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="inline-flex h-8 flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-[12px] font-medium text-muted-foreground opacity-70"
+                          >
+                            {t("mcpIntegrations.connected")}
+                          </button>
+                        ) : setupOnly ? (
+                          <a
+                            href={integration.docsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground hover:bg-accent"
+                          >
+                            {t("mcpIntegrations.viewSetup")}
+                            <IconExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => quickConnect(integration)}
+                            disabled={busy}
+                            className={cn(
+                              "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90",
+                              busy && "cursor-not-allowed opacity-70",
+                            )}
+                          >
+                            {quickBusyId === integration.id ? (
+                              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            {integration.authMode === "oauth"
                               ? t("mcpIntegrations.connectWithOAuth")
                               : requiresHeaders
                                 ? t("mcpIntegrations.configure")
                                 : t("mcpIntegrations.connect")}
-                        </button>
+                          </button>
+                        )}
                         {integration.docsUrl && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -638,7 +734,16 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.test")}
               </button>
-              {!selected && (
+              {selected?.authMode === "oauth" && !selectedRequiresSetup ? (
+                <button
+                  type="button"
+                  onClick={() => connectWithOAuth(selected)}
+                  disabled={!name.trim() || !url.trim() || busy}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {t("mcpIntegrations.connectWithOAuth")}
+                </button>
+              ) : !selected ? (
                 <button
                   type="button"
                   onClick={connectCustomWithOAuth}
@@ -647,16 +752,30 @@ export function McpIntegrationDialog({
                 >
                   {t("mcpIntegrations.connectWithOAuth")}
                 </button>
+              ) : null}
+              {selectedRequiresSetup ? (
+                selected?.docsUrl ? (
+                  <a
+                    href={selected.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    {t("mcpIntegrations.viewSetup")}
+                    <IconExternalLink className="h-3 w-3" />
+                  </a>
+                ) : null
+              ) : (
+                <button
+                  type="button"
+                  onClick={submitForm}
+                  disabled={!name.trim() || !url.trim() || busy}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t("mcpIntegrations.connect")}
+                </button>
               )}
-              <button
-                type="button"
-                onClick={submitForm}
-                disabled={!name.trim() || !url.trim() || busy}
-                className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-              >
-                {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
-                {t("mcpIntegrations.connect")}
-              </button>
             </div>
           </>
         )}

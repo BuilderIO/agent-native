@@ -10,6 +10,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -294,6 +295,7 @@ export function Layout({ children }: LayoutProps) {
               t("chat.suggestionMrr"),
             ]}
             scope={sidebarScope}
+            composerSlot={<CreativeContextComposerChip />}
           >
             {contentFrame}
           </AgentSidebar>

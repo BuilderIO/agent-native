@@ -276,14 +276,12 @@ async function loadPptxDependencies(): Promise<{
   loadZip(data: Uint8Array): Promise<ZipArchive>;
   parseXml(xml: string): unknown;
 }> {
-  const zipModuleName = "jszip";
-  const xmlModuleName = "fast-xml-parser";
   try {
     const [zipModule, xmlModule] = await Promise.all([
-      import(zipModuleName) as Promise<{
+      import("jszip") as Promise<{
         default: { loadAsync(data: Uint8Array): Promise<ZipArchive> };
       }>,
-      import(xmlModuleName) as Promise<{
+      import("fast-xml-parser") as Promise<{
         XMLParser: new (options: Record<string, unknown>) => {
           parse(xml: string): unknown;
         };

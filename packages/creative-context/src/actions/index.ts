@@ -11,12 +11,16 @@ import getGooglePickerSession from "./get-google-picker-session.js";
 import inferBrandDna from "./infer-brand-dna.js";
 import listCanonicalLogoCandidates from "./list-canonical-logo-candidates.js";
 import listContextConnections from "./list-context-connections.js";
+import listContextMemberships from "./list-context-memberships.js";
 import listContextPacks from "./list-context-packs.js";
 import listContextSources from "./list-context-sources.js";
 import listContextSuggestions from "./list-context-suggestions.js";
+import listCreativeContexts from "./list-creative-contexts.js";
 import manageBrandProfile from "./manage-brand-profile.js";
+import manageContextMembership from "./manage-context-membership.js";
 import manageContextPack from "./manage-context-pack.js";
 import manageContextSource from "./manage-context-source.js";
+import manageCreativeContext from "./manage-creative-context.js";
 import manageLayoutTemplate from "./manage-layout-template.js";
 import previewContextImport from "./preview-context-import.js";
 import processContextPurge from "./process-context-purge.js";
@@ -44,10 +48,14 @@ export const creativeContextActions: Record<string, ActionEntry> = {
   "infer-brand-dna": inferBrandDna,
   "list-canonical-logo-candidates": listCanonicalLogoCandidates,
   "list-context-packs": listContextPacks,
+  "list-creative-contexts": listCreativeContexts,
+  "list-context-memberships": listContextMemberships,
   "list-context-connections": listContextConnections,
   "list-context-sources": listContextSources,
   "list-context-suggestions": listContextSuggestions,
   "manage-context-pack": manageContextPack,
+  "manage-context-membership": manageContextMembership,
+  "manage-creative-context": manageCreativeContext,
   "manage-brand-profile": manageBrandProfile,
   "manage-context-source": manageContextSource,
   "manage-layout-template": manageLayoutTemplate,

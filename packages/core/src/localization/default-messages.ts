@@ -674,6 +674,9 @@ const messages = {
     chatIntegrations: "Chat Integrations",
     chatIntegrationsDescription: "Talk to this agent from other platforms",
     addIntegration: "Add integration",
+    addSomething: "Add something not listed",
+    addSomethingTitle: "Add another integration",
+    addSomethingPlaceholder: "Which integration should we add?",
     dispatchEntrypoint:
       "For a central Slack or Telegram entrypoint that can route work across multiple apps, use the",
     sharedMessaging:
@@ -686,11 +689,16 @@ const messages = {
     description: "Choose a default MCP integration or add a custom server.",
     searchPlaceholder: "Search integrations",
     addYourOwn: "Add your own",
+    addSomething: "Add something not listed",
+    addSomethingTitle: "Add another integration",
+    addSomethingPlaceholder: "Which MCP or provider should we add?",
     noMatches: "No integrations match that search.",
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect with OAuth",
+    connectSuggestion: "Connect {{name}} to use this link in chat",
+    dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
     configureTitle: "Configure {{name}}",
@@ -716,6 +724,7 @@ const messages = {
     descriptionPlaceholder: "Description (optional)",
     headersPlaceholder: "Authorization: Bearer <token>",
     openSetupDocs: "Open setup docs",
+    viewSetup: "View setup",
     test: "Test",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
@@ -734,6 +743,8 @@ const messages = {
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",
+        setupNote:
+          "Notion MCP uses user OAuth. Enterprise workspaces can audit MCP usage and allow or block clients; reconnect after admin policy changes.",
       },
       semgrep: {
         description: "Scan code for security findings.",
@@ -760,13 +771,127 @@ const messages = {
         useCase:
           "Project management, issue tracking, documentation, team collaboration",
         setupNote:
-          "Your Atlassian organization admin may need to allow this app's domain and enable the required Rovo MCP permissions before OAuth can complete.",
+          "Atlassian admins manage the allowed AI domains and Rovo MCP permissions. Use the current Streamable HTTP endpoint, /v1/mcp, and reconnect after policy changes.",
+      },
+      cloudflare: {
+        description: "Search and operate Cloudflare services through MCP.",
+        useCase:
+          "DNS, Workers, domains, security, observability, platform APIs",
+        setupNote:
+          "Cloudflare's managed MCP directory contains product-specific servers as well as the broad API server. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+      },
+      gitlab: {
+        description:
+          "Read and manage GitLab projects, issues, and merge requests.",
+        useCase: "Repositories, issues, merge requests, CI/CD, code analytics",
+        setupNote:
+          "GitLab MCP is currently beta. On GitLab.com, a top-level group admin must allow MCP access before OAuth can complete; self-managed instances have an equivalent instance setting.",
+      },
+      figma: {
+        description:
+          "Bring Figma design context and canvas actions into an agent.",
+        useCase: "Design files, components, variables, design systems, canvas",
+        setupNote:
+          "Figma only allows clients listed in its MCP Catalog. Agent Native needs vendor approval before this remote endpoint can complete a connection; use the existing Figma OAuth connector for app-owned workflows in the meantime.",
+      },
+      canva: {
+        description: "Search, create, and update Canva designs and assets.",
+        useCase:
+          "Designs, templates, assets, brand kits, exports, collaboration",
+        setupNote:
+          "Canva MCP uses per-user OAuth and requires clients to allow Canva's canva.com and canva.ai domains. Confirm the current redirect and client setup in Canva's MCP documentation before connecting.",
+      },
+      vercel: {
+        description:
+          "Search Vercel docs and inspect projects, deployments, and logs.",
+        useCase: "Deployments, projects, logs, domains, hosting, documentation",
+        setupNote:
+          "Vercel MCP only accepts reviewed and approved AI clients. Agent Native must be added to Vercel's supported-client list before a generic framework connection will work.",
+      },
+      github: {
+        description:
+          "Read repositories, issues, pull requests, and code context.",
+        useCase:
+          "Repositories, issues, pull requests, code, engineering analytics",
+        setupNote:
+          "GitHub does not use a Figma-style vendor client allowlist. Its hosted endpoint is tied to GitHub Copilot integrations; clients need a registered OAuth app, and organizations may enforce OAuth App Access Policies.",
+      },
+      slack: {
+        description:
+          "Search Slack conversations and take workspace actions through MCP.",
+        useCase: "Messages, channels, people, company memory, workflows",
+        setupNote:
+          "Slack MCP requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent Native workflows.",
+      },
+      asana: {
+        description:
+          "Search and manage Asana tasks, projects, and work graph data.",
+        useCase: "Tasks, projects, portfolios, planning, workload",
+        setupNote:
+          "Asana's V2 MCP server requires a pre-registered MCP OAuth app and does not support dynamic client registration. Configure an Asana app client before connecting.",
+      },
+      hubspot: {
+        description: "Search and update HubSpot CRM records through MCP.",
+        useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
+        setupNote:
+          "HubSpot MCP requires a HubSpot MCP Auth App and PKCE. Create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+      },
+      intercom: {
+        description: "Search conversations and customer support knowledge.",
+        useCase:
+          "Customer support, conversations, contacts, help center content",
+        setupNote:
+          "Intercom MCP uses OAuth and is available for US-hosted workspaces. Confirm the workspace region and requested scopes during authorization.",
+      },
+      monday: {
+        description: "Work with boards, items, and team workflows.",
+        useCase: "Work management, boards, projects, tasks, team operations",
+        setupNote:
+          "monday.com MCP uses OAuth over Streamable HTTP. Choose the workspace and permissions to share during authorization.",
+      },
+      webflow: {
+        description: "Read and update Webflow sites and content.",
+        useCase: "Websites, CMS, site content, publishing, design workflows",
+        setupNote:
+          "Webflow MCP uses OAuth. Designer capabilities may install Webflow's Bridge App during authorization; Data API access is available separately.",
+      },
+      paypal: {
+        description: "Work with PayPal payments, invoices, and commerce data.",
+        useCase: "Payments, invoices, transactions, merchant operations",
+        setupNote:
+          "PayPal exposes OAuth discovery and login for its remote MCP server. Agent Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
+      },
+      box: {
+        description: "Search and manage files and folders in Box.",
+        useCase: "Files, folders, enterprise content, search, collaboration",
+        setupNote:
+          "Box MCP is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
+      },
+      netlify: {
+        description: "Inspect and operate Netlify sites and deployments.",
+        useCase: "Sites, deployments, builds, domains, hosting operations",
+        setupNote:
+          "Netlify documents a remote MCP setup for supported clients. Review the site and team permissions before completing OAuth.",
+      },
+      zapier: {
+        description: "Connect MCP tools to thousands of app actions.",
+        useCase: "Automation, workflows, app actions, cross-service operations",
+        setupNote:
+          "Zapier MCP uses a user-created MCP server and connection token for unlisted clients. Create the server in Zapier, then paste its generated bearer token into the header field.",
       },
     },
     auth: {
       none: "No auth",
       headers: "Header",
       oauth: "OAuth",
+    },
+    status: {
+      beta: "Beta",
+      setupRequired: "Provider setup",
+      clientRestricted: "Approved clients only",
+      verified: "Verified",
+      preflightOnly: "Preflight only",
+      restricted: "Restricted",
     },
   },
   observability: {

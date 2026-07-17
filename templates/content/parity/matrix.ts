@@ -17,6 +17,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "create-document",
+      "clone-creative-context-document",
       "delete-document",
       "get-document",
       "list-documents",

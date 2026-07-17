@@ -18,6 +18,10 @@ import type {
 } from "../types.js";
 
 export const CREATIVE_CONTEXT_ACTIONS = {
+  listContexts: "list-creative-contexts",
+  manageContext: "manage-creative-context",
+  listMemberships: "list-context-memberships",
+  manageMembership: "manage-context-membership",
   listSources: "list-context-sources",
   manageSource: "manage-context-source",
   previewImport: "preview-context-import",
@@ -40,6 +44,536 @@ export const CREATIVE_CONTEXT_ACTIONS = {
   listSuggestions: "list-context-suggestions",
   manageLayoutTemplate: "manage-layout-template",
 } as const;
+
+export type CreativeContextPolicy = "open" | "review" | "admins-only";
+export type CreativeContextMembershipRank = "canonical" | "exemplar" | "normal";
+
+export type CreativeContextSafePreview =
+  | {
+      type: "slides";
+      slideCount: number;
+      slides: Array<{ index: number; title: string; excerpt: string }>;
+    }
+  | { type: "slide"; index: number; title: string; excerpt: string }
+  | {
+      type: "design";
+      fileCount: number;
+      frames: Array<{ title: string; fileType: string; excerpt: string }>;
+    }
+  | {
+      type: "design-frame";
+      title: string;
+      fileType: string;
+      excerpt: string;
+    }
+  | {
+      type: "document";
+      headings: string[];
+      excerpt: string;
+      blocks: Array<{
+        kind: "heading" | "paragraph" | "bullet" | "quote" | "code";
+        text: string;
+        level?: number;
+      }>;
+    }
+  | {
+      type: "asset";
+      mediaType: "image" | "video";
+      width: number | null;
+      height: number | null;
+      durationSeconds: number | null;
+    }
+  | {
+      type: "dashboard";
+      data: "synthetic";
+      panels: Array<{ id: string; title: string; visualization: string }>;
+    };
+
+export interface CreativeContextSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  kind: "default" | "specialty";
+  memberCount: number;
+  updatedAt?: string | null;
+  approvalPolicy: CreativeContextPolicy;
+  visibility: "private" | "org" | "public";
+  access: {
+    role: "viewer" | "editor" | "admin" | "owner";
+    canSubmit: boolean;
+    canReview: boolean;
+    canAdmin: boolean;
+  };
+}
+
+export interface CreativeContextPreviewItem {
+  id: string;
+  itemVersionId: string;
+  title: string;
+  kind: string;
+  status: string;
+  sourceModifiedAt: string | null;
+  preview: CreativeContextSafePreview | null;
+  media: Array<{
+    id: string;
+    kind: string;
+    mimeType: string | null;
+    url: string;
+  }>;
+}
+
+export interface CreativeContextMembership {
+  id: string;
+  contextId: string;
+  publishedItemId: string | null;
+  publishedItemVersionId: string | null;
+  pendingSubmissionId: string | null;
+  rank: CreativeContextMembershipRank;
+  purpose: string | null;
+  status: "active" | "removed";
+  updatedAt?: string | null;
+  nativeUpdateStatus?: {
+    state: "current" | "update-available" | "unknown";
+  } | null;
+  publishedItem?: CreativeContextPreviewItem | null;
+  pendingSubmission?: {
+    id: string;
+    status: string;
+    note: string | null;
+    submittedBy: string;
+    proposedItem: CreativeContextPreviewItem | null;
+  } | null;
+}
+
+export interface ListCreativeContextsParams {
+  limit?: number;
+  cursor?: string;
+  includeArchived?: boolean;
+}
+
+export interface ListCreativeContextsResult {
+  contexts: CreativeContextSummary[];
+  appId?: string;
+  appDefaultContextId?: string | null;
+}
+
+export type ManageCreativeContextParams =
+  | {
+      operation: "create";
+      name: string;
+      description?: string | null;
+      kind: "default" | "specialty";
+      brandProfileId?: string | null;
+      approvalPolicy?: CreativeContextPolicy;
+    }
+  | {
+      operation: "update";
+      contextId: string;
+      patch: {
+        name?: string;
+        description?: string | null;
+        brandProfileId?: string | null;
+        approvalPolicy?: CreativeContextPolicy;
+      };
+    }
+  | { operation: "archive"; contextId: string }
+  | { operation: "set-app-default"; contextId: string; appId: string };
+
+export interface ManageCreativeContextResult {
+  context: CreativeContextSummary | null;
+}
+
+export interface ListContextMembershipsParams {
+  contextId: string;
+  status?: "active" | "removed";
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ListContextMembershipsResult {
+  memberships: CreativeContextMembership[];
+}
+
+export type ManageContextMembershipParams =
+  | {
+      operation: "submit";
+      contextId: string;
+      itemId?: string;
+      itemVersionId?: string;
+      nativeResource?: {
+        appId: string;
+        resourceType: string;
+        resourceId: string;
+        expectedUpdatedAt?: string;
+      };
+      rank?: CreativeContextMembershipRank;
+      purpose?: string;
+      note?: string;
+      confirmBroaderPublication?: true;
+    }
+  | {
+      operation: "submit-latest";
+      contextId: string;
+      membershipId: string;
+      note?: string;
+      confirmBroaderPublication?: true;
+    }
+  | {
+      operation: "approve" | "request-changes" | "withdraw" | "remove";
+      contextId: string;
+      membershipId: string;
+      note?: string | null;
+    };
+
+export interface ManageContextMembershipResult {
+  membership: CreativeContextMembership | null;
+  membershipId?: string;
+  submission?: { id: string; status: string };
+  withdrawn?: boolean;
+  approved?: boolean;
+  requestChanges?: boolean;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function previewString(value: unknown, limit: number) {
+  return typeof value === "string" ? value.slice(0, limit) : "";
+}
+
+function previewNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Accept only the compact structured preview contract. Native payloads and
+ * arbitrary item metadata deliberately never cross into the shared client.
+ */
+export function parseCreativeContextSafePreview(
+  value: unknown,
+): CreativeContextSafePreview | null {
+  const preview = record(value);
+  if (!preview || typeof preview.type !== "string") return null;
+  if (preview.type === "slides") {
+    const slides = Array.isArray(preview.slides)
+      ? preview.slides.slice(0, 24).flatMap((entry, index) => {
+          const slide = record(entry);
+          if (!slide) return [];
+          return [
+            {
+              index:
+                typeof slide.index === "number" && slide.index > 0
+                  ? Math.floor(slide.index)
+                  : index + 1,
+              title: previewString(slide.title, 160) || `Slide ${index + 1}`,
+              excerpt: previewString(slide.excerpt, 320),
+            },
+          ];
+        })
+      : [];
+    return {
+      type: "slides",
+      slideCount:
+        typeof preview.slideCount === "number" && preview.slideCount >= 0
+          ? Math.floor(preview.slideCount)
+          : slides.length,
+      slides,
+    };
+  }
+  if (preview.type === "slide") {
+    return {
+      type: "slide",
+      index:
+        typeof preview.index === "number" && preview.index > 0
+          ? Math.floor(preview.index)
+          : 1,
+      title: previewString(preview.title, 160) || "Slide",
+      excerpt: previewString(preview.excerpt, 500),
+    };
+  }
+  if (preview.type === "design") {
+    const frames = Array.isArray(preview.frames)
+      ? preview.frames.slice(0, 24).flatMap((entry) => {
+          const frame = record(entry);
+          if (!frame) return [];
+          return [
+            {
+              title: previewString(frame.title, 160) || "Untitled frame",
+              fileType: previewString(frame.fileType, 80) || "design",
+              excerpt: previewString(frame.excerpt, 320),
+            },
+          ];
+        })
+      : [];
+    return {
+      type: "design",
+      fileCount:
+        typeof preview.fileCount === "number" && preview.fileCount >= 0
+          ? Math.floor(preview.fileCount)
+          : frames.length,
+      frames,
+    };
+  }
+  if (preview.type === "design-frame") {
+    return {
+      type: "design-frame",
+      title: previewString(preview.title, 160) || "Untitled frame",
+      fileType: previewString(preview.fileType, 80) || "design",
+      excerpt: previewString(preview.excerpt, 500),
+    };
+  }
+  if (preview.type === "document" || preview.type === "markdown") {
+    const headings = Array.isArray(preview.headings)
+      ? preview.headings
+          .slice(0, 8)
+          .map((heading) => previewString(heading, 160))
+          .filter(Boolean)
+      : [];
+    const blocks = Array.isArray(preview.blocks)
+      ? preview.blocks.slice(0, 40).flatMap((entry) => {
+          const block = record(entry);
+          if (!block) return [];
+          const kind: "heading" | "paragraph" | "bullet" | "quote" | "code" =
+            block.kind === "heading" ||
+            block.kind === "bullet" ||
+            block.kind === "quote" ||
+            block.kind === "code"
+              ? block.kind
+              : "paragraph";
+          const text = previewString(block.text, 600);
+          if (!text) return [];
+          const level =
+            kind === "heading" &&
+            typeof block.level === "number" &&
+            block.level >= 1 &&
+            block.level <= 6
+              ? Math.floor(block.level)
+              : undefined;
+          return [{ kind, text, ...(level ? { level } : {}) }];
+        })
+      : [];
+    return {
+      type: "document",
+      headings,
+      excerpt: previewString(preview.excerpt, 1_500),
+      blocks,
+    };
+  }
+  if (preview.type === "asset") {
+    return {
+      type: "asset",
+      mediaType: preview.mediaType === "video" ? "video" : "image",
+      width: previewNumber(preview.width),
+      height: previewNumber(preview.height),
+      durationSeconds: previewNumber(preview.durationSeconds),
+    };
+  }
+  if (preview.type === "dashboard") {
+    const panels = Array.isArray(preview.panels)
+      ? preview.panels.slice(0, 24).flatMap((entry, index) => {
+          const panel = record(entry);
+          if (!panel) return [];
+          return [
+            {
+              id: previewString(panel.id, 120) || String(index + 1),
+              title: previewString(panel.title, 160) || `Panel ${index + 1}`,
+              visualization: previewString(panel.visualization, 80) || "chart",
+            },
+          ];
+        })
+      : [];
+    return { type: "dashboard", data: "synthetic", panels };
+  }
+  return null;
+}
+
+function contextSummary(value: unknown): CreativeContextSummary | null {
+  const source = record(value);
+  if (
+    !source ||
+    typeof source.id !== "string" ||
+    typeof source.name !== "string"
+  ) {
+    return null;
+  }
+  const access = record(source.access);
+  const role =
+    access?.role === "owner" ||
+    access?.role === "admin" ||
+    access?.role === "editor"
+      ? access.role
+      : "viewer";
+  return {
+    id: source.id,
+    name: source.name,
+    description:
+      typeof source.description === "string" ? source.description : null,
+    kind: source.kind === "specialty" ? "specialty" : "default",
+    memberCount:
+      typeof source.memberCount === "number" ? source.memberCount : 0,
+    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+    approvalPolicy:
+      source.approvalPolicy === "review" ||
+      source.approvalPolicy === "admins-only"
+        ? source.approvalPolicy
+        : "open",
+    visibility:
+      source.visibility === "org" || source.visibility === "public"
+        ? source.visibility
+        : "private",
+    access: {
+      role,
+      canSubmit: access?.canSubmit === true,
+      canReview: access?.canReview === true,
+      canAdmin: access?.canAdmin === true,
+    },
+  };
+}
+
+export function parseCreativeContexts(
+  value: unknown,
+): CreativeContextSummary[] {
+  const source = Array.isArray(value)
+    ? value
+    : (record(value)?.contexts ?? record(value)?.items ?? []);
+  return Array.isArray(source)
+    ? source
+        .map(contextSummary)
+        .filter((item): item is CreativeContextSummary => Boolean(item))
+    : [];
+}
+
+function parseContextPreviewItem(
+  value: unknown,
+): CreativeContextPreviewItem | null {
+  const item = record(value);
+  if (
+    !item ||
+    typeof item.id !== "string" ||
+    typeof item.itemVersionId !== "string" ||
+    typeof item.title !== "string" ||
+    typeof item.kind !== "string"
+  )
+    return null;
+  const media = Array.isArray(item.media)
+    ? item.media.flatMap((value) => {
+        const medium = record(value);
+        return medium &&
+          typeof medium.id === "string" &&
+          typeof medium.kind === "string" &&
+          typeof medium.url === "string"
+          ? [
+              {
+                id: medium.id,
+                kind: medium.kind,
+                mimeType:
+                  typeof medium.mimeType === "string" ? medium.mimeType : null,
+                url: medium.url,
+              },
+            ]
+          : [];
+      })
+    : [];
+  return {
+    id: item.id,
+    itemVersionId: item.itemVersionId,
+    title: item.title,
+    kind: item.kind,
+    status: typeof item.status === "string" ? item.status : "active",
+    sourceModifiedAt:
+      typeof item.sourceModifiedAt === "string" ? item.sourceModifiedAt : null,
+    preview: parseCreativeContextSafePreview(item.preview),
+    media,
+  };
+}
+
+export function parseContextMemberships(
+  value: unknown,
+): CreativeContextMembership[] {
+  const source = Array.isArray(value)
+    ? value
+    : (record(value)?.memberships ?? record(value)?.items ?? []);
+  if (!Array.isArray(source)) return [];
+  return source.flatMap((value) => {
+    const item = record(value);
+    if (
+      !item ||
+      typeof item.id !== "string" ||
+      typeof item.contextId !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: item.id,
+        contextId: item.contextId,
+        publishedItemId:
+          typeof item.publishedItemId === "string"
+            ? item.publishedItemId
+            : null,
+        publishedItemVersionId:
+          typeof item.publishedItemVersionId === "string"
+            ? item.publishedItemVersionId
+            : null,
+        pendingSubmissionId:
+          typeof item.pendingSubmissionId === "string"
+            ? item.pendingSubmissionId
+            : null,
+        rank:
+          item.rank === "canonical" || item.rank === "exemplar"
+            ? item.rank
+            : "normal",
+        purpose: typeof item.purpose === "string" ? item.purpose : null,
+        status: item.status === "removed" ? "removed" : "active",
+        updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
+        nativeUpdateStatus: (() => {
+          const status = record(item.nativeUpdateStatus)?.state;
+          return status === "current" ||
+            status === "update-available" ||
+            status === "unknown"
+            ? { state: status }
+            : null;
+        })(),
+        pendingSubmission: (() => {
+          const submission = record(item.pendingSubmission);
+          return submission &&
+            typeof submission.id === "string" &&
+            typeof submission.status === "string"
+            ? {
+                id: submission.id,
+                status: submission.status,
+                note:
+                  typeof submission.note === "string" ? submission.note : null,
+                submittedBy:
+                  typeof submission.submittedBy === "string"
+                    ? submission.submittedBy
+                    : "",
+                proposedItem: parseContextPreviewItem(submission.proposedItem),
+              }
+            : null;
+        })(),
+        publishedItem: parseContextPreviewItem(item.publishedItem),
+      },
+    ];
+  });
+}
+
+export function parseContextMembershipsForResource(
+  value: unknown,
+  resource: { appId: string; resourceType: string; resourceId: string },
+): CreativeContextMembership[] {
+  const source = record(value)?.memberships;
+  if (!Array.isArray(source)) return [];
+  const artifactKey = `${resource.appId}:${resource.resourceType}:${resource.resourceId}`;
+  return parseContextMemberships({
+    memberships: source.filter(
+      (value) => record(value)?.artifactKey === artifactKey,
+    ),
+  });
+}
 
 export interface CanonicalLogoCandidate {
   mediaId: string;
@@ -80,6 +614,7 @@ export interface SearchCreativeContextParams {
   query: string;
   sourceIds?: string[];
   packId?: string;
+  contextId?: string;
   kinds?: string[];
   limit?: number;
   cursor?: string;
@@ -292,6 +827,37 @@ export function useCreativeContextSources(
     CREATIVE_CONTEXT_ACTIONS.listSources,
     params,
   );
+}
+
+export function useCreativeContexts(params: ListCreativeContextsParams = {}) {
+  return useActionQuery<ListCreativeContextsResult>(
+    CREATIVE_CONTEXT_ACTIONS.listContexts,
+    { limit: 50, ...params },
+  );
+}
+
+export function useManageCreativeContext() {
+  return useActionMutation<
+    ManageCreativeContextResult,
+    ManageCreativeContextParams
+  >(CREATIVE_CONTEXT_ACTIONS.manageContext);
+}
+
+export function useContextMemberships(
+  params: ListContextMembershipsParams | null,
+) {
+  return useActionQuery<ListContextMembershipsResult>(
+    CREATIVE_CONTEXT_ACTIONS.listMemberships,
+    params ? { limit: 50, ...params } : undefined,
+    { enabled: Boolean(params) },
+  );
+}
+
+export function useManageContextMembership() {
+  return useActionMutation<
+    ManageContextMembershipResult,
+    ManageContextMembershipParams
+  >(CREATIVE_CONTEXT_ACTIONS.manageMembership);
 }
 
 export function useCreativeContextSearch() {

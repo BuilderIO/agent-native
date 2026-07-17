@@ -1,10 +1,12 @@
 import { VisibilityBadge, useT } from "@agent-native/core/client";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconDots,
   IconTrash,
   IconCopy,
   IconPencil,
   IconPalette,
+  IconPlus,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router";
@@ -42,6 +44,7 @@ export default function DeckCard({
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
+  const [contextOpen, setContextOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
 
@@ -188,6 +191,16 @@ export default function DeckCard({
               <IconCopy className="w-3.5 h-3.5 me-2" />
               {isDuplicating ? "Duplicating..." : "Duplicate"}
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                setContextOpen(true);
+              }}
+            >
+              <IconPlus className="w-3.5 h-3.5 me-2" />
+              {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={(e) => {
@@ -203,6 +216,20 @@ export default function DeckCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        resource={{
+          appId: "slides",
+          resourceType: "deck",
+          resourceId: deck.id,
+          title: deck.title,
+          updatedAt: deck.updatedAt,
+          visibility: deck.visibility,
+          preview: { kind: "document", label: "Deck" },
+        }}
+        canManage={deck.createdByMe}
+      />
     </div>
   );
 }
