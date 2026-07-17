@@ -85,6 +85,12 @@ vi.mock("../server/lib/recordings.js", () => ({
 import action, { resolveListRecordingMedia } from "./list-recordings";
 
 describe("list-recordings editor media", () => {
+  it("coerces the editor media flag from GET query parameters", () => {
+    expect(action.schema.parse({ includeMedia: "true" }).includeMedia).toBe(
+      true,
+    );
+  });
+
   it("keeps playable media out of normal library rows", () => {
     expect(
       resolveListRecordingMedia(

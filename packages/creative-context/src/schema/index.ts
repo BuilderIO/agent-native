@@ -385,7 +385,7 @@ export const creativeContextMemberships = table(
   },
 );
 
-/** Submission rows are append-only evidence and staging pointers. */
+/** Submission rows track workflow state; immutable version pins and audit rows preserve evidence. */
 export const creativeContextSubmissions = table(
   "creative_context_submissions",
   {

@@ -6,7 +6,7 @@
  * authenticated `/_agent-native/actions/get-recording-player-data` route.
  *
  * Only returns data when:
- *   - recording.visibility === 'public' (or the signed-in viewer is owner), AND
+ *   - recording.visibility === 'public', or the signed-in viewer has org/share access, AND
  *   - either no password is set, the viewer is owner, or the provided password matches
  *
  * For `org` or `private` visibility, signed-in org members and explicit shares

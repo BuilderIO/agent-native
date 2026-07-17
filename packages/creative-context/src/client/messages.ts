@@ -53,6 +53,7 @@ export type CreativeContextMessageKey =
   | "personal"
   | "organization"
   | "addSource"
+  | "addToContext"
   | "sourceName"
   | "sourceReference"
   | "preview"
@@ -168,6 +169,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "Personal",
     organization: "Organization",
     addSource: "Add a source",
+    addToContext: "Add to context…",
     sourceName: "Source name",
     sourceReference: "Source reference",
     preview: "Preview",
@@ -276,6 +278,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "個人",
     organization: "組織",
     addSource: "新增來源",
+    addToContext: "新增至脈絡…",
     sourceName: "來源名稱",
     sourceReference: "來源參考",
     preview: "預覽",
@@ -382,6 +385,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "个人",
     organization: "组织",
     addSource: "添加来源",
+    addToContext: "添加到上下文…",
     sourceName: "来源名称",
     sourceReference: "来源引用",
     preview: "预览",
@@ -494,6 +498,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "Personal",
     organization: "Organización",
     addSource: "Añadir una fuente",
+    addToContext: "Añadir al contexto…",
     sourceName: "Nombre de la fuente",
     sourceReference: "Referencia de la fuente",
     preview: "Vista previa",
@@ -609,6 +614,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "Personnel",
     organization: "Organisation",
     addSource: "Ajouter une source",
+    addToContext: "Ajouter au contexte…",
     sourceName: "Nom de la source",
     sourceReference: "Référence de la source",
     preview: "Aperçu",
@@ -724,6 +730,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "Persönlich",
     organization: "Organisation",
     addSource: "Quelle hinzufügen",
+    addToContext: "Zum Kontext hinzufügen…",
     sourceName: "Quellenname",
     sourceReference: "Quellenreferenz",
     preview: "Vorschau",
@@ -839,6 +846,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "個人",
     organization: "組織",
     addSource: "ソースを追加",
+    addToContext: "コンテキストに追加…",
     sourceName: "ソース名",
     sourceReference: "ソース参照",
     preview: "プレビュー",
@@ -953,6 +961,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "개인",
     organization: "조직",
     addSource: "소스 추가",
+    addToContext: "컨텍스트에 추가…",
     sourceName: "소스 이름",
     sourceReference: "소스 참조",
     preview: "미리보기",
@@ -1067,6 +1076,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "Pessoal",
     organization: "Organização",
     addSource: "Adicionar uma fonte",
+    addToContext: "Adicionar ao contexto…",
     sourceName: "Nome da fonte",
     sourceReference: "Referência da fonte",
     preview: "Prévia",
@@ -1178,6 +1188,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "व्यक्तिगत",
     organization: "संगठन",
     addSource: "स्रोत जोड़ें",
+    addToContext: "कॉन्टेक्स्ट में जोड़ें…",
     sourceName: "स्रोत का नाम",
     sourceReference: "स्रोत संदर्भ",
     preview: "पूर्वावलोकन",
@@ -1289,6 +1300,7 @@ export const creativeContextMessagesByLocale: Record<
     personal: "شخصي",
     organization: "المؤسسة",
     addSource: "إضافة مصدر",
+    addToContext: "إضافة إلى السياق…",
     sourceName: "اسم المصدر",
     sourceReference: "مرجع المصدر",
     preview: "معاينة",

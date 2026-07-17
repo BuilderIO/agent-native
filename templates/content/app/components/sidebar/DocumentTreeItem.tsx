@@ -261,7 +261,7 @@ export function DocumentTreeItem({
                     }}
                   >
                     <IconPlus size={14} className="me-2" />
-                    Add to context…
+                    {t("creativeContext.addToContext")}
                   </DropdownMenuItem>
                 )}
                 {canManage && (

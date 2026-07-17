@@ -1442,7 +1442,10 @@ export default function SqlDashboardPage() {
                         resourceId: dashboardId,
                         title: dashboard.name,
                         updatedAt: dashboardUpdatedAt ?? undefined,
-                        preview: { kind: "document", label: "SQL dashboard" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+                        preview: {
+                          kind: "document",
+                          label: t("dashboard.sqlDashboard"),
+                        },
                       }}
                     />
                   ),
@@ -1543,7 +1546,7 @@ export default function SqlDashboardPage() {
                 }}
               >
                 <IconPlus className="mr-2 h-3.5 w-3.5" />
-                Add to context…
+                {t("creativeContext.addToContext")}
               </DropdownMenuItem>
             ) : null}
             {dashboardId ? (
@@ -1629,7 +1632,10 @@ export default function SqlDashboardPage() {
               title: dashboard.name,
               updatedAt: dashboardUpdatedAt ?? undefined,
               visibility: dashboardVisibility ?? undefined,
-              preview: { kind: "document", label: "SQL dashboard" },
+              preview: {
+                kind: "document",
+                label: t("dashboard.sqlDashboard"),
+              },
             }}
             canManage={canManage}
           />

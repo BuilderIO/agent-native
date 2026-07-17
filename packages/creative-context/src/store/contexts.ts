@@ -1394,7 +1394,9 @@ export async function submitLatestContextMembershipUpdate(input: {
   ]);
   const status = statuses.get(published.membership.id);
   if (!status)
-    throw new Error("Native resource not found or update status is unavailable");
+    throw new Error(
+      "Native resource not found or update status is unavailable",
+    );
   if (status.state !== "update-available")
     throw new Error("This context membership is already up to date");
 

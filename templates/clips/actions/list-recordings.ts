@@ -99,7 +99,10 @@ export default defineAction({
       .default(false)
       .describe("Return only the total count, skipping the row payload"),
     includeMedia: z
-      .boolean()
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean(),
+      )
       .default(false)
       .describe("Include playable media fields for editor workflows"),
   }),

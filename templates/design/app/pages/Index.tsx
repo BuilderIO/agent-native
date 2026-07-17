@@ -824,7 +824,7 @@ export default function Index() {
                     className="cursor-pointer"
                   >
                     <IconPlus className="w-3.5 h-3.5" />
-                    Add to context…
+                    {t("creativeContext.addToContext")}
                   </Button>
                   <Button
                     variant="destructive"
@@ -961,7 +961,7 @@ export default function Index() {
                             className="cursor-pointer"
                           >
                             <IconPlus className="w-3.5 h-3.5 me-2" />
-                            Add to context…
+                            {t("creativeContext.addToContext")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}

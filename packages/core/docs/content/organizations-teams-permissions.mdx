@@ -58,12 +58,16 @@ routes are:
 | ----- | ------- |
 | `GET /_agent-native/org/me` | Active org, memberships, pending invites, and domain matches |
 | `POST /_agent-native/org` | Create an organization |
+| `PATCH /_agent-native/org` | Rename the active organization |
 | `PUT /_agent-native/org/switch` | Switch the active organization |
 | `GET /_agent-native/org/members` | List members in the active organization |
+| `DELETE /_agent-native/org/members/:email` | Remove a member |
+| `PUT /_agent-native/org/members/:email/role` | Change a member's role |
 | `POST /_agent-native/org/invitations` | Invite one or more people |
 | `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation |
-| `PUT /_agent-native/org/members/:email/role` | Change a member's role |
+| `POST /_agent-native/org/join-by-domain` | Join an organization matched by email domain |
 | `PUT /_agent-native/org/domain` | Set or clear the allowed email domain |
+| `PUT /_agent-native/org/a2a-secret` | Set or regenerate the active org's A2A secret |
 
 Use the shared UI and hooks instead of recreating this flow in each app:
 
@@ -88,8 +92,8 @@ export function TeamSettings() {
 }
 
 export function InviteButton() {
-  const { canInviteOrgMembers } = useOrgRole();
-  return canInviteOrgMembers ? <button>Invite members</button> : null;
+  const { canInviteMembers } = useOrgRole();
+  return canInviteMembers ? <button>Invite members</button> : null;
 }
 ```
 
@@ -130,7 +134,7 @@ Organization roles answer: **what may this person do to the team itself?**
 | Role | Meaning | Typical capabilities |
 | ---- | ------- | -------------------- |
 | `owner` | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings |
-| `admin` | Team administrator | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, and only the owner manages admin-to-admin transitions |
+| `admin` | Team administrator | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, only the owner manages admin-to-admin transitions, and the shared client domain helper is owner-only |
 | `member` | Regular team member | Use resources that the app shares with the organization; cannot manage membership |
 
 The shared role helpers are deliberately small and composable:
@@ -292,6 +296,12 @@ on the page for the feature that owns them.
 | `AGENT_ORG_ID` | CLI-only active-org fallback when no request context exists. It does not override a browser session. |
 | `AGENT_USER_TIMEZONE` | CLI/agent timezone fallback. |
 
+`A2A_SECRET` is deployment-wide signing material. The organization-level
+`organizations.a2a_secret` is a separate, UI-managed secret used when an org
+delegates between separately deployed apps by organization domain. Do not copy
+the org-level secret into `.env`; manage it from the organization settings
+surface.
+
 ### Workspace route visibility
 
 These are generated automatically by the workspace deploy/dev commands in most
@@ -304,6 +314,9 @@ runtime yourself:
 | `AGENT_NATIVE_WORKSPACE_APP_AUDIENCE` | Sets the app audience, usually `internal` or `public`. |
 | `AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS` | JSON array of public route prefixes. |
 | `AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS` | JSON array of route prefixes that remain authenticated. |
+| `WORKSPACE_ORG_NAME` | Optional organization name used by workspace bootstrap tooling. |
+| `WORKSPACE_ORG_DOMAIN` | Optional allowed email domain used by workspace bootstrap tooling. |
+| `WORKSPACE_OWNER_EMAIL` | Optional owner identity used by workspace bootstrap tooling. |
 
 ## A practical setup sequence
 
