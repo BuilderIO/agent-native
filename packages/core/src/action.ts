@@ -56,6 +56,10 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /** Verified network lineage for direct delegated action calls. */
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   /**
    * Attachments submitted with the current agent turn (pasted text blocks,
    * uploaded files, images), exactly as the server received them — with full,

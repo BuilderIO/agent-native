@@ -27,6 +27,7 @@ import {
   RemoteSelectionRings,
   RecentEditHighlights,
   useRecentEdits,
+  useFeatureFlag,
   useT,
   useChangeVersion,
   setAgentChatContextItem,
@@ -77,7 +78,7 @@ import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
-import { FULL_APP_BUILDING_ENABLED, readFusionApp } from "@shared/full-app";
+import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { shouldUseLiveFileContent } from "@shared/html-content";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -9032,6 +9033,7 @@ function DesignEditor() {
     () => readFusionApp(designDataJson),
     [designDataJson],
   );
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -29250,7 +29252,7 @@ function DesignEditor() {
                       only while the flag is on — the fusion actions the
                       banner calls are gated on the same flag, so rendering it
                       with the flag off would show controls that all error. */}
-                  {FULL_APP_BUILDING_ENABLED && id && fusionApp && (
+                  {fullAppBuildingEnabled && id && fusionApp && (
                     <FusionAppBanner
                       designId={id}
                       status={fusionApp.status}

@@ -618,6 +618,44 @@ export default defineAction({
 });
 ```
 
++## Staged-Features absichern {#feature-flags}
+
+Verwende Core-Feature-Flags, wenn eine Action sicher ausgerollt werden kann, aber schrittweise in Produktion gelangen soll. Definiere das standardmäßig deaktivierte Flag einmal, registriere es über ein Nitro-Plugin und prüfe es in jeder geschützten Action. Die passende Schaltfläche auszublenden ist Darstellung; die Prüfung in der Action ist die Durchsetzung.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Verwende `useFeatureFlag(FULL_APP_BUILDING.key)` aus `@agent-native/core/client`, um die Client-Oberfläche ein- oder auszublenden. Core stellt `get-feature-flags`, `list-feature-flags` und `set-feature-flag` bereit. Die Verwaltung wird geprüft und auditiert; Fleet-Oberflächen rufen dieselben app-lokalen Actions über eng begrenzte A2A-Delegierung auf. Leite Flag-Schreibvorgänge niemals über allgemeine Einstellungs-Endpunkte oder unverarbeitetes SQL und lege Authentifizierung, Autorisierung, Auditierung, Secrets oder SSR-Cache-Verhalten niemals hinter ein Laufzeit-Flag.
+
 ## Legacy CLI-Stil actions {#legacy-cli-actions}
 
 Das Framework unterstützt weiterhin ältere `export default async function(args)` actions, die nicht in `defineAction` verpackt sind – nützlich für einmalige Entwicklungsskripte, die keine Agent/HTTP-Offenlegung benötigen. Dies sind nur CLI; Sie erscheinen nicht als Agent-Tools, mounten keine HTTP-Endpunkte und erhalten keine typsicheren Frontend-Hooks.

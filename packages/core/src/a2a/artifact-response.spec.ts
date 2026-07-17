@@ -148,6 +148,116 @@ describe("appendA2AArtifactLinks", () => {
     ).toEqual([]);
   });
 
+  it("signs and verifies persisted artifacts with an explicit organization secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-artifact-provenance";
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities(
+        [{ tool: "call-agent", result: downstream }],
+        { persistedArtifactSecrets: [orgSecret] },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("carries organization-signed nested artifacts into the outer checkpoint", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-nested-artifact-provenance";
+    const inner = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_nested_org_123",
+            urlPath: "/page/request_nested_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    const outer = appendA2AArtifactLinks(
+      "The delegated agent finished.",
+      [{ tool: "call-agent", result: inner }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([{ tool: "call-agent", result: outer }], {
+        persistedArtifactSecrets: [orgSecret],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_nested_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("uses the global secret when no artifact signing override is provided", () => {
+    const globalSecret = "global-a2a-secret-for-artifact-provenance";
+    vi.stubEnv("A2A_SECRET", globalSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_global_123",
+            urlPath: "/page/request_global_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { includePersistedArtifactMarker: true },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_global_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
   it("keeps nested mutation receipts on the target app origin", () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-nested-mutation-receipts");
     const downstream = appendA2AArtifactLinks(

@@ -459,6 +459,27 @@ const enUS = {
     deleteConnectionTitle: "Delete database connection?",
     deleteConnectionDescription:
       "This removes {{name}} from Analytics and deletes its stored connection secrets. The target app database is not modified.",
+    featureFlags: "Feature flags",
+    featureFlagsDescription:
+      "Review registered app flags and make deliberate, reversible rollout changes.",
+    reloadFlags: "Reload flags",
+    loading: "Loading",
+    flagsUnavailable: "Feature flags are unavailable",
+    flagsUnreachable:
+      "The workspace directory could not be reached. Retry when its connection is available.",
+    flagsEmpty: "No workspace apps reported flags",
+    flagsEmptyDetail:
+      "Registered flags will appear here when connected apps are ready.",
+    flagsNotReady:
+      "This app is {{status}}. Its flag state is not assumed to be off.",
+    noFlagDefinitions: "This ready app has no registered flag definitions.",
+    noFlagDescription: "No description supplied.",
+    selected: "Selected",
+    openFlag: "Open feature flag",
+    confirm: "Confirm",
+    name: "Name",
+    appId: "App ID",
+    flagKey: "Feature flag",
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
@@ -10935,6 +10956,224 @@ for (const [locale, overrides] of Object.entries(
   }
 }
 
+const translatedFeatureFlagAdminTranslations = {
+  "zh-CN": {
+    agents: {
+      featureFlags: "功能开关",
+      featureFlagsDescription: "查看已注册应用开关，并进行可逆的发布调整。",
+      reloadFlags: "重新加载开关",
+      flagsUnavailable: "功能开关不可用",
+      flagsUnreachable: "无法连接工作区目录。连接恢复后重试。",
+      flagsEmpty: "没有应用报告功能开关",
+      flagsEmptyDetail: "连接的应用准备就绪后，已注册开关会显示在这里。",
+      flagsNotReady: "此应用状态为 {{status}}，不会将其开关状态假定为关闭。",
+      noFlagDefinitions: "此应用没有注册功能开关定义。",
+      noFlagDescription: "未提供说明。",
+      selected: "已选择",
+      openFlag: "打开功能开关",
+      confirm: "确认",
+      name: "名称",
+      appId: "应用 ID",
+      flagKey: "功能开关",
+    },
+  },
+  "es-ES": {
+    agents: {
+      featureFlags: "Indicadores de funciones",
+      featureFlagsDescription:
+        "Revisa los indicadores de las aplicaciones registradas y aplica cambios de lanzamiento reversibles.",
+      reloadFlags: "Volver a cargar indicadores",
+      flagsUnavailable: "Los indicadores de funciones no están disponibles",
+      flagsUnreachable:
+        "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+      flagsEmpty: "Ninguna aplicación informó indicadores",
+      flagsEmptyDetail:
+        "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",
+      flagsNotReady:
+        "Esta aplicación está {{status}}; su estado no se supone desactivado.",
+      noFlagDefinitions:
+        "Esta aplicación lista no tiene definiciones de indicadores.",
+      noFlagDescription: "No se proporcionó descripción.",
+      selected: "Seleccionado",
+      openFlag: "Abrir indicador",
+      confirm: "Confirmar",
+      name: "Nombre",
+      appId: "ID de aplicación",
+      flagKey: "Indicador de función",
+    },
+  },
+  "fr-FR": {
+    agents: {
+      featureFlags: "Indicateurs de fonctionnalités",
+      featureFlagsDescription:
+        "Examinez les indicateurs d'applications enregistrées et appliquez des changements de déploiement réversibles.",
+      reloadFlags: "Recharger les indicateurs",
+      flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
+      flagsUnreachable:
+        "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+      flagsEmpty: "Aucune application n'a signalé d'indicateur",
+      flagsEmptyDetail:
+        "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",
+      flagsNotReady:
+        "Cette application est {{status}} ; son état n'est pas supposé désactivé.",
+      noFlagDefinitions:
+        "Cette application prête n'a aucune définition d'indicateur.",
+      noFlagDescription: "Aucune description fournie.",
+      selected: "Sélectionné",
+      openFlag: "Ouvrir l'indicateur",
+      confirm: "Confirmer",
+      name: "Nom",
+      appId: "ID d'application",
+      flagKey: "Indicateur de fonctionnalité",
+    },
+  },
+  "de-DE": {
+    agents: {
+      featureFlags: "Funktionsschalter",
+      featureFlagsDescription:
+        "Prüfe registrierte App-Schalter und nimm bewusste, rückgängig machbare Rollout-Änderungen vor.",
+      reloadFlags: "Funktionsschalter neu laden",
+      flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
+      flagsUnreachable:
+        "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
+      flagsEmpty: "Keine Arbeitsbereichs-App meldet Funktionsschalter",
+      flagsEmptyDetail:
+        "Registrierte Schalter erscheinen hier, sobald verbundene Apps bereit sind.",
+      flagsNotReady:
+        "Diese App ist {{status}}; ihr Schalterzustand wird nicht als aus angenommen.",
+      noFlagDefinitions:
+        "Diese bereite App hat keine registrierten Schalterdefinitionen.",
+      noFlagDescription: "Keine Beschreibung vorhanden.",
+      selected: "Ausgewählt",
+      openFlag: "Funktionsschalter öffnen",
+      confirm: "Bestätigen",
+      name: "Name",
+      appId: "App-ID",
+      flagKey: "Funktionsschalter",
+    },
+  },
+  "pt-BR": {
+    agents: {
+      featureFlags: "Sinalizadores de recursos",
+      featureFlagsDescription:
+        "Revise sinalizadores de apps registrados e faça mudanças de lançamento reversíveis.",
+      reloadFlags: "Recarregar sinalizadores",
+      flagsUnavailable: "Sinalizadores de recursos indisponíveis",
+      flagsUnreachable:
+        "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
+      flagsEmpty: "Nenhum app informou sinalizadores",
+      flagsEmptyDetail:
+        "Sinalizadores registrados aparecerão aqui quando os apps conectados estiverem prontos.",
+      flagsNotReady:
+        "Este app está {{status}}; seu estado não é considerado desligado.",
+      noFlagDefinitions:
+        "Este app pronto não tem definições de sinalizador registradas.",
+      noFlagDescription: "Nenhuma descrição fornecida.",
+      selected: "Selecionado",
+      openFlag: "Abrir sinalizador",
+      confirm: "Confirmar",
+      name: "Nome",
+      appId: "ID do app",
+      flagKey: "Sinalizador de recurso",
+    },
+  },
+  "ja-JP": {
+    agents: {
+      featureFlags: "機能フラグ",
+      featureFlagsDescription:
+        "登録済みアプリのフラグを確認し、元に戻せるロールアウト変更を行います。",
+      reloadFlags: "機能フラグを再読み込み",
+      flagsUnavailable: "機能フラグを利用できません",
+      flagsUnreachable:
+        "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+      flagsEmpty: "フラグを報告したワークスペースアプリはありません",
+      flagsEmptyDetail:
+        "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",
+      flagsNotReady:
+        "このアプリは {{status}} です。フラグ状態をオフとは見なしません。",
+      noFlagDefinitions:
+        "この準備済みアプリには登録済みフラグ定義がありません。",
+      noFlagDescription: "説明はありません。",
+      selected: "選択済み",
+      openFlag: "機能フラグを開く",
+      confirm: "確認",
+      name: "名前",
+      appId: "アプリ ID",
+      flagKey: "機能フラグ",
+    },
+  },
+  "ko-KR": {
+    agents: {
+      featureFlags: "기능 플래그",
+      featureFlagsDescription:
+        "등록된 앱 플래그를 검토하고 되돌릴 수 있는 출시 변경을 적용합니다.",
+      reloadFlags: "기능 플래그 다시 불러오기",
+      flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
+      flagsUnreachable:
+        "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+      flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
+      flagsEmptyDetail:
+        "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
+      flagsNotReady:
+        "이 앱은 {{status}} 상태이며 플래그가 꺼진 것으로 가정하지 않습니다.",
+      noFlagDefinitions: "준비된 이 앱에는 등록된 플래그 정의가 없습니다.",
+      noFlagDescription: "설명이 제공되지 않았습니다.",
+      selected: "선택됨",
+      openFlag: "기능 플래그 열기",
+      confirm: "확인",
+      name: "이름",
+      appId: "앱 ID",
+      flagKey: "기능 플래그",
+    },
+  },
+  "hi-IN": {
+    agents: {
+      featureFlags: "फ़ीचर फ़्लैग",
+      featureFlagsDescription:
+        "पंजीकृत ऐप फ़्लैग देखें और वापस किए जा सकने वाले रोलआउट बदलाव करें।",
+      reloadFlags: "फ़ीचर फ़्लैग फिर से लोड करें",
+      flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
+      flagsUnreachable:
+        "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+      flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
+      flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
+      flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",
+      noFlagDefinitions: "इस तैयार ऐप में पंजीकृत फ़्लैग परिभाषाएँ नहीं हैं।",
+      noFlagDescription: "कोई विवरण नहीं दिया गया।",
+      selected: "चयनित",
+      openFlag: "फ़ीचर फ़्लैग खोलें",
+      confirm: "पुष्टि करें",
+      name: "नाम",
+      appId: "ऐप ID",
+      flagKey: "फ़ीचर फ़्लैग",
+    },
+  },
+  "ar-SA": {
+    agents: {
+      featureFlags: "علامات الميزات",
+      featureFlagsDescription:
+        "راجع علامات التطبيقات المسجلة ونفّذ تغييرات طرح قابلة للعكس.",
+      reloadFlags: "إعادة تحميل علامات الميزات",
+      flagsUnavailable: "علامات الميزات غير متاحة",
+      flagsUnreachable:
+        "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
+      flagsEmpty: "لم يبلغ أي تطبيق في مساحة العمل عن علامات",
+      flagsEmptyDetail:
+        "ستظهر العلامات المسجلة هنا عندما تصبح التطبيقات المتصلة جاهزة.",
+      flagsNotReady:
+        "حالة هذا التطبيق هي {{status}}؛ ولا يُفترض أن علاماته متوقفة.",
+      noFlagDefinitions: "لا يحتوي هذا التطبيق الجاهز على تعريفات علامات مسجلة.",
+      noFlagDescription: "لم يُقدَّم وصف.",
+      selected: "محدد",
+      openFlag: "فتح علامة الميزة",
+      confirm: "تأكيد",
+      name: "الاسم",
+      appId: "معرّف التطبيق",
+      flagKey: "علامة ميزة",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
 const translatedDashboardAdminTranslations = {
   "zh-CN": {
     navigation: {
@@ -11294,6 +11533,18 @@ const translatedDashboardAdminTranslations = {
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedFeatureFlagAdminTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
 
 for (const [locale, overrides] of Object.entries(
   translatedDashboardAdminTranslations,

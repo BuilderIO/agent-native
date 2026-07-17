@@ -618,6 +618,44 @@ export default defineAction({
 });
 ```
 
++## 段階的な機能を保護する {#feature-flags}
+
+安全にデプロイできるものの、本番へ段階的に届けたい action には Core の feature flag を使用します。デフォルトでオフの flag を一度だけ宣言し、Nitro プラグインから登録して、保護するすべての action 内で評価します。対応するボタンを隠すのは表示上の処理であり、action のチェックが強制です。
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+クライアント側の表示を隠したり表示したりするには、`@agent-native/core/client` の `useFeatureFlag(FULL_APP_BUILDING.key)` を使用します。Core は `get-feature-flags`、`list-feature-flags`、`set-feature-flag` を提供します。管理操作では権限が確認され監査され、fleet UI は厳密に限定された A2A 委任で同じアプリローカル actions を呼び出します。flag の書き込みを汎用設定 endpoint や生の SQL 経由にしたり、認証、認可、監査、secret、SSR キャッシュを runtime flag の背後に置いたりしないでください。
+
 ## レガシー CLI スタイル actions {#legacy-cli-actions}
 
 フレームワークは、`defineAction` でラップされていない古い `export default async function(args)` actions を引き続きサポートしています。これは、エージェント/HTTP の公開を必要としない 1 回限りの開発スクリプトに役立ちます。これらは CLI のみです。これらはエージェント ツールとして表示されず、HTTP エンドポイントをマウントせず、タイプセーフなフロントエンド フックを取得しません。

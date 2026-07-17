@@ -148,7 +148,18 @@ membership id when its native update status reports `update-available`.
   exposing an unannotated action.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
-  evals, experiments, and feedback. `/agents?view=dashboards` shows the
+  evals, agent experiments, and feedback. `/agents?view=flags` is the
+  sole admin-only fleet feature-flag control plane. Call
+  `list-workspace-feature-flags` before changing a flag and preserve
+  each app's explicit state: `unsupported`, `unreachable`, `forbidden`, and
+  `unknown-legacy` are unknown states, never synonyms for off. Use
+  `set-workspace-feature-flag` for app-qualified changes; target apps remain the
+  source of truth and are resolved only through the trusted organization
+  directory. Treat only a versioned mutation response whose key, org scope, and
+  requested rules match as success. Flags are source-declared booleans; do not
+  create variants, metrics, exposure tracking, or per-app management panels.
+  Report a failed target mutation instead of claiming the rollout changed.
+  `/agents?view=dashboards` shows the
   admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
   admins ask about dashboard created/modified dates, owners, last tracked
   modifier, views, engagements, saved views, or cleanup candidates. The
@@ -265,8 +276,9 @@ membership id when its native update status reports `update-available`.
   replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
   `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
   public status pages, or error triage, and `view="agents"` with
-  `agentsView="dashboards|database"` plus optional `dbAdminConnectionId` for
-  dashboard usage or connected app database admin.
+  `agentsView="dashboards|database|flags"` plus optional
+  `dbAdminConnectionId` for dashboard usage, connected app database admin,
+  or fleet feature flags.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
