@@ -214,6 +214,17 @@ describe("getOrgContext", () => {
     expect((await getOrgContext(EVENT)).orgId).toBeNull();
   });
 
+  it("shares the Personal preference read with HTTP session org backfill", async () => {
+    mockGetSession.mockResolvedValue({ email: "a@b.com" });
+    queueSelect([{ orgId: "only", role: "owner", orgName: "Only Co" }]);
+    mockGetUserSetting.mockResolvedValue({ orgId: null });
+
+    expect(await resolveOrgIdForEmailViaEvent(EVENT, "a@b.com")).toBeNull();
+    expect((await getOrgContext(EVENT)).orgId).toBeNull();
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
+  });
+
   it("does not run domain auto-join for a single non-personal org", async () => {
     mockGetSession.mockResolvedValue({ email: "member@builder.io" });
     queueSelect([{ orgId: "builder", role: "member", orgName: "Builder.io" }]);
