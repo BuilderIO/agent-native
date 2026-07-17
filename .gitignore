@@ -67,6 +67,9 @@ test-*-workspace/
 # Slides export artifacts (generated PDFs/HTML/PPTX exports)
 templates/slides/data/exports/
 
+# Local transcript recovery snapshots (per-user recording data)
+templates/clips/data/transcript-backups/
+
 # Playwright/vitest test run state
 test-results/
 e2e/.auth/
