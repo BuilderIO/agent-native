@@ -3462,11 +3462,9 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer-or-api-key-header") {
-    const explicitGitHubFallback =
-      auth.oauthProvider === "github" &&
-      Boolean(args.connectionId?.trim()) &&
-      Boolean(runtime.resolveCredential);
-    const resolvedFallback = explicitGitHubFallback
+    const explicitConnectionFallback =
+      Boolean(args.connectionId?.trim()) && Boolean(runtime.resolveCredential);
+    const resolvedFallback = explicitConnectionFallback
       ? await resolveHybridFallbackCredential({
           auth,
           config,
@@ -3502,7 +3500,7 @@ async function resolveAuth(
         secretValues: [workspaceCredential.value],
       };
     }
-    if (!explicitGitHubFallback) {
+    if (!explicitConnectionFallback) {
       const resolvedFallback = await resolveHybridFallbackCredential({
         auth,
         config,
@@ -3532,11 +3530,9 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer-or-bearer-key") {
-    const explicitGitHubFallback =
-      auth.oauthProvider === "github" &&
-      Boolean(args.connectionId?.trim()) &&
-      Boolean(runtime.resolveCredential);
-    const resolvedFallback = explicitGitHubFallback
+    const explicitConnectionFallback =
+      Boolean(args.connectionId?.trim()) && Boolean(runtime.resolveCredential);
+    const resolvedFallback = explicitConnectionFallback
       ? await resolveHybridFallbackCredential({
           auth,
           config,
@@ -3572,7 +3568,7 @@ async function resolveAuth(
         secretValues: [workspaceCredential.value],
       };
     }
-    if (!explicitGitHubFallback) {
+    if (!explicitConnectionFallback) {
       const resolvedFallback = await resolveHybridFallbackCredential({
         auth,
         config,
@@ -3720,14 +3716,9 @@ async function resolveHybridFallbackCredential(options: {
   ctx: CredentialContext;
   args: ProviderApiRequestArgs;
 }): Promise<ProviderApiResolvedCredential | null> {
-  // Analytics has a legacy GitHub resolver for existing workspace or local
-  // tokens. It runs only after the shared OAuth connection path has had a
-  // chance to resolve a granted account.
-  if (
-    options.auth.oauthProvider !== "github" ||
-    !options.runtime.resolveCredential
-  )
-    return null;
+  // App-specific resolvers keep existing provider credentials working when a
+  // caller explicitly selects a connection or account.
+  if (!options.runtime.resolveCredential) return null;
   return resolveOptionalCredential({
     provider: options.config.id,
     workspaceProvider: options.auth.workspaceProvider,
@@ -3950,12 +3941,23 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   accountId?: string | null;
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
-  const resolved = await resolveWorkspaceConnectionForApp({
-    appId: options.runtime.appId,
-    provider: options.workspaceProvider,
-    connectionId: requestedConnectionId,
-    requireConnected: true,
-  });
+  let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
+  try {
+    resolved = await resolveWorkspaceConnectionForApp({
+      appId: options.runtime.appId,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId,
+      requireConnected: true,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Workspace connections require an authenticated user."
+    ) {
+      return null;
+    }
+    throw error;
+  }
   if (!resolved.available || !resolved.connection) {
     if (requestedConnectionId) throw new Error(resolved.reason);
     return null;
