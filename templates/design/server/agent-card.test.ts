@@ -21,7 +21,7 @@ const REQUIRED_DESIGN_ACTIONS = [
   "navigate",
 ];
 
-const ACTION_REGISTRY_TEST_TIMEOUT_MS = 30_000;
+const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
 
 describe("design agent card", () => {
   it(

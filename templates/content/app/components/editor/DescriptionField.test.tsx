@@ -63,6 +63,14 @@ describe("DescriptionField behavior", () => {
     expect(descriptionFieldEscapeDraft(undefined)).toBe("");
   });
 
+  it("starts at one row and grows with softly wrapped content", () => {
+    render();
+
+    expect(textareaProps.rows).toBe(1);
+    expect(textareaProps.wrap).toBe("soft");
+    expect(textareaProps.style).toEqual({ fieldSizing: "content" });
+  });
+
   it("does not save the canceled draft when Escape immediately blurs", () => {
     const onSave = render();
     act(() => {
@@ -78,6 +86,49 @@ describe("DescriptionField behavior", () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(textareaProps.value).toBe("Stable guidance");
+  });
+
+  it("saves the wrapped description when Enter blurs the field", async () => {
+    const onSave = render();
+    const preventDefault = vi.fn();
+    act(() => {
+      textareaProps.onChange({ target: { value: "Updated guidance" } });
+    });
+
+    await act(async () => {
+      textareaProps.onKeyDown({
+        key: "Enter",
+        nativeEvent: { isComposing: false },
+        keyCode: 13,
+        preventDefault,
+        currentTarget: { blur: () => textareaProps.onBlur() },
+      });
+      await Promise.resolve();
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(onSave).toHaveBeenCalledWith("Updated guidance");
+  });
+
+  it("does not blur or save when Enter is committing IME composition", () => {
+    const onSave = render();
+    const preventDefault = vi.fn();
+    const blur = vi.fn();
+
+    act(() => {
+      textareaProps.onChange({ target: { value: "Composing guidance" } });
+      textareaProps.onKeyDown({
+        key: "Enter",
+        nativeEvent: { isComposing: true },
+        keyCode: 229,
+        preventDefault,
+        currentTarget: { blur },
+      });
+    });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(blur).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("restores the stored value when a blur save fails", async () => {

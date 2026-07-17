@@ -2,6 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,11 +21,6 @@ import type { DocumentUpdateResponse } from "../shared/api.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import {
-  isLocalDocumentId,
-  isContentLocalFileMode,
-  updateLocalFileDocument,
-} from "./_local-file-documents.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -41,6 +43,95 @@ function nanoid(size = 12): string {
 }
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
+
+async function documentMutationCreativeContext(input: {
+  documentId: string;
+  contextPackId?: string;
+  contextModeOverride?: "off";
+  reuseLabels: CreativeContextReuseLabel[];
+  artifactAccessAsserted: boolean;
+  skipPreviousRead?: boolean;
+}) {
+  const previous =
+    input.skipPreviousRead || input.contextModeOverride === "off"
+      ? null
+      : await getGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: input.documentId,
+        });
+  if (
+    !previous &&
+    !input.contextPackId &&
+    !input.contextModeOverride &&
+    !input.reuseLabels.length
+  ) {
+    return undefined;
+  }
+  if (
+    input.contextPackId !== undefined &&
+    previous?.contextPackId &&
+    input.contextPackId !== previous.contextPackId
+  ) {
+    throw new Error(
+      "The document update must preserve the document's creative-context pack",
+    );
+  }
+  const requestedLabels: CreativeContextReuseLabel[] = input.reuseLabels.length
+    ? input.reuseLabels
+    : [
+        {
+          kind: "document",
+          label: "Net-new document update",
+          dataRole: "untrusted-reference",
+          elementId: input.documentId,
+          influence: "generated",
+        },
+      ];
+  const validated = await validateGenerationCreativeContext({
+    contextPackId: input.contextPackId ?? previous?.contextPackId,
+    contextPackSource:
+      input.contextPackId === undefined ? "inherited" : "explicit",
+    contextModeOverride: input.contextModeOverride,
+    reuseLabels: requestedLabels,
+    reuseLabelsSource: input.reuseLabels.length ? "explicit" : "inherited",
+  });
+  const nextElementProvenance = validated.reuseLabels.map((label) => ({
+    elementId: input.documentId,
+    influence: label.influence ?? ("reference-conditioned" as const),
+    ...(label.itemId ? { itemId: label.itemId } : {}),
+    ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+    label: label.label,
+  }));
+  const contextMode =
+    validated.contextMode === "off"
+      ? "off"
+      : (previous?.contextMode ?? validated.contextMode);
+  return {
+    contextMode,
+    contextPackId: validated.contextPackId,
+    reuseLabels: validated.reuseLabels,
+    elementProvenance:
+      contextMode === "off"
+        ? nextElementProvenance
+        : replaceCreativeContextElementProvenance(
+            previous?.elementProvenance ?? [],
+            nextElementProvenance,
+          ),
+  };
+}
 
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
@@ -183,6 +274,21 @@ export default defineAction({
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
       ),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Exact Creative Context pack used for this agent update."),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this agent update only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(reuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Exact item versions that influenced this agent update."),
   }),
   run: async (
     args,
@@ -197,16 +303,6 @@ export default defineAction({
     // agent flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
-
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const doc = await updateLocalFileDocument(id, args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-        softDeletedDatabaseIds: [],
-      };
-    }
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
@@ -334,6 +430,9 @@ export default defineAction({
     }
 
     let softDeletedDatabaseIds: string[] = [];
+    let creativeContext:
+      | Awaited<ReturnType<typeof documentMutationCreativeContext>>
+      | undefined;
 
     // Content saves optionally carry the `updatedAt` of the snapshot the
     // caller last reconciled. Guard the write with a compare-and-swap in that
@@ -448,6 +547,23 @@ export default defineAction({
           );
         }
       }
+      if (isAgentCaller) {
+        creativeContext = await documentMutationCreativeContext({
+          documentId: id,
+          contextPackId: args.contextPackId,
+          contextModeOverride: args.contextModeOverride,
+          reuseLabels: args.reuseLabels,
+          artifactAccessAsserted: true,
+        });
+        if (creativeContext) {
+          await recordGenerationCreativeContext({
+            appId: "content",
+            artifactType: "document",
+            artifactId: id,
+            ...creativeContext,
+          });
+        }
+      }
     }
 
     const [doc] = await db
@@ -476,6 +592,13 @@ export default defineAction({
       updatedAt: doc.updatedAt,
       source: serializeDocumentSource(doc),
       softDeletedDatabaseIds,
+      ...(creativeContext
+        ? {
+            contextMode: creativeContext.contextMode,
+            contextPackId: creativeContext.contextPackId,
+            reuseLabels: creativeContext.reuseLabels,
+          }
+        : {}),
     };
   },
 });

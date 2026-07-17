@@ -168,10 +168,10 @@ const enUS = {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",

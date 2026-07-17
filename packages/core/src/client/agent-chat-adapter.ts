@@ -529,6 +529,7 @@ function messageTextForHistory(message: {
 }
 
 type AdapterMessage = {
+  id?: string;
   role: string;
   content: readonly { type: string; text?: string }[];
   attachments?: readonly AssistantUiAttachment[];
@@ -1486,6 +1487,9 @@ export function createAgentChatAdapter(
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
   const surface = options?.surface ?? "app";
+  // A queued recovery can survive until a server-owned continuation finishes,
+  // and assistant-ui may ask the same memoized adapter to run that item again.
+  const claimedRecoveryMessageIds = new Set<string>();
   let runtimeDebugDetails = "";
   const runtimeDebugUrl = runtimeDebugUrlForApiUrl(apiUrl);
   if (runtimeDebugUrl && typeof fetch === "function") {
@@ -1512,6 +1516,14 @@ export function createAgentChatAdapter(
       const latestUserIsRecovery = latestUserMsg
         ? isRecoveryUserMessage(latestUserMsg)
         : false;
+      const recoveryMessageId =
+        latestUserIsRecovery && latestUserMsg?.id?.trim()
+          ? latestUserMsg.id.trim()
+          : null;
+      if (recoveryMessageId) {
+        if (claimedRecoveryMessageIds.has(recoveryMessageId)) return;
+        claimedRecoveryMessageIds.add(recoveryMessageId);
+      }
       const lastUserMsg =
         latestUserIsRecovery && latestUserIndex >= 0
           ? (latestUserMessage(adapterMessages, {
@@ -1638,7 +1650,7 @@ export function createAgentChatAdapter(
         structuredHistory;
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
-      let internalContinuationRequest = false;
+      let internalContinuationRequest = latestUserIsRecovery;
       let startupRecoveryAttempts = 0;
       let queuedConflictRetries = 0;
       let staleRunContinuationAttempts = 0;
@@ -3392,7 +3404,13 @@ export function createAgentChatAdapter(
                   text: formatChatErrorText(
                     message,
                     preservedError?.upgradeUrl,
-                    errorCode,
+                    // `message` is already user-facing here: either a
+                    // recovery-specific explanation from exhaustedRecoveryMessage
+                    // or a normalized gateway message from errorInfo. Passing
+                    // the fallback connection_error code back through the
+                    // formatter would replace the useful recovery guidance
+                    // with the generic interruption copy.
+                    preservedError ? errorCode : undefined,
                   ),
                 });
                 yield {

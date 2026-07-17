@@ -5,7 +5,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -13,6 +13,12 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  organizationContentSpaceId,
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
@@ -86,6 +92,15 @@ export default defineAction({
     const now = new Date().toISOString();
     const orgId = getRequestOrgId() ?? null;
     const db = getDb();
+    const provisioned = await provisionContentSpaces(db, userEmail);
+    const targetSpaceId = orgId
+      ? organizationContentSpaceId(orgId)
+      : personalContentSpaceId(userEmail);
+    if (!provisioned.spaceIds.includes(targetSpaceId)) {
+      throw new Error(
+        "The active organization does not have a writable Content space.",
+      );
+    }
 
     const [existing] = await db
       .select()
@@ -96,6 +111,10 @@ export default defineAction({
           eq(schema.documents.sourceMode, "database"),
           eq(schema.documents.sourceKind, "local-file-copy"),
           eq(schema.documents.sourcePath, sourcePath),
+          or(
+            eq(schema.documents.spaceId, targetSpaceId),
+            isNull(schema.documents.spaceId),
+          ),
         ),
       )
       .limit(1);
@@ -104,6 +123,7 @@ export default defineAction({
       await db
         .update(schema.documents)
         .set({
+          spaceId: existing.spaceId ?? targetSpaceId,
           title: localDocument.title,
           content: localDocument.content,
           icon: localDocument.icon,
@@ -114,6 +134,8 @@ export default defineAction({
           updatedAt: now,
         })
         .where(eq(schema.documents.id, existing.id));
+
+      await ensureDocumentFilesMembership(db, existing.id, now);
 
       const [row] = await db
         .select()
@@ -140,6 +162,7 @@ export default defineAction({
 
         await db.insert(schema.documents).values({
           id: documentId,
+          spaceId: targetSpaceId,
           ownerEmail: userEmail,
           orgId,
           parentId: null,
@@ -158,6 +181,7 @@ export default defineAction({
           createdAt: now,
           updatedAt: now,
         });
+        await ensureDocumentFilesMembership(db, documentId, now);
       },
     );
 

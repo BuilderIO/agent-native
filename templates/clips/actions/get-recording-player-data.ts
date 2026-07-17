@@ -20,12 +20,20 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import {
+  canOpenDirectRecordingPage,
+  isRecordingExpired,
+} from "../server/lib/recording-page-access.js";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
@@ -105,6 +113,61 @@ export default defineAction({
 
     const db = getDb();
     const rec: any = access.resource;
+
+    if (isRecordingExpired(rec.expiresAt)) {
+      throw new ForbiddenError("Recording has expired");
+    }
+
+    let hasExplicitShare = access.role === "owner";
+    if (rec.visibility === "public" && access.role !== "owner") {
+      const userEmail = getRequestUserEmail()?.trim().toLowerCase();
+      const orgId = getRequestOrgId();
+      const principals = [];
+      if (userEmail) {
+        principals.push(
+          and(
+            eq(schema.recordingShares.principalType, "user"),
+            sql`lower(${schema.recordingShares.principalId}) = ${userEmail}`,
+          ),
+        );
+      }
+      if (orgId) {
+        principals.push(
+          and(
+            eq(schema.recordingShares.principalType, "org"),
+            eq(schema.recordingShares.principalId, orgId),
+          ),
+        );
+      }
+      if (principals.length > 0) {
+        const [share] = await db
+          .select({ id: schema.recordingShares.id })
+          .from(schema.recordingShares)
+          .where(
+            and(
+              eq(schema.recordingShares.resourceId, args.recordingId),
+              or(...principals),
+            ),
+          )
+          .limit(1);
+        hasExplicitShare = Boolean(share);
+      } else {
+        hasExplicitShare = false;
+      }
+    }
+
+    if (
+      !canOpenDirectRecordingPage({
+        role: access.role,
+        visibility: rec.visibility,
+        hasPassword: Boolean(rec.password),
+        hasExplicitShare,
+      })
+    ) {
+      throw new ForbiddenError(
+        "Open this recording from its share link instead of the direct recording URL",
+      );
+    }
 
     const [transcript] = await db
       .select()

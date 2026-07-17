@@ -47,6 +47,15 @@ function navigationFromPath(pathname: string, search = "") {
       presetId: decodePathParam(preset[2]),
     };
   }
+  const brandKitSettings = pathname.match(/^\/brand-kits\/([^/]+)\/settings/);
+  if (brandKitSettings) {
+    return {
+      view: "library",
+      selection: decodePathParam(brandKitSettings[1]),
+      libraryId: decodePathParam(brandKitSettings[1]),
+      activeTab: "settings",
+    };
+  }
   // The "library" view is the unified Library workspace. Keep the internal
   // detail key stable for agent/MCP callers that already navigate by brand-kit
   // id, while the URL is now /library/:id.
@@ -115,6 +124,9 @@ function pathFromCommand(command: any): string | null {
   if (!command) return null;
   if (typeof command.path === "string") return command.path;
   if (command.view === "library" && command.libraryId) {
+    if (command.activeTab === "settings") {
+      return `/brand-kits/${encodeURIComponent(command.libraryId)}/settings`;
+    }
     const params = new URLSearchParams();
     if (typeof command.activeTab === "string") {
       params.set("tab", command.activeTab);

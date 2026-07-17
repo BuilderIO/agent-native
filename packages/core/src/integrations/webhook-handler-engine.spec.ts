@@ -771,7 +771,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
-    expect(sentText).toContain("Agent settings > LLM");
+    expect(sentText).toContain("Agent workspace > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
   });
 
@@ -1617,6 +1617,97 @@ describe("integration webhook handler engine resolution", () => {
       expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain("deck-guessed");
+  });
+
+  it("does not append an artifact link from a failed or incomplete write", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "update-document",
+        isError: true,
+        completedSideEffect: false,
+        result: JSON.stringify({
+          id: "request_failed",
+          urlPath: "/page/request_failed",
+        }),
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-failed-write" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain(
+      "The model finished without a visible answer",
+    );
+    expect(deliveredText).not.toContain("request_failed");
+  });
+
+  it("surfaces a verified mutation receipt when a sparse correction finishes without final text", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "set-document-property",
+        input: {
+          documentId: "request_456",
+          propertyId: "priority",
+          value: "P1 High",
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "set-document-property",
+        completedSideEffect: true,
+        result: JSON.stringify({
+          documentId: "request_456",
+          properties: [{ propertyId: "priority", value: "P1 High" }],
+        }),
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-written-empty" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain("A verified change was saved");
+    expect(deliveredText).toContain(
+      "https://content.agent.test/page/request_456",
+    );
+    expect(deliveredText).toContain("ID: request_456");
+    expect(deliveredText).not.toContain(
+      "The model finished without a visible answer",
+    );
+    expect(deliveredText).not.toContain("P1 High");
   });
 
   it("links Slack-style replies directly to the Dispatch chat thread", async () => {

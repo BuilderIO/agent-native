@@ -29,6 +29,7 @@ const INITIAL_TOOL_NAMES = [
   "regenerate-chapters",
   "trim-recording",
   "remove-silences",
+  "update-ai-request-status",
   "remove-filler-words",
   "export-to-brain",
   "navigate",

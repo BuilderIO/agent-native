@@ -640,7 +640,16 @@ function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
             {t("dictateRoute.emptyWebDescription")}
           </p>
           <div className="mt-5 flex items-center justify-center">
-            <CaptureInstallButton size="sm" className="gap-1.5">
+            <CaptureInstallButton
+              size="sm"
+              className="gap-1.5"
+              downloadedChildren={
+                <>
+                  <IconDeviceDesktop className="h-3.5 w-3.5" />
+                  {t("captureInstall.openDesktopApp")}
+                </>
+              }
+            >
               <IconDownload className="h-3.5 w-3.5" />
               {t("dictateRoute.downloadDesktopApp")}
             </CaptureInstallButton>

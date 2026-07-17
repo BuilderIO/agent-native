@@ -967,7 +967,7 @@ function serializeCanvas(content: PlanContent, visualUrl?: string): string {
   const annotations = annotationsSource
     .map(
       (annotation) =>
-        `  <Annotation${prop("id", annotation.id)}${prop("type", annotation.type)}${prop("title", annotation.title)}${prop("points", annotation.points)}${prop("style", annotation.style)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}>\n\n${annotation.text.trim()}\n\n  </Annotation>`,
+        `  <Annotation${prop("id", annotation.id)}${prop("type", annotation.type)}${prop("title", annotation.title)}${prop("points", annotation.points)}${prop("style", annotation.style)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}${prop("text", annotation.text.trim())} />`,
     )
     .join("\n\n");
   const connectors = (canvas.flow ?? [])
@@ -1013,6 +1013,79 @@ function parseMdx(source: string): MdxNode {
   const tree = mdxProcessor().parse(source) as unknown as MdxNode;
   restoreStaticTemplateLiteralAttributes(tree, source);
   return tree;
+}
+
+function findMdxTagEnd(source: string, start: number): number {
+  let quote: '"' | "'" | "`" | null = null;
+  let expressionDepth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote) {
+      if (char === "\\") {
+        index += 1;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      expressionDepth += 1;
+      continue;
+    }
+    if (char === "}" && expressionDepth > 0) {
+      expressionDepth -= 1;
+      continue;
+    }
+    if (char === ">" && expressionDepth === 0) return index;
+  }
+  return -1;
+}
+
+function rewriteCanvasAnnotationBodies(source: string): string {
+  const annotationStart = /<Annotation\b/g;
+  let cursor = 0;
+  let changed = false;
+  let output = "";
+  let match: RegExpExecArray | null;
+
+  while ((match = annotationStart.exec(source))) {
+    const start = match.index;
+    const openEnd = findMdxTagEnd(source, start + match[0].length);
+    if (openEnd < 0) break;
+    const openTag = source.slice(start, openEnd + 1);
+    if (openTag.trimEnd().endsWith("/>") || openTag.includes(" text=")) {
+      continue;
+    }
+    const closeStart = source.indexOf("</Annotation>", openEnd + 1);
+    if (closeStart < 0) break;
+    const closeEnd = closeStart + "</Annotation>".length;
+    const text = source.slice(openEnd + 1, closeStart).trim();
+    output += source.slice(cursor, start);
+    output += `${openTag.slice(0, -1).trimEnd()}${prop("text", text)} />`;
+    cursor = closeEnd;
+    annotationStart.lastIndex = closeEnd;
+    changed = true;
+  }
+
+  return changed ? `${output}${source.slice(cursor)}` : source;
+}
+
+function parseCanvasMdxFile(source: string): MdxNode {
+  try {
+    return parsePlanMdxFile("canvas.mdx", source);
+  } catch (initialError) {
+    const rewritten = rewriteCanvasAnnotationBodies(source);
+    if (rewritten === source) throw initialError;
+    try {
+      return parsePlanMdxFile("canvas.mdx", rewritten);
+    } catch {
+      throw initialError;
+    }
+  }
 }
 
 type MdxParseError = {
@@ -1774,7 +1847,7 @@ export async function parsePlanMdxFolder(
   });
 
   const canvas = files["canvas.mdx"]
-    ? parseCanvas(parsePlanMdxFile("canvas.mdx", files["canvas.mdx"]))
+    ? parseCanvas(parseCanvasMdxFile(files["canvas.mdx"]))
     : undefined;
   const prototype = files["prototype.mdx"]
     ? parsePrototype(parsePlanMdxFile("prototype.mdx", files["prototype.mdx"]))

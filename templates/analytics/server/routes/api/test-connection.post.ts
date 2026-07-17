@@ -1,4 +1,5 @@
 import { readBody } from "@agent-native/core/server";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { defineEventHandler } from "h3";
 
 import {
@@ -141,6 +142,16 @@ export default defineEventHandler(async (event) => {
         }
 
         case "jira": {
+          const workspaceConnection = await resolveWorkspaceConnectionForApp({
+            appId: "analytics",
+            provider: "jira",
+            requireConnected: true,
+          });
+          if (workspaceConnection.available) {
+            const { getProjects } = await import("../../lib/jira");
+            await getProjects();
+            return { ok: true };
+          }
           const baseUrl = await resolveCredential("JIRA_BASE_URL", ctx);
           const email = await resolveCredential("JIRA_USER_EMAIL", ctx);
           const token = await resolveCredential("JIRA_API_TOKEN", ctx);

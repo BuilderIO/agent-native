@@ -37,10 +37,10 @@ const enUS = {
     deliveryDescription:
       "Manage message destinations and check the outbound delivery queue.",
     openDelivery: "Open delivery",
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
+    openAgentSettings: "Open agent workspace",
   },
   integrations: {
     title: "Integrations",

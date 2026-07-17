@@ -68,13 +68,31 @@ const notionDatabaseAdapter: ContentDatabaseSourceAdapter = {
   read: readNotionDatabaseSource,
 };
 
+const localFolderAdapter: ContentDatabaseSourceAdapter = {
+  sourceType: "local-folder",
+  async read() {
+    return {
+      state: "error",
+      entries: [],
+      fields: [],
+      fetchedAt: new Date().toISOString(),
+      message:
+        "Local folder refresh requires the trusted browser or Desktop bridge.",
+      metadata: { bridgeRequired: true },
+    };
+  },
+};
+
 const adapters = new Map<
   ContentDatabaseSourceType,
   ContentDatabaseSourceAdapter
 >(
-  [builderCmsAdapter, localTableAdapter, notionDatabaseAdapter].map(
-    (adapter) => [adapter.sourceType, adapter],
-  ),
+  [
+    builderCmsAdapter,
+    localTableAdapter,
+    notionDatabaseAdapter,
+    localFolderAdapter,
+  ].map((adapter) => [adapter.sourceType, adapter]),
 );
 
 export function getContentDatabaseSourceAdapter(

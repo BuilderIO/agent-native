@@ -155,7 +155,21 @@ async function responseHasReadableMediaBytes(
   }
 }
 
-async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
+function servedMediaSizeBytes(response: Response): number | null {
+  const contentRange = response.headers.get("content-range") ?? "";
+  const total = Number(contentRange.match(/\/(\d+)$/)?.[1]);
+  if (Number.isFinite(total) && total > 0) return total;
+  if (response.status === 200) {
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > 0) return length;
+  }
+  return null;
+}
+
+async function verifyServedMediaUrl(
+  videoUrl: string,
+  expectedBytes: number,
+): Promise<void> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return;
 
   let lastFailure = "media URL did not serve readable bytes";
@@ -176,11 +190,21 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
         signal: controller.signal,
       });
       const statusOk = response.status === 200 || response.status === 206;
-      if (statusOk && (await responseHasReadableMediaBytes(response))) {
-        return;
+      if (statusOk) {
+        const servedBytes = servedMediaSizeBytes(response);
+        if (servedBytes === null) {
+          lastFailure = "Stored media byte count could not be verified";
+        } else if (servedBytes !== expectedBytes) {
+          lastFailure = `Stored media byte count mismatch (${servedBytes} of ${expectedBytes} bytes)`;
+        } else if (await responseHasReadableMediaBytes(response)) {
+          return;
+        } else {
+          lastFailure = "media URL did not serve readable bytes";
+        }
+      } else {
+        lastFailure = `media URL returned HTTP ${response.status}`;
+        if (response.status < 500) break;
       }
-      lastFailure = `media URL returned HTTP ${response.status}`;
-      if (response.status < 500) break;
     } catch (err) {
       lastFailure = err instanceof Error ? err.message : String(err);
     } finally {
@@ -258,6 +282,7 @@ async function markRecordingReady(params: {
   ownerEmail: string;
   videoUrl: string;
   videoSizeBytes: number;
+  sourceSizeBytes: number;
   videoFormat: "webm" | "mp4";
   finalDurationMs: number;
   finalWidth: number;
@@ -275,6 +300,7 @@ async function markRecordingReady(params: {
     ownerEmail,
     videoUrl,
     videoSizeBytes,
+    sourceSizeBytes,
     videoFormat,
     finalDurationMs,
     finalWidth,
@@ -349,6 +375,7 @@ async function markRecordingReady(params: {
       status: "failed" as const,
       videoUrl,
       videoSizeBytes,
+      sourceSizeBytes,
       durationMs: finalDurationMs,
     };
   }
@@ -372,6 +399,9 @@ async function markRecordingReady(params: {
     status: "ready",
     progress: 100,
     videoUrl,
+    videoSizeBytes,
+    sourceSizeBytes,
+    durationMs: finalDurationMs,
     finishedAt: now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
@@ -436,6 +466,7 @@ async function markRecordingReady(params: {
     status: "ready" as const,
     videoUrl,
     videoSizeBytes,
+    sourceSizeBytes,
     durationMs: finalDurationMs,
   };
 }
@@ -521,6 +552,7 @@ export default defineAction({
           status: "ready" as const,
           videoUrl: existing.videoUrl,
           videoSizeBytes: existing.videoSizeBytes ?? 0,
+          sourceSizeBytes: existing.videoSizeBytes ?? 0,
           durationMs: existing.durationMs ?? 0,
         };
       }
@@ -641,7 +673,10 @@ export default defineAction({
           );
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           try {
-            await verifyServedMediaUrl(videoUrl);
+            await verifyServedMediaUrl(
+              videoUrl,
+              resumableSession.bytesUploaded,
+            );
           } catch (err) {
             const failureReason =
               err instanceof Error ? err.message : String(err);
@@ -656,6 +691,7 @@ export default defineAction({
             ...readyParams,
             videoUrl,
             videoSizeBytes: resumableSession.bytesUploaded,
+            sourceSizeBytes: resumableSession.bytesUploaded,
             // Streaming path forwards raw MediaRecorder bytes straight to the
             // provider — no faststart/Cues rewrite happened. Repair in the
             // background.
@@ -1162,7 +1198,7 @@ export default defineAction({
         bytes: uploadData.byteLength,
       });
       try {
-        await verifyServedMediaUrl(upload.url);
+        await verifyServedMediaUrl(upload.url, uploadData.byteLength);
       } catch (err) {
         if (!requiresConfiguredVideoStorage()) {
           // Local dev can keep scratch chunks so the user can retry after fixing
@@ -1185,6 +1221,7 @@ export default defineAction({
         finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: uploadData.byteLength,
+        sourceSizeBytes: assembled.byteLength,
         seekableApplied,
       });
       if (result.status === "ready") {

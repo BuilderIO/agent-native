@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
     commandSearchDocuments: "搜尋檔案",
@@ -1012,6 +1015,8 @@ const messages = {
     summaryUnchanged: "{{count}} 個未更改",
     summarySkipped: "已跳過 {{count}} 個",
     summaryErrors: "{{count}} 個錯誤",
+    summaryConflicts: "{{count}} 個衝突",
+    conflictNeedsReview: "Content 和資料夾都已變更；需要進行審查。",
     pageTitle: "本機檔案",
     foldersRemembered: "已記住的資料夾",
     linkedCount: "已連結 {{count}} 個",
@@ -1114,7 +1119,10 @@ const messages = {
       "「{{title}}」及其所有子頁面將被永久刪除。此操作無法復原。",
     deletePageQuestion: "刪除頁面？",
     localFiles: "本機檔案",
+    files: "檔案",
+    loadingFiles: "正在載入檔案…",
     new: "新增",
+    newDatabase: "新增資料庫",
     newPage: "新頁面",
     nextStep: "下一步",
     notionConfigureOAuthAuthorize: "設定 OAuth，然後授權你的工作區。",
@@ -1143,6 +1151,7 @@ const messages = {
     notionSyncDocumentsDescription: "與 Notion 工作區同步檔案。",
     notionUploadCredentialsJson: "上傳憑證 JSON",
     noFilesYet: "還沒有檔案",
+    noWorkspaces: "還沒有工作區",
     noLocalFilesYet: "還沒有本機檔案",
     noOrganizationPagesYet: "還沒有組織頁面",
     noPagesFound: "未找到頁面",
@@ -1164,6 +1173,7 @@ const messages = {
     trash: "垃圾桶",
     favorites: "釘選",
     untitled: "無標題",
+    workspaces: "工作區",
   },
 };
 

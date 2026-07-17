@@ -117,6 +117,56 @@ const CHART_LEGEND_PROPS = {
   wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
 
+const CHART_RESIZE_DEBOUNCE_MS = 50;
+
+type ChartSize = {
+  width: number;
+  height: number;
+};
+
+export function hasChartSizeChanged(
+  previous: ChartSize | null,
+  next: ChartSize,
+): boolean {
+  return (
+    previous !== null &&
+    (previous.width !== next.width || previous.height !== next.height)
+  );
+}
+
+function useChartResizeAnimation() {
+  const [isAnimationActive, setIsAnimationActive] = useState(true);
+  const firstSizeRef = useRef<ChartSize | null>(null);
+  const handleResize = useCallback((width: number, height: number) => {
+    const nextSize = { width, height };
+    if (hasChartSizeChanged(firstSizeRef.current, nextSize)) {
+      setIsAnimationActive(false);
+    }
+    firstSizeRef.current = nextSize;
+  }, []);
+
+  return { isAnimationActive, handleResize };
+}
+
+function ChartResponsiveContainer({
+  children,
+}: {
+  children: (isAnimationActive: boolean) => ReactNode;
+}) {
+  const { isAnimationActive, handleResize } = useChartResizeAnimation();
+
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      debounce={CHART_RESIZE_DEBOUNCE_MS}
+      onResize={handleResize}
+    >
+      {children(isAnimationActive)}
+    </ResponsiveContainer>
+  );
+}
+
 const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
 const PARTIAL_DAY_DASH = "3 5";
 const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
@@ -515,6 +565,7 @@ export function SeriesLegend({
   const hasLegendActions = Boolean(onToggleKey || onFilterKey);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextTouchToggleRef = useRef(false);
 
   const clearCloseTimeout = useCallback(() => {
     if (closeTimeoutRef.current) {
@@ -536,7 +587,7 @@ export function SeriesLegend({
     closeTimeoutRef.current = setTimeout(() => {
       setOpenKey(null);
       closeTimeoutRef.current = null;
-    }, 120);
+    }, 200);
   }, [clearCloseTimeout]);
 
   useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
@@ -558,13 +609,27 @@ export function SeriesLegend({
             >
               <PopoverAnchor asChild>
                 <div
-                  className="inline-flex max-w-[14rem]"
-                  onPointerEnter={
-                    hasLegendActions ? () => openLegendActions(key) : undefined
-                  }
-                  onPointerLeave={
-                    hasLegendActions ? scheduleCloseLegendActions : undefined
-                  }
+                  className="inline-flex min-h-10 max-w-[14rem] items-center"
+                  onPointerDown={(event) => {
+                    if (!hasLegendActions || event.pointerType === "mouse") {
+                      return;
+                    }
+                    skipNextTouchToggleRef.current = true;
+                    openLegendActions(key);
+                  }}
+                  onPointerCancel={() => {
+                    skipNextTouchToggleRef.current = false;
+                  }}
+                  onPointerEnter={(event) => {
+                    if (hasLegendActions && event.pointerType !== "touch") {
+                      openLegendActions(key);
+                    }
+                  }}
+                  onPointerLeave={(event) => {
+                    if (hasLegendActions && event.pointerType !== "touch") {
+                      scheduleCloseLegendActions();
+                    }
+                  }}
                   onFocusCapture={
                     hasLegendActions ? () => openLegendActions(key) : undefined
                   }
@@ -575,11 +640,22 @@ export function SeriesLegend({
                   <button
                     type="button"
                     aria-pressed={!hidden}
-                    className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                    aria-expanded={
+                      hasLegendActions ? openKey === key : undefined
+                    }
+                    aria-haspopup={hasLegendActions ? "menu" : undefined}
+                    data-chart-legend-item={key}
+                    className={`inline-flex min-h-10 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left transition-[opacity,color] touch-manipulation hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                       hidden ? "opacity-35" : "opacity-100"
                     } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
                     title={label}
-                    onClick={() => onToggleKey?.(key)}
+                    onClick={() => {
+                      if (skipNextTouchToggleRef.current) {
+                        skipNextTouchToggleRef.current = false;
+                        return;
+                      }
+                      onToggleKey?.(key);
+                    }}
                   >
                     <span className="relative h-2.5 w-3 shrink-0">
                       <span
@@ -598,20 +674,21 @@ export function SeriesLegend({
               {hasLegendActions && (
                 <PopoverContent
                   side="top"
-                  align="start"
-                  sideOffset={6}
-                  className="w-auto min-w-28 p-1"
+                  align="center"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className="w-56 max-w-[calc(100vw-1.5rem)] rounded-lg p-1.5 shadow-lg"
                   onPointerEnter={clearCloseTimeout}
                   onPointerLeave={scheduleCloseLegendActions}
                   onFocusCapture={clearCloseTimeout}
                 >
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex w-full items-center gap-1">
                     {onFilterKey && (
                       <button
                         type="button"
                         data-chart-legend-action="filter"
                         aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
-                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        className="min-h-11 min-w-0 flex-1 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                         onClick={() => {
                           onFilterKey(key);
                           setOpenKey(null);
@@ -626,7 +703,7 @@ export function SeriesLegend({
                         data-chart-legend-action="hide"
                         aria-label={`${t("sqlDashboard.hide")} ${label}`}
                         disabled={hidden}
-                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        className="min-h-11 min-w-0 flex-1 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
                         onClick={() => {
                           onToggleKey(key);
                           setOpenKey(null);
@@ -1150,11 +1227,13 @@ export function SqlChart({
 
   const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
-      const pivoted = pivotRows(rawRows, panel.config.pivot);
+      const pivoted = pivotRows(rawRows, panel.config.pivot, {
+        fillDateGaps: panel.chartType !== "bar",
+      });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot]);
 
   const { xKey, yKeys } = useMemo(
     () => detectKeys(queryRows, panel.config, forcedYKeys),
@@ -1792,41 +1871,44 @@ function PieRenderer({
 
   return (
     <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={rows}
-            dataKey={yKey}
-            nameKey={xKey}
-            cx="50%"
-            cy="50%"
-            outerRadius={80}
-            label={(props: any) =>
-              `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
-            }
-            labelLine={false}
-          >
-            {rows.map((_, i) => (
-              <Cell key={i} fill={colors[i % colors.length]} />
-            ))}
-          </Pie>
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            content={
-              <ChartTooltip
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) =>
-                  formatYValue(v, panel.config?.yFormatter)
-                }
-              />
-            }
-          />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, rows.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
-        </PieChart>
-      </ResponsiveContainer>
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <PieChart>
+            <Pie
+              data={rows}
+              dataKey={yKey}
+              nameKey={xKey}
+              cx="50%"
+              cy="50%"
+              outerRadius={80}
+              label={(props: any) =>
+                `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
+              }
+              labelLine={false}
+              isAnimationActive={isAnimationActive}
+            >
+              {rows.map((_, i) => (
+                <Cell key={i} fill={colors[i % colors.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              content={
+                <ChartTooltip
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={(v) =>
+                    formatYValue(v, panel.config?.yFormatter)
+                  }
+                />
+              }
+            />
+            {!usesPrometheusPresentation(panel) &&
+              shouldShowLegend(panel, rows.length) && (
+                <Legend {...CHART_LEGEND_PROPS} />
+              )}
+          </PieChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
@@ -1864,56 +1946,59 @@ function BarRenderer({
       onFilterLegendKey={filterSeries}
       showCustomLegend
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            cursor={BAR_TOOLTIP_CURSOR_PROPS}
-            labelFormatter={xLabelFormatter}
-            content={
-              <ChartTooltip
-                labelFormatter={xLabelFormatter}
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {yKeys.map((key, i) => (
-            <Bar
-              key={key}
-              dataKey={key}
-              name={seriesNameFormatter(key)}
-              fill={colors[i % colors.length]}
-              radius={
-                stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
-              }
-              stackId={stacked ? "stack" : undefined}
-              hide={hiddenKeys.has(key)}
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <BarChart data={rows}>
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
             />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+            <YAxis
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => formatYValue(v, yFormatter)}
+            />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              vertical={false}
+            />
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              cursor={BAR_TOOLTIP_CURSOR_PROPS}
+              labelFormatter={xLabelFormatter}
+              content={
+                <ChartTooltip
+                  labelFormatter={xLabelFormatter}
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                />
+              }
+              itemSorter={(item) => -(Number(item.value) || 0)}
+            />
+            {yKeys.map((key, i) => (
+              <Bar
+                key={key}
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                fill={colors[i % colors.length]}
+                radius={
+                  stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+                }
+                stackId={stacked ? "stack" : undefined}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={isAnimationActive}
+              />
+            ))}
+          </BarChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
@@ -1970,8 +2055,120 @@ function TimeSeriesRenderer({
         onFilterLegendKey={filterSeries}
         showCustomLegend
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartRows}>
+        <ChartResponsiveContainer>
+          {(isAnimationActive) => (
+            <LineChart data={chartRows}>
+              <XAxis
+                dataKey={xKey}
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={xLabelFormatter}
+              />
+              <YAxis
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+                vertical={false}
+              />
+              <Tooltip
+                {...CHART_TOOLTIP_PROPS}
+                labelFormatter={xLabelFormatter}
+                content={
+                  <ChartTooltip
+                    labelFormatter={xLabelFormatter}
+                    seriesNameFormatter={seriesNameFormatter}
+                    valueFormatter={(v) => formatYValue(v, yFormatter)}
+                  />
+                }
+                itemSorter={(item) => -(Number(item.value) || 0)}
+              />
+              {series.map((item, i) => (
+                <Line
+                  key={item.solidKey}
+                  type="monotone"
+                  dataKey={item.solidKey}
+                  name={seriesNameFormatter(item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={isAnimationActive}
+                />
+              ))}
+              {series.map((item, i) =>
+                item.partialKey ? (
+                  <Line
+                    key={item.partialKey}
+                    type="monotone"
+                    dataKey={item.partialKey}
+                    name={seriesNameFormatter(item.key)}
+                    stroke={colors[i % colors.length]}
+                    strokeWidth={2}
+                    strokeDasharray={PARTIAL_DAY_DASH}
+                    dot={false}
+                    hide={hiddenKeys.has(item.key)}
+                    isAnimationActive={isAnimationActive}
+                  />
+                ) : null,
+              )}
+            </LineChart>
+          )}
+        </ChartResponsiveContainer>
+      </ChartFrame>
+    );
+  }
+
+  // With multiple series, filled areas stack and obscure lines behind them,
+  // so only draw the gradient fill when there's a single series — unless
+  // the caller asked for an explicit stacked area.
+  const showFill = visibleKeys.length === 1 || stacked;
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+    >
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <AreaChart data={chartRows}>
+            {showFill && (
+              <defs>
+                {yKeys.map((key, i) => (
+                  <linearGradient
+                    key={key}
+                    id={`sql-gradient-${key}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                ))}
+              </defs>
+            )}
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -2005,20 +2202,23 @@ function TimeSeriesRenderer({
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
             {series.map((item, i) => (
-              <Line
+              <Area
                 key={item.solidKey}
                 type="monotone"
                 dataKey={item.solidKey}
                 name={seriesNameFormatter(item.key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
-                dot={false}
+                fillOpacity={showFill ? 1 : 0}
+                fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
+                stackId={stacked ? "stack" : undefined}
                 hide={hiddenKeys.has(item.key)}
+                isAnimationActive={isAnimationActive}
               />
             ))}
             {series.map((item, i) =>
               item.partialKey ? (
-                <Line
+                <Area
                   key={item.partialKey}
                   type="monotone"
                   dataKey={item.partialKey}
@@ -2026,124 +2226,17 @@ function TimeSeriesRenderer({
                   stroke={colors[i % colors.length]}
                   strokeWidth={2}
                   strokeDasharray={PARTIAL_DAY_DASH}
-                  dot={false}
+                  fill="none"
+                  fillOpacity={0}
+                  stackId={stacked ? "partial-stack" : undefined}
                   hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={isAnimationActive}
                 />
               ) : null,
             )}
-          </LineChart>
-        </ResponsiveContainer>
-      </ChartFrame>
-    );
-  }
-
-  // With multiple series, filled areas stack and obscure lines behind them,
-  // so only draw the gradient fill when there's a single series — unless
-  // the caller asked for an explicit stacked area.
-  const showFill = visibleKeys.length === 1 || stacked;
-
-  return (
-    <ChartFrame
-      panel={panel}
-      legendKeys={yKeys}
-      colors={colors}
-      hiddenKeys={hiddenKeys}
-      onToggleLegendKey={toggleSeries}
-      onFilterLegendKey={filterSeries}
-      showCustomLegend
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartRows}>
-          {showFill && (
-            <defs>
-              {yKeys.map((key, i) => (
-                <linearGradient
-                  key={key}
-                  id={`sql-gradient-${key}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop
-                    offset="5%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-              ))}
-            </defs>
-          )}
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            labelFormatter={xLabelFormatter}
-            content={
-              <ChartTooltip
-                labelFormatter={xLabelFormatter}
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {series.map((item, i) => (
-            <Area
-              key={item.solidKey}
-              type="monotone"
-              dataKey={item.solidKey}
-              name={seriesNameFormatter(item.key)}
-              stroke={colors[i % colors.length]}
-              strokeWidth={2}
-              fillOpacity={showFill ? 1 : 0}
-              fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
-              stackId={stacked ? "stack" : undefined}
-              hide={hiddenKeys.has(item.key)}
-            />
-          ))}
-          {series.map((item, i) =>
-            item.partialKey ? (
-              <Area
-                key={item.partialKey}
-                type="monotone"
-                dataKey={item.partialKey}
-                name={seriesNameFormatter(item.key)}
-                stroke={colors[i % colors.length]}
-                strokeWidth={2}
-                strokeDasharray={PARTIAL_DAY_DASH}
-                fill="none"
-                fillOpacity={0}
-                stackId={stacked ? "partial-stack" : undefined}
-                hide={hiddenKeys.has(item.key)}
-              />
-            ) : null,
-          )}
-        </AreaChart>
-      </ResponsiveContainer>
+          </AreaChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }

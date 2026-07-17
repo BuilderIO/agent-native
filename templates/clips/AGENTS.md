@@ -16,6 +16,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
+- Organization admins can use `set-organization-branding` with
+  `defaultVisibility=public|org|private` to choose the visibility applied when
+  new recordings omit an explicit visibility. The default remains `public`, and
+  explicit visibility wins (for example, bug-report recordings use `org`).
 - Use `move-recording` for both single and bulk folder moves. Pass `id` for one
   clip or `ids` for selected clips, and `folderId: null` to move them to the
   library or space root.

@@ -1541,6 +1541,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var selectedEl = null;
     var hoveredEl = null;
+    var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
     function clearHoverGate() {
       hoveredEl = null;
@@ -3527,6 +3528,154 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       return null;
+    }
+    function parseNodeHtmlPreviewElement(html) {
+      var trimmed = html.trim();
+      if (/^<body(?:\\s|>)/i.test(trimmed)) {
+        var parsedDocument = new DOMParser().parseFromString(
+          "<!doctype html><html><head></head>" + trimmed + "</html>",
+          // i18n-ignore parser scaffold
+          "text/html"
+        );
+        return parsedDocument.body;
+      }
+      var template = document.createElement("template");
+      template.innerHTML = html;
+      var element = template.content.firstElementChild;
+      if (!element || template.content.childElementCount !== 1) return null;
+      for (var child = template.content.firstChild; child; child = child.nextSibling) {
+        if (child === element) continue;
+        if (child.nodeType !== 3 || String(child.textContent || "").trim()) {
+          return null;
+        }
+      }
+      return element;
+    }
+    function resolveNodeHtmlPreviewTarget(target) {
+      if (!target || typeof target !== "object") return null;
+      var nodeId = target.nodeId;
+      if (typeof nodeId === "string" && nodeId) {
+        try {
+          var nodeMatch = document.querySelector(
+            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
+          );
+          if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
+            return nodeMatch;
+          }
+        } catch (_err) {
+        }
+      }
+      var selector = target.selector;
+      if (typeof selector !== "string" || !selector) return null;
+      try {
+        var selectorMatch = document.querySelector(selector);
+        return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+      } catch (_err) {
+        return null;
+      }
+    }
+    function postNodeHtmlPreviewApplied(proposalId) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:node-html-preview-applied",
+          proposalId
+        },
+        "*"
+      );
+    }
+    function replaceNodeHtmlPreviewElement(session, nextElement) {
+      var parent = session.startMarker.parentNode;
+      if (!parent || session.endMarker.parentNode !== parent) return false;
+      var cursor = session.startMarker.nextSibling;
+      while (cursor && cursor !== session.endMarker) {
+        var next = cursor.nextSibling;
+        parent.removeChild(cursor);
+        cursor = next;
+      }
+      if (cursor !== session.endMarker) return false;
+      nextElement.setAttribute(
+        "data-agent-native-node-rewrite-proposal",
+        session.proposalId
+      );
+      parent.insertBefore(nextElement, session.endMarker);
+      session.currentElement = nextElement;
+      if (session.selectedWasInside) selectedEl = nextElement;
+      if (session.hoveredWasInside) hoveredEl = nextElement;
+      refreshOverlays();
+      return true;
+    }
+    function restoreActiveNodeHtmlPreview(proposalId) {
+      var session = activeNodeHtmlPreview;
+      if (!session || proposalId && session.proposalId !== proposalId) {
+        return false;
+      }
+      activeNodeHtmlPreview = null;
+      var parent = session.startMarker.parentNode;
+      if (!parent || session.endMarker.parentNode !== parent) return false;
+      var cursor = session.startMarker.nextSibling;
+      while (cursor && cursor !== session.endMarker) {
+        var next = cursor.nextSibling;
+        parent.removeChild(cursor);
+        cursor = next;
+      }
+      if (cursor !== session.endMarker) return false;
+      parent.insertBefore(session.originalElement, session.endMarker);
+      parent.removeChild(session.startMarker);
+      parent.removeChild(session.endMarker);
+      if (session.selectedWasInside) selectedEl = session.originalElement;
+      if (session.hoveredWasInside) hoveredEl = session.originalElement;
+      refreshOverlays();
+      return session.originalElement.outerHTML === session.originalOuterHTML;
+    }
+    function applyNodeHtmlPreview(data) {
+      var proposalId = data.proposalId;
+      if (typeof proposalId !== "string" || !proposalId || typeof data.html !== "string") {
+        return;
+      }
+      var nextElement = parseNodeHtmlPreviewElement(data.html);
+      if (!nextElement) return;
+      if (activeNodeHtmlPreview && activeNodeHtmlPreview.proposalId === proposalId) {
+        if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
+          postNodeHtmlPreviewApplied(proposalId);
+        }
+        return;
+      }
+      if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
+      var target = resolveNodeHtmlPreviewTarget(data.target);
+      if (!target || !target.parentNode || target === document.documentElement) {
+        return;
+      }
+      var originalOuterHTML = target.outerHTML;
+      nextElement.setAttribute(
+        "data-agent-native-node-rewrite-proposal",
+        proposalId
+      );
+      var startMarker = document.createComment(
+        "agent-native:node-html-preview:start"
+      );
+      var endMarker = document.createComment(
+        "agent-native:node-html-preview:end"
+      );
+      var parent = target.parentNode;
+      var selectedWasInside = !!selectedEl && target.contains(selectedEl);
+      var hoveredWasInside = !!hoveredEl && target.contains(hoveredEl);
+      parent.insertBefore(startMarker, target);
+      parent.insertBefore(endMarker, target.nextSibling);
+      parent.replaceChild(nextElement, target);
+      activeNodeHtmlPreview = {
+        proposalId,
+        originalElement: target,
+        originalOuterHTML,
+        startMarker,
+        endMarker,
+        currentElement: nextElement,
+        selectedWasInside,
+        hoveredWasInside
+      };
+      if (selectedWasInside) selectedEl = nextElement;
+      if (hoveredWasInside) hoveredEl = nextElement;
+      refreshOverlays();
+      postNodeHtmlPreviewApplied(proposalId);
     }
     function findUniqueRuntimeStructureTarget(selector, sourceId) {
       var matches = /* @__PURE__ */ new Set();
@@ -7479,6 +7628,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "replace-document-content") {
+        activeNodeHtmlPreview = null;
         replaceRuntimeDocument(
           e.data.content,
           e.data.forceFullDocument ? "" : e.data.selectedSelector,
@@ -7486,6 +7636,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           Boolean(e.data.forceFullDocument),
           Boolean(e.data.preserveTextEditingSession)
         );
+        return;
+      }
+      if (e.data.type === "node-html-preview") {
+        if (e.data.operation === "restore") {
+          if (typeof e.data.proposalId === "string") {
+            restoreActiveNodeHtmlPreview(e.data.proposalId);
+          }
+        } else if (e.data.operation === "preview") {
+          applyNodeHtmlPreview(e.data);
+        }
         return;
       }
       if (e.data.type === "delete-element") {

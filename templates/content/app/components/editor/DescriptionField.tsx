@@ -91,7 +91,8 @@ export function DescriptionField({
   return (
     <Textarea
       aria-label={label}
-      rows={editing || draft ? 2 : 1}
+      rows={1}
+      wrap="soft"
       value={draft}
       placeholder={placeholder}
       onFocus={() => setEditing(true)}
@@ -105,6 +106,12 @@ export function DescriptionField({
         void save();
       }}
       onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          event.preventDefault();
+          event.currentTarget.blur();
+          return;
+        }
         if (event.key === "Escape") {
           event.preventDefault();
           skipNextBlurSaveRef.current = true;
@@ -112,8 +119,9 @@ export function DescriptionField({
           event.currentTarget.blur();
         }
       }}
+      style={{ fieldSizing: "content" } as any}
       className={cn(
-        "mt-2 block w-full resize-none overflow-hidden rounded border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground outline-none placeholder:text-muted-foreground/45 hover:bg-muted/30 focus:bg-muted/30 focus:px-1 focus:outline-none focus:ring-1 focus:ring-ring",
+        "mt-2 min-h-6 w-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none outline-none placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0",
         className,
       )}
     />

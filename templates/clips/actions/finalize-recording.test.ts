@@ -346,6 +346,79 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
+  it("does not mark ready when the provider serves fewer bytes than uploaded", async () => {
+    seedBufferedRecording();
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("ok", {
+        status: 206,
+        headers: { "content-range": "bytes 0-1/2" },
+      }),
+    );
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toThrow(/byte count mismatch/i);
+
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("retries an unverifiable byte count before marking media ready", async () => {
+    const chunkKeys = seedBufferedRecording();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("ok", { status: 206 }))
+      .mockResolvedValueOnce(
+        new Response("ok", {
+          status: 206,
+          headers: { "content-range": "bytes 0-1/11" },
+        }),
+      );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ id: "rec_1", status: "ready" }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const key of chunkKeys) {
+      expect(mockDeleteAppState).toHaveBeenCalledWith(key);
+    }
+  });
+
+  it("retries a transient byte-count mismatch before failing", async () => {
+    const chunkKeys = seedBufferedRecording();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response("ok", {
+          status: 206,
+          headers: { "content-range": "bytes 0-1/2" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("ok", {
+          status: 206,
+          headers: { "content-range": "bytes 0-1/11" },
+        }),
+      );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ id: "rec_1", status: "ready" }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const key of chunkKeys) {
+      expect(mockDeleteAppState).toHaveBeenCalledWith(key);
+    }
+  });
+
   it("only reads one probe chunk when a server ignores the range request", async () => {
     const chunkKeys = seedBufferedRecording();
     let reads = 0;
@@ -359,7 +432,12 @@ describe("finalize-recording media serve verification", () => {
         cancelled = true;
       },
     });
-    vi.mocked(fetch).mockResolvedValue(new Response(stream, { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+        headers: { "content-length": "11" },
+      }),
+    );
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -367,7 +445,11 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(
-      expect.objectContaining({ id: "rec_1", status: "ready" }),
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        sourceSizeBytes: 11,
+      }),
     );
     expect(reads).toBe(1);
     expect(cancelled).toBe(true);
@@ -380,7 +462,12 @@ describe("finalize-recording media serve verification", () => {
     const chunkKeys = seedBufferedRecording();
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response("", { status: 500 }))
-      .mockResolvedValueOnce(new Response("ok", { status: 206 }));
+      .mockResolvedValueOnce(
+        new Response("ok", {
+          status: 206,
+          headers: { "content-range": "bytes 0-1/11" },
+        }),
+      );
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -477,7 +564,13 @@ describe("finalize-recording resumable recovery", () => {
     mockUpdateWhere.mockResolvedValue(undefined);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("ok", { status: 206 })),
+      vi.fn(
+        async () =>
+          new Response("ok", {
+            status: 206,
+            headers: { "content-range": "bytes 0-1/3" },
+          }),
+      ),
     );
 
     const result = await finalizeRecording.run({

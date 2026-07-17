@@ -451,4 +451,41 @@ describe("extensions/store", () => {
       updateExtension("ext-1", { visibility: "public" }),
     ).rejects.toThrow(/cannot be made public/i);
   });
+
+  it("refuses full content replacement without explicit opt-in", async () => {
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => ({}),
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      accessFilter: vi.fn(() => null),
+      assertAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      ForbiddenError: class ForbiddenError extends Error {
+        statusCode = 403;
+      },
+    }));
+
+    const { updateExtensionContent } = await import("./store.js");
+    await expect(
+      updateExtensionContent("ext-1", {
+        content: "<div>replacement</div>",
+      }),
+    ).rejects.toThrow(/allowFullReplacement=true/i);
+  });
 });

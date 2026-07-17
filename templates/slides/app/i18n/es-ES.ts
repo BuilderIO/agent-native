@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["es-ES"],
   root: {
     commandPresentations: "Presentaciones",
     searchDecks: "Buscar decks",
@@ -105,6 +108,7 @@ const messages = {
     searchImagesPlaceholder: "Buscar imágenes...",
     searchForLogosImagesIcons: "Buscar logos, imágenes, iconos...",
     search: "Buscar",
+    searchFailed: "Error al buscar",
     logoSearchTitle: "Búsqueda de logos",
     searchCompanyLogo: "Busca una empresa para encontrar su logo",
     searchCompanyPlaceholder: "Buscar nombre de empresa (p. ej. Intuit)",

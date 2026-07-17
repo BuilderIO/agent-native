@@ -95,16 +95,19 @@ describe("open-asset-picker", () => {
         prompt: "Generate a hero image",
         autoGenerate: true,
         callerAppId: "design",
+        creativeContextRequestId: "context-request-1",
       },
       { caller: "mcp" } as any,
     );
 
     expect(result).toMatchObject({
       embed: true,
-      url: "/library?__an_picker=1&mediaType=image&prompt=Generate+a+hero+image&callerAppId=design&autoGenerate=1",
+      url: "/library?__an_picker=1&mediaType=image&prompt=Generate+a+hero+image&callerAppId=design&creativeContextRequestId=context-request-1&autoGenerate=1",
       callerAppId: "design",
+      creativeContextRequestId: "context-request-1",
       autoGenerate: true,
     });
+    expect(result.path).toContain("creativeContextRequestId=context-request-1");
     expect(writeAppStateMock).not.toHaveBeenCalled();
   });
 

@@ -173,7 +173,7 @@ const messages = {
       "La grabadora de escritorio terminó y guardó una copia local, pero Clips no pudo cargarla. Puedes volver a intentarlo desde el menú Clips sin volver a grabar.",
     retryLibrary: "Puedes volver a intentarlo desde la biblioteca.",
     processingStuck:
-      "El procesamiento no se ha completado después de 30 segundos (estado={{status}}). Es posible que el clip no haya terminado de cargarse; verifique los registros del servidor para ver si hay mensajes fragmentados/finalizados.",
+      "El guardado está tardando más de lo esperado (estado={{status}}). Si grabaste con la aplicación de escritorio, abre Clips desde la barra de menús para reintentar la carga o descargar una copia local guardada y vuelve a comprobarlo.",
     uploadingAssembling:
       "Cargar y ensamblar su video; esto generalmente toma solo unos segundos.",
     connectStorageImportLoom:
@@ -224,6 +224,9 @@ const messages = {
     autoChapters: "capítulos automáticos",
     removeFillerWords: "Eliminar palabras de relleno",
     removeSilences: "Eliminar silencios (>1,2s)",
+    silenceWorking: "Eliminando silencios…",
+    silenceCompleted: "Eliminación de silencios completada",
+    silenceFailed: "No se pudieron eliminar los silencios",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -454,6 +457,7 @@ const messages = {
     invite: "Invitar",
     embed: "Insertar",
     shareLink: "Enlace para compartir",
+    shareWithHumans: "Compartir con personas",
     shareWithAgents: "Compartir con agentes",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
@@ -464,6 +468,8 @@ const messages = {
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
     openPlayer: "jugador abierto",
+    chooseFile: "Elige el archivo",
+    remove: "Eliminar",
     downloadMp4: "Descargar MP4",
     embedsNeedPublic: "Los elementos insertados necesitan un clip público",
     embedPublicDescription:
@@ -549,6 +555,9 @@ const messages = {
     brandingUpdated: "Marca actualizada",
     saveFailed: "No se pudo guardar",
     organizationName: "Nombre de la organización",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a las nuevas grabaciones, a menos que elijas otra visibilidad.",
     brandColor: "Color de la marca",
     brandColorPicker: "Selector de color de marca",
     useColor: "Utilice {{color}}",
@@ -1116,6 +1125,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     desktopTitle: "Desktop app (Localizado)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localizado)",
+    openDesktopApp: "Open desktop app (Localizado)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localizado)",
@@ -1243,9 +1253,11 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     visibilityOrg: "Organization (Localizado)",
     visibilityPublic: "Public (Localizado)",
     passwordProtection: "Password protection (Localizado)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Localizado)",
+    passwordSetPlaceholder: "Password is set — type to replace (Localizado)",
     noPasswordPlaceholder: "No password (Localizado)",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (Localizado)",
+    removePassword: "Remove (Localizado)",
     expiry: "Expiry (Localizado)",
     viewerOptions: "Viewer options (Localizado)",
     comments: "Comments (Localizado)",

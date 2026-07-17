@@ -14,6 +14,7 @@ const resolveOrgIdForEmailMock = vi.hoisted(() =>
 const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
 );
+const resolveSecretMock = vi.hoisted(() => vi.fn(() => null));
 const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
@@ -39,6 +40,13 @@ vi.mock("../deploy/route-discovery.js", () => ({
 vi.mock("../server/auth.js", () => ({
   getSession: getSessionMock,
 }));
+
+vi.mock("../server/credential-provider.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../server/credential-provider.js")
+  >("../server/credential-provider.js");
+  return { ...actual, resolveSecret: resolveSecretMock };
+});
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
@@ -241,6 +249,8 @@ describe("integrations plugin routes", () => {
     runWithRequestContextMock.mockImplementation(
       (_ctx: unknown, fn: () => unknown) => fn(),
     );
+    resolveSecretMock.mockReset();
+    resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
     resourceGetByPathMock.mockImplementation(async () => null);
   });
@@ -324,6 +334,49 @@ describe("integrations plugin routes", () => {
         },
       },
     });
+  });
+
+  it("resolves Slack OAuth credentials inside the signed-in request context", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-team", role: "owner" });
+    const contextResolutionFlags: boolean[] = [];
+    let inRequestContext = false;
+    runWithRequestContextMock.mockImplementationOnce(
+      async (_ctx: unknown, fn: () => unknown) => {
+        inRequestContext = true;
+        try {
+          return await fn();
+        } finally {
+          inRequestContext = false;
+        }
+      },
+    );
+    resolveSecretMock.mockImplementation((key: string) => {
+      contextResolutionFlags.push(inRequestContext);
+      return `configured-${key}`;
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install?return=%2Fmessaging",
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveSecretMock).toHaveBeenCalledWith("SLACK_CLIENT_ID");
+    expect(resolveSecretMock).toHaveBeenCalledWith("SLACK_CLIENT_SECRET");
+    expect(resolveSecretMock).toHaveBeenCalledWith("SLACK_SIGNING_SECRET");
+    expect(contextResolutionFlags).toEqual([true, true, true]);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-team",
+      },
+      expect.any(Function),
+    );
   });
 
   it("runs integration status checks in the signed-in request context", async () => {

@@ -13,7 +13,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { buildA2ARecoverableArtifactMessage } from "../a2a/artifact-response.js";
+import {
+  buildA2ARecoverableArtifactMessage,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
   isLoopbackAddress,
@@ -86,7 +89,6 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
-import { appStateGet } from "../application-state/store.js";
 import {
   createThread,
   forkThread,
@@ -167,10 +169,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
-import {
-  FIRST_SESSION_PERSONALIZATION,
-  getModelFamilyOverlay,
-} from "./prompts/index.js";
+import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
@@ -281,41 +280,6 @@ export function buildLeanRunPolicyPrompt(
   prodCodeExecPromptNote: string,
 ): string {
   return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
-}
-
-/**
- * Returns whether `owner` has already finished (or explicitly skipped) the
- * First-Session Personalization flow, via the owner-scoped
- * `application_state` "personalization" flag the agent itself writes
- * (`writeAppState("personalization", { done: true })` — see
- * FIRST_SESSION_PERSONALIZATION in prompts/framework-core.ts).
- *
- * This used to be gated on "does this thread have prior messages", which
- * flips false the instant a second request comes in for the SAME thread —
- * making turn 2's system prompt diverge from turn 1's and invalidating the
- * prompt-cache prefix on every thread's second request. The flow itself
- * spans two turns (turn 1 asks the personalization questions and waits;
- * turn 2 answers them and only then writes the "done" flag), so this flag
- * is still false when BOTH turns' system prompts are assembled — turn 1
- * and turn 2 come out byte-identical. It only flips once the flow
- * completes, and it never flips back, so every later turn (and every
- * later thread the same owner creates) stays consistent from then on. As
- * a bonus, it also fixes a latent waste: the old gate re-included the
- * ~1.5KB block on turn 1 of every new thread a user ever created, even
- * long after they'd completed personalization once.
- */
-export async function hasCompletedFirstSessionPersonalization(
-  owner: string,
-): Promise<boolean> {
-  try {
-    const state = await appStateGet(owner, "personalization");
-    return state?.done === true;
-  } catch {
-    // Fail open to "not done" — same default as a brand-new user (block
-    // shown) rather than silently skipping personalization because of a
-    // transient appstate read error.
-    return false;
-  }
 }
 
 /**
@@ -535,6 +499,12 @@ export function createAgentChatPlugin(
         } catch {
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
+      }
+      try {
+        const { mergePackageActions } = await import("./action-discovery.js");
+        mergePackageActions(templateScriptsAll);
+      } catch {
+        // Package action registration is optional.
       }
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
@@ -1496,7 +1466,7 @@ export function createAgentChatPlugin(
           // Run the SAME agent loop, then extract the final answer from the
           // event stream so pre-tool narration never leaks as the A2A result.
           const a2aEvents: AgentChatEvent[] = [];
-          const a2aToolResults: Array<{ tool: string; result: string }> = [];
+          const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
           const controller = new AbortController();
 
@@ -1531,6 +1501,8 @@ export function createAgentChatPlugin(
                   a2aToolResults.push({
                     tool: event.tool,
                     result: event.result,
+                    isError: event.isError,
+                    completedSideEffect: event.completedSideEffect,
                   });
                   const recoverableArtifactText =
                     buildA2ARecoverableArtifactMessage(a2aToolResults, {
@@ -2650,14 +2622,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           )
             ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
             : "";
-          // Personalization block: included until this owner has finished (or
-          // skipped) the flow — see hasCompletedFirstSessionPersonalization
-          // for why this is gated on the owner-scoped appstate flag rather
-          // than "is this a new thread" (keeps turn 1 and turn 2 identical).
-          const personalizationBlock =
-            (await hasCompletedFirstSessionPersonalization(owner))
-              ? ""
-              : FIRST_SESSION_PERSONALIZATION;
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
           // Stable-first ordering: base prompt / schema / extra come before
@@ -2712,13 +2676,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             modelOverlay,
             runtimeContext,
             additionalFramework:
-              personalizationBlock +
-              codeEditingSurfaceRestriction +
-              prodCodeExecPromptNote,
+              codeEditingSurfaceRestriction + prodCodeExecPromptNote,
           });
           return setSystemPromptOnContext(
             basePrompt +
-              personalizationBlock +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
@@ -2940,10 +2901,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const runtimeContext = runtimeContextForEvent(event);
-            const personalizationBlock =
-              (await hasCompletedFirstSessionPersonalization(owner))
-                ? ""
-                : FIRST_SESSION_PERSONALIZATION;
             const modelOverlay = resolveModelOverlay();
             // Stable-first ordering: runtimeContext (day-granular) is
             // appended LAST so a day rollover invalidates as little of the
@@ -2989,11 +2946,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               extra,
               modelOverlay,
               runtimeContext,
-              additionalFramework: personalizationBlock,
             });
             return setSystemPromptOnContext(
               devPrompt +
-                personalizationBlock +
                 resources +
                 schemaBlock +
                 extra +

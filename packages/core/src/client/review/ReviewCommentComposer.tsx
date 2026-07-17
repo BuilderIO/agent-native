@@ -2,6 +2,7 @@ import { Button } from "@agent-native/toolkit/ui/button";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import { IconFocus2, IconMessageCircle, IconSend } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 import type { ReviewResolutionTarget } from "../../review/types.js";
 import { cn } from "../utils.js";
@@ -13,12 +14,14 @@ export interface ReviewCommentComposerProps {
   submittingTarget?: ReviewResolutionTarget | null;
   disabled?: boolean;
   showAgentAction?: boolean;
+  agentAction?: ReactNode;
   placeholder?: string;
   commentLabel?: string;
   agentLabel?: string;
   contextLabel?: string;
   autoFocus?: boolean;
   submitOnEnter?: boolean;
+  enterSubmitTarget?: ReviewResolutionTarget;
   onEscape?: () => void;
   className?: string;
 }
@@ -30,12 +33,14 @@ export function ReviewCommentComposer({
   submittingTarget = null,
   disabled = false,
   showAgentAction = false,
+  agentAction,
   placeholder = "Add a comment...",
   commentLabel = "Comment",
   agentLabel = "Send to agent",
   contextLabel,
   autoFocus = false,
   submitOnEnter = false,
+  enterSubmitTarget = "human",
   onEscape,
   className,
 }: ReviewCommentComposerProps) {
@@ -75,7 +80,7 @@ export function ReviewCommentComposer({
           }
           if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            submit("human");
+            submit(enterSubmitTarget);
           }
         }}
       />
@@ -84,7 +89,7 @@ export function ReviewCommentComposer({
           type="submit"
           size="sm"
           disabled={!canSubmit}
-          className="h-8 w-full min-w-0 gap-1.5 @2xs/review:w-auto"
+          className="h-8 w-full gap-1.5 @2xs/review:w-auto @2xs/review:min-w-28 @2xs/review:shrink-0"
         >
           {submittingTarget === "human" ? (
             <Spinner className="size-3.5" />
@@ -93,7 +98,9 @@ export function ReviewCommentComposer({
           )}
           <span className="truncate">{commentLabel}</span>
         </Button>
-        {showAgentAction ? (
+        {showAgentAction && agentAction ? (
+          agentAction
+        ) : showAgentAction ? (
           <Button
             type="button"
             size="sm"

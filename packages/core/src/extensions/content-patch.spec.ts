@@ -50,6 +50,32 @@ describe("extension content patching", () => {
     expect(result.content).not.toContain("<div>Old</div>");
   });
 
+  it("preserves unrelated design during a focused data-loading repair", async () => {
+    const content = [
+      "<style>.risk-card { color: red; }</style>",
+      '<main class="risk-card">',
+      '  <script>const endpoint = "/api/old-risk";</script>',
+      "</main>",
+    ].join("\n");
+
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "/api/old-risk",
+          replace: "/api/current-risk",
+        },
+      ],
+    });
+
+    expect(result.content).toContain(
+      "<style>.risk-card { color: red; }</style>",
+    );
+    expect(result.content).toContain('class="risk-card"');
+    expect(result.content).toContain("/api/current-risk");
+    expect(result.content).not.toContain("/api/old-risk");
+  });
+
   it("wraps a marked section for small structural edits", async () => {
     const content = [
       "<!-- section:chart -->",

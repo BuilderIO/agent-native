@@ -39,6 +39,7 @@ const frFR = {
   theme: {
     light: "clair",
     dark: "sombre",
+    toggle: "Changer de thème",
     label: "Thème : {{theme}}",
   },
   docs: {

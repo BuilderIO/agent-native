@@ -1,4 +1,5 @@
 import { AgentTabsPage, useT } from "@agent-native/core/client";
+import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 
 import messages from "@/i18n/en-US";
@@ -11,5 +12,5 @@ export default function AgentRoute() {
   const t = useT();
   useSetPageTitle(t("settings.agentTitle"));
 
-  return <AgentTabsPage />;
+  return <AgentTabsPage extraTabFactories={[createCreativeContextAgentTab]} />;
 }

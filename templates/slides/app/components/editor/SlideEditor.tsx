@@ -24,6 +24,7 @@ import {
   useRef,
   useEffect,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -475,111 +476,175 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
 }
 
 /** Selection outline rendered over a selected image */
-function ImageSelectionOutline({ rect }: { rect: DOMRect }) {
-  const pad = 2;
-  return createPortal(
-    <div
-      style={{
-        position: "fixed",
-        top: rect.top - pad,
-        left: rect.left - pad,
-        width: rect.width + pad * 2,
-        height: rect.height + pad * 2,
-        pointerEvents: "none",
-        zIndex: 50,
-        border: "2px solid #609FF8",
-        borderRadius: 2,
-      }}
-    />,
-    document.body,
-  );
-}
+function SelectionOverlayPortal({
+  viewportRect,
+  zIndex,
+  children,
+}: {
+  viewportRect: DOMRect | null;
+  zIndex: number;
+  children: ReactNode;
+}) {
+  if (!viewportRect) return null;
 
-function ElementSelectionOutline({ rect }: { rect: DOMRect }) {
-  const pad = 2;
-  const handle = 7;
-  const handleClass =
-    "absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm";
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const top = Math.max(0, Math.min(viewportHeight, viewportRect.top));
+  const right = Math.max(
+    0,
+    Math.min(viewportWidth, viewportWidth - viewportRect.right),
+  );
+  const bottom = Math.max(
+    0,
+    Math.min(viewportHeight, viewportHeight - viewportRect.bottom),
+  );
+  const left = Math.max(0, Math.min(viewportWidth, viewportRect.left));
+
   return createPortal(
     <div
       style={{
         position: "fixed",
-        top: rect.top - pad,
-        left: rect.left - pad,
-        width: rect.width + pad * 2,
-        height: rect.height + pad * 2,
+        inset: 0,
+        overflow: "hidden",
         pointerEvents: "none",
-        zIndex: 51,
-        border: "1.5px solid #609FF8",
-        borderRadius: 3,
-        boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.2)",
+        zIndex,
+        // Selection rects use viewport coordinates, so keep the portal for
+        // accurate zoom/scroll tracking while clipping it to the canvas
+        // viewport. This prevents outlines from painting over either sidebar.
+        clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px)`,
       }}
     >
-      <span
-        className={handleClass}
-        style={{ left: -handle / 2, top: -handle / 2 }}
-      />
-      <span
-        className={handleClass}
-        style={{ right: -handle / 2, top: -handle / 2 }}
-      />
-      <span
-        className={handleClass}
-        style={{ left: -handle / 2, bottom: -handle / 2 }}
-      />
-      <span
-        className={handleClass}
-        style={{ right: -handle / 2, bottom: -handle / 2 }}
-      />
+      {children}
     </div>,
     document.body,
   );
 }
 
+function ImageSelectionOutline({
+  rect,
+  viewportRect,
+}: {
+  rect: DOMRect;
+  viewportRect: DOMRect | null;
+}) {
+  const pad = 2;
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={50}>
+      <div
+        style={{
+          position: "absolute",
+          top: rect.top - pad,
+          left: rect.left - pad,
+          width: rect.width + pad * 2,
+          height: rect.height + pad * 2,
+          pointerEvents: "none",
+          border: "2px solid #609FF8",
+          borderRadius: 2,
+        }}
+      />
+    </SelectionOverlayPortal>
+  );
+}
+
+function ElementSelectionOutline({
+  rect,
+  viewportRect,
+}: {
+  rect: DOMRect;
+  viewportRect: DOMRect | null;
+}) {
+  const pad = 2;
+  const handle = 7;
+  const handleClass =
+    "absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm";
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={51}>
+      <div
+        style={{
+          position: "absolute",
+          top: rect.top - pad,
+          left: rect.left - pad,
+          width: rect.width + pad * 2,
+          height: rect.height + pad * 2,
+          pointerEvents: "none",
+          border: "1.5px solid #609FF8",
+          borderRadius: 3,
+          boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.2)",
+        }}
+      >
+        <span
+          className={handleClass}
+          style={{ left: -handle / 2, top: -handle / 2 }}
+        />
+        <span
+          className={handleClass}
+          style={{ right: -handle / 2, top: -handle / 2 }}
+        />
+        <span
+          className={handleClass}
+          style={{ left: -handle / 2, bottom: -handle / 2 }}
+        />
+        <span
+          className={handleClass}
+          style={{ right: -handle / 2, bottom: -handle / 2 }}
+        />
+      </div>
+    </SelectionOverlayPortal>
+  );
+}
+
 /** Outline rendered around a multi-select element */
-function MultiSelectOutline({ rect }: { rect: DOMRect }) {
+function MultiSelectOutline({
+  rect,
+  viewportRect,
+}: {
+  rect: DOMRect;
+  viewportRect: DOMRect | null;
+}) {
   const pad = 1;
-  return createPortal(
-    <div
-      style={{
-        position: "fixed",
-        top: rect.top - pad,
-        left: rect.left - pad,
-        width: rect.width + pad * 2,
-        height: rect.height + pad * 2,
-        pointerEvents: "none",
-        zIndex: 49,
-        border: "2px solid #609FF8",
-        borderRadius: 2,
-        boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.25)",
-      }}
-    />,
-    document.body,
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={49}>
+      <div
+        style={{
+          position: "absolute",
+          top: rect.top - pad,
+          left: rect.left - pad,
+          width: rect.width + pad * 2,
+          height: rect.height + pad * 2,
+          pointerEvents: "none",
+          border: "2px solid #609FF8",
+          borderRadius: 2,
+          boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.25)",
+        }}
+      />
+    </SelectionOverlayPortal>
   );
 }
 
 /** Translucent rectangle drawn while marquee-dragging */
 function MarqueeRect({
   rect,
+  viewportRect,
 }: {
   rect: { x: number; y: number; w: number; h: number };
+  viewportRect: DOMRect | null;
 }) {
-  return createPortal(
-    <div
-      style={{
-        position: "fixed",
-        top: rect.y,
-        left: rect.x,
-        width: rect.w,
-        height: rect.h,
-        pointerEvents: "none",
-        zIndex: 48,
-        background: "rgba(96, 159, 248, 0.12)",
-        border: "1px solid #609FF8",
-        borderRadius: 1,
-      }}
-    />,
-    document.body,
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={48}>
+      <div
+        style={{
+          position: "absolute",
+          top: rect.y,
+          left: rect.x,
+          width: rect.w,
+          height: rect.h,
+          pointerEvents: "none",
+          background: "rgba(96, 159, 248, 0.12)",
+          border: "1px solid #609FF8",
+          borderRadius: 1,
+        }}
+      />
+    </SelectionOverlayPortal>
   );
 }
 
@@ -690,6 +755,8 @@ export default function SlideEditor({
   } | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const [selectionViewportRect, setSelectionViewportRect] =
+    useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Wraps the rendered slide; used as the positioning container for the
@@ -783,6 +850,34 @@ export default function SlideEditor({
     min: MIN_CANVAS_ZOOM,
     max: MAX_CANVAS_ZOOM,
   });
+
+  // Selection outlines are portaled to the document so their viewport
+  // coordinates stay aligned with the zoomed/scrolling slide. Keep a live
+  // viewport rect so that portal can clip itself to the central canvas when
+  // either sidebar or the style inspector changes the available width.
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const updateViewportRect = () => {
+      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+    };
+
+    updateViewportRect();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateViewportRect);
+    observer?.observe(scrollContainer);
+    window.addEventListener("resize", updateViewportRect);
+    window.addEventListener("scroll", updateViewportRect, true);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateViewportRect);
+      window.removeEventListener("scroll", updateViewportRect, true);
+    };
+  }, []);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -1046,7 +1141,10 @@ export default function SlideEditor({
       const selector = getBuilderSelector(el);
       el.contentEditable = "true";
       el.setAttribute("data-editing-block", "true");
-      clearSelectedElement();
+      // Keep the inspector selection mounted while text is being edited. The
+      // inspector is a stable dock, so clearing it here would make the canvas
+      // resize and auto-fit again on the second click.
+      setSelectedElementRect(null);
       captureInlineEditDraft(slide.id);
       // Mark the deck dirty immediately so SSE/poll refreshes do not replace
       // the deck under an active contentEditable edit, even before the user
@@ -1072,13 +1170,7 @@ export default function SlideEditor({
         );
       }
     },
-    [
-      buildSelectionState,
-      captureInlineEditDraft,
-      clearSelectedElement,
-      onInlineEditStart,
-      slide.id,
-    ],
+    [buildSelectionState, captureInlineEditDraft, onInlineEditStart, slide.id],
   );
 
   // Exit edit mode when switching slides — save pending content first so
@@ -1958,18 +2050,29 @@ export default function SlideEditor({
           )}
         </div>
 
-        {selectedStyleSnapshot && !readOnly && (
-          <div className="hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block">
-            <SlideStyleInspector
-              snapshot={selectedStyleSnapshot}
-              designSystem={designSystem}
-              className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-              onChange={applySelectedStylePatch}
-              onClose={() => {
-                clearSelectedElement();
-                syncSelectionToAppState(null);
-              }}
-            />
+        {!readOnly && (
+          <div
+            className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block"
+            data-slide-style-dock="true"
+          >
+            {selectedStyleSnapshot ? (
+              <SlideStyleInspector
+                snapshot={selectedStyleSnapshot}
+                designSystem={designSystem}
+                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+                onChange={applySelectedStylePatch}
+                onClose={() => {
+                  clearSelectedElement();
+                  syncSelectionToAppState(null);
+                }}
+              />
+            ) : (
+              <div className="flex h-11 items-center border-b border-border/70 px-3">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+                  {t("styleInspector.title")}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1981,19 +2084,31 @@ export default function SlideEditor({
         slideCount={slideCount}
       />
 
-      {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
-      {selectedElementRect && (
-        <ElementSelectionOutline rect={selectedElementRect} />
+      {selectionRect && (
+        <ImageSelectionOutline
+          rect={selectionRect}
+          viewportRect={selectionViewportRect}
+        />
+      )}
+      {selectedElementRect && !editingEl && (
+        <ElementSelectionOutline
+          rect={selectedElementRect}
+          viewportRect={selectionViewportRect}
+        />
       )}
 
       {/* Multi-select outlines */}
       {Array.from(multiSelectionRects.entries()).map(([id, v]) => (
-        <MultiSelectOutline key={id} rect={v.rect} />
+        <MultiSelectOutline
+          key={id}
+          rect={v.rect}
+          viewportRect={selectionViewportRect}
+        />
       ))}
 
       {/* Active marquee rectangle */}
       {marquee && (marquee.w > 1 || marquee.h > 1) && (
-        <MarqueeRect rect={marquee} />
+        <MarqueeRect rect={marquee} viewportRect={selectionViewportRect} />
       )}
 
       {/* Floating "N selected" chip */}

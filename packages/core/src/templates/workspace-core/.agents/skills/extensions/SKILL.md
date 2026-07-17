@@ -200,9 +200,10 @@ extension content:
 ```
 
 `update-extension` accepts the same `contentFromAttachment` for full-body
-replacement. Inline `content` still works for everything you author yourself —
-use `contentFromAttachment` only to avoid regurgitating something the user
-already pasted.
+replacement, but full-body replacement requires `allowFullReplacement: true`.
+Inline `content` still works for everything you author yourself — use
+`contentFromAttachment` only to avoid regurgitating something the user already
+pasted.
 
 ## Editing an extension
 
@@ -210,6 +211,13 @@ Use the `update-extension` action. Prefer granular `edits` for surgical
 changes instead of regenerating the full HTML. For medium/large extensions,
 add stable section comments around major blocks so future agents can target
 them without touching unrelated indentation:
+
+For data-only repairs, preserve the existing layout, CSS, copy, and
+interactions. Do not reconstruct and submit the entire body. The action and
+store reject full-body replacement unless `allowFullReplacement: true` is
+explicitly supplied for a user-requested visual rewrite or complete replacement
+body. If a focused edit fails, inspect the current body and adjust its target;
+do not retry unchanged arguments.
 
 ```html
 <!-- agent-native:section npm-daily-chart -->
@@ -243,7 +251,8 @@ Supported `edits` operations:
 Use `expectedMatches` when ambiguity would be dangerous. Missing required
 targets fail instead of silently doing nothing. Pass `format: true` to run
 Prettier on the final HTML after the patch. Full `content` replacement is
-still available for broad rewrites.
+still available for broad rewrites when `allowFullReplacement: true` is
+supplied.
 
 Legacy `patches` still work for simple literal replacements:
 
@@ -264,7 +273,7 @@ To replace the full content instead:
 
 ```
 PUT /_agent-native/extensions/:id
-{ "content": "full new HTML" }
+{ "content": "full new HTML", "allowFullReplacement": true }
 ```
 
 ## History and rollback

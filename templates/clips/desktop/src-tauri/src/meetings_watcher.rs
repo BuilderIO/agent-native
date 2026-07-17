@@ -298,6 +298,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         // upcoming window to include recently-started events (see action).
         ("includeStartedWithinMin", "5"),
         ("excludePersonalSoloEvents", "true"),
+        ("excludeDeclinedEvents", "true"),
     ]);
     req = req.header("X-Request-Source", "clips-desktop");
     if let Some(c) = cookie.as_deref() {

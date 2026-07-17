@@ -62,6 +62,26 @@ describe("database form view config", () => {
     expect(form).toMatchObject({ type: "form", formQuestions: [] });
   });
 
+  it("normalizes sidebar views and gives them a sidebar default name", () => {
+    const sidebar = createDatabaseView("", "sidebar", {}, "sidebar");
+    expect(sidebar).toMatchObject({
+      id: "sidebar",
+      name: "Sidebar",
+      type: "sidebar",
+      collapsedGroupIds: [],
+    });
+
+    const normalized = normalizeClientDatabaseViewConfig({
+      activeViewId: "sidebar",
+      views: [sidebar],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(normalized.activeViewId).toBe("sidebar");
+    expect(normalized.views[0]?.type).toBe("sidebar");
+  });
+
   it("duplicates a form view with its question order and required flags", () => {
     const form = createDatabaseView(
       "Request",

@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -33,6 +34,7 @@ const INITIAL_TOOL_NAMES = [
   "edit-design",
   "generate-design",
   "present-design-variants",
+  "propose-node-rewrite",
   "insert-asset",
   "connect-assets-mcp",
   "apply-tweaks",
@@ -48,7 +50,9 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "design",
-  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  actions: guardRepromptActionRegistry(
+    loadActionsFromStaticRegistry(actionsRegistry),
+  ),
   initialToolNames: INITIAL_TOOL_NAMES,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
@@ -60,11 +64,15 @@ export default createAgentChatPlugin({
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
+When a user message begins with [Reprompt selection], the design must remain unchanged until the user accepts a preview. Call propose-node-rewrite with the exact repromptId, target, and baseVersionHash from the message. Never call edit-design, update-design, update-file, generate-design, apply-visual-edit, or any other content-writing action for that turn. The proposal action stores preview state only; the frontend-only resolve-node-rewrite action persists a chosen variant after the user presses Accept.
+
+When a user message begins with [Selection question], answer about the captured element and selected subtree without changing the design. You may use read-only actions when more context is needed, but do not call any content-writing action. If the user actually intended an edit, explain that they can choose Preview change from the composer mode menu and resend.
+
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
 Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. After generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
 
-When the user asks to start from a template, call list-design-templates and then create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
+When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt or selected a different linked design system, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 
 When the user asks you to refine an existing design, call view-screen if the open design is unclear, then read the live current file with get-design-snapshot before editing. For small localized changes, call edit-design with exact search/replace edits. For broad copy-only changes such as translating all visible text, call edit-design in replace-file mode with the complete updated file content from the snapshot so the HTML structure, scripts, styles, and tweaks are preserved without dozens of fragile search blocks. Do not claim the design is updated until the mutating action succeeds.
 

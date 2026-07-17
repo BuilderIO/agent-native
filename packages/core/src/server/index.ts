@@ -312,12 +312,27 @@ export {
   type H3AppShim,
 } from "./framework-request-handler.js";
 export {
+  fireInternalDispatch,
+  resolveSelfDispatchBaseUrl,
+  type FireInternalDispatchOptions,
+} from "./self-dispatch.js";
+export {
+  extractBearerToken as extractInternalBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
+export {
   autoDiscoverActions,
   autoDiscoverScripts,
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
   registerPackageActions,
 } from "./action-discovery.js";
+export {
+  registerPromptContextProvider,
+  type PromptContextProvider,
+  type PromptContextProviderContext,
+  type PromptContextProviderContribution,
+} from "./agent-chat/prompt-resources.js";
 export {
   mountActionRoutes,
   type MountActionRoutesOptions,
@@ -418,6 +433,20 @@ export {
 } from "./google-oauth.js";
 
 export {
+  buildWorkspaceProviderAuthorizationUrl,
+  createWorkspaceProviderOAuthHandler,
+  exchangeWorkspaceProviderOAuthCode,
+  handleWorkspaceProviderOAuthCallback,
+  handleWorkspaceProviderOAuthStart,
+  isWorkspaceProviderOAuthFlowValid,
+  mergeWorkspaceOAuthValues,
+  resolveWorkspaceProviderIdentity,
+  workspaceProviderOAuthPath,
+  type GenericWorkspaceOAuthProvider,
+  type WorkspaceProviderOAuthFlow,
+} from "./workspace-provider-oauth.js";
+
+export {
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -462,6 +491,7 @@ export {
 export {
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,

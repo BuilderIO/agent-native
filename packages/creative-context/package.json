@@ -1,0 +1,92 @@
+{
+  "name": "@agent-native/creative-context",
+  "version": "0.4.0",
+  "description": "Shared creative context ingestion, versioning, search, brand DNA, and context-pack primitives for agent-native apps.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/creative-context"
+  },
+  "files": [
+    "agent-native.package.json",
+    "docs",
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./actions": "./dist/actions/index.js",
+    "./client": "./dist/client/index.js",
+    "./connectors": "./dist/connectors/index.js",
+    "./messages": "./dist/client/messages.js",
+    "./jobs": "./dist/jobs/index.js",
+    "./embeddings": "./dist/embeddings/index.js",
+    "./eval": "./dist/eval/index.js",
+    "./schema": "./dist/schema/index.js",
+    "./search/fusion": "./dist/search/fusion.js",
+    "./server": "./dist/server/index.js",
+    "./store": "./dist/store/index.js",
+    "./types": "./dist/types.js",
+    "./vector": "./dist/vector/index.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "eval:acceptance": "tsx scripts/run-acceptance-eval.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
+    "@tabler/icons-react": "catalog:",
+    "@types/node": "^26.1.1",
+    "@types/react": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.8.0",
+    "@agent-native/toolkit": ">=0.1.0",
+    "@tabler/icons-react": ">=3.41.1",
+    "drizzle-orm": ">=0.45",
+    "react": ">=19.2.7",
+    "react-dom": ">=19.2.7"
+  },
+  "peerDependenciesMeta": {
+    "@agent-native/toolkit": {
+      "optional": true
+    },
+    "@tabler/icons-react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "optionalDependencies": {
+    "officeparser": "^7.3.0",
+    "playwright": "^1.61.1"
+  },
+  "agentNativeManifest": "agent-native.package.json"
+}

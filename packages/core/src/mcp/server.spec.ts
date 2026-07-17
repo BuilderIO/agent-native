@@ -19,6 +19,10 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
   askAppRun: vi.fn(async () => ({ response: "agent answer" })),
+  askAppStatusRun: vi.fn(async () => ({
+    status: "completed",
+    response: "agent answer",
+  })),
 }));
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
@@ -82,7 +86,7 @@ vi.mock("./builtin-tools.js", () => ({
         },
       },
       readOnly: true,
-      run: async () => ({ status: "completed", response: "agent answer" }),
+      run: (...args: any[]) => builtinToolMocks.askAppStatusRun(...args),
     },
     create_embed_session: {
       tool: {
@@ -509,6 +513,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     // Inline MCP App embeds are off by default; these tests assert the embed
@@ -522,6 +528,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
@@ -529,6 +537,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     mockOAuthClients.clear();
     vi.clearAllMocks();
     builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
+    builtinToolMocks.askAppStatusRun.mockResolvedValue({
+      status: "completed",
+      response: "agent answer",
+    });
   });
 
   it("handles `initialize` without a 501", async () => {
@@ -1464,6 +1476,57 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       message: "Build the report.",
       async: true,
       maxWaitMs: 0,
+    });
+  });
+
+  it("returns transient ask_app status read exhaustion as recoverable structured content", async () => {
+    builtinToolMocks.askAppStatusRun.mockResolvedValueOnce({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      errorCategory: "transport",
+      attempts: 4,
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message:
+        "The task status could not be read. Retry ask_app_status; do not resubmit ask_app.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 293,
+        method: "tools/call",
+        params: {
+          name: "ask_app_status",
+          arguments: { app: "mail", taskId: "task-1" },
+        },
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(call.result.isError).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+    expect(call.result.structuredContent).toMatchObject({
+      taskId: "task-1",
+      statusRead: "unavailable",
+      retryable: true,
     });
   });
 
@@ -3320,6 +3383,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 11, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        mcpUrl: "http://localhost:8100/mcp",
+      },
+    });
+  });
+
+  it("does not treat a server owner env var as a local owner hint", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 12, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({ error: "Unauthorized" });
   });
 
   it("uses forwarded host for tunneled OAuth challenges instead of opening dev mode", async () => {

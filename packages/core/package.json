@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.101.10",
+  "version": "0.106.3",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -24,6 +24,7 @@
     "tsconfig.base.json",
     "src/templates/default",
     "src/templates/headless",
+    "src/templates/chat",
     "src/templates/workspace-core",
     "src/templates/workspace-root"
   ],
@@ -47,6 +48,8 @@
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
     "./integrations": "./dist/integrations/index.js",
+    "./ingestion": "./dist/ingestion/index.js",
+    "./search-utils": "./dist/search-utils/index.js",
     "./automation": "./dist/automation/index.js",
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
@@ -249,7 +252,8 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src --maxWorkers=25%",
-    "prepack": "tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
+    "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
+    "postpack": "tsx ../../scripts/sync-core-first-party-templates.ts --clean",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -518,7 +522,12 @@
   },
   "optionalDependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "playwright": "^1.61.1"
+    "fast-xml-parser": "^5.10.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
+    "officeparser": "^7.3.0",
+    "playwright": "^1.61.1",
+    "sharp": "^0.35.3"
   },
   "engines": {
     "node": ">=22.22.0"
