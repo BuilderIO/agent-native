@@ -484,7 +484,7 @@ export async function createCreativeContext(input: {
     const existing = await getDb()
       .select({ id: schema.creativeContexts.id })
       .from(schema.creativeContexts)
-      .where(eq(schema.creativeContexts.defaultScopeKey, defaultScopeKey))
+      .where(eq(schema.creativeContexts.defaultScopeKey, defaultScopeKey!))
       .limit(1);
     if (existing[0]) return getCreativeContextById(existing[0].id);
   }
@@ -540,7 +540,7 @@ export async function createCreativeContext(input: {
       const existing = await getDb()
         .select({ id: schema.creativeContexts.id })
         .from(schema.creativeContexts)
-        .where(eq(schema.creativeContexts.defaultScopeKey, defaultScopeKey))
+        .where(eq(schema.creativeContexts.defaultScopeKey, defaultScopeKey!))
         .limit(1);
       if (existing[0]) return getCreativeContextById(existing[0].id);
     }
@@ -878,6 +878,7 @@ export async function listContextMemberships(input: {
             kind: schema.contextItems.kind,
             canonicalUrl: schema.contextItems.canonicalUrl,
             status: schema.contextItems.status,
+            metadata: schema.contextItemVersions.metadata,
           })
           .from(schema.contextItemVersions)
           .innerJoin(
@@ -913,21 +914,29 @@ export async function listContextMemberships(input: {
     mediaByVersion.set(media.itemVersionId, list);
   }
   const previewByVersion = new Map(
-    (publishedItems as any[]).map((item) => [
-      item.itemVersionId,
-      {
-        id: item.id,
-        itemVersionId: item.itemVersionId,
-        title: item.title,
-        kind: item.kind,
-        canonicalUrl:
-          typeof sanitizePublicMetadata(item.canonicalUrl) === "string"
-            ? (sanitizePublicMetadata(item.canonicalUrl) as string)
-            : null,
-        status: item.status,
-        media: mediaByVersion.get(item.itemVersionId) ?? [],
-      },
-    ]),
+    (publishedItems as any[]).map((item) => {
+      const preview = sanitizePublicMetadata(
+        parseJson<Record<string, unknown>>(item.metadata, {}).preview,
+      );
+      return [
+        item.itemVersionId,
+        {
+          id: item.id,
+          itemVersionId: item.itemVersionId,
+          title: item.title,
+          kind: item.kind,
+          canonicalUrl:
+            typeof sanitizePublicMetadata(item.canonicalUrl) === "string"
+              ? (sanitizePublicMetadata(item.canonicalUrl) as string)
+              : null,
+          status: item.status,
+          media: mediaByVersion.get(item.itemVersionId) ?? [],
+          ...(preview && typeof preview === "object" && !Array.isArray(preview)
+            ? { preview: preview as Record<string, unknown> }
+            : {}),
+        },
+      ];
+    }),
   );
   return {
     memberships: page.map(({ membership, pendingSubmission }) => {

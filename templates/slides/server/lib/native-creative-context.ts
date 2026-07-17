@@ -17,6 +17,10 @@ function text(value: string) {
     .trim();
 }
 
+function previewText(value: string | undefined, limit = 280) {
+  return text(value ?? "").slice(0, limit);
+}
+
 export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
   appId: "slides",
   resourceType: "deck",
@@ -97,7 +101,17 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
           contentHash,
           sourceModifiedAt: deck.updatedAt,
           sourceVersion: version.id ?? contentHash,
-          metadata: { preview: { type: "slides", slideCount: slides.length } },
+          metadata: {
+            preview: {
+              type: "slides",
+              slideCount: slides.length,
+              slides: slides.slice(0, 24).map((slide, index) => ({
+                index: index + 1,
+                title: previewText(slide.title, 120) || `Slide ${index + 1}`,
+                excerpt: previewText(slide.content),
+              })),
+            },
+          },
           edges: slides.map((slide, index) => ({
             relation: "contains",
             toExternalId: `native:slides:deck:${deck.id}:slide:${slide.id ?? index}`,
@@ -120,7 +134,14 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
             ),
             sourceModifiedAt: deck.updatedAt,
             sourceVersion: version.id ?? contentHash,
-            metadata: { preview: { type: "slide", index: index + 1 } },
+            metadata: {
+              preview: {
+                type: "slide",
+                index: index + 1,
+                title: previewText(slide.title, 120) || `Slide ${index + 1}`,
+                excerpt: previewText(slide.content),
+              },
+            },
           };
         }),
       ],

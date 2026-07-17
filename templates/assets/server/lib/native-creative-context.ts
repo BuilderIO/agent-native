@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
-import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
+import {
+  serializePrivateBlobHandle,
+  type NativeResourceCaptureAdapter,
+} from "@agent-native/creative-context/server";
 
 import {
   getAssetOrThrow,
@@ -40,6 +43,32 @@ export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
       throw new Error(
         "Private blob storage is required to submit an asset to Context.",
       );
+    const previewIsThumbnail = Boolean(
+      asset.mediaType === "video" && asset.thumbnailObjectKey,
+    );
+    const previewBytes = previewIsThumbnail
+      ? await getObject(asset.thumbnailObjectKey!)
+      : bytes;
+    const previewMimeType = previewIsThumbnail ? "image/webp" : asset.mimeType;
+    const previewHandle = await putPrivateBlob({
+      data: previewBytes,
+      filename: previewIsThumbnail
+        ? `${asset.id}.preview.webp`
+        : `${asset.id}.${extension}`,
+      mimeType: previewMimeType,
+      key: `creative-context/assets/${asset.id}/${contentHash}.preview`,
+      metadata: {
+        appId: "assets",
+        resourceType: "asset-preview",
+        resourceId: asset.id,
+        contentHash,
+      },
+    });
+    if (!previewHandle) {
+      throw new Error(
+        "Private blob storage is required to preview an asset in Context.",
+      );
+    }
     const safeDescription = [
       asset.title,
       asset.description,
@@ -83,6 +112,25 @@ export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
               durationSeconds: asset.durationSeconds,
             },
           },
+          media: [
+            {
+              kind: previewIsThumbnail ? "image" : asset.mediaType,
+              mimeType: previewMimeType,
+              accessMode: "private",
+              storageKey: serializePrivateBlobHandle(previewHandle),
+              altText: asset.altText ?? asset.title ?? undefined,
+              contentHash: createHash("sha256")
+                .update(previewBytes)
+                .digest("hex"),
+              width: asset.width ?? undefined,
+              height: asset.height ?? undefined,
+              durationMs:
+                asset.durationSeconds != null
+                  ? Math.round(asset.durationSeconds * 1_000)
+                  : undefined,
+              metadata: { role: previewIsThumbnail ? "thumbnail" : "preview" },
+            },
+          ],
         },
       ],
       privateMetadata: {

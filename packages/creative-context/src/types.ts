@@ -537,7 +537,13 @@ export interface CreativeContextMembershipPreview {
   kind: string;
   canonicalUrl: string | null;
   status: ContextItemStatus;
-  media: Array<{ id: string; kind: ContextMediaInput["kind"]; mimeType: string | null; url: string }>;
+  media: Array<{
+    id: string;
+    kind: ContextMediaInput["kind"];
+    mimeType: string | null;
+    url: string;
+  }>;
+  preview?: Record<string, unknown>;
 }
 
 /** Public submission summary deliberately omits staging and native capability data. */

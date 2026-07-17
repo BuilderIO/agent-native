@@ -339,7 +339,9 @@ export const creativeContexts = table("creative_contexts", {
   publishedSourceId: text("published_source_id").notNull(),
   approvalPolicy: text("approval_policy", {
     enum: ["open", "review", "admins-only"],
-  }).notNull().default("open"),
+  })
+    .notNull()
+    .default("open"),
   archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

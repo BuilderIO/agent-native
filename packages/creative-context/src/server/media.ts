@@ -20,6 +20,8 @@ const SAFE_MIME_TYPES = new Set([
   "image/webp",
   "image/gif",
   "image/svg+xml",
+  "video/mp4",
+  "video/webm",
 ]);
 
 export function createCreativeContextMediaPlugin(): NitroPluginDef {

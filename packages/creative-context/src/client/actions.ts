@@ -48,6 +48,38 @@ export const CREATIVE_CONTEXT_ACTIONS = {
 export type CreativeContextPolicy = "open" | "review" | "admins-only";
 export type CreativeContextMembershipRank = "canonical" | "exemplar" | "normal";
 
+export type CreativeContextSafePreview =
+  | {
+      type: "slides";
+      slideCount: number;
+      slides: Array<{ index: number; title: string; excerpt: string }>;
+    }
+  | { type: "slide"; index: number; title: string; excerpt: string }
+  | {
+      type: "design";
+      fileCount: number;
+      frames: Array<{ title: string; fileType: string; excerpt: string }>;
+    }
+  | {
+      type: "design-frame";
+      title: string;
+      fileType: string;
+      excerpt: string;
+    }
+  | { type: "document"; headings: string[]; excerpt: string }
+  | {
+      type: "asset";
+      mediaType: "image" | "video";
+      width: number | null;
+      height: number | null;
+      durationSeconds: number | null;
+    }
+  | {
+      type: "dashboard";
+      data: "synthetic";
+      panels: Array<{ id: string; title: string; visualization: string }>;
+    };
+
 export interface CreativeContextSummary {
   id: string;
   name: string;
@@ -81,6 +113,7 @@ export interface CreativeContextMembership {
     title: string;
     kind: string;
     status: string;
+    preview: CreativeContextSafePreview | null;
     media: Array<{
       id: string;
       kind: string;
@@ -180,6 +213,133 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function previewString(value: unknown, limit: number) {
+  return typeof value === "string" ? value.slice(0, limit) : "";
+}
+
+function previewNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Accept only the compact structured preview contract. Native payloads and
+ * arbitrary item metadata deliberately never cross into the shared client.
+ */
+export function parseCreativeContextSafePreview(
+  value: unknown,
+): CreativeContextSafePreview | null {
+  const preview = record(value);
+  if (!preview || typeof preview.type !== "string") return null;
+  if (preview.type === "slides") {
+    const slides = Array.isArray(preview.slides)
+      ? preview.slides.slice(0, 24).flatMap((entry, index) => {
+          const slide = record(entry);
+          if (!slide) return [];
+          return [
+            {
+              index:
+                typeof slide.index === "number" && slide.index > 0
+                  ? Math.floor(slide.index)
+                  : index + 1,
+              title: previewString(slide.title, 160) || `Slide ${index + 1}`,
+              excerpt: previewString(slide.excerpt, 320),
+            },
+          ];
+        })
+      : [];
+    return {
+      type: "slides",
+      slideCount:
+        typeof preview.slideCount === "number" && preview.slideCount >= 0
+          ? Math.floor(preview.slideCount)
+          : slides.length,
+      slides,
+    };
+  }
+  if (preview.type === "slide") {
+    return {
+      type: "slide",
+      index:
+        typeof preview.index === "number" && preview.index > 0
+          ? Math.floor(preview.index)
+          : 1,
+      title: previewString(preview.title, 160) || "Slide",
+      excerpt: previewString(preview.excerpt, 500),
+    };
+  }
+  if (preview.type === "design") {
+    const frames = Array.isArray(preview.frames)
+      ? preview.frames.slice(0, 24).flatMap((entry) => {
+          const frame = record(entry);
+          if (!frame) return [];
+          return [
+            {
+              title: previewString(frame.title, 160) || "Untitled frame",
+              fileType: previewString(frame.fileType, 80) || "design",
+              excerpt: previewString(frame.excerpt, 320),
+            },
+          ];
+        })
+      : [];
+    return {
+      type: "design",
+      fileCount:
+        typeof preview.fileCount === "number" && preview.fileCount >= 0
+          ? Math.floor(preview.fileCount)
+          : frames.length,
+      frames,
+    };
+  }
+  if (preview.type === "design-frame") {
+    return {
+      type: "design-frame",
+      title: previewString(preview.title, 160) || "Untitled frame",
+      fileType: previewString(preview.fileType, 80) || "design",
+      excerpt: previewString(preview.excerpt, 500),
+    };
+  }
+  if (preview.type === "document" || preview.type === "markdown") {
+    const headings = Array.isArray(preview.headings)
+      ? preview.headings
+          .slice(0, 8)
+          .map((heading) => previewString(heading, 160))
+          .filter(Boolean)
+      : [];
+    return {
+      type: "document",
+      headings,
+      excerpt: previewString(preview.excerpt, 1_500),
+    };
+  }
+  if (preview.type === "asset") {
+    return {
+      type: "asset",
+      mediaType: preview.mediaType === "video" ? "video" : "image",
+      width: previewNumber(preview.width),
+      height: previewNumber(preview.height),
+      durationSeconds: previewNumber(preview.durationSeconds),
+    };
+  }
+  if (preview.type === "dashboard") {
+    const panels = Array.isArray(preview.panels)
+      ? preview.panels.slice(0, 24).flatMap((entry, index) => {
+          const panel = record(entry);
+          if (!panel) return [];
+          return [
+            {
+              id: previewString(panel.id, 120) || String(index + 1),
+              title: previewString(panel.title, 160) || `Panel ${index + 1}`,
+              visualization:
+                previewString(panel.visualization, 80) || "chart",
+            },
+          ];
+        })
+      : [];
+    return { type: "dashboard", data: "synthetic", panels };
+  }
+  return null;
 }
 
 function contextSummary(value: unknown): CreativeContextSummary | null {
@@ -335,6 +495,7 @@ export function parseContextMemberships(
               typeof published.status === "string"
                 ? published.status
                 : "active",
+            preview: parseCreativeContextSafePreview(published.preview),
             media,
           };
         })(),

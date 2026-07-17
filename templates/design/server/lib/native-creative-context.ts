@@ -8,6 +8,14 @@ import { nanoid } from "nanoid";
 import { getDb, schema } from "../db/index.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
+function previewText(value: string, limit = 280) {
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
 export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
   {
     appId: "design",
@@ -89,7 +97,15 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
             sourceModifiedAt,
             sourceVersion: versionId,
             metadata: {
-              preview: { type: "design", fileCount: snapshot.files.length },
+              preview: {
+                type: "design",
+                fileCount: snapshot.files.length,
+                frames: snapshot.files.slice(0, 24).map((file) => ({
+                  title: file.filename.slice(0, 160),
+                  fileType: file.fileType.slice(0, 80),
+                  excerpt: previewText(file.content),
+                })),
+              },
             },
             edges: snapshot.files.map((file) => ({
               relation: "contains",
@@ -115,7 +131,12 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
               sourceModifiedAt,
               sourceVersion: versionId,
               metadata: {
-                preview: { type: "design-frame", fileType: file.fileType },
+                preview: {
+                  type: "design-frame",
+                  title: file.filename.slice(0, 160),
+                  fileType: file.fileType.slice(0, 80),
+                  excerpt: previewText(file.content),
+                },
               },
             };
           }),

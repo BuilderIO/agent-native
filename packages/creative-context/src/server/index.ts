@@ -140,6 +140,7 @@ export * from "./retrieval.js";
 export * from "./untrusted-reference.js";
 export * from "./media.js";
 export * from "./native-resource-capture.js";
+export { serializePrivateBlobHandle } from "../connectors/private-artifacts.js";
 export { resolveNativeContextCloneReference } from "../store/contexts.js";
 export {
   CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE,

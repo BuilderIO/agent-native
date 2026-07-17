@@ -7,6 +7,22 @@ import type { NativeResourceCaptureAdapter } from "@agent-native/creative-contex
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
 
+function documentPreview(markdown: string) {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const headings = lines
+    .filter((line) => /^#{1,6}\s+/.test(line))
+    .map((line) => line.replace(/^#{1,6}\s+/, "").trim().slice(0, 160))
+    .filter(Boolean)
+    .slice(0, 8);
+  const excerpt = lines
+    .filter((line) => !/^\s*(?:```|#{1,6}\s+)/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1_500);
+  return { type: "document" as const, headings, excerpt };
+}
+
 export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter =
   {
     appId: "content",
@@ -82,7 +98,7 @@ export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter 
             contentHash,
             sourceModifiedAt: document.updatedAt,
             sourceVersion: versionId,
-            metadata: { preview: { type: "markdown" } },
+            metadata: { preview: documentPreview(document.content) },
           },
         ],
         privateMetadata: {

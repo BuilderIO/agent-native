@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
+import { sanitizePublicMetadata } from "../server/public-serialization.js";
 import type {
   ContextPackDetail,
   ContextPackMember,
@@ -469,7 +470,8 @@ export async function listContextPacks(input: {
       baseContextId: row.baseContextId ?? null,
       specialtyContextId: row.specialtyContextId ?? null,
       selectionReason: row.selectionReason ?? null,
-      request: parseJson(row.request, {}),
+      request: (sanitizePublicMetadata(parseJson(row.request, {})) ??
+        {}) as Record<string, unknown>,
       memberCount: memberCount.get(row.id) ?? 0,
       pinned: pinned.has(row.id),
       archivedAt: row.archivedAt ?? null,
@@ -562,7 +564,9 @@ export async function getContextPack(
     ordinal: member.ordinal,
     reason: member.reason ?? null,
     score: member.score ?? null,
-    scoreMetadata: parseJson(member.scoreMetadata, {}),
+    scoreMetadata: (sanitizePublicMetadata(
+      parseJson(member.scoreMetadata, {}),
+    ) ?? {}) as Record<string, unknown>,
   }));
   return {
     id: row.id,
@@ -574,7 +578,8 @@ export async function getContextPack(
     baseContextId: row.baseContextId ?? null,
     specialtyContextId: row.specialtyContextId ?? null,
     selectionReason: row.selectionReason ?? null,
-    request: parseJson(row.request, {}),
+    request: (sanitizePublicMetadata(parseJson(row.request, {})) ??
+      {}) as Record<string, unknown>,
     memberCount: members.length,
     pinned: Boolean(pinRows[0]),
     archivedAt: row.archivedAt ?? null,

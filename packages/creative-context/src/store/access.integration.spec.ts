@@ -1479,6 +1479,259 @@ describe("creative context access and revocation", () => {
     ).rejects.toThrow(/trusted native artifact compiler/i);
   });
 
+  it("keeps pending submissions private to their submitter and context reviewers", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asUser = <T>(userEmail: string, fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail, orgId: "org-1" }, fn);
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      asUser("alice@example.test", fn);
+    const asBob = <T>(fn: () => Promise<T>) => asUser("bob@example.test", fn);
+    const asCarol = <T>(fn: () => Promise<T>) =>
+      asUser("carol@example.test", fn);
+    const asDrew = <T>(fn: () => Promise<T>) => asUser("drew@example.test", fn);
+    const context = await asAlice(() =>
+      store.createCreativeContext({
+        name: "Review-only governance",
+        kind: "specialty",
+        approvalPolicy: "review",
+      }),
+    );
+    const timestamp = "2026-07-17T00:00:00.000Z";
+    await exec.execute({
+      sql: `INSERT INTO creative_context_source_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "source-share-bob",
+        "source-1",
+        "user",
+        "bob@example.test",
+        "editor",
+        "alice@example.test",
+        timestamp,
+      ],
+    });
+    for (const [id, email] of [
+      ["context-share-bob", "bob@example.test"],
+      ["context-share-drew", "drew@example.test"],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_shares
+          (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          context!.id,
+          "user",
+          email,
+          "editor",
+          "alice@example.test",
+          timestamp,
+        ],
+      });
+    }
+
+    await expect(
+      asCarol(() =>
+        store.manageContextMembership({
+          operation: "submit",
+          contextId: context!.id,
+          itemId: "allowed",
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(
+      (await asBob(() => store.getCreativeContextById(context!.id)))?.access,
+    ).toMatchObject({ canSubmit: true, canReview: false });
+
+    const submitted = await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: "allowed",
+        confirmBroaderPublication: true,
+      }),
+    );
+    const membershipId = submitted.membershipId;
+    await expect(
+      asBob(() =>
+        store.manageContextMembership({
+          operation: "approve",
+          contextId: context!.id,
+          membershipId,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asDrew(() =>
+        store.manageContextMembership({
+          operation: "remove",
+          contextId: context!.id,
+          membershipId,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asBob(() =>
+        store.updateCreativeContext(context!.id, { name: "Unapproved edit" }),
+      ),
+    ).rejects.toThrow();
+
+    const ownPending = await asBob(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(ownPending.memberships).toEqual([
+      expect.objectContaining({
+        id: membershipId,
+        artifactKey: "source-1:allowed",
+        pendingSubmission: expect.objectContaining({
+          submittedBy: "bob@example.test",
+        }),
+      }),
+    ]);
+    await expect(
+      asDrew(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      ),
+    ).resolves.toMatchObject({ memberships: [] });
+    await expect(
+      asCarol(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      ),
+    ).resolves.toMatchObject({ memberships: [] });
+
+    const reviewerView = await asAlice(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(reviewerView.memberships[0]).toMatchObject({
+      id: membershipId,
+      pendingSubmission: expect.objectContaining({
+        submittedBy: "bob@example.test",
+      }),
+    });
+    expect(
+      (await asAlice(() => store.getCreativeContextById(context!.id)))?.access,
+    ).toMatchObject({ canReview: true, canAdmin: true });
+
+    await asAlice(() =>
+      store.manageContextMembership({
+        operation: "approve",
+        contextId: context!.id,
+        membershipId,
+      }),
+    );
+    const approvedForViewer = await asCarol(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(approvedForViewer.memberships).toEqual([
+      expect.objectContaining({
+        id: membershipId,
+        artifactKey: "source-1:allowed",
+        pendingSubmissionId: null,
+        pendingSubmission: null,
+        publishedItem: expect.objectContaining({ id: expect.any(String) }),
+      }),
+    ]);
+  });
+
+  it("serializes concurrent Default creation to one scope-owned context", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const createDefault = () =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        () => store.createCreativeContext({ name: "Default", kind: "default" }),
+      );
+    const [first, second] = await Promise.all([
+      createDefault(),
+      createDefault(),
+    ]);
+    expect(first?.id).toBe(second?.id);
+    const rows = await exec.execute({
+      sql: `SELECT id FROM creative_contexts
+        WHERE default_scope_key = ?`,
+      args: ["org:org-1"],
+    });
+    expect(rows.rows).toHaveLength(1);
+  });
+
+  it("applies each Creative Context's rank to the same item at retrieval time", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const [canonical, normal] = await Promise.all([
+      asAlice(() =>
+        store.createCreativeContext({
+          name: "Canonical lane",
+          kind: "specialty",
+        }),
+      ),
+      asAlice(() =>
+        store.createCreativeContext({ name: "Normal lane", kind: "specialty" }),
+      ),
+    ]);
+    for (const [id, contextId, rank] of [
+      ["canonical-membership", canonical!.id, "canonical"],
+      ["normal-membership", normal!.id, "normal"],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_memberships
+          (id, context_id, artifact_key, published_item_id, published_item_version_id,
+           rank, status, created_at, updated_at, owner_email, org_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          contextId,
+          "source-1:allowed",
+          "allowed",
+          "allowed-v2",
+          rank,
+          "active",
+          "2026-07-17T00:00:00.000Z",
+          "2026-07-17T00:00:00.000Z",
+          "alice@example.test",
+          "org-1",
+        ],
+      });
+    }
+    const [canonicalResults, normalResults, canonicalDocuments] =
+      await Promise.all([
+        asAlice(() =>
+          store.listAccessibleLexicalCandidates({
+            query: "canonical version 2",
+            contextId: canonical!.id,
+            limit: 10,
+          }),
+        ),
+        asAlice(() =>
+          store.listAccessibleLexicalCandidates({
+            query: "canonical version 2",
+            contextId: normal!.id,
+            limit: 10,
+          }),
+        ),
+        asAlice(() =>
+          store.listAccessibleSearchDocuments({
+            contextId: canonical!.id,
+            limit: 10,
+          }),
+        ),
+      ]);
+    expect(canonicalResults.results[0]).toMatchObject({
+      itemId: "allowed",
+      itemVersionId: "allowed-v2",
+    });
+    expect(canonicalResults.results[0]!.score).toBeGreaterThan(
+      normalResults.results[0]!.score,
+    );
+    expect(canonicalDocuments[0]).toMatchObject({
+      itemId: "allowed",
+      curationRank: "canonical",
+    });
+  });
+
   it("finds native artifacts through bounded code-token chunks", async () => {
     const { runWithRequestContext, store } = await setup();
     const { performCreativeContextSearch } =
