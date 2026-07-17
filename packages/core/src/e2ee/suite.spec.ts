@@ -6,6 +6,7 @@ import {
   E2EE_ENVELOPE_FIELDS,
   E2EE_LIFETIME_LIMITS_SECONDS,
   E2EE_PRIMITIVES,
+  E2EE_RECOVERY_KDF,
   E2EE_SIZE_LIMITS,
   E2EE_SUITE_ID,
   e2eeDomainSeparationPrefix,
@@ -51,6 +52,40 @@ describe("anc/v1 suite freeze", () => {
     });
     expect(E2EE_ENVELOPE_FIELDS.controlContinuity).toEqual({
       membershipHash: 150,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.enrollmentOffer).toEqual({
+      endpointId: 160,
+      ceremonyId: 161,
+      membershipRole: 162,
+      unattended: 163,
+      signingPublicKey: 164,
+      keyAgreementPublicKey: 165,
+      enrollmentNonce: 166,
+      expiresAt: 168,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.recovery).toEqual({
+      salt: 200,
+      opsLimit: 201,
+      memLimitBytes: 202,
+      nonce: 203,
+      ciphertext: 204,
+      recoveryGeneration: 205,
+      recoveryId: 206,
+      snapshotHash: 207,
+      authorizationHash: 208,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.recoverySnapshot).toEqual({
+      sequence: 220,
+      controlHeadHash: 221,
+      membershipHash: 222,
+      priorEndpointIds: 223,
+    });
+    expect(E2EE_RECOVERY_KDF).toEqual({
+      algorithm: "argon2id",
+      opsLimit: 2,
+      memLimitBytes: 67_108_864,
+      saltBytes: 16,
+      outputBytes: 32,
     });
     expect("title" in E2EE_ENVELOPE_FIELDS.objectHeader).toBe(false);
     expect(Array.from(e2eeDomainSeparationPrefix("job"))).toEqual(

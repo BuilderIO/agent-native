@@ -6,6 +6,7 @@ export * from "./endpoint-request-auth.js";
 export * from "./failure-fixtures.js";
 export * from "./failure-vectors.js";
 export * from "./interoperability-vectors.js";
+export * from "./lifecycle-codecs.js";
 export * from "./portable-crypto.js";
 export * from "./privacy-manifest.js";
 export * from "./suite.js";

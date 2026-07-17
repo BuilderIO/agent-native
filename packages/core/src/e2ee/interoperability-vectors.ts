@@ -3,6 +3,7 @@ import {
   ancV1HexToBytes,
   encodeAncV1Canonical,
 } from "./canonical.js";
+import { encodeAncV1EndpointEnrollmentOffer } from "./lifecycle-codecs.js";
 import {
   ancV1AeadEncrypt,
   ancV1BoxEncrypt,
@@ -121,6 +122,10 @@ async function signedEnvelope(
 
 export interface AncV1InteroperabilityVectorSet {
   vectors: Record<AncV1VectorName, Uint8Array>;
+  lifecycleVectors: {
+    enrollmentOffer: Uint8Array;
+    recovery: Uint8Array;
+  };
   materials: {
     signingPublicKey: Uint8Array;
     senderBoxPublicKey: Uint8Array;
@@ -171,6 +176,22 @@ export async function buildAncV1InteroperabilityVectors(): Promise<AncV1Interope
     E2EE_ENVELOPE_FIELDS.endpoint.signature,
     signing.privateKey,
   );
+
+  const enrollmentOffer = encodeAncV1EndpointEnrollmentOffer({
+    suite: E2EE_SUITE_ID,
+    vaultId: VAULT_ID,
+    type: "enrollment-offer",
+    createdAt: FIXED_CREATED_AT,
+    envelopeId: fixtureId(0x0e),
+    endpointId: RECIPIENT_ENDPOINT_ID,
+    ceremonyId: fixtureId(0x0c),
+    membershipRole: "endpoint",
+    unattended: false,
+    signingPublicKey: signing.publicKey,
+    keyAgreementPublicKey: recipientBox.publicKey,
+    enrollmentNonce: ancV1PatternBytes(0xa5, 32),
+    expiresAt: FIXED_CREATED_AT + 600,
+  });
 
   const epochUnsigned = withEntries(commonEnvelope("epoch", 0x11), [
     [E2EE_ENVELOPE_FIELDS.epoch.epoch, 7],
@@ -426,19 +447,47 @@ export async function buildAncV1InteroperabilityVectors(): Promise<AncV1Interope
     { opsLimit: 2, memLimit: 67_108_864 },
   );
   const recoveryAad = withEntries(commonEnvelope("recovery", 0x1c), [
-    [200, recoverySalt],
-    [201, 2],
-    [202, 67_108_864],
-    [203, recoveryNonce],
+    [E2EE_ENVELOPE_FIELDS.recovery.salt, recoverySalt],
+    [E2EE_ENVELOPE_FIELDS.recovery.opsLimit, 2],
+    [E2EE_ENVELOPE_FIELDS.recovery.memLimitBytes, 67_108_864],
+    [E2EE_ENVELOPE_FIELDS.recovery.nonce, recoveryNonce],
   ]);
   const recovery = encodeAncV1Canonical(
     withEntries(recoveryAad, [
       [
-        204,
+        E2EE_ENVELOPE_FIELDS.recovery.ciphertext,
         await ancV1AeadEncrypt(
           "recovery",
           eek,
           encodeAncV1Canonical(recoveryAad),
+          recoveryNonce,
+          recoveryKey,
+        ),
+      ],
+    ]),
+  );
+
+  const lifecycleRecoveryAad = withEntries(commonEnvelope("recovery", 0x1e), [
+    [E2EE_ENVELOPE_FIELDS.recovery.salt, recoverySalt],
+    [E2EE_ENVELOPE_FIELDS.recovery.opsLimit, 2],
+    [E2EE_ENVELOPE_FIELDS.recovery.memLimitBytes, 67_108_864],
+    [E2EE_ENVELOPE_FIELDS.recovery.nonce, recoveryNonce],
+    [E2EE_ENVELOPE_FIELDS.recovery.recoveryGeneration, 2],
+    [E2EE_ENVELOPE_FIELDS.recovery.recoveryId, fixtureId(0x0b)],
+    [E2EE_ENVELOPE_FIELDS.recovery.snapshotHash, ancV1PatternBytes(0xa3, 32)],
+    [
+      E2EE_ENVELOPE_FIELDS.recovery.authorizationHash,
+      ancV1PatternBytes(0xa4, 32),
+    ],
+  ]);
+  const lifecycleRecovery = encodeAncV1Canonical(
+    withEntries(lifecycleRecoveryAad, [
+      [
+        E2EE_ENVELOPE_FIELDS.recovery.ciphertext,
+        await ancV1AeadEncrypt(
+          "recovery",
+          eek,
+          encodeAncV1Canonical(lifecycleRecoveryAad),
           recoveryNonce,
           recoveryKey,
         ),
@@ -475,6 +524,7 @@ export async function buildAncV1InteroperabilityVectors(): Promise<AncV1Interope
       recovery,
       tombstone,
     },
+    lifecycleVectors: { enrollmentOffer, recovery: lifecycleRecovery },
     materials: {
       signingPublicKey: signing.publicKey,
       senderBoxPublicKey: senderBox.publicKey,
@@ -523,3 +573,12 @@ export const ANC_V1_EXPECTED_VECTOR_HEX: Readonly<
   tombstone:
     "a90166616e632f76310250010101010101010101010101010101010369746f6d6273746f6e65041a6696124705501d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d18d2500404040404040404040404040404040418d30318d47773796e7468657469635f757365725f64656c6574696f6e18d558407338691ef27ac61960c870cfaa113b266e06dddeffb5f8399d36976d8b4596d368ab82fb5df59b4d34930be8d5759390060016af7a198769aeeff284a0b27807",
 });
+
+/**
+ * Additional lifecycle bytes. The original fourteen vectors, including the
+ * legacy recovery bytes, remain byte-for-byte compatible.
+ */
+export const ANC_V1_EXPECTED_ENROLLMENT_OFFER_HEX =
+  "ad0166616e632f76310250010101010101010101010101010101010370656e726f6c6c6d656e742d6f66666572041a6696124705500e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e18a0500303030303030303030303030303030318a1500c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c18a268656e64706f696e7418a3f418a45820d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c977873718a558204eb4fafee2bd3018a24e310de8106333c2b364eaed029a7f05d7b45ccc77683a18a65820a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a518a81a6696149f";
+export const ANC_V1_EXPECTED_LIFECYCLE_RECOVERY_HEX =
+  "ae0166616e632f763102500101010101010101010101010101010103687265636f76657279041a6696124705501e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e18c850a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a118c90218ca1a0400000018cb5818a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a218cc58305ce632d2360829235eb57c373940cebcb1e29b3b32beedabe10c3f3e7097ae616dae259ab901442154cd647e7102ba7418cd0218ce500b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b18cf5820a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a318d05820a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4";

@@ -13,6 +13,7 @@ export const E2EE_PRIMITIVES = Object.freeze({
 
 export const E2EE_DOMAIN_TAGS = Object.freeze([
   "endpoint",
+  "enrollment-offer",
   "endpoint-request-body",
   "endpoint-request",
   "epoch",
@@ -51,6 +52,16 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     addedByEndpointId: 15,
     sasTranscriptHash: 16,
     signature: 17,
+  }),
+  enrollmentOffer: Object.freeze({
+    endpointId: 160,
+    ceremonyId: 161,
+    membershipRole: 162,
+    unattended: 163,
+    signingPublicKey: 164,
+    keyAgreementPublicKey: 165,
+    enrollmentNonce: 166,
+    expiresAt: 168,
   }),
   epoch: Object.freeze({
     epoch: 20,
@@ -159,6 +170,32 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     secretstreamHeader: 134,
     ciphertext: 135,
   }),
+  recovery: Object.freeze({
+    salt: 200,
+    opsLimit: 201,
+    memLimitBytes: 202,
+    nonce: 203,
+    ciphertext: 204,
+    recoveryGeneration: 205,
+    recoveryId: 206,
+    snapshotHash: 207,
+    authorizationHash: 208,
+  }),
+  recoverySnapshot: Object.freeze({
+    sequence: 220,
+    controlHeadHash: 221,
+    membershipHash: 222,
+    priorEndpointIds: 223,
+  }),
+});
+
+/** anc/v1 recovery parameters are suite constants, never envelope input. */
+export const E2EE_RECOVERY_KDF = Object.freeze({
+  algorithm: "argon2id",
+  opsLimit: 2,
+  memLimitBytes: 67_108_864,
+  saltBytes: 16,
+  outputBytes: 32,
 });
 
 export const E2EE_SIZE_LIMITS = Object.freeze({

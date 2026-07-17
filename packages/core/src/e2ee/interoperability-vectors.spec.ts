@@ -186,13 +186,13 @@ describe("anc/v1 fixed interoperability corpus", () => {
 
     const recoveryMap = envelope(vectors.recovery);
     const recoveryAad = new Map(recoveryMap);
-    recoveryAad.delete(204);
+    recoveryAad.delete(E2EE_ENVELOPE_FIELDS.recovery.ciphertext);
     await expect(
       ancV1AeadDecrypt(
         "recovery",
-        bytesField(recoveryMap, 204),
+        bytesField(recoveryMap, E2EE_ENVELOPE_FIELDS.recovery.ciphertext),
         encodeAncV1Canonical(recoveryAad),
-        bytesField(recoveryMap, 203),
+        bytesField(recoveryMap, E2EE_ENVELOPE_FIELDS.recovery.nonce),
         materials.recoveryKey,
       ),
     ).resolves.toEqual(materials.eek);
