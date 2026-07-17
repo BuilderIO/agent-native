@@ -23,6 +23,7 @@ let personalContentSpaceId: typeof import("./_content-spaces.js").personalConten
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 let reconcileContentFilesMemberships: typeof import("./_content-files.js").reconcileContentFilesMemberships;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let getContentDatabasePersonalViewAction: typeof import("./get-content-database-personal-view.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 
 beforeAll(async () => {
@@ -38,6 +39,9 @@ beforeAll(async () => {
   ({ reconcileContentFilesMemberships } = await import("./_content-files.js"));
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
+  getContentDatabasePersonalViewAction = (
+    await import("./get-content-database-personal-view.js")
+  ).default;
   getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -330,6 +334,31 @@ describe("Content Files membership reconciliation", () => {
         }),
       ]),
     );
+    const crossWorkspaceResponse = await runWithRequestContext(
+      { userEmail: VIEWER, orgId: ORG_ID },
+      () =>
+        getContentDatabaseAction.run({
+          databaseId: filesDatabase.id,
+        }),
+    );
+    expect(crossWorkspaceResponse.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "viewer-legacy-org" }),
+        }),
+      ]),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        getContentDatabasePersonalViewAction.run(
+          { databaseId: filesDatabase.id },
+          { userEmail: VIEWER } as any,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      databaseId: filesDatabase.id,
+      overrides: null,
+    });
     const openedDocument = await runWithRequestContext(
       { userEmail: VIEWER, orgId: viewerOrgId },
       () => getDocumentAction.run({ id: "viewer-legacy-org" }),

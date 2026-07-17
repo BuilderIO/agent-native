@@ -68,6 +68,24 @@ export function contentSpaceForCatalogItem(args: {
   );
 }
 
+export function toggleExpandedWorkspaceIds(
+  expandedIds: string[],
+  workspaceId: string,
+) {
+  return expandedIds.includes(workspaceId)
+    ? expandedIds.filter((id) => id !== workspaceId)
+    : [...expandedIds, workspaceId];
+}
+
+export function ensureWorkspaceExpanded(
+  expandedIds: string[],
+  workspaceId: string,
+) {
+  return expandedIds.includes(workspaceId)
+    ? expandedIds
+    : [...expandedIds, workspaceId];
+}
+
 export function contentSpaceIdForCreate(args: {
   parentId?: string;
   selectedSpace: ContentSpaceSummary | null;

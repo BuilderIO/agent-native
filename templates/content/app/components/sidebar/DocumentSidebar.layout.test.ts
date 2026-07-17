@@ -175,15 +175,19 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
-  it("nests the selected Files list beneath workspace disclosure rows", () => {
+  it("keeps independently expanded Files lists beneath their workspaces", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(sidebar).toContain("aria-expanded={expanded}");
-    expect(sidebar).toContain("collapsedWorkspaceId !== space.id");
-    expect(sidebar).toContain("{expanded && renderSelectedWorkspaceFiles()}");
+    expect(sidebar).toContain("content-sidebar-expanded-workspaces");
+    expect(sidebar).toContain("toggleExpandedWorkspaceIds(current, space.id)");
+    expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
+    expect(sidebar).toContain("{expanded && (");
+    expect(sidebar).toContain("<WorkspaceFilesSection");
+    expect(sidebar).toContain("selected={selected}");
+    expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
     expect(sidebar).toContain('t("sidebar.workspaces")');
     expect(sidebar).toContain('t("sidebar.files")');
-    expect(sidebar).not.toContain("onOpenItem={(item) =>");
     expect(sidebar).not.toContain("<OrgSwitcher />");
   });
 

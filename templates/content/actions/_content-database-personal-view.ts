@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 
 export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION = 1;
 
@@ -64,7 +65,12 @@ export async function assertContentDatabaseViewerAccess(databaseId: string) {
     );
   if (!database) throw new Error(`Database "${databaseId}" not found`);
 
-  await assertAccess("document", database.documentId, "viewer");
+  try {
+    await assertAccess("document", database.documentId, "viewer");
+  } catch (error) {
+    if (database.systemRole !== "files" || !database.spaceId) throw error;
+    await resolveContentSpaceAccess(database.spaceId);
+  }
 }
 
 export async function readPersonalDatabaseViewOverrides(

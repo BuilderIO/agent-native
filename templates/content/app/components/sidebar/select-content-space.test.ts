@@ -8,7 +8,9 @@ import {
   contentSpaceForCatalogItem,
   contentSpaceIdForCreate,
   createContentSpaceSelectionQueue,
+  ensureWorkspaceExpanded,
   selectContentSpace,
+  toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 
 function space(
@@ -340,6 +342,27 @@ describe("contentSpaceForCatalogItem", () => {
         spaces: [space({ catalogDocumentId: "builder-reference" })],
       }),
     ).toBeNull();
+  });
+});
+
+describe("workspace expansion", () => {
+  it("opens and closes workspaces independently", () => {
+    expect(toggleExpandedWorkspaceIds(["personal"], "organization")).toEqual([
+      "personal",
+      "organization",
+    ]);
+    expect(
+      toggleExpandedWorkspaceIds(["personal", "organization"], "organization"),
+    ).toEqual(["personal"]);
+  });
+
+  it("keeps the selected workspace open without closing its siblings", () => {
+    expect(ensureWorkspaceExpanded(["personal"], "organization")).toEqual([
+      "personal",
+      "organization",
+    ]);
+    const expanded = ["personal", "organization"];
+    expect(ensureWorkspaceExpanded(expanded, "organization")).toBe(expanded);
   });
 });
 

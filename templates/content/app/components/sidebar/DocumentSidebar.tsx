@@ -27,7 +27,11 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { Document, DocumentTreeNode } from "@shared/api";
+import type {
+  ContentDatabaseItem,
+  Document,
+  DocumentTreeNode,
+} from "@shared/api";
 import {
   IconDatabase,
   IconBrain,
@@ -97,6 +101,7 @@ import {
 import {
   useContentSpaces,
   useEnsureContentSpaces,
+  type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
   useDocuments,
@@ -120,8 +125,10 @@ import {
   contentSpaceAvailability,
   contentSpaceForActiveOrg,
   createContentSpaceSelectionQueue,
+  ensureWorkspaceExpanded,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
+  toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 
 function nanoid(size = 12): string {
@@ -187,6 +194,7 @@ type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
 
 const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
+const EXPANDED_WORKSPACES_STORAGE_KEY = "content-sidebar-expanded-workspaces";
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   "local-files": false,
   "shared-copies": false,
@@ -210,6 +218,76 @@ function normalizeCollapsedSections(
 interface RemoveLocalFileSourceResult {
   success: boolean;
   deleted: number;
+}
+
+function WorkspaceFilesSection({
+  space,
+  selected,
+  footer,
+  onActivate,
+}: {
+  space: ContentSpaceSummary;
+  selected: boolean;
+  footer?: ReactNode;
+  onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
+}) {
+  const t = useT();
+  const filesDatabase = useContentDatabaseById(space.filesDatabaseId);
+  const filesPersonalView = useContentDatabasePersonalView(
+    space.filesDatabaseId,
+  );
+  const updateFilesPersonalView = useUpdateContentDatabasePersonalView(
+    space.filesDatabaseId,
+  );
+  const failed = filesDatabase.isError || filesPersonalView.isError;
+
+  return (
+    <div className="ms-3 border-s border-border/70 ps-1">
+      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {t("sidebar.files")}
+      </div>
+      {failed ? (
+        <QueryErrorState
+          compact
+          onRetry={() => {
+            void filesDatabase.refetch();
+            void filesPersonalView.refetch();
+          }}
+          retrying={filesDatabase.isFetching || filesPersonalView.isFetching}
+        />
+      ) : (
+        <ContentFilesSidebarView
+          data={filesDatabase.data}
+          overrides={filesPersonalView.data?.overrides}
+          isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+          onSelectView={(viewId) => {
+            const current = filesPersonalView.data?.overrides;
+            updateFilesPersonalView.mutate({
+              databaseId: space.filesDatabaseId,
+              overrides: {
+                version: current?.version ?? 1,
+                activeViewId: viewId,
+                views: current?.views ?? [],
+              },
+            });
+          }}
+          onOpenItem={(item: ContentDatabaseItem) => {
+            if (selected) return false;
+            onActivate(space, item.document.id);
+            return true;
+          }}
+          labels={{
+            loadingLabel: t("sidebar.loadingFiles"),
+            noMatchesLabel: t("database.noRowsMatchThisView"),
+            clearLabel: t("database.clearSearchAndFilters"),
+            navigationLabel: `${space.name} ${t("sidebar.files")}`,
+            untitledLabel: t("sidebar.untitled"),
+          }}
+        />
+      )}
+      {selected ? footer : null}
+    </div>
+  );
 }
 
 export function DocumentSidebar({
@@ -270,9 +348,9 @@ export function DocumentSidebar({
     storedSpaceId,
     activeOrgId: activeOrg?.orgId,
   });
-  const [collapsedWorkspaceId, setCollapsedWorkspaceId] = useState<
-    string | null
-  >(null);
+  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useLocalStorage<
+    string[]
+  >(EXPANDED_WORKSPACES_STORAGE_KEY, []);
   const contentSpaceState = contentSpaceAvailability({
     hasSelectedSpace: Boolean(selectedSpace),
     contentSpacesLoading: contentSpacesQuery.isLoading,
@@ -302,8 +380,20 @@ export function DocumentSidebar({
       setStoredSpaceId(selectedSpace.id);
     }
   }, [selectedSpace, setStoredSpaceId, storedSpaceId]);
+  useEffect(() => {
+    if (!selectedSpace) return;
+    setExpandedWorkspaceIds((current) =>
+      ensureWorkspaceExpanded(current, selectedSpace.id),
+    );
+  }, [selectedSpace, setExpandedWorkspaceIds]);
   const handleSelectContentSpace = useCallback(
-    async (space: (typeof contentSpaces)[number]) => {
+    async (
+      space: (typeof contentSpaces)[number],
+      targetDocumentId?: string,
+    ) => {
+      setExpandedWorkspaceIds((current) =>
+        ensureWorkspaceExpanded(current, space.id),
+      );
       try {
         await workspaceSelectionQueueRef.current(() =>
           selectContentSpace({
@@ -326,14 +416,16 @@ export function DocumentSidebar({
               ),
             persistSelection: setStoredSpaceId,
             openFiles: (documentId) =>
-              navigate(`/page/${documentId}`, { flushSync: true }),
+              navigate(`/page/${targetDocumentId ?? documentId}`, {
+                flushSync: true,
+              }),
           }),
         );
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
       }
     },
-    [navigate, setStoredSpaceId, switchOrg],
+    [navigate, setExpandedWorkspaceIds, setStoredSpaceId, switchOrg],
   );
   useEffect(() => {
     if (!selectedSpace) return;
@@ -350,15 +442,6 @@ export function DocumentSidebar({
       // Space selection remains usable when best-effort agent context sync fails.
     });
   }, [selectedSpace]);
-  const filesDatabase = useContentDatabaseById(
-    selectedSpace?.filesDatabaseId ?? null,
-  );
-  const filesPersonalView = useContentDatabasePersonalView(
-    selectedSpace?.filesDatabaseId ?? null,
-  );
-  const updateFilesPersonalView = useUpdateContentDatabasePersonalView(
-    selectedSpace?.filesDatabaseId ?? null,
-  );
   const removeLocalFileSource = useActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
@@ -1114,39 +1197,6 @@ export function DocumentSidebar({
     );
   };
 
-  const renderSelectedWorkspaceFiles = () => (
-    <div className="ms-3 border-s border-border/70 ps-1">
-      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {t("sidebar.files")}
-      </div>
-      <ContentFilesSidebarView
-        data={filesDatabase.data}
-        overrides={filesPersonalView.data?.overrides}
-        isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
-        onSelectView={(viewId) => {
-          if (!selectedSpace) return;
-          const current = filesPersonalView.data?.overrides;
-          updateFilesPersonalView.mutate({
-            databaseId: selectedSpace.filesDatabaseId,
-            overrides: {
-              version: current?.version ?? 1,
-              activeViewId: viewId,
-              views: current?.views ?? [],
-            },
-          });
-        }}
-        labels={{
-          loadingLabel: t("sidebar.loadingFiles"),
-          noMatchesLabel: t("database.noRowsMatchThisView"),
-          clearLabel: t("database.clearSearchAndFilters"),
-          navigationLabel: t("sidebar.files"),
-          untitledLabel: t("sidebar.untitled"),
-        }}
-      />
-      {renderNewButton()}
-    </div>
-  );
-
   const renderWorkspaceNavigation = () => (
     <div className="mb-2 px-2">
       <div className="px-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1156,38 +1206,53 @@ export function DocumentSidebar({
         <div className="grid gap-0.5">
           {contentSpaces.map((space) => {
             const selected = selectedSpace.id === space.id;
-            const expanded = selected && collapsedWorkspaceId !== space.id;
+            const expanded = expandedWorkspaceIds.includes(space.id);
             return (
               <div key={space.id} className="min-w-0">
-                <button
-                  type="button"
-                  aria-expanded={expanded}
+                <div
                   className={cn(
-                    "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm",
+                    "flex h-8 w-full min-w-0 items-center rounded-md text-sm",
                     selected
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   )}
-                  onClick={() => {
-                    if (selected) {
-                      setCollapsedWorkspaceId(expanded ? space.id : null);
-                      return;
-                    }
-                    setCollapsedWorkspaceId(null);
-                    void handleSelectContentSpace(space);
-                  }}
-                  disabled={switchOrg.isPending}
                 >
-                  {expanded ? (
-                    <IconChevronDown size={14} className="shrink-0" />
-                  ) : (
-                    <IconChevronRight size={14} className="shrink-0" />
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-start">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                    onClick={() =>
+                      setExpandedWorkspaceIds((current) =>
+                        toggleExpandedWorkspaceIds(current, space.id),
+                      )
+                    }
+                  >
+                    {expanded ? (
+                      <IconChevronDown size={14} />
+                    ) : (
+                      <IconChevronRight size={14} />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="h-8 min-w-0 flex-1 truncate pe-2 text-start"
+                    onClick={() => void handleSelectContentSpace(space)}
+                    disabled={switchOrg.isPending}
+                  >
                     {space.name}
-                  </span>
-                </button>
-                {expanded && renderSelectedWorkspaceFiles()}
+                  </button>
+                </div>
+                {expanded && (
+                  <WorkspaceFilesSection
+                    space={space}
+                    selected={selected}
+                    footer={renderNewButton()}
+                    onActivate={(nextSpace, documentId) =>
+                      void handleSelectContentSpace(nextSpace, documentId)
+                    }
+                  />
+                )}
               </div>
             );
           })}
