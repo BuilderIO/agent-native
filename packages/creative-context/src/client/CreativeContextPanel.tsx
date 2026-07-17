@@ -2247,41 +2247,48 @@ export function CreativeContextPanel({
               ) : null}
             </TabsContent>
           </Tabs>
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-sm font-semibold">
-                {t("creativeContext.modeLabel")}
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {activePack
-                  ? `${t("creativeContext.activePack")}: ${activePack.name}`
-                  : t("creativeContext.noActivePack")}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row" role="radiogroup">
-              <ContextModeButton
-                mode="auto"
-                activeMode={contextState.state.contextMode}
-                label={t("creativeContext.automatic")}
-                description={t("creativeContext.automaticDescription")}
-                disabled={savingState}
-                onSelect={(mode) => void changeMode(mode)}
-              />
-              <ContextModeButton
-                mode="off"
-                activeMode={contextState.state.contextMode}
-                label={t("creativeContext.off")}
-                description={t("creativeContext.offDescription")}
-                disabled={savingState}
-                onSelect={(mode) => void changeMode(mode)}
-              />
-            </div>
-            {stateError ? (
-              <p className="text-xs text-destructive">{stateError}</p>
-            ) : null}
-          </section>
+          {libraryView === "settings" ? (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {t("creativeContext.modeLabel")}
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {activePack
+                    ? `${t("creativeContext.activePack")}: ${activePack.name}`
+                    : t("creativeContext.noActivePack")}
+                </p>
+              </div>
+              <div
+                className="flex flex-col gap-2 sm:flex-row"
+                role="radiogroup"
+              >
+                <ContextModeButton
+                  mode="auto"
+                  activeMode={contextState.state.contextMode}
+                  label={t("creativeContext.automatic")}
+                  description={t("creativeContext.automaticDescription")}
+                  disabled={savingState}
+                  onSelect={(mode) => void changeMode(mode)}
+                />
+                <ContextModeButton
+                  mode="off"
+                  activeMode={contextState.state.contextMode}
+                  label={t("creativeContext.off")}
+                  description={t("creativeContext.offDescription")}
+                  disabled={savingState}
+                  onSelect={(mode) => void changeMode(mode)}
+                />
+              </div>
+              {stateError ? (
+                <p className="text-xs text-destructive">{stateError}</p>
+              ) : null}
+            </section>
+          ) : null}
 
-          {brandProfileQuery.data?.profile && brandProfileQuery.data.dna ? (
+          {libraryView === "settings" &&
+          brandProfileQuery.data?.profile &&
+          brandProfileQuery.data.dna ? (
             <section className="border-t border-border/70 pt-6">
               <div className="rounded-md border border-border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2304,7 +2311,8 @@ export function CreativeContextPanel({
             </section>
           ) : null}
 
-          {logoCandidates.length || proposedLayouts.length ? (
+          {libraryView === "approvals" &&
+          (logoCandidates.length || proposedLayouts.length) ? (
             <section className="border-t border-border/70 pt-6">
               <div className="flex items-center gap-2">
                 <IconSparkles className="size-5 text-muted-foreground" />
@@ -2437,849 +2445,883 @@ export function CreativeContextPanel({
             </section>
           ) : null}
 
-          <section className="border-t border-border/70 pt-6">
-            <div>
-              <h2 className="text-lg font-semibold">
-                {t("creativeContext.addSource")}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("creativeContext.sourcesDescription")}
-              </p>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              {CONNECTORS.map((connector) => {
-                const Icon = connector.icon;
-                return (
-                  <button
-                    key={connector.kind}
-                    type="button"
-                    disabled={!canManageScope}
-                    onClick={() => {
-                      setConnectorKind(connector.kind);
-                      setSourceName(connector.label);
-                      setSourceReference("");
-                      setUploadedFiles([]);
-                      setPickerRecommendations([]);
-                      seenRecommendationIdsRef.current.clear();
-                      setSelectedConnectionId("");
-                      setSelectedRecommendationIds(new Set());
-                      setSetupError(null);
-                    }}
-                    className="flex min-h-24 flex-col items-start justify-between rounded-md border border-border p-3 text-start transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+          {libraryView === "sources" ? (
+            <>
+              <section className="border-t border-border/70 pt-6">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    {t("creativeContext.addSource")}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t("creativeContext.sourcesDescription")}
+                  </p>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                  {CONNECTORS.map((connector) => {
+                    const Icon = connector.icon;
+                    return (
+                      <button
+                        key={connector.kind}
+                        type="button"
+                        disabled={!canManageScope}
+                        onClick={() => {
+                          setConnectorKind(connector.kind);
+                          setSourceName(connector.label);
+                          setSourceReference("");
+                          setUploadedFiles([]);
+                          setPickerRecommendations([]);
+                          seenRecommendationIdsRef.current.clear();
+                          setSelectedConnectionId("");
+                          setSelectedRecommendationIds(new Set());
+                          setSetupError(null);
+                        }}
+                        className="flex min-h-24 flex-col items-start justify-between rounded-md border border-border p-3 text-start transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Icon className="size-5 text-muted-foreground" />
+                        <span className="text-sm font-medium">
+                          {connector.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedConnector ? (
+                  <form
+                    className="mt-4 rounded-md border border-border p-4"
+                    onSubmit={(event) => void previewImport(event)}
                   >
-                    <Icon className="size-5 text-muted-foreground" />
-                    <span className="text-sm font-medium">
-                      {connector.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            {selectedConnector ? (
-              <form
-                className="mt-4 rounded-md border border-border p-4"
-                onSubmit={(event) => void previewImport(event)}
-              >
-                {connectionProvider ? (
-                  <div className="mb-3">
-                    {connectionsQuery.isLoading ? (
-                      <Skeleton className="h-9 w-full" />
-                    ) : connectionsQuery.data?.needsSetup ? (
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-                        <span>{t("creativeContext.setupConnection")}</span>
-                        <Button
-                          asChild
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                        >
-                          <a
-                            href={
-                              connectionsQuery.data.connectPath ||
-                              connectionsQuery.data.connectionsPath ||
-                              connectionsHref
+                    {connectionProvider ? (
+                      <div className="mb-3">
+                        {connectionsQuery.isLoading ? (
+                          <Skeleton className="h-9 w-full" />
+                        ) : connectionsQuery.data?.needsSetup ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+                            <span>{t("creativeContext.setupConnection")}</span>
+                            <Button
+                              asChild
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                            >
+                              <a
+                                href={
+                                  connectionsQuery.data.connectPath ||
+                                  connectionsQuery.data.connectionsPath ||
+                                  connectionsHref
+                                }
+                              >
+                                {t("creativeContext.connectProvider")}
+                                <IconArrowUpRight />
+                              </a>
+                            </Button>
+                          </div>
+                        ) : connectionsQuery.data?.needsPicker ? (
+                          <label className="block space-y-1.5 text-xs font-medium">
+                            <span>{t("creativeContext.chooseConnection")}</span>
+                            <Select
+                              value={selectedConnectionId}
+                              onValueChange={setSelectedConnectionId}
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={t(
+                                    "creativeContext.chooseConnection",
+                                  )}
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {connectionsQuery.data.connections.map(
+                                  (connection) => (
+                                    <SelectItem
+                                      key={connection.connectionId}
+                                      value={connection.connectionId}
+                                    >
+                                      {connection.label}
+                                    </SelectItem>
+                                  ),
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {recommendationProvider && selectedConnectionId ? (
+                      <div className="mb-3 rounded-md border border-border p-3">
+                        {connectorKind === "google-slides" ? (
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+                            <p className="max-w-lg text-xs text-muted-foreground">
+                              {t("creativeContext.googlePickerDescription")}
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={openingGooglePicker}
+                              onClick={() => void chooseGoogleSlides()}
+                            >
+                              <IconSlideshow />
+                              {openingGooglePicker
+                                ? t("creativeContext.loading")
+                                : t("creativeContext.choosePresentations")}
+                            </Button>
+                          </div>
+                        ) : null}
+                        {recommendationsQuery.isLoading &&
+                        !availableRecommendations.length ? (
+                          <Skeleton className="h-16 w-full" />
+                        ) : availableRecommendations.length ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                              <span>
+                                {t("creativeContext.discoveredItems", {
+                                  count: formatNumber(
+                                    availableRecommendations.length,
+                                  ),
+                                })}
+                              </span>
+                              <span>
+                                {t("creativeContext.selectedItems", {
+                                  count: formatNumber(
+                                    selectedRecommendationIds.size,
+                                  ),
+                                })}
+                              </span>
+                            </div>
+                            <div className="max-h-52 divide-y divide-border/60 overflow-y-auto">
+                              {availableRecommendations.map(
+                                (recommendation) => (
+                                  <label
+                                    key={recommendation.externalId}
+                                    className="flex cursor-pointer items-start gap-3 py-2"
+                                  >
+                                    <Checkbox
+                                      className="mt-0.5"
+                                      checked={selectedRecommendationIds.has(
+                                        recommendation.externalId,
+                                      )}
+                                      onCheckedChange={(checked) =>
+                                        setSelectedRecommendationIds(
+                                          (current) => {
+                                            const next = new Set(current);
+                                            if (checked) {
+                                              next.add(
+                                                recommendation.externalId,
+                                              );
+                                            } else {
+                                              next.delete(
+                                                recommendation.externalId,
+                                              );
+                                            }
+                                            return next;
+                                          },
+                                        )
+                                      }
+                                    />
+                                    <span className="min-w-0">
+                                      <span className="block truncate text-sm">
+                                        {recommendation.title}
+                                      </span>
+                                      <span className="block text-xs text-muted-foreground">
+                                        {recommendation.containerRef ??
+                                          recommendation.kind}
+                                      </span>
+                                    </span>
+                                  </label>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            {recommendationsQuery.data?.unavailableReason ??
+                              t("creativeContext.unavailable")}
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1.5 text-xs font-medium">
+                        <span>{t("creativeContext.sourceName")}</span>
+                        <Input
+                          value={sourceName}
+                          onChange={(event) =>
+                            setSourceName(event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+                      {selectedConnector.kind === "upload" ? (
+                        <div className="space-y-1.5 text-xs font-medium">
+                          <span>{t("creativeContext.sourceReference")}</span>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            accept=".pptx,.docx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                            className="hidden"
+                            onChange={chooseFiles}
+                          />
+                          <input
+                            ref={folderInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={chooseFiles}
+                            {...({ webkitdirectory: "", directory: "" } as {
+                              webkitdirectory: string;
+                              directory: string;
+                            })}
+                          />
+                          <div
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={dropFiles}
+                            className="rounded-md border border-dashed border-border p-4"
+                          >
+                            <p className="text-xs text-muted-foreground">
+                              {t("creativeContext.dropFiles")}
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fileInputRef.current?.click()}
+                              >
+                                {t("creativeContext.chooseFiles")}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => folderInputRef.current?.click()}
+                              >
+                                {t("creativeContext.chooseFolder")}
+                              </Button>
+                            </div>
+                            {uploadedFiles.length ? (
+                              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                                {uploadedFiles.map((file) => (
+                                  <li key={file.id} className="truncate">
+                                    {file.fileName}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : (
+                        <label className="space-y-1.5 text-xs font-medium">
+                          <span>{t("creativeContext.sourceReference")}</span>
+                          {selectedConnector.kind === "website" ||
+                          selectedConnector.kind === "figma" ||
+                          selectedConnector.kind === "notion" ? (
+                            <Textarea
+                              value={sourceReference}
+                              onChange={(event) =>
+                                setSourceReference(event.target.value)
+                              }
+                              placeholder={
+                                selectedConnector.referencePlaceholder
+                              }
+                              required={selectedConnector.referenceRequired}
+                              rows={3}
+                            />
+                          ) : (
+                            <Input
+                              value={sourceReference}
+                              onChange={(event) =>
+                                setSourceReference(event.target.value)
+                              }
+                              placeholder={
+                                selectedConnector.referencePlaceholder
+                              }
+                              required={selectedConnector.referenceRequired}
+                            />
+                          )}
+                        </label>
+                      )}
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setConnectorKind(null)}
+                      >
+                        {t("creativeContext.cancel")}
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={
+                          manageSource.isPending ||
+                          uploadResource.isPending ||
+                          (selectedConnector.kind === "upload" &&
+                            !uploadedFiles.length) ||
+                          (Boolean(connectionProvider) &&
+                            !selectedConnectionId) ||
+                          (selectedConnector.referenceRequired &&
+                            !sourceReference.trim()) ||
+                          (Boolean(recommendationProvider) &&
+                            !sourceReference.trim() &&
+                            !selectedRecommendationIds.size)
+                        }
+                      >
+                        <IconFileImport />
+                        {t("creativeContext.preview")}
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {previewSourceId ? (
+                  <div className="mt-4 rounded-md border border-border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">
+                          {previewSourceName}
+                        </h3>
+                        {previewQuery.isLoading ? (
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {t("creativeContext.loading")}
+                          </p>
+                        ) : (
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span>
+                              {t("creativeContext.discoveredItems", {
+                                count: formatNumber(
+                                  previewQuery.data?.total ??
+                                    previewQuery.data?.items.length ??
+                                    0,
+                                ),
+                              })}
+                            </span>
+                            <span>
+                              {t("creativeContext.selectedItems", {
+                                count: formatNumber(
+                                  selectedPreviewItemIds.size,
+                                ),
+                              })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={
+                          previewQuery.isLoading ||
+                          !previewQuery.data?.items.length ||
+                          !selectedPreviewItemIds.size ||
+                          startImport.isPending ||
+                          importJob?.status === "queued" ||
+                          importJob?.status === "running"
+                        }
+                        onClick={() => void beginImport()}
+                      >
+                        <IconFileImport />
+                        {startImport.isPending
+                          ? t("creativeContext.importing")
+                          : t("creativeContext.startImport")}
+                      </Button>
+                    </div>
+                    {previewQuery.data?.items.length ? (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-2 border-y border-border/60 py-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setSelectedPreviewItemIds(
+                                new Set(
+                                  previewQuery.data?.items.map(
+                                    (item) => item.externalId,
+                                  ) ?? [],
+                                ),
+                              )
                             }
                           >
-                            {t("creativeContext.connectProvider")}
-                            <IconArrowUpRight />
-                          </a>
-                        </Button>
-                      </div>
-                    ) : connectionsQuery.data?.needsPicker ? (
-                      <label className="block space-y-1.5 text-xs font-medium">
-                        <span>{t("creativeContext.chooseConnection")}</span>
-                        <Select
-                          value={selectedConnectionId}
-                          onValueChange={setSelectedConnectionId}
-                        >
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={t(
-                                "creativeContext.chooseConnection",
-                              )}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {connectionsQuery.data.connections.map(
-                              (connection) => (
-                                <SelectItem
-                                  key={connection.connectionId}
-                                  value={connection.connectionId}
-                                >
-                                  {connection.label}
-                                </SelectItem>
-                              ),
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </label>
-                    ) : null}
-                  </div>
-                ) : null}
-                {recommendationProvider && selectedConnectionId ? (
-                  <div className="mb-3 rounded-md border border-border p-3">
-                    {connectorKind === "google-slides" ? (
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-                        <p className="max-w-lg text-xs text-muted-foreground">
-                          {t("creativeContext.googlePickerDescription")}
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={openingGooglePicker}
-                          onClick={() => void chooseGoogleSlides()}
-                        >
-                          <IconSlideshow />
-                          {openingGooglePicker
-                            ? t("creativeContext.loading")
-                            : t("creativeContext.choosePresentations")}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {recommendationsQuery.isLoading &&
-                    !availableRecommendations.length ? (
-                      <Skeleton className="h-16 w-full" />
-                    ) : availableRecommendations.length ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                          <span>
-                            {t("creativeContext.discoveredItems", {
-                              count: formatNumber(
-                                availableRecommendations.length,
-                              ),
-                            })}
-                          </span>
-                          <span>
-                            {t("creativeContext.selectedItems", {
-                              count: formatNumber(
-                                selectedRecommendationIds.size,
-                              ),
-                            })}
-                          </span>
+                            {t("creativeContext.selectAll")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedPreviewItemIds(new Set())}
+                          >
+                            {t("creativeContext.clearSelection")}
+                          </Button>
                         </div>
-                        <div className="max-h-52 divide-y divide-border/60 overflow-y-auto">
-                          {availableRecommendations.map((recommendation) => (
+                        <div className="max-h-80 divide-y divide-border/60 overflow-y-auto">
+                          {previewQuery.data.items.map((item) => (
                             <label
-                              key={recommendation.externalId}
+                              key={item.externalId}
                               className="flex cursor-pointer items-start gap-3 py-2"
                             >
                               <Checkbox
                                 className="mt-0.5"
-                                checked={selectedRecommendationIds.has(
-                                  recommendation.externalId,
+                                checked={selectedPreviewItemIds.has(
+                                  item.externalId,
                                 )}
                                 onCheckedChange={(checked) =>
-                                  setSelectedRecommendationIds((current) => {
+                                  setSelectedPreviewItemIds((current) => {
                                     const next = new Set(current);
-                                    if (checked) {
-                                      next.add(recommendation.externalId);
-                                    } else {
-                                      next.delete(recommendation.externalId);
-                                    }
+                                    if (checked) next.add(item.externalId);
+                                    else next.delete(item.externalId);
                                     return next;
                                   })
                                 }
                               />
                               <span className="min-w-0">
                                 <span className="block truncate text-sm">
-                                  {recommendation.title}
+                                  {item.title}
                                 </span>
                                 <span className="block text-xs text-muted-foreground">
-                                  {recommendation.containerRef ??
-                                    recommendation.kind}
+                                  {item.kind}
                                 </span>
                               </span>
                             </label>
                           ))}
                         </div>
                       </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {importJob ? (
+                  <div className="mt-4 rounded-md border border-border p-4">
+                    <div className="flex items-center gap-2">
+                      {importJob.status === "completed" ? (
+                        <IconCheck className="size-5 text-emerald-600" />
+                      ) : importJob.status === "failed" ? (
+                        <IconAlertTriangle className="size-5 text-destructive" />
+                      ) : (
+                        <IconRefresh className="size-5 animate-spin text-muted-foreground" />
+                      )}
+                      <h3 className="text-sm font-semibold">
+                        {importJob.status === "completed"
+                          ? t("creativeContext.importComplete")
+                          : importJob.status === "failed"
+                            ? t("creativeContext.importFailed")
+                            : t("creativeContext.importing")}
+                      </h3>
+                    </div>
+                    {importJob.status === "completed" && brandProposal ? (
+                      <div className="mt-4 rounded-md bg-muted/50 p-4">
+                        <div className="flex items-start gap-3">
+                          <IconSparkles className="mt-0.5 size-5 text-muted-foreground" />
+                          <div className="min-w-0 flex-1">
+                            <h4 className="text-sm font-semibold">
+                              {t("creativeContext.brandDnaTitle")}
+                            </h4>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {brandProposal.summary}
+                            </p>
+                            {brandProposal.colors.length ? (
+                              <div className="mt-4">
+                                <p className="text-xs font-medium">
+                                  {t("creativeContext.colors")}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {brandProposal.colors.map((color) => (
+                                    <div
+                                      key={color}
+                                      className="flex items-center gap-1.5 rounded border border-border bg-background px-2 py-1 text-xs"
+                                    >
+                                      <span
+                                        className="size-4 rounded-sm border border-black/10"
+                                        style={{ backgroundColor: color }}
+                                      />
+                                      {color}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {brandProposal.fonts.length ? (
+                              <div className="mt-4">
+                                <p className="text-xs font-medium">
+                                  {t("creativeContext.fonts")}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {brandProposal.fonts.map((font) => (
+                                    <Badge key={font} variant="outline">
+                                      {font}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {brandLayoutThumbnails.length ? (
+                              <div className="mt-4">
+                                <p className="text-xs font-medium">
+                                  {t("creativeContext.layouts")}
+                                </p>
+                                <div className="mt-2 grid grid-cols-3 gap-2">
+                                  {brandLayoutThumbnails.map((thumbnail) => (
+                                    <AccessScopedThumbnail
+                                      key={thumbnail.itemVersionId}
+                                      itemId={thumbnail.itemId}
+                                      itemVersionId={thumbnail.itemVersionId}
+                                      className="aspect-video w-full rounded border border-border object-cover"
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {brandVoicePreview ? (
+                              <div className="mt-4">
+                                <p className="text-xs font-medium">
+                                  {t("creativeContext.voice")}
+                                </p>
+                                <blockquote className="mt-1 border-s-2 border-border ps-3 text-sm text-muted-foreground">
+                                  {brandVoicePreview}
+                                </blockquote>
+                              </div>
+                            ) : null}
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                disabled={publishBrandDna.isPending}
+                                onClick={() => void publishProposal()}
+                              >
+                                <IconSparkles />
+                                {publishBrandDna.isPending
+                                  ? t("creativeContext.applyingBrandContext")
+                                  : t("creativeContext.applyBrandContext")}
+                              </Button>
+                              <Button asChild type="button" variant="outline">
+                                <a href="/agent">
+                                  {t("creativeContext.generateWithContext")}
+                                  <IconArrowUpRight />
+                                </a>
+                              </Button>
+                            </div>
+                            {publishedMessage ? (
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                {publishedMessage}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ) : importJob.error ? (
+                      <p className="mt-2 text-sm text-destructive">
+                        {importJob.error}
+                      </p>
                     ) : (
-                      <p className="text-xs text-muted-foreground">
-                        {recommendationsQuery.data?.unavailableReason ??
-                          t("creativeContext.unavailable")}
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {formatNumber(importJob.progressCurrent)} /{" "}
+                        {formatNumber(importJob.progressTotal ?? 0)}
                       </p>
                     )}
                   </div>
                 ) : null}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1.5 text-xs font-medium">
-                    <span>{t("creativeContext.sourceName")}</span>
-                    <Input
-                      value={sourceName}
-                      onChange={(event) => setSourceName(event.target.value)}
-                      required
-                    />
-                  </label>
-                  {selectedConnector.kind === "upload" ? (
-                    <div className="space-y-1.5 text-xs font-medium">
-                      <span>{t("creativeContext.sourceReference")}</span>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple
-                        accept=".pptx,.docx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                        className="hidden"
-                        onChange={chooseFiles}
-                      />
-                      <input
-                        ref={folderInputRef}
-                        type="file"
-                        multiple
-                        className="hidden"
-                        onChange={chooseFiles}
-                        {...({ webkitdirectory: "", directory: "" } as {
-                          webkitdirectory: string;
-                          directory: string;
-                        })}
-                      />
-                      <div
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={dropFiles}
-                        className="rounded-md border border-dashed border-border p-4"
-                      >
-                        <p className="text-xs text-muted-foreground">
-                          {t("creativeContext.dropFiles")}
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fileInputRef.current?.click()}
-                          >
-                            {t("creativeContext.chooseFiles")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => folderInputRef.current?.click()}
-                          >
-                            {t("creativeContext.chooseFolder")}
-                          </Button>
-                        </div>
-                        {uploadedFiles.length ? (
-                          <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                            {uploadedFiles.map((file) => (
-                              <li key={file.id} className="truncate">
-                                {file.fileName}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <label className="space-y-1.5 text-xs font-medium">
-                      <span>{t("creativeContext.sourceReference")}</span>
-                      {selectedConnector.kind === "website" ||
-                      selectedConnector.kind === "figma" ||
-                      selectedConnector.kind === "notion" ? (
-                        <Textarea
-                          value={sourceReference}
-                          onChange={(event) =>
-                            setSourceReference(event.target.value)
-                          }
-                          placeholder={selectedConnector.referencePlaceholder}
-                          required={selectedConnector.referenceRequired}
-                          rows={3}
-                        />
-                      ) : (
-                        <Input
-                          value={sourceReference}
-                          onChange={(event) =>
-                            setSourceReference(event.target.value)
-                          }
-                          placeholder={selectedConnector.referencePlaceholder}
-                          required={selectedConnector.referenceRequired}
-                        />
-                      )}
-                    </label>
-                  )}
-                </div>
-                <div className="mt-3 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setConnectorKind(null)}
-                  >
-                    {t("creativeContext.cancel")}
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={
-                      manageSource.isPending ||
-                      uploadResource.isPending ||
-                      (selectedConnector.kind === "upload" &&
-                        !uploadedFiles.length) ||
-                      (Boolean(connectionProvider) && !selectedConnectionId) ||
-                      (selectedConnector.referenceRequired &&
-                        !sourceReference.trim()) ||
-                      (Boolean(recommendationProvider) &&
-                        !sourceReference.trim() &&
-                        !selectedRecommendationIds.size)
-                    }
-                  >
-                    <IconFileImport />
-                    {t("creativeContext.preview")}
-                  </Button>
-                </div>
-              </form>
-            ) : null}
-
-            {previewSourceId ? (
-              <div className="mt-4 rounded-md border border-border p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                {promotionPreview ? (
+                  <div className="mt-4 rounded-md border border-border p-4">
                     <h3 className="text-sm font-semibold">
-                      {previewSourceName}
+                      {t("creativeContext.promoteToOrganization")}
                     </h3>
-                    {previewQuery.isLoading ? (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {t("creativeContext.loading")}
-                      </p>
-                    ) : (
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>
-                          {t("creativeContext.discoveredItems", {
-                            count: formatNumber(
-                              previewQuery.data?.total ??
-                                previewQuery.data?.items.length ??
-                                0,
-                            ),
-                          })}
-                        </span>
-                        <span>
-                          {t("creativeContext.selectedItems", {
-                            count: formatNumber(selectedPreviewItemIds.size),
-                          })}
-                        </span>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {t("creativeContext.promotionDescription")}
+                    </p>
+                    <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                      <div>
+                        <dt className="text-muted-foreground">
+                          {t("creativeContext.sourceReference")}
+                        </dt>
+                        <dd className="mt-0.5 truncate font-medium">
+                          {promotionPreview.containerRef}
+                        </dd>
                       </div>
-                    )}
+                      <div>
+                        <dt className="text-muted-foreground">
+                          {t("creativeContext.itemsLabel", { count: "" })}
+                        </dt>
+                        <dd className="mt-0.5 font-medium">
+                          {formatNumber(promotionPreview.itemCount)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">
+                          {t("creativeContext.restrictedItems", { count: "" })}
+                        </dt>
+                        <dd className="mt-0.5 font-medium">
+                          {formatNumber(promotionPreview.restrictedItemCount)}
+                        </dd>
+                      </div>
+                    </dl>
+                    <Button
+                      type="button"
+                      className="mt-4"
+                      disabled={manageSource.isPending}
+                      onClick={() => void confirmPromotion()}
+                    >
+                      {t("creativeContext.promoteToOrganization")}
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    disabled={
-                      previewQuery.isLoading ||
-                      !previewQuery.data?.items.length ||
-                      !selectedPreviewItemIds.size ||
-                      startImport.isPending ||
-                      importJob?.status === "queued" ||
-                      importJob?.status === "running"
-                    }
-                    onClick={() => void beginImport()}
-                  >
-                    <IconFileImport />
-                    {startImport.isPending
-                      ? t("creativeContext.importing")
-                      : t("creativeContext.startImport")}
-                  </Button>
-                </div>
-                {previewQuery.data?.items.length ? (
+                ) : null}
+                {promotionMessage ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {promotionMessage}
+                  </p>
+                ) : null}
+                {setupError ? (
+                  <p className="mt-2 text-sm text-destructive">{setupError}</p>
+                ) : null}
+              </section>
+
+              <section className="border-t border-border/70 pt-6">
+                <h2 className="text-lg font-semibold">
+                  {t("creativeContext.sourcesTitle")}
+                </h2>
+                {sources.length ? (
                   <div className="mt-3">
-                    <div className="flex items-center gap-2 border-y border-border/60 py-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          setSelectedPreviewItemIds(
-                            new Set(
-                              previewQuery.data?.items.map(
-                                (item) => item.externalId,
-                              ) ?? [],
-                            ),
-                          )
+                    {sources.map((source) => (
+                      <SourceRow
+                        key={source.id}
+                        source={source}
+                        refreshing={
+                          refreshSource.isPending &&
+                          refreshSource.variables?.sourceId === source.id
                         }
-                      >
-                        {t("creativeContext.selectAll")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedPreviewItemIds(new Set())}
-                      >
-                        {t("creativeContext.clearSelection")}
-                      </Button>
+                        canReview={canManageScope}
+                        canPromote={
+                          libraryScope === "user" &&
+                          Boolean(org?.orgId) &&
+                          canManageOrg &&
+                          source.visibility === "private"
+                        }
+                        onRefresh={refresh}
+                        onReview={(selected) =>
+                          void openItemCuration(selected, "restricted")
+                        }
+                        onCurate={(selected) => void openItemCuration(selected)}
+                        onPromote={(selected) =>
+                          void previewSourcePromotion(selected)
+                        }
+                        onPause={(selected) => void pauseSource(selected)}
+                        onRestore={(selected) => void restoreSource(selected)}
+                        onDelete={setDeleteSource}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-md border border-dashed border-border p-6 text-center">
+                    <IconBooks className="mx-auto size-7 text-muted-foreground" />
+                    <h3 className="mt-3 text-sm font-semibold">
+                      {t("creativeContext.noSourcesTitle")}
+                    </h3>
+                    <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                      {t("creativeContext.noSourcesDescription")}
+                    </p>
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                    >
+                      <a href={connectionsHref}>
+                        {t("creativeContext.connectSources")}
+                        <IconArrowUpRight />
+                      </a>
+                    </Button>
+                  </div>
+                )}
+                {reviewSource ? (
+                  <ItemCuration
+                    source={reviewSource}
+                    items={reviewedItems}
+                    busy={reviewItems.isPending}
+                    onReview={(operation, itemId) =>
+                      void reviewContextItem(operation, itemId)
+                    }
+                    onClose={() => {
+                      setReviewSource(null);
+                      setReviewedItems([]);
+                    }}
+                  />
+                ) : null}
+                {reviewError ? (
+                  <p className="mt-2 text-sm text-destructive">{reviewError}</p>
+                ) : null}
+                {refreshMessage ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {refreshMessage}
+                  </p>
+                ) : null}
+                {lifecycleMessage ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {lifecycleMessage}
+                  </p>
+                ) : null}
+              </section>
+            </>
+          ) : null}
+
+          {libraryView === "settings" ? (
+            <section className="border-t border-border/70 pt-6">
+              <h2 className="text-lg font-semibold">
+                {t("creativeContext.packsTitle")}
+              </h2>
+              {packs.length ? (
+                <div className="mt-3">
+                  {packs.map((pack) => (
+                    <PackRow
+                      key={pack.id}
+                      pack={pack}
+                      pinned={contextState.state.pinnedPackId === pack.id}
+                      disabled={savingState}
+                      onPin={(packId) => void changePinnedPack(packId)}
+                      onDetails={setSelectedPackId}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 rounded-md border border-dashed border-border p-5 text-sm text-muted-foreground">
+                  {t("creativeContext.noPacks")}
+                </p>
+              )}
+              {selectedPackId ? (
+                <div className="mt-4 rounded-md border border-border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">
+                        {packQuery.data?.pack?.name ??
+                          t("creativeContext.packDetails")}
+                      </h3>
+                      {packQuery.data?.pack?.derivedFromPackId ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("creativeContext.influence")}:{" "}
+                          {packQuery.data.pack.derivedFromPackId}
+                        </p>
+                      ) : null}
                     </div>
-                    <div className="max-h-80 divide-y divide-border/60 overflow-y-auto">
-                      {previewQuery.data.items.map((item) => (
-                        <label
-                          key={item.externalId}
-                          className="flex cursor-pointer items-start gap-3 py-2"
-                        >
-                          <Checkbox
-                            className="mt-0.5"
-                            checked={selectedPreviewItemIds.has(
-                              item.externalId,
-                            )}
-                            onCheckedChange={(checked) =>
-                              setSelectedPreviewItemIds((current) => {
-                                const next = new Set(current);
-                                if (checked) next.add(item.externalId);
-                                else next.delete(item.externalId);
-                                return next;
-                              })
-                            }
-                          />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm">
-                              {item.title}
-                            </span>
-                            <span className="block text-xs text-muted-foreground">
-                              {item.kind}
-                            </span>
-                          </span>
-                        </label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedPackId(null)}
+                    >
+                      {t("creativeContext.cancel")}
+                    </Button>
+                  </div>
+                  {packQuery.data?.pack?.members.length ? (
+                    <div className="mt-3 divide-y divide-border/60">
+                      {packQuery.data.pack.members.map((member) => (
+                        <div key={member.id} className="py-2 text-xs">
+                          <p className="font-medium">{member.itemId}</p>
+                          {member.reason ? (
+                            <p className="mt-0.5 text-muted-foreground">
+                              {t("creativeContext.influence")}: {member.reason}
+                            </p>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {importJob ? (
-              <div className="mt-4 rounded-md border border-border p-4">
-                <div className="flex items-center gap-2">
-                  {importJob.status === "completed" ? (
-                    <IconCheck className="size-5 text-emerald-600" />
-                  ) : importJob.status === "failed" ? (
-                    <IconAlertTriangle className="size-5 text-destructive" />
-                  ) : (
-                    <IconRefresh className="size-5 animate-spin text-muted-foreground" />
-                  )}
-                  <h3 className="text-sm font-semibold">
-                    {importJob.status === "completed"
-                      ? t("creativeContext.importComplete")
-                      : importJob.status === "failed"
-                        ? t("creativeContext.importFailed")
-                        : t("creativeContext.importing")}
-                  </h3>
+                  ) : null}
                 </div>
-                {importJob.status === "completed" && brandProposal ? (
-                  <div className="mt-4 rounded-md bg-muted/50 p-4">
-                    <div className="flex items-start gap-3">
-                      <IconSparkles className="mt-0.5 size-5 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-sm font-semibold">
-                          {t("creativeContext.brandDnaTitle")}
-                        </h4>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {brandProposal.summary}
-                        </p>
-                        {brandProposal.colors.length ? (
-                          <div className="mt-4">
-                            <p className="text-xs font-medium">
-                              {t("creativeContext.colors")}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {brandProposal.colors.map((color) => (
-                                <div
-                                  key={color}
-                                  className="flex items-center gap-1.5 rounded border border-border bg-background px-2 py-1 text-xs"
-                                >
-                                  <span
-                                    className="size-4 rounded-sm border border-black/10"
-                                    style={{ backgroundColor: color }}
-                                  />
-                                  {color}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {brandProposal.fonts.length ? (
-                          <div className="mt-4">
-                            <p className="text-xs font-medium">
-                              {t("creativeContext.fonts")}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {brandProposal.fonts.map((font) => (
-                                <Badge key={font} variant="outline">
-                                  {font}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {brandLayoutThumbnails.length ? (
-                          <div className="mt-4">
-                            <p className="text-xs font-medium">
-                              {t("creativeContext.layouts")}
-                            </p>
-                            <div className="mt-2 grid grid-cols-3 gap-2">
-                              {brandLayoutThumbnails.map((thumbnail) => (
-                                <AccessScopedThumbnail
-                                  key={thumbnail.itemVersionId}
-                                  itemId={thumbnail.itemId}
-                                  itemVersionId={thumbnail.itemVersionId}
-                                  className="aspect-video w-full rounded border border-border object-cover"
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {brandVoicePreview ? (
-                          <div className="mt-4">
-                            <p className="text-xs font-medium">
-                              {t("creativeContext.voice")}
-                            </p>
-                            <blockquote className="mt-1 border-s-2 border-border ps-3 text-sm text-muted-foreground">
-                              {brandVoicePreview}
-                            </blockquote>
-                          </div>
-                        ) : null}
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            disabled={publishBrandDna.isPending}
-                            onClick={() => void publishProposal()}
-                          >
-                            <IconSparkles />
-                            {publishBrandDna.isPending
-                              ? t("creativeContext.applyingBrandContext")
-                              : t("creativeContext.applyBrandContext")}
-                          </Button>
-                          <Button asChild type="button" variant="outline">
-                            <a href="/agent">
-                              {t("creativeContext.generateWithContext")}
+              ) : null}
+            </section>
+          ) : null}
+
+          {libraryView === "items" ? (
+            <section className="border-t border-border/70 pt-6">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {t("creativeContext.searchTitle")}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t("creativeContext.searchDescription")}
+                </p>
+              </div>
+              <form
+                className="mt-4 flex gap-2"
+                onSubmit={(event) => void search(event)}
+              >
+                <div className="relative min-w-0 flex-1">
+                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={t("creativeContext.searchPlaceholder")}
+                    aria-label={t("creativeContext.searchPlaceholder")}
+                    className="ps-9"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={
+                    !query.trim() ||
+                    (!sources.length &&
+                      !selectedLibraryContextId &&
+                      !contextState.state.pinnedPackId) ||
+                    searchContext.isPending
+                  }
+                >
+                  <IconSearch />
+                  {t("creativeContext.searchTitle")}
+                </Button>
+              </form>
+              {searchError ? (
+                <p className="mt-4 text-sm text-destructive">{searchError}</p>
+              ) : !searchContext.data && !searchContext.isPending ? (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {t("creativeContext.searchPrompt")}
+                </p>
+              ) : searchContext.isPending ? (
+                <div className="mt-4 space-y-2">
+                  <Skeleton className="h-20 w-full" />
+                  <Skeleton className="h-20 w-full" />
+                </div>
+              ) : searchContext.data?.results.length ? (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t("creativeContext.resultsLabel", {
+                      count: formatNumber(searchContext.data.results.length),
+                    })}
+                  </p>
+                  {searchContext.data.results.map((result) => (
+                    <article
+                      key={`${result.itemVersionId}:${result.chunkId ?? "item"}`}
+                      className="rounded-md border border-border/70 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-medium">
+                            {result.title}
+                          </h3>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {result.sourceName} · {result.kind}
+                          </p>
+                        </div>
+                        {result.canonicalUrl ? (
+                          <Button asChild variant="ghost" size="icon">
+                            <a
+                              href={result.canonicalUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={result.title}
+                            >
                               <IconArrowUpRight />
                             </a>
                           </Button>
-                        </div>
-                        {publishedMessage ? (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            {publishedMessage}
-                          </p>
                         ) : null}
                       </div>
-                    </div>
-                  </div>
-                ) : importJob.error ? (
-                  <p className="mt-2 text-sm text-destructive">
-                    {importJob.error}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {formatNumber(importJob.progressCurrent)} /{" "}
-                    {formatNumber(importJob.progressTotal ?? 0)}
-                  </p>
-                )}
-              </div>
-            ) : null}
-            {promotionPreview ? (
-              <div className="mt-4 rounded-md border border-border p-4">
-                <h3 className="text-sm font-semibold">
-                  {t("creativeContext.promoteToOrganization")}
-                </h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {t("creativeContext.promotionDescription")}
-                </p>
-                <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-                  <div>
-                    <dt className="text-muted-foreground">
-                      {t("creativeContext.sourceReference")}
-                    </dt>
-                    <dd className="mt-0.5 truncate font-medium">
-                      {promotionPreview.containerRef}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">
-                      {t("creativeContext.itemsLabel", { count: "" })}
-                    </dt>
-                    <dd className="mt-0.5 font-medium">
-                      {formatNumber(promotionPreview.itemCount)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">
-                      {t("creativeContext.restrictedItems", { count: "" })}
-                    </dt>
-                    <dd className="mt-0.5 font-medium">
-                      {formatNumber(promotionPreview.restrictedItemCount)}
-                    </dd>
-                  </div>
-                </dl>
-                <Button
-                  type="button"
-                  className="mt-4"
-                  disabled={manageSource.isPending}
-                  onClick={() => void confirmPromotion()}
-                >
-                  {t("creativeContext.promoteToOrganization")}
-                </Button>
-              </div>
-            ) : null}
-            {promotionMessage ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {promotionMessage}
-              </p>
-            ) : null}
-            {setupError ? (
-              <p className="mt-2 text-sm text-destructive">{setupError}</p>
-            ) : null}
-          </section>
-
-          <section className="border-t border-border/70 pt-6">
-            <h2 className="text-lg font-semibold">
-              {t("creativeContext.sourcesTitle")}
-            </h2>
-            {sources.length ? (
-              <div className="mt-3">
-                {sources.map((source) => (
-                  <SourceRow
-                    key={source.id}
-                    source={source}
-                    refreshing={
-                      refreshSource.isPending &&
-                      refreshSource.variables?.sourceId === source.id
-                    }
-                    canReview={canManageScope}
-                    canPromote={
-                      libraryScope === "user" &&
-                      Boolean(org?.orgId) &&
-                      canManageOrg &&
-                      source.visibility === "private"
-                    }
-                    onRefresh={refresh}
-                    onReview={(selected) =>
-                      void openItemCuration(selected, "restricted")
-                    }
-                    onCurate={(selected) => void openItemCuration(selected)}
-                    onPromote={(selected) =>
-                      void previewSourcePromotion(selected)
-                    }
-                    onPause={(selected) => void pauseSource(selected)}
-                    onRestore={(selected) => void restoreSource(selected)}
-                    onDelete={setDeleteSource}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-md border border-dashed border-border p-6 text-center">
-                <IconBooks className="mx-auto size-7 text-muted-foreground" />
-                <h3 className="mt-3 text-sm font-semibold">
-                  {t("creativeContext.noSourcesTitle")}
-                </h3>
-                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                  {t("creativeContext.noSourcesDescription")}
-                </p>
-                <Button asChild variant="outline" size="sm" className="mt-4">
-                  <a href={connectionsHref}>
-                    {t("creativeContext.connectSources")}
-                    <IconArrowUpRight />
-                  </a>
-                </Button>
-              </div>
-            )}
-            {reviewSource ? (
-              <ItemCuration
-                source={reviewSource}
-                items={reviewedItems}
-                busy={reviewItems.isPending}
-                onReview={(operation, itemId) =>
-                  void reviewContextItem(operation, itemId)
-                }
-                onClose={() => {
-                  setReviewSource(null);
-                  setReviewedItems([]);
-                }}
-              />
-            ) : null}
-            {reviewError ? (
-              <p className="mt-2 text-sm text-destructive">{reviewError}</p>
-            ) : null}
-            {refreshMessage ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {refreshMessage}
-              </p>
-            ) : null}
-            {lifecycleMessage ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {lifecycleMessage}
-              </p>
-            ) : null}
-          </section>
-
-          <section className="border-t border-border/70 pt-6">
-            <h2 className="text-lg font-semibold">
-              {t("creativeContext.packsTitle")}
-            </h2>
-            {packs.length ? (
-              <div className="mt-3">
-                {packs.map((pack) => (
-                  <PackRow
-                    key={pack.id}
-                    pack={pack}
-                    pinned={contextState.state.pinnedPackId === pack.id}
-                    disabled={savingState}
-                    onPin={(packId) => void changePinnedPack(packId)}
-                    onDetails={setSelectedPackId}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="mt-3 rounded-md border border-dashed border-border p-5 text-sm text-muted-foreground">
-                {t("creativeContext.noPacks")}
-              </p>
-            )}
-            {selectedPackId ? (
-              <div className="mt-4 rounded-md border border-border p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">
-                      {packQuery.data?.pack?.name ??
-                        t("creativeContext.packDetails")}
-                    </h3>
-                    {packQuery.data?.pack?.derivedFromPackId ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t("creativeContext.influence")}:{" "}
-                        {packQuery.data.pack.derivedFromPackId}
+                      <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+                        {result.excerpt}
                       </p>
-                    ) : null}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSelectedPackId(null)}
-                  >
-                    {t("creativeContext.cancel")}
-                  </Button>
+                    </article>
+                  ))}
                 </div>
-                {packQuery.data?.pack?.members.length ? (
-                  <div className="mt-3 divide-y divide-border/60">
-                    {packQuery.data.pack.members.map((member) => (
-                      <div key={member.id} className="py-2 text-xs">
-                        <p className="font-medium">{member.itemId}</p>
-                        {member.reason ? (
-                          <p className="mt-0.5 text-muted-foreground">
-                            {t("creativeContext.influence")}: {member.reason}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="border-t border-border/70 pt-6">
-            <div>
-              <h2 className="text-lg font-semibold">
-                {t("creativeContext.searchTitle")}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("creativeContext.searchDescription")}
-              </p>
-            </div>
-            <form
-              className="mt-4 flex gap-2"
-              onSubmit={(event) => void search(event)}
-            >
-              <div className="relative min-w-0 flex-1">
-                <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={t("creativeContext.searchPlaceholder")}
-                  aria-label={t("creativeContext.searchPlaceholder")}
-                  className="ps-9"
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="outline"
-                disabled={
-                  !query.trim() || !sources.length || searchContext.isPending
-                }
-              >
-                <IconSearch />
-                {t("creativeContext.searchTitle")}
-              </Button>
-            </form>
-            {searchError ? (
-              <p className="mt-4 text-sm text-destructive">{searchError}</p>
-            ) : !searchContext.data && !searchContext.isPending ? (
-              <p className="mt-4 text-sm text-muted-foreground">
-                {t("creativeContext.searchPrompt")}
-              </p>
-            ) : searchContext.isPending ? (
-              <div className="mt-4 space-y-2">
-                <Skeleton className="h-20 w-full" />
-                <Skeleton className="h-20 w-full" />
-              </div>
-            ) : searchContext.data?.results.length ? (
-              <div className="mt-4 space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  {t("creativeContext.resultsLabel", {
-                    count: formatNumber(searchContext.data.results.length),
-                  })}
+              ) : (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {t("creativeContext.noResults")}
                 </p>
-                {searchContext.data.results.map((result) => (
-                  <article
-                    key={`${result.itemVersionId}:${result.chunkId ?? "item"}`}
-                    className="rounded-md border border-border/70 p-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-medium">
-                          {result.title}
-                        </h3>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {result.sourceName} · {result.kind}
-                        </p>
-                      </div>
-                      {result.canonicalUrl ? (
-                        <Button asChild variant="ghost" size="icon">
-                          <a
-                            href={result.canonicalUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label={result.title}
-                          >
-                            <IconArrowUpRight />
-                          </a>
-                        </Button>
-                      ) : null}
-                    </div>
-                    <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-                      {result.excerpt}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-muted-foreground">
-                {t("creativeContext.noResults")}
-              </p>
-            )}
-          </section>
+              )}
+            </section>
+          ) : null}
         </>
       )}
       <ContextPreviewSheet
