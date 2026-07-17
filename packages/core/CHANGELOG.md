@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.108.0
+
+### Minor Changes
+
+- 1db27df: Add shared default-off feature flags with server-side targeting, versioned Analytics fleet-management actions, narrowly delegated A2A access, and reusable controlled editor primitives.
+
 ## 0.107.2
 
 ### Patch Changes
