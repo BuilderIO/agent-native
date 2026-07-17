@@ -148,6 +148,17 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(marker).toEqual({ status: "aborted", dispatch_mode: "turn-abort" });
   });
 
+  it("also aborts a run inserted after the caller's first cancellation check", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+
+    await markTurnAborted(thread, turn);
+
+    expect(await isTurnAborted(thread, turn)).toBe(true);
+    expect(readRow(runId)?.status).toBe("aborted");
+  });
+
   it("creates exactly one unclaimed recovery successor for a dead claimed background worker, and does not stack a second on a re-reap", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();

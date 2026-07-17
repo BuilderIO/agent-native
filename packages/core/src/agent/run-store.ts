@@ -1824,6 +1824,23 @@ export async function markTurnAborted(
       `aborted:${reason}`,
     ],
   });
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
+    args: [threadId, turnId],
+  });
+  const runIds = rows
+    .map((row) => String((row as { id?: unknown }).id ?? ""))
+    .filter(Boolean);
+  if (runIds.length === 0) return;
+  await client.execute({
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
+    args: [reason, Date.now(), `aborted:${reason}`, threadId, turnId],
+  });
+  await Promise.all(
+    runIds.map((runId) =>
+      safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-turn-aborted"),
+    ),
+  );
 }
 
 export async function isTurnAborted(

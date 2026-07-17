@@ -137,6 +137,7 @@ import {
   clearLedgerForThread,
   insertRun,
   isTurnAborted,
+  markRunAborted,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   setRunError,
@@ -7192,6 +7193,16 @@ export function createProductionAgentHandler(
           "[agent-chat] background insertRun failed; falling back to inline:",
           err instanceof Error ? err.message : err,
         );
+      }
+
+      // Stop may land after the pre-claim check but before the durable row was
+      // inserted. Terminalize that row before it can be handed to a worker.
+      if (
+        backgroundRowInserted &&
+        (await isTurnAborted(effectiveThreadId, effectiveTurnId))
+      ) {
+        await markRunAborted(runId, "user");
+        return { ok: true, stopped: true };
       }
 
       let dispatched = false;
