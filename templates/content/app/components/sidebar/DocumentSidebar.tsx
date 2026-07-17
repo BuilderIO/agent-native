@@ -120,6 +120,7 @@ import {
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
 import {
+  contentSpaceAvailability,
   contentSpaceForActiveOrg,
   selectContentSpace,
 } from "./select-content-space";
@@ -239,7 +240,8 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const contentSpacesQuery = useContentSpaces();
   const ensureContentSpaces = useEnsureContentSpaces();
-  const { data: activeOrg } = useOrg();
+  const activeOrgQuery = useOrg();
+  const activeOrg = activeOrgQuery.data;
   const switchOrg = useSwitchOrg();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const spaceProvisionAttemptedRef = useRef(false);
@@ -266,6 +268,25 @@ export function DocumentSidebar({
     storedSpaceId,
     activeOrgId: activeOrg?.orgId,
   });
+  const contentSpaceState = contentSpaceAvailability({
+    hasSelectedSpace: Boolean(selectedSpace),
+    contentSpacesLoading: contentSpacesQuery.isLoading,
+    contentSpacesFetching: contentSpacesQuery.isFetching,
+    contentSpacesError: contentSpacesQuery.isError,
+    activeOrganizationResolved: activeOrgQuery.isSuccess,
+    provisioningAttempted: spaceProvisionAttemptedRef.current,
+    provisioningPending: ensureContentSpaces.isPending,
+    provisioningError: ensureContentSpaces.isError,
+  });
+  const handleRetryContentSpaces = useCallback(() => {
+    if (contentSpacesQuery.isError) {
+      spaceProvisionAttemptedRef.current = false;
+      void contentSpacesQuery.refetch();
+      return;
+    }
+    spaceProvisionAttemptedRef.current = true;
+    ensureContentSpaces.mutate({});
+  }, [contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {
     if (selectedSpace && selectedSpace.id !== storedSpaceId) {
       setStoredSpaceId(selectedSpace.id);
@@ -1096,7 +1117,7 @@ export function DocumentSidebar({
       <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {t("sidebar.files")}
       </div>
-      {selectedSpace ? (
+      {contentSpaceState === "ready" && selectedSpace ? (
         <>
           <ContentFilesSidebarView
             data={filesDatabase.data}
@@ -1124,10 +1145,18 @@ export function DocumentSidebar({
           />
           {renderNewButton()}
         </>
-      ) : (
+      ) : contentSpaceState === "loading" ? (
         <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-          {t("sidebar.noWorkspaces")}
+          {t("sidebar.loadingFiles")}
         </div>
+      ) : (
+        <QueryErrorState
+          compact
+          onRetry={handleRetryContentSpaces}
+          retrying={
+            contentSpacesQuery.isFetching || ensureContentSpaces.isPending
+          }
+        />
       )}
     </div>
   );

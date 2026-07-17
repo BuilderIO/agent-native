@@ -1,5 +1,31 @@
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 
+export type ContentSpaceAvailability = "loading" | "ready" | "error";
+
+export function contentSpaceAvailability(args: {
+  hasSelectedSpace: boolean;
+  contentSpacesLoading: boolean;
+  contentSpacesFetching: boolean;
+  contentSpacesError: boolean;
+  activeOrganizationResolved: boolean;
+  provisioningAttempted: boolean;
+  provisioningPending: boolean;
+  provisioningError: boolean;
+}): ContentSpaceAvailability {
+  if (args.hasSelectedSpace) return "ready";
+  if (args.contentSpacesError || args.provisioningError) return "error";
+  if (
+    args.contentSpacesLoading ||
+    args.contentSpacesFetching ||
+    !args.activeOrganizationResolved ||
+    !args.provisioningAttempted ||
+    args.provisioningPending
+  ) {
+    return "loading";
+  }
+  return "error";
+}
+
 export function contentSpaceForActiveOrg(args: {
   spaces: ContentSpaceSummary[];
   storedSpaceId: string | null;

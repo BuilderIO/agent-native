@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 
 import {
+  contentSpaceAvailability,
   contentSpaceForActiveOrg,
   selectContentSpace,
 } from "./select-content-space";
@@ -149,5 +150,56 @@ describe("contentSpaceForActiveOrg", () => {
         activeOrgId: null,
       }),
     ).toBe(personal);
+  });
+});
+
+describe("contentSpaceAvailability", () => {
+  const settledMissingSpace = {
+    hasSelectedSpace: false,
+    contentSpacesLoading: false,
+    contentSpacesFetching: false,
+    contentSpacesError: false,
+    activeOrganizationResolved: true,
+    provisioningAttempted: true,
+    provisioningPending: false,
+    provisioningError: false,
+  };
+
+  it("keeps the Files sidebar loading before automatic provisioning starts", () => {
+    expect(
+      contentSpaceAvailability({
+        ...settledMissingSpace,
+        provisioningAttempted: false,
+      }),
+    ).toBe("loading");
+  });
+
+  it("keeps loading until the post-provision list refetch settles", () => {
+    expect(
+      contentSpaceAvailability({
+        ...settledMissingSpace,
+        contentSpacesFetching: true,
+      }),
+    ).toBe("loading");
+  });
+
+  it("surfaces provisioning failures instead of claiming there are no workspaces", () => {
+    expect(
+      contentSpaceAvailability({
+        ...settledMissingSpace,
+        provisioningError: true,
+      }),
+    ).toBe("error");
+    expect(contentSpaceAvailability(settledMissingSpace)).toBe("error");
+  });
+
+  it("renders Files as soon as the active workspace is available", () => {
+    expect(
+      contentSpaceAvailability({
+        ...settledMissingSpace,
+        hasSelectedSpace: true,
+        provisioningError: true,
+      }),
+    ).toBe("ready");
   });
 });
