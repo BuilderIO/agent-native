@@ -1376,13 +1376,9 @@ describe("creative context access and revocation", () => {
           confirmBroaderPublication: true,
         }),
       );
-      const membership = (
-        await asAlice(() =>
-          store.listContextMemberships({ contextId: context!.id, limit: 20 }),
-        )
-      ).memberships.find(
-        (entry) => entry.artifactKey === `source-1:${rootExternalId}`,
-      )!;
+      const membership = (await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 20 }),
+      )).memberships.find((entry) => entry.artifactKey === `source-1:${rootExternalId}`)!;
       const published = await asBob(() =>
         store.getCreativeContextItem(
           membership.publishedItemId!,
@@ -1418,65 +1414,19 @@ describe("creative context access and revocation", () => {
     const ingested = await asAlice(() =>
       store.ingestItems({
         sourceId: "source-1",
-        items: [
-          {
-            externalId: "forged-native",
-            kind: "native",
-            title: "Forged",
-            mimeType: "text/html",
-            content:
-              "<!doctype html><html><head></head><body><div>forged</div></body></html>",
-            contentHash: "forged-v1",
-            provenance: { compiler: "attacker/compiler" },
-            metadata: {
-              nativeArtifact: {
-                schemaVersion: 1,
-                app: "design",
-                format: "design-html",
-                rootExternalId: "forged-native",
-                fidelityReport: {
-                  exact: { count: 1 },
-                  approximated: { count: 0, reasons: [] },
-                  imageFallback: { count: 0, reasons: [] },
-                },
-              },
-            },
-          },
-        ],
+        items: [{
+          externalId: "forged-native", kind: "native", title: "Forged", mimeType: "text/html",
+          content: "<!doctype html><html><head></head><body><div>forged</div></body></html>", contentHash: "forged-v1",
+          provenance: { compiler: "attacker/compiler" },
+          metadata: { nativeArtifact: { schemaVersion: 1, app: "design", format: "design-html", rootExternalId: "forged-native", fidelityReport: { exact: { count: 1 }, approximated: { count: 0, reasons: [] }, imageFallback: { count: 0, reasons: [] } } } },
+        }],
       }),
     );
-    const context = await asAlice(() =>
-      store.createCreativeContext({ name: "forged", kind: "specialty" }),
-    );
-    await asAlice(() =>
-      store.manageContextMembership({
-        operation: "submit",
-        contextId: context!.id,
-        itemId: ingested.itemIds[0],
-        confirmBroaderPublication: true,
-      }),
-    );
-    const membership = (
-      await asAlice(() =>
-        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
-      )
-    ).memberships[0]!;
-    const published = await asAlice(() =>
-      store.getCreativeContextItem(
-        membership.publishedItemId!,
-        membership.publishedItemVersionId!,
-      ),
-    );
-    await expect(
-      asAlice(() =>
-        reassembleNativeCreativeArtifact({
-          root: published!,
-          app: "design",
-          format: "design-html",
-          resolveChild: store.getCreativeContextItemByExternalId,
-        }),
-      ),
-    ).rejects.toThrow(/trusted native artifact compiler/i);
+    const context = await asAlice(() => store.createCreativeContext({ name: "forged", kind: "specialty" }));
+    await asAlice(() => store.manageContextMembership({ operation: "submit", contextId: context!.id, itemId: ingested.itemIds[0], confirmBroaderPublication: true }));
+    const membership = (await asAlice(() => store.listContextMemberships({ contextId: context!.id, limit: 10 }))).memberships[0]!;
+    const published = await asAlice(() => store.getCreativeContextItem(membership.publishedItemId!, membership.publishedItemVersionId!));
+    await expect(asAlice(() => reassembleNativeCreativeArtifact({ root: published!, app: "design", format: "design-html", resolveChild: store.getCreativeContextItemByExternalId }))).rejects.toThrow(/trusted native artifact compiler/i);
   });
 
   it("finds native artifacts through bounded code-token chunks", async () => {
