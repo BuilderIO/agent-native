@@ -164,15 +164,17 @@ export async function exportMp4(
   onProgress?.({ progress: 0, stage: "loading-ffmpeg" });
   // Stable reference so we can remove it in `finally` — without this the
   // listener piles up across exports and ffmpeg log lines fan out N×.
+  let lastProgress = 0;
   const onLog = (msg: string) => {
-    onProgress?.({ progress: -1, stage: "encoding", message: msg });
+    onProgress?.({ progress: lastProgress, stage: "encoding", message: msg });
   };
   const ffmpeg = await loadFfmpeg(onLog);
 
   // Hook ffmpeg progress events — they fire per frame written.
   const handleProgress = ({ progress }: { progress: number }) => {
+    lastProgress = Math.max(0, Math.min(1, progress));
     onProgress?.({
-      progress: Math.max(0, Math.min(1, progress)),
+      progress: lastProgress,
       stage: "encoding",
     });
   };

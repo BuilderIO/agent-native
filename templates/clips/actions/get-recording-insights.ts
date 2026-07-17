@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { clampCompletionPct } from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
@@ -46,8 +47,10 @@ export default defineAction({
     const completionRate =
       viewerRows.length === 0
         ? 0
-        : viewerRows.reduce((acc, v) => acc + (v.completedPct ?? 0), 0) /
-          viewerRows.length;
+        : viewerRows.reduce(
+            (acc, v) => acc + clampCompletionPct(v.completedPct),
+            0,
+          ) / viewerRows.length;
 
     // Drop-off: 100 buckets across the video's duration.
     // Use the recording's duration as the denominator.
@@ -64,7 +67,7 @@ export default defineAction({
     }));
 
     for (const v of viewerRows) {
-      const pct = Math.min(100, Math.max(0, v.completedPct ?? 0));
+      const pct = clampCompletionPct(v.completedPct);
       // Each viewer contributes to all buckets up to their max reached.
       for (let i = 0; i < pct; i++) {
         buckets[i].watching += 1;
@@ -84,7 +87,7 @@ export default defineAction({
         viewerEmail: v.viewerEmail,
         viewerName: v.viewerName,
         totalWatchMs: v.totalWatchMs ?? 0,
-        completedPct: v.completedPct ?? 0,
+        completedPct: clampCompletionPct(v.completedPct),
       }));
 
     return {

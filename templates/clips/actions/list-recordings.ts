@@ -16,6 +16,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
@@ -67,6 +68,10 @@ export default defineAction({
       )
       .default(false)
       .describe("Return only the total count, skipping the row payload"),
+    includeMedia: z
+      .boolean()
+      .default(false)
+      .describe("Include playable media fields for editor workflows"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -225,6 +230,12 @@ export default defineAction({
           hasCamera: schema.recordings.hasCamera,
           width: schema.recordings.width,
           height: schema.recordings.height,
+          videoUrl: args.includeMedia
+            ? schema.recordings.videoUrl
+            : sql<string | null>`NULL`,
+          videoFormat: args.includeMedia
+            ? schema.recordings.videoFormat
+            : sql<string | null>`NULL`,
         },
         transcriptStatus: schema.recordingTranscripts.status,
         // Compute the has-text signal in SQL instead of shipping the full
@@ -313,6 +324,18 @@ export default defineAction({
         hasCamera: Boolean(r.hasCamera),
         width: r.width,
         height: r.height,
+        videoUrl: args.includeMedia
+          ? resolvePlayerVideoUrl(
+              {
+                id: r.id,
+                sourceAppName: r.sourceAppName,
+                sourceWindowTitle: r.sourceWindowTitle,
+                videoUrl: r.videoUrl,
+              },
+              { proxyRemoteMedia: true },
+            )
+          : null,
+        videoFormat: args.includeMedia ? r.videoFormat : null,
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
       };
