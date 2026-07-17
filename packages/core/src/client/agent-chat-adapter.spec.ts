@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { getPendingTurn } from "./active-run-state.js";
 import {
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
@@ -129,6 +130,30 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function createMemoryStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(key) ?? null;
+    },
+    key(index: number) {
+      return [...store.keys()][index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, value);
+    },
+  };
+}
+
 async function drain(iterable: AsyncIterable<unknown>) {
   const results: unknown[] = [];
   for await (const result of iterable) {
@@ -143,6 +168,38 @@ describe("createAgentChatAdapter", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     analyticsMock.captureError.mockReset();
+  });
+
+  it("publishes the client turn id before dispatch and clears it when the run id arrives", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    let pendingAtDispatch: ReturnType<typeof getPendingTurn> = null;
+    const fetchSpy = vi.fn().mockImplementation(async () => {
+      pendingAtDispatch = getPendingTurn("thread-pending");
+      return sseResponse([{ type: "done" }], "run-pending");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-pending",
+      threadId: "thread-pending",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a durable turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(pendingAtDispatch).toMatchObject({ threadId: "thread-pending" });
+    expect(pendingAtDispatch?.turnId).toMatch(/^turn-/);
+    expect(getPendingTurn("thread-pending")).toBeNull();
   });
 
   it("posts the latest user message with attachments, references, and model selection", async () => {
