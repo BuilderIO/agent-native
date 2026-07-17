@@ -79,6 +79,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -223,12 +224,10 @@ interface RemoveLocalFileSourceResult {
 function WorkspaceFilesSection({
   space,
   selected,
-  footer,
   onActivate,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
-  footer?: ReactNode;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
 }) {
   const t = useT();
@@ -282,8 +281,47 @@ function WorkspaceFilesSection({
           }}
         />
       )}
-      {selected ? footer : null}
     </div>
+  );
+}
+
+function WorkspaceCreateMenu({
+  space,
+  disabled,
+  onCreatePage,
+  onCreateDatabase,
+}: {
+  space: ContentSpaceSummary;
+  disabled: boolean;
+  onCreatePage: (space: ContentSpaceSummary) => void;
+  onCreateDatabase: (space: ContentSpaceSummary) => void;
+}) {
+  const t = useT();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+          disabled={disabled}
+          aria-label={`${t("sidebar.newPage")} / ${t("sidebar.newDatabase")} — ${space.name}`}
+        >
+          <IconPlus size={14} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuGroup>
+          <DropdownMenuItem onSelect={() => onCreatePage(space)}>
+            <IconFileText />
+            {t("sidebar.page")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onCreateDatabase(space)}>
+            <IconDatabase />
+            {t("sidebar.database")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -418,8 +456,10 @@ export function DocumentSidebar({
               }),
           }),
         );
+        return true;
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
+        return false;
       }
     },
     [navigate, setExpandedWorkspaceIds, setStoredSpaceId, switchOrg],
@@ -565,13 +605,13 @@ export function DocumentSidebar({
   );
 
   const handleCreatePage = useCallback(
-    async (parentId?: string) => {
+    async (parentId?: string, rootSpaceId = selectedSpace?.id) => {
       if (localFileMode) {
         try {
           const created = await createDocument.mutateAsync({
             title: "",
             parentId: parentId ?? undefined,
-            spaceId: selectedSpace?.id,
+            spaceId: parentId ? undefined : rootSpaceId,
           });
           queryClient.setQueryData(
             ["action", "get-document", { id: created.id }],
@@ -626,7 +666,7 @@ export function DocumentSidebar({
           id,
           title: "",
           parentId: parentId ?? undefined,
-          spaceId: selectedSpace?.id,
+          spaceId: parentId ? undefined : rootSpaceId,
         });
         const nextId = created?.id || id;
         if (nextId !== id) {
@@ -674,11 +714,11 @@ export function DocumentSidebar({
   );
 
   const handleCreateDatabase = useCallback(
-    async (parentId?: string | null) => {
+    async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
       try {
         const result = await createDatabase.mutateAsync({
           parentId: parentId ?? null,
-          spaceId: parentId ? undefined : selectedSpace?.id,
+          spaceId: parentId ? undefined : rootSpaceId,
           title: t("editor.untitledDatabase"),
         });
         navigateToDocument(result.database.documentId);
@@ -691,6 +731,32 @@ export function DocumentSidebar({
       }
     },
     [createDatabase, navigateToDocument, onNavigate, selectedSpace?.id, t],
+  );
+
+  const handleCreatePageInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (
+        selectedSpace?.id !== space.id &&
+        !(await handleSelectContentSpace(space))
+      ) {
+        return;
+      }
+      await handleCreatePage(undefined, space.id);
+    },
+    [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
+  );
+
+  const handleCreateDatabaseInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (
+        selectedSpace?.id !== space.id &&
+        !(await handleSelectContentSpace(space))
+      ) {
+        return;
+      }
+      await handleCreateDatabase(undefined, space.id);
+    },
+    [handleCreateDatabase, handleSelectContentSpace, selectedSpace?.id],
   );
 
   const handleDelete = useCallback(
@@ -950,14 +1016,14 @@ export function DocumentSidebar({
     </SortableContext>
   );
 
-  const renderNewButton = () =>
-    selectedSpace ? (
+  const renderNewButton = (space = selectedSpace) =>
+    space ? (
       <div className="flex items-center gap-1">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          disabled={createDocument.isPending}
-          onClick={() => void handleCreatePage()}
+          disabled={createDocument.isPending || switchOrg.isPending}
+          onClick={() => void handleCreatePageInSpace(space)}
         >
           <IconPlus size={14} className="shrink-0" />
           <span>{t("sidebar.newPage")}</span>
@@ -967,9 +1033,9 @@ export function DocumentSidebar({
             <button
               type="button"
               className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              disabled={createDatabase.isPending}
+              disabled={createDatabase.isPending || switchOrg.isPending}
               aria-label={t("sidebar.newDatabase")}
-              onClick={() => void handleCreateDatabase()}
+              onClick={() => void handleCreateDatabaseInSpace(space)}
             >
               <IconDatabase size={14} />
             </button>
@@ -1205,7 +1271,7 @@ export function DocumentSidebar({
               <div key={space.id} className="min-w-0">
                 <div
                   className={cn(
-                    "flex h-7 w-full min-w-0 items-center rounded-md text-[10px] font-semibold uppercase tracking-wider",
+                    "flex h-7 w-full min-w-0 items-center rounded-md",
                     selected
                       ? "text-foreground"
                       : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
@@ -1230,18 +1296,31 @@ export function DocumentSidebar({
                   </button>
                   <button
                     type="button"
-                    className="h-7 min-w-0 flex-1 truncate pe-2 text-start"
+                    className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
                     onClick={() => void handleSelectContentSpace(space)}
                     disabled={switchOrg.isPending}
                   >
                     {space.name}
                   </button>
+                  <WorkspaceCreateMenu
+                    space={space}
+                    disabled={
+                      createDocument.isPending ||
+                      createDatabase.isPending ||
+                      switchOrg.isPending
+                    }
+                    onCreatePage={(targetSpace) =>
+                      void handleCreatePageInSpace(targetSpace)
+                    }
+                    onCreateDatabase={(targetSpace) =>
+                      void handleCreateDatabaseInSpace(targetSpace)
+                    }
+                  />
                 </div>
                 {expanded && (
                   <WorkspaceFilesSection
                     space={space}
                     selected={selected}
-                    footer={renderNewButton()}
                     onActivate={(nextSpace, documentId) =>
                       void handleSelectContentSpace(nextSpace, documentId)
                     }

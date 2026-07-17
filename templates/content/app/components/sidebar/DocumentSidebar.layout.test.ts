@@ -156,8 +156,14 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("useContentSpaces()");
     expect(sidebar).toContain("selectedSpace?.id");
-    expect(sidebar).toContain("spaceId: selectedSpace?.id");
-    expect(sidebar).toContain("const renderNewButton = () =>");
+    expect(sidebar).toContain("spaceId: parentId ? undefined : rootSpaceId");
+    expect(sidebar).toContain("const handleCreatePageInSpace = useCallback");
+    expect(sidebar).toContain(
+      "const handleCreateDatabaseInSpace = useCallback",
+    );
+    expect(sidebar).toContain(
+      "const renderNewButton = (space = selectedSpace) =>",
+    );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
     expect(sidebar).toContain('t("sidebar.newPage")');
     expect(sidebar).not.toContain(
@@ -184,14 +190,18 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
     expect(sidebar).toContain("{expanded && (");
     expect(sidebar).toContain("<WorkspaceFilesSection");
+    expect(sidebar).toContain("<WorkspaceCreateMenu");
     expect(sidebar).toContain("selected={selected}");
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
+    expect(sidebar).toContain("onCreatePage={(targetSpace) =>");
+    expect(sidebar).toContain("onCreateDatabase={(targetSpace) =>");
+    expect(sidebar).toContain(
+      "text-[10px] font-semibold uppercase tracking-wider",
+    );
+    expect(sidebar).not.toContain("{selected ? footer : null}");
     expect(sidebar).not.toContain('t("sidebar.workspaces")');
     expect(sidebar).not.toContain(
       '<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">',
-    );
-    expect(sidebar).toContain(
-      "text-[10px] font-semibold uppercase tracking-wider",
     );
     expect(sidebar).not.toContain("<OrgSwitcher />");
   });
