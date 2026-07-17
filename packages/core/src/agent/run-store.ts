@@ -1797,6 +1797,47 @@ export async function markRunAborted(
   }
 }
 
+function turnAbortMarkerRunId(turnId: string): string {
+  return `turn-abort-${turnId}`;
+}
+
+/** Records Stop before a foreground request has created its real run row. */
+export async function markTurnAborted(
+  threadId: string,
+  turnId: string,
+  reason: string = "user",
+): Promise<void> {
+  await ensureRunTables();
+  const now = Date.now();
+  const client = getDbExec();
+  await client.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+    args: [
+      turnAbortMarkerRunId(turnId),
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+    ],
+  });
+}
+
+export async function isTurnAborted(
+  threadId: string,
+  turnId: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM agent_runs WHERE id = ? AND thread_id = ? AND status = 'aborted' LIMIT 1`,
+    args: [turnAbortMarkerRunId(turnId), threadId],
+  });
+  return rows.length > 0;
+}
+
 export async function isRunAborted(runId: string): Promise<boolean> {
   return (await getRunAbortState(runId)).aborted;
 }
