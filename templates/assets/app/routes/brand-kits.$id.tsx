@@ -1479,6 +1479,7 @@ function RunCard({
   rerunning?: boolean;
 }) {
   const t = useT();
+  const [bulkContextOpen, setBulkContextOpen] = useState(false);
   const settings = (run.settingsUsed ?? {}) as Record<string, unknown>;
   const referenceSelection = (run.referenceSelection ?? {}) as Record<
     string,
@@ -2598,6 +2599,16 @@ function AssetSwimlaneBoard({
               ) : null}
               <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkContextOpen(true)}
+                disabled={deleting || changingReference}
+              >
+                <IconLink className="h-4 w-4" />
+                Add to context
+              </Button>
+              <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => onSelectedIdsChange(new Set())}
@@ -2624,6 +2635,18 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
       )}
+      <CreativeContextShareSheet
+        open={bulkContextOpen}
+        onOpenChange={setBulkContextOpen}
+        canManage
+        resource={{
+          appId: "assets",
+          resourceType: "asset-selection",
+          resourceId: selectedAssets.map((asset) => asset.id).sort().join(","),
+          title: `${selectedCount} selected assets`,
+          preview: { kind: "document", label: "Asset selection" },
+        }}
+      />
 
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
@@ -3396,6 +3419,7 @@ function AssetLaneTile({
   onMoveToReferences?: () => void;
 }) {
   const t = useT();
+  const [contextOpen, setContextOpen] = useState(false);
   const displayTitle = assetDisplayTitle(asset);
   const sourceText = assetLineageSourceText(asset);
   const canMoveToReferences = Boolean(onMoveToReferences);
@@ -3445,6 +3469,15 @@ function AssetLaneTile({
                 <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
                 {t("library.viewDetails")}
               </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setContextOpen(true);
+              }}
+            >
+              <IconLink className="mr-2 h-4 w-4 shrink-0" />
+              Add to context
             </DropdownMenuItem>
             {canMoveToReferences ? (
               <DropdownMenuItem
@@ -3575,6 +3608,19 @@ function AssetLaneTile({
           </div>
         </div>
       ) : null}
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        canManage
+        resource={{
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: displayTitle,
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document", label: "Asset" },
+        }}
+      />
     </div>
   );
 }

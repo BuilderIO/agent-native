@@ -16,8 +16,7 @@ export default defineAction({
     const reference = await resolveNativeContextCloneReference({ appId: "assets", resourceType: "asset", resourceId: args.resourceId, expectedUpdatedAt: args.expectedUpdatedAt, contextId: args.contextId, artifactKey: args.artifactKey });
     const raw = await readPrivateBlob(reference.cloneHandle as PrivateBlobHandle); const bytes = Buffer.from(raw.data); const hash = createHash("sha256").update(bytes).digest("hex");
     if (raw.metadata?.appId !== "assets" || raw.metadata?.resourceType !== "asset" || raw.metadata?.resourceId !== args.resourceId || raw.metadata?.contentHash !== hash) throw new Error("Governed asset clone payload failed integrity verification.");
-    const source = await getAssetOrThrow(args.resourceId);
-    const created = await createAssetFromBuffer({ libraryId: args.libraryId, buffer: bytes, mimeType: raw.mimeType ?? source.mimeType, role: "reference", status: "ready", title: args.title?.trim() || source.title, description: source.description, altText: source.altText, metadata: { creativeContext: { itemVersionId: reference.publishedItemVersionId, sourceAssetId: source.id } } });
+    const created = await createAssetFromBuffer({ libraryId: args.libraryId, buffer: bytes, mimeType: raw.mimeType ?? "application/octet-stream", role: "reference", status: "ready", title: args.title?.trim() || "Context asset", metadata: { creativeContext: { itemVersionId: reference.publishedItemVersionId, sourceAssetId: args.resourceId } } });
     const persisted = await getAssetOrThrow(created.id);
     if (persisted.id !== created.id || persisted.libraryId !== args.libraryId) throw new Error("Asset clone did not persist.");
     return { id: persisted.id, libraryId: persisted.libraryId, title: persisted.title, clonedExactVersion: reference.publishedItemVersionId };
