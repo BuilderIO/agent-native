@@ -16,6 +16,7 @@ import {
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
 import { saveOAuthTokens, setOAuthDisplayName } from "../oauth-tokens/store.js";
+import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
   listWorkspaceConnections,
@@ -94,6 +95,8 @@ export async function handleWorkspaceProviderOAuthStart(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const authorizationError = await requireWorkspaceProviderOAuthAdmin(event);
+  if (authorizationError) return authorizationError;
   const provider = requiredProvider(providerId);
   const query = getQuery(event);
   const appId = normalizeAppId(
@@ -180,6 +183,8 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const authorizationError = await requireWorkspaceProviderOAuthAdmin(event);
+  if (authorizationError) return authorizationError;
   const query = getQuery(event);
   const code = text(query.code);
   const stateParam = text(query.state);
@@ -739,6 +744,13 @@ export function isWorkspaceProviderOAuthFlowValid(input: {
   );
 }
 
+export function canConnectWorkspaceProviderOAuth(
+  orgId: string | null | undefined,
+  role: string | null | undefined,
+): boolean {
+  return !orgId || role === "owner" || role === "admin";
+}
+
 async function fetchBoundedProviderJson(
   url: string,
   init: RequestInit,
@@ -886,4 +898,19 @@ function methodNotAllowed(event: H3Event) {
 function unauthorized(event: H3Event) {
   setResponseStatus(event, 401);
   return { error: "Authentication required" };
+}
+
+async function requireWorkspaceProviderOAuthAdmin(event: H3Event) {
+  const context = await getOrgContext(event).catch(() => null);
+  if (
+    !context ||
+    !canConnectWorkspaceProviderOAuth(context.orgId, context.role)
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
+  return null;
 }

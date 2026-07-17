@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
+  canConnectWorkspaceProviderOAuth,
   exchangeWorkspaceProviderOAuthCode,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
@@ -16,6 +17,14 @@ afterEach(() => {
 });
 
 describe("workspace provider OAuth", () => {
+  it("allows shared OAuth connections only for organization owners and admins", () => {
+    expect(canConnectWorkspaceProviderOAuth("org-1", "owner")).toBe(true);
+    expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);
+    expect(canConnectWorkspaceProviderOAuth("org-1", "member")).toBe(false);
+    expect(canConnectWorkspaceProviderOAuth("org-1", null)).toBe(false);
+    expect(canConnectWorkspaceProviderOAuth(null, null)).toBe(true);
+  });
+
   it("preserves prior app grants and scopes across sequential connects", () => {
     expect(
       mergeWorkspaceOAuthValues(["slides", "design"], ["assets", "slides"]),

@@ -1209,6 +1209,7 @@ export function createCoreRoutesPlugin(
         "google_drive",
         "github",
         "hubspot",
+        "jira",
         "sentry",
         "notion",
       ] as const) {
