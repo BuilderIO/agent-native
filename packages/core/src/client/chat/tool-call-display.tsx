@@ -965,7 +965,9 @@ export function ReconnectStreamMessage({
         key={`reconnect-tool-summary-${summaryStartIndex}`}
         toolCount={summaryToolCount}
       >
-        {content.slice(summaryStartIndex, endIndex).map(renderPart)}
+        {content
+          .slice(summaryStartIndex, endIndex)
+          .map((part, offset) => renderPart(part, summaryStartIndex + offset))}
       </RanToolsSummary>,
     );
     summaryStartIndex = -1;

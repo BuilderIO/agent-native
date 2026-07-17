@@ -912,7 +912,7 @@ export function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
-  const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
+  const tooltipRef = useChartTooltipFlip<HTMLDivElement>(active);
   const items = useMemo(
     () =>
       sortTooltipPayloadItems(

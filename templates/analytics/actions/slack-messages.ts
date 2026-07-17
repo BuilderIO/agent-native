@@ -134,30 +134,70 @@ export default defineAction({
         const channelIds = args.channels.split(",").filter(Boolean);
         const channelNames = args.names ? args.names.split(",") : channelIds;
         const pageSize = Math.min(args.limit, 200);
-        const results = await Promise.all(
-          channelIds.map((id) =>
-            getChannelHistory(workspace, id, pageSize, args.cursors?.[id]),
+        const channelResults = await Promise.allSettled(
+          channelIds.map((channelId) =>
+            getChannelHistory(
+              workspace,
+              channelId,
+              pageSize,
+              args.cursors?.[channelId],
+            ),
           ),
         );
+        const successfulResults = channelResults.flatMap((entry, index) =>
+          entry.status === "fulfilled"
+            ? [{ channelId: channelIds[index], result: entry.value }]
+            : [],
+        );
+        const failedChannelIds = channelResults.flatMap((entry, index) =>
+          entry.status === "rejected" ? [channelIds[index]] : [],
+        );
 
-        const allMessages: (SlackMessage & { channel_name: string })[] = [];
+        const allMessages: (SlackMessage & {
+          channel_id: string;
+          channel_name: string;
+        })[] = [];
         const perChannelHasMore: Record<string, boolean> = {};
         const nextCursors: Record<string, string> = {};
 
-        results.forEach((result, idx) => {
-          const channelId = channelIds[idx];
+        successfulResults.forEach(({ channelId, result }) => {
           perChannelHasMore[channelId] = result.has_more;
-          if (result.next_cursor) nextCursors[channelId] = result.next_cursor;
           for (const message of result.messages) {
             allMessages.push({
               ...message,
-              channel_name: channelNames[idx] || channelId,
+              channel_id: channelId,
+              channel_name:
+                channelNames[channelIds.indexOf(channelId)] || channelId,
             });
           }
         });
+        failedChannelIds.forEach((channelId) => {
+          perChannelHasMore[channelId] = true;
+        });
 
         allMessages.sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts));
-        const messages = enrichMessages(allMessages.slice(0, pageSize));
+        const pageMessages = allMessages.slice(0, pageSize);
+        const emittedByChannel = new Map<string, SlackMessage[]>();
+        for (const message of pageMessages) {
+          const emitted = emittedByChannel.get(message.channel_id) ?? [];
+          emitted.push(message);
+          emittedByChannel.set(message.channel_id, emitted);
+        }
+        for (const channelId of channelIds) {
+          const emitted = emittedByChannel.get(channelId);
+          const nextCursor = emitted?.[emitted.length - 1]?.ts;
+          if (nextCursor) nextCursors[channelId] = nextCursor;
+          else if (args.cursors?.[channelId]) {
+            nextCursors[channelId] = args.cursors[channelId];
+          }
+        }
+
+        const messages = pageMessages.map((message) => {
+          const enriched = enrichMessages([message])[0] ?? message;
+          const { channel_id: _channelId, ...rest } =
+            enriched as typeof message;
+          return rest;
+        });
         const userIds = messages
           .map((message) => message.user)
           .filter((id): id is string => !!id);
@@ -166,19 +206,59 @@ export default defineAction({
           userIds,
           messages,
         );
-        const providerTruncated = results.some((result) => result.truncated);
+        const providerTruncated = successfulResults.some(
+          ({ result }) => result.truncated,
+        );
         const mergedResultTruncated = allMessages.length > pageSize;
-        const truncated = providerTruncated || mergedResultTruncated;
+        const truncated =
+          providerTruncated ||
+          mergedResultTruncated ||
+          failedChannelIds.length > 0;
         const truncationReasons = [
           ...(providerTruncated ? ["provider_has_more"] : []),
           ...(mergedResultTruncated ? ["merged_result_limit"] : []),
+          ...failedChannelIds.map(
+            (channelId) => `channel_fetch_failed:${channelId}`,
+          ),
         ];
+        const channelPagination = Object.fromEntries(
+          channelResults.map((entry, index) => [
+            channelIds[index],
+            entry.status === "fulfilled"
+              ? entry.value.pagination
+              : {
+                  cursor_type: "latest_ts" as const,
+                  ...(args.cursors?.[channelIds[index]]
+                    ? { request_cursor: args.cursors[channelIds[index]] }
+                    : {}),
+                },
+          ]),
+        );
+        const channelCoverage = Object.fromEntries(
+          channelResults.map((entry, index) => [
+            channelIds[index],
+            entry.status === "fulfilled"
+              ? entry.value.coverage
+              : {
+                  requested: pageSize,
+                  fetched: 0,
+                  returned: 0,
+                  pages_fetched: 0,
+                  coverage_complete: false,
+                  truncated: true,
+                  truncation_reasons: [
+                    `channel_fetch_failed:${channelIds[index]}`,
+                  ],
+                },
+          ]),
+        );
         return {
           messages,
           users: resolution.users,
           has_more:
             Object.values(perChannelHasMore).some(Boolean) ||
-            allMessages.length > pageSize,
+            allMessages.length > pageSize ||
+            failedChannelIds.length > 0,
           next_cursors: nextCursors,
           total: allMessages.length,
           truncated,
@@ -186,18 +266,13 @@ export default defineAction({
             cursor_type: "per_channel_latest_ts",
             request_cursors: args.cursors ?? {},
             next_cursors: nextCursors,
-            channels: Object.fromEntries(
-              channelIds.map((channelId, index) => [
-                channelId,
-                results[index].pagination,
-              ]),
-            ),
+            channels: channelPagination,
           },
           coverage: {
             requested: channelIds.length * pageSize,
             fetched: allMessages.length,
             returned: messages.length,
-            pages_fetched: results.length,
+            pages_fetched: successfulResults.length,
             coverage_complete:
               !truncated && resolution.coverage.coverage_complete,
             truncated: truncated || resolution.coverage.truncated,
@@ -205,12 +280,7 @@ export default defineAction({
               ...truncationReasons,
               ...resolution.coverage.truncation_reasons,
             ],
-            channels: Object.fromEntries(
-              channelIds.map((channelId, index) => [
-                channelId,
-                results[index].coverage,
-              ]),
-            ),
+            channels: channelCoverage,
             authors: resolution.coverage,
           },
         };

@@ -130,13 +130,13 @@ describe("slack-messages action", () => {
     ]);
     expect(result).toMatchObject({
       has_more: true,
-      next_cursors: { C1: "1.000", C2: "2.000" },
+      next_cursors: { C1: "4.000", C2: "3.000" },
       total: 4,
       truncated: true,
       pagination: {
         cursor_type: "per_channel_latest_ts",
         request_cursors: { C1: "5.000" },
-        next_cursors: { C1: "1.000", C2: "2.000" },
+        next_cursors: { C1: "4.000", C2: "3.000" },
       },
       coverage: {
         requested: 4,

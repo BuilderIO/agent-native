@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  isLocalAppCreationRuntime: vi.fn(() => process.env.NODE_ENV !== "production"),
   scaffoldWorkspaceAppFromTemplate: vi.fn(),
   startWorkspaceAppCreation: vi.fn(),
   recordAudit: vi.fn(),
 }));
 
 vi.mock("../server/lib/app-creation-store.js", () => ({
+  isLocalAppCreationRuntime: mocks.isLocalAppCreationRuntime,
   scaffoldWorkspaceAppFromTemplate: mocks.scaffoldWorkspaceAppFromTemplate,
   startWorkspaceAppCreation: mocks.startWorkspaceAppCreation,
 }));

@@ -189,9 +189,19 @@ export class A2AClient {
         );
 
         if (res.ok) {
+          const text = await res.text();
+          if (
+            i < this.apiKeyAttempts.length - 1 &&
+            isA2AAuthRejectionResponse(res.status, text)
+          ) {
+            lastError = new Error(
+              `A2A request failed (${res.status}): ${text}`,
+            );
+            continue;
+          }
           this.endpointCandidates = [url];
           this.markApiKeySucceeded(this.apiKeyAttempts[i]);
-          return res.json() as Promise<JsonRpcResponse>;
+          return JSON.parse(text) as JsonRpcResponse;
         }
 
         const text = await res.text();
@@ -583,6 +593,7 @@ function uniqueAuthTokens(
 function isA2AAuthRejectionResponse(status: number, text: string): boolean {
   return (
     status === 401 ||
+    /verified, audience-bound user identity/i.test(text) ||
     /A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
       text,
     )

@@ -318,6 +318,61 @@ describe("A2AClient", () => {
     ).resolves.toMatchObject({ status: "completed", output: '{"total":2}' });
   });
 
+  it("retries direct action with the audience-bound token after receiver rejection", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+      const body = JSON.parse(String(init?.body));
+
+      if (token === "static-key") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: {
+              code: -32001,
+              message:
+                "A verified, audience-bound user identity is required for direct action invocation",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      expect(jose.decodeJwt(token).aud).toBe("https://analytics.test");
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "gong-calls",
+            status: "completed",
+            output: '{"total":2}',
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://analytics.test/",
+        "gong-calls",
+        { company: "Acme" },
+        {
+          apiKey: "static-key",
+          userEmail: "alice@example.test",
+          orgSecret: "shared-direct-secret",
+        },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: '{"total":2}' });
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(2);
+  });
+
   it("returns receiver-verified recoverable artifact text when callAgent times out", async () => {
     vi.stubGlobal(
       "fetch",

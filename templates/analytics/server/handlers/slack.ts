@@ -192,28 +192,44 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
         ? JSON.parse(cursorsParam as string)
         : {};
 
-      // Fetch pageSize messages from each channel in parallel
-      const results = await Promise.all(
-        channelIds.map((id) =>
-          getChannelHistory(workspace, id, pageSize, cursors[id]),
+      // Fetch pageSize messages from each channel in parallel while preserving
+      // partial results when the bot is not invited to one of the channels.
+      const channelResults = await Promise.allSettled(
+        channelIds.map((channelId) =>
+          getChannelHistory(workspace, channelId, pageSize, cursors[channelId]),
         ),
+      );
+      const successfulResults = channelResults.flatMap((entry, index) =>
+        entry.status === "fulfilled"
+          ? [{ channelId: channelIds[index], result: entry.value }]
+          : [],
+      );
+      const failedChannelIds = channelResults.flatMap((entry, index) =>
+        entry.status === "rejected" ? [channelIds[index]] : [],
       );
 
       // Tag messages with channel name and merge
-      const allMessages: (SlackMessage & { channel_name: string })[] = [];
+      const allMessages: (SlackMessage & {
+        channel_id: string;
+        channel_name: string;
+      })[] = [];
       const perChannelHasMore: Record<string, boolean> = {};
       const nextCursors: Record<string, string> = {};
 
-      results.forEach((result, idx) => {
-        const chId = channelIds[idx];
-        const chName = channelNamesList[idx] || chId;
-        perChannelHasMore[chId] = result.has_more;
-        if (result.next_cursor) {
-          nextCursors[chId] = result.next_cursor;
+      successfulResults.forEach(({ channelId, result }) => {
+        const chName =
+          channelNamesList[channelIds.indexOf(channelId)] || channelId;
+        perChannelHasMore[channelId] = result.has_more;
+        for (const message of result.messages) {
+          allMessages.push({
+            ...message,
+            channel_id: channelId,
+            channel_name: chName,
+          });
         }
-        for (const m of result.messages) {
-          allMessages.push({ ...m, channel_name: chName });
-        }
+      });
+      failedChannelIds.forEach((channelId) => {
+        perChannelHasMore[channelId] = true;
       });
 
       // Sort merged by timestamp (newest first)
@@ -222,8 +238,26 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
       // Take top pageSize
       const pageMessages = allMessages.slice(0, pageSize);
 
+      const emittedByChannel = new Map<string, SlackMessage[]>();
+      for (const message of pageMessages) {
+        const emitted = emittedByChannel.get(message.channel_id) ?? [];
+        emitted.push(message);
+        emittedByChannel.set(message.channel_id, emitted);
+      }
+      for (const channelId of channelIds) {
+        const emitted = emittedByChannel.get(channelId);
+        const nextCursor = emitted?.[emitted.length - 1]?.ts;
+        if (nextCursor) nextCursors[channelId] = nextCursor;
+        else if (cursors[channelId])
+          nextCursors[channelId] = cursors[channelId];
+      }
+
       // Enrich text from blocks
-      const enrichedMessages = enrichMessages(pageMessages);
+      const enrichedMessages = pageMessages.map((message) => {
+        const enriched = enrichMessages([message])[0] ?? message;
+        const { channel_id: _channelId, ...rest } = enriched as typeof message;
+        return rest;
+      });
 
       // Resolve users
       const userIds = enrichedMessages
@@ -236,13 +270,52 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
       );
 
       // has_more is true if any channel has more messages
-      const providerTruncated = results.some((result) => result.truncated);
+      const providerTruncated = successfulResults.some(
+        ({ result }) => result.truncated,
+      );
       const mergedResultTruncated = allMessages.length > pageSize;
-      const hasMore = providerTruncated || mergedResultTruncated;
+      const hasMore =
+        providerTruncated ||
+        mergedResultTruncated ||
+        failedChannelIds.length > 0;
       const truncationReasons = [
         ...(providerTruncated ? ["provider_has_more"] : []),
         ...(mergedResultTruncated ? ["merged_result_limit"] : []),
+        ...failedChannelIds.map(
+          (channelId) => `channel_fetch_failed:${channelId}`,
+        ),
       ];
+      const channelPagination = Object.fromEntries(
+        channelResults.map((entry, index) => [
+          channelIds[index],
+          entry.status === "fulfilled"
+            ? entry.value.pagination
+            : {
+                cursor_type: "latest_ts" as const,
+                ...(cursors[channelIds[index]]
+                  ? { request_cursor: cursors[channelIds[index]] }
+                  : {}),
+              },
+        ]),
+      );
+      const channelCoverage = Object.fromEntries(
+        channelResults.map((entry, index) => [
+          channelIds[index],
+          entry.status === "fulfilled"
+            ? entry.value.coverage
+            : {
+                requested: pageSize,
+                fetched: 0,
+                returned: 0,
+                pages_fetched: 0,
+                coverage_complete: false,
+                truncated: true,
+                truncation_reasons: [
+                  `channel_fetch_failed:${channelIds[index]}`,
+                ],
+              },
+        ]),
+      );
 
       return {
         messages: enrichedMessages,
@@ -255,30 +328,20 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
           cursor_type: "per_channel_latest_ts",
           request_cursors: cursors,
           next_cursors: nextCursors,
-          channels: Object.fromEntries(
-            channelIds.map((channelId, index) => [
-              channelId,
-              results[index].pagination,
-            ]),
-          ),
+          channels: channelPagination,
         },
         coverage: {
           requested: channelIds.length * pageSize,
           fetched: allMessages.length,
           returned: enrichedMessages.length,
-          pages_fetched: results.length,
+          pages_fetched: successfulResults.length,
           coverage_complete: !hasMore && resolution.coverage.coverage_complete,
           truncated: hasMore || resolution.coverage.truncated,
           truncation_reasons: [
             ...truncationReasons,
             ...resolution.coverage.truncation_reasons,
           ],
-          channels: Object.fromEntries(
-            channelIds.map((channelId, index) => [
-              channelId,
-              results[index].coverage,
-            ]),
-          ),
+          channels: channelCoverage,
           authors: resolution.coverage,
         },
       };

@@ -7,6 +7,7 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
   return {
     tool: { description: "Read", parameters: { type: "object" } },
     run: vi.fn(),
+    http: { method: "GET" },
     readOnly: true,
     publicAgent: {
       expose: true,
@@ -52,7 +53,15 @@ describe("filterDirectA2AActions", () => {
 
   it("supports authenticated-read auto exposure while honoring denyActions", () => {
     const result = filterDirectA2AActions(
-      { allowed: action(), denied: action() },
+      {
+        allowed: action(),
+        denied: action(),
+        post: action({ http: { method: "POST" } }),
+        "db-query": action(),
+        "seed-demo": action(),
+        "list-extensions": action(),
+        "list-browser-sessions": action(),
+      },
       {
         externalAgents: {
           authenticatedReads: "auto",

@@ -136,7 +136,7 @@ const ChartTooltipContent = React.forwardRef<
     ref,
   ) => {
     const { config } = useChart();
-    const flipRef = useChartTooltipFlip<HTMLDivElement>();
+    const flipRef = useChartTooltipFlip<HTMLDivElement>(active);
     const setRefs = React.useCallback(
       (node: HTMLDivElement | null) => {
         flipRef.current = node;

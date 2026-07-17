@@ -49,8 +49,14 @@ export default defineEventHandler((event) =>
         return { issues, total: issues.length };
       }
 
+      const days = queryString(query.days);
+      const parsedDays = days == null ? 371 : Number(days);
+      if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 730) {
+        setResponseStatus(event, 400);
+        return { error: "days must be an integer between 1 and 730" };
+      }
       const result = await pylonIssues.run({
-        days: query.days == null ? 371 : Number(query.days),
+        days: parsedDays,
         pageSize: 500,
         maxPages: 20,
       });

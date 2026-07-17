@@ -15,6 +15,10 @@ import {
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import {
+  isAuthenticatedReadAction,
+  isAutoReadExcludedActionName,
+} from "../../mcp/build-server.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
@@ -77,7 +81,11 @@ export function filterDirectA2AActions(
   return Object.fromEntries(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
-      const selected = catalog.has(name) || autoReads;
+      const selected =
+        catalog.has(name) ||
+        (autoReads &&
+          isAuthenticatedReadAction(entry) &&
+          !isAutoReadExcludedActionName(name));
       return (
         selected &&
         !denied.has(name) &&

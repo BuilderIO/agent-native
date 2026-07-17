@@ -3,27 +3,12 @@ import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import { z } from "zod";
 
 import {
+  isLocalAppCreationRuntime,
   scaffoldWorkspaceAppFromTemplate,
   startWorkspaceAppCreation,
 } from "../server/lib/app-creation-store.js";
 import { getCuratedWorkspaceTemplate } from "../server/lib/curated-workspace-templates.js";
 import { recordAudit } from "../server/lib/dispatch-store.js";
-
-function isLocalAppCreationRuntime(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  if (
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.CF_PAGES ||
-    process.env.DEPLOY_URL ||
-    process.env.URL ||
-    process.env.RENDER ||
-    process.env.FLY_APP_NAME
-  ) {
-    return false;
-  }
-  return true;
-}
 
 function buildRemixPrompt(input: {
   templateName: string;
