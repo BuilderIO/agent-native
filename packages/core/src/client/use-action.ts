@@ -617,7 +617,7 @@ export function useActionMutation<
       if (!skipActionQueryInvalidation) {
         queryClient.invalidateQueries({ queryKey: ["action"] });
       }
-      (onSuccess as Function)?.(...args);
+      return (onSuccess as Function)?.(...args);
     },
   });
 }

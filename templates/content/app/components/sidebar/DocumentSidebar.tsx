@@ -274,11 +274,16 @@ export function DocumentSidebar({
     contentSpacesFetching: contentSpacesQuery.isFetching,
     contentSpacesError: contentSpacesQuery.isError,
     activeOrganizationResolved: activeOrgQuery.isSuccess,
+    activeOrganizationError: activeOrgQuery.isError,
     provisioningAttempted: spaceProvisionAttemptedRef.current,
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
   const handleRetryContentSpaces = useCallback(() => {
+    if (activeOrgQuery.isError) {
+      void activeOrgQuery.refetch();
+      return;
+    }
     if (contentSpacesQuery.isError) {
       spaceProvisionAttemptedRef.current = false;
       void contentSpacesQuery.refetch();
@@ -286,7 +291,7 @@ export function DocumentSidebar({
     }
     spaceProvisionAttemptedRef.current = true;
     ensureContentSpaces.mutate({});
-  }, [contentSpacesQuery, ensureContentSpaces]);
+  }, [activeOrgQuery, contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {
     if (selectedSpace && selectedSpace.id !== storedSpaceId) {
       setStoredSpaceId(selectedSpace.id);
@@ -1154,7 +1159,9 @@ export function DocumentSidebar({
           compact
           onRetry={handleRetryContentSpaces}
           retrying={
-            contentSpacesQuery.isFetching || ensureContentSpaces.isPending
+            activeOrgQuery.isFetching ||
+            contentSpacesQuery.isFetching ||
+            ensureContentSpaces.isPending
           }
         />
       )}

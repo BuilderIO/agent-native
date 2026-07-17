@@ -160,6 +160,7 @@ describe("contentSpaceAvailability", () => {
     contentSpacesFetching: false,
     contentSpacesError: false,
     activeOrganizationResolved: true,
+    activeOrganizationError: false,
     provisioningAttempted: true,
     provisioningPending: false,
     provisioningError: false,
@@ -191,6 +192,16 @@ describe("contentSpaceAvailability", () => {
       }),
     ).toBe("error");
     expect(contentSpaceAvailability(settledMissingSpace)).toBe("error");
+  });
+
+  it("surfaces active organization failures instead of loading forever", () => {
+    expect(
+      contentSpaceAvailability({
+        ...settledMissingSpace,
+        activeOrganizationResolved: false,
+        activeOrganizationError: true,
+      }),
+    ).toBe("error");
   });
 
   it("renders Files as soon as the active workspace is available", () => {

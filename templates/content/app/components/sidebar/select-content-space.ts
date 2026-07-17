@@ -8,12 +8,19 @@ export function contentSpaceAvailability(args: {
   contentSpacesFetching: boolean;
   contentSpacesError: boolean;
   activeOrganizationResolved: boolean;
+  activeOrganizationError: boolean;
   provisioningAttempted: boolean;
   provisioningPending: boolean;
   provisioningError: boolean;
 }): ContentSpaceAvailability {
   if (args.hasSelectedSpace) return "ready";
-  if (args.contentSpacesError || args.provisioningError) return "error";
+  if (
+    args.contentSpacesError ||
+    args.activeOrganizationError ||
+    args.provisioningError
+  ) {
+    return "error";
+  }
   if (
     args.contentSpacesLoading ||
     args.contentSpacesFetching ||
