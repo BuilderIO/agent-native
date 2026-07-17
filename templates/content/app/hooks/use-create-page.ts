@@ -1,10 +1,18 @@
+import { useOrg } from "@agent-native/core/client/org";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import {
+  contentSpaceForActiveOrg,
+  contentSpaceIdForCreate,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+} from "@/components/sidebar/select-content-space";
+import { useContentSpaces } from "@/hooks/use-content-spaces";
 import { useCreateDocument } from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
@@ -27,12 +35,35 @@ export function useCreatePage(opts?: {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createDocument = useCreateDocument();
+  const contentSpacesQuery = useContentSpaces();
+  const activeOrgQuery = useOrg();
+  const [storedSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
+  const selectedSpace = contentSpaceForActiveOrg({
+    spaces: contentSpacesQuery.data?.spaces ?? [],
+    storedSpaceId,
+    activeOrgId: activeOrgQuery.data?.orgId,
+  });
   const onAfterNavigate = opts?.onAfterNavigate;
   const shouldNavigate = opts?.navigate ?? true;
   const shouldAwaitPersist = opts?.awaitPersist ?? true;
 
   return useCallback(
     async (parentId?: string) => {
+      let spaceId: string | undefined;
+      try {
+        spaceId = contentSpaceIdForCreate({
+          parentId,
+          selectedSpace,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Files are still loading",
+        );
+        throw error;
+      }
       const id = nanoid();
       const now = new Date().toISOString();
       const tempDoc: Document = {
@@ -66,6 +97,7 @@ export function useCreatePage(opts?: {
           id,
           title: "",
           parentId: parentId ?? undefined,
+          spaceId,
         });
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
@@ -109,6 +141,7 @@ export function useCreatePage(opts?: {
       navigate,
       onAfterNavigate,
       queryClient,
+      selectedSpace,
       shouldAwaitPersist,
       shouldNavigate,
     ],

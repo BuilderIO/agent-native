@@ -6,6 +6,8 @@ import {
   contentSpaceAvailability,
   contentSpaceForActiveOrg,
   contentSpaceForCatalogItem,
+  contentSpaceIdForCreate,
+  createContentSpaceSelectionQueue,
   selectContentSpace,
 } from "./select-content-space";
 
@@ -27,6 +29,71 @@ function space(
 }
 
 describe("selectContentSpace", () => {
+  it("serializes rapid workspace selections", async () => {
+    const enqueue = createContentSpaceSelectionQueue();
+    const events: string[] = [];
+    let activeOrgId: string | null = null;
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstPending = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+
+    const personal = space({
+      id: "personal",
+      kind: "personal",
+      orgId: null,
+      filesDocumentId: "personal-files",
+    });
+    const builder = space({
+      id: "builder",
+      orgId: "builder-org",
+      filesDocumentId: "builder-files",
+    });
+    const select = (selected: ContentSpaceSummary, wait = false) =>
+      enqueue(() =>
+        selectContentSpace({
+          space: selected,
+          activeOrgId,
+          switchOrg: async (orgId) => {
+            events.push(`switch:${orgId}`);
+            if (wait) {
+              markFirstStarted();
+              await firstPending;
+            }
+            activeOrgId = orgId;
+          },
+          syncApplicationState: async (next) => {
+            events.push(`state:${next.id}`);
+          },
+          persistSelection: (id) => events.push(`persist:${id}`),
+          openFiles: (id) => events.push(`open:${id}`),
+        }),
+      );
+
+    const first = select(builder, true);
+    const second = select(personal);
+
+    await firstStarted;
+    expect(events).toEqual(["switch:builder-org"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(events).toEqual([
+      "switch:builder-org",
+      "state:builder",
+      "persist:builder",
+      "open:builder-files",
+      "switch:null",
+      "state:personal",
+      "persist:personal",
+      "open:personal-files",
+    ]);
+    expect(activeOrgId).toBeNull();
+  });
+
   it("supports Personal to organization to Personal with one complete flow per selection", async () => {
     let activeOrgId: string | null = null;
     let storedSpaceId: string | null = null;
@@ -273,6 +340,26 @@ describe("contentSpaceForCatalogItem", () => {
         spaces: [space({ catalogDocumentId: "builder-reference" })],
       }),
     ).toBeNull();
+  });
+});
+
+describe("contentSpaceIdForCreate", () => {
+  it("uses the selected workspace for a root page", () => {
+    expect(
+      contentSpaceIdForCreate({ selectedSpace: space(), parentId: undefined }),
+    ).toBe("space_1");
+  });
+
+  it("fails closed while root-page workspace selection is unresolved", () => {
+    expect(() =>
+      contentSpaceIdForCreate({ selectedSpace: null, parentId: undefined }),
+    ).toThrow("Files are still loading");
+  });
+
+  it("lets nested pages inherit their parent workspace", () => {
+    expect(
+      contentSpaceIdForCreate({ selectedSpace: null, parentId: "parent" }),
+    ).toBeUndefined();
   });
 });
 

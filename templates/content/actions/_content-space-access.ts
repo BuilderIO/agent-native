@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 
@@ -21,7 +21,36 @@ export function normalizeContentSpaceEmail(email: string): string {
 export async function getContentOrganizationMembership(
   orgId: string,
   userEmail: string,
+  options: { db?: any } = {},
 ): Promise<{ role: string; name: string; createdBy: string } | null> {
+  if (options.db) {
+    // The canonical tables carry the active database dialect. Loading them only
+    // for transaction-scoped checks avoids initializing auth timers elsewhere.
+    const { organizations, orgMembers } =
+      await import("@agent-native/core/org");
+    const [row] = await options.db
+      .select({
+        role: orgMembers.role,
+        name: organizations.name,
+        createdBy: organizations.createdBy,
+      })
+      .from(orgMembers)
+      .innerJoin(organizations, eq(organizations.id, orgMembers.orgId))
+      .where(
+        and(
+          eq(orgMembers.orgId, orgId),
+          sql`LOWER(${orgMembers.email}) = ${normalizeContentSpaceEmail(userEmail)}`,
+        ),
+      )
+      .limit(1);
+    return row
+      ? {
+          role: String(row.role ?? "member").toLowerCase(),
+          name: row.name,
+          createdBy: row.createdBy,
+        }
+      : null;
+  }
   const result = await getDbExec().execute({
     sql: `SELECT m.role AS role, o.name AS name, o.created_by AS "createdBy"
           FROM org_members m
@@ -89,12 +118,13 @@ export async function listContentOrganizationMemberships(userEmail: string) {
 
 export async function resolveContentSpaceAccess(
   spaceId: string,
-  requiredRole: "viewer" | "editor" = "viewer",
+  requiredRole: "viewer" | "contributor" | "editor" = "viewer",
+  options: { db?: any } = {},
 ): Promise<ContentSpaceAccess> {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const normalizedUserEmail = normalizeContentSpaceEmail(userEmail);
-  const [space] = await getDb()
+  const [space] = await (options.db ?? getDb())
     .select()
     .from(schema.contentSpaces)
     .where(eq(schema.contentSpaces.id, spaceId));
@@ -115,6 +145,7 @@ export async function resolveContentSpaceAccess(
   const membership = await getContentOrganizationMembership(
     space.orgId,
     normalizedUserEmail,
+    options,
   );
   if (!membership)
     throw new Error(`Not authorized for Content space "${spaceId}"`);
@@ -124,6 +155,16 @@ export async function resolveContentSpaceAccess(
       : membership.role === "admin"
         ? "editor"
         : "viewer";
+  if (
+    requiredRole === "contributor" &&
+    membership.role !== "owner" &&
+    membership.role !== "admin" &&
+    membership.role !== "member"
+  ) {
+    throw new Error(
+      `Contributor access is required for Content space "${spaceId}"`,
+    );
+  }
   if (requiredRole === "editor" && role === "viewer") {
     throw new Error(`Editor access is required for Content space "${spaceId}"`);
   }

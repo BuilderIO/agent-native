@@ -23,6 +23,7 @@ let personalContentSpaceId: typeof import("./_content-spaces.js").personalConten
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 let reconcileContentFilesMemberships: typeof import("./_content-files.js").reconcileContentFilesMemberships;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -37,6 +38,7 @@ beforeAll(async () => {
   ({ reconcileContentFilesMemberships } = await import("./_content-files.js"));
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
+  getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -151,6 +153,15 @@ describe("Content Files membership reconciliation", () => {
       .update(schema.documents)
       .set({ hideFromSearch: 1 })
       .where(eq(schema.documents.id, "hidden-org-page"));
+    await getDb().insert(schema.documentShares).values({
+      id: "viewer-visible-editor-share",
+      resourceId: "viewer-legacy-org",
+      principalType: "user",
+      principalId: VIEWER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
     const [before] = await getDb()
       .select()
       .from(schema.documents)
@@ -232,6 +243,9 @@ describe("Content Files membership reconciliation", () => {
           document: expect.objectContaining({
             id: "viewer-legacy-org",
             title: "Member can reconcile",
+            accessRole: "editor",
+            canEdit: true,
+            canManage: false,
           }),
         }),
       ]),
@@ -250,6 +264,17 @@ describe("Content Files membership reconciliation", () => {
         }),
       ]),
     );
+    const openedDocument = await runWithRequestContext(
+      { userEmail: VIEWER, orgId: viewerOrgId },
+      () => getDocumentAction.run({ id: "viewer-legacy-org" }),
+    );
+    expect(openedDocument).toMatchObject({
+      id: "viewer-legacy-org",
+      title: "Member can reconcile",
+      content: "Keep this body exactly",
+      accessRole: "editor",
+      canEdit: true,
+    });
     await getDb()
       .delete(schema.documents)
       .where(

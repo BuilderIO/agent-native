@@ -1,3 +1,8 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { ROLE_RANK, type ShareRole } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +32,15 @@ export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
 
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
+}
+
+function canEditRole(role: string) {
+  return role === "owner" || role === "admin" || role === "editor";
+}
+
+function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
+  if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
+  return current;
 }
 
 type DatabaseMembershipRow = {
@@ -216,7 +230,12 @@ export function filterContentDatabaseSourceForVisibleDocuments<
 function serializeDocument(
   doc: DocumentListRow,
   membership?: DatabaseMembershipRow,
+  shareRole?: ShareRole,
 ) {
+  const isOwner =
+    doc.ownerEmail.trim().toLowerCase() ===
+    getRequestUserEmail()?.trim().toLowerCase();
+  const accessRole = isOwner ? ("owner" as const) : (shareRole ?? "viewer");
   return {
     id: doc.id,
     parentId: doc.parentId,
@@ -230,9 +249,9 @@ function serializeDocument(
     isFavorite: parseDocumentFavorite(doc.isFavorite),
     hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
     visibility: doc.visibility,
-    accessRole: "owner" as const,
-    canEdit: true,
-    canManage: canManageRole("owner"),
+    accessRole,
+    canEdit: canEditRole(accessRole),
+    canManage: canManageRole(accessRole),
     databaseMembership: membership
       ? serializeDatabaseMembership(membership)
       : undefined,
@@ -326,6 +345,55 @@ export async function getContentDatabaseResponse(
           )
       : [];
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+  const shareRoleByDocumentId = new Map<string, ShareRole>();
+  if (documents.length > 0) {
+    const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
+    const userEmail = getRequestUserEmail();
+    const orgId = getRequestOrgId();
+    if (userEmail) {
+      principalClauses.push(
+        and(
+          eq(schema.documentShares.principalType, "user"),
+          eq(schema.documentShares.principalId, userEmail),
+        )!,
+      );
+    }
+    if (orgId) {
+      principalClauses.push(
+        and(
+          eq(schema.documentShares.principalType, "org"),
+          eq(schema.documentShares.principalId, orgId),
+        )!,
+      );
+    }
+    const shareRows =
+      principalClauses.length > 0
+        ? await db
+            .select({
+              resourceId: schema.documentShares.resourceId,
+              role: schema.documentShares.role,
+            })
+            .from(schema.documentShares)
+            .where(
+              and(
+                inArray(
+                  schema.documentShares.resourceId,
+                  documents.map((document) => document.id),
+                ),
+                or(...principalClauses),
+              ),
+            )
+        : [];
+    for (const row of shareRows) {
+      shareRoleByDocumentId.set(
+        row.resourceId,
+        strongerRole(
+          shareRoleByDocumentId.get(row.resourceId) ?? null,
+          row.role,
+        ),
+      );
+    }
+  }
   const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
     databaseId,
     // Property serialization uses metadata only; this list projection carries
@@ -360,11 +428,15 @@ export async function getContentDatabaseResponse(
     serializedItems.push({
       id: item.id,
       databaseId: item.databaseId,
-      document: serializeDocument(document, {
-        item,
-        database,
-        bodyHydrationQueueId: bodyHydrationQueued ? item.id : null,
-      }),
+      document: serializeDocument(
+        document,
+        {
+          item,
+          database,
+          bodyHydrationQueueId: bodyHydrationQueued ? item.id : null,
+        },
+        shareRoleByDocumentId.get(document.id),
+      ),
       position: item.position,
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,

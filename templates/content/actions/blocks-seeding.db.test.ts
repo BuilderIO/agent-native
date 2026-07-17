@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   countWords,
@@ -33,6 +33,7 @@ let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
+let createContentDatabaseModule: typeof import("./create-content-database.js");
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
@@ -51,8 +52,8 @@ beforeAll(async () => {
     await import("./create-inline-content-database.js")
   ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
-  createContentDatabaseAction = (await import("./create-content-database.js"))
-    .default;
+  createContentDatabaseModule = await import("./create-content-database.js");
+  createContentDatabaseAction = createContentDatabaseModule.default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
   getDocumentAction = (await import("./get-document.js")).default;
@@ -110,6 +111,50 @@ async function blocksDefinitions(databaseId: string) {
 }
 
 describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", () => {
+  it("revalidates space access through the database transaction", async () => {
+    let transactionDb: any;
+    let resolvedSpaceAccess: any;
+    const resolveInsideTransaction = vi.fn(
+      async (_spaceId: string, _role: string, options?: { db?: any }) => {
+        expect(options?.db).toBe(transactionDb);
+        return resolvedSpaceAccess;
+      },
+    );
+
+    const databaseId = await runWithRequestContext(
+      { userEmail: OWNER },
+      async () => {
+        const db = getDb();
+        const args = { title: "Hosted transaction boundary" };
+        const spaceId =
+          await createContentDatabaseModule.resolveContentDatabaseSpace(
+            args,
+            db,
+          );
+        resolvedSpaceAccess = await (
+          await import("./_content-space-access.js")
+        ).resolveContentSpaceAccess(spaceId, "editor");
+        let createdId: string | null = null;
+        await db.transaction(async (tx: any) => {
+          transactionDb = tx;
+          createdId =
+            await createContentDatabaseModule.createContentDatabaseRecord(
+              args,
+              {
+                db: tx,
+                spaceId,
+                resolveSpaceAccess: resolveInsideTransaction,
+              },
+            );
+        });
+        return createdId;
+      },
+    );
+
+    expect(databaseId).toEqual(expect.any(String));
+    expect(resolveInsideTransaction).toHaveBeenCalledOnce();
+  });
+
   it("round-trips owned descriptions and returns one live root-to-database row context path", async () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const rootId = `root_${suffix}`;

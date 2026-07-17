@@ -74,6 +74,17 @@ export function contentSpaceForCatalogItem(args: {
   );
 }
 
+export function contentSpaceIdForCreate(args: {
+  parentId?: string;
+  selectedSpace: ContentSpaceSummary | null;
+}) {
+  if (args.parentId) return undefined;
+  if (!args.selectedSpace) {
+    throw new Error("Files are still loading. Try creating the page again.");
+  }
+  return args.selectedSpace.id;
+}
+
 export async function selectContentSpace(args: {
   space: ContentSpaceSummary;
   activeOrgId: string | null | undefined;
@@ -88,4 +99,13 @@ export async function selectContentSpace(args: {
   await args.syncApplicationState(args.space);
   args.persistSelection(args.space.id);
   args.openFiles(args.space.filesDocumentId);
+}
+
+export function createContentSpaceSelectionQueue() {
+  let pending = Promise.resolve();
+  return (selection: () => Promise<void>) => {
+    const next = pending.catch(() => undefined).then(selection);
+    pending = next;
+    return next;
+  };
 }

@@ -150,6 +150,7 @@ import { toast } from "sonner";
 
 import {
   contentSpaceForCatalogItem,
+  createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
@@ -839,6 +840,11 @@ function DatabaseTable({
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
+  const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  const activeOrgIdRef = useRef(activeOrgQuery.data?.orgId);
+  useEffect(() => {
+    activeOrgIdRef.current = activeOrgQuery.data?.orgId;
+  }, [activeOrgQuery.data?.orgId]);
   const builderReviewGenerationRef = useRef(0);
   const builderReviewSessionRef = useRef<BuilderReviewSession | null>(null);
   const [
@@ -1318,28 +1324,33 @@ function DatabaseTable({
       spaces: spacesResponse.spaces,
     });
     if (!space) return false;
-    void (async () => {
-      await selectContentSpace({
-        space,
-        activeOrgId: activeOrgQuery.data?.orgId,
-        switchOrg: (orgId) => switchOrg.mutateAsync(orgId),
-        syncApplicationState: (selected) =>
-          setClientAppState(
-            "content-space",
-            {
-              spaceId: selected.id,
-              name: selected.name,
-              kind: selected.kind,
-              filesDatabaseId: selected.filesDatabaseId,
-            },
-            { requestSource: "content-workspaces-database" },
-          ),
-        persistSelection: setStoredSpaceId,
-        openFiles: (documentId) => navigate(`/page/${documentId}`),
+    void workspaceSelectionQueueRef
+      .current(async () => {
+        await selectContentSpace({
+          space,
+          activeOrgId: activeOrgIdRef.current,
+          switchOrg: async (orgId) => {
+            await switchOrg.mutateAsync(orgId);
+            activeOrgIdRef.current = orgId;
+          },
+          syncApplicationState: (selected) =>
+            setClientAppState(
+              "content-space",
+              {
+                spaceId: selected.id,
+                name: selected.name,
+                kind: selected.kind,
+                filesDatabaseId: selected.filesDatabaseId,
+              },
+              { requestSource: "content-workspaces-database" },
+            ),
+          persistSelection: setStoredSpaceId,
+          openFiles: (documentId) => navigate(`/page/${documentId}`),
+        });
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : String(error));
       });
-    })().catch((error) => {
-      toast.error(error instanceof Error ? error.message : String(error));
-    });
     return true;
   }
 
