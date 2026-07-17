@@ -250,15 +250,29 @@ export async function getContentDatabaseResponse(
   // shared one a viewer is opening) must not mutate schema.
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
+  const organizationFilesItemFilter =
+    database.systemRole === "files" && database.orgId
+      ? sql`exists (
+          select 1 from ${schema.documents}
+          where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
+            and ${schema.documents.orgId} = ${database.orgId}
+            and ${schema.documents.visibility} in ('org', 'public')
+            and (${schema.documents.hideFromSearch} = 0 or ${schema.documents.hideFromSearch} is null)
+        )`
+      : undefined;
+  const visibleItemFilter = and(
+    eq(schema.contentDatabaseItems.databaseId, databaseId),
+    organizationFilesItemFilter,
+  );
   const [itemCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    .where(visibleItemFilter);
 
   let itemsQuery = db
     .select()
     .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    .where(visibleItemFilter)
     .orderBy(asc(schema.contentDatabaseItems.position))
     .$dynamic();
   if (limit !== null) {
@@ -283,6 +297,10 @@ export async function getContentDatabaseResponse(
                     or(
                       eq(schema.documents.visibility, "org"),
                       eq(schema.documents.visibility, "public"),
+                    ),
+                    or(
+                      eq(schema.documents.hideFromSearch, 0),
+                      isNull(schema.documents.hideFromSearch),
                     ),
                   )
                 : eq(schema.documents.ownerEmail, database.ownerEmail),

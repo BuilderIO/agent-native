@@ -81,7 +81,10 @@ describe("mountActionRoutes", () => {
     mountActionRoutes(nitroApp, { test: { run } as any });
     const event = {
       _method: "POST",
-      _headers: { "x-agent-native-frontend": "1" },
+      _headers: {
+        origin: "https://embedded.example.com",
+        "x-agent-native-frontend": "1",
+      },
       req: { json: vi.fn(async () => ({})) },
     };
 
@@ -94,6 +97,8 @@ describe("mountActionRoutes", () => {
       _status: 409,
       _responseHeaders: {
         "cache-control": "no-store",
+        "access-control-expose-headers":
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
         "x-agent-native-client-mismatch": "1",
       },
     });

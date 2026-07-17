@@ -311,6 +311,11 @@ export function mountActionRoutes(
         }
 
         setResponseHeader(event, "Cache-Control", "no-store");
+        setResponseHeader(
+          event,
+          "Access-Control-Expose-Headers",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+        );
 
         // Allow the declared method
         if (effectiveMethod !== method) {

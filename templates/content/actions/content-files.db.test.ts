@@ -130,6 +130,11 @@ describe("Content Files membership reconciliation", () => {
       orgId: viewerOrgId,
       title: "Owner private page",
     });
+    await createLegacyDocument({
+      id: "hidden-org-page",
+      orgId: viewerOrgId,
+      title: "Hidden organization page",
+    });
     await getDb()
       .update(schema.documents)
       .set({ content: "Keep this body exactly", icon: "📚" })
@@ -138,6 +143,10 @@ describe("Content Files membership reconciliation", () => {
       .update(schema.documents)
       .set({ visibility: "private" })
       .where(eq(schema.documents.id, "owner-private-org"));
+    await getDb()
+      .update(schema.documents)
+      .set({ hideFromSearch: 1 })
+      .where(eq(schema.documents.id, "hidden-org-page"));
     const [before] = await getDb()
       .select()
       .from(schema.documents)
@@ -164,6 +173,21 @@ describe("Content Files membership reconciliation", () => {
     const filesDatabase = await getFilesDatabase(
       organizationContentSpaceId(viewerOrgId),
     );
+    for (const [documentId, position] of [
+      ["owner-private-org", 0],
+      ["hidden-org-page", 1],
+      ["viewer-legacy-org", 2],
+    ] as const) {
+      await getDb()
+        .update(schema.contentDatabaseItems)
+        .set({ position })
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+            eq(schema.contentDatabaseItems.documentId, documentId),
+          ),
+        );
+    }
     await expect(
       getDb()
         .select()
@@ -177,10 +201,19 @@ describe("Content Files membership reconciliation", () => {
     ).resolves.toHaveLength(1);
     const databaseResponse = await runWithRequestContext(
       { userEmail: VIEWER, orgId: viewerOrgId },
-      () => getContentDatabaseAction.run({ databaseId: filesDatabase.id }),
+      () =>
+        getContentDatabaseAction.run({
+          databaseId: filesDatabase.id,
+          limit: 1,
+        }),
     );
     expect(databaseResponse).toMatchObject({
       database: { id: filesDatabase.id, systemRole: "files" },
+      pagination: {
+        totalItems: 1,
+        returnedItems: 1,
+        hasMore: false,
+      },
       items: expect.arrayContaining([
         expect.objectContaining({
           document: expect.objectContaining({
@@ -197,12 +230,20 @@ describe("Content Files membership reconciliation", () => {
         }),
       ]),
     );
+    expect(databaseResponse.items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "hidden-org-page" }),
+        }),
+      ]),
+    );
     await getDb()
       .delete(schema.documents)
       .where(
         inArray(schema.documents.id, [
           "viewer-legacy-org",
           "owner-private-org",
+          "hidden-org-page",
         ]),
       );
   });
