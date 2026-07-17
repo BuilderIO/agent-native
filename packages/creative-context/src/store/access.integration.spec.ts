@@ -1403,6 +1403,108 @@ describe("creative context access and revocation", () => {
       );
       expect(reassembled.html).toContain(`${fixture.app} child`);
       expect(reassembled.evidence).toHaveLength(2);
+
+      const childEdge = published!.edges.find(
+        (edge) => edge.relation === "contains-native-child",
+      );
+      expect(childEdge).toMatchObject({
+        toItemId: expect.any(String),
+        toItemVersionId: expect.any(String),
+      });
+      const pack = await asAlice(() =>
+        store.createContextPack({
+          name: `${fixture.app} hierarchical replay`,
+          baseContextId: context!.id,
+          members: [
+            {
+              itemId: published!.item.id,
+              itemVersionId: published!.version.id,
+              reason: "Explicit root",
+              score: 0.91,
+              scoreMetadata: { source: "test" },
+            },
+          ],
+        }),
+      );
+      expect(pack.members).toEqual([
+        expect.objectContaining({
+          itemId: published!.item.id,
+          itemVersionId: published!.version.id,
+          ordinal: 0,
+          reason: "Explicit root",
+          score: 0.91,
+          scoreMetadata: { source: "test" },
+        }),
+        expect.objectContaining({
+          itemId: childEdge!.toItemId,
+          itemVersionId: childEdge!.toItemVersionId,
+          ordinal: 1,
+          reason: "Native artifact dependency",
+          score: null,
+        }),
+      ]);
+      await asAlice(() =>
+        store.manageContextMembership({
+          operation: "remove",
+          contextId: context!.id,
+          membershipId: membership.id,
+        }),
+      );
+      const removedMemberships = await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 20 }),
+      );
+      expect(
+        removedMemberships.memberships.filter(
+          (entry) =>
+            entry.publishedItemId === published!.item.id ||
+            entry.publishedItemId === childEdge!.toItemId,
+        ),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            publishedItemId: published!.item.id,
+            status: "removed",
+          }),
+          expect.objectContaining({
+            publishedItemId: childEdge!.toItemId,
+            status: "removed",
+          }),
+        ]),
+      );
+      const replayPack = await asBob(() => store.getContextPack(pack.id));
+      expect(replayPack?.members).toHaveLength(2);
+      const replayRoot = await asBob(() =>
+        store.getCreativeContextItem(published!.item.id, published!.version.id),
+      );
+      const replayChild = await asBob(() =>
+        store.getCreativeContextItem(
+          childEdge!.toItemId!,
+          childEdge!.toItemVersionId!,
+        ),
+      );
+      expect(replayRoot?.version.id).toBe(published!.version.id);
+      expect(replayChild?.version.id).toBe(childEdge!.toItemVersionId);
+      const replayed = await asBob(() =>
+        reassembleNativeCreativeArtifact({
+          root: replayRoot!,
+          app: fixture.app,
+          format: fixture.format,
+          resolveChild: store.getCreativeContextItemByExternalId,
+        }),
+      );
+      expect(replayed.html).toContain(`${fixture.app} child`);
+      expect(replayed.evidence).toEqual(
+        expect.arrayContaining([
+          {
+            itemId: published!.item.id,
+            itemVersionId: published!.version.id,
+          },
+          {
+            itemId: childEdge!.toItemId,
+            itemVersionId: childEdge!.toItemVersionId,
+          },
+        ]),
+      );
     }
   });
 

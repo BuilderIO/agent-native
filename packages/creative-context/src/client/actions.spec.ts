@@ -121,4 +121,27 @@ describe("creative context client action contracts", () => {
     });
     expect(JSON.stringify(preview)).not.toMatch(/private-blob|opaque/);
   });
+
+  it("preserves the approved source timestamp used to flag newer app versions", () => {
+    const [membership] = parseContextMemberships({
+      memberships: [
+        {
+          id: "membership-1",
+          contextId: "context-1",
+          publishedItemId: "item-1",
+          publishedItemVersionId: "version-1",
+          publishedItem: {
+            id: "item-1",
+            itemVersionId: "version-1",
+            title: "Launch deck",
+            kind: "slides-deck",
+            sourceModifiedAt: "2026-07-17T12:00:00.000Z",
+          },
+        },
+      ],
+    });
+    expect(membership?.publishedItem?.sourceModifiedAt).toBe(
+      "2026-07-17T12:00:00.000Z",
+    );
+  });
 });
