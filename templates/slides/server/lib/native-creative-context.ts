@@ -2,8 +2,13 @@ import { createHash } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
 import { resolveAccess } from "@agent-native/core/sharing";
-import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
+import {
+  renderSafeNativeHtmlPreviews,
+  serializePrivateBlobHandle,
+  type NativeResourceCaptureAdapter,
+} from "@agent-native/creative-context/server";
 
+import { getAspectRatioDims, type AspectRatio } from "../../shared/aspect-ratios.js";
 import { createDeckVersionSnapshot } from "./deck-versions.js";
 
 function hash(value: string) {
@@ -19,6 +24,79 @@ function text(value: string) {
 
 function previewText(value: string | undefined, limit = 280) {
   return text(value ?? "").slice(0, limit);
+}
+
+function slidePreviewDocument(content: string, width: number, height: number) {
+  return `<!doctype html><html><head><style>
+    *,*::before,*::after{box-sizing:border-box}html,body{width:${width}px;height:${height}px;margin:0;overflow:hidden;background:#fff}.context-slide{position:relative;width:${width}px;height:${height}px;overflow:hidden}.context-slide>*{width:100%;height:100%}.fmd-slide{width:100%;height:100%}
+  </style></head><body><div class="context-slide">${content}</div></body></html>`;
+}
+
+async function captureSlidePreviewMedia(input: {
+  deckId: string;
+  ownerEmail: string;
+  slides: Array<{ id: string; content: string; title: string }>;
+  aspectRatio?: AspectRatio;
+}) {
+  const dimensions = getAspectRatioDims(input.aspectRatio);
+  const rendered = await renderSafeNativeHtmlPreviews(
+    input.slides.map((slide) => ({
+      id: slide.id,
+      html: slidePreviewDocument(
+        slide.content,
+        dimensions.width,
+        dimensions.height,
+      ),
+      width: dimensions.width,
+      height: dimensions.height,
+    })),
+  );
+  const media = new Map<
+    string,
+    {
+      kind: "image";
+      mimeType: "image/png";
+      accessMode: "private";
+      storageKey: string;
+      altText: string;
+      contentHash: string;
+      width: number;
+      height: number;
+      metadata: { role: "slide-preview"; slideId: string };
+    }
+  >();
+  await Promise.all(
+    rendered.map(async (preview) => {
+      const contentHash = hash(Buffer.from(preview.data).toString("base64"));
+      const handle = await putPrivateBlob({
+        data: preview.data,
+        filename: `${input.deckId}-${preview.id}.preview.png`,
+        mimeType: "image/png",
+        ownerEmail: input.ownerEmail,
+        key: `creative-context/slides/${input.deckId}/previews/${contentHash}.png`,
+        metadata: {
+          appId: "slides",
+          resourceType: "slide-preview",
+          resourceId: input.deckId,
+          contentHash,
+        },
+      }).catch(() => null);
+      if (!handle) return;
+      const slide = input.slides.find((candidate) => candidate.id === preview.id);
+      media.set(preview.id, {
+        kind: "image",
+        mimeType: "image/png",
+        accessMode: "private",
+        storageKey: serializePrivateBlobHandle(handle),
+        altText: slide?.title ?? "Slide preview",
+        contentHash,
+        width: preview.width,
+        height: preview.height,
+        metadata: { role: "slide-preview", slideId: preview.id },
+      });
+    }),
+  );
+  return media;
 }
 
 export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
@@ -64,6 +142,7 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
         "Private blob storage is required to submit a deck to Context.",
       );
     const parsed = JSON.parse(deck.data) as {
+      aspectRatio?: AspectRatio;
       slides?: Array<{
         id?: string;
         content?: string;
@@ -72,6 +151,16 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
       }>;
     };
     const slides = Array.isArray(parsed.slides) ? parsed.slides : [];
+    const slidePreviewMedia = await captureSlidePreviewMedia({
+      deckId: deck.id,
+      ownerEmail: deck.ownerEmail,
+      aspectRatio: parsed.aspectRatio,
+      slides: slides.slice(0, 12).map((slide, index) => ({
+        id: slide.id ?? String(index),
+        content: slide.content ?? "",
+        title: slide.title ?? `Slide ${index + 1}`,
+      })),
+    });
     return {
       artifactKey: `slides:deck:${deck.id}`,
       source: {
@@ -112,6 +201,7 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
               })),
             },
           },
+          media: [...slidePreviewMedia.values()],
           edges: slides.map((slide, index) => ({
             relation: "contains",
             toExternalId: `native:slides:deck:${deck.id}:slide:${slide.id ?? index}`,
@@ -134,15 +224,18 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
             ),
             sourceModifiedAt: deck.updatedAt,
             sourceVersion: version.id ?? contentHash,
-            metadata: {
+              metadata: {
               preview: {
                 type: "slide",
                 index: index + 1,
                 title: previewText(slide.title, 120) || `Slide ${index + 1}`,
                 excerpt: previewText(slide.content),
+                },
               },
-            },
-          };
+              media: slidePreviewMedia.has(id)
+                ? [slidePreviewMedia.get(id)!]
+                : undefined,
+            };
         }),
       ],
       privateMetadata: {
