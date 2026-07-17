@@ -51,6 +51,40 @@ Every signature/hash input begins with UTF-8 `anc/v1/<type>`, one zero byte, the
 
 Removing an endpoint creates a new independent epoch key, rewraps every live DEK to the remaining endpoint set, obtains signed acknowledgements, and destroys the old epoch key on remaining endpoints. Until rotation completes, removal is an explicit alerting state—not success theater.
 
+### Crash-safe rotation preparation namespace
+
+Ordinary epoch rotation uses a separate, fixed 512-byte local
+`rotation-preparation` record and generation fence. It never writes intermediate
+states into the official custody repository: official custody remains `ACTIVE`
+at epoch N throughout preparation. Because this 512-byte record contains the
+pending epoch key, it is persisted only in OS-protected Keychain/secure storage,
+never as an ordinary disk file. The preparation record has endpoint and broker roles and six monotonic
+phases: `PREPARED`, `REWRAPPED`, `ACKNOWLEDGED`,
+`AWAITING_CONTROL_COMMIT`, `CONSUMED`, and `CLEANED`. Reuse is only a fenced
+`CLEANED` → `PREPARED` CAS at the next preparation generation with a new
+ceremony, base authority, and pending key. The record itself is never deleted.
+
+The signed control-log entry and recovery-wrap artifact form one exact inner
+`ANVROT01` frame. That plaintext exists only in memory. Disk persists an
+`ANVROTE1` XChaCha20-Poly1305 outer frame encrypted with a spool key derived
+from the pending epoch key (and, after promotion, the identical official active
+epoch key), vault, and ceremony. The authenticated header binds lengths, vault,
+ceremony, nonce, and inner-frame digest. A domain-separated digest of the whole
+encrypted frame is frozen in the preparation record; no plaintext artifact or
+pending key appears in the JSON vector corpus.
+
+`AWAITING_CONTROL_COMMIT` retains the pending key and exact encrypted-spool
+binding. Completion order is fixed: stage the next authority entry; CAS official
+custody so old N is destroyed and N+1 becomes active; promote authority; reread
+the exact official custody/authority tuple; only then CAS preparation to
+`CONSUMED`. The duplicate pending-key slot is zero in `CONSUMED`, but public
+bindings and the encrypted spool remain.
+`CONSUMED` means local crypto commit complete while hosted append/ack is still
+pending; a crash retries from the spool using official active N+1. Signed-log
+success is not reported before durable hosted acknowledgement. Only after that
+ack may the client delete the spool and fsync its containing directory, then CAS to `CLEANED`, clearing
+pending epoch/key, edge, length, and digest fields.
+
 ## Object and stream format
 
 Object headers bind suite, vault/object ID, monotonic revision, epoch, chunk count, plaintext length, content-type tag, DEK-wrap reference, writer endpoint, and signature. Titles and filenames live only inside ciphertext.

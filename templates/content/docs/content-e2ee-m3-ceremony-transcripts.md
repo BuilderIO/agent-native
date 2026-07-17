@@ -159,6 +159,27 @@ interpretations are normative for implementation:
    `old_epoch_destroyed` proves destruction of that exact epoch; only then does
    the state epoch increment. This prevents consumers from treating the new
    epoch as active before the old-key retirement gate finishes.
+   Ordinary rotation checkpoints live in the separate local
+   `rotation-preparation` namespace, never as unofficial generations in the
+   official custody repository. Its secret-bearing 512-byte record is kept only
+   in OS-protected Keychain/secure storage, never as an ordinary disk file.
+   Phases `PREPARED`, `REWRAPPED`, and
+   `ACKNOWLEDGED` retain pending N+1 without an expected edge.
+   `AWAITING_CONTROL_COMMIT` freezes the exact next sequence, previous head,
+   membership transcript, artifact lengths, and full encrypted-spool digest.
+   The spool's canonical plaintext frame is encrypted at rest under a key
+   derived from pending N+1, vault, and ceremony.
+
+   Completion order is authority stage, official custody CAS that destroys old
+   N and installs N+1, authority promotion plus exact official reread, and only
+   then preparation `CONSUMED`. In `CONSUMED`, the pending slot is zero, while
+   public bindings and the encrypted spool remain until hosted append/ack is
+   durably confirmed; crash recovery retries with official active N+1. Only
+   after ack does the client delete the spool, fsync its containing directory,
+   and CAS `CLEANED`, which
+   clears key, edge, and artifact fields. The preparation record is retained,
+   and only `CLEANED` may CAS to a next-generation `PREPARED` ceremony.
+
 10. **Authorization and reference equality.** The expected control head and
     role-tagged enrolled signer set are frozen in start/state. Signed and
     control-head steps

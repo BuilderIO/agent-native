@@ -1,0 +1,1143 @@
+{
+  "schema": "anc/v1-native-rotation-preparation-vectors@1",
+  "suite": "anc/v1",
+  "encoding": "hex",
+  "generator": "buildAncV1NativeRotationPreparationVectors",
+  "protocolBaseCommit": "8234f8525136d818c9615556dc266f6e9873e061",
+  "sourceAnchors": [
+    {
+      "path": "packages/core/src/e2ee/native-rotation-preparation-vectors.ts",
+      "sha256": "3e5ac4104a62950eb1a6b8c154d27d326c45133a9233e625838624e17731384a"
+    },
+    {
+      "path": "packages/core/src/e2ee/control-log.ts",
+      "sha256": "939eef1599c5b4706bf561b52c27c70319e653bf5cfe86bf2a7d05bcac5c62d1"
+    },
+    {
+      "path": "packages/core/src/e2ee/recovery-ceremony-codecs.ts",
+      "sha256": "d901ea9b98878212ba020013972ea9a0c1cd970e8495853b7a41bcfefe21a38f"
+    },
+    {
+      "path": "packages/core/src/e2ee/canonical.ts",
+      "sha256": "22cdf47ebc7eae07346f6e8747c9015cf5168b9d90bdc03fce3b3ec006647e9b"
+    },
+    {
+      "path": "packages/core/src/e2ee/portable-crypto.ts",
+      "sha256": "6d4806bad71bf4ff80add69b8b60edecdab8dbd59416171aa29da248023eb9f4"
+    },
+    {
+      "path": "packages/core/src/e2ee/suite.ts",
+      "sha256": "74721a1caa9da468caec951c1acb85a92e985c87e4b10aa4131da63c77e3a324"
+    }
+  ],
+  "recordLayout": {
+    "bytes": 512,
+    "magicHex": "414e5652",
+    "version": 1,
+    "checksumOffset": 480,
+    "pendingKeyOffset": 288,
+    "pendingKeyLength": 32,
+    "phases": {
+      "prepared": 1,
+      "rewrapped": 2,
+      "acknowledged": 3,
+      "awaitingControlCommit": 4,
+      "consumed": 5,
+      "cleaned": 6
+    },
+    "checksumDomainEscaped": "agent-native/private-vault/rotation-preparation/checksum/anc-v1\\0"
+  },
+  "spoolLayout": {
+    "magicHex": "414e56524f543031",
+    "version": 1,
+    "flagsOffset": 10,
+    "reservedOffset": 11,
+    "headerBytes": 124,
+    "checksumBytes": 32,
+    "signedEntryMaxBytes": 65536,
+    "recoveryWrapMaxBytes": 1048576,
+    "checksumDomainEscaped": "agent-native/private-vault/rotation-preparation-artifacts/anc-v1\\0",
+    "encryptedAtRest": {
+      "magicHex": "414e56524f544531",
+      "headerBytes": 108,
+      "tagBytes": 16,
+      "checksumBytes": 32,
+      "nonceBytes": 24,
+      "kdfDomainEscaped": "agent-native/private-vault/rotation-preparation-spool-key/anc-v1\\0",
+      "checksumDomainEscaped": "agent-native/private-vault/rotation-preparation-spool-checksum/anc-v1\\0",
+      "digestDomainEscaped": "agent-native/private-vault/rotation-preparation-spool-frame/anc-v1\\0"
+    }
+  },
+  "syntheticDerivation": {
+    "warning": "Synthetic labels and BLAKE2b-256 commitments only. Pending keys and secret-bearing records are materialized only in test memory and zeroized.",
+    "algorithm": "blake2b-256",
+    "domainEscaped": "agent-native/private-vault/rotation-preparation/test-derivation/anc-v1\\0",
+    "labels": {
+      "pendingEpochKey": "pending-epoch-key",
+      "signedEntry": "signed-control-log-entry",
+      "recoveryWrap": "recovery-wrap-artifact",
+      "spoolNonce": "encrypted-spool-nonce",
+      "issuerSigningSeed": "issuer-signing-seed",
+      "issuerAgreementSeed": "issuer-agreement-seed",
+      "recoveryAgreementSeed": "recovery-agreement-seed",
+      "brokerSigningSeed": "broker-signing-seed",
+      "brokerAgreementSeed": "broker-agreement-seed"
+    },
+    "commitments": {
+      "pendingEpochKey": "6c73fc08df1308e38ea72030cc019ce25723fd61fdbbb0eff2b037ae84e9cc33",
+      "signedEntry": "55909851934c2d834f3f1c7db1c879d9cc6490ea0c6946acdc84c8201213d417",
+      "recoveryWrap": "0735c582341b6c0f31cb9454fe9dd294683a7153c8ef8edd59a9b29569169170",
+      "spoolNonce": "1708469fe33ce03251416b7196154328c472450dd4096a137af89238dd6af946"
+    }
+  },
+  "externalCheckpoint": {
+    "vaultIdHex": "11111111111111111111111111111111",
+    "endpointIdHex": "22222222222222222222222222222222",
+    "ceremonyIdHex": "33333333333333333333333333333333",
+    "baseCustodyGeneration": 11,
+    "baseFrameDigestHex": "9999999999999999999999999999999999999999999999999999999999999999",
+    "baseSequence": 19,
+    "baseHeadHex": "5555555555555555555555555555555555555555555555555555555555555555",
+    "baseMembershipHex": "6666666666666666666666666666666666666666666666666666666666666666",
+    "baseEpoch": 4,
+    "baseRecoveryGeneration": 2,
+    "role": 1,
+    "unattended": 0,
+    "signingPublicKeyHex": "3d32c4c11681d6a5ed5f5e6391a888dff046559a6c89d66f599dc06ed028a507",
+    "agreementPublicKeyHex": "1cfc0277cfb4a40ea789b9ec9adca760e810510100d025d0365fee142e06f915",
+    "enrollmentRefHex": "44444444444444444444444444444444",
+    "pendingEpoch": 5,
+    "transcriptHex": "fdfc90a5481d6855bbb4a26615271947f597e9ec0baa51c74afde297fb255205",
+    "recoveryAgreementPublicKeyHex": "845822d96782700f53ced782415a141313df47e4b2a5bd85cb701316bc7a534d"
+  },
+  "brokerCheckpoint": {
+    "vaultIdHex": "11111111111111111111111111111111",
+    "endpointIdHex": "49494949494949494949494949494949",
+    "ceremonyIdHex": "33333333333333333333333333333333",
+    "baseCustodyGeneration": 11,
+    "baseFrameDigestHex": "9999999999999999999999999999999999999999999999999999999999999999",
+    "baseSequence": 19,
+    "baseHeadHex": "5555555555555555555555555555555555555555555555555555555555555555",
+    "baseMembershipHex": "6666666666666666666666666666666666666666666666666666666666666666",
+    "baseEpoch": 4,
+    "baseRecoveryGeneration": 2,
+    "role": 2,
+    "unattended": 1,
+    "signingPublicKeyHex": "b9bbfcd0df3bfb535f5725a0a566338e4cf21063f7e0e655642428d9624a42d2",
+    "agreementPublicKeyHex": "62ca9e87e7c72d496c10aa756bc8b40d54349dcedee94fcfc072bb4733872c1b",
+    "enrollmentRefHex": "4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a",
+    "pendingEpoch": 5,
+    "transcriptHex": "fdfc90a5481d6855bbb4a26615271947f597e9ec0baa51c74afde297fb255205",
+    "recoveryAgreementPublicKeyHex": "845822d96782700f53ced782415a141313df47e4b2a5bd85cb701316bc7a534d"
+  },
+  "positiveCases": [
+    {
+      "name": "endpoint_prepared",
+      "role": 1,
+      "unattended": 0,
+      "phase": 1,
+      "flags": 0
+    },
+    {
+      "name": "endpoint_rewrapped",
+      "role": 1,
+      "unattended": 0,
+      "phase": 2,
+      "flags": 0
+    },
+    {
+      "name": "endpoint_acknowledged",
+      "role": 1,
+      "unattended": 0,
+      "phase": 3,
+      "flags": 0
+    },
+    {
+      "name": "endpoint_awaiting_control_commit",
+      "role": 1,
+      "unattended": 0,
+      "phase": 4,
+      "flags": 3
+    },
+    {
+      "name": "broker_prepared",
+      "role": 2,
+      "unattended": 1,
+      "phase": 1,
+      "flags": 0
+    },
+    {
+      "name": "broker_rewrapped",
+      "role": 2,
+      "unattended": 1,
+      "phase": 2,
+      "flags": 0
+    },
+    {
+      "name": "broker_acknowledged",
+      "role": 2,
+      "unattended": 1,
+      "phase": 3,
+      "flags": 0
+    },
+    {
+      "name": "broker_awaiting_control_commit",
+      "role": 2,
+      "unattended": 1,
+      "phase": 4,
+      "flags": 3
+    },
+    {
+      "name": "endpoint_consumed",
+      "role": 1,
+      "unattended": 0,
+      "phase": 5,
+      "flags": 3
+    },
+    {
+      "name": "broker_consumed",
+      "role": 2,
+      "unattended": 1,
+      "phase": 5,
+      "flags": 3
+    },
+    {
+      "name": "endpoint_cleaned",
+      "role": 1,
+      "unattended": 0,
+      "phase": 6,
+      "flags": 0
+    },
+    {
+      "name": "broker_cleaned",
+      "role": 2,
+      "unattended": 1,
+      "phase": 6,
+      "flags": 0
+    }
+  ],
+  "categoryVocabulary": [
+    "record.wire.magic",
+    "record.wire.version",
+    "record.wire.length",
+    "record.wire.phase",
+    "record.wire.flags",
+    "record.wire.role",
+    "record.wire.unattended_role",
+    "record.wire.zero_padding",
+    "record.range.generation",
+    "record.range.sequence",
+    "record.range.epoch",
+    "record.binding.pending_epoch",
+    "record.phase.edge_fields",
+    "record.phase.artifact_fields",
+    "record.phase.expected_sequence",
+    "record.phase.previous_head",
+    "record.phase.transcript",
+    "record.phase.artifact_length",
+    "record.phase.spool_digest",
+    "record.phase.pending_key",
+    "record.phase.cleaned",
+    "record.transition.generation",
+    "record.crypto.checksum",
+    "record.wire.truncation",
+    "record.wire.extra_bytes",
+    "record.binding.substitution",
+    "spool.wire.magic",
+    "spool.wire.version",
+    "spool.wire.flags",
+    "spool.wire.reserved",
+    "spool.range.artifact_length",
+    "spool.binding.vault",
+    "spool.binding.ceremony",
+    "spool.binding.signed_hash",
+    "spool.binding.recovery_wrap_hash",
+    "spool.crypto.checksum",
+    "spool.wire.truncation",
+    "spool.wire.extra_bytes",
+    "spool.binding.substitution",
+    "spool.encryption.aead",
+    "spool.encryption.checksum",
+    "spool.encryption.magic",
+    "spool.encryption.version",
+    "spool.encryption.flags",
+    "spool.encryption.reserved",
+    "spool.encryption.length",
+    "spool.encryption.bounds",
+    "binding.record_spool_length",
+    "binding.record_spool_digest"
+  ],
+  "negativeCases": [
+    {
+      "name": "record_magic",
+      "target": "record",
+      "category": "record.wire.magic",
+      "mutation": {
+        "op": "flip",
+        "offset": 0
+      }
+    },
+    {
+      "name": "record_version",
+      "target": "record",
+      "category": "record.wire.version",
+      "mutation": {
+        "op": "set_u16",
+        "offset": 4,
+        "value": 2
+      }
+    },
+    {
+      "name": "record_declared_length",
+      "target": "record",
+      "category": "record.wire.length",
+      "mutation": {
+        "op": "set_u16",
+        "offset": 6,
+        "value": 511
+      }
+    },
+    {
+      "name": "record_phase_zero",
+      "target": "record",
+      "category": "record.wire.phase",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 8,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_phase_seven",
+      "target": "record",
+      "category": "record.wire.phase",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 8,
+        "value": 7
+      }
+    },
+    {
+      "name": "record_unknown_flag",
+      "target": "record",
+      "category": "record.wire.flags",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 9,
+        "value": 4
+      }
+    },
+    {
+      "name": "record_phase4_missing_edge_flag",
+      "target": "record",
+      "category": "record.wire.flags",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 9,
+        "value": 2
+      }
+    },
+    {
+      "name": "record_phase4_missing_durable_flag",
+      "target": "record",
+      "category": "record.wire.flags",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 9,
+        "value": 1
+      }
+    },
+    {
+      "name": "record_role_zero",
+      "target": "record",
+      "category": "record.wire.role",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 10,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_role_three",
+      "target": "record",
+      "category": "record.wire.role",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 10,
+        "value": 3
+      }
+    },
+    {
+      "name": "record_unattended_role_mismatch",
+      "target": "record",
+      "category": "record.wire.unattended_role",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 11,
+        "value": 1
+      }
+    },
+    {
+      "name": "record_reserved_nonzero",
+      "target": "record",
+      "category": "record.wire.zero_padding",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 12,
+        "value": 1
+      }
+    },
+    {
+      "name": "record_tail_padding_nonzero",
+      "target": "record",
+      "category": "record.wire.zero_padding",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 479,
+        "value": 1
+      }
+    },
+    {
+      "name": "record_prep_generation_zero",
+      "target": "record",
+      "category": "record.range.generation",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 16,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_base_generation_zero",
+      "target": "record",
+      "category": "record.range.generation",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 72,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_base_sequence_unsafe",
+      "target": "record",
+      "category": "record.range.sequence",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 112,
+        "value": 9007199254740992
+      }
+    },
+    {
+      "name": "record_base_epoch_zero",
+      "target": "record",
+      "category": "record.range.epoch",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 184,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_recovery_generation_zero",
+      "target": "record",
+      "category": "record.range.generation",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 192,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_pending_epoch_not_next",
+      "target": "record",
+      "category": "record.binding.pending_epoch",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 280,
+        "value": 9
+      }
+    },
+    {
+      "name": "record_phase4_pending_key_zero",
+      "target": "record",
+      "category": "record.phase.pending_key",
+      "mutation": {
+        "op": "zero",
+        "offset": 288,
+        "length": 32
+      }
+    },
+    {
+      "name": "record_phase5_pending_key_present",
+      "target": "record",
+      "category": "record.phase.pending_key",
+      "mutation": {
+        "op": "flip",
+        "offset": 288
+      }
+    },
+    {
+      "name": "record_phase6_pending_epoch_present",
+      "target": "record",
+      "category": "record.phase.cleaned",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 280,
+        "value": 5
+      }
+    },
+    {
+      "name": "record_phase6_pending_key_present",
+      "target": "record",
+      "category": "record.phase.cleaned",
+      "mutation": {
+        "op": "flip",
+        "offset": 288
+      }
+    },
+    {
+      "name": "record_phase6_edge_present",
+      "target": "record",
+      "category": "record.phase.cleaned",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 320,
+        "value": 20
+      }
+    },
+    {
+      "name": "record_phase6_artifact_present",
+      "target": "record",
+      "category": "record.phase.cleaned",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 392,
+        "value": 97
+      }
+    },
+    {
+      "name": "record_cleaned_to_prepared_same_generation",
+      "target": "binding",
+      "category": "record.transition.generation",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 16,
+        "value": 7
+      }
+    },
+    {
+      "name": "record_phase1_edge_field",
+      "target": "record",
+      "category": "record.phase.edge_fields",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 320,
+        "value": 1
+      }
+    },
+    {
+      "name": "record_phase1_artifact_field",
+      "target": "record",
+      "category": "record.phase.artifact_fields",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 392,
+        "value": 1
+      }
+    },
+    {
+      "name": "record_phase4_wrong_next_sequence",
+      "target": "record",
+      "category": "record.phase.expected_sequence",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 320,
+        "value": 9
+      }
+    },
+    {
+      "name": "record_phase4_wrong_previous_head",
+      "target": "record",
+      "category": "record.phase.previous_head",
+      "mutation": {
+        "op": "flip",
+        "offset": 328
+      }
+    },
+    {
+      "name": "record_phase4_zero_transcript",
+      "target": "record",
+      "category": "record.phase.transcript",
+      "mutation": {
+        "op": "zero",
+        "offset": 360,
+        "length": 32
+      }
+    },
+    {
+      "name": "record_signed_length_zero",
+      "target": "record",
+      "category": "record.phase.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 392,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_signed_length_over_max",
+      "target": "record",
+      "category": "record.phase.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 392,
+        "value": 65537
+      }
+    },
+    {
+      "name": "record_wrap_length_zero",
+      "target": "record",
+      "category": "record.phase.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 400,
+        "value": 0
+      }
+    },
+    {
+      "name": "record_wrap_length_over_max",
+      "target": "record",
+      "category": "record.phase.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 400,
+        "value": 1048577
+      }
+    },
+    {
+      "name": "record_spool_digest_zero",
+      "target": "record",
+      "category": "record.phase.spool_digest",
+      "mutation": {
+        "op": "zero",
+        "offset": 408,
+        "length": 32
+      }
+    },
+    {
+      "name": "record_checksum",
+      "target": "record",
+      "category": "record.crypto.checksum",
+      "mutation": {
+        "op": "flip",
+        "offset": 480
+      }
+    },
+    {
+      "name": "record_truncated",
+      "target": "record",
+      "category": "record.wire.truncation",
+      "mutation": {
+        "op": "truncate",
+        "bytes": 1
+      }
+    },
+    {
+      "name": "record_extra",
+      "target": "record",
+      "category": "record.wire.extra_bytes",
+      "mutation": {
+        "op": "append",
+        "hex": "00"
+      }
+    },
+    {
+      "name": "record_substitution",
+      "target": "binding",
+      "category": "record.binding.substitution",
+      "mutation": {
+        "op": "substitute",
+        "target": "record"
+      }
+    },
+    {
+      "name": "spool_magic",
+      "target": "spool",
+      "category": "spool.wire.magic",
+      "mutation": {
+        "op": "flip",
+        "offset": 0
+      }
+    },
+    {
+      "name": "spool_version",
+      "target": "spool",
+      "category": "spool.wire.version",
+      "mutation": {
+        "op": "set_u16",
+        "offset": 8,
+        "value": 2
+      }
+    },
+    {
+      "name": "spool_flags",
+      "target": "spool",
+      "category": "spool.wire.flags",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 10,
+        "value": 1
+      }
+    },
+    {
+      "name": "spool_reserved",
+      "target": "spool",
+      "category": "spool.wire.reserved",
+      "mutation": {
+        "op": "set_u8",
+        "offset": 11,
+        "value": 1
+      }
+    },
+    {
+      "name": "spool_signed_length_zero",
+      "target": "spool",
+      "category": "spool.range.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 12,
+        "value": 0
+      }
+    },
+    {
+      "name": "spool_signed_length_over_max",
+      "target": "spool",
+      "category": "spool.range.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 12,
+        "value": 65537
+      }
+    },
+    {
+      "name": "spool_wrap_length_zero",
+      "target": "spool",
+      "category": "spool.range.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 20,
+        "value": 0
+      }
+    },
+    {
+      "name": "spool_wrap_length_over_max",
+      "target": "spool",
+      "category": "spool.range.artifact_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 20,
+        "value": 1048577
+      }
+    },
+    {
+      "name": "spool_vault_substitution",
+      "target": "spool",
+      "category": "spool.binding.vault",
+      "mutation": {
+        "op": "flip",
+        "offset": 28
+      }
+    },
+    {
+      "name": "spool_ceremony_substitution",
+      "target": "spool",
+      "category": "spool.binding.ceremony",
+      "mutation": {
+        "op": "flip",
+        "offset": 44
+      }
+    },
+    {
+      "name": "spool_signed_hash",
+      "target": "spool",
+      "category": "spool.binding.signed_hash",
+      "mutation": {
+        "op": "flip",
+        "offset": 60
+      }
+    },
+    {
+      "name": "spool_wrap_hash",
+      "target": "spool",
+      "category": "spool.binding.recovery_wrap_hash",
+      "mutation": {
+        "op": "flip",
+        "offset": 92
+      }
+    },
+    {
+      "name": "spool_payload_substitution",
+      "target": "spool",
+      "category": "spool.binding.signed_hash",
+      "mutation": {
+        "op": "flip",
+        "offset": 124
+      }
+    },
+    {
+      "name": "spool_checksum",
+      "target": "spool",
+      "category": "spool.crypto.checksum",
+      "mutation": {
+        "op": "flip",
+        "offset": -1
+      }
+    },
+    {
+      "name": "spool_truncated",
+      "target": "spool",
+      "category": "spool.wire.truncation",
+      "mutation": {
+        "op": "truncate",
+        "bytes": 1
+      }
+    },
+    {
+      "name": "spool_extra",
+      "target": "spool",
+      "category": "spool.wire.extra_bytes",
+      "mutation": {
+        "op": "append",
+        "hex": "00"
+      }
+    },
+    {
+      "name": "spool_substitution",
+      "target": "binding",
+      "category": "spool.binding.substitution",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_ciphertext_substitution",
+      "target": "binding",
+      "category": "spool.encryption.aead",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_checksum_substitution",
+      "target": "binding",
+      "category": "spool.encryption.checksum",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_magic",
+      "target": "binding",
+      "category": "spool.encryption.magic",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_version",
+      "target": "binding",
+      "category": "spool.encryption.version",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_flags",
+      "target": "binding",
+      "category": "spool.encryption.flags",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_reserved",
+      "target": "binding",
+      "category": "spool.encryption.reserved",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_length_mismatch",
+      "target": "binding",
+      "category": "spool.encryption.length",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "encrypted_spool_length_unsafe",
+      "target": "binding",
+      "category": "spool.encryption.bounds",
+      "mutation": {
+        "op": "substitute",
+        "target": "spool"
+      }
+    },
+    {
+      "name": "binding_signed_length",
+      "target": "binding",
+      "category": "binding.record_spool_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 392,
+        "value": 98
+      }
+    },
+    {
+      "name": "binding_wrap_length",
+      "target": "binding",
+      "category": "binding.record_spool_length",
+      "mutation": {
+        "op": "set_u64",
+        "offset": 400,
+        "value": 194
+      }
+    },
+    {
+      "name": "binding_spool_digest",
+      "target": "binding",
+      "category": "binding.record_spool_digest",
+      "mutation": {
+        "op": "flip",
+        "offset": 408
+      }
+    }
+  ],
+  "transitionCases": [
+    {
+      "name": "phase_1_to_1",
+      "from": 1,
+      "to": 1,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_1_to_2",
+      "from": 1,
+      "to": 2,
+      "expectedStatus": "accept"
+    },
+    {
+      "name": "phase_1_to_3",
+      "from": 1,
+      "to": 3,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_1_to_4",
+      "from": 1,
+      "to": 4,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_1_to_5",
+      "from": 1,
+      "to": 5,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_1_to_6",
+      "from": 1,
+      "to": 6,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_2_to_1",
+      "from": 2,
+      "to": 1,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_2_to_2",
+      "from": 2,
+      "to": 2,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_2_to_3",
+      "from": 2,
+      "to": 3,
+      "expectedStatus": "accept"
+    },
+    {
+      "name": "phase_2_to_4",
+      "from": 2,
+      "to": 4,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_2_to_5",
+      "from": 2,
+      "to": 5,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_2_to_6",
+      "from": 2,
+      "to": 6,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_3_to_1",
+      "from": 3,
+      "to": 1,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_3_to_2",
+      "from": 3,
+      "to": 2,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_3_to_3",
+      "from": 3,
+      "to": 3,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_3_to_4",
+      "from": 3,
+      "to": 4,
+      "expectedStatus": "accept"
+    },
+    {
+      "name": "phase_3_to_5",
+      "from": 3,
+      "to": 5,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_3_to_6",
+      "from": 3,
+      "to": 6,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_4_to_1",
+      "from": 4,
+      "to": 1,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_4_to_2",
+      "from": 4,
+      "to": 2,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_4_to_3",
+      "from": 4,
+      "to": 3,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_4_to_4",
+      "from": 4,
+      "to": 4,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_4_to_5",
+      "from": 4,
+      "to": 5,
+      "expectedStatus": "accept"
+    },
+    {
+      "name": "phase_4_to_6",
+      "from": 4,
+      "to": 6,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_5_to_1",
+      "from": 5,
+      "to": 1,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_5_to_2",
+      "from": 5,
+      "to": 2,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_5_to_3",
+      "from": 5,
+      "to": 3,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_5_to_4",
+      "from": 5,
+      "to": 4,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_5_to_5",
+      "from": 5,
+      "to": 5,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_5_to_6",
+      "from": 5,
+      "to": 6,
+      "expectedStatus": "accept"
+    },
+    {
+      "name": "phase_6_to_1",
+      "from": 6,
+      "to": 1,
+      "expectedStatus": "accept"
+    },
+    {
+      "name": "phase_6_to_2",
+      "from": 6,
+      "to": 2,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_6_to_3",
+      "from": 6,
+      "to": 3,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_6_to_4",
+      "from": 6,
+      "to": 4,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_6_to_5",
+      "from": 6,
+      "to": 5,
+      "expectedStatus": "reject"
+    },
+    {
+      "name": "phase_6_to_6",
+      "from": 6,
+      "to": 6,
+      "expectedStatus": "reject"
+    }
+  ]
+}

@@ -11,6 +11,8 @@ INFO.md
 
 # Test files (defense-in-depth — tsconfig.json also excludes them from build)
 **/*.spec.*
+src/e2ee/native-rotation-preparation-vectors.ts
+src/e2ee/fixtures/anc-v1-native-rotation-preparation-vectors.json
 
 # Source (dist is published, templates are included via "files")
 # Note: src/templates IS included via package.json "files" field
