@@ -782,6 +782,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               onSelectSegmentAt={(ms) =>
                 setSelectionRange({ type: "segment", ...segmentBoundsAt(ms) })
               }
+              segmentBoundsAt={segmentBoundsAt}
+              onRemoveSplitAt={(atMs) =>
+                removeSplitMutation.mutate({ recordingId, atMs } as any)
+              }
               className="flex-1"
             />
           </div>

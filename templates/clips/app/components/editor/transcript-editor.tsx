@@ -94,6 +94,14 @@ export interface TranscriptEditorProps {
   videoUrl?: string | null;
   /** Clicking a scene thumbnail seeks AND selects that segment's range. */
   onSelectSegmentAt?: (ms: number) => void;
+  /**
+   * Resolves the split-segment bounds containing a position — the parent owns
+   * splits + duration. Enables the segment context menu (right-click with no
+   * text selection, or on a scene thumbnail).
+   */
+  segmentBoundsAt?: (ms: number) => { startMs: number; endMs: number };
+  /** Removes the split at exactly `splitMs`, merging into the previous segment. */
+  onRemoveSplitAt?: (splitMs: number) => void;
   className?: string;
 }
 
@@ -138,6 +146,8 @@ export function TranscriptEditor({
   splitPoints = [],
   videoUrl = null,
   onSelectSegmentAt,
+  segmentBoundsAt,
+  onRemoveSplitAt,
   className,
 }: TranscriptEditorProps) {
   const t = useT();
@@ -147,11 +157,21 @@ export function TranscriptEditor({
     null,
   );
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  // Segment context menu — right-click with no text selection (or on a scene
+  // thumbnail) operates on the enclosing split-segment, mirroring the
+  // waveform strip's segment menu so both surfaces offer the same operations.
+  const [segmentMenu, setSegmentMenu] = useState<{
+    x: number;
+    y: number;
+    startMs: number;
+    endMs: number;
+  } | null>(null);
 
   const clearSelection = () => {
     setSelection(null);
     setToolbarPos(null);
     setMenuPos(null);
+    setSegmentMenu(null);
     onSelectionChange?.(null);
     window.getSelection()?.removeAllRanges();
   };
@@ -182,11 +202,17 @@ export function TranscriptEditor({
     return { startMs, endMs, text: sel.toString() };
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Right-button releases are the tail of a context-menu gesture — on
+    // macOS `contextmenu` fires on mouseDOWN, so this mouseup arrives right
+    // AFTER the menu opened and must not clear it (verified empirically:
+    // clearing here closed the menu within the same frame).
+    if (e.button === 2) return;
     // A new plain selection always dismisses any menu left open from a
     // previous right-click — otherwise it would pop back open at the old
     // (now stale) coordinates as soon as `selection` becomes non-null again.
     setMenuPos(null);
+    setSegmentMenu(null);
     const sel = resolveSelection();
     setSelection(sel);
     onSelectionChange?.(
@@ -280,14 +306,39 @@ export function TranscriptEditor({
     }
   };
 
-  // Right-click anywhere with a live selection opens a context menu — same
+  // Opens the segment menu for the split-segment containing `ms`, selecting
+  // the segment first — same gesture as right-clicking the waveform strip,
+  // so the two surfaces stay one design language.
+  const openSegmentMenu = (x: number, y: number, ms: number) => {
+    if (!segmentBoundsAt) return;
+    const bounds = segmentBoundsAt(ms);
+    onSelectSegmentAt?.(ms);
+    setMenuPos(null);
+    setSegmentMenu({ x, y, ...bounds });
+  };
+
+  // Ref-forwarded for the memoized transcript render below: thumbnails close
+  // over this at memo time, and going through the ref keeps them acting on
+  // the current splits instead of the ones from when the memo last computed.
+  const openSegmentMenuRef = useRef(openSegmentMenu);
+  openSegmentMenuRef.current = openSegmentMenu;
+
+  // Right-click with a live selection opens the selection menu — same
   // Copy/Cut/Delete surface whether the selection spans a whole segment or
-  // just a partial range within one (there was previously no menu at all for
-  // a partial-range selection, only the floating toolbar).
+  // just a partial range within one. Without a selection, the right-clicked
+  // word resolves to its split-segment and the segment menu opens instead.
   const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!selection) return;
+    if (selection) {
+      e.preventDefault();
+      setSegmentMenu(null);
+      setMenuPos({ x: e.clientX, y: e.clientY });
+      return;
+    }
+    if (!segmentBoundsAt) return;
+    const ms = msFromTextPoint(e.clientX, e.clientY);
+    if (ms === null) return;
     e.preventDefault();
-    setMenuPos({ x: e.clientX, y: e.clientY });
+    openSegmentMenu(e.clientX, e.clientY, ms);
   };
 
   const copySelection = () => {
@@ -415,6 +466,15 @@ export function TranscriptEditor({
                   e.stopPropagation();
                   onSeek?.(ms);
                   onSelectSegmentAt?.(ms);
+                }}
+                onContextMenu={(e) => {
+                  // The thumbnail is the segment's visible handle — right-click
+                  // opens the segment menu directly (caret resolution can't
+                  // land on a non-text node).
+                  if (!segmentBoundsAt) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openSegmentMenuRef.current(e.clientX, e.clientY, ms);
                 }}
                 className="mx-1.5 inline-block h-7 w-8 shrink-0 -translate-y-px cursor-pointer overflow-hidden rounded border border-border/70 bg-muted align-middle transition-[border-color] hover:border-primary"
               >
@@ -697,6 +757,76 @@ export function TranscriptEditor({
             >
               <IconBookmark className="h-4 w-4" />
               {t("transcriptEditor.addMarker")}
+            </DropdownMenuItem>
+          ) : null}
+        </CoordinateMenu>
+      ) : null}
+
+      {/* Segment context menu — right-click without a selection (or on a
+          scene thumbnail). Items mirror the waveform strip's segment menu so
+          transcript and timeline offer the same operations for a segment. */}
+      {segmentMenu ? (
+        <CoordinateMenu
+          open
+          x={segmentMenu.x}
+          y={segmentMenu.y}
+          onOpenChange={(open) => {
+            if (!open) setSegmentMenu(null);
+          }}
+        >
+          <DropdownMenuItem
+            onSelect={() => {
+              onSeek?.(segmentMenu.startMs);
+              setSegmentMenu(null);
+            }}
+          >
+            {t("annotationsStrip.jumpTo", {
+              time: formatMs(segmentMenu.startMs),
+            })}
+          </DropdownMenuItem>
+          {onCreateSection ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                onCreateSection({
+                  startMs: segmentMenu.startMs,
+                  endMs: segmentMenu.endMs,
+                });
+                setSegmentMenu(null);
+              }}
+            >
+              <IconBracketsContain className="h-4 w-4" />
+              {t("transcriptEditor.createSection")}
+            </DropdownMenuItem>
+          ) : null}
+          {onTrimRange || onRemoveSplitAt ? <DropdownMenuSeparator /> : null}
+          {onTrimRange ? (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => {
+                onTrimRange({
+                  startMs: segmentMenu.startMs,
+                  endMs: segmentMenu.endMs,
+                });
+                setSegmentMenu(null);
+              }}
+            >
+              <IconCut className="h-4 w-4" />
+              {t("editorToolbar.cutSegment")}
+            </DropdownMenuItem>
+          ) : null}
+          {onRemoveSplitAt ? (
+            // Kept visible-but-disabled on the first segment (no split to
+            // remove) so users learn the operation exists — registry rule.
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={segmentMenu.startMs <= 0}
+              onSelect={() => {
+                onRemoveSplitAt(segmentMenu.startMs);
+                setSegmentMenu(null);
+              }}
+            >
+              <IconTrash className="h-4 w-4" />
+              {t("editorToolbar.removeSplit")}
             </DropdownMenuItem>
           ) : null}
         </CoordinateMenu>
