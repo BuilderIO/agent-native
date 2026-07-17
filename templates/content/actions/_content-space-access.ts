@@ -1,9 +1,24 @@
 import { getDbExec } from "@agent-native/core/db";
-import { organizations, orgMembers } from "@agent-native/core/org";
+import { table, text } from "@agent-native/core/db/schema";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+
+// Keep these lightweight table references local. Importing the public org
+// barrel also initializes auth's long-lived cleanup timer, which breaks test
+// suites that intentionally drain fake timers.
+const organizations = table("organizations", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("created_by").notNull(),
+});
+
+const orgMembers = table("org_members", {
+  orgId: text("org_id").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull(),
+});
 
 export type ContentSpaceRole = "viewer" | "editor" | "owner";
 
