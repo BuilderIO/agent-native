@@ -69,6 +69,15 @@ static NSString *const kFenceRecordId = @"grant-index";
 @implementation AncPrivateVaultGrantIndexSnapshot
 @end
 
+@interface AncPrivateVaultGrantContext ()
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) NSData *subjectAccountId;
+@property(nonatomic) NSData *subjectEndpointId;
+@property(nonatomic, nullable) NSData *subjectAgentId;
+@end
+@implementation AncPrivateVaultGrantContext
+@end
+
 static BOOL ValidVaultId(NSString *vaultId, NSData **bytes) {
   if (vaultId.length != 32) return NO;
   NSMutableData *decoded = [NSMutableData dataWithLength:16];
@@ -937,6 +946,50 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey {
                                  provider);
         }];
   });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    resolveGrantRef:(NSData *)grantRef
+            vaultId:(NSString *)vaultId
+         nowSeconds:(uint64_t)nowSeconds
+            context:(AncPrivateVaultGrantContext **)context {
+  if (context != NULL) *context = nil;
+  if (grantRef.length != 32 || nowSeconds == 0)
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantContext *resolved = nil;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)key;
+          for (NSData *revocation in record.revocations)
+            if ([RevocationGrantRef(revocation) isEqualToData:grantRef])
+              return AncPrivateVaultGrantIndexStatusUnauthorized;
+          AncStoredGrant *stored = nil;
+          for (AncStoredGrant *candidate in record.grants)
+            if ([candidate.verified.grantRef isEqualToData:grantRef])
+              stored = candidate;
+          if (stored == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          AncPrivateVaultGrantCodecStatus codecStatus;
+          AncPrivateVaultVerifiedGrant *verified =
+              AncPrivateVaultVerifyGrantEnvelope(
+                  stored.envelope, vaultBytes, nowSeconds,
+                  stored.verified.issuerEndpointId,
+                  stored.issuerSigningPublicKey.bytes, &codecStatus);
+          if (verified == nil)
+            return AncPrivateVaultGrantIndexStatusUnauthorized;
+          resolved = [AncPrivateVaultGrantContext new];
+          resolved.grantRef = [verified.grantRef copy];
+          resolved.subjectAccountId = [verified.subjectAccountId copy];
+          resolved.subjectEndpointId = [verified.subjectEndpointId copy];
+          resolved.subjectAgentId = [verified.subjectAgentId copy];
+          return AncPrivateVaultGrantIndexStatusOK;
+        }];
+  });
+  if (status == AncPrivateVaultGrantIndexStatusOK && context != NULL)
+    *context = resolved;
   return status;
 }
 

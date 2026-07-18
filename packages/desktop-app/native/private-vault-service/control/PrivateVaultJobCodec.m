@@ -10,17 +10,46 @@ static const NSUInteger kEnvelopeMaximum = 16 * 1024 * 1024 + 64 * 1024;
 static const NSUInteger kPayloadMaximum = 16 * 1024 * 1024;
 
 @implementation AncPrivateVaultOpenedJob
+{
+  NSMutableData *_mutablePayload;
+  BOOL _closed;
+}
 - (instancetype)initWithPayload:(NSData *)payload
                        grantRef:(NSData *)grantRef
                          jobHash:(NSData *)jobHash {
   self = [super init];
   if (self != nil) {
-    _payload = [payload copy];
+    _mutablePayload = [payload mutableCopy];
+    _payload = _mutablePayload;
     _grantRef = [grantRef copy];
     _jobHash = [jobHash copy];
   }
   return self;
 }
+- (BOOL)isClosed { return _closed; }
+- (void)close {
+  if (_closed) return;
+  anc_pv_zeroize(_mutablePayload.mutableBytes, _mutablePayload.length);
+  _closed = YES;
+}
+- (void)dealloc { [self close]; }
+@end
+
+@interface AncPrivateVaultJobCoordinates ()
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) uint64_t issuedAt;
+@property(nonatomic) uint64_t expiresAt;
+@end
+@implementation AncPrivateVaultJobCoordinates
+@end
+
+@interface AncPrivateVaultSemanticJobPayload ()
+@property(nonatomic) NSData *resourceId;
+@property(nonatomic) NSString *operation;
+@property(nonatomic) NSString *provider;
+@property(nonatomic) NSData *body;
+@end
+@implementation AncPrivateVaultSemanticJobPayload
 @end
 
 static void SetStatus(AncPrivateVaultJobCodecStatus *status,
@@ -57,6 +86,99 @@ static BOOL ExactCommon(NSDictionary *map, NSString *type, NSData *vaultId) {
          [actualVault.bytesValue isEqualToData:vaultId] && actualType != nil &&
          [actualType.textValue isEqualToString:type] && created.integerValue > 0 &&
          ExactBytes(map, 5, 16, NULL);
+}
+
+static BOOL ScopeText(AncPrivateVaultCanonicalValue *value) {
+  if (value.type != AncPrivateVaultCanonicalTypeText) return NO;
+  NSData *bytes = [value.textValue dataUsingEncoding:NSUTF8StringEncoding];
+  if (bytes.length == 0 || bytes.length > 160) return NO;
+  const uint8_t *raw = bytes.bytes;
+  for (NSUInteger index = 0; index < bytes.length; index += 1)
+    if (raw[index] < 0x21 || raw[index] > 0x7e) return NO;
+  return YES;
+}
+
+AncPrivateVaultJobCoordinates *AncPrivateVaultInspectJobEnvelope(
+    NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
+    NSData *expectedRecipientEndpointId,
+    AncPrivateVaultJobCodecStatus *status) {
+  SetStatus(status, AncPrivateVaultJobCodecStatusInvalid);
+  if (envelope.length == 0 || envelope.length > kEnvelopeMaximum ||
+      expectedVaultId.length != 16 || expectedJobId.length != 16 ||
+      expectedRecipientEndpointId.length != 16)
+    return nil;
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      envelope, kEnvelopeMaximum, &canonicalStatus);
+  NSDictionary *map = root.type == AncPrivateVaultCanonicalTypeMap
+      ? root.mapValue : nil;
+  NSSet *expected = [NSSet setWithArray:@[
+    @1, @2, @3, @4, @5, @90, @91, @92, @93, @94, @95, @96
+  ]];
+  NSData *jobId = nil, *grantRef = nil, *recipient = nil;
+  AncPrivateVaultCanonicalValue *issued =
+      Field(map, 92, AncPrivateVaultCanonicalTypeInteger);
+  AncPrivateVaultCanonicalValue *expires =
+      Field(map, 93, AncPrivateVaultCanonicalTypeInteger);
+  AncPrivateVaultCanonicalValue *ciphertext =
+      Field(map, 95, AncPrivateVaultCanonicalTypeBytes);
+  if (map.count != expected.count ||
+      ![expected isEqualToSet:[NSSet setWithArray:map.allKeys]] ||
+      !ExactCommon(map, @"job", expectedVaultId) ||
+      !ExactBytes(map, 90, 16, &jobId) ||
+      ![jobId isEqualToData:expectedJobId] ||
+      !ExactBytes(map, 91, 32, &grantRef) || issued.integerValue <= 0 ||
+      expires.integerValue <= issued.integerValue ||
+      !ExactBytes(map, 94, 16, &recipient) ||
+      ![recipient isEqualToData:expectedRecipientEndpointId] ||
+      ciphertext.bytesValue.length < 24 + 16 + sizeof kJobDomain ||
+      ciphertext.bytesValue.length >
+          kPayloadMaximum + 24 + 16 + sizeof kJobDomain ||
+      !ExactBytes(map, 96, 64, NULL))
+    return nil;
+  AncPrivateVaultJobCoordinates *coordinates =
+      [AncPrivateVaultJobCoordinates new];
+  coordinates.grantRef = [grantRef copy];
+  coordinates.issuedAt = (uint64_t)issued.integerValue;
+  coordinates.expiresAt = (uint64_t)expires.integerValue;
+  SetStatus(status, AncPrivateVaultJobCodecStatusOK);
+  return coordinates;
+}
+
+AncPrivateVaultSemanticJobPayload *AncPrivateVaultDecodeSemanticJobPayload(
+    NSData *encoded, AncPrivateVaultJobCodecStatus *status) {
+  SetStatus(status, AncPrivateVaultJobCodecStatusInvalid);
+  if (encoded.length == 0 || encoded.length > kPayloadMaximum) return nil;
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      encoded, kPayloadMaximum, &canonicalStatus);
+  NSDictionary *map = root.type == AncPrivateVaultCanonicalTypeMap
+      ? root.mapValue : nil;
+  NSSet *expected = [NSSet setWithArray:@[@1, @2, @3, @4, @5, @6]];
+  AncPrivateVaultCanonicalValue *suite =
+      Field(map, 1, AncPrivateVaultCanonicalTypeText);
+  AncPrivateVaultCanonicalValue *type =
+      Field(map, 2, AncPrivateVaultCanonicalTypeText);
+  NSData *resourceId = nil;
+  AncPrivateVaultCanonicalValue *operation = map[@4];
+  AncPrivateVaultCanonicalValue *provider = map[@5];
+  AncPrivateVaultCanonicalValue *body =
+      Field(map, 6, AncPrivateVaultCanonicalTypeBytes);
+  if (map.count != expected.count ||
+      ![expected isEqualToSet:[NSSet setWithArray:map.allKeys]] ||
+      ![suite.textValue isEqualToString:@"anc/v1"] ||
+      ![type.textValue isEqualToString:@"semantic-job"] ||
+      !ExactBytes(map, 3, 16, &resourceId) || !ScopeText(operation) ||
+      !ScopeText(provider) || body == nil || body.bytesValue.length > kPayloadMaximum)
+    return nil;
+  AncPrivateVaultSemanticJobPayload *payload =
+      [AncPrivateVaultSemanticJobPayload new];
+  payload.resourceId = [resourceId copy];
+  payload.operation = [operation.textValue copy];
+  payload.provider = [provider.textValue copy];
+  payload.body = [body.bytesValue copy];
+  SetStatus(status, AncPrivateVaultJobCodecStatusOK);
+  return payload;
 }
 
 static NSData *DomainMessage(const uint8_t *domain, size_t domainLength,

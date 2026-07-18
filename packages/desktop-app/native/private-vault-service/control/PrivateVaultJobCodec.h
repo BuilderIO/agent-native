@@ -17,11 +17,36 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobCodecStatus) {
 @property(nonatomic, readonly) NSData *payload;
 @property(nonatomic, readonly) NSData *grantRef;
 @property(nonatomic, readonly) NSData *jobHash;
+@property(nonatomic, readonly, getter=isClosed) BOOL closed;
 - (instancetype)initWithPayload:(NSData *)payload
                        grantRef:(NSData *)grantRef
                          jobHash:(NSData *)jobHash NS_DESIGNATED_INITIALIZER;
+- (void)close;
 - (instancetype)init NS_UNAVAILABLE;
 @end
+
+@interface AncPrivateVaultJobCoordinates : NSObject
+@property(nonatomic, readonly) NSData *grantRef;
+@property(nonatomic, readonly) uint64_t issuedAt;
+@property(nonatomic, readonly) uint64_t expiresAt;
+@end
+
+@interface AncPrivateVaultSemanticJobPayload : NSObject
+@property(nonatomic, readonly) NSData *resourceId;
+@property(nonatomic, readonly) NSString *operation;
+@property(nonatomic, readonly) NSString *provider;
+@property(nonatomic, readonly) NSData *body;
+@end
+
+FOUNDATION_EXPORT AncPrivateVaultJobCoordinates *_Nullable
+AncPrivateVaultInspectJobEnvelope(
+    NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
+    NSData *expectedRecipientEndpointId,
+    AncPrivateVaultJobCodecStatus *status);
+
+FOUNDATION_EXPORT AncPrivateVaultSemanticJobPayload *_Nullable
+AncPrivateVaultDecodeSemanticJobPayload(NSData *encoded,
+                                        AncPrivateVaultJobCodecStatus *status);
 
 FOUNDATION_EXPORT AncPrivateVaultOpenedJob *_Nullable
 AncPrivateVaultOpenJobEnvelope(

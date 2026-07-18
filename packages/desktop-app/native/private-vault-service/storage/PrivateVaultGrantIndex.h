@@ -26,6 +26,13 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly) NSUInteger jobCount;
 @end
 
+@interface AncPrivateVaultGrantContext : NSObject
+@property(nonatomic, readonly) NSData *grantRef;
+@property(nonatomic, readonly) NSData *subjectAccountId;
+@property(nonatomic, readonly) NSData *subjectEndpointId;
+@property(nonatomic, readonly, nullable) NSData *subjectAgentId;
+@end
+
 @interface AncPrivateVaultGrantIndex : NSObject
 - (instancetype)initWithStateRootURL:(NSURL *)stateRootURL
                              session:(AncPrivateVaultSession *)session
@@ -61,6 +68,13 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey;
            resourceId:(NSData *)resourceId
             operation:(NSString *)operation
              provider:(NSString *)provider;
+
+/** Resolves only a currently valid, unrevoked grant; it conveys no key material. */
+- (AncPrivateVaultGrantIndexStatus)
+    resolveGrantRef:(NSData *)grantRef
+            vaultId:(NSString *)vaultId
+         nowSeconds:(uint64_t)nowSeconds
+            context:(AncPrivateVaultGrantContext *_Nullable *_Nullable)context;
 
 /** Atomically authorizes the grant and claims one unexpired random job id. */
 - (AncPrivateVaultGrantIndexStatus)

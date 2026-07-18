@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 #import "PrivateVaultGrantIndex.h"
+#import "PrivateVaultJobProcessor.h"
 
 #include <assert.h>
 #include <sys/stat.h>
@@ -34,7 +35,11 @@ static NSData *Pattern(uint8_t byte, NSUInteger length) {
 @implementation TestHandle
 - (instancetype)init {
   self = [super init];
-  if (self != nil) memset(_bytes, 0x61, sizeof _bytes);
+  if (self != nil) {
+    memset(_bytes, 0x44, 32);
+    memset(_bytes + 32, 0x33, 32);
+    memset(_bytes + 64, 0x61, 96);
+  }
   return self;
 }
 - (NSInteger)borrow:(BOOL (^)(const AncPrivateVaultCustodySecretInputs *))block {
@@ -65,17 +70,63 @@ static NSData *Pattern(uint8_t byte, NSUInteger length) {
   snapshot->record_version = ANC_PV_CUSTODY_VERSION;
   snapshot->authority_anchor_present = 1;
   snapshot->lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
-  snapshot->role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
+  snapshot->role = ANC_PV_CUSTODY_ROLE_BROKER;
   snapshot->custody_generation = 2;
   snapshot->active_epoch = 1;
   NSData *vault = [vaultId dataUsingEncoding:NSUTF8StringEncoding];
   memcpy(snapshot->vault_id, vault.bytes, vault.length);
   snapshot->vault_id_length = vault.length;
-  NSData *endpoint = [@"endpoint:index-owner" dataUsingEncoding:NSUTF8StringEncoding];
+  NSData *endpoint = [@"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+      dataUsingEncoding:NSUTF8StringEncoding];
   memcpy(snapshot->endpoint_id, endpoint.bytes, endpoint.length);
   snapshot->endpoint_id_length = endpoint.length;
+  uint8_t seed[32] = {0};
+  uint8_t privateKey[32] = {0};
+  memset(seed, 0x33, sizeof seed);
+  assert(anc_pv_box_seed_keypair(snapshot->box_public_key, privateKey,
+                                 seed) ==
+         ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(seed, sizeof seed);
+  anc_pv_zeroize(privateKey, sizeof privateKey);
   *handle = self.handle;
   return 0;
+}
+@end
+
+@interface TestAuthorityMember : NSObject
+@property(nonatomic) NSString *endpointId;
+@property(nonatomic) NSString *role;
+@property(nonatomic) BOOL unattended;
+@property(nonatomic) NSData *signingPublicKey;
+@property(nonatomic) NSData *keyAgreementPublicKey;
+@end
+@implementation TestAuthorityMember
+@end
+
+@interface TestAuthoritySnapshot : NSObject
+@property(nonatomic) uint64_t verifiedAtMs;
+@property(nonatomic) NSArray *activeMembers;
+@end
+@implementation TestAuthoritySnapshot
+@end
+
+@interface TestAuthorityCheckpoint : NSObject
+@property(nonatomic) TestAuthoritySnapshot *snapshot;
+@end
+@implementation TestAuthorityCheckpoint
+@end
+
+@interface TestAuthorityStore : NSObject
+@property(nonatomic) TestAuthorityCheckpoint *checkpoint;
+@end
+@implementation TestAuthorityStore
+- (AncPrivateVaultAuthorityStoreStatus)
+    loadVaultId:(NSString *)vaultId checkpoint:(id *)checkpoint
+          error:(NSError **)error {
+  (void)vaultId;
+  (void)error;
+  *checkpoint = self.checkpoint;
+  return AncPrivateVaultAuthorityStoreStatusOK;
 }
 @end
 
@@ -240,6 +291,55 @@ int main(void) {
                      resourceId:Pattern(0x04, 16) operation:@"read"
                        provider:@"synthetic-provider"] ==
            AncPrivateVaultGrantIndexStatusOK);
+
+    NSData *semanticGrant = Hex(@"b10166616e632f763102500101010101010101010101010101010103656772616e74041a66961247055016161616161616161616161616161616183c5005050505050505050505050505050505183d5002020202020202020202020202020202183e5007070707070707070707070707070707183f5003030303030303030303030303030303184050080808080808080808080808080808081841815009090909090909090909090909090909184281647265616418438167636f6e74656e7418441a6696124718451a669620571846500a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a1847584058e6cfd36566a7fd1db086d9150ce14ba1c2e11308e26478bdeb8f03a2d6ab82b6f220ea52753ae854af89a5e8e384d8ae3e5abfe003bfd457596231dd7c9504");
+    NSData *semanticJob = Hex(@"ac0166616e632f763102500101010101010101010101010101010103636a6f62041a66961247055018181818181818181818181818181818185a5006060606060606060606060606060606185b5820535eab190d7b022ff384ead22836dde8267255a28faa9886624b83c4fd806914185c1a66961247185d1a6696149f185e500b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b185f5887393939393939393939393939393939393939393939393939aef8dbddc3e7001b87b8db52c376f2f5ad0da4d05165c06e8a6fecc427ba6465244e38ceed648836a2a10a9d58cd08f2c6878b6ed6f14d3ca020b9bd8f51a8bcb5e7fb3e331d435913c6a3133e4a2ae19064714a5b14bd48ace63c64643f27da472670173b5bb671edae4aecf0230b1860584068e61eddabc6269503e2d07de576f116088f6eb832390e0e881dfa4150184d535f5e11d5cfd1c3c2f60706f7b78025e3bb6626b3f5c0fa8088f27cd430830a0a");
+    NSData *requesterSigning = Hex(@"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737");
+    NSData *requesterBox = Hex(@"9d8d78b9c9e6661e552f2f1af02095ee2f8743fa2e6183f41bb7077ef51b5379");
+    NSData *brokerBox = Hex(@"4eb4fafee2bd3018a24e310de8106333c2b364eaed029a7f05d7b45ccc77683a");
+    assert([index storeGrantEnvelope:semanticGrant vaultId:kVaultId
+                          nowSeconds:1721111200
+                    issuerEndpointId:Pattern(0x02, 16)
+             issuerControlEndpointId:@"endpoint:index-owner"
+              issuerSigningPublicKey:requesterSigning] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    TestAuthorityMember *requester = [TestAuthorityMember new];
+    requester.endpointId = @"03030303030303030303030303030303";
+    requester.role = @"endpoint";
+    requester.unattended = NO;
+    requester.signingPublicKey = requesterSigning;
+    requester.keyAgreementPublicKey = requesterBox;
+    TestAuthorityMember *broker = [TestAuthorityMember new];
+    broker.endpointId = @"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
+    broker.role = @"broker";
+    broker.unattended = YES;
+    broker.signingPublicKey = Pattern(0x44, 32);
+    broker.keyAgreementPublicKey = brokerBox;
+    TestAuthoritySnapshot *authoritySnapshot = [TestAuthoritySnapshot new];
+    authoritySnapshot.verifiedAtMs = 1721111200ULL * 1000;
+    authoritySnapshot.activeMembers = @[requester, broker];
+    TestAuthorityCheckpoint *authorityCheckpoint =
+        [TestAuthorityCheckpoint new];
+    authorityCheckpoint.snapshot = authoritySnapshot;
+    TestAuthorityStore *authorityStore = [TestAuthorityStore new];
+    authorityStore.checkpoint = authorityCheckpoint;
+    AncPrivateVaultJobProcessor *processor = [[AncPrivateVaultJobProcessor alloc]
+        initWithSession:session
+          authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+              grantIndex:index];
+    AncPrivateVaultAuthorizedJob *authorizedJob = nil;
+    assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
+                                jobId:Pattern(0x06, 16)
+                           nowSeconds:1721111200 result:&authorizedJob] ==
+           AncPrivateVaultJobProcessorStatusOK);
+    assert([authorizedJob.body isEqualToData:
+        [@"{\"action\":\"get-document\"}"
+            dataUsingEncoding:NSUTF8StringEncoding]] &&
+           authorizedJob.jobHash.length == 32);
+    assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
+                                jobId:Pattern(0x06, 16)
+                           nowSeconds:1721111200 result:&authorizedJob] ==
+           AncPrivateVaultJobProcessorStatusReplay);
     assert([index applyRevocationEnvelope:revocation vaultId:kVaultId
                   signerControlEndpointId:@"endpoint:index-owner"
                    signerSigningPublicKey:publicKey] ==
@@ -258,8 +358,8 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 5 && snapshot.grantCount == 1 &&
-           snapshot.revocationCount == 1 && snapshot.jobCount == 1);
+    assert(snapshot.generation == 7 && snapshot.grantCount == 2 &&
+           snapshot.revocationCount == 1 && snapshot.jobCount == 2);
     NSString *livePath = [temporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"grant-index/%@.live", kVaultId]];
     NSData *frame = [NSData dataWithContentsOfFile:livePath];

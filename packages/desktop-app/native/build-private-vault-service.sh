@@ -12,6 +12,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m"
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
+  "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
@@ -408,6 +409,8 @@ case "${PRIVATE_VAULT_BUILD_GRANT_INDEX_TESTS:-}" in
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m" \
+      "$SOURCE_ROOT/control/PrivateVaultJobCodec.m" \
+      "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \

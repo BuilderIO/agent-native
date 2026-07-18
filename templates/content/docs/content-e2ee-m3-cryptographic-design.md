@@ -530,8 +530,17 @@ result-envelope hash to that claim with conflict-safe idempotency. Expired
 claims are pruned only inside a newly fenced claim commit; neither load nor a
 hosted retry can silently erase replay history. Dual-architecture restart,
 replay, result substitution, encrypted-at-rest, tamper, and rollback proof is
-green. The remaining broker gate is to put the codec and this atomic claim
-behind packaged semantic XPC operations, then retain retryable encrypted result
-frames until the hosted receipt is durable.
+green. Core and native code now also share one exact canonical semantic-job
+plaintext: vault jobs must bind a 16-byte resource, strict operation and
+provider tokens, and one bounded opaque action body. The signed-native job
+processor loads a fresh rollback-checked authority snapshot, requires exactly
+one active unattended broker, resolves the grant's requester only from active
+membership, proves local broker custody and box-key continuity, verifies and
+opens the signed job, parses its semantic scope, and completes the atomic claim
+before returning only the action body. Replaying the exact signed ciphertext is
+denied. The remaining broker gate is to expose this processor through the
+packaged XPC/addon operation, seal results from the retained requester context,
+and retain retryable encrypted result frames until the hosted receipt is
+durable.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   ancV1BytesToHex,
+  decodeAncV1Canonical,
   decodeAncV1Envelope,
   encodeAncV1Canonical,
   type AncV1CanonicalValue,
@@ -28,6 +29,7 @@ const NONCE_BYTES = 24;
 const SIGNATURE_BYTES = 64;
 const jobKeys = [1, 2, 3, 4, 5, 90, 91, 92, 93, 94, 95, 96] as const;
 const resultKeys = [1, 2, 3, 4, 5, 100, 101, 102, 103, 104, 105] as const;
+const semanticJobPayloadKeys = [1, 2, 3, 4, 5, 6] as const;
 
 export class AncV1JobEnvelopeError extends Error {
   constructor() {
@@ -100,6 +102,13 @@ export interface OpenAncV1ResultEnvelopeInput {
   readonly brokerKeyAgreementPublicKey: Uint8Array;
 }
 
+export interface AncV1SemanticJobPayload {
+  readonly resourceId: Uint8Array;
+  readonly operation: string;
+  readonly provider: string;
+  readonly body: Uint8Array;
+}
+
 function fail(): never {
   throw new AncV1JobEnvelopeError();
 }
@@ -137,6 +146,79 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
     difference |= left[index]! ^ right[index]!;
   }
   return difference === 0;
+}
+
+function scopeText(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    new TextEncoder().encode(value).byteLength > 160 ||
+    !/^[\x21-\x7e]+$/.test(value)
+  ) {
+    fail();
+  }
+  return value;
+}
+
+/**
+ * Canonical plaintext inside a sealed broker job. Native authorization parses
+ * this envelope before returning only `body` to the local action executor.
+ */
+export function encodeAncV1SemanticJobPayload(
+  input: AncV1SemanticJobPayload,
+): Uint8Array {
+  try {
+    const encoded = encodeAncV1Canonical(
+      new Map<number, AncV1CanonicalValue>([
+        [1, E2EE_SUITE_ID],
+        [2, "semantic-job"],
+        [3, exactBytes(input.resourceId, ID_BYTES)],
+        [4, scopeText(input.operation)],
+        [5, scopeText(input.provider)],
+        [6, boundedBytes(input.body, E2EE_SIZE_LIMITS.jobPayloadBytes, true)],
+      ]),
+    );
+    if (encoded.byteLength > E2EE_SIZE_LIMITS.jobPayloadBytes) fail();
+    return encoded;
+  } catch {
+    return fail();
+  }
+}
+
+export function decodeAncV1SemanticJobPayload(
+  encoded: Uint8Array,
+): AncV1SemanticJobPayload {
+  try {
+    const decoded = decodeAncV1Canonical(encoded, {
+      maxBytes: E2EE_SIZE_LIMITS.jobPayloadBytes,
+    });
+    if (
+      !(decoded instanceof Map) ||
+      decoded.size !== semanticJobPayloadKeys.length
+    )
+      fail();
+    const keys = [...decoded.keys()];
+    if (
+      keys.length !== semanticJobPayloadKeys.length ||
+      keys.some((key, index) => key !== semanticJobPayloadKeys[index]) ||
+      decoded.get(1) !== E2EE_SUITE_ID ||
+      decoded.get(2) !== "semantic-job"
+    ) {
+      fail();
+    }
+    return {
+      resourceId: exactBytes(decoded.get(3), ID_BYTES),
+      operation: scopeText(decoded.get(4)),
+      provider: scopeText(decoded.get(5)),
+      body: boundedBytes(
+        decoded.get(6),
+        E2EE_SIZE_LIMITS.jobPayloadBytes,
+        true,
+      ),
+    };
+  } catch {
+    return fail();
+  }
 }
 
 function common(

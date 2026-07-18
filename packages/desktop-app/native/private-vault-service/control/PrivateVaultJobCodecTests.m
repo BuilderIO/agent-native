@@ -43,10 +43,29 @@ int main(void) {
                                    recipientBoxSeed) == ANC_PV_CRYPTO_OK);
 
     AncPrivateVaultJobCodecStatus status;
+    NSData *semantic = Hex(@"a60166616e632f7631026c73656d616e7469632d6a6f620350090909090909090909090909090909090464726561640567636f6e74656e740658197b22616374696f6e223a226765742d646f63756d656e74227d");
+    AncPrivateVaultSemanticJobPayload *semanticPayload =
+        AncPrivateVaultDecodeSemanticJobPayload(semantic, &status);
+    assert(status == AncPrivateVaultJobCodecStatusOK && semanticPayload != nil &&
+           [semanticPayload.resourceId isEqualToData:Pattern(0x09, 16)] &&
+           [semanticPayload.operation isEqualToString:@"read"] &&
+           [semanticPayload.provider isEqualToString:@"content"] &&
+           [semanticPayload.body isEqualToData:
+               [@"{\"action\":\"get-document\"}"
+                   dataUsingEncoding:NSUTF8StringEncoding]]);
     AncPrivateVaultOpenedJob *opened = AncPrivateVaultOpenJobEnvelope(
         job, Pattern(0x01, 16), Pattern(0x06, 16), Pattern(0x03, 16),
         1721111200, signingPublic, senderBoxPublic, recipientBoxPrivate, &status);
     assert(status == AncPrivateVaultJobCodecStatusOK && opened != nil);
+    AncPrivateVaultJobCoordinates *coordinates =
+        AncPrivateVaultInspectJobEnvelope(job, Pattern(0x01, 16),
+                                          Pattern(0x06, 16),
+                                          Pattern(0x03, 16), &status);
+    assert(status == AncPrivateVaultJobCodecStatusOK && coordinates != nil &&
+           [coordinates.grantRef isEqualToData:
+               Hex(@"76841ff39e85522ccfe9eb53ed39925d615f5997cfbb8f3f71e10b22eec0f824")] &&
+           coordinates.issuedAt == 1721111111 &&
+           coordinates.expiresAt == 1721111711);
     assert([[[NSString alloc] initWithData:opened.payload
                                   encoding:NSUTF8StringEncoding]
         isEqualToString:@"synthetic encrypted job request"]);

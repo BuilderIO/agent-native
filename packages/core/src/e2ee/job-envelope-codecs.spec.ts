@@ -7,6 +7,8 @@ import {
 } from "./canonical.js";
 import {
   AncV1JobEnvelopeError,
+  decodeAncV1SemanticJobPayload,
+  encodeAncV1SemanticJobPayload,
   openAncV1JobEnvelope,
   openAncV1ResultEnvelope,
   parseAncV1ResultEnvelopeCoordinates,
@@ -47,6 +49,38 @@ async function fixture() {
 }
 
 describe("anc/v1 encrypted job envelopes", () => {
+  it("round-trips only a strict semantic resource, operation, provider, and body", () => {
+    const encoded = encodeAncV1SemanticJobPayload({
+      resourceId: p(0x09, 16),
+      operation: "read",
+      provider: "content",
+      body: text('{"action":"get-document"}'),
+    });
+    expect(Buffer.from(encoded).toString("hex")).toBe(
+      "a60166616e632f7631026c73656d616e7469632d6a6f620350090909090909090909090909090909090464726561640567636f6e74656e740658197b22616374696f6e223a226765742d646f63756d656e74227d",
+    );
+    expect(decodeAncV1SemanticJobPayload(encoded)).toEqual({
+      resourceId: p(0x09, 16),
+      operation: "read",
+      provider: "content",
+      body: text('{"action":"get-document"}'),
+    });
+
+    const extra = map(encoded);
+    extra.set(7, "hosted-override");
+    expect(() =>
+      decodeAncV1SemanticJobPayload(encodeAncV1Canonical(extra)),
+    ).toThrow(AncV1JobEnvelopeError);
+    expect(() =>
+      encodeAncV1SemanticJobPayload({
+        resourceId: p(0x09, 16),
+        operation: "read\nadmin",
+        provider: "content",
+        body: new Uint8Array(),
+      }),
+    ).toThrow(AncV1JobEnvelopeError);
+  });
+
   it("binds job identity, grant, recipient, lifetime, and exact signed bytes", async () => {
     const f = await fixture();
     const encoded = await sealAncV1JobEnvelope({
