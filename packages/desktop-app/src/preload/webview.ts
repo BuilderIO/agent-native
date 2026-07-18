@@ -11,6 +11,8 @@ import {
   type DesktopContentFilesFolderRequest,
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
+  type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultResumeGenesisResult,
   type DesktopPlanFilesChooseFolderRequest,
   type DesktopPlanFilesClearFolderRequest,
   type DesktopPlanFilesFolderRequest,
@@ -94,6 +96,12 @@ const agentNativeDesktop = {
       request?: DesktopContentFilesClearFolderRequest,
     ): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER, request),
+  },
+  privateVault: {
+    createGenesis: (): Promise<DesktopPrivateVaultCreateGenesisResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_CREATE_GENESIS),
+    resumeGenesis: (): Promise<DesktopPrivateVaultResumeGenesisResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS),
   },
 };
 

@@ -159,6 +159,7 @@ import {
 import { registerAppsIpc } from "./ipc/apps";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerContentPrivateVaultIpc } from "./ipc/content-private-vault";
 import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
@@ -169,6 +170,7 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -5707,6 +5709,27 @@ function isContentFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
   );
 }
 
+const privateVaultContentGenesisRuntime =
+  createPrivateVaultContentGenesisRuntime();
+
+function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
+  if (!isContentFilesWebviewSender(event)) return null;
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  const origin = contentApp ? getAppOrigin(contentApp) : null;
+  if (!origin) return null;
+  try {
+    if (new URL(origin).protocol !== "https:") return null;
+    return privateVaultContentGenesisRuntime.coordinator({
+      session: event.sender.session,
+      origin,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function requireContentFilesWebviewAccess(
   event: IpcMainInvokeEvent,
 ): DesktopContentFilesResult | null {
@@ -7868,6 +7891,12 @@ registerContentFilesIpc({
   readContentFilesForRequest,
   revealContentFileForRequest,
   clearContentFilesGrant,
+});
+
+// The webview can only request the fixed native ceremony. It cannot provide
+// recovery text, candidate bytes, account coordinates, paths, or endpoints.
+registerContentPrivateVaultIpc({
+  coordinatorForEvent: contentPrivateVaultCoordinatorForEvent,
 });
 
 // ---------- IPC: Frame settings ----------

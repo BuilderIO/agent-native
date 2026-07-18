@@ -43,7 +43,10 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
             strcmp(key, "requestId") != 0 && strcmp(key, "vaultId") != 0 &&
             strcmp(key, "recoveryConfirmation") != 0 &&
             strcmp(key, "bootstrapTranscript") != 0 &&
-            strcmp(key, "authorization") != 0) {
+            strcmp(key, "authorization") != 0 &&
+            strcmp(key, "lookupId") != 0 &&
+            strcmp(key, "recoveryMnemonic") != 0 &&
+            strcmp(key, "challenge") != 0 && strcmp(key, "receipt") != 0) {
             allowed = false;
             return false;
         }
@@ -129,12 +132,22 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
 
     bool resumeRotation = strcmp(operation, "resume_rotation") == 0;
     bool commitGenesis = strcmp(operation, "commit_genesis") == 0;
+    bool prepareGenesis = strcmp(operation, "prepare_genesis") == 0;
+    bool confirmGenesis = strcmp(operation, "confirm_genesis") == 0;
+    bool listGenesis = strcmp(operation, "list_genesis") == 0;
+    bool inspectAdmission = strcmp(operation, "inspect_admit") == 0;
+    bool authorizeAdmission = strcmp(operation, "authorize_admit") == 0;
+    bool acceptAdmission = strcmp(operation, "accept_admit") == 0;
+    bool finalizeGenesis = strcmp(operation, "finalize_genesis") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
-        !resumeRotation && !commitGenesis) {
+        !resumeRotation && !commitGenesis && !prepareGenesis &&
+        !confirmGenesis && !listGenesis && !inspectAdmission &&
+        !authorizeAdmission && !acceptAdmission && !finalizeGenesis) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
+    xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
     if (resumeRotation) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
@@ -157,7 +170,50 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                                &request->authorizationLength)) {
             return PVRequestInvalid;
         }
-    } else if (fieldCount != 3 || vaultIDValue != NULL) {
+    } else if (confirmGenesis) {
+        if (fieldCount != 5 || vaultIDValue != NULL || lookupIDValue == NULL ||
+            xpc_get_type(lookupIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "lookupId")) ||
+            !PVReadBoundedData(message, "recoveryMnemonic",
+                               PV_GENESIS_MNEMONIC_MAXIMUM_BYTES,
+                               &request->recoveryMnemonic,
+                               &request->recoveryMnemonicLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (inspectAdmission || authorizeAdmission) {
+        if (fieldCount != 5 || vaultIDValue != NULL || lookupIDValue == NULL ||
+            xpc_get_type(lookupIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "lookupId")) ||
+            !PVReadBoundedData(message, "challenge",
+                               PV_GENESIS_CHALLENGE_MAXIMUM_BYTES,
+                               &request->challenge,
+                               &request->challengeLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (acceptAdmission) {
+        if (fieldCount != 6 || vaultIDValue != NULL || lookupIDValue == NULL ||
+            xpc_get_type(lookupIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "lookupId")) ||
+            !PVReadBoundedData(message, "challenge",
+                               PV_GENESIS_CHALLENGE_MAXIMUM_BYTES,
+                               &request->challenge,
+                               &request->challengeLength) ||
+            !PVReadBoundedData(message, "receipt",
+                               PV_GENESIS_RECEIPT_MAXIMUM_BYTES,
+                               &request->receipt, &request->receiptLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (finalizeGenesis) {
+        if (fieldCount != 5 || vaultIDValue != NULL || lookupIDValue == NULL ||
+            xpc_get_type(lookupIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "lookupId")) ||
+            !PVReadBoundedData(message, "receipt",
+                               PV_GENESIS_RECEIPT_MAXIMUM_BYTES,
+                               &request->receipt, &request->receiptLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (fieldCount != 3 || vaultIDValue != NULL ||
+               lookupIDValue != NULL) {
         return PVRequestInvalid;
     }
 
@@ -165,6 +221,11 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->requestID = requestID;
     request->vaultID =
         resumeRotation ? xpc_dictionary_get_string(message, "vaultId") : NULL;
+    request->lookupID =
+        confirmGenesis || inspectAdmission || authorizeAdmission ||
+                acceptAdmission || finalizeGenesis
+            ? xpc_dictionary_get_string(message, "lookupId")
+            : NULL;
     return PVRequestValid;
 }
 

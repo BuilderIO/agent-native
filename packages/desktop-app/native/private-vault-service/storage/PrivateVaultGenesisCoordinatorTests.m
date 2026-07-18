@@ -1041,7 +1041,7 @@ static int PreparationCases(void) {
             AncPrivateVaultCustodyRepositoryStatusNotFound &&
         custodyHandle == nil);
   AncPrivateVaultGenesisCoordinatorResult *officialResult = nil;
-  CHECK([coordinator confirmPreparationHandle:prepared.preparationHandle
+  CHECK([coordinator confirmPreparationLookupId:lookup
                      confirmedRecoveryEntropy:expectedEntropy
                                       result:&officialResult] ==
             AncPrivateVaultGenesisCoordinatorStatusOK &&
@@ -1103,6 +1103,16 @@ static int PreparationCases(void) {
             admissionChallenge, admissionCandidate, clock.value,
             &decodedAdmissionStatus) != nil &&
         decodedAdmissionStatus == AncPrivateVaultGenesisAdmissionStatusOK);
+  NSString *inspectedAccountId = nil;
+  NSString *inspectedWorkspaceId = nil;
+  CHECK([coordinator inspectGenesisAdmissionLookupId:lookup
+                                          challenge:admissionChallenge
+                                          accountId:&inspectedAccountId
+                                        workspaceId:&inspectedWorkspaceId] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        [inspectedAccountId isEqualToString:@"account:test-user-0001"] &&
+        [inspectedWorkspaceId
+            isEqualToString:@"workspace:test-content-0001"]);
   AncPrivateVaultGenesisAdmissionAuthorizationResult *admissionAuthorization =
       nil;
   AncPrivateVaultGenesisCoordinatorStatus admissionAuthorizationStatus =

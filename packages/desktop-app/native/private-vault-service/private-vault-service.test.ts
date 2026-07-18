@@ -55,6 +55,21 @@ describe("Private Vault XPC service contract", () => {
     expect(protocol).toContain("PV_MAXIMUM_REQUEST_ID_BYTES");
     expect(protocol).toContain('strcmp(operation, "health")');
     expect(protocol).toContain('strcmp(operation, "lock")');
+    for (const operation of [
+      "prepare_genesis",
+      "confirm_genesis",
+      "list_genesis",
+      "inspect_admit",
+      "authorize_admit",
+      "accept_admit",
+      "finalize_genesis",
+    ]) {
+      expect(protocol).toContain(`strcmp(operation, "${operation}")`);
+      expect(source).toContain(`strcmp(request.operation, "${operation}")`);
+    }
+    expect(protocol).toContain("PV_GENESIS_MNEMONIC_MAXIMUM_BYTES");
+    expect(protocol).toContain("PV_GENESIS_CHALLENGE_MAXIMUM_BYTES");
+    expect(protocol).toContain("PV_GENESIS_RECEIPT_MAXIMUM_BYTES");
     expect(source).toContain('"invalid_request"');
     expect(source).toContain('"unsupported_version"');
     expect(source).toContain('"unsupported_operation"');
@@ -92,7 +107,9 @@ describe("Private Vault XPC service contract", () => {
 
   it("retries consumed rotation artifacts through the durable native-only boundary", () => {
     expect(source).toContain("markPendingVaultId:vaultBytes");
-    expect(source).toContain("gHostedAppendRetry admitResumedVaultId:vaultBytes");
+    expect(source).toContain(
+      "gHostedAppendRetry admitResumedVaultId:vaultBytes",
+    );
     expect(source).toContain("gHostedAppendRetry wake");
     expect(source).toContain('"rotationAckState"');
     expect(source.indexOf("resumeVaultId:vaultID")).toBeLessThan(

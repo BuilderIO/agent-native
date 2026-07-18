@@ -41,7 +41,7 @@ describe("Private Vault native service client", () => {
   it("normalizes the exact health and lock service contracts", async () => {
     await expect(
       clientFor({
-        version: 2,
+        version: 3,
         operation: "health",
         state: "locked",
         available: true,
@@ -58,7 +58,7 @@ describe("Private Vault native service client", () => {
       rotationAckState: "idle",
     });
     await expect(
-      clientFor({ version: 2, operation: "lock", state: "locked" }).lock(),
+      clientFor({ version: 3, operation: "lock", state: "locked" }).lock(),
     ).resolves.toEqual({
       version: 1,
       suite: "anc/v1",
@@ -70,7 +70,7 @@ describe("Private Vault native service client", () => {
   it("binds rotation resume to one exact vault and proof tuple", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const request = vi.fn(async () => ({
-      version: 2,
+      version: 3,
       operation: "resume_rotation",
       state: "consumed",
       vaultId,
@@ -109,7 +109,7 @@ describe("Private Vault native service client", () => {
       const malformed = createPrivateVaultNativeServiceClientForTest(
         async () => ({
           request: vi.fn(async () => ({
-            version: 2,
+            version: 3,
             operation: "resume_rotation",
             state: "consumed",
             vaultId,
@@ -145,7 +145,7 @@ describe("Private Vault native service client", () => {
     const request = vi.fn(async () => {
       await gate;
       return {
-        version: 2,
+        version: 3,
         operation: "commit_genesis",
         state: "committed",
         ...publicProof,
@@ -235,7 +235,7 @@ describe("Private Vault native service client", () => {
       { extra: true },
     ]) {
       const hostileReply = clientFor({
-        version: 2,
+        version: 3,
         operation: "commit_genesis",
         state: "committed",
         ...publicProof,
@@ -252,7 +252,7 @@ describe("Private Vault native service client", () => {
     }
 
     const exactMaximumRequest = vi.fn(async () => ({
-      version: 2,
+      version: 3,
       operation: "commit_genesis",
       state: "committed",
       ...publicProof,
@@ -275,19 +275,151 @@ describe("Private Vault native service client", () => {
     expect(exactMaximumRequest).toHaveBeenCalledTimes(3);
   });
 
+  it("exposes only public genesis and admission artifacts to the main process", async () => {
+    const lookupId = "11".repeat(16);
+    const vaultId = "22".repeat(16);
+    const endpointId = "33".repeat(16);
+    const candidate = Uint8Array.from([0xa1, 1, 2]);
+    const observed: Array<{ operation: string; bytes: number[][] }> = [];
+    const request = vi.fn(
+      async (operation: string, ...arguments_: unknown[]) => {
+        observed.push({
+          operation,
+          bytes: arguments_
+            .filter((value): value is Buffer => Buffer.isBuffer(value))
+            .map((value) => [...value]),
+        });
+        if (operation === "create_genesis") {
+          return {
+            version: 3,
+            operation,
+            state: "committed",
+            lookupId,
+            vaultId,
+            candidate: Buffer.from(candidate),
+          };
+        }
+        if (operation === "list_genesis") {
+          return {
+            version: 3,
+            operation,
+            state: "pending",
+            candidates: [
+              { lookupId, vaultId, candidate: Buffer.from(candidate) },
+            ],
+          };
+        }
+        if (operation === "authorize_admit" || operation === "accept_admit") {
+          return {
+            version: 3,
+            operation,
+            state: operation === "authorize_admit" ? "authorized" : "accepted",
+            accountId: "account:test-user-0001",
+            workspaceId: "workspace:test-content-0001",
+            vaultId,
+            endpointId,
+            proofHeader: "proof_header_1",
+            body: Buffer.from([0xa1, 3, 4]),
+          };
+        }
+        return {
+          version: 3,
+          operation: "finalize_genesis",
+          state: "cleaned",
+          lookupId,
+        };
+      },
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    await expect(client.beginTrustedGenesis()).resolves.toEqual({
+      lookupId,
+      candidate,
+    });
+    await expect(client.listPendingGenesis()).resolves.toEqual([
+      { lookupId, candidate },
+    ]);
+    const challenge = Uint8Array.from([1, 2, 3]);
+    await expect(
+      client.authorizeAdmission({ lookupId, challenge }),
+    ).resolves.toEqual({
+      body: Uint8Array.from([0xa1, 3, 4]),
+      proofHeader: "proof_header_1",
+    });
+    const receipt = Uint8Array.from([4, 5, 6]);
+    await expect(
+      client.acceptAdmissionReceipt({ lookupId, challenge, receipt }),
+    ).resolves.toEqual({
+      accountId: "account:test-user-0001",
+      workspaceId: "workspace:test-content-0001",
+      vaultId,
+      body: Uint8Array.from([0xa1, 3, 4]),
+      proofHeader: "proof_header_1",
+    });
+    await expect(
+      client.finalizeHostedAppend({ lookupId, receipt }),
+    ).resolves.toBeUndefined();
+
+    expect(observed).toEqual([
+      { operation: "create_genesis", bytes: [] },
+      { operation: "list_genesis", bytes: [] },
+      { operation: "authorize_admit", bytes: [[1, 2, 3]] },
+      {
+        operation: "accept_admit",
+        bytes: [
+          [1, 2, 3],
+          [4, 5, 6],
+        ],
+      },
+      { operation: "finalize_genesis", bytes: [[4, 5, 6]] },
+    ]);
+    expect(JSON.stringify(observed)).not.toMatch(/recovery|mnemonic|entropy/);
+  });
+
+  it("rejects malformed public genesis replies and oversized ceremony inputs", async () => {
+    const lookupId = "11".repeat(16);
+    const malformed = clientFor({
+      version: 3,
+      operation: "create_genesis",
+      state: "committed",
+      lookupId,
+      vaultId: "22".repeat(16),
+      candidate: Buffer.from([1]),
+      recoveryMnemonic: "forbidden",
+    });
+    await expect(malformed.beginTrustedGenesis()).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    await expect(
+      malformed.authorizeAdmission({
+        lookupId,
+        challenge: new Uint8Array(2049),
+      }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    await expect(
+      malformed.acceptAdmissionReceipt({
+        lookupId,
+        challenge: Uint8Array.of(1),
+        receipt: new Uint8Array(2049),
+      }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+  });
+
   it("fails closed for unavailable, malformed, oversized, or unknown replies", async () => {
     const hostileValues = [
       null,
-      { version: 2, operation: "health", state: "locked", available: false },
+      { version: 3, operation: "health", state: "locked", available: false },
       {
-        version: 2,
+        version: 3,
         operation: "health",
         state: "locked",
         available: true,
         vaultId: "forbidden",
       },
       {
-        version: 2,
+        version: 3,
         operation: "health",
         state: "x".repeat(10_000),
         available: true,
@@ -328,14 +460,14 @@ describe("Private Vault native service client", () => {
         if (operation === "health") {
           await healthGate;
           return {
-            version: 2,
+            version: 3,
             operation: "health",
             state: "locked",
             available: true,
             rotationAckState: "retrying",
           };
         }
-        return { version: 2, operation: "lock", state: "locked" };
+        return { version: 3, operation: "lock", state: "locked" };
       },
     );
     const client = createPrivateVaultNativeServiceClientForTest(async () => ({
@@ -414,6 +546,13 @@ describe("Private Vault native service client", () => {
     );
     expect(nativeSource).not.toContain("listVaultIds");
     expect(wrapperSource).not.toContain("resume_pending_genesis");
+    expect(nativeSource).toContain("PVTrustedGenesisCollectFullPhrase");
+    expect(nativeSource).toContain("PVTrustedGenesisConfirmAdmission");
+    expect(nativeSource).not.toMatch(
+      /PVSet(Buffer|String)[^\n]*recoveryMnemonic/,
+    );
+    expect(wrapperSource).not.toContain("recoveryMnemonic");
+    expect(buildSource).toContain("-framework AppKit");
   });
 
   it("keeps Electron as the XPC peer and never trusts caller metadata", () => {
@@ -536,5 +675,5 @@ describe("Private Vault native service client", () => {
         );
       }
     }
-  });
+  }, 30_000);
 });

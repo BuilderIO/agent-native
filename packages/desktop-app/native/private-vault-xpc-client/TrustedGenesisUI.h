@@ -1,0 +1,14 @@
+#ifndef AGENT_NATIVE_PRIVATE_VAULT_TRUSTED_GENESIS_UI_H
+#define AGENT_NATIVE_PRIVATE_VAULT_TRUSTED_GENESIS_UI_H
+
+#include <cstdint>
+#include <vector>
+
+bool PVTrustedGenesisCollectFullPhrase(
+    const std::vector<uint8_t> &recoveryPhrase,
+    std::vector<uint8_t> &confirmedPhrase);
+
+bool PVTrustedGenesisConfirmAdmission(const char *accountID,
+                                      const char *workspaceID);
+
+#endif

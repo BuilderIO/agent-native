@@ -1511,6 +1511,80 @@ static BOOL CopyPreparationSecrets(
 }
 
 - (AncPrivateVaultGenesisCoordinatorStatus)
+    confirmPreparationLookupId:(NSData *)lookupId
+        confirmedRecoveryEntropy:
+            (AncPrivateVaultGuardedMemory *)confirmedRecoveryEntropy
+                      result:(AncPrivateVaultGenesisCoordinatorResult **)result {
+  if (result != NULL)
+    *result = nil;
+  if (self.preparationStore == nil ||
+      !ImmutableFoundationData(lookupId, 16, 16) ||
+      confirmedRecoveryEntropy == nil ||
+      object_getClass(confirmedRecoveryEntropy) !=
+          AncPrivateVaultGuardedMemory.class ||
+      confirmedRecoveryEntropy.length != ANC_PV_RECOVERY_ENTROPY_BYTES ||
+      confirmedRecoveryEntropy.isClosed)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t lookupBytes[16] = {0};
+  [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationSecretsHandle *secrets = nil;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readLookupId:lookupBytes
+                                  length:sizeof lookupBytes
+                                snapshot:&snapshot
+                             secretHandle:&secrets];
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK ||
+      snapshot.phase != ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED ||
+      secrets == nil) {
+    (void)[secrets close];
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return read == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisCoordinatorStatusConflict
+               : PreparationStatus(read);
+  }
+  uint8_t handle[ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES] = {0};
+  uint8_t *handlePointer = handle;
+  __block BOOL reconstructed = NO;
+  AncPrivateVaultGenesisPreparationStoreStatus borrowed =
+      [secrets borrow:^BOOL(
+                   const AncPrivateVaultGenesisPreparationSecretInputs *inputs) {
+        reconstructed = inputs != NULL && inputs->local_state_key != NULL &&
+                        DerivePreparationHandle(&snapshot,
+                                                inputs->local_state_key,
+                                                handlePointer) &&
+                        anc_pv_genesis_preparation_handle_verify(
+                            handlePointer, sizeof handle,
+                            snapshot.preparation_lookup_id,
+                            snapshot.handle_digest);
+        return reconstructed;
+      }];
+  AncPrivateVaultGenesisPreparationStoreStatus closed = [secrets close];
+  AncPrivateVaultGuardedMemory *handleMemory =
+      borrowed == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+              closed == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+              reconstructed
+          ? GuardedCopy(handle, sizeof handle)
+          : nil;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+  anc_pv_zeroize(handle, sizeof handle);
+  if (handleMemory == nil)
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  AncPrivateVaultGenesisCoordinatorStatus confirmed =
+      [self confirmPreparationHandle:handleMemory
+            confirmedRecoveryEntropy:confirmedRecoveryEntropy
+                             result:result];
+  if ([handleMemory close] != AncPrivateVaultGuardedMemoryStatusOK) {
+    if (result != NULL)
+      *result = nil;
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  }
+  return confirmed;
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
     cancelPreparationHandle:(AncPrivateVaultGuardedMemory *)handleMemory {
   if (self.preparationStore == nil || handleMemory == nil ||
       object_getClass(handleMemory) != AncPrivateVaultGuardedMemory.class ||
@@ -1963,6 +2037,42 @@ static BOOL CopyPreparationSecrets(
     [results addObject:candidate];
   }
   *candidates = [results copy];
+  return AncPrivateVaultGenesisCoordinatorStatusOK;
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    inspectGenesisAdmissionLookupId:(NSData *)lookupId
+                          challenge:(NSData *)challengeBytes
+                          accountId:(NSString **)accountId
+                        workspaceId:(NSString **)workspaceId {
+  if (accountId != NULL)
+    *accountId = nil;
+  if (workspaceId != NULL)
+    *workspaceId = nil;
+  if (accountId == NULL || workspaceId == NULL ||
+      !ImmutableFoundationData(challengeBytes, NSNotFound,
+                               ANC_PV_GENESIS_ADMISSION_CHALLENGE_MAX_BYTES))
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  AncPrivateVaultGenesisAdmissionCandidateResult *candidate = nil;
+  AncPrivateVaultGenesisCoordinatorStatus candidateStatus =
+      [self admissionCandidateLookupId:lookupId result:&candidate];
+  if (candidateStatus != AncPrivateVaultGenesisCoordinatorStatusOK ||
+      candidate == nil)
+    return candidateStatus;
+  uint64_t now = 0;
+  if (![self.trustedClock readNowMilliseconds:&now] || now == 0 ||
+      now > kMaximumSafeInteger)
+    return AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+  AncPrivateVaultGenesisAdmissionStatus admissionStatus;
+  AncPrivateVaultGenesisAdmissionChallenge *challenge =
+      AncPrivateVaultGenesisAdmissionChallengeDecode(
+          challengeBytes, candidate.candidate, now, &admissionStatus);
+  if (challenge == nil)
+    return admissionStatus == AncPrivateVaultGenesisAdmissionStatusExpired
+               ? AncPrivateVaultGenesisCoordinatorStatusAuthorizationFailed
+               : AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  *accountId = [challenge.accountId copy];
+  *workspaceId = [challenge.workspaceId copy];
   return AncPrivateVaultGenesisCoordinatorStatusOK;
 }
 

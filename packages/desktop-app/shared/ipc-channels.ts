@@ -56,6 +56,10 @@ export const IPC = {
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
 
+  /** Trusted Content Private Vault ceremony (Content webview -> main/native UI) */
+  CONTENT_PRIVATE_VAULT_CREATE_GENESIS: "content-private-vault:create-genesis",
+  CONTENT_PRIVATE_VAULT_RESUME_GENESIS: "content-private-vault:resume-genesis",
+
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
@@ -310,6 +314,20 @@ export type DesktopContentFilesResult =
       folder?: DesktopContentFilesFolder;
       folders?: DesktopContentFilesFolder[];
     };
+
+export interface DesktopPrivateVaultGenesisIdentity {
+  vaultId: string;
+  accountId: string;
+  workspaceId: string;
+}
+
+export type DesktopPrivateVaultCreateGenesisResult =
+  | ({ ok: true } & DesktopPrivateVaultGenesisIdentity)
+  | { ok: false; error: string };
+
+export type DesktopPrivateVaultResumeGenesisResult =
+  | { ok: true; vaults: DesktopPrivateVaultGenesisIdentity[] }
+  | { ok: false; error: string };
 
 export type CodeAgentRunStatus =
   | "queued"

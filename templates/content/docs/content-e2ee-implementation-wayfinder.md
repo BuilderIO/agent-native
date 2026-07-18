@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, and account-authorized first-device genesis foundations have executable proof; trusted UI/XPC integration, the broker, and the product slice remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, and an account-authorized first-device genesis through trusted native UI and narrow Content IPC have executable proof; recoverable-wrap persistence, the complete broker, and the product slice remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -584,10 +584,10 @@ local rollback domain. They cannot detect a coordinated restore of both frames
 to the same older valid snapshot; that stronger claim requires the planned
 remote or hardware monotonic witness and remains a release gate.
 
-This still does not close PR 5: the trusted confirmation UI and XPC surface,
-persistence of the actual recoverable epoch wrap, complete enrollment and
-recovery product flows, malicious-directory and stolen-session transcripts,
-and the independently packageable broker exit gate remain.
+This still does not close PR 5: persistence of the actual recoverable epoch
+wrap, complete enrollment and recovery product flows, malicious-directory and
+stolen-session transcripts, and the independently packageable broker exit gate
+remain.
 
 Committed local cleanup now has its own protocol-confusion-resistant
 `control-log-genesis-append-*` canonical request and receipt rather than
@@ -639,9 +639,32 @@ redirects, enforces exact media types and content lengths, omits credentials
 from append, collapses errors, and resumes only native-reported COMMITTED
 ceremonies. Recovery words, entropy, signing seeds, and endpoint private keys
 are absent from the TypeScript interface. Seven focused orchestration and
-transport tests plus the desktop typecheck pass. This is not yet reachable
-from renderer code: the signed XPC/addon and trusted native confirmation UI are
-the next gate.
+transport tests plus the desktop typecheck pass.
+
+The signed XPC/addon and trusted confirmation gate are now connected. Protocol
+v3 exposes seven exact, bounded genesis operations to the signed addon; the
+preparation response carrying the recovery phrase is accepted only over the
+code-signature-pinned XPC connection. A native AppKit ceremony displays the
+24-word phrase, requires an explicit saved acknowledgement and complete
+re-entry, and passes the typed bytes directly back to XPC without returning the
+phrase to JavaScript. Admission separately displays the server-validated
+account and workspace and requires a native Connect Vault confirmation before
+the endpoint signs. The addon returns only public lookup, candidate, proof,
+receipt, vault, account, and workspace artifacts and clears its bounded secret
+buffers.
+
+Content's desktop webview now has only two no-argument IPC methods: create and
+resume. The main process rejects every renderer-supplied argument, reuses the
+existing active-Content-webview origin check, requires the configured Content
+origin to be HTTPS, binds transport to that Electron session, and collapses all
+denial and ceremony failures. The webview cannot provide recovery text,
+candidate bytes, account coordinates, paths, endpoints, or arbitrary native
+operations. Twenty-two focused bridge, orchestration, transport, and addon
+tests, protocol tests, the complete arm64 coordinator ceremony, the production
+arm64 service build, universal addon load, and desktop typecheck pass. This
+closes the trusted confirmation UI/XPC reachability checkpoint; it does not yet
+make a recoverable product vault because the authoritative recovery wrap and
+the remaining broker flows are still absent.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

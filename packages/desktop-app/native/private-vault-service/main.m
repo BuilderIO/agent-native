@@ -11,6 +11,7 @@
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultControlLog.h"
 #import "PrivateVaultGenesisBootstrap.h"
+#import "PrivateVaultGenesisAccountAdmission.h"
 #import "PrivateVaultKeychain.h"
 #import "PrivateVaultGenesisArtifactStore.h"
 #import "PrivateVaultGenesisCoordinator.h"
@@ -28,6 +29,7 @@
 #import "PrivateVaultHostedAppendRetryStore.h"
 #import "PrivateVaultHostedAppendTransport.h"
 #import "PrivateVaultTrustedTimeStore.h"
+#import "PrivateVaultMnemonic.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -130,6 +132,27 @@ static void PVSendError(xpc_connection_t peer, xpc_object_t message,
     xpc_dictionary_set_bool(reply, "ok", false);
     xpc_dictionary_set_string(reply, "error", code);
     xpc_connection_send_message(peer, reply);
+}
+
+static xpc_object_t PVCreateReply(xpc_object_t message,
+                                  const PVRequest *request) {
+    xpc_object_t reply = xpc_dictionary_create_reply(message);
+    if (reply != NULL) {
+        xpc_dictionary_set_int64(reply, "version", PV_PROTOCOL_VERSION);
+        xpc_dictionary_set_bool(reply, "ok", true);
+        xpc_dictionary_set_string(reply, "requestId", request->requestID);
+    }
+    return reply;
+}
+
+static NSData *PVLookupIDData(const char *lookupID) {
+    uint8_t bytes[16] = {0};
+    if (!PVDecodeVaultID(lookupID, bytes)) {
+        return nil;
+    }
+    NSData *result = [NSData dataWithBytes:bytes length:sizeof bytes];
+    memset(bytes, 0, sizeof bytes);
+    return result;
 }
 
 static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
@@ -242,6 +265,308 @@ static void PVCommitGenesis(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVPrepareGenesis(xpc_connection_t peer, xpc_object_t message,
+                             const PVRequest *request) {
+    @autoreleasepool {
+        AncPrivateVaultGenesisPreparationResult *prepared = nil;
+        if (gGenesisCoordinator == nil ||
+            [gGenesisCoordinator prepareWithResult:&prepared] !=
+                AncPrivateVaultGenesisCoordinatorStatusOK ||
+            prepared == nil) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        __block NSData *lookupID = nil;
+        __block xpc_object_t reply = PVCreateReply(message, request);
+        __block bool copied = reply != NULL;
+        if (copied) {
+            copied = [prepared.preparationHandle
+                         borrow:^BOOL(uint8_t *bytes, size_t length) {
+                if (length != ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES)
+                    return NO;
+                lookupID = [NSData dataWithBytes:bytes length:16];
+                return lookupID.length == 16;
+            }] == AncPrivateVaultGuardedMemoryStatusOK;
+        }
+        NSString *lookupHex = copied ? PVVaultIDHex(lookupID) : nil;
+        if (copied && lookupHex.length == 32) {
+            copied = [prepared.recoveryMnemonic
+                         borrow:^BOOL(uint8_t *bytes, size_t length) {
+                if (length == 0 ||
+                    length > ANC_PV_MNEMONIC_MAX_CANONICAL_UTF8_BYTES)
+                    return NO;
+                xpc_dictionary_set_data(reply, "recoveryMnemonic", bytes,
+                                        length);
+                return true;
+            }] == AncPrivateVaultGuardedMemoryStatusOK;
+        } else {
+            copied = false;
+        }
+        if (copied) {
+            xpc_dictionary_set_string(reply, "state", "prepared");
+            xpc_dictionary_set_string(reply, "lookupId", lookupHex.UTF8String);
+            xpc_dictionary_set_string(reply, "vaultId",
+                                      prepared.vaultId.UTF8String);
+            xpc_dictionary_set_uint64(reply, "expiresAtMs",
+                                      prepared.expiresAtMs);
+        }
+        BOOL closed = [prepared.preparationHandle close] ==
+                          AncPrivateVaultGuardedMemoryStatusOK &&
+                      [prepared.recoveryMnemonic close] ==
+                          AncPrivateVaultGuardedMemoryStatusOK;
+        if (!copied || !closed) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static AncPrivateVaultGenesisAdmissionCandidateResult *
+PVAdmissionCandidate(NSData *lookupID) {
+    NSArray<AncPrivateVaultGenesisAdmissionCandidateResult *> *candidates = nil;
+    if ([gGenesisCoordinator
+            listPendingGenesisAdmissionCandidates:&candidates] !=
+        AncPrivateVaultGenesisCoordinatorStatusOK)
+        return nil;
+    for (AncPrivateVaultGenesisAdmissionCandidateResult *candidate in
+         candidates) {
+        if ([candidate.lookupId isEqualToData:lookupID])
+            return candidate;
+    }
+    return nil;
+}
+
+static void PVConfirmGenesis(xpc_connection_t peer, xpc_object_t message,
+                             const PVRequest *request) {
+    @autoreleasepool {
+        NSData *lookupID = PVLookupIDData(request->lookupID);
+        NSData *mnemonic = request->recoveryMnemonic == NULL
+                               ? nil
+                               : [NSData dataWithBytesNoCopy:
+                                             (void *)request->recoveryMnemonic
+                                                        length:request
+                                                                   ->recoveryMnemonicLength
+                                                  freeWhenDone:NO];
+        AncPrivateVaultMnemonicStatus mnemonicStatus;
+        AncPrivateVaultGuardedMemory *entropy =
+            mnemonic == nil ? nil
+                            : AncPrivateVaultMnemonicDecode(mnemonic,
+                                                            &mnemonicStatus);
+        AncPrivateVaultGenesisCoordinatorResult *confirmed = nil;
+        AncPrivateVaultGenesisCoordinatorStatus status =
+            entropy == nil || lookupID == nil
+                ? AncPrivateVaultGenesisCoordinatorStatusInvalid
+                : [gGenesisCoordinator
+                      confirmPreparationLookupId:lookupID
+                          confirmedRecoveryEntropy:entropy
+                                           result:&confirmed];
+        BOOL closed = entropy == nil ||
+                      [entropy close] == AncPrivateVaultGuardedMemoryStatusOK;
+        AncPrivateVaultGenesisAdmissionCandidateResult *candidate =
+            status == AncPrivateVaultGenesisCoordinatorStatusOK && closed
+                ? PVAdmissionCandidate(lookupID)
+                : nil;
+        if (candidate == nil || confirmed == nil) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "committed");
+        xpc_dictionary_set_string(reply, "lookupId", request->lookupID);
+        xpc_dictionary_set_string(reply, "vaultId", confirmed.vaultId.UTF8String);
+        xpc_dictionary_set_data(reply, "candidate", candidate.candidate.bytes,
+                                candidate.candidate.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVListGenesis(xpc_connection_t peer, xpc_object_t message,
+                          const PVRequest *request) {
+    @autoreleasepool {
+        NSArray<AncPrivateVaultGenesisAdmissionCandidateResult *> *candidates =
+            nil;
+        if ([gGenesisCoordinator
+                listPendingGenesisAdmissionCandidates:&candidates] !=
+            AncPrivateVaultGenesisCoordinatorStatusOK) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        xpc_object_t values = xpc_array_create(NULL, 0);
+        if (reply == NULL || values == NULL) {
+            return;
+        }
+        bool valid = candidates.count <= 64;
+        for (AncPrivateVaultGenesisAdmissionCandidateResult *candidate in
+             candidates) {
+            NSString *lookupHex = PVVaultIDHex(candidate.lookupId);
+            if (!valid || lookupHex.length != 32 ||
+                candidate.candidate.length == 0 ||
+                candidate.candidate.length >
+                    ANC_PV_GENESIS_ADMISSION_CANDIDATE_MAX_BYTES) {
+                valid = false;
+                break;
+            }
+            xpc_object_t value = xpc_dictionary_create(NULL, NULL, 0);
+            xpc_dictionary_set_string(value, "lookupId", lookupHex.UTF8String);
+            xpc_dictionary_set_string(value, "vaultId",
+                                      candidate.vaultId.UTF8String);
+            xpc_dictionary_set_data(value, "candidate",
+                                    candidate.candidate.bytes,
+                                    candidate.candidate.length);
+            xpc_array_append_value(values, value);
+        }
+        if (!valid) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        xpc_dictionary_set_string(reply, "state", "pending");
+        xpc_dictionary_set_value(reply, "candidates", values);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVInspectAdmission(xpc_connection_t peer, xpc_object_t message,
+                               const PVRequest *request) {
+    @autoreleasepool {
+        NSData *lookupID = PVLookupIDData(request->lookupID);
+        NSData *challenge = request->challenge == NULL
+                                ? nil
+                                : [NSData dataWithBytes:request->challenge
+                                                 length:request->challengeLength];
+        NSString *accountID = nil;
+        NSString *workspaceID = nil;
+        if (lookupID == nil || challenge == nil ||
+            [gGenesisCoordinator
+                inspectGenesisAdmissionLookupId:lookupID
+                                      challenge:challenge
+                                      accountId:&accountID
+                                    workspaceId:&workspaceID] !=
+                AncPrivateVaultGenesisCoordinatorStatusOK) {
+            PVSendError(peer, message, "admission_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "inspected");
+        xpc_dictionary_set_string(reply, "accountId", accountID.UTF8String);
+        xpc_dictionary_set_string(reply, "workspaceId", workspaceID.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVAuthorizeAdmission(xpc_connection_t peer, xpc_object_t message,
+                                 const PVRequest *request) {
+    @autoreleasepool {
+        NSData *lookupID = PVLookupIDData(request->lookupID);
+        NSData *challenge = request->challenge == NULL
+                                ? nil
+                                : [NSData dataWithBytes:request->challenge
+                                                 length:request->challengeLength];
+        AncPrivateVaultGenesisAdmissionAuthorizationResult *authorized = nil;
+        if (lookupID == nil || challenge == nil ||
+            [gGenesisCoordinator
+                authorizeGenesisAdmissionLookupId:lookupID
+                                         challenge:challenge
+                                            result:&authorized] !=
+                AncPrivateVaultGenesisCoordinatorStatusOK ||
+            authorized == nil) {
+            PVSendError(peer, message, "admission_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "authorized");
+        xpc_dictionary_set_string(reply, "accountId",
+                                  authorized.accountId.UTF8String);
+        xpc_dictionary_set_string(reply, "workspaceId",
+                                  authorized.workspaceId.UTF8String);
+        xpc_dictionary_set_string(reply, "vaultId",
+                                  authorized.request.vaultId.UTF8String);
+        xpc_dictionary_set_string(reply, "endpointId",
+                                  authorized.request.endpointId.UTF8String);
+        xpc_dictionary_set_data(reply, "body", authorized.request.body.bytes,
+                                authorized.request.body.length);
+        xpc_dictionary_set_string(reply, "proofHeader",
+                                  authorized.request.proofHeader.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVAcceptAdmission(xpc_connection_t peer, xpc_object_t message,
+                              const PVRequest *request) {
+    @autoreleasepool {
+        NSData *lookupID = PVLookupIDData(request->lookupID);
+        NSData *challenge = request->challenge == NULL
+                                ? nil
+                                : [NSData dataWithBytes:request->challenge
+                                                 length:request->challengeLength];
+        NSData *receipt = request->receipt == NULL
+                              ? nil
+                              : [NSData dataWithBytes:request->receipt
+                                               length:request->receiptLength];
+        AncPrivateVaultGenesisAdmissionAcceptanceResult *accepted = nil;
+        if (lookupID == nil || challenge == nil || receipt == nil ||
+            [gGenesisCoordinator acceptGenesisAdmissionLookupId:lookupID
+                                                       challenge:challenge
+                                                         receipt:receipt
+                                                          result:&accepted] !=
+                AncPrivateVaultGenesisCoordinatorStatusOK ||
+            accepted == nil) {
+            PVSendError(peer, message, "admission_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "accepted");
+        xpc_dictionary_set_string(reply, "accountId",
+                                  accepted.accountId.UTF8String);
+        xpc_dictionary_set_string(reply, "workspaceId",
+                                  accepted.workspaceId.UTF8String);
+        xpc_dictionary_set_string(reply, "vaultId",
+                                  accepted.appendRequest.vaultId.UTF8String);
+        xpc_dictionary_set_string(reply, "endpointId",
+                                  accepted.appendRequest.endpointId.UTF8String);
+        xpc_dictionary_set_data(reply, "body",
+                                accepted.appendRequest.body.bytes,
+                                accepted.appendRequest.body.length);
+        xpc_dictionary_set_string(reply, "proofHeader",
+                                  accepted.appendRequest.proofHeader.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVFinalizeGenesis(xpc_connection_t peer, xpc_object_t message,
+                              const PVRequest *request) {
+    @autoreleasepool {
+        NSData *lookupID = PVLookupIDData(request->lookupID);
+        NSData *receipt = request->receipt == NULL
+                              ? nil
+                              : [NSData dataWithBytes:request->receipt
+                                               length:request->receiptLength];
+        if (lookupID == nil || receipt == nil ||
+            [gGenesisCoordinator
+                finalizeHostedGenesisAppendLookupId:lookupID
+                                             receipt:receipt] !=
+                AncPrivateVaultGenesisCoordinatorStatusOK) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "cleaned");
+        xpc_dictionary_set_string(reply, "lookupId", request->lookupID);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static const char *PVRotationAckState(void) {
     if (gHostedAppendRetry == nil) {
         return "unavailable";
@@ -342,6 +667,34 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "resume_rotation") == 0) {
                 PVResumeRotation(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "prepare_genesis") == 0) {
+                PVPrepareGenesis(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "confirm_genesis") == 0) {
+                PVConfirmGenesis(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "list_genesis") == 0) {
+                PVListGenesis(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "inspect_admit") == 0) {
+                PVInspectAdmission(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "authorize_admit") == 0) {
+                PVAuthorizeAdmission(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "accept_admit") == 0) {
+                PVAcceptAdmission(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "finalize_genesis") == 0) {
+                PVFinalizeGenesis(peer, message, &request);
                 return;
             }
             PVSendSuccess(peer, message, &request);

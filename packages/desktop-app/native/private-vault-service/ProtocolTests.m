@@ -91,6 +91,72 @@ int main(void) {
   assert(PVRequestCanRun(&parsed, true));
   xpc_release(genesis);
 
+  xpc_object_t prepareGenesis = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "prepare_genesis", "request-prepare-genesis");
+  assert(PVParseRequest(prepareGenesis, &parsed) == PVRequestValid);
+  xpc_release(prepareGenesis);
+  xpc_object_t listGenesis = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "list_genesis", "request-list-genesis");
+  assert(PVParseRequest(listGenesis, &parsed) == PVRequestValid);
+  xpc_release(listGenesis);
+
+  const char *lookupID = "11223344556677889900aabbccddeeff";
+  const uint8_t mnemonicBytes[] = "abandon abandon abandon";
+  const uint8_t challengeBytes[] = {0xa1, 0x01, 0x01};
+  const uint8_t receiptBytes[] = {0xa1, 0x01, 0x02};
+  xpc_object_t confirmGenesis = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "confirm_genesis", "request-confirm-genesis");
+  xpc_dictionary_set_string(confirmGenesis, "lookupId", lookupID);
+  xpc_dictionary_set_data(confirmGenesis, "recoveryMnemonic", mnemonicBytes,
+                          sizeof mnemonicBytes - 1);
+  assert(PVParseRequest(confirmGenesis, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.lookupID, lookupID) == 0 &&
+         parsed.recoveryMnemonicLength == sizeof mnemonicBytes - 1);
+  xpc_release(confirmGenesis);
+
+  const char *challengeOperations[] = {"inspect_admit", "authorize_admit"};
+  for (size_t index = 0; index < 2; index += 1) {
+    xpc_object_t challengeRequest =
+        PVMakeRequest(PV_PROTOCOL_VERSION, challengeOperations[index],
+                      "request-admission-challenge");
+    xpc_dictionary_set_string(challengeRequest, "lookupId", lookupID);
+    xpc_dictionary_set_data(challengeRequest, "challenge", challengeBytes,
+                            sizeof challengeBytes);
+    assert(PVParseRequest(challengeRequest, &parsed) == PVRequestValid);
+    assert(strcmp(parsed.lookupID, lookupID) == 0 &&
+           parsed.challengeLength == sizeof challengeBytes);
+    xpc_release(challengeRequest);
+  }
+
+  xpc_object_t acceptAdmission = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "accept_admit", "request-accept-admission");
+  xpc_dictionary_set_string(acceptAdmission, "lookupId", lookupID);
+  xpc_dictionary_set_data(acceptAdmission, "challenge", challengeBytes,
+                          sizeof challengeBytes);
+  xpc_dictionary_set_data(acceptAdmission, "receipt", receiptBytes,
+                          sizeof receiptBytes);
+  assert(PVParseRequest(acceptAdmission, &parsed) == PVRequestValid);
+  assert(parsed.challengeLength == sizeof challengeBytes &&
+         parsed.receiptLength == sizeof receiptBytes);
+  xpc_release(acceptAdmission);
+
+  xpc_object_t finalizeGenesis = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "finalize_genesis", "request-finalize-genesis");
+  xpc_dictionary_set_string(finalizeGenesis, "lookupId", lookupID);
+  xpc_dictionary_set_data(finalizeGenesis, "receipt", receiptBytes,
+                          sizeof receiptBytes);
+  assert(PVParseRequest(finalizeGenesis, &parsed) == PVRequestValid);
+  assert(parsed.receiptLength == sizeof receiptBytes);
+  xpc_release(finalizeGenesis);
+
+  xpc_object_t missingAdmissionReceipt = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "accept_admit", "request-missing-receipt");
+  xpc_dictionary_set_string(missingAdmissionReceipt, "lookupId", lookupID);
+  xpc_dictionary_set_data(missingAdmissionReceipt, "challenge", challengeBytes,
+                          sizeof challengeBytes);
+  assert(PVParseRequest(missingAdmissionReceipt, &parsed) == PVRequestInvalid);
+  xpc_release(missingAdmissionReceipt);
+
   xpc_object_t missingGenesisBlob =
       PVMakeRequest(PV_PROTOCOL_VERSION, "commit_genesis", "request-missing");
   xpc_dictionary_set_data(missingGenesisBlob, "recoveryConfirmation",

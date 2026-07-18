@@ -88,6 +88,16 @@ NS_ASSUME_NONNULL_BEGIN
                       result:(AncPrivateVaultGenesisCoordinatorResult *_Nullable
                                   *_Nullable)result;
 
+/* Signed-service confirmation seam. The native UI returns only the durable
+ * lookup and decoded guarded entropy; the coordinator reconstructs and proves
+ * the native-only bearer before entering the ordinary confirmation path. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    confirmPreparationLookupId:(NSData *)lookupId
+        confirmedRecoveryEntropy:
+            (AncPrivateVaultGuardedMemory *)confirmedRecoveryEntropy
+                      result:(AncPrivateVaultGenesisCoordinatorResult *_Nullable
+                                  *_Nullable)result;
+
 /* User-authorized cancellation. The handle stays native-only; cancellation
  * proves that no official authority exists and durably erases preparation and
  * custody secrets before returning success. */
@@ -135,6 +145,16 @@ NS_ASSUME_NONNULL_BEGIN
     listPendingGenesisAdmissionCandidates:
         (NSArray<AncPrivateVaultGenesisAdmissionCandidateResult *> *_Nullable
              *_Nonnull)candidates;
+
+/* Validates the exact challenge without signing. The signed desktop addon uses
+ * these two public coordinates for trusted native confirmation, then calls the
+ * separately revalidating authorization operation. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    inspectGenesisAdmissionLookupId:(NSData *)lookupId
+                          challenge:(NSData *)challenge
+                          accountId:(NSString *_Nullable *_Nonnull)accountId
+                        workspaceId:
+                            (NSString *_Nullable *_Nonnull)workspaceId;
 
 /* Verifies and signs only the exact server challenge for this local candidate.
  * The trusted desktop presents accountId/workspaceId before invoking it. */

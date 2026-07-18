@@ -32,7 +32,9 @@ compile_slice() {
     -bundle \
     -undefined dynamic_lookup \
     -framework Foundation \
+    -framework AppKit \
     "$SOURCE" \
+    "$SOURCE_ROOT/TrustedGenesisUI.mm" \
     -o "$output"
 }
 

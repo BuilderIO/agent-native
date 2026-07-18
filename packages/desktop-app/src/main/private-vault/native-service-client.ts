@@ -6,8 +6,15 @@ import type {
   NativeLockResult,
 } from "@agent-native/private-vault-broker";
 
+import type {
+  PendingPrivateVaultGenesis,
+  PrivateVaultEndpointAuthenticatedRequest,
+  PrivateVaultGenesisAdmissionResult,
+  PrivateVaultTrustedGenesisOperator,
+} from "./genesis-admission-coordinator.js";
+
 const SERVICE_VERSION = 1 as const;
-const XPC_PROTOCOL_VERSION = 2 as const;
+const XPC_PROTOCOL_VERSION = 3 as const;
 const SERVICE_SUITE = "anc/v1" as const;
 const PACKAGED_ADDON_NAME = "private-vault-xpc-client.node";
 
@@ -18,7 +25,16 @@ type RotationAckState =
   | "retrying"
   | "attention";
 
-type NativeOperation = "health" | "lock" | "resume_rotation" | "commit_genesis";
+type NativeOperation =
+  | "health"
+  | "lock"
+  | "resume_rotation"
+  | "commit_genesis"
+  | "create_genesis"
+  | "list_genesis"
+  | "authorize_admit"
+  | "accept_admit"
+  | "finalize_genesis";
 
 interface NativeAddon {
   request(
@@ -29,7 +45,7 @@ interface NativeAddon {
 
 type NativeAddonLoader = () => Promise<NativeAddon>;
 
-export interface PrivateVaultNativeServiceClient {
+export interface PrivateVaultNativeServiceClient extends PrivateVaultTrustedGenesisOperator {
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
@@ -267,6 +283,140 @@ function parseCommitGenesis(value: unknown): NativeCommitGenesisResult {
   });
 }
 
+function copyBoundedBytes(value: unknown, maximum: number): Uint8Array {
+  if (
+    !(value instanceof Uint8Array) ||
+    value.byteLength === 0 ||
+    value.byteLength > maximum
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Uint8Array.from(value);
+}
+
+function parsePendingGenesis(value: unknown): PendingPrivateVaultGenesis {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["lookupId", "vaultId", "candidate"]) ||
+    !isLowerHex(value.lookupId, 32) ||
+    !isLowerHex(value.vaultId, 32)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    lookupId: value.lookupId,
+    candidate: copyBoundedBytes(value.candidate, 1_315_072),
+  });
+}
+
+function parseCreateGenesis(value: unknown): PendingPrivateVaultGenesis {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "lookupId",
+      "vaultId",
+      "candidate",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "create_genesis" ||
+    value.state !== "committed"
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return parsePendingGenesis({
+    lookupId: value.lookupId,
+    vaultId: value.vaultId,
+    candidate: value.candidate,
+  });
+}
+
+function parseListGenesis(
+  value: unknown,
+): readonly PendingPrivateVaultGenesis[] {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state", "candidates"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "list_genesis" ||
+    value.state !== "pending" ||
+    !Array.isArray(value.candidates) ||
+    value.candidates.length > 64
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze(value.candidates.map(parsePendingGenesis));
+}
+
+function parseAdmissionRequest(
+  value: unknown,
+  operation: "authorize_admit" | "accept_admit",
+): PrivateVaultEndpointAuthenticatedRequest & {
+  accountId: string;
+  workspaceId: string;
+  vaultId: string;
+} {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "accountId",
+      "workspaceId",
+      "vaultId",
+      "endpointId",
+      "proofHeader",
+      "body",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== operation ||
+    value.state !==
+      (operation === "authorize_admit" ? "authorized" : "accepted") ||
+    typeof value.accountId !== "string" ||
+    value.accountId.length < 8 ||
+    value.accountId.length > 160 ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value.accountId) ||
+    typeof value.workspaceId !== "string" ||
+    value.workspaceId.length < 8 ||
+    value.workspaceId.length > 160 ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value.workspaceId) ||
+    !isLowerHex(value.vaultId, 32) ||
+    !isLowerHex(value.endpointId, 32) ||
+    typeof value.proofHeader !== "string" ||
+    value.proofHeader.length === 0 ||
+    value.proofHeader.length > 8192 ||
+    !/^[A-Za-z0-9_-]+$/.test(value.proofHeader)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    accountId: value.accountId,
+    workspaceId: value.workspaceId,
+    vaultId: value.vaultId,
+    body: copyBoundedBytes(
+      value.body,
+      operation === "authorize_admit" ? 1_317_376 : 1_114_368,
+    ),
+    proofHeader: value.proofHeader,
+  });
+}
+
+function parseFinalizeGenesis(value: unknown, lookupId: string): void {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state", "lookupId"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "finalize_genesis" ||
+    value.state !== "cleaned" ||
+    value.lookupId !== lookupId
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+}
+
 function copyCommitGenesisInput(
   input: unknown,
 ): readonly [Buffer, Buffer, Buffer] {
@@ -422,6 +572,153 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       } finally {
         for (const field of fields) field.fill(0);
         this.#genesisPending = false;
+      }
+    });
+  }
+
+  beginTrustedGenesis(): Promise<PendingPrivateVaultGenesis> {
+    if (this.#genesisPending) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    this.#genesisPending = true;
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseCreateGenesis(await addon.request("create_genesis"));
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        this.#genesisPending = false;
+      }
+    });
+  }
+
+  listPendingGenesis(): Promise<readonly PendingPrivateVaultGenesis[]> {
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseListGenesis(await addon.request("list_genesis"));
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  authorizeAdmission(input: {
+    readonly lookupId: string;
+    readonly challenge: Uint8Array;
+  }): Promise<PrivateVaultEndpointAuthenticatedRequest> {
+    if (
+      !isRecord(input) ||
+      !hasExactKeys(input, ["lookupId", "challenge"]) ||
+      !isLowerHex(input.lookupId, 32)
+    ) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    let challenge: Buffer;
+    try {
+      challenge = Buffer.from(copyBoundedBytes(input.challenge, 2048));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        const authorized = parseAdmissionRequest(
+          await addon.request("authorize_admit", input.lookupId, challenge),
+          "authorize_admit",
+        );
+        return Object.freeze({
+          body: authorized.body,
+          proofHeader: authorized.proofHeader,
+        });
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        challenge.fill(0);
+      }
+    });
+  }
+
+  acceptAdmissionReceipt(input: {
+    readonly lookupId: string;
+    readonly challenge: Uint8Array;
+    readonly receipt: Uint8Array;
+  }): Promise<
+    PrivateVaultGenesisAdmissionResult &
+      PrivateVaultEndpointAuthenticatedRequest
+  > {
+    if (
+      !isRecord(input) ||
+      !hasExactKeys(input, ["lookupId", "challenge", "receipt"]) ||
+      !isLowerHex(input.lookupId, 32)
+    ) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    let challenge: Buffer;
+    let receipt: Buffer;
+    try {
+      challenge = Buffer.from(copyBoundedBytes(input.challenge, 2048));
+      receipt = Buffer.from(copyBoundedBytes(input.receipt, 2048));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        const accepted = parseAdmissionRequest(
+          await addon.request(
+            "accept_admit",
+            input.lookupId,
+            challenge,
+            receipt,
+          ),
+          "accept_admit",
+        );
+        return Object.freeze({
+          accountId: accepted.accountId,
+          workspaceId: accepted.workspaceId,
+          vaultId: accepted.vaultId,
+          body: accepted.body,
+          proofHeader: accepted.proofHeader,
+        });
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        challenge.fill(0);
+        receipt.fill(0);
+      }
+    });
+  }
+
+  finalizeHostedAppend(input: {
+    readonly lookupId: string;
+    readonly receipt: Uint8Array;
+  }): Promise<void> {
+    if (
+      !isRecord(input) ||
+      !hasExactKeys(input, ["lookupId", "receipt"]) ||
+      !isLowerHex(input.lookupId, 32)
+    ) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    let receipt: Buffer;
+    try {
+      receipt = Buffer.from(copyBoundedBytes(input.receipt, 2048));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        parseFinalizeGenesis(
+          await addon.request("finalize_genesis", input.lookupId, receipt),
+          input.lookupId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        receipt.fill(0);
       }
     });
   }
