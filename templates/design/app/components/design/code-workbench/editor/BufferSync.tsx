@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useEffect, useRef } from "react";
 
 import { useWorkbench } from "../store";

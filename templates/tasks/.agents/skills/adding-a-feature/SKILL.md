@@ -32,7 +32,7 @@ Build the user-facing interface — a page, component, dialog, or route. Use `us
 - **Raw `useQuery` with custom keys** — needs explicit wiring. Fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. The `action` source is the reliable signal (the agent runner emits it after every successful tool call); the resource-specific source (`"dashboards"`, `"analyses"`, `"settings"`, etc.) is bonus when emitted. Without this wiring, agent writes will be invisible until manual refresh — that breaks the framework's #1 promise.
 
   ```tsx
-  import { useChangeVersions } from "@agent-native/core/client";
+  import { useChangeVersions } from "@agent-native/core/client/hooks";
   import { useQuery } from "@tanstack/react-query";
 
   const v = useChangeVersions(["dashboards", "action"]);

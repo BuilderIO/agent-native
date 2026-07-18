@@ -1,4 +1,6 @@
-import { appApiPath, callAction, useT } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {

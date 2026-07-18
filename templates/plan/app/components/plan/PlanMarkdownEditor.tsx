@@ -1,9 +1,9 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
-  generateTabId,
-  uploadEditorImage,
   useCollaborativeDoc,
   type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { uploadEditorImage } from "@agent-native/core/client/rich-markdown-editor";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,

@@ -43,6 +43,7 @@ import {
 import { PromptComposer } from "../composer/PromptComposer.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import { useUploadResource } from "../uploads/use-upload-resource.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
 import { isMcpIntegrationCatalogAvailable } from "./mcp-integration-catalog.js";
@@ -67,7 +68,6 @@ import {
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
-  useUploadResource,
   withMcpServersFolder,
   withAgentScratchFolder,
   type ResourceScope,

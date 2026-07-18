@@ -1,4 +1,5 @@
-import { agentNativePath, callAction } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 
 export const FIGMA_ACCESS_TOKEN_SECRET_KEY = "FIGMA_ACCESS_TOKEN";
 

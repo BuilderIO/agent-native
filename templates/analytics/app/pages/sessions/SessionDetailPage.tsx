@@ -1,12 +1,11 @@
 import {
   AgentToggleButton,
-  appApiPath,
-  callAction,
-  PromptComposer,
-  useActionMutation,
   useSendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   isFailedSessionReplayNetworkStatus,

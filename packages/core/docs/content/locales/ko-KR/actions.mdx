@@ -439,8 +439,7 @@ export default defineAction({
 상태를 변경하는 actions의 경우:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -458,8 +457,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 읽기 전용 GET actions의 경우:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 

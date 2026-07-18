@@ -64,8 +64,11 @@ registerShareableResource({
 Render the standard controls where users decide access:
 
 ```tsx
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
-
+import {
+  ShareButton,
+} from "@agent-native/core/client/sharing"import {
+  VisibilityBadge,
+} from "@agent-native/toolkit/sharing"
 <VisibilityBadge visibility={dashboard.visibility} />
 <ShareButton resourceType="dashboard" resourceId={dashboard.id} />
 ```

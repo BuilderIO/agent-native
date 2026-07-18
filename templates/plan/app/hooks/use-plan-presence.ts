@@ -1,12 +1,12 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
   useCollaborativeDoc,
   usePresence,
   useRecentEdits,
-  generateTabId,
   type AttributedRecentEdit,
   type CollabUser,
   type UseCollaborativeDocResult,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
 
 /** One tab id per browser tab, shared by every plan presence hook instance. */
 const TAB_ID = generateTabId();

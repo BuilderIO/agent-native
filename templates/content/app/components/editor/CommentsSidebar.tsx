@@ -1,4 +1,6 @@
-import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { emailToName } from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconMessageCircle,

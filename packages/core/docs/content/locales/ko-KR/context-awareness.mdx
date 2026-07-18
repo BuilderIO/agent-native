@@ -196,8 +196,7 @@ if (url?.searchParams) {
 사용자가 의미 있는 객체를 선택하거나, 초점을 맞추거나, 다중 선택하는 경우 UI에서 작성합니다.
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import { setClientAppState } from "@agent-native/core/client/hooks";
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -226,8 +225,7 @@ async function syncSelection(selection: unknown | null) {
 사용자 정의 편집기는 자신의 선택이 기본 브라우저 선택으로 표시되지 않을 때 동일한 키를 작성할 수 있습니다.
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import { setClientAppState } from "@agent-native/core/client/hooks";
 await setClientAppState(
   "pending-selection-context",
   {
@@ -289,8 +287,7 @@ await setClientAppState(
 때로는 컨텍스트가 앱 상태에만 있어서는 안 됩니다. 사용자는 버튼을 클릭하고, 댓글 핀을 놓고, 항목을 선택하고 "에이전트에게 물어보기"를 선택하거나, 도구 모음에서 AI 명령을 누릅니다. 그 클릭은 지시입니다. 브라우저 UI에서 `sendToAgentChat()`를 사용하여 상담원에게 전달하세요.
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -373,7 +370,7 @@ UI 측에서는 이 키를 직접 폴링하거나 삭제하지 않습니다. 경
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

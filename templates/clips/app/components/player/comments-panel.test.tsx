@@ -12,7 +12,7 @@ const actionMocks = vi.hoisted(() => ({
   otherMutation: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
   useActionMutation: (name: string) => ({
@@ -21,6 +21,9 @@ vi.mock("@agent-native/core/client", () => ({
         ? actionMocks.addComment
         : actionMocks.otherMutation,
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

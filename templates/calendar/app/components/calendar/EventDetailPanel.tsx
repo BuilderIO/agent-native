@@ -1,5 +1,5 @@
-import { useT } from "@agent-native/core/client";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconX,

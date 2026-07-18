@@ -1,8 +1,6 @@
-import {
-  AgentToggleButton,
-  agentNativePath,
-  useT,
-} from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   CalendarEvent,
   CalendarEventDraft,

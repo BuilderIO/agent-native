@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { IconLoader2 } from "@tabler/icons-react";

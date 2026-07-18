@@ -1,16 +1,18 @@
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
-  generateTabId,
   emailToColor,
   emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
   useAvatarUrl,
   useDbSync,
   useSession,
-  useT,
-  agentNativePath,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import { IconArrowLeft, IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";

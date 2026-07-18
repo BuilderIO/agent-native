@@ -1,9 +1,8 @@
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
-  LanguagePicker,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import { Link } from "react-router";
 
 export function meta() {

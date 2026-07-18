@@ -11,7 +11,7 @@ const clientState = vi.hoisted(() => ({
   envStatuses: [] as any[],
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/integrations", () => ({
   disconnectManagedIntegrationInstallation: vi.fn(() => Promise.resolve()),
   listManagedIntegrationBudgets: vi.fn(() => Promise.resolve([])),
   listManagedIntegrationInstallations: vi.fn(() => Promise.resolve([])),
@@ -32,6 +32,9 @@ vi.mock("@agent-native/core/client", () => ({
   setIntegrationEnabled: vi.fn(),
   setupIntegration: vi.fn(),
   testManagedIntegrationInstallation: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (value: Date | number | string) =>
       new Date(value).toLocaleDateString("en-US"),

@@ -67,3 +67,4 @@ export {
   type DragHandleDropPlacement,
   type DragHandleOptions,
 } from "./DragHandle.js";
+export type { JSONContent } from "@tiptap/core";

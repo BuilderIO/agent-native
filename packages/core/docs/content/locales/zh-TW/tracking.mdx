@@ -176,8 +176,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +195,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 Agent Native 應用程式可以選擇加入第一方瀏覽器工作階段重播，而無需新增第二個分析 SDK。在瀏覽器根目錄中呼叫一次 `configureTracking()`，並傳入 Analytics 公開金鑰以及收集器端點：
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",

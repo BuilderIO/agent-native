@@ -1,11 +1,7 @@
-/**
- * Full-page status-page editor: a config form on the left (basics, layout,
- * monitor selection + ordering) and a live preview on the right that reuses the
- * public `PublicStatusView`. Everything persists through the `save-status-page`
- * action (the single write); `get-status-page` supplies both the seed config and
- * the sanitized live preview (drafts included).
- */
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   IconArrowLeft,
   IconCheck,

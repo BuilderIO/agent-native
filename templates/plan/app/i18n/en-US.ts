@@ -46,6 +46,10 @@ const messages = {
     suggestionUi: "What does this UI look like?",
     suggestionApi: "What is the shape of this API?",
   },
+  contextXray: {
+    panelTitle: "Context X-Ray",
+    snapshotsTitle: "Snapshots",
+  },
   sidebar: {
     openNavigation: "Open navigation",
     navigation: "Navigation",

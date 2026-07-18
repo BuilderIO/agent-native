@@ -20,3 +20,9 @@ Añadir y expulsar solo muestran una vista previa de forma predeterminada.
 colisiones y diseños desconocidos, y revierte archivos y bloqueos si falla la
 instalación. Solo Scheduling admite expulsión en este piloto; Pinpoint queda
 aplazado.
+
+## Migraciones
+
+Los paquetes publicados incluyen `migration-manifest.json` para rutas y símbolos movidos. No edites imports manualmente primero: `npx @agent-native/core@latest upgrade --codemods` previsualiza el diff; tras revisarlo, aplica con `--yes`. En CI usa `agent-native doctor --only migration-manifest`; no admite opt-out.
+
+Las entradas `planned` pueden publicarse antes que su destino; se muestran como advertencias no bloqueantes y el codemod no las reescribe. Un movimiento activo solo se reescribe si el export de destino está instalado.

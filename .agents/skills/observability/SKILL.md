@@ -175,7 +175,7 @@ user in that deployment.
 Add a dashboard route to any template:
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 
 export default function ObservabilityPage() {
   return (

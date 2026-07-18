@@ -11,7 +11,7 @@ const coreClientMocks = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client", () => coreClientMocks);
+vi.mock("@agent-native/core/client/agent-chat", () => coreClientMocks);
 
 const agentChatMocks = vi.hoisted(() => ({
   sendToDesignAgentChat: vi.fn(

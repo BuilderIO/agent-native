@@ -1,28 +1,4 @@
-/**
- * InteractionStatePanel — the Figma-style element interaction-state
- * selector (Default / Hover / Focus / Focus-visible / Active / Disabled).
- *
- * Rendered at the top of the style sections when exactly one element is
- * selected (see `EditPanel`'s mount site). Selecting a non-default state:
- *   1. Keeps the selected state visible in the trigger and marks the active
- *      menu row with Figma's trailing selection dot.
- *   2. Tells the parent via `onInteractionStateChange` so DesignEditor can
- *      force the canvas preview (phase 2 — see `shared/interaction-states.ts`
- *      module doc for the forced-preview attribute mechanism this drives).
- *   3. EditPanel then threads the active state through `StyleChangeMeta`
- *      (see EditPanel.tsx) so every style commit made while a state is
- *      active targets that state's managed CSS rule instead of the
- *      element's inline style.
- *
- * This component owns ONLY the selector UI — it has no opinion on how
- * styles are persisted. It reads `hasOverride` (per state) from the caller
- * so the row for a state that already has authored overrides can carry a
- * small accent dot, matching the rest of the app's "this control has a
- * non-default value" convention (see `StatesPanel`'s active-row dot and the
- * breakpoint override dot conventions).
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
   IconPointer,

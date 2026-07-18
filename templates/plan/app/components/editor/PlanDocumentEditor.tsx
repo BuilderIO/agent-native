@@ -3,12 +3,12 @@ import {
   type BlockRegistry,
   type BlockDataChangeMeta,
 } from "@agent-native/core/blocks";
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
-  generateTabId,
-  useT,
   useCollaborativeDoc,
   type UseCollaborativeDocResult,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   applyDocSurgically,
   DragHandle,

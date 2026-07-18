@@ -1,16 +1,15 @@
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
+import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  appPath,
   useActionMutation,
   useActionQuery,
   useSession,
-  AgentPanel,
-  agentNativePath,
   getBrowserTabId,
   readClientAppState,
   writeClientAppState,
   useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,

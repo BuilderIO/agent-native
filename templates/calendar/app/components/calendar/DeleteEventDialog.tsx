@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent, DeleteEventScope } from "@shared/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 

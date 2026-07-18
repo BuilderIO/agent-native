@@ -20,7 +20,7 @@ const toast = vi.hoisted(() => ({
   success: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (_name: string, options: Record<string, unknown>) => {
     clientState.options = options;
     return {

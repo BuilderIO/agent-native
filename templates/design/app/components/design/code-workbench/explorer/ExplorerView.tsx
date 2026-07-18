@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { prettyScreenName } from "@/lib/screen-names";

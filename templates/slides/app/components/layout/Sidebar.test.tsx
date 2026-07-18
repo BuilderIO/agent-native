@@ -18,17 +18,19 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionsSidebarSection: () => null,
 }));
-vi.mock("@agent-native/core/client", () => ({
-  // `@/lib/utils` re-exports `cn` from `@agent-native/core/client`, so the
-  // client mock must provide it or components crash on first render.
-  cn: (...args: unknown[]) =>
-    args
-      .flat(Infinity)
-      .filter((v) => typeof v === "string" && v.length > 0)
-      .join(" "),
+vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/db-admin", () => ({
   DevDatabaseLink: () => null,
+}));
+
+vi.mock("@agent-native/core/client/ui", () => ({
   FeedbackButton: () => null,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "navigation.brand": "Slides",

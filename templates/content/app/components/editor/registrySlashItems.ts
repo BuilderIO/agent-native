@@ -3,7 +3,7 @@ import {
   buildRegistryBlockSlashItems,
   getRegistryBlockSlashDescription,
   getRegistryBlockSlashSearchText,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/rich-markdown-editor";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import { IconComponents } from "@tabler/icons-react";
 

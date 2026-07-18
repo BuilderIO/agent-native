@@ -1,8 +1,6 @@
-import {
-  appBasePath,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+import { captureClientException } from "@agent-native/core/client/analytics";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,

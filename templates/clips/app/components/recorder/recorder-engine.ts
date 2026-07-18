@@ -1,16 +1,6 @@
-/**
- * Recorder engine — non-React orchestration for screen + camera + mic capture,
- * MediaRecorder lifecycle, and chunked upload to the server.
- *
- * Designed to run in the browser. The UI wires it up in `app/routes/record.tsx`,
- * but no React state lives here — callers subscribe via `onState`, `onChunk`,
- * and `onError`.
- */
-import {
-  appBasePath,
-  captureClientException,
-  trackEvent,
-} from "@agent-native/core/client";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { captureClientException } from "@agent-native/core/client/analytics";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chooseFallbackAudioInput,

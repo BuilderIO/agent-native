@@ -1,12 +1,11 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  agentNativePath,
-  getBrowserTabId,
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   AlertDialog,
   AlertDialogAction,

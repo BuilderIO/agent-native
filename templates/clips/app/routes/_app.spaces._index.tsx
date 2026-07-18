@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useState } from "react";

@@ -118,8 +118,7 @@ Auf dem Client:
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -297,8 +296,10 @@ for await (const chunk of sendMessage(
 Verwenden Sie für eigenständige Sidecar-Apps oder ursprungsübergreifende Iframes den untergeordneten `<AgentNative />`. Es rendert den Iframe-Sidecar- und Wire-Seitenkontext, den Live-Client actions und die Aktualisierungs-/Navigationsbefehle des Hosts an einem Ort:
 
 ```tsx
-import { AgentNative, defineClientAction } from "@agent-native/core/client";
-
+import {
+  AgentNative,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -385,8 +386,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -461,8 +461,7 @@ Starten Sie in der Sidecar-App die Browser-Session-Bridge einmal, wenn der Ifram
 
 ```tsx
 import { useEffect } from "react";
-import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
-
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -514,8 +513,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

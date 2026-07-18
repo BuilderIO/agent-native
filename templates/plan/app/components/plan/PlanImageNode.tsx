@@ -1,4 +1,5 @@
-import { uploadEditorImage, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { uploadEditorImage } from "@agent-native/core/client/rich-markdown-editor";
 import { SharedImage } from "@agent-native/toolkit/editor";
 import {
   NodeViewWrapper,

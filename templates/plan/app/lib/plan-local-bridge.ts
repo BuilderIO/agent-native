@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 import { mimeTypeFromFilename } from "@shared/plan-assets";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
 import type { PlanBundle, PlanKind } from "@shared/types";

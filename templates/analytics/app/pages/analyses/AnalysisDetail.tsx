@@ -1,11 +1,11 @@
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  ShareButton,
   callAction,
   useActionMutation,
   useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
-import { useSendToAgentChat } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   IconRefresh,
   IconTrash,

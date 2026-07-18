@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 

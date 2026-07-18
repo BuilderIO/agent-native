@@ -1,8 +1,6 @@
-import {
-  appBasePath,
-  useActionMutation,
-  useT,
-} from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";

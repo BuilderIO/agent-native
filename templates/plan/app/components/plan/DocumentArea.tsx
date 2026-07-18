@@ -4,11 +4,9 @@ import {
   blockEditSurface,
   useOptionalBlockRegistry,
 } from "@agent-native/core/blocks";
-import {
-  uploadEditorImage,
-  useT,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { uploadEditorImage } from "@agent-native/core/client/rich-markdown-editor";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
   IconAlertTriangle,

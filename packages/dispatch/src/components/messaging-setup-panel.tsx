@@ -1,3 +1,4 @@
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   disconnectManagedIntegrationInstallation,
   listManagedIntegrationBudgets,
@@ -18,9 +19,7 @@ import {
   type ClientIntegrationUsageBudget,
   type ClientIntegrationStatus,
   type IntegrationEnvStatus,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/integrations";
 import {
   listBuiltInChannelIntegrations,
   type IntegrationCatalogEntry,

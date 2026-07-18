@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import type { TaskFieldValue } from "../../server/custom-fields/task-fields.js";

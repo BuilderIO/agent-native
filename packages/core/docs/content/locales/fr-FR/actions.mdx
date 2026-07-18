@@ -443,8 +443,7 @@ Deux crochets, tous deux en `@agent-native/core/client`. Les types sont déduits
 Pour les actions qui changent d'état :
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +461,7 @@ En cas de succès, le framework émet un événement de changement avec `source:
 Pour GET actions en lecture seule :
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 

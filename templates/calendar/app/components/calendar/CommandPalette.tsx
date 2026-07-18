@@ -1,4 +1,5 @@
-import { CommandMenu, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { CommandMenu } from "@agent-native/core/client/navigation";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconCalendar,

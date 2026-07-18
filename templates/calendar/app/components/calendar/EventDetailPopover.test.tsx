@@ -22,15 +22,15 @@ const { calendarContext } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...values: Array<string | undefined | false>) =>
-    values.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, _values?: Record<string, unknown>): string =>
       key,
-  sendToAgentChat: vi.fn(),
-  agentNativePath: (path: string) => path,
 }));
 
 vi.mock("@agent-native/core/client/extensions", () => ({

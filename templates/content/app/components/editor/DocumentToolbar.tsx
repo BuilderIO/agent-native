@@ -1,13 +1,11 @@
-import {
-  AgentToggleButton,
-  PresenceBar,
-  appPath,
-  useActionMutation,
-  useT,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { ShareButton } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { type CollabUser } from "@agent-native/core/client/collab";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,

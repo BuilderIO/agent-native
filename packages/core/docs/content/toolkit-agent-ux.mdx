@@ -39,9 +39,10 @@ plus a header trigger showing live run progress.
 ```tsx
 import {
   AgentToggleButton,
-  PromptComposer,
   sendToAgentChat,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat"import {
+  PromptComposer,
+} from "@agent-native/core/client/composer"
 import { RunsTray } from "@agent-native/core/client/progress";
 
 export function AgentDock() {

@@ -1,4 +1,4 @@
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+import { type AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 
 import enUS from "./en-US";
 

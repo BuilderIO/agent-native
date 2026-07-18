@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation } from "react-router";
 

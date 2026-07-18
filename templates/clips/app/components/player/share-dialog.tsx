@@ -1,10 +1,10 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  appPath,
   useActionMutation,
   useActionQuery,
   useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCode,
   IconExternalLink,

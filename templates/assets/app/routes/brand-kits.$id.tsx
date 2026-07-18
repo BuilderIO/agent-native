@@ -1,14 +1,16 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  ShareButton,
   appBasePath,
   agentNativePath,
+} from "@agent-native/core/client/api-path";
+import {
   getBrowserTabId,
   readClientAppState,
-  sendToAgentChat,
-  useT,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconCheck,

@@ -1,13 +1,14 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import {
-  ReviewStatusBadge,
-  agentNativePath,
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
-  useActionQuery,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  ReviewStatusBadge,
   useReviewComments,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/review";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";

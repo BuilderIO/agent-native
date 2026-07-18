@@ -3,7 +3,7 @@ import {
   buildRegistryBlockSlashItems,
   getRegistryBlockSlashDescription,
   getRegistryBlockSlashSearchText,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/rich-markdown-editor";
 import type { SlashCommandItem } from "@agent-native/toolkit/editor";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 import { createPlanBlockId } from "@shared/plan-content";

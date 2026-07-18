@@ -1,4 +1,6 @@
-import { agentNativePath, trackEvent, useT } from "@agent-native/core/client";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 

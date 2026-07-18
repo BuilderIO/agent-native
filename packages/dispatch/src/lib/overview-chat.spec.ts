@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 const sendToAgentChatMock = vi.hoisted(() => vi.fn(() => "chat-tab"));
 
-vi.mock("@agent-native/core/client", () => ({
-  isInBuilderFrame: () => frameState.inBuilderFrame,
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("@agent-native/core/client/host", () => ({
+  isInBuilderFrame: () => frameState.inBuilderFrame,
 }));
 
 const { submitOverviewPrompt } = await import("./overview-chat.js");

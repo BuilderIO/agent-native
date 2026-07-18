@@ -81,7 +81,7 @@ run: async (args, ctx) => {
 Use the client hook only to hide or reveal hydrated UI:
 
 ```tsx
-import { useFeatureFlag } from "@agent-native/core/client";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 
 const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
 return enabled ? <FullAppOption /> : null;
