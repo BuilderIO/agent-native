@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.110.1
+
+### Patch Changes
+
+- 8ed242f: Prepublish the complete planned composer and editor migration map so Doctor and upgrade codemods can guide apps before the breaking package flip.
+
 ## 0.110.0
 
 ### Minor Changes
