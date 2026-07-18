@@ -7,6 +7,7 @@
 
 static const uint8_t kOfferDomain[] = "anc/v1/enrollment-offer";
 static const uint8_t kProofDomain[] = "anc/v1/enrollment-key-proof";
+static const uint64_t kMaxSafeInteger = UINT64_C(9007199254740991);
 
 @interface AncPrivateVaultEnrollmentOfferResult ()
 @property(nonatomic, readwrite) NSData *encodedOffer;
@@ -75,8 +76,8 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferBuild(
       !Exact(enrollmentNonce, 32) ||
       (!broker && ![membershipRole isEqualToString:@"endpoint"]) ||
       unattended != broker || createdAt == 0 || expiresAt <= createdAt ||
-      expiresAt - createdAt > 600 || createdAt > INT64_MAX ||
-      expiresAt > INT64_MAX || signingSeed == NULL || boxSeed == NULL)
+      expiresAt - createdAt > 600 || createdAt > kMaxSafeInteger ||
+      expiresAt > kMaxSafeInteger || signingSeed == NULL || boxSeed == NULL)
     return nil;
   uint8_t signingPublic[32] = {0}, signingPrivate[64] = {0};
   uint8_t agreementPublic[32] = {0}, agreementPrivate[32] = {0};
@@ -206,7 +207,9 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferVerify(
                vault != nil && Exact(vault.bytesValue, 16) &&
                [vault.bytesValue isEqualToData:expectedVaultId] && type != nil &&
                [type.textValue isEqualToString:@"enrollment-offer"] &&
-               created != nil && created.integerValue > 0 && envelope != nil &&
+               created != nil && created.integerValue > 0 &&
+               (uint64_t)created.integerValue <= kMaxSafeInteger &&
+               envelope != nil &&
                Exact(envelope.bytesValue, 16) && endpoint != nil &&
                Exact(endpoint.bytesValue, 16) && ceremony != nil &&
                Exact(ceremony.bytesValue, 16) && role != nil &&
@@ -216,6 +219,7 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferVerify(
                agreement != nil && Exact(agreement.bytesValue, 32) &&
                nonce != nil && Exact(nonce.bytesValue, 32) && expires != nil &&
                expires.integerValue > created.integerValue &&
+               (uint64_t)expires.integerValue <= kMaxSafeInteger &&
                expires.integerValue - created.integerValue <= 600;
   if (!valid)
     return nil;

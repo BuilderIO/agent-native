@@ -75,6 +75,11 @@ int main(void) {
                1721117511, 1721118112, signingSeed.bytes, boxSeed.bytes,
                &status) == nil &&
            status == AncPrivateVaultEnrollmentOfferStatusInvalid);
+    assert(AncPrivateVaultEnrollmentOfferBuild(
+               vault, endpoint, ceremony, envelope, nonce, @"broker", YES,
+               UINT64_C(9007199254740992), UINT64_C(9007199254740993),
+               signingSeed.bytes, boxSeed.bytes, &status) == nil &&
+           status == AncPrivateVaultEnrollmentOfferStatusInvalid);
     anc_pv_zeroize(signingSeed.mutableBytes, signingSeed.length);
     anc_pv_zeroize(boxSeed.mutableBytes, boxSeed.length);
     puts("private-vault enrollment offer parity passed");

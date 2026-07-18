@@ -828,6 +828,20 @@ challenge and authorization transcript, confirm SAS through trusted UI, open the
 EEK wrap, replay the membership edge, and mint the production enrollment
 activation evidence.
 
+The candidate can now verify the authorizer's challenge without trusting the
+hosted rendezvous or renderer. Native code canonically decodes the exact offer
+and challenge, re-verifies candidate key possession, requires an active
+attended authorizer with keys matching authenticated membership, rejects an
+active or tombstoned candidate and a second broker, and equality-binds the
+fresh control sequence, head, membership digest, role, lifetime, and offer
+hash. It then reconstructs the frozen SAS transcript, checks its
+domain-separated hash, verifies the authorizer signature, derives the unbiased
+`DDD-DDD-DDD` comparison code, and returns public evidence only. The Core vector
+matches natively on Apple Silicon and Intel; forged signatures, stale authority,
+wrong heads, and reused candidates fail closed. The next enrollment boundary is
+trusted UI confirmation of that exact SAS transcript, followed by verification
+and opening of the signed authorization bundle.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and
