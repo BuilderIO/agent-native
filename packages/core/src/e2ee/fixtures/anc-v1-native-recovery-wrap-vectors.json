@@ -23,7 +23,7 @@
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "c1fea782c58d077b1bf7e9a2dbf91206f451e1d7af7502c574c594f4341f4de6"
+      "sha256": "7aa4670b7fc4c9d0a6226e3f99d5a86c820666d54a842e6049468f3e25790718"
     },
     {
       "path": "packages/core/src/e2ee/lifecycle-codecs.ts",
@@ -31,7 +31,7 @@
     },
     {
       "path": "packages/core/src/e2ee/control-log.ts",
-      "sha256": "939eef1599c5b4706bf561b52c27c70319e653bf5cfe86bf2a7d05bcac5c62d1"
+      "sha256": "a73da627c621c1f3d8bcc8f5634c46cbdde62658b47f13082f747afed93e45bf"
     }
   ],
   "domains": [
@@ -193,7 +193,9 @@
           "enrollmentRef": "21212121212121212121212121212121"
         }
       ],
-      "removedEndpointIds": ["22222222222222222222222222222222"],
+      "removedEndpointIds": [
+        "22222222222222222222222222222222"
+      ],
       "rotationCompleted": true,
       "outstandingJobsResolved": true,
       "recoverySnapshotHash": null,
@@ -230,7 +232,9 @@
             "enrollmentRef": "21212121212121212121212121212121"
           }
         ],
-        "removedEndpointIds": ["22222222222222222222222222222222"],
+        "removedEndpointIds": [
+          "22222222222222222222222222222222"
+        ],
         "rotationCompleted": true,
         "outstandingJobsResolved": true,
         "recoverySnapshotHash": null,
@@ -338,7 +342,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -375,7 +381,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -452,7 +460,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -489,7 +499,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -1342,7 +1354,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -1379,7 +1393,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -1456,7 +1472,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -1493,7 +1511,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -1570,7 +1590,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -1607,7 +1629,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -1684,7 +1708,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -1721,7 +1747,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -1798,7 +1826,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -1835,7 +1865,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -1912,7 +1944,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -1949,7 +1983,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2026,7 +2062,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2063,7 +2101,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2140,7 +2180,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2177,7 +2219,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2254,7 +2298,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2291,7 +2337,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2368,7 +2416,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2405,7 +2455,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2482,7 +2534,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2519,7 +2573,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2588,7 +2644,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2625,7 +2683,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2702,7 +2762,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2739,7 +2801,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -2816,7 +2880,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": "9393939393939393939393939393939393939393939393939393939393939393",
@@ -2853,7 +2919,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": "9393939393939393939393939393939393939393939393939393939393939393",
@@ -2930,7 +2998,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -2967,7 +3037,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3044,7 +3116,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3081,7 +3155,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3158,7 +3234,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3195,7 +3273,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3272,7 +3352,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3309,7 +3391,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3386,7 +3470,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3423,7 +3509,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3500,7 +3588,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3537,7 +3627,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3614,7 +3706,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3651,7 +3745,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3728,7 +3824,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3765,7 +3863,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,
@@ -3842,7 +3942,9 @@
               "enrollmentRef": "21212121212121212121212121212121"
             }
           ],
-          "removedEndpointIds": ["22222222222222222222222222222222"],
+          "removedEndpointIds": [
+            "22222222222222222222222222222222"
+          ],
           "rotationCompleted": true,
           "outstandingJobsResolved": true,
           "recoverySnapshotHash": null,
@@ -3879,7 +3981,9 @@
                 "enrollmentRef": "21212121212121212121212121212121"
               }
             ],
-            "removedEndpointIds": ["22222222222222222222222222222222"],
+            "removedEndpointIds": [
+              "22222222222222222222222222222222"
+            ],
             "rotationCompleted": true,
             "outstandingJobsResolved": true,
             "recoverySnapshotHash": null,

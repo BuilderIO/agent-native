@@ -482,4 +482,18 @@ green. Verified replay deliberately does not yet claim recovered custody:
 durable installation of fresh-device custody and its recovered endpoint edge
 remain the next implementation gate.
 
+Capability revocation now has a first executable authority-log edge. Core
+encodes the exact signed `grant-revoke` envelope as bytes inside an
+endpoint-signed `grant_revocation` control entry and refuses to advance the
+head until a trusted authorization callback accepts it. Broker signatures,
+missing callbacks, callback rejection, unknown wire fields, and mutation of
+authenticated snapshots all fail closed. The native reducer consumes the same
+strict four-field inner envelope and passes the exact outer entry, inner entry,
+embedded revocation bytes, and authenticated prior state to its authorization
+boundary before state reduction. The regenerated `@3` Core/native corpus now
+replays twelve accepted edges and 101 adversarial cases identically on arm64
+and x86_64. This establishes ordered, non-hosted revocation authority; the
+callback must still durably verify and insert the nested revocation in the
+encrypted native grant/replay index before returning success.
+
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

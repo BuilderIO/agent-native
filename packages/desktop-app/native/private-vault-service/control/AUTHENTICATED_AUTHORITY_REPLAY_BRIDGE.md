@@ -4,6 +4,13 @@ This internal bridge is the only native path from a persisted authenticated
 authority checkpoint through signed control-log replay to a commit-capable
 `AncPrivateVaultVerifiedReplayResult`.
 
+Grant-revocation replay uses the same authenticated boundary. The native
+control-log reducer supplies the verifier with immutable copies of the exact
+signed entry, exact inner envelope, exact embedded signed `grant-revoke`
+envelope, and authenticated prior state. The verifier must durably apply the
+revocation to native encrypted authority storage before returning success;
+returning success after only inspecting hosted state is not authorization.
+
 The bridge freezes and validates the checkpoint before replay, requires the
 control-log implementation's exact private authenticated-result type, verifies
 that the captured prior state exactly matches the checkpoint, and accepts only

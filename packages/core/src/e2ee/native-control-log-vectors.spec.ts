@@ -63,6 +63,7 @@ const stepSchema = z
       "recovery",
       "continuity",
       "ceremony_abort",
+      "grant_revocation",
     ]),
     expected: z.literal("accept"),
     sequence: z.number().int().nonnegative(),
@@ -70,6 +71,7 @@ const stepSchema = z
       "membership_commit",
       "continuity_checkpoint",
       "ceremony_abort",
+      "grant_revocation",
     ]),
     ceremonyKind: z.string().nullable(),
     signerEndpointId: z.string(),
@@ -99,6 +101,7 @@ const errorSchema = z.enum([
   "recovery_authorization_required",
   "recovery_wrap_rotation_required",
   "ceremony_abort_authorization_required",
+  "grant_revocation_authorization_required",
 ]);
 const authorizationSchema = z
   .object({
@@ -106,6 +109,7 @@ const authorizationSchema = z
     recovery: z.boolean(),
     recoveryWrapRotation: z.boolean(),
     ceremonyAbort: z.boolean(),
+    grantRevocation: z.boolean(),
   })
   .strict();
 const stateVectorSchema = z
@@ -153,8 +157,8 @@ const corpusSchema = z
       })
       .strict(),
     states: z.array(stateVectorSchema).min(12),
-    steps: z.array(stepSchema).length(11),
-    cases: z.array(caseSchema).min(100),
+    steps: z.array(stepSchema).length(12),
+    cases: z.array(caseSchema).min(101),
   })
   .strict();
 
@@ -255,6 +259,7 @@ describe("anc/v1 native control-log parity corpus", () => {
         verifyRecoveryAuthorization: async () => true,
         verifyRecoveryWrapRotation: async () => true,
         verifyCeremonyAbortAuthorization: async () => true,
+        verifyGrantRevocationAuthorization: async () => true,
       });
       expect(reduced.entryHash).toBe(step.entryHashHex);
       expect(reduced.state.membershipHash).toBe(step.membershipHashHex);
@@ -305,6 +310,10 @@ describe("anc/v1 native control-log parity corpus", () => {
           .ceremonyAbort
           ? async () => true
           : undefined,
+        verifyGrantRevocationAuthorization: fixtureCase.authorization
+          .grantRevocation
+          ? async () => true
+          : undefined,
       });
       if (fixtureCase.expectedStatus === "reject") {
         expect(fixtureCase.expectedState).toBeNull();
@@ -344,7 +353,7 @@ describe("anc/v1 native control-log parity corpus", () => {
     expect(byMatrix).toEqual({
       stateful: 8,
       boundary: 12,
-      authorization: 8,
+      authorization: 9,
       transition: 32,
       wire: 40,
     });
@@ -360,6 +369,7 @@ describe("anc/v1 native control-log parity corpus", () => {
       "recovery",
       "continuity",
       "ceremony_abort",
+      "grant_revocation",
     ]);
     expect(
       corpus.steps.find((step) => step.name === "broker_continuity")!

@@ -35,6 +35,11 @@ const lowerHex = (bytes: number) =>
 const hashSchema = lowerHex(32);
 const publicKeySchema = lowerHex(32);
 const signatureSchema = lowerHex(64);
+const boundedEnvelopeHexSchema = z
+  .string()
+  .min(2)
+  .max(E2EE_SIZE_LIMITS.controlEnvelopeBytes * 2)
+  .regex(/^(?:[0-9a-f]{2})+$/);
 const safeSequenceSchema = z
   .number()
   .int()
@@ -208,10 +213,20 @@ export const controlCeremonyAbortSchema = z
   })
   .strict();
 
+export const controlGrantRevocationSchema = z
+  .object({
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("grant_revocation"),
+    vaultId: opaqueIdSchema,
+    revocationEnvelope: boundedEnvelopeHexSchema,
+  })
+  .strict();
+
 export const controlLogInnerEnvelopeSchema = z.discriminatedUnion("type", [
   controlMembershipCommitSchema,
   controlContinuityCheckpointSchema,
   controlCeremonyAbortSchema,
+  controlGrantRevocationSchema,
 ]);
 
 export type ControlMembershipCommit = z.infer<
@@ -221,6 +236,9 @@ export type ControlContinuityCheckpoint = z.infer<
   typeof controlContinuityCheckpointSchema
 >;
 export type ControlCeremonyAbort = z.infer<typeof controlCeremonyAbortSchema>;
+export type ControlGrantRevocation = z.infer<
+  typeof controlGrantRevocationSchema
+>;
 export type ControlLogInnerEnvelope = z.infer<
   typeof controlLogInnerEnvelopeSchema
 >;
@@ -300,7 +318,8 @@ export type ControlLogFailureCode =
   | "genesis_authorization_required"
   | "recovery_authorization_required"
   | "recovery_wrap_rotation_required"
-  | "ceremony_abort_authorization_required";
+  | "ceremony_abort_authorization_required"
+  | "grant_revocation_authorization_required";
 
 export class ControlLogVerificationError extends Error {
   constructor(readonly code: ControlLogFailureCode) {
@@ -401,6 +420,13 @@ function encodeInnerMap(innerInput: ControlLogInnerEnvelope) {
     common.set(fields.reasonCode, inner.reasonCode);
     return common;
   }
+  if (inner.type === "grant_revocation") {
+    common.set(
+      E2EE_ENVELOPE_FIELDS.controlGrantRevocation.revocationEnvelope,
+      ancV1HexToBytes(inner.revocationEnvelope),
+    );
+    return common;
+  }
   const fields = E2EE_ENVELOPE_FIELDS.controlMembership;
   common.set(fields.ceremonyId, inner.ceremonyId);
   common.set(fields.ceremonyKind, inner.ceremonyKind);
@@ -480,6 +506,7 @@ export function decodeControlLogInnerEnvelope(
       ...Object.values(E2EE_ENVELOPE_FIELDS.controlMembership),
       ...Object.values(E2EE_ENVELOPE_FIELDS.controlContinuity),
       ...Object.values(E2EE_ENVELOPE_FIELDS.controlCeremonyAbort),
+      ...Object.values(E2EE_ENVELOPE_FIELDS.controlGrantRevocation),
     ],
     {
       maxBytes: E2EE_SIZE_LIMITS.controlEnvelopeBytes,
@@ -493,7 +520,9 @@ export function decodeControlLogInnerEnvelope(
         ? E2EE_ENVELOPE_FIELDS.controlMembership
         : type === "ceremony_abort"
           ? E2EE_ENVELOPE_FIELDS.controlCeremonyAbort
-          : null;
+          : type === "grant_revocation"
+            ? E2EE_ENVELOPE_FIELDS.controlGrantRevocation
+            : null;
   if (!typeFields) {
     throw new ControlLogVerificationError("invalid_entry");
   }
@@ -532,6 +561,17 @@ export function decodeControlLogInnerEnvelope(
         mapGet(map, fields.ceremonyStateHash, isBytes),
       ),
       reasonCode: mapGet(map, fields.reasonCode, isString),
+    });
+  }
+  if (type === "grant_revocation") {
+    const fields = E2EE_ENVELOPE_FIELDS.controlGrantRevocation;
+    return controlGrantRevocationSchema.parse({
+      suite,
+      type,
+      vaultId,
+      revocationEnvelope: ancV1BytesToHex(
+        mapGet(map, fields.revocationEnvelope, isBytes),
+      ),
     });
   }
   if (type !== "membership_commit") {
@@ -898,6 +938,11 @@ export interface VerifyAndReduceControlLogInput {
     entry: SignedControlLogEntry;
     current: ControlLogState;
   }) => Promise<boolean>;
+  readonly verifyGrantRevocationAuthorization?: (input: {
+    revocation: ControlGrantRevocation;
+    entry: SignedControlLogEntry;
+    current: ControlLogState;
+  }) => Promise<boolean>;
 }
 
 export async function verifyAndReduceControlLogEntry(
@@ -1084,6 +1129,33 @@ export async function verifyAndReduceControlLogEntry(
     ) {
       throw new ControlLogVerificationError(
         "ceremony_abort_authorization_required",
+      );
+    }
+    return {
+      state: controlLogStateSchema.parse({
+        ...current,
+        sequence: entry.sequence,
+        headHash: hash,
+        signedAt: entry.createdAt,
+        freshnessMode: "endpoint_witnessed",
+      }),
+      entryHash: hash,
+      idempotent: false,
+    };
+  }
+
+  if (inner.type === "grant_revocation") {
+    if (
+      signer.role !== "endpoint" ||
+      !input.verifyGrantRevocationAuthorization ||
+      !(await input.verifyGrantRevocationAuthorization({
+        revocation: controlGrantRevocationSchema.parse(inner),
+        entry: signedControlLogEntrySchema.parse(entry),
+        current: controlLogStateSchema.parse(current),
+      }))
+    ) {
+      throw new ControlLogVerificationError(
+        "grant_revocation_authorization_required",
       );
     }
     return {

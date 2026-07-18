@@ -122,6 +122,7 @@ static NSData *ReplaceFirstMemberUnattended(NSData *inner,
 @property(nonatomic) BOOL allowRecovery;
 @property(nonatomic) BOOL allowRecoveryWrapRotation;
 @property(nonatomic) BOOL allowAbort;
+@property(nonatomic) BOOL allowGrantRevocation;
 @property(nonatomic) NSInteger genesisMutation;
 @property(nonatomic) BOOL catchGenesisMutationException;
 @property(nonatomic) BOOL caughtGenesisMutationException;
@@ -129,6 +130,7 @@ static NSData *ReplaceFirstMemberUnattended(NSData *inner,
 @property(nonatomic) BOOL mutateRecoveryWrapSnapshot;
 @property(nonatomic) BOOL mutateRecoverySnapshot;
 @property(nonatomic) BOOL mutateAbortSnapshot;
+@property(nonatomic) BOOL mutateGrantRevocationSnapshot;
 @property(nonatomic, nullable) NSData *expectedRecoveryWrapSignedEntry;
 @property(nonatomic, nullable) NSData *expectedRecoveryWrapInnerEnvelope;
 @property(nonatomic, nullable) NSData *expectedRecoveryWrapHash;
@@ -232,6 +234,16 @@ static NSData *ReplaceFirstMemberUnattended(NSData *inner,
     [state setValue:@"recovery:poisoned" forKey:@"recoveryId"];
   }
   return self.allowAbort && entry.length > inner.length && state != nil;
+}
+- (BOOL)verifyGrantRevocationSignedEntry:(NSData *)entry
+                           innerEnvelope:(NSData *)inner
+                      revocationEnvelope:(NSData *)revocation
+                            currentState:(AncPrivateVaultControlLogState *)state {
+  if (self.mutateGrantRevocationSnapshot) {
+    [state setValue:@"recovery:poisoned" forKey:@"recoveryId"];
+  }
+  return self.allowGrantRevocation && entry.length > inner.length &&
+      revocation.length > 0 && state != nil;
 }
 @end
 
@@ -472,6 +484,7 @@ static AncPrivateVaultControlLogStatus FixtureExpectedStatus(NSString *error) {
     @"recovery_authorization_required" : @(AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired),
     @"recovery_wrap_rotation_required" : @(AncPrivateVaultControlLogStatusRecoveryWrapRotationRequired),
     @"ceremony_abort_authorization_required" : @(AncPrivateVaultControlLogStatusCeremonyAbortAuthorizationRequired),
+    @"grant_revocation_authorization_required" : @(AncPrivateVaultControlLogStatusGrantRevocationAuthorizationRequired),
   };
   NSNumber *status = statuses[error];
   assert(status != nil);
@@ -485,7 +498,7 @@ static void TestCoreFixture(NSString *fixturePath) {
   AssertExactKeys(json, @[@"schema", @"suite", @"encoding", @"generator",
                           @"protocolBaseCommit", @"sourceAnchors", @"domains", @"identities",
                           @"states", @"steps", @"cases"]);
-  assert([json[@"schema"] isEqual:@"anc/v1-native-control-log-vectors@2"]);
+  assert([json[@"schema"] isEqual:@"anc/v1-native-control-log-vectors@3"]);
   assert([json[@"suite"] isEqual:@"anc/v1"] && [json[@"encoding"] isEqual:@"hex"]);
   assert([json[@"protocolBaseCommit"] isEqual:@"fd8c9800abbda048b21796a0953f449d1cc100ce"]);
   assert([json[@"generator"] isEqual:@"buildAncV1NativeControlLogVectors"]);
@@ -495,6 +508,7 @@ static void TestCoreFixture(NSString *fixturePath) {
     @"packages/core/src/e2ee/native-control-log-vectors.ts",
     @"packages/core/src/e2ee/canonical.ts",
     @"packages/core/src/e2ee/control-log.ts",
+    @"packages/core/src/e2ee/grant-codecs.ts",
     @"packages/core/src/e2ee/portable-crypto.ts",
     @"packages/core/src/e2ee/suite.ts",
   ];
@@ -532,7 +546,7 @@ static void TestCoreFixture(NSString *fixturePath) {
   }
 
   NSArray *states = json[@"states"];
-  assert([states isKindOfClass:[NSArray class]] && states.count == 22);
+  assert([states isKindOfClass:[NSArray class]] && states.count == 23);
   NSMutableDictionary<NSString *, id> *stateByRef = [NSMutableDictionary dictionary];
   for (NSDictionary *vector in states) {
     AssertExactKeys(vector, @[@"ref", @"state"]);
@@ -547,10 +561,11 @@ static void TestCoreFixture(NSString *fixturePath) {
   TestVerifier *verifier = [[TestVerifier alloc] init];
   verifier.allowGenesis = YES; verifier.allowRecovery = YES;
   verifier.allowRecoveryWrapRotation = YES; verifier.allowAbort = YES;
+  verifier.allowGrantRevocation = YES;
   AncPrivateVaultControlLog *log = [[AncPrivateVaultControlLog alloc] init];
   AncPrivateVaultControlLogState *state = nil;
   NSArray *steps = json[@"steps"];
-  assert([steps isKindOfClass:[NSArray class]] && steps.count == 11);
+  assert([steps isKindOfClass:[NSArray class]] && steps.count == 12);
   for (NSDictionary *step in steps) {
     AssertExactKeys(step, @[@"name", @"expected", @"sequence", @"innerType", @"ceremonyKind",
                             @"signerEndpointId", @"signerPublicKeyHex", @"innerHex", @"unsignedHex",
@@ -587,6 +602,21 @@ static void TestCoreFixture(NSString *fixturePath) {
       assert([log replaySignedEntry:outerBytes currentState:state verifier:mutatingVerifier
                               result:&negativeResult] ==
              AncPrivateVaultControlLogStatusCeremonyAbortAuthorizationRequired);
+      assert(negativeResult == nil && state.sequence == priorSequence &&
+             [state.headHash isEqualToData:priorHeadHash] &&
+             [state.recoveryId isEqualToString:priorRecoveryId]);
+    }
+    if ([step[@"name"] isEqual:@"grant_revocation"]) {
+      NSString *priorRecoveryId = [state.recoveryId copy];
+      NSData *priorHeadHash = [state.headHash copy];
+      uint64_t priorSequence = state.sequence;
+      TestVerifier *mutatingVerifier = [[TestVerifier alloc] init];
+      mutatingVerifier.allowGrantRevocation = YES;
+      mutatingVerifier.mutateGrantRevocationSnapshot = YES;
+      AncPrivateVaultControlLogReplayResult *negativeResult = nil;
+      assert([log replaySignedEntry:outerBytes currentState:state verifier:mutatingVerifier
+                              result:&negativeResult] ==
+             AncPrivateVaultControlLogStatusGrantRevocationAuthorizationRequired);
       assert(negativeResult == nil && state.sequence == priorSequence &&
              [state.headHash isEqualToData:priorHeadHash] &&
              [state.recoveryId isEqualToString:priorRecoveryId]);
@@ -648,7 +678,7 @@ static void TestCoreFixture(NSString *fixturePath) {
   }
 
   NSArray *cases = json[@"cases"];
-  assert([cases isKindOfClass:[NSArray class]] && cases.count == 100);
+  assert([cases isKindOfClass:[NSArray class]] && cases.count == 101);
   NSMutableSet *caseNames = [NSMutableSet set];
   NSMutableDictionary<NSString *, NSNumber *> *matrixCounts = [NSMutableDictionary dictionary];
   for (NSDictionary *fixtureCase in cases) {
@@ -671,12 +701,13 @@ static void TestCoreFixture(NSString *fixturePath) {
         priorObject == [NSNull null] ? nil : priorObject;
     NSDictionary *authorization = fixtureCase[@"authorization"];
     AssertExactKeys(authorization, @[@"genesis", @"recovery", @"recoveryWrapRotation",
-                                     @"ceremonyAbort"]);
+                                     @"ceremonyAbort", @"grantRevocation"]);
     TestVerifier *caseVerifier = [[TestVerifier alloc] init];
     caseVerifier.allowGenesis = [authorization[@"genesis"] boolValue];
     caseVerifier.allowRecovery = [authorization[@"recovery"] boolValue];
     caseVerifier.allowRecoveryWrapRotation = [authorization[@"recoveryWrapRotation"] boolValue];
     caseVerifier.allowAbort = [authorization[@"ceremonyAbort"] boolValue];
+    caseVerifier.allowGrantRevocation = [authorization[@"grantRevocation"] boolValue];
     NSData *entryBytes = HexData(fixtureCase[@"entryHex"]);
     id canonicalCategory = fixtureCase[@"canonicalErrorCategory"];
     assert(canonicalCategory == [NSNull null] ||
@@ -730,7 +761,7 @@ static void TestCoreFixture(NSString *fixturePath) {
   }
   assert([matrixCounts[@"stateful"] unsignedIntegerValue] == 8);
   assert([matrixCounts[@"boundary"] unsignedIntegerValue] == 12);
-  assert([matrixCounts[@"authorization"] unsignedIntegerValue] == 8);
+  assert([matrixCounts[@"authorization"] unsignedIntegerValue] == 9);
   assert([matrixCounts[@"transition"] unsignedIntegerValue] == 32);
   assert([matrixCounts[@"wire"] unsignedIntegerValue] == 40);
 }

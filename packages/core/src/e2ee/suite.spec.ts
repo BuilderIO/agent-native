@@ -94,6 +94,9 @@ describe("anc/v1 suite freeze", () => {
       ceremonyStateHash: 153,
       reasonCode: 154,
     });
+    expect(E2EE_ENVELOPE_FIELDS.controlGrantRevocation).toEqual({
+      revocationEnvelope: 160,
+    });
     expect(E2EE_ENVELOPE_FIELDS.enrollmentOffer).toEqual({
       endpointId: 160,
       ceremonyId: 161,

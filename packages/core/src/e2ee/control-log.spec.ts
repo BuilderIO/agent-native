@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
 
-import { ancV1BytesToHex } from "./canonical.js";
+import { ancV1BytesToHex, encodeAncV1Canonical } from "./canonical.js";
 import {
   encodeAncV1CeremonyAbortStateCommitment,
   hashAncV1CeremonyAbortStateCommitment,
@@ -14,10 +14,12 @@ import {
   type ControlLogMember,
   type ControlLogState,
   type ControlCeremonyAbort,
+  type ControlGrantRevocation,
   type ControlMembershipCommit,
   controlMembershipCommitSchema,
   controlLogStateSchema,
   createSignedControlLogEntry,
+  decodeControlLogInnerEnvelope,
   decodeSignedControlLogEntry,
   encodeControlLogInnerEnvelope,
   encodeSignedControlLogEntry,
@@ -104,6 +106,7 @@ async function signed(input: {
   inner:
     | ControlMembershipCommit
     | ControlCeremonyAbort
+    | ControlGrantRevocation
     | {
         suite: "anc/v1";
         type: "continuity_checkpoint";
@@ -146,6 +149,96 @@ async function genesis() {
 }
 
 describe("anc/v1 signed control log", () => {
+  it("commits endpoint-authorized grant revocation without changing membership authority", async () => {
+    const value = await genesis();
+    const revocation: ControlGrantRevocation = {
+      suite: "anc/v1",
+      type: "grant_revocation",
+      vaultId: value.state.vaultId,
+      revocationEnvelope: "a101",
+    };
+    const entry = await signed({
+      current: value.state,
+      signer: value.owner,
+      inner: revocation,
+      createdAt: "2026-07-17T01:00:01.000Z",
+    });
+    const innerBytes = encodeControlLogInnerEnvelope(revocation);
+    expect(decodeControlLogInnerEnvelope(innerBytes)).toEqual(revocation);
+    expect(
+      decodeSignedControlLogEntry(encodeSignedControlLogEntry(entry)),
+    ).toEqual(entry);
+    await expect(
+      verifyAndReduceControlLogEntry({ current: value.state, entry }),
+    ).rejects.toMatchObject({
+      code: "grant_revocation_authorization_required",
+    });
+    await expect(
+      verifyAndReduceControlLogEntry({
+        current: value.state,
+        entry,
+        verifyGrantRevocationAuthorization: async () => false,
+      }),
+    ).rejects.toMatchObject({
+      code: "grant_revocation_authorization_required",
+    });
+
+    let observed: ControlGrantRevocation | null = null;
+    const reduced = await verifyAndReduceControlLogEntry({
+      current: value.state,
+      entry,
+      verifyGrantRevocationAuthorization: async ({ revocation: candidate }) => {
+        observed = candidate;
+        return true;
+      },
+    });
+    expect(observed).toEqual(revocation);
+    expect(reduced.state).toMatchObject({
+      sequence: value.state.sequence + 1,
+      membershipHash: value.state.membershipHash,
+      activeMembers: value.state.activeMembers,
+      removedEndpointIds: value.state.removedEndpointIds,
+      epoch: value.state.epoch,
+      freshnessMode: "endpoint_witnessed",
+      signedAt: "2026-07-17T01:00:01.000Z",
+    });
+    expect(reduced.state.headHash).toBe(reduced.entryHash);
+
+    const broker = await identity(3, "broker:revoker-0001", "broker");
+    const forgedState: ControlLogState = {
+      ...value.state,
+      activeMembers: [broker.member, value.owner.member],
+    };
+    const brokerEntry = await signed({
+      current: forgedState,
+      signer: broker,
+      inner: revocation,
+    });
+    await expect(
+      verifyAndReduceControlLogEntry({
+        current: forgedState,
+        entry: brokerEntry,
+        verifyGrantRevocationAuthorization: async () => true,
+      }),
+    ).rejects.toMatchObject({
+      code: "grant_revocation_authorization_required",
+    });
+
+    expect(() =>
+      decodeControlLogInnerEnvelope(
+        encodeAncV1Canonical(
+          new Map([
+            [1, "anc/v1"],
+            [2, value.state.vaultId],
+            [3, "grant_revocation"],
+            [160, new Uint8Array([0xa1, 0x01])],
+            [999, "unknown"],
+          ]),
+        ),
+      ),
+    ).toThrow();
+  });
+
   it("round-trips and authorizes a ceremony abort without changing membership authority", async () => {
     const value = await genesis();
     const abortState = {

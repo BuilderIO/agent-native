@@ -20,6 +20,7 @@ import {
   encodeUnsignedControlLogEntry,
   verifyAndReduceControlLogEntry,
 } from "./control-log.js";
+import { sealAncV1GrantRevocation } from "./grant-codecs.js";
 import { ancV1Hash, ancV1SigningKeypairFromSeed } from "./portable-crypto.js";
 import {
   E2EE_ENVELOPE_FIELDS,
@@ -29,13 +30,14 @@ import {
 } from "./suite.js";
 
 export const ANC_V1_NATIVE_CONTROL_LOG_CORPUS_SCHEMA =
-  "anc/v1-native-control-log-vectors@2" as const;
+  "anc/v1-native-control-log-vectors@3" as const;
 export const ANC_V1_NATIVE_CONTROL_LOG_GENERATOR =
   "buildAncV1NativeControlLogVectors" as const;
 export const ANC_V1_NATIVE_CONTROL_LOG_SOURCE_PATHS = [
   "packages/core/src/e2ee/native-control-log-vectors.ts",
   "packages/core/src/e2ee/canonical.ts",
   "packages/core/src/e2ee/control-log.ts",
+  "packages/core/src/e2ee/grant-codecs.ts",
   "packages/core/src/e2ee/portable-crypto.ts",
   "packages/core/src/e2ee/suite.ts",
 ] as const;
@@ -60,10 +62,15 @@ export interface AncV1NativeControlLogStep {
     | "remove_device"
     | "recovery"
     | "continuity"
-    | "ceremony_abort";
+    | "ceremony_abort"
+    | "grant_revocation";
   expected: "accept";
   sequence: number;
-  innerType: "membership_commit" | "continuity_checkpoint" | "ceremony_abort";
+  innerType:
+    | "membership_commit"
+    | "continuity_checkpoint"
+    | "ceremony_abort"
+    | "grant_revocation";
   ceremonyKind: string | null;
   signerEndpointId: string;
   signerPublicKeyHex: string;
@@ -94,6 +101,7 @@ export interface AncV1NativeControlLogCase {
     recovery: boolean;
     recoveryWrapRotation: boolean;
     ceremonyAbort: boolean;
+    grantRevocation: boolean;
   };
   canonicalErrorCategory: string | null;
 }
@@ -248,6 +256,7 @@ export async function buildAncV1NativeControlLogVectors(
       verifyRecoveryAuthorization: async () => true,
       verifyRecoveryWrapRotation: async () => true,
       verifyCeremonyAbortAuthorization: async () => true,
+      verifyGrantRevocationAuthorization: async () => true,
     });
     state = reduced.state;
     states.push({ ref: `step:${name}`, state: reduced.state });
@@ -259,7 +268,9 @@ export async function buildAncV1NativeControlLogVectors(
       sequence,
       innerType: inner.type,
       ceremonyKind:
-        inner.type === "continuity_checkpoint" ? null : inner.ceremonyKind,
+        inner.type === "membership_commit" || inner.type === "ceremony_abort"
+          ? inner.ceremonyKind
+          : null,
       signerEndpointId: signer.member.endpointId,
       signerPublicKeyHex: signer.member.signingPublicKey,
       innerHex: ancV1BytesToHex(encodeControlLogInnerEnvelope(inner)),
@@ -415,12 +426,35 @@ export async function buildAncV1NativeControlLogVectors(
     },
     recovered,
   );
+  await append(
+    "grant_revocation",
+    {
+      suite: E2EE_SUITE_ID,
+      type: "grant_revocation",
+      vaultId: FIXED_VAULT_ID,
+      revocationEnvelope: ancV1BytesToHex(
+        await sealAncV1GrantRevocation({
+          vaultId: new Uint8Array(16).fill(0x01),
+          envelopeId: new Uint8Array(16).fill(0x02),
+          createdAt: FIXED_AT / 1_000 + 11,
+          grantRef: new Uint8Array(32).fill(0x03),
+          revocationRef: new Uint8Array(16).fill(0x04),
+          revokedAt: FIXED_AT / 1_000 + 11,
+          reason: "user_revoked",
+          issuerEndpointId: new Uint8Array(16).fill(0x05),
+          signingPrivateKey: recovered.privateKey,
+        }),
+      ),
+    },
+    recovered,
+  );
 
   const allAuthorization = {
     genesis: true,
     recovery: true,
     recoveryWrapRotation: true,
     ceremonyAbort: true,
+    grantRevocation: true,
   } as const;
   const cases: AncV1NativeControlLogCase[] = [];
   const stateByRef = new Map(
@@ -519,6 +553,9 @@ export async function buildAncV1NativeControlLogVectors(
           ? async () => true
           : undefined,
         verifyCeremonyAbortAuthorization: authorization.ceremonyAbort
+          ? async () => true
+          : undefined,
+        verifyGrantRevocationAuthorization: authorization.grantRevocation
           ? async () => true
           : undefined,
       });
@@ -707,6 +744,15 @@ export async function buildAncV1NativeControlLogVectors(
     expectedStatus: "reject",
     expectedError: "ceremony_abort_authorization_required",
     authorization: { ceremonyAbort: false },
+  });
+  await addCase({
+    name: "grant_revocation_authorization_missing",
+    matrix: "authorization",
+    priorStateRef: "step:ceremony_abort",
+    entryHex: entryHex(stepEntries.get("grant_revocation")!),
+    expectedStatus: "reject",
+    expectedError: "grant_revocation_authorization_required",
+    authorization: { grantRevocation: false },
   });
   await addCase({
     name: "invalid_detached_signature",

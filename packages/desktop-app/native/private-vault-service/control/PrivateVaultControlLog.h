@@ -17,7 +17,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
   AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired = 11,
   AncPrivateVaultControlLogStatusRecoveryWrapRotationRequired = 12,
   AncPrivateVaultControlLogStatusCeremonyAbortAuthorizationRequired = 13,
-  AncPrivateVaultControlLogStatusFailed = 14,
+  AncPrivateVaultControlLogStatusGrantRevocationAuthorizationRequired = 14,
+  AncPrivateVaultControlLogStatusFailed = 15,
 };
 
 @interface AncPrivateVaultControlLogMember : NSObject
@@ -111,6 +112,12 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
 - (BOOL)verifyCeremonyAbortSignedEntry:(NSData *)signedEntry
                          innerEnvelope:(NSData *)innerEnvelope
                            currentState:(AncPrivateVaultControlLogState *)state;
+/// Applies the exact signed grant-revoke envelope to durable native grant
+/// authority before the outer control-log head is allowed to advance.
+- (BOOL)verifyGrantRevocationSignedEntry:(NSData *)signedEntry
+                           innerEnvelope:(NSData *)innerEnvelope
+                      revocationEnvelope:(NSData *)revocationEnvelope
+                            currentState:(AncPrivateVaultControlLogState *)state;
 @end
 
 @interface AncPrivateVaultControlLogReplayResult : NSObject

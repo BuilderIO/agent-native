@@ -326,6 +326,9 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     ceremonyStateHash: 153,
     reasonCode: 154,
   }),
+  controlGrantRevocation: Object.freeze({
+    revocationEnvelope: 160,
+  }),
   manifest: Object.freeze({
     sequence: 120,
     objectRevisions: 121,

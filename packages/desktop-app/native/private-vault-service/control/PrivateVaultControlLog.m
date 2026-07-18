@@ -227,6 +227,7 @@ typedef NS_ENUM(NSInteger, AncInnerType) {
   AncInnerMembership,
   AncInnerContinuity,
   AncInnerAbort,
+  AncInnerGrantRevocation,
 };
 
 @interface AncControlInner : NSObject
@@ -248,6 +249,7 @@ typedef NS_ENUM(NSInteger, AncInnerType) {
 @property(nonatomic) NSData *recoveryKeyAgreementPublicKey;
 @property(nonatomic) NSData *recoveryWrapHash;
 @property(nonatomic) NSData *membershipHash;
+@property(nonatomic) NSData *revocationEnvelopeBytes;
 @end
 @implementation AncControlInner
 @end
@@ -442,6 +444,17 @@ static AncControlInner *AncParseInner(NSData *bytes) {
     inner.type = AncInnerAbort;
     inner.ceremonyId = ceremonyId;
     inner.ceremonyKind = kind;
+    return inner;
+  }
+  if ([type.textValue isEqualToString:@"grant_revocation"]) {
+    const int keys[] = {1, 2, 3, 160};
+    NSData *revocation =
+        AncField(map, 160, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    if (!AncExactKeys(map, keys, 4) || revocation.length == 0 ||
+        revocation.length > kControlMaximumBytes)
+      return nil;
+    inner.type = AncInnerGrantRevocation;
+    inner.revocationEnvelopeBytes = revocation;
     return inner;
   }
   if (![type.textValue isEqualToString:@"membership_commit"]) return nil;
@@ -1359,6 +1372,29 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
         ![innerSnapshot isEqualToData:entry.innerBytes] ||
         ![AncHash(signedSnapshot) isEqualToData:entryHash])
       return AncPrivateVaultControlLogStatusCeremonyAbortAuthorizationRequired;
+  } else if (inner.type == AncInnerGrantRevocation) {
+    SEL selector = @selector(verifyGrantRevocationSignedEntry:innerEnvelope:revocationEnvelope:currentState:);
+    if (![signer.role isEqualToString:@"endpoint"] ||
+        ![verifier respondsToSelector:selector])
+      return AncPrivateVaultControlLogStatusGrantRevocationAuthorizationRequired;
+    AncPrivateVaultControlLogState *stateSnapshot = AncCopyState(current);
+    NSData *signedSnapshot = [authenticatedSignedEntry copy];
+    NSData *innerSnapshot = [entry.innerBytes copy];
+    NSData *revocationSnapshot = [inner.revocationEnvelopeBytes copy];
+    BOOL authorized = NO;
+    @try {
+      authorized = [verifier verifyGrantRevocationSignedEntry:signedSnapshot
+                                                innerEnvelope:innerSnapshot
+                                           revocationEnvelope:revocationSnapshot
+                                                 currentState:stateSnapshot];
+    } @catch (__unused NSException *exception) {
+      authorized = NO;
+    }
+    if (!authorized || !AncStateSnapshotEqual(stateSnapshot, current) ||
+        ![innerSnapshot isEqualToData:entry.innerBytes] ||
+        ![revocationSnapshot isEqualToData:inner.revocationEnvelopeBytes] ||
+        ![AncHash(signedSnapshot) isEqualToData:entryHash])
+      return AncPrivateVaultControlLogStatusGrantRevocationAuthorizationRequired;
   } else {
     if (!AncTransitionValid(current, inner)) return AncPrivateVaultControlLogStatusInvalidTransition;
     if (![inner.ceremonyKind isEqualToString:@"recovery"] &&
