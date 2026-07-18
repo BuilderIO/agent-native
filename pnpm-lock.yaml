@@ -1121,9 +1121,6 @@ importers:
 
   packages/embedding:
     devDependencies:
-      '@agent-native/core':
-        specifier: workspace:*
-        version: link:../core
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17
@@ -1488,6 +1485,9 @@ importers:
 
   packages/toolkit:
     dependencies:
+      '@assistant-ui/react':
+        specifier: ^0.12.19
+        version: 0.12.28(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
       '@radix-ui/react-accordion':
         specifier: ^1.2.15
         version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -1687,6 +1687,9 @@ importers:
         specifier: 'catalog:'
         version: 13.6.31
     devDependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../core
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17
