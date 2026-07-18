@@ -133,7 +133,12 @@ export function FavoriteDocumentItem({
             : `${Math.max(0, sidebarWidth)}px`,
       }}
       aria-label={title}
-      onClick={onSelect}
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest("button")) {
+          return;
+        }
+        onSelect();
+      }}
     >
       <span className="flex h-5 w-5 shrink-0 items-center justify-center text-center">
         <DocumentSidebarIcon document={document} />
