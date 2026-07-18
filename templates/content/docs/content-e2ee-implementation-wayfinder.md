@@ -695,11 +695,18 @@ execution, native result sealing, and encrypted submission. It cross-checks
 the claim against the returned ciphertext frame, binds the native-authenticated
 job hash into the result, zeroizes every transferred plaintext/result buffer,
 serializes work, and moves failures to bounded encrypted retry instead of a
-hosted fallback. Core vectors, route/auth unit tests, a real temporary-SQLite
-signed-control-head authentication and replay-denial test, all 48 broker tests,
-Core and broker typechecks, Content typecheck, and Core build pass. The worker
-still needs a packaged process, concrete encrypted state/index, app action
-executor, enrollment/recovery, and lifecycle supervision before the broker exit
+hosted fallback. Its relocatable supervisor gates every work cycle on native
+authority health and revocation, serializes work, persists only a content-free
+encrypted checkpoint, retries offline with bounded backoff, and locks native
+custody after revocation, worker failure, or shutdown. Core's executable job
+codec now uses endpoint X25519 boxes rather than the shared epoch key, verifies
+the grant-authorized sender signature before plaintext release, hashes the
+exact signed job bytes, and authenticates the result terminal state alongside
+job, hash, and recipient coordinates. Core vectors, route/auth unit tests, a
+real temporary-SQLite signed-control-head authentication and replay-denial
+test, all 54 broker tests, Core and broker typechecks, Content typecheck, and
+Core build pass. The worker still needs a packaged process, concrete encrypted
+state/index, app action executor, and lifecycle wiring before the broker exit
 gate closes.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A

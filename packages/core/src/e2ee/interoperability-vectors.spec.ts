@@ -141,9 +141,6 @@ describe("anc/v1 fixed interoperability corpus", () => {
     ).resolves.toEqual(materials.dek);
 
     const jobMap = envelope(vectors.job);
-    const jobAad = new Map(jobMap);
-    jobAad.delete(E2EE_ENVELOPE_FIELDS.job.ciphertext);
-    jobAad.delete(E2EE_ENVELOPE_FIELDS.job.signature);
     const jobPayload = ancV1UnpackNonceCiphertext(
       bytesField(jobMap, E2EE_ENVELOPE_FIELDS.job.ciphertext),
     );
@@ -151,21 +148,18 @@ describe("anc/v1 fixed interoperability corpus", () => {
       ancV1PatternBytes(ANC_V1_SYNTHETIC_PATTERNS.jobNonce, 24),
     );
     await expect(
-      ancV1AeadDecrypt(
+      ancV1BoxDecrypt(
         "job",
         jobPayload.ciphertext,
-        encodeAncV1Canonical(jobAad),
         jobPayload.nonce,
-        materials.jobKey,
+        materials.senderBoxPublicKey,
+        materials.recipientBoxPrivateKey,
       ),
     ).resolves.toEqual(
       new TextEncoder().encode("synthetic encrypted job request"),
     );
 
     const resultMap = envelope(vectors.result);
-    const resultAad = new Map(resultMap);
-    resultAad.delete(E2EE_ENVELOPE_FIELDS.result.ciphertext);
-    resultAad.delete(E2EE_ENVELOPE_FIELDS.result.signature);
     const resultPayload = ancV1UnpackNonceCiphertext(
       bytesField(resultMap, E2EE_ENVELOPE_FIELDS.result.ciphertext),
     );
@@ -173,12 +167,12 @@ describe("anc/v1 fixed interoperability corpus", () => {
       ancV1PatternBytes(ANC_V1_SYNTHETIC_PATTERNS.resultNonce, 24),
     );
     await expect(
-      ancV1AeadDecrypt(
+      ancV1BoxDecrypt(
         "result",
         resultPayload.ciphertext,
-        encodeAncV1Canonical(resultAad),
         resultPayload.nonce,
-        materials.resultKey,
+        materials.recipientBoxPublicKey,
+        materials.senderBoxPrivateKey,
       ),
     ).resolves.toEqual(
       new TextEncoder().encode("synthetic encrypted job result"),

@@ -283,6 +283,7 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     recipientEndpointId: 102,
     ciphertext: 103,
     signature: 104,
+    state: 105,
   }),
   logEntry: Object.freeze({
     sequence: 110,

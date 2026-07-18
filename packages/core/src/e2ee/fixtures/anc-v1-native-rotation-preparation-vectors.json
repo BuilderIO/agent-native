@@ -19,7 +19,7 @@
     },
     {
       "path": "packages/core/src/e2ee/recovery-ceremony-codecs.ts",
-      "sha256": "2d30922e6bd06e863d8428f5723d85d291d071724b48401fd9da8867ed431b63"
+      "sha256": "75559450779169c3779240106031135b4b990e1b917ee75dec6be76990e0770f"
     },
     {
       "path": "packages/core/src/e2ee/canonical.ts",
@@ -31,7 +31,7 @@
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "859922557985708c32102e528e7d80137b13d50b206b2ae129a52e421d0e60c8"
+      "sha256": "188626851f474979ffe7a2f2eb5b9bbf2d896e48c80b2113eaca89130af0db67"
     }
   ],
   "recordLayout": {

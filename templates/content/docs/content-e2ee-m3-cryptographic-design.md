@@ -164,7 +164,18 @@ Deletion writes a signed tombstone, destroys live DEK wraps, asks hosted storage
 
 Possessing a grant never conveys key material. Internal agent grants are endpoint-signed and bind subject endpoint/agent, exact resources, operations, issuance/expiry, and revocation reference; maximum lifetime is 30 days. External disclosure defaults to 24 hours and has a hard seven-day maximum, additionally binding provider and destination.
 
-Jobs are endpoint-signed and sealed to the broker. Results are broker-signed, bind the originating job hash, and are sealed to the requester. The broker persists a seen-set for unexpired random job IDs and rejects replay. Offline jobs remain encrypted at the hosted relay until lease/expiry.
+Jobs are endpoint-signed and sealed requester-to-broker with the requester's
+X25519 private key and the broker's enrolled public key. Results reverse that
+key-agreement direction, are broker-signed, bind the exact originating signed
+job hash, and are sealed to the requester. No epoch key is used as a job key:
+that would hide plaintext from the server but would let every endpoint holding
+the epoch decrypt a broker-addressed job. The signed result envelope also binds
+the terminal `completed` or `failed` state (integer field `105`), so the hosted
+relay cannot flip UI-visible outcome metadata independently of the ciphertext.
+Signatures and exact recipient/job/grant coordinates are verified before box
+decryption releases plaintext. The broker persists a seen-set for unexpired
+random job IDs and rejects replay. Offline jobs remain encrypted at the hosted
+relay until lease/expiry.
 
 For external-model work, the broker validates a fresh control-log head and the exact disclosure, decrypts only scoped resources, connects directly to the named provider, retains plaintext only for the active tool loop, and emits a content-free disclosure event. Revocation stops future transmission; it cannot recall provider-held data.
 

@@ -15,11 +15,11 @@
     },
     {
       "path": "packages/core/src/e2ee/contracts.ts",
-      "sha256": "56cd212e3cadb4e8e6883fdfe056430e802f46e98049e8298f318d78ea94a0e9"
+      "sha256": "3eec8b0c15e90cd06d8946dde087b5848f2a090b016fb18bc9b54a85f0790219"
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "859922557985708c32102e528e7d80137b13d50b206b2ae129a52e421d0e60c8"
+      "sha256": "188626851f474979ffe7a2f2eb5b9bbf2d896e48c80b2113eaca89130af0db67"
     }
   ],
   "domains": {

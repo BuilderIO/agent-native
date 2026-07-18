@@ -258,6 +258,14 @@ describe("anc/v1 suite freeze", () => {
       membershipHash: 222,
       priorEndpointIds: 223,
     });
+    expect(E2EE_ENVELOPE_FIELDS.result).toEqual({
+      jobId: 100,
+      jobHash: 101,
+      recipientEndpointId: 102,
+      ciphertext: 103,
+      signature: 104,
+      state: 105,
+    });
     expect(E2EE_RECOVERY_KDF).toEqual({
       algorithm: "argon2id",
       inputForm: "bip39-24-word-entropy",

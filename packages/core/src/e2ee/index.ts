@@ -14,6 +14,7 @@ export * from "./genesis-ceremony-codecs.js";
 export * from "./genesis-bootstrap-transcript.js";
 export * from "./genesis-account-admission.js";
 export * from "./interoperability-vectors.js";
+export * from "./job-envelope-codecs.js";
 export * from "./lifecycle-codecs.js";
 export * from "./portable-crypto.js";
 export * from "./recovery-ceremony-codecs.js";
