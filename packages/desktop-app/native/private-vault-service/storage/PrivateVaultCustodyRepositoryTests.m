@@ -2078,6 +2078,131 @@ static void TestPendingRecoveryPromotionCAS(void) {
   anc_pv_zeroize(&secrets, sizeof secrets);
 }
 
+static void TestEnrollmentAuthorizationAndPromotionCAS(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository =
+      [[AncPrivateVaultCustodyRepository alloc]
+          initWithKeychain:Keychain()
+                recordId:AncPrivateVaultBrokerCustodyRecordId];
+  AncPrivateVaultCustodySnapshot offer;
+  TestSecrets secrets;
+  MakeActive(&offer, &secrets, 1, 177, @"vault");
+  offer.authority_anchor_present = 0;
+  offer.expected_edge_present = 0;
+  offer.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  offer.role = ANC_PV_CUSTODY_ROLE_BROKER;
+  offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
+  offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  SetId(offer.ceremony_id, &offer.ceremony_id_length,
+        @"ceremony:broker-enrollment");
+  offer.active_epoch = 0;
+  offer.recovery_generation = 0;
+  offer.anchored_sequence = 0;
+  memset(offer.anchored_head, 0, 32);
+  memset(offer.membership_digest, 0, 32);
+  offer.signed_at_ms = 0;
+  memset(offer.snapshot_digest, 0, 32);
+  offer.freshness_ms = 0;
+  memset(secrets.activeKey, 0, 32);
+  memset(secrets.pendingKey, 0, 32);
+  AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
+  assert([repository storeSnapshot:&offer
+                           secrets:&inputs
+                           vaultId:@"vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+
+  AncPrivateVaultCustodySnapshot authorized = offer;
+  authorized.authority_anchor_present = 1;
+  authorized.expected_edge_present = 1;
+  authorized.enrollment_phase =
+      ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED;
+  authorized.custody_generation = 2;
+  authorized.active_epoch = 7;
+  authorized.recovery_generation = 3;
+  authorized.anchored_sequence = 11;
+  Fill(authorized.anchored_head, 32, 0x31);
+  Fill(authorized.membership_digest, 32, 0x51);
+  authorized.signed_at_ms = 1700000020000ULL;
+  Fill(authorized.snapshot_digest, 32, 0x71);
+  authorized.freshness_ms = 1700000021000ULL;
+  authorized.expected_next_sequence = 12;
+  memcpy(authorized.expected_previous_head, authorized.anchored_head, 32);
+  Fill(authorized.pending_transcript_digest, 32, 0x91);
+  uint8_t epochKey[32];
+  Fill(epochKey, sizeof epochKey, 0xb1);
+  const uint8_t *epochKeyBytes = epochKey;
+  assert([repository
+             acceptEnrollmentAuthorizationVaultId:@"vault"
+                                expectedGeneration:1
+                                nextPublicSnapshot:&authorized
+                                    activeEpochKey:epochKey] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([repository
+             acceptEnrollmentAuthorizationVaultId:@"vault"
+                                expectedGeneration:1
+                                nextPublicSnapshot:&authorized
+                                    activeEpochKey:epochKey] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  uint8_t wrongEpochKey[32];
+  memcpy(wrongEpochKey, epochKey, 32);
+  wrongEpochKey[0] ^= 1;
+  assert([repository
+             acceptEnrollmentAuthorizationVaultId:@"vault"
+                                expectedGeneration:1
+                                nextPublicSnapshot:&authorized
+                                    activeEpochKey:wrongEpochKey] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+
+  AncPrivateVaultCustodySnapshot pending;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&pending handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  __block BOOL installed = NO;
+  assert([handle borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *value) {
+           installed = anc_pv_memcmp(value->active_epoch_key, epochKeyBytes, 32) ==
+                           ANC_PV_CRYPTO_OK &&
+                       value->pending_epoch_key[0] == 0;
+           return installed;
+         }] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK &&
+         installed);
+
+  AncPrivateVaultCustodySnapshot official = authorized;
+  official.expected_edge_present = 0;
+  official.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
+  official.pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
+  official.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
+  official.custody_generation = 3;
+  memset(official.ceremony_id, 0, sizeof official.ceremony_id);
+  official.ceremony_id_length = 0;
+  official.anchored_sequence = 12;
+  Fill(official.anchored_head, 32, 0xd1);
+  Fill(official.membership_digest, 32, 0xe1);
+  official.signed_at_ms += 100;
+  Fill(official.snapshot_digest, 32, 0xf1);
+  official.freshness_ms += 100;
+  official.expected_next_sequence = 0;
+  memset(official.expected_previous_head, 0, 32);
+  memset(official.pending_transcript_digest, 0, 32);
+  assert([repository promoteEnrollmentAuthorityAnchorVaultId:@"vault"
+                                           nextPublicSnapshot:&official] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([repository promoteEnrollmentAuthorityAnchorVaultId:@"vault"
+                                           nextPublicSnapshot:&official] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&pending handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(pending.custody_generation == 3 &&
+         pending.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+         pending.role == ANC_PV_CUSTODY_ROLE_BROKER &&
+         pending.anchored_sequence == 12);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  anc_pv_zeroize(epochKey, sizeof epochKey);
+  anc_pv_zeroize(wrongEpochKey, sizeof wrongEpochKey);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+}
+
 static void TestLegacyCodecMigrations(void) {
   Reset();
   AncPrivateVaultKeychain *keychain = Keychain();
@@ -2323,6 +2448,7 @@ int main(void) {
     TestAdvanceAuthorityAnchorCAS();
     TestPromoteGenesisAuthorityAnchorCAS();
     TestPendingRecoveryPromotionCAS();
+    TestEnrollmentAuthorizationAndPromotionCAS();
     TestLegacyCodecMigrations();
     puts("private-vault custody repository tests passed");
   }

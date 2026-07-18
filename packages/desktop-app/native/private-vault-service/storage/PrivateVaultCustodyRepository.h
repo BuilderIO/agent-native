@@ -72,6 +72,23 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultCustodyEpochTransition) {
                        nextPublicSnapshot:
                            (const AncPrivateVaultCustodySnapshot *)nextPublicSnapshot;
 
+/* Enrollment-only CAS. The first call advances an unanchored offer to an
+ * authorization-bound pending record and installs the EEK opened for this
+ * candidate. The second call promotes only that exact pending edge after the
+ * signed membership commit has been independently replayed. */
+- (AncPrivateVaultCustodyRepositoryStatus)
+    acceptEnrollmentAuthorizationVaultId:(NSString *)vaultId
+                       expectedGeneration:(uint64_t)expectedGeneration
+                     nextPublicSnapshot:
+                         (const AncPrivateVaultCustodySnapshot *)nextPublicSnapshot
+                           activeEpochKey:
+                               (const uint8_t *_Nonnull)activeEpochKey;
+
+- (AncPrivateVaultCustodyRepositoryStatus)
+    promoteEnrollmentAuthorityAnchorVaultId:(NSString *)vaultId
+                          nextPublicSnapshot:
+                              (const AncPrivateVaultCustodySnapshot *)nextPublicSnapshot;
+
 - (AncPrivateVaultCustodyRepositoryStatus)
     migrateLegacyCodecVaultId:(NSString *)vaultId
            expectedGeneration:(uint64_t)expectedGeneration;

@@ -775,6 +775,19 @@ pass. The enrollment coordinator can now promote a broker without overwriting
 the attended endpoint—the native storage precondition that had previously been
 missing.
 
+Broker custody now also owns the exact enrollment state transition rather than
+leaving it to a coordinator-shaped record write. An unanchored offer can advance
+only to a byte-preserving candidate record bound to the authenticated prior
+authority snapshot, next control edge, authorization digest, and one opened EEK.
+An identical retry succeeds, while a substituted EEK or changed candidate field
+conflicts. Final activation separately requires the exact pending edge and
+promotes it to an active record without replacing the candidate's signing,
+agreement, or local-state keys. Dual-architecture custody tests cover acceptance,
+conflicting retry, secret retention, activation, and idempotent promotion. The
+remaining coordinator work must produce the verified activation evidence that
+is allowed to invoke these two CAS operations; it may not write custody records
+directly.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and
