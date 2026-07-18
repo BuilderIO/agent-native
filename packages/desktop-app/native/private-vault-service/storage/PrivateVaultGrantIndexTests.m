@@ -247,7 +247,9 @@ int main(void) {
           requesterBoxPublicKey:Pattern(0x22, 32)
                      resourceId:Pattern(0x04, 16)
                       operation:@"read"
-                       provider:@"synthetic-provider"] ==
+                       provider:@"synthetic-provider"
+                    hostedEpoch:1 hostedRetryCount:0
+               hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusOK);
     assert([index claimJobId:jobId jobHash:jobHash grantRef:grantRef
                        vaultId:kVaultId nowSeconds:1721111112
@@ -259,7 +261,9 @@ int main(void) {
           requesterBoxPublicKey:Pattern(0x22, 32)
                      resourceId:Pattern(0x04, 16)
                       operation:@"read"
-                       provider:@"synthetic-provider"] ==
+                       provider:@"synthetic-provider"
+                    hostedEpoch:1 hostedRetryCount:0
+               hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusReplay);
     assert([index recordResultHash:resultHash state:@"completed" jobId:jobId
                             jobHash:jobHash vaultId:kVaultId] ==
@@ -270,6 +274,10 @@ int main(void) {
     assert([index recordResultHash:Pattern(0x15, 32) state:@"completed"
                               jobId:jobId jobHash:jobHash vaultId:kVaultId] ==
            AncPrivateVaultGrantIndexStatusConflict);
+    assert([index acknowledgeResultHash:resultHash state:@"completed"
+                                   jobId:jobId jobHash:jobHash
+                                  vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusOK);
     assert([index claimJobId:Pattern(0x16, 16) jobHash:Pattern(0x17, 32)
                        grantRef:grantRef vaultId:kVaultId
                      nowSeconds:1721111112 expiresAtSeconds:1721111200
@@ -279,7 +287,9 @@ int main(void) {
       requesterSigningPublicKey:Pattern(0x21, 32)
           requesterBoxPublicKey:Pattern(0x22, 32)
                      resourceId:Pattern(0x04, 16) operation:@"read"
-                       provider:@"wrong-provider"] ==
+                       provider:@"wrong-provider"
+                    hostedEpoch:1 hostedRetryCount:0
+               hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusUnauthorized);
     assert([index claimJobId:Pattern(0x18, 16) jobHash:Pattern(0x19, 32)
                        grantRef:grantRef vaultId:kVaultId
@@ -290,7 +300,9 @@ int main(void) {
       requesterSigningPublicKey:Pattern(0x21, 32)
           requesterBoxPublicKey:Pattern(0x22, 32)
                      resourceId:Pattern(0x04, 16) operation:@"read"
-                       provider:@"synthetic-provider"] ==
+                       provider:@"synthetic-provider"
+                    hostedEpoch:1 hostedRetryCount:0
+               hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusOK);
 
     NSData *semanticGrant = Hex(@"b10166616e632f763102500101010101010101010101010101010103656772616e74041a66961247055016161616161616161616161616161616183c5005050505050505050505050505050505183d5002020202020202020202020202020202183e5007070707070707070707070707070707183f5003030303030303030303030303030303184050080808080808080808080808080808081841815009090909090909090909090909090909184281647265616418438167636f6e74656e7418441a6696124718451a669620571846500a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a1847584058e6cfd36566a7fd1db086d9150ce14ba1c2e11308e26478bdeb8f03a2d6ab82b6f220ea52753ae854af89a5e8e384d8ae3e5abfe003bfd457596231dd7c9504");
@@ -345,6 +357,8 @@ int main(void) {
     AncPrivateVaultAuthorizedJob *authorizedJob = nil;
     assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
                                 jobId:Pattern(0x06, 16)
+                           hostedEpoch:1 hostedRetryCount:0
+                      hostedAlgorithmId:@"anc-v1-job"
                            nowSeconds:1721111200 result:&authorizedJob] ==
            AncPrivateVaultJobProcessorStatusOK);
     assert([authorizedJob.body isEqualToData:
@@ -354,6 +368,8 @@ int main(void) {
     NSData *authorizedJobHash = [authorizedJob.jobHash copy];
     assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
                                 jobId:Pattern(0x06, 16)
+                           hostedEpoch:1 hostedRetryCount:0
+                      hostedAlgorithmId:@"anc-v1-job"
                            nowSeconds:1721111200 result:&authorizedJob] ==
            AncPrivateVaultJobProcessorStatusReplay);
     NSData *resultEnvelope = nil;
@@ -411,6 +427,16 @@ int main(void) {
            jobContext.resultRecorded &&
            [jobContext.resultState isEqualToString:@"completed"] &&
            jobContext.resultHash.length == 32);
+    AncPrivateVaultPendingResult *pendingResult = nil;
+    assert([processor recoverPendingHostedResultForVaultId:kVaultId
+                                                    result:&pendingResult] ==
+               AncPrivateVaultJobProcessorStatusOK &&
+           [pendingResult.jobId isEqualToData:Pattern(0x06, 16)] &&
+           [pendingResult.jobHash isEqualToData:authorizedJobHash] &&
+           [pendingResult.state isEqualToString:@"completed"] &&
+           pendingResult.epoch == 1 && pendingResult.retryCount == 0 &&
+           [pendingResult.algorithmId isEqualToString:@"anc-v1-job"] &&
+           [pendingResult.resultEnvelope isEqualToData:resultEnvelope]);
     assert([processor acknowledgeHostedResultForVaultId:kVaultId
                                                    jobId:Pattern(0x06, 16)
                                                   jobHash:authorizedJobHash
@@ -425,6 +451,11 @@ int main(void) {
                                                   jobHash:authorizedJobHash
                                                      state:@"completed"] ==
            AncPrivateVaultJobProcessorStatusOK);
+    pendingResult = nil;
+    assert([processor recoverPendingHostedResultForVaultId:kVaultId
+                                                    result:&pendingResult] ==
+               AncPrivateVaultJobProcessorStatusOK &&
+           pendingResult == nil);
     assert([index resolveJobId:Pattern(0x06, 16)
                           jobHash:authorizedJobHash vaultId:kVaultId
                           context:&jobContext] ==
@@ -457,7 +488,7 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 9 && snapshot.grantCount == 2 &&
+    assert(snapshot.generation == 10 && snapshot.grantCount == 2 &&
            snapshot.revocationCount == 1 && snapshot.jobCount == 2);
     AncPrivateVaultJobProcessor *restartedProcessor =
         [[AncPrivateVaultJobProcessor alloc]

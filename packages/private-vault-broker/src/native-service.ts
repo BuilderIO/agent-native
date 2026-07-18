@@ -131,6 +131,9 @@ export type NativeOpenHostedJobRequest = ServiceHeader<"openHostedJob"> & {
   readonly endpointId: string;
   readonly jobId: string;
   readonly jobEnvelope: Uint8Array;
+  readonly epoch: number;
+  readonly retryCount: number;
+  readonly algorithmId: string;
 };
 export type NativeOpenHostedJobResult = ServiceHeader<"openHostedJob"> & {
   readonly jobPayload: Uint8Array;
@@ -161,6 +164,24 @@ export type NativeAcknowledgeHostedResultRequest =
 export type NativeAcknowledgeHostedResultResult =
   ServiceHeader<"acknowledgeHostedResult"> & {
     readonly delivered: true;
+  };
+
+export type NativeRecoverHostedResultRequest =
+  ServiceHeader<"recoverHostedResult"> & {
+    readonly vaultId: string;
+    readonly endpointId: string;
+  };
+export type NativeRecoverHostedResultResult =
+  ServiceHeader<"recoverHostedResult"> & {
+    readonly pending: null | {
+      readonly jobId: string;
+      readonly jobHash: string;
+      readonly state: "completed" | "failed";
+      readonly epoch: number;
+      readonly retryCount: number;
+      readonly algorithmId: string;
+      readonly resultEnvelope: Uint8Array;
+    };
   };
 
 export type NativeSignEndpointRequestRequest =
@@ -200,6 +221,7 @@ export type PrivateVaultNativeServiceRequest =
   | NativeOpenHostedJobRequest
   | NativeSealHostedResultRequest
   | NativeAcknowledgeHostedResultRequest
+  | NativeRecoverHostedResultRequest
   | NativeSignEndpointRequestRequest
   | NativeExportRecoveryEnvelopeRequest;
 
@@ -215,6 +237,7 @@ export type PrivateVaultNativeServiceResult =
   | NativeOpenHostedJobResult
   | NativeSealHostedResultResult
   | NativeAcknowledgeHostedResultResult
+  | NativeRecoverHostedResultResult
   | NativeSignEndpointRequestResult
   | NativeExportRecoveryEnvelopeResult;
 
@@ -250,6 +273,9 @@ export interface PrivateVaultNativeService {
   acknowledgeHostedResult(
     request: NativeAcknowledgeHostedResultRequest,
   ): Promise<NativeAcknowledgeHostedResultResult>;
+  recoverHostedResult(
+    request: NativeRecoverHostedResultRequest,
+  ): Promise<NativeRecoverHostedResultResult>;
   signEndpointRequest(
     request: NativeSignEndpointRequestRequest,
   ): Promise<NativeSignEndpointRequestResult>;
@@ -327,9 +353,26 @@ function resultHeader(
   }
 }
 
+function exactResultRecord(
+  value: unknown,
+  keys: readonly string[],
+): Record<string, unknown> {
+  try {
+    return exactRecord(value, keys);
+  } catch {
+    fail("invalid_result");
+  }
+}
+
 function id(value: unknown): string {
   const parsed = opaqueIdSchema.safeParse(value);
   if (!parsed.success) fail("invalid_request");
+  return parsed.data;
+}
+
+function resultId(value: unknown): string {
+  const parsed = opaqueIdSchema.safeParse(value);
+  if (!parsed.success) fail("invalid_result");
   return parsed.data;
 }
 
@@ -570,12 +613,30 @@ function parseRequestUnchecked(
         "endpointId",
         "jobId",
         "jobEnvelope",
+        "epoch",
+        "retryCount",
+        "algorithmId",
       ]);
+      if (
+        !Number.isSafeInteger(record.epoch) ||
+        (record.epoch as number) <= 0 ||
+        !Number.isSafeInteger(record.retryCount) ||
+        (record.retryCount as number) < 0 ||
+        (record.retryCount as number) > 100 ||
+        typeof record.algorithmId !== "string" ||
+        record.algorithmId.length === 0 ||
+        record.algorithmId.length > 160 ||
+        !/^[\x21-\x7e]+$/.test(record.algorithmId)
+      )
+        fail("invalid_request");
       return {
         ...base(operation),
         vaultId: id(record.vaultId),
         endpointId: id(record.endpointId),
         jobId: id(record.jobId),
+        epoch: record.epoch as number,
+        retryCount: record.retryCount as number,
+        algorithmId: record.algorithmId,
         jobEnvelope: bytes(
           record.jobEnvelope,
           1,
@@ -634,6 +695,14 @@ function parseRequestUnchecked(
         jobId: id(record.jobId),
         jobHash: record.jobHash,
         state: record.state,
+      };
+    }
+    case "recoverHostedResult": {
+      const record = header(value, operation, ["vaultId", "endpointId"]);
+      return {
+        ...base(operation),
+        vaultId: id(record.vaultId),
+        endpointId: id(record.endpointId),
       };
     }
     case "signEndpointRequest": {
@@ -803,6 +872,56 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
       const record = resultHeader(value, operation, ["delivered"]);
       if (record.delivered !== true) fail("invalid_result");
       return { ...base(operation), delivered: true };
+    }
+    case "recoverHostedResult": {
+      const record = resultHeader(value, operation, ["pending"]);
+      if (record.pending === null) return { ...base(operation), pending: null };
+      const pending = exactResultRecord(record.pending, [
+        "jobId",
+        "jobHash",
+        "state",
+        "epoch",
+        "retryCount",
+        "algorithmId",
+        "resultEnvelope",
+      ]);
+      if (
+        typeof pending.jobHash !== "string" ||
+        !LOWERCASE_HEX_32.test(pending.jobHash) ||
+        (pending.state !== "completed" && pending.state !== "failed") ||
+        !Number.isSafeInteger(pending.epoch) ||
+        (pending.epoch as number) <= 0 ||
+        !Number.isSafeInteger(pending.retryCount) ||
+        (pending.retryCount as number) < 0 ||
+        (pending.retryCount as number) > 100 ||
+        typeof pending.algorithmId !== "string" ||
+        pending.algorithmId.length === 0 ||
+        pending.algorithmId.length > 160 ||
+        !/^[\x21-\x7e]+$/.test(pending.algorithmId)
+      )
+        fail("invalid_result");
+      let resultEnvelope: Uint8Array;
+      try {
+        resultEnvelope = resultBytes(
+          pending.resultEnvelope,
+          1,
+          PRIVATE_VAULT_NATIVE_SERVICE_LIMITS.hostedResultEnvelopeBytes,
+        );
+      } catch {
+        fail("invalid_result");
+      }
+      return {
+        ...base(operation),
+        pending: {
+          jobId: resultId(pending.jobId),
+          jobHash: pending.jobHash,
+          state: pending.state,
+          epoch: pending.epoch as number,
+          retryCount: pending.retryCount as number,
+          algorithmId: pending.algorithmId,
+          resultEnvelope,
+        },
+      };
     }
     case "signEndpointRequest": {
       const record = resultHeader(value, operation, ["signature"]);

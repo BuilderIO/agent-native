@@ -148,6 +148,9 @@ describe("private-vault native service contract", () => {
         endpointId,
         jobId,
         jobEnvelope: new Uint8Array([4]),
+        epoch: 1,
+        retryCount: 0,
+        algorithmId: "anc-v1-job",
       },
       {
         ...BASE,
@@ -168,6 +171,7 @@ describe("private-vault native service contract", () => {
         jobHash: "33".repeat(32),
         state: "completed",
       },
+      { ...BASE, operation: "recoverHostedResult", vaultId, endpointId },
       {
         ...BASE,
         operation: "signEndpointRequest",
@@ -267,6 +271,20 @@ describe("private-vault native service contract", () => {
         ...BASE,
         operation: "acknowledgeHostedResult",
         delivered: true,
+      },
+      { ...BASE, operation: "recoverHostedResult", pending: null },
+      {
+        ...BASE,
+        operation: "recoverHostedResult",
+        pending: {
+          jobId,
+          jobHash: "33".repeat(32),
+          state: "completed",
+          epoch: 1,
+          retryCount: 0,
+          algorithmId: "anc-v1-job",
+          resultEnvelope: new Uint8Array([5]),
+        },
       },
       {
         ...BASE,

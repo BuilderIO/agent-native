@@ -75,12 +75,17 @@ int main(void) {
                             "00112233445566778899aabbccddeeff");
   xpc_dictionary_set_string(openJob, "jobId",
                             "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_int64(openJob, "epoch", 7);
+  xpc_dictionary_set_int64(openJob, "retryCount", 2);
+  xpc_dictionary_set_string(openJob, "algorithmId", "anc-v1-job");
   xpc_dictionary_set_data(openJob, "jobEnvelope", jobBytes,
                           sizeof jobBytes);
   assert(PVParseRequest(openJob, &parsed) == PVRequestValid);
   assert(strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
   assert(strcmp(parsed.jobID, "ffeeddccbbaa99887766554433221100") == 0);
   assert(parsed.jobEnvelopeLength == sizeof jobBytes);
+  assert(parsed.hostedEpoch == 7 && parsed.hostedRetryCount == 2 &&
+         strcmp(parsed.algorithmID, "anc-v1-job") == 0);
   assert(!PVRequestCanRun(&parsed, false) && PVRequestCanRun(&parsed, true));
   xpc_release(openJob);
 
@@ -131,6 +136,14 @@ int main(void) {
                           sizeof jobBytes);
   assert(PVParseRequest(completeResult, &parsed) == PVRequestInvalid);
   xpc_release(completeResult);
+
+  xpc_object_t pendingResult =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "pending_result", "request-pending");
+  xpc_dictionary_set_string(pendingResult, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(pendingResult, &parsed) == PVRequestValid &&
+         strcmp(parsed.operation, "pending_result") == 0);
+  xpc_release(pendingResult);
 
   xpc_object_t openJobMissing =
       PVMakeRequest(PV_PROTOCOL_VERSION, "open_job", "request-open-missing");

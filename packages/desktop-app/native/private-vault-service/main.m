@@ -304,7 +304,13 @@ static void PVOpenJob(xpc_connection_t peer, xpc_object_t message,
         uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
         AncPrivateVaultJobProcessorStatus status =
             [gJobProcessor openJobEnvelope:envelope vaultId:vaultID
-                                     jobId:jobID nowSeconds:now result:&opened];
+                                     jobId:jobID
+                                hostedEpoch:request->hostedEpoch
+                           hostedRetryCount:request->hostedRetryCount
+                           hostedAlgorithmId:
+                               [NSString stringWithUTF8String:
+                                   request->algorithmID]
+                                nowSeconds:now result:&opened];
         NSString *jobHash = PVHex(opened.jobHash);
         if (status != AncPrivateVaultJobProcessorStatusOK || opened == nil ||
             jobHash.length != 64 || opened.body.length > 16 * 1024 * 1024) {
@@ -370,6 +376,47 @@ static void PVCompleteResult(xpc_connection_t peer, xpc_object_t message,
         xpc_object_t reply = PVCreateReply(message, request);
         if (reply == NULL) return;
         xpc_dictionary_set_string(reply, "state", "delivered");
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVPendingResult(xpc_connection_t peer, xpc_object_t message,
+                            const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultID = request->vaultID == NULL ? nil :
+            [NSString stringWithUTF8String:request->vaultID];
+        AncPrivateVaultPendingResult *pending = nil;
+        AncPrivateVaultJobProcessorStatus status = [gJobProcessor
+            recoverPendingHostedResultForVaultId:vaultID result:&pending];
+        if (status != AncPrivateVaultJobProcessorStatusOK) {
+            PVSendError(peer, message, "pending_result_denied");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        if (pending == nil) {
+            xpc_dictionary_set_string(reply, "state", "idle");
+        } else {
+            NSString *jobID = PVHex(pending.jobId);
+            NSString *jobHash = PVHex(pending.jobHash);
+            if (jobID.length != 32 || jobHash.length != 64 ||
+                pending.resultEnvelope.length == 0) {
+                PVSendError(peer, message, "pending_result_denied");
+                return;
+            }
+            xpc_dictionary_set_string(reply, "state", "pending");
+            xpc_dictionary_set_string(reply, "jobId", jobID.UTF8String);
+            xpc_dictionary_set_string(reply, "jobHash", jobHash.UTF8String);
+            xpc_dictionary_set_string(reply, "resultState",
+                                      pending.state.UTF8String);
+            xpc_dictionary_set_uint64(reply, "epoch", pending.epoch);
+            xpc_dictionary_set_uint64(reply, "retryCount", pending.retryCount);
+            xpc_dictionary_set_string(reply, "algorithmId",
+                                      pending.algorithmId.UTF8String);
+            xpc_dictionary_set_data(reply, "resultEnvelope",
+                                    pending.resultEnvelope.bytes,
+                                    pending.resultEnvelope.length);
+        }
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -1078,6 +1125,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "complete_result") == 0) {
                 PVCompleteResult(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "pending_result") == 0) {
+                PVPendingResult(peer, message, &request);
                 return;
             }
             PVSendSuccess(peer, message, &request);

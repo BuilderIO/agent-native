@@ -12,6 +12,8 @@ import type {
   NativeLockResult,
   NativeOpenHostedJobRequest,
   NativeOpenHostedJobResult,
+  NativeRecoverHostedResultRequest,
+  NativeRecoverHostedResultResult,
   NativeSealHostedResultRequest,
   NativeSealHostedResultResult,
   NativeUnlockResult,
@@ -57,12 +59,13 @@ type NativeOperation =
   | "recover_status"
   | "open_job"
   | "seal_result"
-  | "complete_result";
+  | "complete_result"
+  | "pending_result";
 
 interface NativeAddon {
   request(
     operation: NativeOperation,
-    ...arguments_: Array<string | Buffer>
+    ...arguments_: Array<string | number | Buffer>
   ): Promise<unknown>;
 }
 
@@ -84,6 +87,9 @@ export interface PrivateVaultNativeServiceClient
   acknowledgeHostedResult(
     request: NativeAcknowledgeHostedResultRequest,
   ): Promise<NativeAcknowledgeHostedResultResult>;
+  recoverHostedResult(
+    request: NativeRecoverHostedResultRequest,
+  ): Promise<NativeRecoverHostedResultResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
   commitGenesis(
     input: NativeCommitGenesisInput,
@@ -653,6 +659,72 @@ function parseCompletedResult(
   };
 }
 
+function parsePendingResult(value: unknown): NativeRecoverHostedResultResult {
+  if (
+    !isRecord(value) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "pending_result"
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  if (
+    value.state === "idle" &&
+    hasExactKeys(value, ["version", "operation", "state"])
+  ) {
+    return {
+      version: SERVICE_VERSION,
+      suite: SERVICE_SUITE,
+      operation: "recoverHostedResult",
+      pending: null,
+    };
+  }
+  if (
+    value.state !== "pending" ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "jobId",
+      "jobHash",
+      "resultState",
+      "epoch",
+      "retryCount",
+      "algorithmId",
+      "resultEnvelope",
+    ]) ||
+    !isLowerHex(value.jobId, 32) ||
+    typeof value.jobHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.jobHash) ||
+    (value.resultState !== "completed" && value.resultState !== "failed") ||
+    !Number.isSafeInteger(value.epoch) ||
+    (value.epoch as number) <= 0 ||
+    !Number.isSafeInteger(value.retryCount) ||
+    (value.retryCount as number) < 0 ||
+    (value.retryCount as number) > 100 ||
+    typeof value.algorithmId !== "string" ||
+    value.algorithmId.length === 0 ||
+    value.algorithmId.length > 160 ||
+    !/^[\x21-\x7e]+$/.test(value.algorithmId) ||
+    !(value.resultEnvelope instanceof Uint8Array) ||
+    value.resultEnvelope.byteLength === 0 ||
+    value.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return {
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "recoverHostedResult",
+    pending: {
+      jobId: value.jobId,
+      jobHash: value.jobHash,
+      state: value.resultState,
+      epoch: value.epoch as number,
+      retryCount: value.retryCount as number,
+      algorithmId: value.algorithmId,
+      resultEnvelope: value.resultEnvelope.slice(),
+    },
+  };
+}
+
 function copyCommitGenesisInput(
   input: unknown,
 ): readonly [Buffer, Buffer, Buffer] {
@@ -793,6 +865,15 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       !isLowerHex(request.vaultId, 32) ||
       !isLowerHex(request.endpointId, 32) ||
       !isLowerHex(request.jobId, 32) ||
+      !Number.isSafeInteger(request.epoch) ||
+      request.epoch <= 0 ||
+      !Number.isSafeInteger(request.retryCount) ||
+      request.retryCount < 0 ||
+      request.retryCount > 100 ||
+      typeof request.algorithmId !== "string" ||
+      request.algorithmId.length === 0 ||
+      request.algorithmId.length > 160 ||
+      !/^[\x21-\x7e]+$/.test(request.algorithmId) ||
       !(request.jobEnvelope instanceof Uint8Array) ||
       request.jobEnvelope.byteLength === 0 ||
       request.jobEnvelope.byteLength > E2EE_SIZE_LIMITS.jobEnvelopeBytes
@@ -809,6 +890,9 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
             request.vaultId,
             request.jobId,
             envelope,
+            request.epoch,
+            request.retryCount,
+            request.algorithmId,
           ),
         );
       } catch {
@@ -882,6 +966,29 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
             request.jobHash,
             request.state,
           ),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  recoverHostedResult(
+    request: NativeRecoverHostedResultRequest,
+  ): Promise<NativeRecoverHostedResultResult> {
+    if (
+      request.version !== SERVICE_VERSION ||
+      request.suite !== SERVICE_SUITE ||
+      request.operation !== "recoverHostedResult" ||
+      !isLowerHex(request.vaultId, 32) ||
+      !isLowerHex(request.endpointId, 32)
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parsePendingResult(
+          await addon.request("pending_result", request.vaultId),
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();

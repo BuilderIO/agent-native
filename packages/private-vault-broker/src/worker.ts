@@ -108,6 +108,54 @@ export class PrivateVaultBrokerWorker {
     let claimed: ClaimedJob | null = null;
     let hostedResultAccepted = false;
     try {
+      const recovery = await this.#native.recoverHostedResult({
+        ...base,
+        operation: "recoverHostedResult",
+        vaultId: this.#vaultId,
+        endpointId: this.#endpointId,
+      });
+      if (recovery.pending) {
+        const pending = recovery.pending;
+        try {
+          const receipt = decodeAncV1BrokerResultResponse(
+            await this.#transport.result(
+              encodeAncV1BrokerResultFrame(
+                {
+                  ...base,
+                  type: "broker-job-result-request",
+                  jobId: pending.jobId,
+                  epoch: pending.epoch,
+                  retryCount: pending.retryCount,
+                  jobHash: pending.jobHash,
+                  algorithmId: pending.algorithmId,
+                  state: pending.state,
+                },
+                pending.resultEnvelope,
+              ),
+            ),
+          );
+          if (
+            receipt.jobId !== pending.jobId ||
+            receipt.retryCount !== pending.retryCount ||
+            receipt.state !== pending.state
+          )
+            throw new PrivateVaultBrokerWorkerError();
+          const delivered = await this.#native.acknowledgeHostedResult({
+            ...base,
+            operation: "acknowledgeHostedResult",
+            vaultId: this.#vaultId,
+            endpointId: this.#endpointId,
+            jobId: pending.jobId,
+            jobHash: pending.jobHash,
+            state: pending.state,
+          });
+          if (delivered.delivered !== true)
+            throw new PrivateVaultBrokerWorkerError();
+          return { state: pending.state, jobId: pending.jobId };
+        } finally {
+          this.#crypto.zeroize(pending.resultEnvelope);
+        }
+      }
       const claim = decodeAncV1BrokerClaimResponse(
         await this.#transport.claim(
           encodeAncV1BrokerClaimRequest({
@@ -140,6 +188,9 @@ export class PrivateVaultBrokerWorker {
         endpointId: this.#endpointId,
         jobId: claimed.jobId,
         jobEnvelope: encryptedRequest.ciphertext,
+        epoch: claimed.epoch,
+        retryCount: claimed.retryCount,
+        algorithmId: claimed.algorithmId,
       });
       const payload = opened.jobPayload;
       if (!(payload instanceof Uint8Array)) {

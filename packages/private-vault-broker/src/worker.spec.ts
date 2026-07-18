@@ -39,6 +39,11 @@ function successFixture() {
   const executionPayload = Uint8Array.of(4, 5, 6);
   const sealedResult = Uint8Array.of(10, 11, 12);
   const native = {
+    recoverHostedResult: vi.fn(async () => ({
+      ...base,
+      operation: "recoverHostedResult" as const,
+      pending: null,
+    })),
     openHostedJob: vi.fn(async () => ({
       ...base,
       operation: "openHostedJob" as const,
@@ -170,6 +175,15 @@ describe("PrivateVaultBrokerWorker", () => {
       endpointId,
       jobId,
       jobEnvelope: fixture.encryptedRequest,
+      epoch: 1,
+      retryCount: 0,
+      algorithmId: "anc-v1-job",
+    });
+    expect(fixture.native.recoverHostedResult).toHaveBeenCalledWith({
+      ...base,
+      operation: "recoverHostedResult",
+      vaultId,
+      endpointId,
     });
     expect(fixture.native.sealHostedResult).toHaveBeenCalledWith({
       ...base,
@@ -213,7 +227,14 @@ describe("PrivateVaultBrokerWorker", () => {
       retry: vi.fn(),
       result: vi.fn(),
     };
-    const native = { openHostedJob: vi.fn() } as never;
+    const native = {
+      recoverHostedResult: vi.fn(async () => ({
+        ...base,
+        operation: "recoverHostedResult" as const,
+        pending: null,
+      })),
+      openHostedJob: vi.fn(),
+    } as never;
     const worker = new PrivateVaultBrokerWorker({
       vaultId,
       endpointId,
@@ -276,6 +297,53 @@ describe("PrivateVaultBrokerWorker", () => {
     );
     expect(fixture.transport.result).toHaveBeenCalledOnce();
     expect(fixture.transport.retry).not.toHaveBeenCalled();
+  });
+
+  it("resubmits a pending encrypted result before claiming or executing", async () => {
+    const fixture = successFixture();
+    const pendingEnvelope = Uint8Array.of(41, 42, 43);
+    fixture.native.recoverHostedResult.mockResolvedValueOnce({
+      ...base,
+      operation: "recoverHostedResult",
+      pending: {
+        jobId,
+        jobHash,
+        state: "completed",
+        epoch: 1,
+        retryCount: 0,
+        algorithmId: "anc-v1-job",
+        resultEnvelope: pendingEnvelope,
+      },
+    });
+    fixture.transport.result.mockImplementationOnce(async (body) => {
+      expect(decodeAncV1BrokerResultFrame(body).ciphertext).toEqual(
+        pendingEnvelope,
+      );
+      return encodeAncV1BrokerResultResponse({
+        ...base,
+        type: "broker-job-result-response",
+        jobId,
+        retryCount: 0,
+        state: "completed",
+      });
+    });
+    const worker = new PrivateVaultBrokerWorker({
+      vaultId,
+      endpointId,
+      native: fixture.native,
+      transport: fixture.transport,
+      executor: fixture.executor,
+    });
+    await expect(worker.processOnce()).resolves.toEqual({
+      state: "completed",
+      jobId,
+    });
+    expect(fixture.transport.claim).not.toHaveBeenCalled();
+    expect(fixture.executor.execute).not.toHaveBeenCalled();
+    expect(fixture.native.openHostedJob).not.toHaveBeenCalled();
+    expect(fixture.transport.result).toHaveBeenCalledOnce();
+    expect(fixture.native.acknowledgeHostedResult).toHaveBeenCalledOnce();
+    expect(pendingEnvelope).toEqual(new Uint8Array(3));
   });
 
   it("rejects concurrent work and mismatched hosted coordinates", async () => {

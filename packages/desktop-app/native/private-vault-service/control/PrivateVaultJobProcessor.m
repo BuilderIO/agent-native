@@ -51,6 +51,18 @@ static NSData *ResultEnvelopeHash(NSData *envelope) {
 @implementation AncPrivateVaultAuthorizedJob
 @end
 
+@interface AncPrivateVaultPendingResult ()
+@property(nonatomic) NSData *jobId;
+@property(nonatomic) NSData *jobHash;
+@property(nonatomic) NSString *state;
+@property(nonatomic) uint64_t epoch;
+@property(nonatomic) uint64_t retryCount;
+@property(nonatomic) NSString *algorithmId;
+@property(nonatomic) NSData *resultEnvelope;
+@end
+@implementation AncPrivateVaultPendingResult
+@end
+
 @implementation AncPrivateVaultJobProcessor {
   AncPrivateVaultSession *_session;
   AncPrivateVaultAuthorityStore *_authorityStore;
@@ -281,6 +293,54 @@ static NSData *ResultEnvelopeHash(NSData *envelope) {
   return status;
 }
 
+- (AncPrivateVaultJobProcessorStatus)
+    recoverPendingHostedResultForVaultId:(NSString *)vaultId
+                                    result:(AncPrivateVaultPendingResult **)result {
+  if (result != NULL) *result = nil;
+  if (vaultId.length != 32)
+    return AncPrivateVaultJobProcessorStatusInvalid;
+  __block AncPrivateVaultJobProcessorStatus status =
+      AncPrivateVaultJobProcessorStatusStorageFailed;
+  __block AncPrivateVaultPendingResult *pending = nil;
+  dispatch_sync(_queue, ^{
+    AncPrivateVaultJobContext *job = nil;
+    AncPrivateVaultGrantIndexStatus indexStatus =
+        [_grantIndex nextPendingResultForVaultId:vaultId context:&job];
+    if (indexStatus == AncPrivateVaultGrantIndexStatusNotFound) {
+      status = AncPrivateVaultJobProcessorStatusOK;
+      return;
+    }
+    NSData *vaultBytes = HexBytes(vaultId);
+    if (indexStatus != AncPrivateVaultGrantIndexStatusOK || job == nil ||
+        vaultBytes == nil || job.jobId.length != 16 ||
+        job.jobHash.length != 32 || job.resultHash.length != 32 ||
+        job.resultState == nil || job.hostedEpoch == 0 ||
+        job.hostedRetryCount > 100 || job.hostedAlgorithmId.length == 0) {
+      return;
+    }
+    NSData *envelope = nil;
+    AncPrivateVaultResultSpoolStatus spoolStatus =
+        [_resultSpool loadEnvelopeForVaultId:vaultBytes jobId:job.jobId
+                                      result:&envelope];
+    NSData *hash = envelope == nil ? nil : ResultEnvelopeHash(envelope);
+    if (spoolStatus != AncPrivateVaultResultSpoolStatusOK || hash == nil ||
+        ![hash isEqualToData:job.resultHash])
+      return;
+    pending = [AncPrivateVaultPendingResult new];
+    pending.jobId = [job.jobId copy];
+    pending.jobHash = [job.jobHash copy];
+    pending.state = [job.resultState copy];
+    pending.epoch = job.hostedEpoch;
+    pending.retryCount = job.hostedRetryCount;
+    pending.algorithmId = [job.hostedAlgorithmId copy];
+    pending.resultEnvelope = [envelope copy];
+    status = AncPrivateVaultJobProcessorStatusOK;
+  });
+  if (status == AncPrivateVaultJobProcessorStatusOK && result != NULL)
+    *result = pending;
+  return status;
+}
+
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
                   authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
                       grantIndex:(AncPrivateVaultGrantIndex *)grantIndex
@@ -302,10 +362,15 @@ static NSData *ResultEnvelopeHash(NSData *envelope) {
     openJobEnvelope:(NSData *)jobEnvelope
             vaultId:(NSString *)vaultId
                jobId:(NSData *)jobId
+          hostedEpoch:(uint64_t)hostedEpoch
+     hostedRetryCount:(uint64_t)hostedRetryCount
+     hostedAlgorithmId:(NSString *)hostedAlgorithmId
           nowSeconds:(uint64_t)nowSeconds
               result:(AncPrivateVaultAuthorizedJob **)result {
   if (result != NULL) *result = nil;
   if (jobEnvelope.length == 0 || vaultId.length != 32 || jobId.length != 16 ||
+      hostedEpoch == 0 || hostedRetryCount > 100 ||
+      hostedAlgorithmId.length == 0 || hostedAlgorithmId.length > 160 ||
       nowSeconds == 0 || nowSeconds > UINT64_MAX / 1000)
     return AncPrivateVaultJobProcessorStatusInvalid;
   __block AncPrivateVaultJobProcessorStatus status =
@@ -439,7 +504,9 @@ static NSData *ResultEnvelopeHash(NSData *envelope) {
        subjectAgentId:grant.subjectAgentId
     requesterSigningPublicKey:requester.signingPublicKey
         requesterBoxPublicKey:requester.keyAgreementPublicKey
-                 resourceId:resourceId operation:operation provider:provider];
+                 resourceId:resourceId operation:operation provider:provider
+                hostedEpoch:hostedEpoch hostedRetryCount:hostedRetryCount
+           hostedAlgorithmId:hostedAlgorithmId];
     if (grantStatus == AncPrivateVaultGrantIndexStatusOK) {
       authorizedJob = [AncPrivateVaultAuthorizedJob new];
       authorizedJob.body = semanticBody;

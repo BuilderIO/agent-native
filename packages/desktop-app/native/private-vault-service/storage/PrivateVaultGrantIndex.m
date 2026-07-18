@@ -46,6 +46,9 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) NSString *status;
 @property(nonatomic, nullable) NSString *resultState;
 @property(nonatomic, nullable) NSData *resultHash;
+@property(nonatomic) uint64_t hostedEpoch;
+@property(nonatomic) uint64_t hostedRetryCount;
+@property(nonatomic, nullable) NSString *hostedAlgorithmId;
 @end
 @implementation AncStoredJob
 @end
@@ -79,15 +82,38 @@ static NSString *const kFenceRecordId = @"grant-index";
 @end
 
 @interface AncPrivateVaultJobContext ()
+@property(nonatomic) NSData *jobId;
+@property(nonatomic) NSData *jobHash;
 @property(nonatomic) NSData *subjectEndpointId;
 @property(nonatomic) NSData *requesterBoxPublicKey;
 @property(nonatomic) BOOL resultRecorded;
 @property(nonatomic) BOOL receiptAcknowledged;
 @property(nonatomic, nullable) NSString *resultState;
 @property(nonatomic, nullable) NSData *resultHash;
+@property(nonatomic) uint64_t hostedEpoch;
+@property(nonatomic) uint64_t hostedRetryCount;
+@property(nonatomic, nullable) NSString *hostedAlgorithmId;
 @end
 @implementation AncPrivateVaultJobContext
 @end
+
+static AncPrivateVaultJobContext *JobContext(AncStoredJob *job) {
+  if (job == nil) return nil;
+  AncPrivateVaultJobContext *context = [AncPrivateVaultJobContext new];
+  context.jobId = [job.jobId copy];
+  context.jobHash = [job.jobHash copy];
+  context.subjectEndpointId = [job.subjectEndpointId copy];
+  context.requesterBoxPublicKey = [job.requesterBoxPublicKey copy];
+  context.resultRecorded = [job.status isEqualToString:@"result"] ||
+      [job.status isEqualToString:@"delivered"];
+  context.receiptAcknowledged = [job.status isEqualToString:@"delivered"];
+  context.resultState = [job.resultState copy];
+  context.resultHash = [job.resultHash copy];
+  context.hostedEpoch = job.hostedEpoch;
+  context.hostedRetryCount = job.hostedRetryCount;
+  context.hostedAlgorithmId = [job.hostedAlgorithmId copy];
+  return context;
+}
 
 static BOOL ValidVaultId(NSString *vaultId, NSData **bytes) {
   if (vaultId.length != 32) return NO;
@@ -206,7 +232,8 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
     [revocations addObject:[AncPrivateVaultCanonicalValue bytes:revocation]];
   NSMutableArray *jobs = [NSMutableArray array];
   for (AncStoredJob *job in record.jobs) {
-    [jobs addObject:[AncPrivateVaultCanonicalValue array:@[
+    NSMutableArray<AncPrivateVaultCanonicalValue *> *fields =
+        [@[
       [AncPrivateVaultCanonicalValue bytes:job.jobId],
       [AncPrivateVaultCanonicalValue bytes:job.jobHash],
       [AncPrivateVaultCanonicalValue bytes:job.grantRef],
@@ -225,7 +252,16 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
                              : [AncPrivateVaultCanonicalValue text:job.resultState],
       job.resultHash == nil ? [AncPrivateVaultCanonicalValue nullValue]
                             : [AncPrivateVaultCanonicalValue bytes:job.resultHash],
-    ]]];
+    ] mutableCopy];
+    if (job.hostedAlgorithmId != nil) {
+      [fields addObject:
+          [AncPrivateVaultCanonicalValue integer:(int64_t)job.hostedEpoch]];
+      [fields addObject:[AncPrivateVaultCanonicalValue
+          integer:(int64_t)job.hostedRetryCount]];
+      [fields addObject:
+          [AncPrivateVaultCanonicalValue text:job.hostedAlgorithmId]];
+    }
+    [jobs addObject:[AncPrivateVaultCanonicalValue array:fields]];
   }
   AncPrivateVaultCanonicalStatus status;
   return AncPrivateVaultCanonicalEncode(
@@ -330,12 +366,19 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
   for (AncPrivateVaultCanonicalValue *item in
        (legacy ? @[] : jobsValue.arrayValue)) {
     if (item.type != AncPrivateVaultCanonicalTypeArray ||
-        item.arrayValue.count != 15)
+        (item.arrayValue.count != 15 && item.arrayValue.count != 18))
       return nil;
     NSArray<AncPrivateVaultCanonicalValue *> *fields = item.arrayValue;
     AncPrivateVaultCanonicalValue *agent = fields[6];
     AncPrivateVaultCanonicalValue *resultState = fields[13];
     AncPrivateVaultCanonicalValue *resultHash = fields[14];
+    BOOL hostedPresent = fields.count == 18;
+    AncPrivateVaultCanonicalValue *hostedEpoch =
+        hostedPresent ? fields[15] : nil;
+    AncPrivateVaultCanonicalValue *hostedRetry =
+        hostedPresent ? fields[16] : nil;
+    AncPrivateVaultCanonicalValue *hostedAlgorithm =
+        hostedPresent ? fields[17] : nil;
     BOOL agentValid = agent.type == AncPrivateVaultCanonicalTypeNull ||
         (agent.type == AncPrivateVaultCanonicalTypeBytes &&
          agent.bytesValue.length == 16);
@@ -374,7 +417,14 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
           [fields[12].textValue isEqualToString:@"result"] ||
           [fields[12].textValue isEqualToString:@"delivered"]) ||
         ([fields[12].textValue isEqualToString:@"claimed"] && !resultEmpty) ||
-        (![fields[12].textValue isEqualToString:@"claimed"] && !resultPresent))
+        (![fields[12].textValue isEqualToString:@"claimed"] && !resultPresent) ||
+        (hostedPresent &&
+         (hostedEpoch.type != AncPrivateVaultCanonicalTypeInteger ||
+          hostedEpoch.integerValue <= 0 ||
+          hostedRetry.type != AncPrivateVaultCanonicalTypeInteger ||
+          hostedRetry.integerValue < 0 || hostedRetry.integerValue > 100 ||
+          hostedAlgorithm.type != AncPrivateVaultCanonicalTypeText ||
+          !ValidScopeText(hostedAlgorithm.textValue))))
       return nil;
     AncStoredJob *job = [AncStoredJob new];
     job.jobId = [fields[0].bytesValue copy];
@@ -393,6 +443,11 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
     job.status = [fields[12].textValue copy];
     job.resultState = resultPresent ? [resultState.textValue copy] : nil;
     job.resultHash = resultPresent ? [resultHash.bytesValue copy] : nil;
+    job.hostedEpoch = hostedPresent ? (uint64_t)hostedEpoch.integerValue : 0;
+    job.hostedRetryCount =
+        hostedPresent ? (uint64_t)hostedRetry.integerValue : 0;
+    job.hostedAlgorithmId =
+        hostedPresent ? [hostedAlgorithm.textValue copy] : nil;
     [jobIds addObject:job.jobId];
     [jobs addObject:job];
   }
@@ -1019,7 +1074,10 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
  requesterBoxPublicKey:(NSData *)requesterBoxPublicKey
        resourceId:(NSData *)resourceId
         operation:(NSString *)operation
-         provider:(NSString *)provider {
+         provider:(NSString *)provider
+      hostedEpoch:(uint64_t)hostedEpoch
+ hostedRetryCount:(uint64_t)hostedRetryCount
+ hostedAlgorithmId:(NSString *)hostedAlgorithmId {
   if (jobId.length != 16 || jobHash.length != 32 || grantRef.length != 32 ||
       nowSeconds == 0 || expiresAtSeconds <= nowSeconds ||
       expiresAtSeconds > INT64_MAX || subjectAccountId.length != 16 ||
@@ -1027,7 +1085,9 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
       (subjectAgentId != nil && subjectAgentId.length != 16) ||
       requesterSigningPublicKey.length != 32 ||
       requesterBoxPublicKey.length != 32 || resourceId.length != 16 ||
-      !ValidScopeText(operation) || !ValidScopeText(provider))
+      !ValidScopeText(operation) || !ValidScopeText(provider) ||
+      hostedEpoch == 0 || hostedEpoch > INT64_MAX || hostedRetryCount > 100 ||
+      !ValidScopeText(hostedAlgorithmId))
     return AncPrivateVaultGrantIndexStatusInvalid;
   __block AncPrivateVaultGrantIndexStatus status;
   dispatch_sync(_queue, ^{
@@ -1036,7 +1096,8 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
             NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
           NSMutableArray<AncStoredJob *> *unexpired = [NSMutableArray array];
           for (AncStoredJob *job in record.jobs) {
-            if (job.expiresAt >= nowSeconds) {
+            if (job.expiresAt >= nowSeconds ||
+                [job.status isEqualToString:@"result"]) {
               if ([job.jobId isEqualToData:jobId])
                 return AncPrivateVaultGrantIndexStatusReplay;
               [unexpired addObject:job];
@@ -1066,6 +1127,9 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           job.status = @"claimed";
           job.resultState = nil;
           job.resultHash = nil;
+          job.hostedEpoch = hostedEpoch;
+          job.hostedRetryCount = hostedRetryCount;
+          job.hostedAlgorithmId = [hostedAlgorithmId copy];
           [unexpired addObject:job];
           record.jobs = [unexpired copy];
           record.generation += 1;
@@ -1178,17 +1242,36 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           if (job == nil) return AncPrivateVaultGrantIndexStatusNotFound;
           if (![job.jobHash isEqualToData:jobHash])
             return AncPrivateVaultGrantIndexStatusConflict;
-          resolved = [AncPrivateVaultJobContext new];
-          resolved.subjectEndpointId = [job.subjectEndpointId copy];
-          resolved.requesterBoxPublicKey = [job.requesterBoxPublicKey copy];
-          resolved.resultRecorded =
-              [job.status isEqualToString:@"result"] ||
-              [job.status isEqualToString:@"delivered"];
-          resolved.receiptAcknowledged =
-              [job.status isEqualToString:@"delivered"];
-          resolved.resultState = [job.resultState copy];
-          resolved.resultHash = [job.resultHash copy];
+          resolved = JobContext(job);
           return AncPrivateVaultGrantIndexStatusOK;
+        }];
+  });
+  if (status == AncPrivateVaultGrantIndexStatusOK && context != NULL)
+    *context = resolved;
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    nextPendingResultForVaultId:(NSString *)vaultId
+                         context:(AncPrivateVaultJobContext **)context {
+  if (context != NULL) *context = nil;
+  __block AncPrivateVaultJobContext *resolved = nil;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          (void)key;
+          for (AncStoredJob *job in record.jobs) {
+            if (![job.status isEqualToString:@"result"]) continue;
+            if (job.hostedEpoch == 0 || job.hostedRetryCount > 100 ||
+                !ValidScopeText(job.hostedAlgorithmId))
+              return AncPrivateVaultGrantIndexStatusCorrupt;
+            resolved = JobContext(job);
+            return AncPrivateVaultGrantIndexStatusOK;
+          }
+          return AncPrivateVaultGrantIndexStatusNotFound;
         }];
   });
   if (status == AncPrivateVaultGrantIndexStatusOK && context != NULL)

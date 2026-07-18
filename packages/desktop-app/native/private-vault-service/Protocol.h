@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 #define PV_PROTOCOL_VERSION 3
-#define PV_MAXIMUM_REQUEST_FIELDS 8
+#define PV_MAXIMUM_REQUEST_FIELDS 9
 #define PV_MAXIMUM_OPERATION_BYTES 16
 #define PV_MAXIMUM_REQUEST_ID_BYTES 64
 #define PV_VAULT_ID_BYTES 32
@@ -32,7 +32,10 @@ typedef struct {
     const char *lookupID;
     const char *jobID;
     const char *jobHash;
+    const char *algorithmID;
     const char *resultState;
+    uint64_t hostedEpoch;
+    uint64_t hostedRetryCount;
     const void *recoveryConfirmation;
     size_t recoveryConfirmationLength;
     const void *bootstrapTranscript;

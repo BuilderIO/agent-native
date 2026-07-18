@@ -24,6 +24,16 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
 @property(nonatomic, readonly) NSData *jobHash;
 @end
 
+@interface AncPrivateVaultPendingResult : NSObject
+@property(nonatomic, readonly) NSData *jobId;
+@property(nonatomic, readonly) NSData *jobHash;
+@property(nonatomic, readonly) NSString *state;
+@property(nonatomic, readonly) uint64_t epoch;
+@property(nonatomic, readonly) uint64_t retryCount;
+@property(nonatomic, readonly) NSString *algorithmId;
+@property(nonatomic, readonly) NSData *resultEnvelope;
+@end
+
 /** Signed-native semantic job boundary. Plaintext never enters hosted code. */
 @interface AncPrivateVaultJobProcessor : NSObject
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
@@ -37,6 +47,9 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
     openJobEnvelope:(NSData *)jobEnvelope
             vaultId:(NSString *)vaultId
                jobId:(NSData *)jobId
+          hostedEpoch:(uint64_t)hostedEpoch
+     hostedRetryCount:(uint64_t)hostedRetryCount
+     hostedAlgorithmId:(NSString *)hostedAlgorithmId
           nowSeconds:(uint64_t)nowSeconds
               result:(AncPrivateVaultAuthorizedJob *_Nullable *_Nullable)result;
 
@@ -54,6 +67,13 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
                                   jobId:(NSData *)jobId
                                  jobHash:(NSData *)jobHash
                                     state:(NSString *)state;
+
+/** Returns one exact encrypted result that must be idempotently resubmitted. */
+- (AncPrivateVaultJobProcessorStatus)
+    recoverPendingHostedResultForVaultId:(NSString *)vaultId
+                                    result:
+                                        (AncPrivateVaultPendingResult *_Nullable
+                                             *_Nullable)result;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

@@ -4,6 +4,7 @@
 #include <xpc/xpc.h>
 
 #include <cstring>
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <uuid/uuid.h>
@@ -56,6 +57,7 @@ enum class PVOperation {
   OpenJob,
   SealResult,
   CompleteResult,
+  PendingResult,
 };
 enum class PVFailure {
   None,
@@ -93,12 +95,17 @@ struct PVParsedReply {
   char endpointID[33] = {0};
   char proofHeader[8193] = {0};
   char jobHash[65] = {0};
+  char jobID[33] = {0};
+  char resultState[10] = {0};
+  char algorithmID[161] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
   uint64_t recoveryGeneration = 0;
   uint64_t throughSequence = 0;
   uint64_t headSequence = 0;
+  uint64_t hostedEpoch = 0;
+  uint64_t hostedRetryCount = 0;
   bool complete = false;
   std::vector<uint8_t> body;
   std::vector<PVCandidate> candidates;
@@ -195,6 +202,7 @@ struct PVAsyncRequest {
   char lookupID[33] = {0};
   char jobID[33] = {0};
   char resultState[10] = {0};
+  char algorithmID[161] = {0};
   char accountID[161] = {0};
   char workspaceID[161] = {0};
   char endpointID[33] = {0};
@@ -206,6 +214,8 @@ struct PVAsyncRequest {
   uint64_t recoveryGeneration = 0;
   uint64_t throughSequence = 0;
   uint64_t headSequence = 0;
+  uint64_t hostedEpoch = 0;
+  uint64_t hostedRetryCount = 0;
   bool complete = false;
   std::vector<uint8_t> recoveryConfirmation;
   std::vector<uint8_t> bootstrapTranscript;
@@ -556,6 +566,56 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       return parsed;
     }
     memcpy(parsed.state, state, strlen(state) + 1);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+  if (operation == PVOperation::PendingResult) {
+    const char *state = PVGetString(reply, "state");
+    if (state != nullptr && strcmp(state, "idle") == 0) {
+      const char *const keys[] = {"version", "ok", "requestId", "state"};
+      if (!PVHasExactKeys(reply, keys, 4) ||
+          !PVRequestIDMatches(reply, requestID)) {
+        parsed.failure = PVFailure::MalformedReply;
+        return parsed;
+      }
+      memcpy(parsed.state, state, strlen(state) + 1);
+      parsed.failure = PVFailure::None;
+      return parsed;
+    }
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "jobId", "jobHash",
+        "resultState", "epoch", "retryCount", "algorithmId",
+        "resultEnvelope"};
+    const char *jobID = PVGetString(reply, "jobId");
+    const char *jobHash = PVGetString(reply, "jobHash");
+    const char *resultState = PVGetString(reply, "resultState");
+    const char *algorithmID = PVGetString(reply, "algorithmId");
+    xpc_object_t epoch = xpc_dictionary_get_value(reply, "epoch");
+    xpc_object_t retry = xpc_dictionary_get_value(reply, "retryCount");
+    if (!PVHasExactKeys(reply, keys, 11) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "pending") != 0 || !PVIsLowerHex(jobID, 32) ||
+        !PVIsLowerHex(jobHash, 64) || resultState == nullptr ||
+        (strcmp(resultState, "completed") != 0 &&
+         strcmp(resultState, "failed") != 0) ||
+        !PVStringIsBounded(algorithmID, 160) || epoch == nullptr ||
+        xpc_get_type(epoch) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "epoch") == 0 || retry == nullptr ||
+        xpc_get_type(retry) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "retryCount") > 100 ||
+        !PVCopyBoundedData(reply, "resultEnvelope",
+                           PV_JOB_ENVELOPE_MAXIMUM_BYTES, parsed.body)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.jobID, jobID, 33);
+    memcpy(parsed.jobHash, jobHash, 65);
+    memcpy(parsed.resultState, resultState, strlen(resultState) + 1);
+    memcpy(parsed.algorithmID, algorithmID, strlen(algorithmID) + 1);
+    parsed.hostedEpoch = xpc_dictionary_get_uint64(reply, "epoch");
+    parsed.hostedRetryCount =
+        xpc_dictionary_get_uint64(reply, "retryCount");
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -966,6 +1026,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "seal_result"
                           : request->operation == PVOperation::CompleteResult
                               ? "complete_result"
+                          : request->operation == PVOperation::PendingResult
+                              ? "pending_result"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -1011,10 +1073,17 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::Unlock ||
       request->operation == PVOperation::OpenJob ||
       request->operation == PVOperation::SealResult ||
-      request->operation == PVOperation::CompleteResult)
+      request->operation == PVOperation::CompleteResult ||
+      request->operation == PVOperation::PendingResult)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   if (request->operation == PVOperation::OpenJob) {
     xpc_dictionary_set_string(message, "jobId", request->jobID);
+    xpc_dictionary_set_int64(message, "epoch",
+                             static_cast<int64_t>(request->hostedEpoch));
+    xpc_dictionary_set_int64(
+        message, "retryCount",
+        static_cast<int64_t>(request->hostedRetryCount));
+    xpc_dictionary_set_string(message, "algorithmId", request->algorithmID);
     xpc_dictionary_set_data(message, "jobEnvelope",
                             request->jobEnvelope.data(),
                             request->jobEnvelope.size());
@@ -1129,6 +1198,13 @@ void PVExecute(napi_env env, void *data) {
     request->complete = parsed.complete;
     request->body = std::move(parsed.body);
     memcpy(request->jobHash, parsed.jobHash, sizeof(request->jobHash));
+    memcpy(request->jobID, parsed.jobID, sizeof(request->jobID));
+    memcpy(request->resultState, parsed.resultState,
+           sizeof(request->resultState));
+    memcpy(request->algorithmID, parsed.algorithmID,
+           sizeof(request->algorithmID));
+    request->hostedEpoch = parsed.hostedEpoch;
+    request->hostedRetryCount = parsed.hostedRetryCount;
     request->candidates = std::move(parsed.candidates);
   }
 
@@ -1222,8 +1298,12 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "seal_result"
                 : request->operation == PVOperation::CompleteResult
                     ? "complete_result"
+                : request->operation == PVOperation::PendingResult
+                    ? "pending_result"
                     : "finalize_genesis");
-    PVSetString(env, result, "state", request->state);
+    if (request->operation != PVOperation::OpenJob &&
+        request->operation != PVOperation::SealResult)
+      PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
       napi_value available;
       napi_get_boolean(env, request->available, &available);
@@ -1253,6 +1333,25 @@ void PVComplete(napi_env env, napi_status status, void *data) {
         return;
       }
     } else if (request->operation == PVOperation::SealResult) {
+      if (!PVSetBuffer(env, result, "resultEnvelope", request->body)) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::PendingResult &&
+               strcmp(request->state, "pending") == 0) {
+      PVSetString(env, result, "jobId", request->jobID);
+      PVSetString(env, result, "jobHash", request->jobHash);
+      PVSetString(env, result, "resultState", request->resultState);
+      PVSetSafeInteger(env, result, "epoch", request->hostedEpoch);
+      PVSetSafeInteger(env, result, "retryCount", request->hostedRetryCount);
+      PVSetString(env, result, "algorithmId", request->algorithmID);
       if (!PVSetBuffer(env, result, "resultEnvelope", request->body)) {
         napi_value message;
         napi_value error;
@@ -1356,8 +1455,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
 }
 
 napi_value PVRequest(napi_env env, napi_callback_info info) {
-  size_t argc = 6;
-  napi_value argv[6];
+  size_t argc = 7;
+  napi_value argv[7];
   napi_value promise;
   auto *request = new PVAsyncRequest();
   const uint8_t *genesisInputs[3] = {nullptr, nullptr, nullptr};
@@ -1366,7 +1465,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   size_t ceremonyInputLengths[2] = {0, 0};
 
   if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok ||
-      argc < 1 || argc > 6) {
+      argc < 1 || argc > 7) {
     delete request;
     napi_throw_type_error(env, nullptr,
                           "Private Vault native service request failed");
@@ -1428,6 +1527,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::SealResult;
   } else if (strcmp(operation, "complete_result") == 0) {
     request->operation = PVOperation::CompleteResult;
+  } else if (strcmp(operation, "pending_result") == 0) {
+    request->operation = PVOperation::PendingResult;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1448,9 +1549,10 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
               request->operation == PVOperation::RecoverBegin ||
               request->operation == PVOperation::RecoverPage
           ? 2
-      : request->operation == PVOperation::OpenJob ? 4
+      : request->operation == PVOperation::OpenJob ? 7
       : request->operation == PVOperation::SealResult ? 6
       : request->operation == PVOperation::CompleteResult ? 5
+      : request->operation == PVOperation::PendingResult ? 2
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -1463,7 +1565,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::RecoverStatus ||
       request->operation == PVOperation::OpenJob ||
       request->operation == PVOperation::SealResult ||
-      request->operation == PVOperation::CompleteResult) {
+      request->operation == PVOperation::CompleteResult ||
+      request->operation == PVOperation::PendingResult) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||
@@ -1481,6 +1584,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   size_t jobEnvelopeLength = 0;
   if (request->operation == PVOperation::OpenJob) {
     size_t jobLength = 0;
+    size_t algorithmLength = 0;
+    double epoch = 0, retryCount = 0;
     void *bytes = nullptr;
     bool isBuffer = false;
     if (napi_typeof(env, argv[2], &argumentType) != napi_ok ||
@@ -1491,13 +1596,27 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
         napi_is_buffer(env, argv[3], &isBuffer) != napi_ok || !isBuffer ||
         napi_get_buffer_info(env, argv[3], &bytes, &jobEnvelopeLength) != napi_ok ||
         bytes == nullptr || jobEnvelopeLength == 0 ||
-        jobEnvelopeLength > PV_JOB_ENVELOPE_MAXIMUM_BYTES) {
+        jobEnvelopeLength > PV_JOB_ENVELOPE_MAXIMUM_BYTES ||
+        napi_get_value_double(env, argv[4], &epoch) != napi_ok ||
+        !std::isfinite(epoch) || std::floor(epoch) != epoch || epoch < 1 ||
+        epoch > 9007199254740991.0 ||
+        napi_get_value_double(env, argv[5], &retryCount) != napi_ok ||
+        !std::isfinite(retryCount) || std::floor(retryCount) != retryCount ||
+        retryCount < 0 || retryCount > 100 ||
+        napi_typeof(env, argv[6], &argumentType) != napi_ok ||
+        argumentType != napi_string ||
+        napi_get_value_string_utf8(env, argv[6], request->algorithmID,
+                                   sizeof(request->algorithmID),
+                                   &algorithmLength) != napi_ok ||
+        algorithmLength == 0 || algorithmLength > 160) {
       delete request;
       napi_throw_type_error(env, nullptr,
                             "Private Vault native service request failed");
       return nullptr;
     }
     jobEnvelope = static_cast<const uint8_t *>(bytes);
+    request->hostedEpoch = static_cast<uint64_t>(epoch);
+    request->hostedRetryCount = static_cast<uint64_t>(retryCount);
   }
   const uint8_t *resultPayload = nullptr;
   size_t resultPayloadLength = 0;

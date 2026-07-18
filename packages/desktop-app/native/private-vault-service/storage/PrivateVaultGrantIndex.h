@@ -34,12 +34,17 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @end
 
 @interface AncPrivateVaultJobContext : NSObject
+@property(nonatomic, readonly) NSData *jobId;
+@property(nonatomic, readonly) NSData *jobHash;
 @property(nonatomic, readonly) NSData *subjectEndpointId;
 @property(nonatomic, readonly) NSData *requesterBoxPublicKey;
 @property(nonatomic, readonly) BOOL resultRecorded;
 @property(nonatomic, readonly) BOOL receiptAcknowledged;
 @property(nonatomic, readonly, nullable) NSString *resultState;
 @property(nonatomic, readonly, nullable) NSData *resultHash;
+@property(nonatomic, readonly) uint64_t hostedEpoch;
+@property(nonatomic, readonly) uint64_t hostedRetryCount;
+@property(nonatomic, readonly, nullable) NSString *hostedAlgorithmId;
 @end
 
 @interface AncPrivateVaultGrantIndex : NSObject
@@ -100,7 +105,10 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
  requesterBoxPublicKey:(NSData *)requesterBoxPublicKey
        resourceId:(NSData *)resourceId
         operation:(NSString *)operation
-         provider:(NSString *)provider;
+         provider:(NSString *)provider
+         hostedEpoch:(uint64_t)hostedEpoch
+    hostedRetryCount:(uint64_t)hostedRetryCount
+    hostedAlgorithmId:(NSString *)hostedAlgorithmId;
 
 /** Binds the locally sealed result to the claimed job before hosted release. */
 - (AncPrivateVaultGrantIndexStatus)
@@ -123,6 +131,11 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           jobHash:(NSData *)jobHash
            vaultId:(NSString *)vaultId
            context:(AncPrivateVaultJobContext *_Nullable *_Nullable)context;
+
+/** Returns one requester-encrypted result awaiting hosted reconciliation. */
+- (AncPrivateVaultGrantIndexStatus)
+    nextPendingResultForVaultId:(NSString *)vaultId
+                         context:(AncPrivateVaultJobContext *_Nullable *_Nullable)context;
 @end
 
 NS_ASSUME_NONNULL_END

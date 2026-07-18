@@ -170,6 +170,9 @@ describe("Private Vault native service client", () => {
         endpointId,
         jobId,
         jobEnvelope: envelope,
+        epoch: 1,
+        retryCount: 0,
+        algorithmId: "anc-v1-job",
       }),
     ).resolves.toEqual({
       version: 1,
@@ -183,6 +186,9 @@ describe("Private Vault native service client", () => {
       vaultId,
       jobId,
       expect.any(Buffer),
+      1,
+      0,
+      "anc-v1-job",
     );
   });
 
@@ -268,6 +274,45 @@ describe("Private Vault native service client", () => {
       "ffeeddccbbaa99887766554433221100",
       "ab".repeat(32),
       "completed",
+    );
+  });
+
+  it("recovers only an exact requester-encrypted pending result", async () => {
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "pending_result",
+      state: "pending",
+      jobId: "ffeeddccbbaa99887766554433221100",
+      jobHash: "ab".repeat(32),
+      resultState: "completed",
+      epoch: 1,
+      retryCount: 0,
+      algorithmId: "anc-v1-job",
+      resultEnvelope: Buffer.from([0xa1, 0x01, 0x01]),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.recoverHostedResult({
+        version: 1,
+        suite: "anc/v1",
+        operation: "recoverHostedResult",
+        vaultId: "00112233445566778899aabbccddeeff",
+        endpointId: "11112222333344445555666677778888",
+      }),
+    ).resolves.toMatchObject({
+      operation: "recoverHostedResult",
+      pending: {
+        jobId: "ffeeddccbbaa99887766554433221100",
+        state: "completed",
+        epoch: 1,
+        retryCount: 0,
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "pending_result",
+      "00112233445566778899aabbccddeeff",
     );
   });
 
