@@ -167,6 +167,34 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  it("does not let an older client abort durable media verification", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "processing",
+        videoUrl: "https://cdn.example.com/rec-1",
+        failureReason: null,
+      },
+    ];
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "processing",
+      pendingMediaVerification: true,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      verificationPending: true,
+      chunksCleared: 0,
+    });
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDeleteAppState).not.toHaveBeenCalled();
+    expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
   it("clears buffered chunks for ordinary abort failures", async () => {
     mockSelectRows.rows = [
       {

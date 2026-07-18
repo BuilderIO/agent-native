@@ -4,6 +4,7 @@ import type { Message } from "./types.js";
 
 // In-memory SQL mock
 let tables: Record<string, any[]> = {};
+let onIdempotentInsert: ((args: any[]) => void) | null = null;
 
 function createMockDb() {
   return {
@@ -20,6 +21,7 @@ function createMockDb() {
       // INSERT
       if (rawSql.includes("INSERT INTO a2a_tasks")) {
         if (rawSql.includes("ON CONFLICT")) {
+          onIdempotentInsert?.(args);
           const existing = (tables["a2a_tasks"] || []).find(
             (row) =>
               row.owner_email === args[7] &&
@@ -138,6 +140,7 @@ function makeMessage(text: string, role: "user" | "agent" = "user"): Message {
 describe("task-store (SQL)", () => {
   beforeEach(() => {
     tables = {};
+    onIdempotentInsert = null;
     vi.clearAllMocks();
     vi.resetModules();
   });
@@ -322,6 +325,55 @@ describe("task-store (SQL)", () => {
       );
 
       expect(retry.reused).toBe(false);
+      expect(retry.task.id).not.toBe(first.task.id);
+    });
+
+    it("marks a concurrent retry winner as reused after releasing a failed key", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+      tables.a2a_tasks[0].status_state = "failed";
+
+      let retryInsertAttempts = 0;
+      onIdempotentInsert = (args) => {
+        retryInsertAttempts++;
+        if (retryInsertAttempts !== 2) return;
+        tables.a2a_tasks.push({
+          id: "concurrent-winner",
+          context_id: args[1],
+          status_state: "submitted",
+          status_message: null,
+          status_timestamp: args[3],
+          history: args[4],
+          artifacts: args[5],
+          metadata: args[6],
+          owner_email: args[7],
+          owner_scope: args[8],
+          idempotency_key: args[9],
+          created_at: args[10],
+          updated_at: args[11],
+        });
+      };
+
+      const retry = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+
+      expect(retry).toMatchObject({
+        reused: true,
+        task: { id: "concurrent-winner" },
+      });
       expect(retry.task.id).not.toBe(first.task.id);
     });
   });

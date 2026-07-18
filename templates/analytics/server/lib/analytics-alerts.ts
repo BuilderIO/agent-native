@@ -140,6 +140,7 @@ const DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX =
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD = 3;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES = 10;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;
+const DEFAULT_ALERT_SCOPE_PAGE_SIZE = 500;
 const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -330,10 +331,18 @@ function defaultAlertId(
   return `${prefix}-${hash}`;
 }
 
-async function defaultAnalyticsAlertScopes(): Promise<AccessCtx[]> {
+async function defaultAnalyticsAlertScopePage(offset: number): Promise<{
+  scopes: AccessCtx[];
+  hasMore: boolean;
+}> {
   const ownerEmail = process.env.ANALYTICS_DEFAULT_ALERT_OWNER_EMAIL?.trim();
   const orgId = process.env.ANALYTICS_DEFAULT_ALERT_ORG_ID?.trim() || null;
-  if (ownerEmail) return [{ email: ownerEmail, orgId }];
+  if (ownerEmail) {
+    return {
+      scopes: offset === 0 ? [{ email: ownerEmail, orgId }] : [],
+      hasMore: false,
+    };
+  }
 
   const db = getDb() as any;
   const rows = await db
@@ -346,7 +355,13 @@ async function defaultAnalyticsAlertScopes(): Promise<AccessCtx[]> {
     .groupBy(
       schema.analyticsPublicKeys.ownerEmail,
       schema.analyticsPublicKeys.orgId,
-    );
+    )
+    .orderBy(
+      asc(schema.analyticsPublicKeys.ownerEmail),
+      asc(schema.analyticsPublicKeys.orgId),
+    )
+    .limit(DEFAULT_ALERT_SCOPE_PAGE_SIZE)
+    .offset(offset);
 
   const seen = new Set<string>();
   const scopes: AccessCtx[] = [];
@@ -362,7 +377,10 @@ async function defaultAnalyticsAlertScopes(): Promise<AccessCtx[]> {
     seen.add(key);
     scopes.push({ email, orgId: scopeOrgId });
   }
-  return scopes;
+  return {
+    scopes,
+    hasMore: rows.length === DEFAULT_ALERT_SCOPE_PAGE_SIZE,
+  };
 }
 
 function rowToRule(row: any): AnalyticsAlertRule {
@@ -656,75 +674,80 @@ export async function ensureDefaultAnalyticsAlertRules(): Promise<{
   const definitions = defaultAnalyticsAlertDefinitions();
   if (!definitions.length) return { checked: 0, created: 0 };
 
-  const scopes = await defaultAnalyticsAlertScopes();
-  if (!scopes.length) return { checked: 0, created: 0 };
-
   const db = getDb() as any;
-  const candidatesById = new Map<
-    string,
-    { definition: DefaultAnalyticsAlertDefinition; scope: AccessCtx }
-  >();
-  for (const scope of scopes) {
-    for (const definition of definitions) {
-      candidatesById.set(
-        defaultAlertId(definition.idPrefix, scope.email, scope.orgId),
-        { definition, scope },
-      );
-    }
-  }
-  const allIds = Array.from(candidatesById.keys());
-
-  const existingIds = new Set<string>();
-  for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
-    const rows = await db
-      .select({ id: schema.analyticsAlertRules.id })
-      .from(schema.analyticsAlertRules)
-      .where(inArray(schema.analyticsAlertRules.id, idChunk));
-    for (const row of rows) existingIds.add(row.id);
-  }
-
-  const missingIds = allIds.filter((id) => !existingIds.has(id));
-  if (!missingIds.length) return { checked: allIds.length, created: 0 };
-
-  const now = nowIso();
-  const rowsToInsert = missingIds.map((id) => {
-    const { definition, scope } = candidatesById.get(id)!;
-    return {
-      id,
-      name: definition.name,
-      description: definition.description,
-      eventName: definition.eventName,
-      filters: JSON.stringify(definition.filters),
-      thresholdMode: definition.thresholdMode ?? ("event_count" as const),
-      distinctBy: definition.distinctBy ?? null,
-      threshold: definition.threshold,
-      windowMinutes: definition.windowMinutes,
-      cooldownMinutes: definition.cooldownMinutes,
-      severity: definition.severity,
-      channels: JSON.stringify(["inbox"]),
-      emailRecipients: JSON.stringify([]),
-      enabled: true,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail: scope.email,
-      orgId: scope.orgId,
-    };
-  });
-
+  let checked = 0;
   let created = 0;
-  for (const rowChunk of chunkArray(
-    rowsToInsert,
-    DEFAULT_ALERT_SEED_CHUNK_SIZE,
-  )) {
-    const inserted = await db
-      .insert(schema.analyticsAlertRules)
-      .values(rowChunk)
-      .onConflictDoNothing()
-      .returning({ id: schema.analyticsAlertRules.id });
-    created += inserted.length;
+  let offset = 0;
+  while (true) {
+    const page = await defaultAnalyticsAlertScopePage(offset);
+    const candidatesById = new Map<
+      string,
+      { definition: DefaultAnalyticsAlertDefinition; scope: AccessCtx }
+    >();
+    for (const scope of page.scopes) {
+      for (const definition of definitions) {
+        candidatesById.set(
+          defaultAlertId(definition.idPrefix, scope.email, scope.orgId),
+          { definition, scope },
+        );
+      }
+    }
+    const allIds = Array.from(candidatesById.keys());
+    checked += allIds.length;
+
+    const existingIds = new Set<string>();
+    for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
+      const rows = await db
+        .select({ id: schema.analyticsAlertRules.id })
+        .from(schema.analyticsAlertRules)
+        .where(inArray(schema.analyticsAlertRules.id, idChunk));
+      for (const row of rows) existingIds.add(row.id);
+    }
+
+    const now = nowIso();
+    const rowsToInsert = allIds
+      .filter((id) => !existingIds.has(id))
+      .map((id) => {
+        const { definition, scope } = candidatesById.get(id)!;
+        return {
+          id,
+          name: definition.name,
+          description: definition.description,
+          eventName: definition.eventName,
+          filters: JSON.stringify(definition.filters),
+          thresholdMode: definition.thresholdMode ?? ("event_count" as const),
+          distinctBy: definition.distinctBy ?? null,
+          threshold: definition.threshold,
+          windowMinutes: definition.windowMinutes,
+          cooldownMinutes: definition.cooldownMinutes,
+          severity: definition.severity,
+          channels: JSON.stringify(["inbox"]),
+          emailRecipients: JSON.stringify([]),
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          ownerEmail: scope.email,
+          orgId: scope.orgId,
+        };
+      });
+
+    for (const rowChunk of chunkArray(
+      rowsToInsert,
+      DEFAULT_ALERT_SEED_CHUNK_SIZE,
+    )) {
+      const inserted = await db
+        .insert(schema.analyticsAlertRules)
+        .values(rowChunk)
+        .onConflictDoNothing()
+        .returning({ id: schema.analyticsAlertRules.id });
+      created += inserted.length;
+    }
+
+    if (!page.hasMore) break;
+    offset += DEFAULT_ALERT_SCOPE_PAGE_SIZE;
   }
 
-  return { checked: allIds.length, created };
+  return { checked, created };
 }
 
 export async function listEnabledAnalyticsAlertRules(options: {

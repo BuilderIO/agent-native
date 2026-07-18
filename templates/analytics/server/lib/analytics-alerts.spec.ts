@@ -38,7 +38,22 @@ function defaultAlertDb(
           if (selectingScopes) {
             return {
               where() {
-                return { groupBy: async () => scopes };
+                return {
+                  groupBy() {
+                    return {
+                      orderBy() {
+                        return {
+                          limit(limit: number) {
+                            return {
+                              offset: async (offset: number) =>
+                                scopes.slice(offset, offset + limit),
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
               },
             };
           }
@@ -409,9 +424,9 @@ describe("analytics alert evaluation", () => {
     expect(source).toContain(
       "const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;",
     );
-    expect(source.match(/await defaultAnalyticsAlertScopes\(\)/g)).toHaveLength(
-      1,
-    );
+    expect(source).toContain("await defaultAnalyticsAlertScopePage(offset)");
+    expect(source).toContain(".limit(DEFAULT_ALERT_SCOPE_PAGE_SIZE)");
+    expect(source).toContain(".offset(offset)");
     expect(source).toContain(".onConflictDoNothing()");
     expect(source).toContain(".values(rowChunk)");
     expect(source).toContain(

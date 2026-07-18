@@ -86,6 +86,7 @@ export default defineEventHandler(async (event: H3Event) => {
           kind,
           retryAttempt,
           regenerate,
+          requireAccepted: kind === "media-ready",
         });
         return {
           ok: true,
