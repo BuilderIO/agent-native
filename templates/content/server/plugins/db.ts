@@ -1292,6 +1292,42 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_recovery_nonce_scope_idx
         ON content_encrypted_vault_recovery_nonce_claims (owner_email, org_id, vault_id)`,
     },
+    {
+      version: 89,
+      name: "content-private-vault-enrollment-rendezvous",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_enrollment_ceremonies (
+        offer_hash TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        candidate_endpoint_id TEXT NOT NULL,
+        target_role TEXT NOT NULL,
+        ceremony_id TEXT NOT NULL,
+        phase TEXT NOT NULL DEFAULT 'offer',
+        offer_bytes_base64url TEXT NOT NULL,
+        challenge_key TEXT,
+        challenge_bytes_base64url TEXT,
+        authorization_id TEXT,
+        authorization_bytes_base64url TEXT,
+        control_entry_id TEXT,
+        control_entry_hash TEXT,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_candidate_unique
+        ON content_encrypted_vault_enrollment_ceremonies (vault_id, candidate_endpoint_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_challenge_unique
+        ON content_encrypted_vault_enrollment_ceremonies (challenge_key);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_authorization_unique
+        ON content_encrypted_vault_enrollment_ceremonies (authorization_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_scope_phase_idx
+        ON content_encrypted_vault_enrollment_ceremonies (owner_email, org_id, vault_id, phase, expires_at)`,
+    },
   ],
   { table: "content_migrations" },
 );

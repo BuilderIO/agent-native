@@ -568,6 +568,59 @@ export const contentEncryptedVaultGenesisChallenges = table(
   ],
 );
 
+/**
+ * Short-lived, content-free rendezvous for endpoint-mediated enrollment.
+ *
+ * Canonical offer, challenge, and authorization bytes are public ceremony
+ * evidence. They are retained only for the bounded ceremony lifetime and the
+ * exact lost-response activation retry. The hosted service never manufactures
+ * or signs any field in this transcript.
+ */
+export const contentEncryptedVaultEnrollmentCeremonies = table(
+  "content_encrypted_vault_enrollment_ceremonies",
+  {
+    offerHash: text("offer_hash").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    version: integer("version").notNull().default(1),
+    candidateEndpointId: text("candidate_endpoint_id").notNull(),
+    targetRole: text("target_role").notNull(),
+    ceremonyId: text("ceremony_id").notNull(),
+    phase: text("phase").notNull().default("offer"),
+    offerBytesBase64url: text("offer_bytes_base64url").notNull(),
+    challengeKey: text("challenge_key"),
+    challengeBytesBase64url: text("challenge_bytes_base64url"),
+    authorizationId: text("authorization_id"),
+    authorizationBytesBase64url: text("authorization_bytes_base64url"),
+    controlEntryId: text("control_entry_id"),
+    controlEntryHash: text("control_entry_hash"),
+    expiresAt: text("expires_at").notNull(),
+    consumedAt: text("consumed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (ceremony) => [
+    uniqueIndex("content_encrypted_vault_enrollment_candidate_unique").on(
+      ceremony.vaultId,
+      ceremony.candidateEndpointId,
+    ),
+    uniqueIndex("content_encrypted_vault_enrollment_challenge_unique").on(
+      ceremony.challengeKey,
+    ),
+    uniqueIndex("content_encrypted_vault_enrollment_authorization_unique").on(
+      ceremony.authorizationId,
+    ),
+    index("content_encrypted_vault_enrollment_scope_phase_idx").on(
+      ceremony.ownerEmail,
+      ceremony.orgId,
+      ceremony.vaultId,
+      ceremony.phase,
+      ceremony.expiresAt,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultEndpoints = table(
   "content_encrypted_vault_endpoints",
   {

@@ -201,7 +201,7 @@ describe("content database migrations", () => {
     expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
     expect(
       source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
-    ).toHaveLength(14);
+    ).toHaveLength(15);
     expect(source).toContain(
       "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
@@ -221,6 +221,38 @@ describe("content database migrations", () => {
     expect(source).toContain(
       "REFERENCES content_encrypted_vault_jobs(job_id, vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
+  });
+
+  it("adds the bounded endpoint-mediated enrollment rendezvous", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const migration = source.slice(
+      source.indexOf('name: "content-private-vault-enrollment-rendezvous"'),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf('name: "content-private-vault-enrollment-rendezvous"'),
+      ),
+    );
+
+    expect(source).toContain("version: 89");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_enrollment_ceremonies",
+    );
+    expect(migration).toContain("offer_bytes_base64url TEXT NOT NULL");
+    expect(migration).toContain("challenge_bytes_base64url TEXT");
+    expect(migration).toContain("authorization_bytes_base64url TEXT");
+    expect(migration).toContain("FOREIGN KEY (vault_id, owner_email, org_id)");
+    for (const forbidden of [
+      "private_key",
+      "signing_seed",
+      "epoch_key",
+      "recovery_secret",
+      "provider_token",
+    ]) {
+      expect(migration).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
+    }
   });
 
   it("keeps retained disclosure and access evidence independent of vault cascades", () => {

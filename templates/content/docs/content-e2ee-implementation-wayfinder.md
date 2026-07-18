@@ -743,6 +743,23 @@ production service builds pass. The remaining PR 5 product dependency is
 ordinary broker enrollment/replacement; the runtime can accept its real Content
 action registry as PR 6 brings up encrypted document storage.
 
+The ordinary-enrollment hosted rendezvous is now executable. Additive migration
+v89 stores one short-lived, account-scoped canonical offer, signed challenge,
+and signed authorization transcript with only public endpoint material and
+content-free coordinates. The server accepts no separate vault coordinate for
+the offer, resolves every later step through the beta account's one vault,
+rejects noncanonical bytes and second-broker enrollment, verifies the candidate
+key proof and authorizer against the fresh replayed control head, and verifies
+the complete endpoint envelope, EEK wrap, and membership commit. The signed
+membership edge and exact activation receipt commit in one SQL transaction;
+lost-response retries must be byte-identical. Same-origin session routes expose
+bounded raw ceremony uploads and a no-store status read without any hosted
+signing or key material. Migration, offer persistence, retry, malformed/expired
+input, second-broker denial, route serialization, Content typecheck, and the
+existing control-log append suite pass. Native candidate/authorizer ceremony,
+SAS confirmation, custody activation, and broker replacement remain the PR 5
+exit work.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

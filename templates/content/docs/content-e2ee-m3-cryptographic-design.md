@@ -577,9 +577,18 @@ conflict-safe hosted result slot, verifies the returned coordinates, records
 delivery, and zeroizes the transferred frame. Pending results are never pruned
 merely because their original execution lease expired.
 
-The remaining lifecycle gate is the ordinary broker enrollment/replacement
-product flow and the encrypted Content action registry. The canonical Content
-action executor, native-bound semantic operation/resource coordinates,
+The hosted half of ordinary enrollment now uses the frozen ceremony directly.
+A short-lived, account-scoped rendezvous retains only canonical public offer,
+signed challenge, signed authorization, and content-free commit coordinates.
+It cannot create or sign a step. Candidate key possession, the attended
+authorizer, fresh control head, SAS transcript, endpoint identity, recipient
+bound EEK wrap, and exact membership edge are verified before the membership
+append and activation receipt commit atomically. A retry must reproduce the
+same bytes, and a first-broker offer is rejected whenever replayed authority
+already contains an active broker. The remaining lifecycle gate is the native
+candidate/authorizer ceremony, explicit SAS confirmation, custody activation,
+broker replacement, and the encrypted Content action registry. The canonical
+Content action executor, native-bound semantic operation/resource coordinates,
 cookie-free signed transport, authenticated runtime discovery, OS-encrypted
 content-free checkpoint store, revocation verifier, and fail-closed Desktop
 supervisor composition are now executable.
