@@ -1490,9 +1490,6 @@
     },
     "@agent-native/core/client/visual-style-controls": {
       "to": "@agent-native/toolkit/design-tweaks"
-    },
-    "@agent-native/core/client/context-xray/ContextXRayPanel": {
-      "to": "@agent-native/toolkit/context-ui"
     }
   }
 }
