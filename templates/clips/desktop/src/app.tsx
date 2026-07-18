@@ -61,7 +61,6 @@ import {
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
 import { resolveDesktopMeetingJoinUrl } from "./lib/meeting-join-url";
-import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import {
   DESKTOP_CAPTURE_PERMISSION_MESSAGE,
   isHardCapturePermissionError,
@@ -75,6 +74,7 @@ import {
   dismissBrowserRecordingBackup,
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
+  getRewindClipOrigin,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
@@ -85,6 +85,7 @@ import {
   type RecorderHandle,
   type RecorderStopResult,
 } from "./lib/recorder";
+import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import {
   loadBool,
   loadString,
@@ -177,6 +178,22 @@ interface RewindAgentHandoffRequest {
   error?: string;
 }
 
+interface RewindExtensionRequest {
+  requestId: string;
+  recordingId: string;
+  seconds: 30 | 300;
+  status: "pending" | "processing" | "ready" | "failed";
+  updatedAt: string;
+  preRollRecordingId?: string;
+  actualDurationMs?: number;
+  error?: string;
+}
+
+interface NativeRewindUploadResult {
+  recordingId: string;
+  durationMs: number;
+}
+
 interface DueRewindAgentHandoff {
   requestId: string;
   recordingId: string;
@@ -266,7 +283,6 @@ interface RewindAgentConnectionStatus {
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
-type RewindLookbackSeconds = 0 | 30 | 300;
 type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
@@ -816,11 +832,6 @@ export function App() {
   const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
     loadBool(SYSTEM_AUDIO_KEY, true),
   );
-  // Deliberately session-scoped and reset after every start attempt. A prior
-  // recording's retrospective choice must never become the next Clip's
-  // invisible default.
-  const [rewindLookbackSeconds, setRewindLookbackSeconds] =
-    useState<RewindLookbackSeconds>(0);
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
       if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) {
@@ -883,6 +894,7 @@ export function App() {
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
   const agentHandoffProcessingRef = useRef<string | null>(null);
+  const rewindExtensionProcessingRef = useRef<Set<string>>(new Set());
   const [agentHandoffPreviewBusy, setAgentHandoffPreviewBusy] = useState(false);
   const [agentHandoffPreviewError, setAgentHandoffPreviewError] = useState<
     string | null
@@ -1411,6 +1423,112 @@ export function App() {
     },
     [callClipsAction, serverUrl, updateAgentHandoff],
   );
+
+  const processRewindExtension = useCallback(
+    async (request: RewindExtensionRequest) => {
+      if (rewindExtensionProcessingRef.current.has(request.requestId)) return;
+      rewindExtensionProcessingRef.current.add(request.requestId);
+      let preRollRecordingId: string | null = null;
+      try {
+        const origin = getRewindClipOrigin(request.recordingId);
+        if (!origin) {
+          throw new Error(
+            "Clips Alpha no longer has the local start time for this Clip.",
+          );
+        }
+        const endedAtMs = Date.parse(origin.startedAt);
+        if (!Number.isFinite(endedAtMs)) {
+          throw new Error("The original Clip start time is invalid.");
+        }
+        await callClipsAction("update-rewind-extension-request", {
+          recordingId: request.recordingId,
+          requestId: request.requestId,
+          status: "processing",
+        });
+        const startedAt = new Date(
+          endedAtMs - request.seconds * 1_000,
+        ).toISOString();
+        const recording = await createPrivateAgentRewindRecording(
+          serverUrl,
+          origin.includeMicrophone || origin.includeSystemAudio,
+          startedAt,
+        );
+        preRollRecordingId = recording.id;
+        const upload = await invoke<NativeRewindUploadResult>(
+          "rewind_agent_handoff_upload",
+          {
+            requestId: `handoff-${request.requestId}`,
+            startedAt,
+            endedAt: origin.startedAt,
+            serverUrl,
+            recordingId: recording.id,
+            authToken: loadDesktopAuthToken(serverUrl),
+            cookie:
+              typeof document !== "undefined" ? document.cookie || "" : "",
+            uploadMode: recording.uploadMode,
+            includeMic: origin.includeMicrophone,
+            includeSystemAudio: origin.includeSystemAudio,
+          },
+        );
+        await callClipsAction("update-rewind-extension-request", {
+          recordingId: request.recordingId,
+          requestId: request.requestId,
+          status: "ready",
+          preRollRecordingId: recording.id,
+          actualDurationMs: Math.round(upload.durationMs),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (preRollRecordingId) {
+          await callClipsAction("trash-recording", {
+            id: preRollRecordingId,
+            skipIfReady: true,
+          }).catch(() => {});
+        }
+        await callClipsAction("update-rewind-extension-request", {
+          recordingId: request.recordingId,
+          requestId: request.requestId,
+          status: "failed",
+          error: message,
+        }).catch(() => {});
+      } finally {
+        rewindExtensionProcessingRef.current.delete(request.requestId);
+      }
+    },
+    [callClipsAction, serverUrl],
+  );
+
+  useEffect(() => {
+    if (
+      authStatus !== "authed" ||
+      featureConfig?.screenMemory?.enabled !== true
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      const result = await callClipsAction<{
+        requests?: RewindExtensionRequest[];
+      }>("list-rewind-extension-requests", {}, { method: "GET" }).catch(
+        () => null,
+      );
+      if (cancelled) return;
+      for (const request of result?.requests ?? []) {
+        void processRewindExtension(request);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    authStatus,
+    callClipsAction,
+    featureConfig?.screenMemory?.enabled,
+    processRewindExtension,
+  ]);
 
   useEffect(() => {
     if (featureConfig?.screenMemory?.enabled !== true || agentHandoff) return;
@@ -2610,10 +2728,6 @@ export function App() {
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
-      const requestedRewindLookback = rewindLookbackSeconds;
-      // Retrospection is a one-shot authorization. Reset the visible control
-      // before async setup so retrying can never inherit it silently.
-      setRewindLookbackSeconds(0);
       const recordingPromise = startRecording({
         serverUrl,
         mode,
@@ -2631,7 +2745,6 @@ export function App() {
         micOn,
         systemAudioOn,
         localRecordingMode,
-        rewindLookbackSeconds: requestedRewindLookback,
         preAcquiredCameraStream,
       });
       // macOS: park the popover to its 2×2 pinhole IMMEDIATELY so it
@@ -3570,33 +3683,6 @@ export function App() {
             </div>
           </div>
         </section>
-
-        {featureConfig?.screenMemory?.enabled === true &&
-        featureConfig.screenMemory.paused !== true &&
-        mode !== "camera" &&
-        !(mode === "screen-camera" && localRecordingMode === "separate") &&
-        source === "full-screen" ? (
-          <label className="setup-mini-field">
-            <span>Clip range</span>
-            <select
-              className="setup-select"
-              value={rewindLookbackSeconds}
-              onChange={(event) =>
-                setRewindLookbackSeconds(
-                  Number(event.target.value) as RewindLookbackSeconds,
-                )
-              }
-            >
-              <option value={0}>Start after 3–2–1</option>
-              <option value={30}>Include previous 30 seconds</option>
-              <option value={300}>Include previous 5 minutes</option>
-            </select>
-            <small>
-              Rewind can supply this full-screen Clip without starting another
-              recorder. Earlier time is included only for this Clip.
-            </small>
-          </label>
-        ) : null}
 
         {!isRecording ? (
           <button
@@ -6354,7 +6440,7 @@ function Setup({
         <div className="setup-toggle-row">
           <SettingLabel
             label="Show Clips in screen captures"
-            hint="By default the Clips window and recording overlays are hidden from screenshots and screen recordings so they never leak into your captured video. Turn on for debugging or demos."
+            hint="When off, Clips windows and recording overlays stay out of screenshots, normal screen recordings, and Rewind. Turn on only for debugging or demos."
           />
           <Switch
             on={showInScreenCapture}

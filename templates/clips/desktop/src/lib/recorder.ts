@@ -201,8 +201,6 @@ export interface StartParams {
   /** Record + transcribe system/desktop audio. Default true. */
   systemAudioOn?: boolean;
   localRecordingMode?: LocalRecordingMode;
-  /** Explicit, one-shot history to prepend from an active local Rewind. */
-  rewindLookbackSeconds?: 0 | 30 | 300;
   /**
    * Pre-acquired camera stream owned by the popover's session effect. The
    * popover keeps the camera open + the bubble visible + the frame pump
@@ -219,6 +217,61 @@ export interface StartParams {
    * or turns the camera off).
    */
   preAcquiredCameraStream?: MediaStream | null;
+}
+
+const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
+
+export interface RewindClipOrigin {
+  recordingId: string;
+  startedAt: string;
+  includeMicrophone: boolean;
+  includeSystemAudio: boolean;
+  rememberedAt: string;
+}
+
+function readRewindClipOrigins(): Record<string, RewindClipOrigin> {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(REWIND_CLIP_ORIGINS_KEY) || "{}",
+    );
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeRewindClipOrigins(
+  origins: Record<string, RewindClipOrigin>,
+): void {
+  try {
+    localStorage.setItem(REWIND_CLIP_ORIGINS_KEY, JSON.stringify(origins));
+  } catch {
+    // Losing optional retrospective metadata must never cancel a live Clip.
+  }
+}
+
+function rememberRewindClipOrigin(origin: RewindClipOrigin): void {
+  const origins = readRewindClipOrigins();
+  origins[origin.recordingId] = origin;
+  const newest = Object.values(origins)
+    .sort((left, right) => right.rememberedAt.localeCompare(left.rememberedAt))
+    .slice(0, 50);
+  writeRewindClipOrigins(
+    Object.fromEntries(newest.map((entry) => [entry.recordingId, entry])),
+  );
+}
+
+export function getRewindClipOrigin(
+  recordingId: string,
+): RewindClipOrigin | null {
+  return readRewindClipOrigins()[recordingId] ?? null;
+}
+
+export function forgetRewindClipOrigin(recordingId: string): void {
+  const origins = readRewindClipOrigins();
+  if (!origins[recordingId]) return;
+  delete origins[recordingId];
+  writeRewindClipOrigins(origins);
 }
 
 export interface RecorderHandle {
@@ -2174,7 +2227,6 @@ async function tryStartRewindFullscreenRecording(
           },
         );
       })();
-
   try {
     const [, recording] = await Promise.all([
       countdownPromise,
@@ -2187,11 +2239,18 @@ async function tryStartRewindFullscreenRecording(
       includeMic,
       includeSystemAudio,
     });
-    const lookback = params.rewindLookbackSeconds ?? 0;
-    if (lookback === 30 || lookback === 300) {
-      await invoke("rewind_clip_extend", { seconds: lookback });
+    const originalStartedAt = new Date().toISOString();
+    if (!localOnly) {
+      rememberRewindClipOrigin({
+        recordingId: id,
+        startedAt: originalStartedAt,
+        includeMicrophone: includeMic,
+        includeSystemAudio,
+        rememberedAt: originalStartedAt,
+      });
     }
   } catch (err) {
+    if (id) forgetRewindClipOrigin(id);
     await invoke("rewind_clip_cancel").catch(() => {});
     audioCue.cleanup();
     if (!localOnly) {
@@ -2333,6 +2392,7 @@ async function tryStartRewindFullscreenRecording(
         await invoke("hide_overlays").catch(() => {});
         await clearRecordingState();
         if (!localOnly && id) {
+          forgetRewindClipOrigin(id);
           await cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
             () => {},
           );

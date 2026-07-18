@@ -1585,6 +1585,10 @@ body[data-clips-route="recording-pill"] #root {
   overflow-x: hidden;
 }
 
+.rewind-settings-surface {
+  padding-bottom: 18px;
+}
+
 .rewind-search-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

@@ -16,6 +16,7 @@ import {
   IconDownload,
   IconLoader2,
   IconTrash,
+  IconHistory,
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -84,6 +85,9 @@ export interface EditorToolbarProps {
   onOpenThumbnailPicker: () => void;
   onOpenChapters: () => void;
   onOpenStitch: () => void;
+  onOpenRewind: () => void;
+  rewindAlreadyAdded?: boolean;
+  rewindAvailable?: boolean;
   chaptersOpen?: boolean;
 }
 
@@ -103,6 +107,9 @@ export function EditorToolbar({
   onOpenThumbnailPicker,
   onOpenChapters,
   onOpenStitch,
+  onOpenRewind,
+  rewindAlreadyAdded,
+  rewindAvailable = true,
   chaptersOpen,
 }: EditorToolbarProps) {
   const t = useT();
@@ -481,6 +488,17 @@ export function EditorToolbar({
           <DropdownMenuItem onSelect={onOpenStitch}>
             <IconPuzzle className="mr-2 h-4 w-4" />
             {t("editorToolbar.stitchClips")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={rewindAlreadyAdded || !rewindAvailable}
+            onSelect={onOpenRewind}
+          >
+            <IconHistory className="mr-2 h-4 w-4" />
+            {!rewindAvailable
+              ? "Only the owner can add Rewind history"
+              : rewindAlreadyAdded
+                ? "Rewind history added"
+                : "Add what happened before…"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setClearOpen(true)}>

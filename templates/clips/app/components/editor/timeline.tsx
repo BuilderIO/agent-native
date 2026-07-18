@@ -21,6 +21,8 @@ export interface TimelineProps {
   chapters?: TimelineChapter[];
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
   splitPoints?: number[];
+  /** Countdown-complete start after explicit Rewind history was prepended. */
+  originalStartMs?: number;
   onSeek?: (originalMs: number) => void;
   onClickChapter?: (chapter: TimelineChapter) => void;
   className?: string;
@@ -44,6 +46,7 @@ export function Timeline({
   chapters = [],
   excludedRanges = [],
   splitPoints = [],
+  originalStartMs,
   onSeek,
   onClickChapter,
   className,
@@ -132,6 +135,27 @@ export function Timeline({
             />
           );
         })}
+
+        {typeof originalStartMs === "number" && originalStartMs > 0 ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="absolute top-0 z-10 h-full w-0.5 cursor-help bg-amber-500"
+                style={{
+                  left: (originalStartMs / Math.max(durationMs, 1)) * width - 1,
+                }}
+                aria-label={`Original Clip start at ${formatMs(originalStartMs)}`}
+              >
+                <span className="absolute left-1 top-0 whitespace-nowrap rounded-sm bg-amber-500 px-1 text-[9px] font-semibold text-black">
+                  Clip started here
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              Recording began after the countdown · {formatMs(originalStartMs)}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
 
         {/* Playhead */}
         <div
