@@ -1,0 +1,26 @@
+{
+  "exportKeys": [
+    ".",
+    "./app-shell",
+    "./app-shell/*",
+    "./collab-ui",
+    "./collab-ui/*",
+    "./context-ui",
+    "./design-tweaks",
+    "./editor",
+    "./editor.css",
+    "./editor/*",
+    "./hooks",
+    "./hooks/*",
+    "./migration-manifest.json",
+    "./onboarding",
+    "./onboarding/*",
+    "./provider",
+    "./sharing",
+    "./sharing/*",
+    "./styles.css",
+    "./ui",
+    "./ui/*",
+    "./utils"
+  ]
+}

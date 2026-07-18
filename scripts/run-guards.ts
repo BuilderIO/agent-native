@@ -15,6 +15,8 @@ const guards = [
   "guard:workspace-skills",
   "guard:public-packages",
   "guard:shared-ui-singletons",
+  "guard:no-core-client-barrel-imports",
+  "guard:migration-manifest",
   "guard:no-generated-artifacts",
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",
