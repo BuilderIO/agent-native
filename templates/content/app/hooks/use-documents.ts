@@ -278,6 +278,9 @@ export function useDeleteDocument() {
         queryKey: ["action", "get-document", { id: variables.id }],
       });
       queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
       });
     },

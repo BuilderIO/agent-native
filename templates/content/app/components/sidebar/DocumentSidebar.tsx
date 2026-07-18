@@ -227,11 +227,25 @@ function WorkspaceFilesSection({
   selected,
   activeDocumentId,
   onActivate,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
   activeDocumentId: string | null;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
+  onCreateChildPage: (
+    space: ContentSpaceSummary,
+    item: ContentDatabaseItem,
+  ) => void;
+  onCreateChildDatabase: (
+    space: ContentSpaceSummary,
+    item: ContentDatabaseItem,
+  ) => void;
+  onDeleteItem: (item: ContentDatabaseItem) => void;
+  onToggleFavorite: (item: ContentDatabaseItem) => void;
 }) {
   const t = useT();
   const filesDatabase = useContentDatabaseById(space.filesDatabaseId);
@@ -276,6 +290,10 @@ function WorkspaceFilesSection({
             onActivate(space, item.document.id);
             return true;
           }}
+          onCreateChildPage={(item) => onCreateChildPage(space, item)}
+          onCreateChildDatabase={(item) => onCreateChildDatabase(space, item)}
+          onDeleteItem={onDeleteItem}
+          onToggleFavorite={onToggleFavorite}
           labels={{
             loadingLabel: t("sidebar.loadingFiles"),
             noMatchesLabel: t("database.noRowsMatchThisView"),
@@ -1284,6 +1302,24 @@ export function DocumentSidebar({
                     activeDocumentId={activeDocumentId}
                     onActivate={(nextSpace, documentId) =>
                       void handleSelectContentSpace(nextSpace, documentId)
+                    }
+                    onCreateChildPage={(nextSpace, item) =>
+                      void handleCreatePage(
+                        item.document.id,
+                        nextSpace.id,
+                        undefined,
+                        nextSpace.filesDatabaseId,
+                      )
+                    }
+                    onCreateChildDatabase={(nextSpace, item) =>
+                      void handleCreateDatabase(item.document.id, nextSpace.id)
+                    }
+                    onDeleteItem={(item) => void handleDelete(item.document.id)}
+                    onToggleFavorite={(item) =>
+                      handleToggleFavorite(
+                        item.document.id,
+                        !item.document.isFavorite,
+                      )
                     }
                   />
                 )}

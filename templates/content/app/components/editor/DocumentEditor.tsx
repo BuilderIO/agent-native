@@ -41,11 +41,13 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useComments } from "@/hooks/use-comments";
 import {
   useCreateContentDatabase,
+  useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
 import {
   isDocumentUpdateConflict,
   useDocument,
+  useDeleteDocument,
   useDocuments,
   useUpdateDocument,
 } from "@/hooks/use-documents";
@@ -318,6 +320,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
   const createDatabase = useCreateContentDatabase(documentId);
+  const deleteContentDatabase = useDeleteContentDatabase();
+  const deleteDocument = useDeleteDocument();
   const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.databaseMembership?.databaseDocumentId ?? documentId,
@@ -338,6 +342,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  const canDelete =
+    !isLocalFileDocument &&
+    (document.canManage === true ||
+      document.accessRole === "owner" ||
+      document.accessRole === "admin");
   const isLinkedLocalSourceDocument = canWriteLinkedLocalSource(
     documentId,
     document.source,
@@ -354,6 +363,30 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
+  const handleDeleteDocument = useCallback(async () => {
+    try {
+      if (document.database) {
+        await deleteContentDatabase.mutateAsync({
+          databaseId: document.database.id,
+        });
+      } else {
+        await deleteDocument.mutateAsync({ id: documentId });
+      }
+      navigate("/", { replace: true, flushSync: true });
+    } catch (error) {
+      toast.error(t("sidebar.failedDeletePage"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    }
+  }, [
+    deleteContentDatabase,
+    deleteDocument,
+    document.database,
+    documentId,
+    navigate,
+    t,
+  ]);
   const flushRequestKey = `flush-request-${documentId}`;
   const [flushRequestWake, setFlushRequestWake] = useState(0);
   const handleFlushRequestEvent = useCallback(
@@ -1350,6 +1383,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             canEdit={canEdit}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
+            canDelete={canDelete}
+            deletePending={
+              deleteDocument.isPending || deleteContentDatabase.isPending
+            }
+            onDelete={handleDeleteDocument}
           />
 
           {!isLocalFileDocument ? (

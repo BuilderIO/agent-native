@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Collapsible,
@@ -15,12 +16,39 @@ import type {
 import {
   IconChevronDown,
   IconChevronRight,
+  IconDatabase,
+  IconDots,
   IconFileText,
   IconLoader2,
+  IconPlus,
+  IconStar,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useState, type MouseEvent } from "react";
 import { Link } from "react-router";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { applyDatabaseView } from "./filter-sort";
@@ -72,6 +100,10 @@ export function ContentFilesSidebarView({
   labels,
   onSelectView,
   onOpenItem,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
 }: {
   data: ContentDatabaseResponse | undefined;
   overrides: ContentDatabasePersonalViewOverrides | null | undefined;
@@ -79,6 +111,10 @@ export function ContentFilesSidebarView({
   activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
   labels: Omit<
     Parameters<typeof DatabaseSidebarView>[0],
     | "groups"
@@ -157,6 +193,10 @@ export function ContentFilesSidebarView({
         onPreview={() => {}}
         onOpenItem={onOpenItem}
         activeDocumentId={activeDocumentId}
+        onCreateChildPage={onCreateChildPage}
+        onCreateChildDatabase={onCreateChildDatabase}
+        onDeleteItem={onDeleteItem}
+        onToggleFavorite={onToggleFavorite}
       />
     </div>
   );
@@ -172,6 +212,10 @@ export function DatabaseSidebarView({
   onPreview,
   onOpenItem,
   activeDocumentId,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
   loadingLabel,
   noMatchesLabel,
   clearLabel,
@@ -187,6 +231,10 @@ export function DatabaseSidebarView({
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   activeDocumentId?: string | null;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
   loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
@@ -266,6 +314,10 @@ export function DatabaseSidebarView({
                         onPreview={onPreview}
                         onOpenItem={onOpenItem}
                         active={item.document.id === activeDocumentId}
+                        onCreateChildPage={onCreateChildPage}
+                        onCreateChildDatabase={onCreateChildDatabase}
+                        onDeleteItem={onDeleteItem}
+                        onToggleFavorite={onToggleFavorite}
                         untitledLabel={untitledLabel}
                       />
                     ))}
@@ -281,6 +333,10 @@ export function DatabaseSidebarView({
                 onPreview={onPreview}
                 onOpenItem={onOpenItem}
                 active={item.document.id === activeDocumentId}
+                onCreateChildPage={onCreateChildPage}
+                onCreateChildDatabase={onCreateChildDatabase}
+                onDeleteItem={onDeleteItem}
+                onToggleFavorite={onToggleFavorite}
                 untitledLabel={untitledLabel}
               />
             ))}
@@ -295,6 +351,10 @@ function DatabaseSidebarRow({
   onPreview,
   onOpenItem,
   active,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
   untitledLabel,
 }: {
   item: ContentDatabaseItem;
@@ -302,8 +362,23 @@ function DatabaseSidebarRow({
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   active: boolean;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
   untitledLabel: string;
 }) {
+  const t = useT();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const canEdit = item.document.canEdit !== false;
+  const canManage =
+    item.document.canManage === true ||
+    item.document.accessRole === "owner" ||
+    item.document.accessRole === "admin";
+  const canCreateChild = canEdit && Boolean(onCreateChildPage);
+  const hasMenuActions =
+    (canEdit && Boolean(onToggleFavorite)) ||
+    (canManage && Boolean(onDeleteItem));
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -324,29 +399,139 @@ function DatabaseSidebarRow({
     onPreview(item);
   }
 
+  const title = item.document.title || untitledLabel;
+
   return (
-    <Link
-      to={`/page/${item.document.id}`}
-      className={cn(
-        "flex h-7 min-w-0 items-center gap-1.5 rounded px-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        item.document.icon ? "pl-1" : "pl-1.5",
-      )}
-      onClick={handleClick}
-      aria-current={active ? "page" : undefined}
-    >
-      {item.document.icon ? (
-        <span aria-hidden="true" className="shrink-0 text-sm leading-none">
-          {item.document.icon}
-        </span>
-      ) : (
-        <IconFileText className="size-3.5 shrink-0 text-muted-foreground" />
-      )}
-      <span
-        className={cn("min-w-0 flex-1 truncate", active && "font-semibold")}
-      >
-        {item.document.title || untitledLabel}
-      </span>
-    </Link>
+    <>
+      <div className="group relative min-w-0">
+        <Link
+          to={`/page/${item.document.id}`}
+          className={cn(
+            "flex h-7 min-w-0 items-center gap-1.5 rounded px-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            item.document.icon ? "pl-1" : "pl-1.5",
+          )}
+          onClick={handleClick}
+          aria-current={active ? "page" : undefined}
+        >
+          {item.document.icon ? (
+            <span aria-hidden="true" className="shrink-0 text-sm leading-none">
+              {item.document.icon}
+            </span>
+          ) : (
+            <IconFileText className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              active && "font-semibold",
+              (hasMenuActions || canCreateChild) && "pe-12",
+            )}
+          >
+            {title}
+          </span>
+        </Link>
+
+        {(hasMenuActions || canCreateChild) && (
+          <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-muted px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+            {hasMenuActions && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`More actions for ${title}`}
+                  >
+                    <IconDots size={14} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  {canEdit && onToggleFavorite ? (
+                    <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
+                      <IconStar
+                        className={cn(
+                          "me-2 size-4",
+                          item.document.isFavorite && "fill-current",
+                        )}
+                      />
+                      {item.document.isFavorite
+                        ? "Remove from favorites"
+                        : "Add to favorites"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canEdit && onToggleFavorite && canManage && onDeleteItem ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
+                  {canManage && onDeleteItem ? (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => setDeleteDialogOpen(true)}
+                    >
+                      <IconTrash className="me-2 size-4" />
+                      {t("database.delete")}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {canCreateChild && (
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={t("sidebar.addChildTo", { title })}
+                      >
+                        <IconPlus size={14} />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="start" className="w-44">
+                  <DropdownMenuItem onSelect={() => onCreateChildPage?.(item)}>
+                    <IconFileText className="me-2 size-4" />
+                    {t("sidebar.page")}
+                  </DropdownMenuItem>
+                  {onCreateChildDatabase ? (
+                    <DropdownMenuItem
+                      onSelect={() => onCreateChildDatabase(item)}
+                    >
+                      <IconDatabase className="me-2 size-4" />
+                      {t("sidebar.database")}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        )}
+      </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sidebar.deletePageDescription", { title })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDeleteItem?.(item)}
+            >
+              {t("database.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
