@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.110.3
+
+### Patch Changes
+
+- 168ce2f: Keep the framework-wired Context X-Ray panel on its existing Core entrypoint instead of suggesting an incompatible Toolkit view migration.
+
 ## 0.110.2
 
 ### Patch Changes
