@@ -1,7 +1,10 @@
 #import <Foundation/Foundation.h>
 
 #import "PrivateVaultControlLog.h"
+#import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultCustodyRepositoryGenesisInternal.h"
+#import "PrivateVaultGenesisAuthorization.h"
+#import "PrivateVaultGenesisAuthorizationInternal.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisBuilder.h"
 #import "PrivateVaultGenesisPreparationStoreInternal.h"
@@ -21,6 +24,11 @@
     : AncPrivateVaultCustodyRepository
 @end
 @implementation AncTestCustodyRepositorySubclass
+@end
+
+@interface AncTestAuthorityStoreSubclass : AncPrivateVaultAuthorityStore
+@end
+@implementation AncTestAuthorityStoreSubclass
 @end
 
 static NSMutableDictionary<NSString *, NSData *> *gStore;
@@ -834,6 +842,97 @@ int main(void) {
     assert([first bindPendingGenesisCustodyHandle:phaseHandle
                                      handleLength:sizeof phaseHandle
                                 custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+
+    NSData *phaseVault =
+        [NSData dataWithBytes:phasePrepared.vault_id length:16];
+    AncPrivateVaultGenesisBootstrapStatus phaseBootstrapStatus;
+    AncPrivateVaultGenesisBootstrapResult *phaseBootstrap =
+        AncPrivateVaultGenesisBootstrapVerify(
+            phaseArtifacts.bootstrapTranscript,
+            phaseArtifacts.recoveryConfirmation, phaseVault,
+            &phaseBootstrapStatus);
+    AncPrivateVaultGenesisAuthorizationStatus phaseAuthorizationStatus;
+    NSData *phaseSignedCommit =
+        AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+            phaseArtifacts.authorization, phaseVault,
+            &phaseAuthorizationStatus);
+    AncPrivateVaultGenesisAuthorizationVerifier *phaseVerifier =
+        [[AncPrivateVaultGenesisAuthorizationVerifier alloc]
+            initWithAuthorization:phaseArtifacts.authorization
+             recoveryConfirmation:phaseArtifacts.recoveryConfirmation
+               bootstrapTranscript:phaseArtifacts.bootstrapTranscript
+                    bootstrapResult:phaseBootstrap
+                            status:&phaseAuthorizationStatus];
+    AncPrivateVaultControlLogReplayResult *phaseReplay = nil;
+    assert(phaseBootstrap != nil && phaseSignedCommit.length > 0 &&
+           phaseVerifier != nil &&
+           [controlLog replaySignedEntry:phaseSignedCommit
+                            currentState:nil
+                                verifier:phaseVerifier
+                                  result:&phaseReplay] ==
+               AncPrivateVaultControlLogStatusOK &&
+           phaseReplay != nil && phaseVerifier.result != nil);
+    AncPrivateVaultVerifiedReplayResult *phaseVerified =
+        AncPrivateVaultVerifiedGenesisReplayResultCreate(
+            phaseReplay, phaseVerifier.result, 151000);
+    AncPrivateVaultAuthorityStore *phaseAuthorityStore =
+        [[AncPrivateVaultAuthorityStore alloc]
+            initWithStateRootURL:temporary
+               custodyRepository:custodyRepository];
+    AncPrivateVaultAuthorityCheckpoint *phaseOfficial = nil;
+    assert(phaseVerified != nil && phaseAuthorityStore != nil &&
+           [phaseAuthorityStore
+               commitVerifiedReplayResult:phaseVerified
+                                    vaultId:LookupKey(phasePrepared.vault_id)
+                               verifiedAtMs:151000
+                                 checkpoint:&phaseOfficial
+                                      error:nil] ==
+               AncPrivateVaultAuthorityStoreStatusOK &&
+           phaseOfficial.frameDigest.length == 32);
+    AncTestAuthorityStoreSubclass *authoritySubclass =
+        [[AncTestAuthorityStoreSubclass alloc]
+            initWithStateRootURL:temporary
+               custodyRepository:custodyRepository];
+    assert([first bindOfficialGenesisHandle:phaseHandle
+                                handleLength:sizeof phaseHandle
+                              authorityStore:authoritySubclass
+                           custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusInvalid);
+    assert([first bindOfficialGenesisHandle:wrongPhaseHandle
+                                handleLength:sizeof wrongPhaseHandle
+                              authorityStore:phaseAuthorityStore
+                           custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusNotFound);
+    assert([first bindOfficialGenesisHandle:phaseHandle
+                                handleLength:sizeof phaseHandle
+                              authorityStore:phaseAuthorityStore
+                           custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    assert([first readHandle:phaseHandle
+                    handleLength:sizeof phaseHandle
+                       snapshot:&phaseObserved
+                    secretHandle:nil] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           phaseObserved.phase ==
+               ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
+           phaseObserved.generation == 6 &&
+           phaseObserved.terminal_at_ms == 151000 &&
+           (phaseObserved.flags &
+            ANC_PV_GENESIS_PREPARATION_FLAG_OFFICIAL_AUTHORITY_BOUND) != 0 &&
+           memcmp(phaseObserved.official_authority_g2_frame_digest,
+                  phaseOfficial.frameDigest.bytes, 32) == 0);
+    AncPrivateVaultGenesisPreparationSecretsHandle *terminalSecrets = nil;
+    assert([first readHandle:phaseHandle
+                    handleLength:sizeof phaseHandle
+                       snapshot:&phaseObserved
+                    secretHandle:&terminalSecrets] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           terminalSecrets == nil);
+    assert([first bindOfficialGenesisHandle:phaseHandle
+                                handleLength:sizeof phaseHandle
+                              authorityStore:phaseAuthorityStore
+                           custodyRepository:custodyRepository] ==
            AncPrivateVaultGenesisPreparationStoreStatusOK);
 
     uint8_t crashHandle[48];

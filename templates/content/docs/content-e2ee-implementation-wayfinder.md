@@ -522,6 +522,18 @@ and custody substitution fail closed. The arm64 production build, focused
 preparation storage suite, and custody repository suite pass. This is a
 store-level checkpoint, not yet a user-visible first-device ceremony.
 
+The native coordinator now also exercises a complete synthetic first-device
+ceremony. It generates a guarded recovery mnemonic and bearer handle, persists
+PREPARED without custody or authority, rejects a wrong full-entropy
+confirmation without side effects, and advances the correct confirmation
+through authenticated artifacts, pending g1, official encrypted g2, exact
+official reread, and preparation-secret erasure. A second confirmation is an
+exact no-op backed by the same official state. Current-source arm64 production,
+coordinator, preparation-storage, and custody-repository suites pass. The
+ceremony remains native-internal: startup resumption without the bearer handle,
+cancel/expiry tombstones, persisted trusted-time floors, and the trusted
+desktop UI are still open gates.
+
 This still does not close PR 5: the trusted confirmation UI, durable
 PREPARE/cancel/expiry, persistence of the actual recoverable epoch wrap,
 complete enrollment and recovery product flows, malicious-directory and

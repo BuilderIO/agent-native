@@ -2,6 +2,7 @@
 
 @class AncPrivateVaultControlLog;
 @class AncPrivateVaultCustodyRepository;
+@class AncPrivateVaultAuthorityStore;
 @class AncPrivateVaultPreparedGenesisArtifacts;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -27,6 +28,17 @@ NS_ASSUME_NONNULL_BEGIN
                        handleLength:(size_t)handleLength
                   custodyRepository:
                       (AncPrivateVaultCustodyRepository *)custodyRepository;
+
+/* Binds COMMITTED only after independently loading exact official g2
+ * authority and custody state. The retained custody digest continues to name
+ * the authenticated pending g1 predecessor; the official frame digest proves
+ * the g1 -> g2 promotion. */
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    bindOfficialGenesisHandle:(const uint8_t *)handle
+                  handleLength:(size_t)handleLength
+                authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+             custodyRepository:
+                 (AncPrivateVaultCustodyRepository *)custodyRepository;
 
 @end
 

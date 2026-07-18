@@ -369,9 +369,23 @@ custody tuple, and binds its full generation-fence record digest. Every step is
 exactly idempotent across ambiguity. Wrong handles disclose no state,
 substitution and caller mutation conflict, and production still has no generic
 lifecycle transition or live-delete surface. This closes the store-level
-confirmation and pending-custody seam; the coordinator must still generate and
-compare the confirmed recovery entropy, install g1 from guarded secrets, commit
-official g2, and bind terminal proof.
+confirmation and pending-custody seam and gives the native coordinator only the
+proof-specific operations needed for the next boundary.
+
+The native coordinator now performs that complete handle-authorized path. A
+new PREPARE generates the vault, ceremony, endpoint, envelope, nonce, recovery,
+device, local-state, and epoch-one material inside guarded native memory; only a
+guarded 48-byte handle and guarded checksum-valid mnemonic leave the
+coordinator. PREPARE writes neither custody nor authority state. Confirmation
+accepts the fully decoded recovery entropy rather than mnemonic text, compares
+all 32 bytes in constant time, rebuilds the deterministic signed artifacts,
+installs pending g1, commits official encrypted g2 through the existing
+AuthorityStore boundary, rereads both official stores, binds the exact frame
+digest, and terminalizes all five preparation secrets. The same handle is
+idempotent after commit. A wrong entropy leaves custody and authority absent.
+The arm64 production build and full synthetic coordinator ceremony pass. This
+native API remains internal and is not yet a trusted user-facing ceremony or a
+restart-without-handle startup path.
 
 This is still not a usable PREPARE ceremony. The phase-specific coordinator,
 pending-g1 custody installation, proof-bound confirmation, expiry and

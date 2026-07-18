@@ -679,6 +679,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
     xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
       -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" -I"$SOURCE_ROOT/storage" \
+      -I"$SOURCE_ROOT/recovery" \
       -I"$sodium_root/include" -DANC_PRIVATE_VAULT_TESTING=1 \
       -DANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-genesis-authorization-vectors.json"'"' \
       -framework Foundation -framework Security -framework LocalAuthentication \
@@ -688,6 +689,10 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
@@ -697,6 +702,9 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisArtifactStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisLock.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinator.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisStartup.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinatorTests.m" \
@@ -836,6 +844,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \

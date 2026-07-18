@@ -9,6 +9,7 @@
 #import "PrivateVaultGenesisCoordinatorInternal.h"
 #import "PrivateVaultGenesisLock.h"
 #import "PrivateVaultGenesisStartup.h"
+#import "PrivateVaultMnemonic.h"
 
 #import <sodium.h>
 
@@ -144,17 +145,20 @@ static OSStatus KDelete(CFDictionaryRef raw) {
     return saved ? errSecSuccess : errSecIO;
   }
 }
-static AncPrivateVaultCustodyRepository *Repository(void) {
+static AncPrivateVaultKeychain *TestKeychain(void) {
   AncPrivateVaultSecItemFunctions f = {.copyMatching = KCopy,
                                        .add = KAdd,
                                        .update = KUpdate,
                                        .deleteItem = KDelete};
-  AncPrivateVaultKeychain *keychain =
-      [[AncPrivateVaultKeychain alloc] initWithFunctions:f
-                                          contextFactory:^LAContext * {
-                                            return [LAContext new];
-                                          }];
-  return [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  return [[AncPrivateVaultKeychain alloc]
+      initWithFunctions:f
+         contextFactory:^LAContext * {
+           return [LAContext new];
+         }];
+}
+static AncPrivateVaultCustodyRepository *Repository(void) {
+  return [[AncPrivateVaultCustodyRepository alloc]
+      initWithKeychain:TestKeychain()];
 }
 static NSData *HexData(NSString *hex) {
   if (hex.length == 0 || hex.length % 2 != 0)
@@ -343,6 +347,206 @@ static NSString *NewRoot(NSString *label) {
           ? root
           : nil;
 }
+
+static int PreparationCases(void) {
+  NSString *root = NewRoot(@"genesis-preparation-coordinator");
+  CHECK(root != nil);
+  gKeychainPath =
+      [root stringByAppendingPathComponent:@"preparation-keychain.plist"];
+  AncPrivateVaultKeychain *keychain = TestKeychain();
+  AncPrivateVaultGenerationFence *fence =
+      [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodyRepository *repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  NSURL *rootURL = [NSURL fileURLWithPath:root];
+  AncPrivateVaultGenesisPreparationArtifactStore *preparationArtifacts =
+      [[AncPrivateVaultGenesisPreparationArtifactStore alloc]
+          initWithStateRootURL:rootURL];
+  AncPrivateVaultGenesisPreparationStore *preparationStore =
+      [[AncPrivateVaultGenesisPreparationStore alloc]
+          initWithKeychain:keychain
+                     fence:fence
+             artifactStore:preparationArtifacts];
+  AncPrivateVaultAuthorityStore *authorityStore =
+      [[AncPrivateVaultAuthorityStore alloc]
+          initWithStateRootURL:rootURL
+             custodyRepository:repository];
+  FixedClock *clock = [FixedClock new];
+  clock.value = UINT64_C(1721111140000);
+  clock.available = YES;
+  AncPrivateVaultGenesisCoordinator *coordinator =
+      [[AncPrivateVaultGenesisCoordinator alloc]
+          initWithArtifactStore:[[AncPrivateVaultGenesisArtifactStore alloc]
+                                    initWithStateRootURL:rootURL]
+               authorityStore:authorityStore
+            custodyRepository:repository
+                   controlLog:[AncPrivateVaultControlLog new]
+             preparationStore:preparationStore
+        preparationArtifactStore:preparationArtifacts
+                 trustedClock:clock];
+  CHECK(coordinator != nil &&
+        [coordinator prepareWithResult:NULL] ==
+            AncPrivateVaultGenesisCoordinatorStatusInvalid);
+  AncPrivateVaultGenesisPreparationResult *prepared = nil;
+  CHECK([coordinator prepareWithResult:&prepared] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        prepared != nil && prepared.vaultId.length == 32 &&
+        prepared.expiresAtMs == clock.value + UINT64_C(600000) &&
+        prepared.preparationHandle.length == 48 &&
+        prepared.recoveryMnemonic.length > 0);
+  BOOL immutable = NO;
+  @try {
+    [prepared setValue:@"substitution" forKey:@"vaultId"];
+  } @catch (__unused NSException *exception) {
+    immutable = YES;
+  }
+  CHECK(immutable);
+
+  uint8_t handle[48] = {0};
+  uint8_t *handlePointer = handle;
+  __block BOOL handleCopied = NO;
+  CHECK([prepared.preparationHandle
+            borrow:^BOOL(uint8_t *bytes, size_t length) {
+    if (length != ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES)
+      return NO;
+    memcpy(handlePointer, bytes, length);
+    handleCopied = YES;
+    return YES;
+  }] == AncPrivateVaultGuardedMemoryStatusOK &&
+        handleCopied);
+  __block NSData *mnemonicBytes = nil;
+  CHECK([prepared.recoveryMnemonic
+            borrow:^BOOL(uint8_t *bytes, size_t length) {
+    mnemonicBytes = [NSData dataWithBytes:bytes length:length];
+    return mnemonicBytes.length == length;
+  }] == AncPrivateVaultGuardedMemoryStatusOK &&
+        mnemonicBytes.length > 0);
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationSecretsHandle *secretHandle = nil;
+  CHECK([preparationStore readHandle:handle
+                         handleLength:sizeof handle
+                            snapshot:&snapshot
+                         secretHandle:&secretHandle] ==
+            AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+        snapshot.generation == 1 && snapshot.flags == 0 &&
+        snapshot.prepared_at_ms == clock.value &&
+        snapshot.expires_at_ms == prepared.expiresAtMs &&
+        snapshot.confirmed_at_ms == 0 && secretHandle != nil);
+  AncPrivateVaultGuardedMemoryStatus memoryStatus;
+  AncPrivateVaultGuardedMemory *expectedEntropy =
+      [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+  __block BOOL entropyCopied = NO;
+  CHECK(expectedEntropy != nil &&
+        [secretHandle
+            borrow:^BOOL(
+                const AncPrivateVaultGenesisPreparationSecretInputs *secrets) {
+    return [expectedEntropy borrow:^BOOL(uint8_t *destination, size_t length) {
+      if (length != 32)
+        return NO;
+      memcpy(destination, secrets->recovery_entropy, 32);
+      entropyCopied = YES;
+      return YES;
+    }] == AncPrivateVaultGuardedMemoryStatusOK;
+  }] == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        entropyCopied &&
+        [secretHandle close] ==
+            AncPrivateVaultGenesisPreparationStoreStatusOK);
+  AncPrivateVaultMnemonicStatus mnemonicStatus;
+  CHECK(AncPrivateVaultMnemonicConfirm(mnemonicBytes, expectedEntropy,
+                                       &mnemonicStatus) &&
+        mnemonicStatus == AncPrivateVaultMnemonicStatusOK);
+  AncPrivateVaultCustodySnapshot custody = {0};
+  AncPrivateVaultCustodyHandle *custodyHandle = nil;
+  CHECK([repository readVaultId:prepared.vaultId
+                       snapshot:&custody
+                         handle:&custodyHandle] ==
+            AncPrivateVaultCustodyRepositoryStatusNotFound &&
+        custodyHandle == nil);
+  AncPrivateVaultAuthorityCheckpoint *official = nil;
+  CHECK([authorityStore loadVaultId:prepared.vaultId
+                          checkpoint:&official
+                               error:nil] ==
+            AncPrivateVaultAuthorityStoreStatusNotFound &&
+        official == nil);
+
+  AncPrivateVaultGuardedMemory *wrongEntropy =
+      [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+  CHECK(wrongEntropy != nil &&
+        [wrongEntropy borrow:^BOOL(uint8_t *bytes, size_t length) {
+          if (length != 32)
+            return NO;
+          memset(bytes, 0xa5, length);
+          return YES;
+        }] == AncPrivateVaultGuardedMemoryStatusOK &&
+        [coordinator confirmPreparationHandle:prepared.preparationHandle
+                     confirmedRecoveryEntropy:wrongEntropy
+                                      result:nil] ==
+            AncPrivateVaultGenesisCoordinatorStatusAuthorizationFailed);
+  CHECK([repository readVaultId:prepared.vaultId
+                       snapshot:&custody
+                         handle:&custodyHandle] ==
+            AncPrivateVaultCustodyRepositoryStatusNotFound &&
+        custodyHandle == nil);
+  AncPrivateVaultGenesisCoordinatorResult *officialResult = nil;
+  CHECK([coordinator confirmPreparationHandle:prepared.preparationHandle
+                     confirmedRecoveryEntropy:expectedEntropy
+                                      result:&officialResult] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        officialResult != nil &&
+        [officialResult.vaultId isEqualToString:prepared.vaultId] &&
+        officialResult.custodyGeneration == 2 &&
+        officialResult.activeEpoch == 1 && officialResult.sequence == 0 &&
+        officialResult.recoveryGeneration == 1);
+  AncPrivateVaultGenesisPreparationSecretsHandle *terminalSecrets = nil;
+  CHECK([preparationStore readHandle:handle
+                         handleLength:sizeof handle
+                            snapshot:&snapshot
+                         secretHandle:&terminalSecrets] ==
+            AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
+        snapshot.terminal_at_ms == clock.value && terminalSecrets == nil &&
+        (snapshot.flags &
+         ANC_PV_GENESIS_PREPARATION_FLAG_OFFICIAL_AUTHORITY_BOUND) != 0);
+  CHECK([repository readVaultId:prepared.vaultId
+                       snapshot:&custody
+                         handle:&custodyHandle] ==
+            AncPrivateVaultCustodyRepositoryStatusOK &&
+        custody.custody_generation == 2 &&
+        custody.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+        custodyHandle != nil &&
+        [custodyHandle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  custodyHandle = nil;
+  CHECK([authorityStore loadVaultId:prepared.vaultId
+                          checkpoint:&official
+                               error:nil] ==
+            AncPrivateVaultAuthorityStoreStatusOK &&
+        official.frameDigest.length == 32 &&
+        memcmp(snapshot.official_authority_g2_frame_digest,
+               official.frameDigest.bytes, 32) == 0);
+  CHECK([coordinator confirmPreparationHandle:prepared.preparationHandle
+                     confirmedRecoveryEntropy:expectedEntropy
+                                      result:nil] ==
+        AncPrivateVaultGenesisCoordinatorStatusOK);
+  NSArray<NSData *> *lookupIds = nil;
+  CHECK([preparationStore listPreparationLookupIds:&lookupIds] ==
+            AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        lookupIds.count == 1 &&
+        [lookupIds.firstObject
+            isEqualToData:[NSData dataWithBytes:handle length:16]]);
+  CHECK([prepared.preparationHandle close] ==
+            AncPrivateVaultGuardedMemoryStatusOK &&
+        [prepared.recoveryMnemonic close] ==
+            AncPrivateVaultGuardedMemoryStatusOK &&
+        [expectedEntropy close] == AncPrivateVaultGuardedMemoryStatusOK &&
+        [wrongEntropy close] == AncPrivateVaultGuardedMemoryStatusOK);
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  anc_pv_custody_snapshot_zero(&custody);
+  anc_pv_zeroize(handle, sizeof handle);
+  CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  return 0;
+}
+
 static int ArtifactFaultAndFilesystemCases(NSDictionary *exact) {
   NSData *vault = HexData(exact[@"parsed"][@"vaultIdHex"]),
          *ceremony = HexData(exact[@"parsed"][@"ceremonyIdHex"]),
@@ -1215,6 +1419,7 @@ int main(int argc, const char *argv[]) {
       return Child(@(argv[2]));
     }
     CHECK(sodium_init() >= 0);
+    CHECK(PreparationCases() == 0);
     CHECK(GenesisLockIdentityAndConcurrencyCases() == 0);
     NSDictionary *exact = Exact();
     CHECK(exact != nil);
