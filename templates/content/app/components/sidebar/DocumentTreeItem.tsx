@@ -133,20 +133,22 @@ export function FavoriteDocumentItem({
             : `${Math.max(0, sidebarWidth)}px`,
       }}
       aria-label={title}
-      onClick={(event) => {
-        if (event.target instanceof Element && event.target.closest("button")) {
-          return;
-        }
-        onSelect();
-      }}
     >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-center">
+      <button
+        type="button"
+        className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Open ${title}`}
+        onClick={onSelect}
+      />
+      <span className="pointer-events-none relative flex h-5 w-5 shrink-0 items-center justify-center text-center">
         <DocumentSidebarIcon document={document} />
       </span>
-      <span className="min-w-0 flex-1 truncate pe-12">{title}</span>
+      <span className="pointer-events-none relative min-w-0 flex-1 truncate pe-12">
+        {title}
+      </span>
       <div
         className={cn(
-          "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+          "pointer-events-none absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
           active && "text-accent-foreground",
         )}
         onPointerDown={(event) => event.stopPropagation()}
