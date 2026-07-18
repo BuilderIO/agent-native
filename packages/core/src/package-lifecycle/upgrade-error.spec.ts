@@ -131,4 +131,31 @@ describe("AgentNativeUpgradeError", () => {
       `@fixture/removed moved to @fixture/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
     );
   });
+
+  it("keeps the shipped editor tombstone error in a minified bundle", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-editor-tombstone-"));
+    roots.push(root);
+    const output = path.join(root, "bundle.mjs");
+
+    await build({
+      entryPoints: [
+        fileURLToPath(
+          new URL("../client/tombstone/editor.ts", import.meta.url),
+        ),
+      ],
+      outfile: output,
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      minify: true,
+    });
+
+    const execution = spawnSync(process.execPath, [output], {
+      encoding: "utf-8",
+    });
+    expect(execution.status).not.toBe(0);
+    expect(execution.stderr).toContain(
+      `@agent-native/core/client/editor moved to @agent-native/toolkit/editor. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+    );
+  });
 });

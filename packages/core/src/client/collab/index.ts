@@ -33,28 +33,6 @@ export {
   type UseCollaborativeArrayResult,
 } from "../../collab/client-struct.js";
 export {
-  PresenceBar,
-  type PresenceBarProps,
-} from "../components/PresenceBar.js";
-export {
-  AgentPresenceChip,
-  type AgentPresenceChipProps,
-} from "../components/AgentPresenceChip.js";
-export {
-  LiveCursorOverlay,
-  type LiveCursorOverlayProps,
-  type CursorMapFn,
-} from "../components/LiveCursorOverlay.js";
-export {
-  RemoteSelectionRings,
-  type RemoteSelectionRingsProps,
-  type SelectionDescriptor,
-} from "../components/RemoteSelectionRings.js";
-export {
-  RecentEditHighlights,
-  type RecentEditHighlightsProps,
-} from "../components/RecentEditHighlights.js";
-export {
   appendRecentEdit,
   collectRecentEdits,
   publishRecentEdit,

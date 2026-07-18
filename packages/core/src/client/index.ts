@@ -9,21 +9,6 @@ export * from "./host/index.js";
 export * from "./widgets/index.js";
 export * from "./ui/index.js";
 
-export {
-  VisualControlRow,
-  VisualColorPicker,
-  VisualInspectorPanel,
-  VisualInspectorSection,
-  VisualScrubInput,
-  VisualSegmentedControl,
-  VisualSliderControl,
-  VisualSwatchControl,
-  VisualToggleControl,
-  VisualTweakControl,
-  type VisualControlOption,
-  type VisualControlValue,
-  type VisualTweakDefinition,
-} from "@agent-native/toolkit/design-tweaks";
 export { cn } from "@agent-native/toolkit/utils";
 export {
   AgentNativeI18nProvider,
@@ -52,121 +37,6 @@ export {
   type LocalePreference,
   type LocalizationPreference,
 } from "./i18n.js";
-export {
-  // Shared editor core (Phase 1): the ONE configurable surface both the plan
-  // and content editors build on.
-  SharedRichEditor,
-  createSharedEditorExtensions,
-  MARKDOWN_DIALECT_CONFIG,
-  useCollabReconcile,
-  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
-  getEditorMarkdown,
-  SlashCommandMenu,
-  DEFAULT_SLASH_COMMANDS,
-  createImageSlashCommand,
-  // Shared block-level image node + injectable upload contract. Plans opt in
-  // via `features.image` + `onImageUpload`; Content keeps its own image block.
-  SharedImage,
-  createImageExtension,
-  pickAndInsertImage,
-  uploadEditorImage,
-  BubbleToolbar,
-  buildDefaultBubbleItems,
-  // Back-compat alias + factory kept for existing embedders and specs.
-  RichMarkdownEditor,
-  createRichMarkdownExtensions,
-  // Single-doc plan editor primitives: the GFM↔ProseMirror serializer, the
-  // run-id prose attribute, and the shared drag-handle (block grip + reorder).
-  RunId,
-  RUN_ID_NODE_TYPES,
-  gfmToProseJSON,
-  proseJSONToGfm,
-  DragHandle,
-  DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
-  // Generic registry-block Tiptap NodeView + side-map provider + dedupe plugin.
-  // Hosts mount the node from `createRegistryBlockNode` as an extra extension
-  // and wrap the editor in `RegistryBlockDataProvider`.
-  createRegistryBlockNode,
-  RegistryBlockNodeView,
-  RegistryBlockDataProvider,
-  useRegistryBlockData,
-  // Shared registry-derived block slash-command builder (plan + content adapt it).
-  buildRegistryBlockSlashItems,
-  getRegistryBlockSlashDescription,
-  getRegistryBlockSlashSearchText,
-  type BuildRegistryBlockSlashItemsOptions,
-  type DragHandleDropContext,
-  type DragHandleDropPlacement,
-  type DragHandleOptions,
-  type CreateRegistryBlockNodeOptions,
-  type RegistryBlockDataValue,
-  type RegistryBlockSideMapBlock,
-  type SharedRichEditorProps,
-  type SharedEditorCollab,
-  type SharedEditorFeatures,
-  type CreateSharedEditorExtensionsOptions,
-  type UseCollabReconcileOptions,
-  type UseCollabReconcileResult,
-  type SlashCommandItem,
-  type SlashCommandMenuProps,
-  type ImageUploadFn,
-  type SharedImageOptions,
-  type BubbleToolbarItem,
-  type BubbleToolbarProps,
-  type RichMarkdownDialect,
-  type RichMarkdownEditorPreset,
-  type RichMarkdownEditorProps,
-  type RichMarkdownCollabUser,
-  type CreateRichMarkdownExtensionsOptions,
-} from "./rich-markdown-editor/index.js";
-export type { JSONContent } from "@tiptap/core";
-export {
-  AgentComposerFrame,
-  type AgentComposerFrameProps,
-  PromptComposer,
-  RealtimeVoiceModeBoundary,
-  RealtimeVoiceModeProvider,
-  RealtimeVoiceModeDock,
-  RealtimeVoiceModeEntry,
-  TiptapComposer,
-  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
-  AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
-  escapePromptAttachmentAttribute,
-  formatPromptWithAttachments,
-  isInlineableAgentPromptFile,
-  readAgentPromptAttachment,
-  createRealtimeVoiceSession,
-  createRealtimeVoiceSessionWithCapability,
-  executeRealtimeVoiceTool,
-  extractRealtimeVoiceFunctionCalls,
-  readRealtimeVoiceContext,
-  useRealtimeVoiceMode,
-  useRealtimeVoiceModeCopy,
-  useRealtimeVoiceModeOptional,
-  type PromptComposerProps,
-  type PromptComposerFile,
-  type PromptComposerSubmitOptions,
-  type RealtimeVoiceModeCopy,
-  type RealtimeVoiceModeDockProps,
-  type RealtimeVoiceModeEntryProps,
-  type RealtimeVoiceSessionAnswer,
-  type RealtimeVoiceModeInlineSettings,
-  type RealtimeVoiceModeSelectSetting,
-  type RealtimeVoiceModeSettingOption,
-  type RealtimeVoiceModeState,
-  type RealtimeVoiceModeApi,
-  type RealtimeVoiceModeProviderProps,
-  type RealtimeVoiceToolResult,
-  type ComposerSubmitIntent,
-  type AgentPromptAttachment,
-  type ReadAgentPromptAttachmentOptions,
-  type AgentComposerLayoutVariant,
-  type SlashCommand,
-  type SkillResult,
-  type TiptapComposerHandle,
-  type TiptapComposerProps,
-  type TiptapComposerSubmitOptions,
-} from "./composer/index.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
   FeatureFlagsEditor,
@@ -421,35 +291,9 @@ export {
   type ShareDialogProps,
 } from "./sharing/index.js";
 export {
-  VisibilityBadge,
-  type VisibilityBadgeProps,
-} from "@agent-native/toolkit/sharing";
-export {
   ObservabilityDashboard,
   ThumbsFeedback,
 } from "./observability/index.js";
-export {
-  PresenceBar,
-  type PresenceBarProps,
-} from "@agent-native/toolkit/collab-ui";
-export {
-  AgentPresenceChip,
-  type AgentPresenceChipProps,
-} from "@agent-native/toolkit/collab-ui";
-export {
-  LiveCursorOverlay,
-  type LiveCursorOverlayProps,
-  type CursorMapFn,
-} from "@agent-native/toolkit/collab-ui";
-export {
-  RemoteSelectionRings,
-  type RemoteSelectionRingsProps,
-  type SelectionDescriptor,
-} from "@agent-native/toolkit/collab-ui";
-export {
-  RecentEditHighlights,
-  type RecentEditHighlightsProps,
-} from "@agent-native/toolkit/collab-ui";
 export {
   appendRecentEdit,
   collectRecentEdits,
