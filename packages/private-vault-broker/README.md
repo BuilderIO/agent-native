@@ -26,3 +26,10 @@ This package does not provide an Electron bridge, hosted route handlers,
 app-specific actions, or a persistence implementation. Those integrations
 supply the narrow adapters exported here, keeping plaintext keys out of hosted
 application code.
+
+`PrivateVaultBrokerWorker` is the reusable encrypted-job loop. It claims only
+content-free coordinates, retrieves and authenticates one encrypted request,
+opens it through the semantic native-service boundary, acknowledges the exact
+attempt, runs an injected local action executor, seals the result natively, and
+submits the encrypted result. Failed work moves to a bounded retry schedule;
+it never falls back to hosted plaintext execution.

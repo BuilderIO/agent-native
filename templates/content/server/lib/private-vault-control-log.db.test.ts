@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import {
   CONTROL_LOG_ZERO_HASH,
+  ancV1Hash,
   createSignedControlLogEntry,
+  createEndpointRequestProof,
+  encodeAncV1BrokerClaimRequest,
   encodeSignedControlLogEntry,
   type ControlLogMember,
   type ControlLogState,
@@ -255,6 +258,84 @@ describe("Private Vault signed control-log persistence", () => {
         freshnessMode: "endpoint_witnessed",
       },
     });
+  });
+
+  it("authenticates a cookie-free broker request only from replayed signed authority", async () => {
+    const vaultId = "vault:broker-request-auth";
+    const initialized = await initialize(vaultId, 31);
+    const broker = await identity(32, "broker:request-primary", "broker");
+    const freshAt = new Date().toISOString();
+    const addBroker = await entry({
+      vaultId,
+      state: initialized.state,
+      signer: initialized.owner,
+      createdAt: freshAt,
+      inner: commit(vaultId, {
+        ceremonyKind: "add_broker",
+        previousMembershipHash: initialized.state.membershipHash,
+        activeMembers: [broker.member, initialized.owner.member].sort((a, b) =>
+          a.endpointId.localeCompare(b.endpointId),
+        ),
+      }),
+    });
+    await service(false, freshAt).append(scope(vaultId), {
+      entryBytes: encodeSignedControlLogEntry(addBroker),
+      expectedHead: {
+        sequence: initialized.state.sequence,
+        hash: initialized.state.headHash,
+      },
+    });
+
+    const genesisBytes = encodeSignedControlLogEntry(initialized.genesis);
+    await getDb()
+      .insert(schema.contentEncryptedVaultGenesisAdmissions)
+      .values({
+        vaultId,
+        ownerEmail: OWNER,
+        orgId: ORG,
+        controlEntryId: initialized.genesis.envelopeId,
+        controlEntryHash: ancV1BytesToHex(
+          await ancV1Hash("log-entry", genesisBytes),
+        ),
+        signerEndpointId: initialized.genesis.signerEndpointId,
+        candidateHash: "11".repeat(32),
+        bootstrapTranscriptHash: "22".repeat(32),
+        authorizedAt: freshAt,
+      });
+
+    const body = encodeAncV1BrokerClaimRequest({
+      version: 1,
+      suite: "anc/v1",
+      type: "broker-job-claim-request",
+    });
+    const proof = await createEndpointRequestProof({
+      vaultId,
+      endpointId: broker.member.endpointId,
+      method: "POST",
+      path: "/api/private-vault/jobs/broker/claim",
+      body,
+      issuedAt: freshAt,
+      nonce: "ab".repeat(16),
+      signingPrivateKey: broker.pair.privateKey,
+    });
+    const { authenticatePrivateVaultBrokerRequest } =
+      await import("./private-vault-broker-auth.js");
+    const request = {
+      proof,
+      method: "POST" as const,
+      path: "/api/private-vault/jobs/broker/claim",
+      body,
+      now: new Date(freshAt),
+    };
+    await expect(
+      authenticatePrivateVaultBrokerRequest(request),
+    ).resolves.toEqual({
+      ...scope(vaultId),
+      endpointId: broker.member.endpointId,
+    });
+    await expect(
+      authenticatePrivateVaultBrokerRequest(request),
+    ).rejects.toThrow("Private Vault broker authentication failed");
   });
 
   it("accepts concurrent identical CAS retries idempotently", async () => {

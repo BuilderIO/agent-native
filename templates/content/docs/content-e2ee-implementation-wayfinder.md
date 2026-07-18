@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, and an account-authorized first-device genesis through trusted native UI and narrow Content IPC have executable proof; recoverable-wrap persistence, the complete broker, and the product slice remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, and an account-authorized first-device genesis through trusted native UI and narrow Content IPC have executable proof; endpoint enrollment/recovery, complete broker packaging, and the product slice remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -584,10 +584,9 @@ local rollback domain. They cannot detect a coordinated restore of both frames
 to the same older valid snapshot; that stronger claim requires the planned
 remote or hardware monotonic witness and remains a release gate.
 
-This still does not close PR 5: persistence of the actual recoverable epoch
-wrap, complete enrollment and recovery product flows, malicious-directory and
-stolen-session transcripts, and the independently packageable broker exit gate
-remain.
+This still does not close PR 5: complete enrollment and recovery product flows,
+malicious-directory and stolen-session transcripts, and the independently
+packageable broker exit gate remain.
 
 Committed local cleanup now has its own protocol-confusion-resistant
 `control-log-genesis-append-*` canonical request and receipt rather than
@@ -663,8 +662,31 @@ operations. Twenty-two focused bridge, orchestration, transport, and addon
 tests, protocol tests, the complete arm64 coordinator ceremony, the production
 arm64 service build, universal addon load, and desktop typecheck pass. This
 closes the trusted confirmation UI/XPC reachability checkpoint; it does not yet
-make a recoverable product vault because the authoritative recovery wrap and
-the remaining broker flows are still absent.
+make a recoverable product vault because recovery import and the remaining
+broker flows are still absent.
+
+The hosted broker relay is no longer a PR4 fail-closed stub. Core now freezes
+canonical, bounded request/response frames for the five exact broker-job paths.
+Content authenticates every cookie-free request against a fresh, replayed
+signed control head, requires the signer to be the single active unattended
+broker, and claims the proof nonce only after the body, path, method, identity,
+and authority all verify. Caller headers and message bodies never declare the
+principal. The fixed routes claim content-free coordinates, return only the
+exact encrypted leased request, fence acknowledgement and retry by attempt,
+and accept only a bounded encrypted result for the authenticated vault.
+
+The reusable broker package now implements the matching one-job local loop:
+claim, fetch, native authenticated open, acknowledge, injected local action
+execution, native result sealing, and encrypted submission. It cross-checks
+the claim against the returned ciphertext frame, binds the native-authenticated
+job hash into the result, zeroizes every transferred plaintext/result buffer,
+serializes work, and moves failures to bounded encrypted retry instead of a
+hosted fallback. Core vectors, route/auth unit tests, a real temporary-SQLite
+signed-control-head authentication and replay-denial test, all 47 broker tests,
+Core and broker typechecks, Content typecheck, and Core build pass. The worker
+still needs a packaged process, concrete encrypted state/index, app action
+executor, enrollment/recovery, and lifecycle supervision before the broker exit
+gate closes.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

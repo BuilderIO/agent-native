@@ -214,10 +214,16 @@ async function readBoundedResponse(
   response: BrokerFetchResponse,
   maxBytes: number,
 ): Promise<Uint8Array> {
+  let contentType: string | null;
   let contentLength: string | null;
   try {
+    contentType = response.headers.get("content-type");
     contentLength = response.headers.get("content-length");
   } catch {
+    await cancelResponseBody(response);
+    fail("invalid_response");
+  }
+  if (contentType?.trim().toLowerCase() !== "application/octet-stream") {
     await cancelResponseBody(response);
     fail("invalid_response");
   }

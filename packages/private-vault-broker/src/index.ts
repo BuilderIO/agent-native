@@ -32,3 +32,4 @@ export {
   type SignedHostedBrokerTransportOptions,
 } from "./transport.js";
 export * from "./wire/index.js";
+export * from "./worker.js";

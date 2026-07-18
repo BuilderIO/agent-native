@@ -1,4 +1,5 @@
 export * from "./ceremonies.js";
+export * from "./broker-job-protocol.js";
 export * from "./canonical.js";
 export * from "./ceremony-abort.js";
 export * from "./contracts.js";

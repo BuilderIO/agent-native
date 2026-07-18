@@ -42,6 +42,7 @@ function response(
   body = new Uint8Array(),
   options: {
     ok?: boolean;
+    contentType?: string | null;
     contentLength?: string | null;
     chunkBytes?: number;
   } = {},
@@ -52,11 +53,18 @@ function response(
     ok: options.ok ?? true,
     headers: {
       get(name) {
-        return name.toLowerCase() === "content-length"
-          ? options.contentLength === undefined
+        const normalized = name.toLowerCase();
+        if (normalized === "content-type") {
+          return options.contentType === undefined
+            ? "application/octet-stream"
+            : options.contentType;
+        }
+        if (normalized === "content-length") {
+          return options.contentLength === undefined
             ? String(body.byteLength)
-            : options.contentLength
-          : null;
+            : options.contentLength;
+        }
+        return null;
       },
     },
     body: {
@@ -274,7 +282,12 @@ describe("signed hosted broker transport", () => {
     const cancelMalformed = vi.fn(async () => {});
     const malformed = transport(async () => ({
       ok: true,
-      headers: { get: () => "01" },
+      headers: {
+        get: (name) =>
+          name.toLowerCase() === "content-type"
+            ? "application/octet-stream"
+            : "01",
+      },
       body: {
         getReader: () => ({
           read: async () => ({ done: true as const }),
@@ -289,10 +302,31 @@ describe("signed hosted broker transport", () => {
 
     const missingBody = transport(async () => ({
       ok: true,
-      headers: { get: () => "1" },
+      headers: {
+        get: (name) =>
+          name.toLowerCase() === "content-type"
+            ? "application/octet-stream"
+            : "1",
+      },
       body: null,
     }));
     await expect(missingBody.ack(new Uint8Array())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("requires exact octet-stream success responses", async () => {
+    const missing = transport(async () =>
+      response(new Uint8Array(), { contentType: null }),
+    );
+    await expect(missing.ack(new Uint8Array())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+
+    const json = transport(async () =>
+      response(encoder.encode("{}"), { contentType: "application/json" }),
+    );
+    await expect(json.ack(new Uint8Array())).rejects.toMatchObject({
       code: "invalid_response",
     });
   });
@@ -382,7 +416,12 @@ describe("signed hosted broker transport", () => {
         requestTimeoutMs: 1_000,
         fetch: async (_url, init) => ({
           ok: true,
-          headers: { get: () => null },
+          headers: {
+            get: (name) =>
+              name.toLowerCase() === "content-type"
+                ? "application/octet-stream"
+                : null,
+          },
           body: {
             getReader() {
               return {

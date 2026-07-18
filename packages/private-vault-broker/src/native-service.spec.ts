@@ -246,6 +246,7 @@ describe("private-vault native service contract", () => {
       {
         ...BASE,
         operation: "openHostedJob",
+        jobHash: "33".repeat(32),
         jobPayload: new Uint8Array(),
       },
       {
@@ -341,6 +342,7 @@ describe("private-vault native service contract", () => {
     const parsedResult = parsePrivateVaultNativeServiceResult({
       ...BASE,
       operation: "openHostedJob",
+      jobHash: "33".repeat(32),
       jobPayload: resultPayload,
     });
     expect(parsedResult.operation).toBe("openHostedJob");
