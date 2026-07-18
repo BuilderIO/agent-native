@@ -19,6 +19,15 @@ function createMockDb() {
 
       // INSERT
       if (rawSql.includes("INSERT INTO a2a_tasks")) {
+        if (rawSql.includes("ON CONFLICT")) {
+          const existing = (tables["a2a_tasks"] || []).find(
+            (row) =>
+              row.owner_email === args[7] &&
+              row.owner_scope === args[8] &&
+              row.idempotency_key === args[9],
+          );
+          if (existing) return { rows: [], rowsAffected: 0 };
+        }
         const row = {
           id: args[0],
           context_id: args[1],
@@ -27,12 +36,34 @@ function createMockDb() {
           status_timestamp: args[3],
           history: args[4],
           artifacts: args[5],
-          metadata: null,
-          created_at: args[6],
-          updated_at: args[7],
+          metadata: args[6],
+          owner_email: args[7],
+          owner_scope: args[8],
+          idempotency_key: args[9],
+          created_at: args[10],
+          updated_at: args[11],
         };
         tables["a2a_tasks"].push(row);
         return { rows: [], rowsAffected: 1 };
+      }
+
+      if (
+        rawSql.includes(
+          "WHERE owner_email = ? AND owner_scope = ? AND idempotency_key = ?",
+        )
+      ) {
+        const rows = (tables["a2a_tasks"] || []).filter(
+          (row) =>
+            row.owner_email === args[0] &&
+            row.owner_scope === args[1] &&
+            row.idempotency_key === args[2],
+        );
+        return { rows, rowsAffected: 0 };
+      }
+
+      if (rawSql.includes("SELECT owner_email, owner_scope")) {
+        const row = (tables["a2a_tasks"] || []).find((r) => r.id === args[0]);
+        return { rows: row ? [row] : [], rowsAffected: 0 };
       }
 
       // SELECT * ... WHERE id = ?
@@ -58,6 +89,18 @@ function createMockDb() {
 
       // UPDATE
       if (rawSql.includes("UPDATE a2a_tasks SET")) {
+        if (rawSql.includes("SET idempotency_key = NULL")) {
+          const row = (tables["a2a_tasks"] || []).find(
+            (candidate) =>
+              candidate.id === args[1] &&
+              candidate.idempotency_key === args[2] &&
+              ["failed", "canceled"].includes(candidate.status_state),
+          );
+          if (!row) return { rows: [], rowsAffected: 0 };
+          row.idempotency_key = null;
+          row.updated_at = args[0];
+          return { rows: [], rowsAffected: 1 };
+        }
         const id = args[6]; // last arg
         const row = (tables["a2a_tasks"] || []).find((r) => r.id === id);
         if (row) {
@@ -141,6 +184,145 @@ describe("task-store (SQL)", () => {
       const { createTask } = await loadStore();
       const task = await createTask(makeMessage("Test"));
       expect(task.status.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+  });
+
+  describe("createOrReuseTask", () => {
+    it("atomically reuses one owner-scoped task for the same key", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        "thread-1",
+        { callerApp: "mail" },
+        "Alice@Example.test",
+        "acme.test",
+        "v1:stable",
+      );
+      const duplicate = await createOrReuseTask(
+        makeMessage("Hello"),
+        "thread-1",
+        { callerApp: "mail" },
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+
+      expect(first.reused).toBe(false);
+      expect(duplicate).toMatchObject({
+        reused: true,
+        task: { id: first.task.id },
+      });
+      expect(tables.a2a_tasks).toHaveLength(1);
+    });
+
+    it("keeps the same key independent across authenticated owners", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+      const second = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "bob@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+
+      expect(first.task.id).not.toBe(second.task.id);
+      expect(second.reused).toBe(false);
+      expect(tables.a2a_tasks).toHaveLength(2);
+    });
+
+    it("preserves non-idempotent behavior without an authenticated owner", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        null,
+        null,
+        "v1:stable",
+      );
+      const second = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        null,
+        null,
+        "v1:stable",
+      );
+
+      expect(first.task.id).not.toBe(second.task.id);
+      expect(tables.a2a_tasks).toHaveLength(2);
+    });
+
+    it("rejects oversized keys before storage", async () => {
+      const { createOrReuseTask, MAX_A2A_IDEMPOTENCY_KEY_CHARS } =
+        await loadStore();
+      await expect(
+        createOrReuseTask(
+          makeMessage("Hello"),
+          undefined,
+          undefined,
+          "alice@example.test",
+          "acme.test",
+          "x".repeat(MAX_A2A_IDEMPOTENCY_KEY_CHARS + 1),
+        ),
+      ).rejects.toThrow("too long");
+      expect(tables.a2a_tasks ?? []).toHaveLength(0);
+    });
+
+    it("keeps the same owner and key independent across org scopes", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+      const second = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "other.test",
+        "v1:stable",
+      );
+
+      expect(first.task.id).not.toBe(second.task.id);
+      expect(second.reused).toBe(false);
+    });
+
+    it("releases failed tasks so an intentional retry can start fresh", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+      tables.a2a_tasks[0].status_state = "failed";
+      const retry = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "acme.test",
+        "v1:stable",
+      );
+
+      expect(retry.reused).toBe(false);
+      expect(retry.task.id).not.toBe(first.task.id);
     });
   });
 

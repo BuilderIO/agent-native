@@ -63,7 +63,10 @@ describe("FileStore", () => {
   it("update() overwrites the pin atomically without leaving temp files behind", async () => {
     const dataDir = tmpDataDir();
     const store = new FileStore(dataDir);
-    const pin = makePin({ comment: "original" });
+    const pin = makePin({
+      comment: "original",
+      updatedAt: "2020-01-01T00:00:00.000Z",
+    });
     await store.save(pin);
 
     await store.update(pin.id, { comment: "revised" });

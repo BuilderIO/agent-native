@@ -144,6 +144,27 @@ message delegation for planning, synthesis, multi-step work, or mutations.
 Inside an agent loop, `call-agent` exposes the same path with `action` + `input`;
 omit `message` and `taskId` in that mode.
 
+### Retry safety and trace linkage
+
+`call-agent` automatically derives an owner-scoped idempotency key from the
+originating turn, target, and exact message. If a retry reaches the receiver
+after the caller timed out, asynchronous `message/send` returns the existing
+active or completed task instead of starting a duplicate agent run. Failed and
+canceled tasks release the key for an intentional retry; synchronous calls are
+never deduplicated. Lower-level clients may pass an
+`idempotencyKey` explicitly; keep it stable for the same logical submission and
+change it when the work changes. Dedupe is scoped to the JWT-authenticated
+owner and verified org, and keys are limited to 128 characters.
+
+The caller also forwards bounded correlation metadata (`callerApp`,
+`callerThreadId`, `parentRunId`, `parentTurnId`, and direct-read
+`invocationId`). These fields
+are telemetry hints only. Receivers must continue to derive identity,
+ownership, org scope, access, and approval from the verified request context.
+Delegated model loops emit `$ai_generation` with A2A/MCP lineage, while direct
+reads emit the content-free `$a2a_read_invoke` event; neither event includes
+action arguments or results.
+
 ### Advanced: `A2AClient` (full control)
 
 ```ts

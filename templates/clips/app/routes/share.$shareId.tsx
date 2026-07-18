@@ -286,7 +286,7 @@ const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
 const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
-const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
+const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 
 type ViewerPlatform = "mac" | "windows" | "linux";
 

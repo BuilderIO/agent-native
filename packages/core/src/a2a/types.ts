@@ -132,6 +132,19 @@ export interface A2AApprovedAction {
   input: unknown;
 }
 
+/**
+ * Telemetry-only cross-app correlation. Receivers must never use these
+ * caller-supplied values for identity, ownership, org scoping, access, or
+ * approval decisions.
+ */
+export interface A2ACorrelationMetadata {
+  callerApp?: string;
+  callerThreadId?: string;
+  parentRunId?: string;
+  parentTurnId?: string;
+  invocationId?: string;
+}
+
 // --- Framework config ---
 
 export interface A2AHandlerContext {
@@ -168,6 +181,7 @@ export interface A2AApprovalExecution {
 export interface A2AReadOnlyActionInvocation {
   action: string;
   input: Record<string, unknown>;
+  invocationId: string;
 }
 
 export interface A2AReadOnlyActionResult {
@@ -183,6 +197,8 @@ export type A2AHandler = (
 
 export interface A2AConfig {
   name: string;
+  /** Canonical receiver app id used only for telemetry attribution. */
+  appId?: string;
   description: string;
   version?: string;
   skills: AgentSkill[];

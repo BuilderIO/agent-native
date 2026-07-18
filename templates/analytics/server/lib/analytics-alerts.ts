@@ -135,6 +135,11 @@ function nowIso(): string {
 
 const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
 const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX =
+  "default-agent-chat-stuck-spike";
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD = 3;
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES = 10;
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;
 const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -296,6 +301,14 @@ function defaultHttp5xxAlertEnabled(): boolean {
   return currentDeployHostname() === "analytics.agent-native.com";
 }
 
+function defaultAgentChatStuckAlertEnabled(): boolean {
+  const configured = boolEnv(
+    "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED",
+  );
+  if (configured !== null) return configured;
+  return currentDeployHostname() === "analytics.agent-native.com";
+}
+
 function envInt(name: string, fallback: number, min: number, max: number) {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -305,15 +318,19 @@ function envInt(name: string, fallback: number, min: number, max: number) {
     : fallback;
 }
 
-function defaultHttp5xxAlertId(ownerEmail: string, orgId: string | null) {
+function defaultAlertId(
+  prefix: string,
+  ownerEmail: string,
+  orgId: string | null,
+) {
   const hash = createHash("sha256")
     .update(`${ownerEmail.toLowerCase()}|${orgId ?? ""}`)
     .digest("hex")
     .slice(0, 10);
-  return `${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-${hash}`;
+  return `${prefix}-${hash}`;
 }
 
-async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
+async function defaultAnalyticsAlertScopes(): Promise<AccessCtx[]> {
   const ownerEmail = process.env.ANALYTICS_DEFAULT_ALERT_OWNER_EMAIL?.trim();
   const orgId = process.env.ANALYTICS_DEFAULT_ALERT_ORG_ID?.trim() || null;
   if (ownerEmail) return [{ email: ownerEmail, orgId }];
@@ -326,7 +343,10 @@ async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
     })
     .from(schema.analyticsPublicKeys)
     .where(isNull(schema.analyticsPublicKeys.revokedAt))
-    .limit(1000);
+    .groupBy(
+      schema.analyticsPublicKeys.ownerEmail,
+      schema.analyticsPublicKeys.orgId,
+    );
 
   const seen = new Set<string>();
   const scopes: AccessCtx[] = [];
@@ -517,10 +537,20 @@ export async function deleteAnalyticsAlertRule(
     });
   }
   const db = getDb() as any;
-  await db.delete(schema.analyticsAlertRules).where(ownerWhere(ctx, id));
+  const seededDefault =
+    id.startsWith(`${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-`) ||
+    id.startsWith(`${DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX}-`);
+  if (seededDefault) {
+    await db
+      .update(schema.analyticsAlertRules)
+      .set({ enabled: false, updatedAt: nowIso() })
+      .where(ownerWhere(ctx, id));
+  } else {
+    await db.delete(schema.analyticsAlertRules).where(ownerWhere(ctx, id));
+  }
   recordChange({
     source: "analytics-alert-rules",
-    type: "delete",
+    type: seededDefault ? "change" : "delete",
     key: existing.id,
     owner: existing.ownerEmail,
     orgId: existing.orgId ?? undefined,
@@ -528,6 +558,20 @@ export async function deleteAnalyticsAlertRule(
 }
 
 const DEFAULT_ALERT_SEED_CHUNK_SIZE = 500;
+
+interface DefaultAnalyticsAlertDefinition {
+  idPrefix: string;
+  name: string;
+  description: string;
+  eventName: string;
+  filters: AnalyticsAlertFilter[];
+  threshold: number;
+  thresholdMode?: AnalyticsAlertThresholdMode;
+  distinctBy?: string | null;
+  windowMinutes: number;
+  cooldownMinutes: number;
+  severity: AnalyticsAlertSeverity;
+}
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -537,40 +581,98 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
+function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
+  const definitions: DefaultAnalyticsAlertDefinition[] = [];
+
+  if (defaultHttp5xxAlertEnabled()) {
+    definitions.push({
+      idPrefix: DEFAULT_HTTP_5XX_ALERT_ID_PREFIX,
+      name: "Hosted app HTTP 5xx spike",
+      description:
+        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
+      eventName: "http.response",
+      filters: [{ field: "properties.status_class", value: "5xx" }],
+      threshold: envInt(
+        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
+        5,
+        1,
+        1000,
+      ),
+      windowMinutes: envInt(
+        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
+        5,
+        1,
+        60,
+      ),
+      cooldownMinutes: envInt(
+        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
+        30,
+        0,
+        24 * 60,
+      ),
+      severity: "critical",
+    });
+  }
+
+  if (defaultAgentChatStuckAlertEnabled()) {
+    definitions.push({
+      idPrefix: DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX,
+      name: "Hosted agent chat stuck spike",
+      description:
+        "Default Agent Native alert for a spike in agent chats detected as stuck.",
+      eventName: "agent_chat_stuck_detected",
+      filters: [],
+      threshold: envInt(
+        "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD",
+        DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD,
+        1,
+        1000,
+      ),
+      thresholdMode: "distinct_count",
+      distinctBy: "properties.runId",
+      windowMinutes: envInt(
+        "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES",
+        DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES,
+        1,
+        60,
+      ),
+      cooldownMinutes: envInt(
+        "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES",
+        DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES,
+        0,
+        24 * 60,
+      ),
+      severity: "critical",
+    });
+  }
+
+  return definitions;
+}
+
+export async function ensureDefaultAnalyticsAlertRules(): Promise<{
   checked: number;
   created: number;
 }> {
-  if (!defaultHttp5xxAlertEnabled()) return { checked: 0, created: 0 };
+  const definitions = defaultAnalyticsAlertDefinitions();
+  if (!definitions.length) return { checked: 0, created: 0 };
 
-  const scopes = await defaultHttp5xxAlertScopes();
+  const scopes = await defaultAnalyticsAlertScopes();
   if (!scopes.length) return { checked: 0, created: 0 };
 
   const db = getDb() as any;
-  const threshold = envInt(
-    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
-    5,
-    1,
-    1000,
-  );
-  const windowMinutes = envInt(
-    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
-    5,
-    1,
-    60,
-  );
-  const cooldownMinutes = envInt(
-    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
-    30,
-    0,
-    24 * 60,
-  );
-
-  const scopesById = new Map<string, AccessCtx>();
+  const candidatesById = new Map<
+    string,
+    { definition: DefaultAnalyticsAlertDefinition; scope: AccessCtx }
+  >();
   for (const scope of scopes) {
-    scopesById.set(defaultHttp5xxAlertId(scope.email, scope.orgId), scope);
+    for (const definition of definitions) {
+      candidatesById.set(
+        defaultAlertId(definition.idPrefix, scope.email, scope.orgId),
+        { definition, scope },
+      );
+    }
   }
-  const allIds = Array.from(scopesById.keys());
+  const allIds = Array.from(candidatesById.keys());
 
   const existingIds = new Set<string>();
   for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
@@ -582,26 +684,23 @@ export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
   }
 
   const missingIds = allIds.filter((id) => !existingIds.has(id));
-  if (!missingIds.length) return { checked: scopes.length, created: 0 };
+  if (!missingIds.length) return { checked: allIds.length, created: 0 };
 
   const now = nowIso();
   const rowsToInsert = missingIds.map((id) => {
-    const scope = scopesById.get(id)!;
+    const { definition, scope } = candidatesById.get(id)!;
     return {
       id,
-      name: "Hosted app HTTP 5xx spike",
-      description:
-        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
-      eventName: "http.response",
-      filters: JSON.stringify([
-        { field: "properties.status_class", value: "5xx" },
-      ]),
-      thresholdMode: "event_count" as const,
-      distinctBy: null,
-      threshold,
-      windowMinutes,
-      cooldownMinutes,
-      severity: "critical" as const,
+      name: definition.name,
+      description: definition.description,
+      eventName: definition.eventName,
+      filters: JSON.stringify(definition.filters),
+      thresholdMode: definition.thresholdMode ?? ("event_count" as const),
+      distinctBy: definition.distinctBy ?? null,
+      threshold: definition.threshold,
+      windowMinutes: definition.windowMinutes,
+      cooldownMinutes: definition.cooldownMinutes,
+      severity: definition.severity,
       channels: JSON.stringify(["inbox"]),
       emailRecipients: JSON.stringify([]),
       enabled: true,
@@ -625,7 +724,7 @@ export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
     created += inserted.length;
   }
 
-  return { checked: scopes.length, created };
+  return { checked: allIds.length, created };
 }
 
 export async function listEnabledAnalyticsAlertRules(options: {

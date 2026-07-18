@@ -5,6 +5,10 @@ import {
   getRequestContext,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import type { A2AConfig, Message } from "./types.js";
 
@@ -27,35 +31,70 @@ vi.mock("h3", () => ({
 vi.mock("./task-store.js", () => {
   let tasks: Record<string, any> = {};
   let counter = 0;
+  const createTask = async (
+    message: Message,
+    contextId?: string,
+    metadata?: Record<string, unknown>,
+    ownerEmail?: string | null,
+    ownerScope?: string | null,
+  ) => {
+    const id = `task-${++counter}`;
+    const task = {
+      id,
+      contextId,
+      status: { state: "submitted", timestamp: new Date().toISOString() },
+      history: [message],
+      artifacts: [],
+      metadata,
+      ownerEmail: ownerEmail ?? null,
+      ownerScope: ownerScope ?? null,
+      idempotencyKey: undefined as string | undefined,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    tasks[id] = task;
+    return task;
+  };
   return {
-    async createTask(
+    A2A_PERSONAL_OWNER_SCOPE: "__personal__",
+    MAX_A2A_IDEMPOTENCY_KEY_CHARS: 128,
+    createTask,
+    async createOrReuseTask(
       message: Message,
       contextId?: string,
       metadata?: Record<string, unknown>,
       ownerEmail?: string | null,
+      ownerScope?: string | null,
+      idempotencyKey?: string,
     ) {
-      const id = `task-${++counter}`;
-      const task = {
-        id,
+      if (ownerEmail && idempotencyKey) {
+        const existing = Object.values(tasks).find(
+          (task) =>
+            task.ownerEmail?.toLowerCase() === ownerEmail.toLowerCase() &&
+            task.ownerScope === ownerScope &&
+            task.idempotencyKey === idempotencyKey,
+        );
+        if (existing) return { task: existing, reused: true };
+      }
+      const task = await createTask(
+        message,
         contextId,
-        status: { state: "submitted", timestamp: new Date().toISOString() },
-        history: [message],
-        artifacts: [],
         metadata,
-        ownerEmail: ownerEmail ?? null,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      tasks[id] = task;
-      return task;
+        ownerEmail,
+        ownerScope,
+      );
+      task.idempotencyKey = idempotencyKey;
+      return { task, reused: false };
     },
     async getTask(id: string) {
       return tasks[id] ?? null;
     },
-    async getTaskOwner(id: string) {
+    async getTaskOwnership(id: string) {
       const task = tasks[id];
-      if (!task) return null;
-      return task.ownerEmail ?? null;
+      return {
+        ownerEmail: task?.ownerEmail ?? null,
+        ownerScope: task?.ownerScope ?? null,
+      };
     },
     async updateTask(id: string, update: any) {
       const task = tasks[id];
@@ -222,6 +261,7 @@ describe("handleJsonRpc", () => {
   });
 
   afterEach(() => {
+    unregisterTrackingProvider("a2a-read-invoke-test");
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     vi.unstubAllEnvs();
@@ -302,6 +342,74 @@ describe("handleJsonRpc", () => {
       }),
     });
     expect(executeReadOnlyAction).toHaveBeenCalledOnce();
+  });
+
+  it("tracks content-free direct read correlation with verified identity", async () => {
+    const events: any[] = [];
+    registerTrackingProvider({
+      name: "a2a-read-invoke-test",
+      track: (event) => events.push(event),
+    });
+    const executeReadOnlyAction = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "sensitive-result-content",
+    }));
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "actions/invoke",
+        params: {
+          action: "gong-calls",
+          input: { secretArgument: "do-not-track" },
+          metadata: {
+            callerApp: "mail",
+            callerThreadId: "thread-qa",
+            parentRunId: "run-qa",
+            parentTurnId: "turn-qa",
+            invocationId: "invoke-qa",
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        appId: "analytics",
+        executeReadOnlyAction,
+      },
+    );
+
+    expect(executeReadOnlyAction).toHaveBeenCalledWith({
+      action: "gong-calls",
+      input: { secretArgument: "do-not-track" },
+      invocationId: expect.any(String),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      name: "$a2a_read_invoke",
+      userId: "alice+qa@agent-native.test",
+      properties: {
+        action: "gong-calls",
+        receiver_app: "analytics",
+        caller_app: "mail",
+        status: "completed",
+        invocation_id: expect.any(String),
+        caller_invocation_id: "invoke-qa",
+        parent_run_id: "run-qa",
+        parent_turn_id: "turn-qa",
+        duration_ms: expect.any(Number),
+      },
+    });
+    expect(events[0].properties).not.toHaveProperty("input");
+    expect(events[0].properties).not.toHaveProperty("output");
+    expect(JSON.stringify(events[0])).not.toContain("do-not-track");
+    expect(JSON.stringify(events[0])).not.toContain("sensitive-result-content");
   });
 
   it("rejects direct action invocation without a verified identity", async () => {
@@ -390,6 +498,161 @@ describe("handleJsonRpc", () => {
     const task = result.result;
     expect(task.status.state).toBe("completed");
     expect(task.status.message.parts[0].text).toBe("custom response");
+  });
+
+  it("reuses an authenticated owner's task for duplicate message/send keys", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aAudienceVerified: true,
+      __a2aOrgDomain: "acme.test",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: 21,
+      method: "message/send",
+      params: {
+        async: true,
+        idempotencyKey: "v1:stable-message",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "do this once" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, event, config);
+    const duplicate = await handleJsonRpc(request, event, config);
+
+    expect(duplicate.result.id).toBe(first.result.id);
+    expect(duplicate.result.status.state).toBe("working");
+    expect(duplicate.result.ownerEmail).toBeUndefined();
+    expect(duplicate.result.ownerScope).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse an unfinished synchronous submission", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aAudienceVerified: true,
+      __a2aOrgDomain: "acme.test",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: 24,
+      method: "message/send",
+      params: {
+        idempotencyKey: "v1:sync-key",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "run synchronously" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, event, config);
+    const second = await handleJsonRpc(request, event, config);
+
+    expect(second.result.id).not.toBe(first.result.id);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not expose a task to the same user in another org scope", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "acme.test",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 25,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "scoped work" }],
+          },
+        },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    const otherOrgEvent = mockEvent();
+    otherOrgEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "other.test",
+    };
+
+    const denied = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 26,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      otherOrgEvent,
+      customHandler,
+    );
+
+    expect(denied.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+  });
+
+  it("preserves current submission behavior without an authenticated owner", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const request = {
+      jsonrpc: "2.0",
+      id: 22,
+      method: "message/send",
+      params: {
+        idempotencyKey: "v1:ignored-without-owner",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "run normally" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, mockEvent(), config);
+    const second = await handleJsonRpc(request, mockEvent(), config);
+
+    expect(second.result.id).not.toBe(first.result.id);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails safely on an oversized authenticated idempotency key", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice@example.test" };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 23,
+        method: "message/send",
+        params: {
+          idempotencyKey: "x".repeat(129),
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "do not enqueue" }],
+          },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+
+    expect(result.error).toMatchObject({ code: -32602 });
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("preserves an approval pause as input-required", async () => {

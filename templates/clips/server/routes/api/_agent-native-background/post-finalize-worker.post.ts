@@ -11,6 +11,7 @@ import {
 } from "h3";
 import { z } from "zod";
 
+import finalizeRecording from "../../../../actions/finalize-recording.js";
 import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable-video.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
@@ -22,7 +23,7 @@ import {
 
 const bodySchema = z.object({
   recordingId: z.string().min(1).max(200),
-  kind: z.enum(["seekable", "transcript"]),
+  kind: z.enum(["media-ready", "seekable", "transcript"]),
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
@@ -61,7 +62,8 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 404);
     return { ok: false, error: "Recording not found" };
   }
-  if (recording.status !== "ready") {
+  const requiredStatus = kind === "media-ready" ? "processing" : "ready";
+  if (recording.status !== requiredStatus) {
     return {
       ok: true,
       recordingId,
@@ -97,6 +99,13 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await ensureRecordingSeekable({
           recordingId,
           ownerEmail: recording.ownerEmail,
+        });
+        return { ok: true, kind, result };
+      }
+      if (kind === "media-ready") {
+        const result = await finalizeRecording.run({
+          id: recordingId,
+          mediaVerificationRetryAttempt: retryAttempt ?? 1,
         });
         return { ok: true, kind, result };
       }
