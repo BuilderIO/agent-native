@@ -164,12 +164,68 @@ function scanStaticModuleSpecifiers(
   return specifiers;
 }
 
+function scanVitestMockSpecifiers(
+  source: string,
+): Array<{ index: number; value: string }> {
+  const specifiers: Array<{ index: number; value: string }> = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const character = source[cursor] ?? "";
+    if (character === "'" || character === '"' || character === "`") {
+      const quote = character;
+      cursor += 1;
+      while (cursor < source.length) {
+        if (source[cursor] === "\\") cursor += 2;
+        else if (source[cursor] === quote) {
+          cursor += 1;
+          break;
+        } else cursor += 1;
+      }
+      continue;
+    }
+    if (source.slice(cursor, cursor + 2) === "//") {
+      const lineEnd = source.indexOf("\n", cursor + 2);
+      cursor = lineEnd === -1 ? source.length : lineEnd + 1;
+      continue;
+    }
+    if (source.slice(cursor, cursor + 2) === "/*") {
+      const blockEnd = source.indexOf("*/", cursor + 2);
+      cursor = blockEnd === -1 ? source.length : blockEnd + 2;
+      continue;
+    }
+
+    const mockCall = source
+      .slice(cursor)
+      .match(/^vi\s*\.\s*(?:doMock|mock)\s*\(/);
+    if (!mockCall || isIdentifierCharacter(source[cursor - 1])) {
+      cursor += 1;
+      continue;
+    }
+    const specifierStart = skipSpaceAndComments(
+      source,
+      cursor + mockCall[0].length,
+    );
+    const specifier = readQuotedString(source, specifierStart);
+    if (specifier) {
+      specifiers.push({ index: specifierStart, value: specifier.value });
+      cursor = specifier.end;
+      continue;
+    }
+    cursor += mockCall[0].length;
+  }
+  return specifiers;
+}
+
 export function findCoreClientBarrelImports(
   file: string,
   source: string,
 ): ClientBarrelViolation[] {
-  return scanStaticModuleSpecifiers(source)
+  return [
+    ...scanStaticModuleSpecifiers(source),
+    ...scanVitestMockSpecifiers(source),
+  ]
     .filter((specifier) => specifier.value === BARE_CLIENT_ENTRY)
+    .sort((left, right) => left.index - right.index)
     .map((specifier) => ({ file, line: lineAt(source, specifier.index) }));
 }
 
@@ -177,7 +233,6 @@ export function shouldScanCoreClientBarrelFile(relativeFile: string): boolean {
   const normalized = relativeFile.split(path.sep).join("/");
   if (!/^(?:packages|templates)\//.test(normalized)) return false;
   if (!/\.(?:ts|tsx)$/.test(normalized)) return false;
-  if (/\.(?:spec|test)\.(?:ts|tsx)$/.test(normalized)) return false;
   if (/\.(?:generated|gen)\.(?:ts|tsx)$/.test(normalized)) return false;
   if (normalized === "packages/core/src/client/index.ts") return false;
   return !normalized

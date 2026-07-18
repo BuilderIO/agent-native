@@ -18,12 +18,15 @@ const mocks = vi.hoisted(() => ({
   embeddedExtensionProps: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useDemoModeStatus: () => ({
     enabled: mocks.demoModeEnabled,
     forced: false,
     isLoading: false,
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

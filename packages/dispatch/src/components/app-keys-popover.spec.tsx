@@ -11,7 +11,7 @@ const queryState = vi.hoisted(() => ({
   refetchAccess: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "dispatch.pages.dataLoadFailed": "Couldn't load data",
@@ -19,6 +19,9 @@ vi.mock("@agent-native/core/client", () => ({
         "Dispatch couldn't load this data.",
       "dispatch.pages.tryAgain": "Try again",
     })[key] ?? key,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => {
     const queries = {
       "list-vault-secret-options": {

@@ -37,10 +37,25 @@ describe("core client barrel import guard", () => {
     assert.deepEqual(violations, []);
   });
 
-  it("excludes compatibility, tests, generated files, and corpus snapshots", () => {
+  it("rejects test mocks that still target the deprecated barrel", () => {
+    const violations = findCoreClientBarrelImports(
+      "templates/example/app/root.test.tsx",
+      `
+        vi.mock("@agent-native/core/client", () => ({}));
+        vi.doMock( '@agent-native/core/client', () => ({}) );
+        vi.mock("@agent-native/core/client/hooks", () => ({}));
+      `,
+    );
+
+    assert.deepEqual(
+      violations.map((item) => item.line),
+      [2, 3],
+    );
+  });
+
+  it("excludes compatibility, generated files, and corpus snapshots", () => {
     for (const file of [
       "packages/core/src/client/index.ts",
-      "packages/core/src/client/index.spec.ts",
       "packages/core/src/generated/example.ts",
       "packages/core/corpus/templates/example/app/root.tsx",
     ]) {
@@ -48,6 +63,10 @@ describe("core client barrel import guard", () => {
     }
     assert.equal(
       shouldScanCoreClientBarrelFile("templates/example/app/root.tsx"),
+      true,
+    );
+    assert.equal(
+      shouldScanCoreClientBarrelFile("templates/example/app/root.test.tsx"),
       true,
     );
   });

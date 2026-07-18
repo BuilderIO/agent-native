@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   sendToAgent: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
   setClientAppState: mocks.setClientAppState,
   useActionMutation: () => ({
@@ -19,6 +19,9 @@ vi.mock("@agent-native/core/client", () => ({
     mutateAsync: vi.fn().mockResolvedValue(undefined),
   }),
   useChangeVersion: () => 0,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, number>) =>
     key === "designEditor.nodeRewrite.candidatePosition"
       ? `${values?.current} of ${values?.total}`
