@@ -496,4 +496,14 @@ and x86_64. This establishes ordered, non-hosted revocation authority; the
 callback must still durably verify and insert the nested revocation in the
 encrypted native grant/replay index before returning success.
 
+The native boundary now also has a Core-parity grant codec. It verifies the
+fixed canonical field sets, sorted resource/operation/provider scopes, exact
+16-byte identities, 30-day maximum lifetime, issuer and vault binding, grant
+expiry, precommitted revocation reference, exact signed-byte grant hash, and
+the `grant` and `grant-revoke` detached signatures. The fixed Core grant and a
+paired signed revocation pass byte-for-byte on arm64 and x86_64; wrong keys,
+vaults, expiry, altered signatures, and mismatched revocation references fail
+closed. The codec is pure verification and does not yet claim durable replay
+or revocation enforcement until the encrypted index owns it.
+
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.
