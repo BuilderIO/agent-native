@@ -75,7 +75,8 @@
           "to": "@agent-native/toolkit/editor"
         },
         "BuildRegistryBlockSlashItemsOptions": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "BuilderSetupCard": "BuilderSetupCard",
         "ChangelogDialog": {
@@ -123,7 +124,8 @@
           "to": "@agent-native/toolkit/editor"
         },
         "CreateRegistryBlockNodeOptions": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "CreateRichMarkdownExtensionsOptions": {
           "to": "@agent-native/toolkit/editor"
@@ -372,16 +374,20 @@
           "status": "planned"
         },
         "RegistryBlockDataProvider": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "RegistryBlockDataValue": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "RegistryBlockNodeView": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "RegistryBlockSideMapBlock": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "RemoteSelectionRings": {
           "to": "@agent-native/toolkit/collab-ui"
@@ -580,7 +586,8 @@
           "to": "@agent-native/toolkit/editor"
         },
         "buildRegistryBlockSlashItems": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "buildRepositoryFromCodeAgentTranscript": "buildRepositoryFromCodeAgentTranscript",
         "buildReviewThreads": {
@@ -637,7 +644,8 @@
           "status": "planned"
         },
         "createRegistryBlockNode": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "createRichMarkdownExtensions": {
           "to": "@agent-native/toolkit/editor"
@@ -719,10 +727,12 @@
         },
         "getOtherGuidedAnswerText": "getOtherGuidedAnswerText",
         "getRegistryBlockSlashDescription": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "getRegistryBlockSlashSearchText": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "getThemeInitScript": {
           "to": "@agent-native/core/client/ui"
@@ -876,7 +886,8 @@
         },
         "updateMcpAppModelContext": "updateMcpAppModelContext",
         "uploadEditorImage": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "useActionMutation": {
           "to": "@agent-native/core/client/hooks"
@@ -974,7 +985,8 @@
           "to": "@agent-native/core/client/hooks"
         },
         "useRegistryBlockData": {
-          "to": "@agent-native/toolkit/editor"
+          "to": "@agent-native/toolkit/editor",
+          "status": "planned"
         },
         "useReplyReviewComment": {
           "to": "@agent-native/core/client/review"
@@ -1248,10 +1260,12 @@
       "status": "planned"
     },
     "@agent-native/core/client/editor": {
-      "to": "@agent-native/toolkit/editor"
+      "to": "@agent-native/toolkit/editor",
+      "status": "planned"
     },
     "@agent-native/core/client/rich-markdown-editor": {
-      "to": "@agent-native/toolkit/editor"
+      "to": "@agent-native/toolkit/editor",
+      "status": "planned"
     },
     "@agent-native/core/client/collab": {
       "to": "@agent-native/core/client/collab",

@@ -218,4 +218,61 @@ describe("migration manifest guard", () => {
       [],
     );
   });
+
+  it("rejects an active symbol move when the target omits that symbol", () => {
+    const violations = checkMigrationManifest(
+      manifest,
+      snapshot,
+      {
+        moves: {
+          "@agent-native/core/legacy": {
+            to: "@agent-native/toolkit/editor",
+            symbols: {
+              RegistryBlockDataProvider: {
+                to: "@agent-native/toolkit/editor",
+              },
+            },
+          },
+        },
+      },
+      undefined,
+      {
+        "@agent-native/core/legacy": new Set(["RegistryBlockDataProvider"]),
+        "@agent-native/toolkit/editor": new Set(["RichMarkdownEditor"]),
+      },
+    );
+
+    assert.match(
+      violations[0]?.message ?? "",
+      /RegistryBlockDataProvider.*symbol is not exported/,
+    );
+  });
+
+  it("allows a planned symbol move before that symbol ships", () => {
+    assert.deepEqual(
+      checkMigrationManifest(
+        manifest,
+        snapshot,
+        {
+          moves: {
+            "@agent-native/core/legacy": {
+              to: "@agent-native/toolkit/editor",
+              symbols: {
+                RegistryBlockDataProvider: {
+                  to: "@agent-native/toolkit/editor",
+                  status: "planned",
+                },
+              },
+            },
+          },
+        },
+        undefined,
+        {
+          "@agent-native/core/legacy": new Set(["RegistryBlockDataProvider"]),
+          "@agent-native/toolkit/editor": new Set(["RichMarkdownEditor"]),
+        },
+      ),
+      [],
+    );
+  });
 });

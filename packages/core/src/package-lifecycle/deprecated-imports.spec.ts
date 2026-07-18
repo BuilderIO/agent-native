@@ -47,6 +47,40 @@ describe("scanDeprecatedImports", () => {
     ).toBe("planned");
   });
 
+  it("keeps editor adapters planned until Toolkit exports them", () => {
+    const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
+    const clientMove = manifest?.moves["@agent-native/core/client"];
+    const adapterSymbols = [
+      "uploadEditorImage",
+      "createRegistryBlockNode",
+      "RegistryBlockNodeView",
+      "RegistryBlockDataProvider",
+      "useRegistryBlockData",
+      "CreateRegistryBlockNodeOptions",
+      "RegistryBlockDataValue",
+      "RegistryBlockSideMapBlock",
+      "buildRegistryBlockSlashItems",
+      "getRegistryBlockSlashDescription",
+      "getRegistryBlockSlashSearchText",
+      "BuildRegistryBlockSlashItemsOptions",
+    ];
+
+    expect(manifest?.moves["@agent-native/core/client/editor"]?.status).toBe(
+      "planned",
+    );
+    expect(
+      manifest?.moves["@agent-native/core/client/rich-markdown-editor"]?.status,
+    ).toBe("planned");
+    expect(clientMove).toBeDefined();
+    for (const symbol of adapterSymbols) {
+      expect(
+        clientMove
+          ? resolveMigrationSymbolMove(clientMove, symbol)?.status
+          : null,
+      ).toBe("planned");
+    }
+  });
+
   it("reports only symbols covered by the manifest", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-moves-"));
     roots.push(root);

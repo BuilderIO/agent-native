@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -30,6 +31,19 @@ type GuardedPackage = {
   directory: string;
   name: string;
 };
+
+type ExportedSymbolCatalog = Record<string, Set<string>>;
+
+interface ExportSourceProject {
+  addSourceFileAtPath: (sourceFile: string) => {
+    getExportedDeclarations: () => Map<string, unknown>;
+  };
+  getSourceFile: (sourceFile: string) =>
+    | {
+        getExportedDeclarations: () => Map<string, unknown>;
+      }
+    | undefined;
+}
 
 const GUARDED_PACKAGES: GuardedPackage[] = [
   { directory: "packages/core", name: "@agent-native/core" },
@@ -97,24 +111,68 @@ function packageExportKey(packageName: string, specifier: string): string {
     : `.${specifier.slice(packageName.length)}`;
 }
 
+function packageNameForSpecifier(
+  specifier: string,
+  packageCatalog: Record<string, PackageManifest>,
+): string | null {
+  return (
+    Object.keys(packageCatalog)
+      .sort((left, right) => right.length - left.length)
+      .find(
+        (candidate) =>
+          specifier === candidate || specifier.startsWith(`${candidate}/`),
+      ) ?? null
+  );
+}
+
+function substituteExportPattern(
+  value: ExportValue,
+  wildcard: string,
+): ExportValue {
+  if (typeof value === "string") return value.replaceAll("*", wildcard);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      substituteExportPattern(child, wildcard),
+    ]),
+  );
+}
+
+function exportValueForSpecifier(
+  packageName: string,
+  specifier: string,
+  manifest: PackageManifest,
+): ExportValue | undefined {
+  const exportKey = packageExportKey(packageName, specifier);
+  const exports = manifest.exports ?? {};
+  if (exports[exportKey] !== undefined) return exports[exportKey];
+  for (const [candidate, value] of Object.entries(exports)) {
+    if (!candidate.includes("*")) continue;
+    const [prefix, suffix] = candidate.split("*");
+    if (!exportKey.startsWith(prefix) || !exportKey.endsWith(suffix)) continue;
+    const wildcard = exportKey.slice(
+      prefix.length,
+      exportKey.length - suffix.length,
+    );
+    return substituteExportPattern(value, wildcard);
+  }
+  return undefined;
+}
+
 function targetIsExported(
   target: string,
   packageCatalog: Record<string, PackageManifest>,
 ): boolean {
-  const packageName = Object.keys(packageCatalog)
-    .sort((left, right) => right.length - left.length)
-    .find(
-      (candidate) => target === candidate || target.startsWith(`${candidate}/`),
-    );
+  const packageName = packageNameForSpecifier(target, packageCatalog);
   if (!packageName) return false;
-  const exports = packageCatalog[packageName]?.exports ?? {};
-  const exportKey = packageExportKey(packageName, target);
-  return Object.keys(exports).some((candidate) => {
-    if (candidate === exportKey) return true;
-    if (!candidate.includes("*")) return false;
-    const [prefix, suffix] = candidate.split("*");
-    return exportKey.startsWith(prefix) && exportKey.endsWith(suffix);
-  });
+  return (
+    exportValueForSpecifier(
+      packageName,
+      target,
+      packageCatalog[packageName],
+    ) !== undefined
+  );
 }
 
 function activeMoveTargets(move: MigrationMove): string[] {
@@ -131,6 +189,112 @@ function activeMoveTargets(move: MigrationMove): string[] {
     if (status === "active") targets.add(symbolMove.to);
   }
   return [...targets];
+}
+
+function sourceFileForSpecifier(
+  repoRoot: string,
+  specifier: string,
+  packageCatalog: Record<string, PackageManifest>,
+  packageDirectories: Record<string, string>,
+): string | null {
+  const packageName = packageNameForSpecifier(specifier, packageCatalog);
+  if (!packageName) return null;
+  const exportValue = exportValueForSpecifier(
+    packageName,
+    specifier,
+    packageCatalog[packageName],
+  );
+  if (exportValue === undefined) return null;
+  const targets = collectExportTargets(exportValue).sort((left, right) => {
+    const leftTypes = left.endsWith(".d.ts") ? 0 : 1;
+    const rightTypes = right.endsWith(".d.ts") ? 0 : 1;
+    return leftTypes - rightTypes;
+  });
+  for (const target of targets) {
+    if (!/\.(?:d\.ts|[cm]?js)$/.test(target)) continue;
+    const sourceBase = target
+      .replace(/^dist\//, "src/")
+      .replace(/\.d\.ts$/, "")
+      .replace(/\.[cm]?js$/, "");
+    for (const extension of [".ts", ".tsx"]) {
+      const candidate = path.join(
+        repoRoot,
+        packageDirectories[packageName],
+        `${sourceBase}${extension}`,
+      );
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function buildExportedSymbolCatalog(
+  repoRoot: string,
+  manifests: MigrationManifest[],
+  packageCatalog: Record<string, PackageManifest>,
+  packageDirectories: Record<string, string>,
+): ExportedSymbolCatalog {
+  const specifiers = new Set<string>();
+  for (const manifest of manifests) {
+    for (const [from, move] of Object.entries(manifest.moves ?? {})) {
+      specifiers.add(from);
+      for (const target of activeMoveTargets(move)) specifiers.add(target);
+    }
+  }
+  const { Project } = createRequire(
+    path.join(repoRoot, "packages/core/package.json"),
+  )("ts-morph") as {
+    Project: new (options: { tsConfigFilePath: string }) => ExportSourceProject;
+  };
+  const projects = Object.fromEntries(
+    Object.entries(packageDirectories).map(([packageName, directory]) => [
+      packageName,
+      new Project({
+        tsConfigFilePath: path.join(repoRoot, directory, "tsconfig.json"),
+      }),
+    ]),
+  );
+  const catalog: ExportedSymbolCatalog = {};
+  for (const specifier of specifiers) {
+    const sourceFile = sourceFileForSpecifier(
+      repoRoot,
+      specifier,
+      packageCatalog,
+      packageDirectories,
+    );
+    if (!sourceFile) continue;
+    const packageName = packageNameForSpecifier(specifier, packageCatalog);
+    if (!packageName) continue;
+    const project = projects[packageName];
+    const declarations = (
+      project.getSourceFile(sourceFile) ??
+      project.addSourceFileAtPath(sourceFile)
+    ).getExportedDeclarations();
+    catalog[specifier] = new Set(declarations.keys());
+  }
+  return catalog;
+}
+
+function activeSymbolMoves(
+  move: MigrationMove,
+): Array<{ fromName: string; to: string; toName: string }> {
+  if (!move.symbols) return [];
+  const symbols: Array<{ fromName: string; to: string; toName: string }> = [];
+  for (const [fromName, symbolMove] of Object.entries(move.symbols)) {
+    if (typeof symbolMove === "string") {
+      if (moveStatus(move) === "active") {
+        symbols.push({ fromName, to: move.to, toName: symbolMove });
+      }
+      continue;
+    }
+    if ((symbolMove.status ?? moveStatus(move)) !== "active") continue;
+    symbols.push({
+      fromName,
+      to: symbolMove.to,
+      toName: symbolMove.name ?? fromName,
+    });
+  }
+  return symbols;
 }
 
 function isSideEffectPinned(
@@ -150,6 +314,7 @@ export function checkMigrationManifest(
   snapshot: ExportSnapshot,
   migrationManifest: MigrationManifest,
   packageCatalog?: Record<string, PackageManifest>,
+  exportedSymbols?: ExportedSymbolCatalog,
 ): MigrationManifestViolation[] {
   const packageName = packageManifest.name ?? "<unknown package>";
   const exports = packageManifest.exports ?? {};
@@ -167,6 +332,34 @@ export function checkMigrationManifest(
         violations.push({
           packageName,
           message: `${from} has active migration target ${target}, but that target is not a published package export. Mark the move planned until the target ships.`,
+        });
+      }
+    }
+  }
+
+  if (exportedSymbols) {
+    for (const [from, move] of Object.entries(moves)) {
+      if (!move.symbols && moveStatus(move) === "active") {
+        const sourceSymbols = exportedSymbols[from];
+        const targetSymbols = exportedSymbols[move.to];
+        if (!sourceSymbols || !targetSymbols) continue;
+        const missing = [...sourceSymbols].filter(
+          (symbol) => !targetSymbols.has(symbol),
+        );
+        if (missing.length > 0) {
+          violations.push({
+            packageName,
+            message: `${from} moves its full surface to ${move.to}, but the target does not export: ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? ` (+${missing.length - 8} more)` : ""}. Add symbol-level planned entries until those exports ship.`,
+          });
+        }
+        continue;
+      }
+      for (const symbolMove of activeSymbolMoves(move)) {
+        const targetSymbols = exportedSymbols[symbolMove.to];
+        if (!targetSymbols || targetSymbols.has(symbolMove.toName)) continue;
+        violations.push({
+          packageName,
+          message: `${from}#${symbolMove.fromName} has active migration target ${symbolMove.to}#${symbolMove.toName}, but that symbol is not exported. Mark the symbol move planned until it ships.`,
         });
       }
     }
@@ -245,6 +438,9 @@ export function checkMigrationManifest(
 
 function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
+  const packageDirectories = Object.fromEntries(
+    GUARDED_PACKAGES.map(({ directory, name }) => [name, directory]),
+  );
   const packageCatalog = Object.fromEntries(
     GUARDED_PACKAGES.map(({ directory, name }) => [
       name,
@@ -252,6 +448,23 @@ function main(): void {
         readFileSync(path.join(repoRoot, directory, "package.json"), "utf8"),
       ) as PackageManifest,
     ]),
+  );
+  const migrationManifests = Object.fromEntries(
+    GUARDED_PACKAGES.map(({ directory, name }) => [
+      name,
+      JSON.parse(
+        readFileSync(
+          path.join(repoRoot, directory, "migration-manifest.json"),
+          "utf8",
+        ),
+      ) as MigrationManifest,
+    ]),
+  );
+  const exportedSymbols = buildExportedSymbolCatalog(
+    repoRoot,
+    Object.values(migrationManifests),
+    packageCatalog,
+    packageDirectories,
   );
   const violations = GUARDED_PACKAGES.flatMap(({ directory, name }) => {
     const readJson = <T>(file: string): T =>
@@ -270,8 +483,9 @@ function main(): void {
     return checkMigrationManifest(
       packageManifest,
       readJson<ExportSnapshot>("export-snapshot.json"),
-      readJson<MigrationManifest>("migration-manifest.json"),
+      migrationManifests[name],
       packageCatalog,
+      exportedSymbols,
     );
   });
 
