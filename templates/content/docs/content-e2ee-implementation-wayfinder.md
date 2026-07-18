@@ -857,6 +857,17 @@ wrong heads, and reused candidates fail closed. The next enrollment boundary is
 trusted UI confirmation of that exact SAS transcript, followed by verification
 and opening of the signed authorization bundle.
 
+The candidate-side EEK wrap primitive is now native and Core-exact as well. It
+strictly decodes the canonical signed envelope, binds the vault, recipient,
+issuer, epoch, and issuer signing key, authenticates the issuer's agreement key
+while opening the box with the candidate's native-held seed, requires the exact
+`anc/v1/eek-wrap` plaintext domain, and exposes the 32-byte EEK only to a
+synchronous native consumer before zeroization. The frozen Core vector opens on
+Apple Silicon and Intel; wrong recipient, issuer, epoch, signing key, candidate
+seed, signature, and ciphertext fail closed. This primitive still cannot
+activate custody by itself: the complete enrollment authorization and trusted
+SAS decision must bind the exact wrap before the coordinator may consume it.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

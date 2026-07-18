@@ -13,6 +13,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m"
+  "$SOURCE_ROOT/control/PrivateVaultEekWrap.m"
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m"
@@ -732,6 +733,34 @@ case "${PRIVATE_VAULT_BUILD_ENROLLMENT_CHALLENGE_TESTS:-}" in
   build_enrollment_challenge_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_enrollment_challenge_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_EEK_WRAP_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  EEK_WRAP_TEST_OUTPUT="$OUTPUT_ROOT/.eek-wrap-tests"
+  rm -rf "$EEK_WRAP_TEST_OUTPUT"
+  mkdir -p "$EEK_WRAP_TEST_OUTPUT"
+  build_eek_wrap_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$EEK_WRAP_TEST_OUTPUT/private-vault-eek-wrap-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEekWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEekWrapTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_eek_wrap_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_eek_wrap_tests x86_64
   fi
   ;;
 esac
