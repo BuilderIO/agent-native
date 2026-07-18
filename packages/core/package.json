@@ -31,7 +31,6 @@
   "type": "module",
   "sideEffects": [
     "*.css",
-    "dist/client/chat/widgets/builtin-tool-renderers.js",
     "dist/client/dev-overlay/builtins.js"
   ],
   "exports": {
