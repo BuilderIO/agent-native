@@ -1,1 +1,1 @@
-export { useUploadResource } from "../resources/index.js";
+export { useUploadResource } from "./use-upload-resource.js";
