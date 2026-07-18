@@ -781,13 +781,26 @@ function getReactRouterAliases(
 const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
+  "@agent-native/core/client/agent-chat",
   "@agent-native/core/client/chat",
+  "@agent-native/core/client/changelog",
   "@agent-native/core/client/collab",
   "@agent-native/core/client/composer",
   "@agent-native/core/client/conversation",
+  "@agent-native/core/client/dev-overlay",
   "@agent-native/core/client/editor",
+  "@agent-native/core/client/feature-flags",
+  "@agent-native/core/client/hooks",
+  "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
+  "@agent-native/core/client/integrations",
+  "@agent-native/core/client/navigation",
   "@agent-native/core/client/resources",
+  "@agent-native/core/client/route-chunk-recovery",
+  "@agent-native/core/client/settings",
+  "@agent-native/core/client/ui",
+  "@agent-native/core/client/uploads",
+  "@agent-native/core/client/widgets",
   // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
   // entry.client.tsx imports from here so it never pulls the full client barrel
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
@@ -839,7 +852,15 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
             packageName: "@agent-native/core",
           },
           {
+            specifier: "@agent-native/core/client/agent-chat",
+            packageName: "@agent-native/core",
+          },
+          {
             specifier: "@agent-native/core/client/chat",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/changelog",
             packageName: "@agent-native/core",
           },
           {
@@ -855,7 +876,23 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
             packageName: "@agent-native/core",
           },
           {
+            specifier: "@agent-native/core/client/dev-overlay",
+            packageName: "@agent-native/core",
+          },
+          {
             specifier: "@agent-native/core/client/editor",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/feature-flags",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/hooks",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/host",
             packageName: "@agent-native/core",
           },
           {
@@ -863,7 +900,35 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
             packageName: "@agent-native/core",
           },
           {
+            specifier: "@agent-native/core/client/integrations",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/navigation",
+            packageName: "@agent-native/core",
+          },
+          {
             specifier: "@agent-native/core/client/resources",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/route-chunk-recovery",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/settings",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/ui",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/uploads",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/widgets",
             packageName: "@agent-native/core",
           },
           {
@@ -1095,9 +1160,17 @@ function getCoreSourceAliases(
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/server/edge": path.join(coreSrc, "server/edge.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/client/agent-chat": path.join(
+      coreSrc,
+      "client/agent-chat/index.ts",
+    ),
     "@agent-native/core/client/chat": path.join(
       coreSrc,
       "client/chat/index.ts",
+    ),
+    "@agent-native/core/client/changelog": path.join(
+      coreSrc,
+      "client/changelog/index.ts",
     ),
     "@agent-native/core/client/collab": path.join(
       coreSrc,
@@ -1111,14 +1184,55 @@ function getCoreSourceAliases(
       coreSrc,
       "client/conversation/index.ts",
     ),
+    "@agent-native/core/client/dev-overlay": path.join(
+      coreSrc,
+      "client/dev-overlay/index.ts",
+    ),
     "@agent-native/core/client/editor": path.join(
       coreSrc,
       "client/editor/index.ts",
     ),
+    "@agent-native/core/client/feature-flags": path.join(
+      coreSrc,
+      "client/feature-flags/index.ts",
+    ),
+    "@agent-native/core/client/hooks": path.join(
+      coreSrc,
+      "client/hooks/index.ts",
+    ),
+    "@agent-native/core/client/host": path.join(
+      coreSrc,
+      "client/host/index.ts",
+    ),
     "@agent-native/core/client/i18n": path.join(coreSrc, "client/i18n.tsx"),
+    "@agent-native/core/client/integrations": path.join(
+      coreSrc,
+      "client/integrations/index.ts",
+    ),
+    "@agent-native/core/client/navigation": path.join(
+      coreSrc,
+      "client/navigation/index.ts",
+    ),
     "@agent-native/core/client/resources": path.join(
       coreSrc,
       "client/resources/index.ts",
+    ),
+    "@agent-native/core/client/route-chunk-recovery": path.join(
+      coreSrc,
+      "client/route-chunk-recovery/index.ts",
+    ),
+    "@agent-native/core/client/settings": path.join(
+      coreSrc,
+      "client/settings/index.ts",
+    ),
+    "@agent-native/core/client/ui": path.join(coreSrc, "client/ui/index.ts"),
+    "@agent-native/core/client/uploads": path.join(
+      coreSrc,
+      "client/uploads/index.ts",
+    ),
+    "@agent-native/core/client/widgets": path.join(
+      coreSrc,
+      "client/widgets/index.ts",
     ),
     // Dedicated thin subpath — only the URL helpers, no chat stack in the closure.
     "@agent-native/core/client/api-path": path.join(
