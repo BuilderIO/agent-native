@@ -661,9 +661,23 @@ candidate bytes, account coordinates, paths, endpoints, or arbitrary native
 operations. Twenty-two focused bridge, orchestration, transport, and addon
 tests, protocol tests, the complete arm64 coordinator ceremony, the production
 arm64 service build, universal addon load, and desktop typecheck pass. This
-closes the trusted confirmation UI/XPC reachability checkpoint; it does not yet
-make a recoverable product vault because recovery import and the remaining
-broker flows are still absent.
+closes the trusted confirmation UI/XPC reachability checkpoint.
+
+Content Settings now exposes the complete fixed desktop ceremony surface:
+create an encrypted vault, resume an interrupted first-device ceremony, or
+recover this Mac from the hosted ciphertext/control-log projection. The hosted
+webview supplies no arguments to any operation; it cannot provide recovery
+text, a vault identifier, endpoint coordinates, protocol bytes, or an alternate
+origin. The native recovery client streams one pinned-head bootstrap page at a
+time, waits through the content-free native status handshake, and reports
+success only after the restart-safe coordinator has verified the hosted
+receipt, promoted authority/custody, and cleaned its preparation records. The
+browser shows an honest desktop-required state rather than a plaintext
+fallback. Focused IPC, native client, transport, and component tests plus
+desktop and Content typechecks pass; the Settings card has been visually
+verified at desktop and mobile widths. This closes recovery import and the
+trusted product entry point. Broker packaging and lifecycle supervision remain
+the independent PR 5 exit gate.
 
 The hosted broker relay is no longer a PR4 fail-closed stub. Core now freezes
 canonical, bounded request/response frames for the five exact broker-job paths.

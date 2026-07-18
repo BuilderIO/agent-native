@@ -37,6 +37,10 @@ describe("Content Private Vault IPC", () => {
   it("returns only the public admitted identity from fixed no-argument calls", async () => {
     const handlers = createContentPrivateVaultIpcHandlers({
       coordinatorForEvent: () => coordinator(),
+      recoveryForEvent: async () => ({
+        vaultId: "00112233445566778899aabbccddeeff",
+        head: { sequence: 7, hash: "42".repeat(32) },
+      }),
     });
 
     await expect(handlers.create(event)).resolves.toEqual({
@@ -55,12 +59,22 @@ describe("Content Private Vault IPC", () => {
         },
       ],
     });
+    await expect(handlers.recover(event)).resolves.toEqual({
+      ok: true,
+      vaultId: "00112233445566778899aabbccddeeff",
+      sequence: 7,
+      headHash: "42".repeat(32),
+    });
   });
 
   it("rejects every renderer-supplied argument before resolving authority", async () => {
     const coordinatorForEvent = vi.fn(() => coordinator());
     const handlers = createContentPrivateVaultIpcHandlers({
       coordinatorForEvent,
+      recoveryForEvent: async () => ({
+        vaultId: "00112233445566778899aabbccddeeff",
+        head: { sequence: 7, hash: "42".repeat(32) },
+      }),
     });
 
     await expect(
@@ -73,12 +87,19 @@ describe("Content Private Vault IPC", () => {
       ok: false,
       error: "Private Vault is unavailable in this Content surface.",
     });
+    await expect(
+      handlers.recover(event, { vaultId: "forbidden" }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "Private Vault is unavailable in this Content surface.",
+    });
     expect(coordinatorForEvent).not.toHaveBeenCalled();
   });
 
   it("collapses denied surfaces and every ceremony failure", async () => {
     const denied = createContentPrivateVaultIpcHandlers({
       coordinatorForEvent: () => null,
+      recoveryForEvent: () => null,
     });
     const failed = createContentPrivateVaultIpcHandlers({
       coordinatorForEvent: () =>
@@ -90,6 +111,9 @@ describe("Content Private Vault IPC", () => {
             throw new Error("sensitive internal detail");
           },
         }),
+      recoveryForEvent: async () => {
+        throw new Error("sensitive internal detail");
+      },
     });
     const expected = {
       ok: false,
@@ -99,5 +123,7 @@ describe("Content Private Vault IPC", () => {
     await expect(denied.create(event)).resolves.toEqual(expected);
     await expect(failed.create(event)).resolves.toEqual(expected);
     await expect(failed.resume(event)).resolves.toEqual(expected);
+    await expect(denied.recover(event)).resolves.toEqual(expected);
+    await expect(failed.recover(event)).resolves.toEqual(expected);
   });
 });

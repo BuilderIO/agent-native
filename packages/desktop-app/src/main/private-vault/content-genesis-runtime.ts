@@ -1,3 +1,7 @@
+import {
+  PrivateVaultContentBootstrapTransport,
+  type PrivateVaultBootstrapPageConsumer,
+} from "./content-bootstrap-transport.js";
 import { PrivateVaultContentGenesisTransport } from "./content-genesis-transport.js";
 import {
   PrivateVaultGenesisAdmissionCoordinator,
@@ -17,13 +21,17 @@ interface ContentGenesisSession {
  * to ask the signed native UI to begin or resume the fixed ceremony.
  */
 export class PrivateVaultContentGenesisRuntime {
-  readonly #native: PrivateVaultTrustedGenesisOperator;
+  readonly #native: PrivateVaultTrustedGenesisOperator &
+    PrivateVaultBootstrapPageConsumer;
   readonly #coordinators = new WeakMap<
     ContentGenesisSession,
     Map<string, PrivateVaultGenesisAdmissionCoordinator>
   >();
 
-  constructor(native: PrivateVaultTrustedGenesisOperator) {
+  constructor(
+    native: PrivateVaultTrustedGenesisOperator &
+      PrivateVaultBootstrapPageConsumer,
+  ) {
     this.#native = native;
   }
 
@@ -45,6 +53,12 @@ export class PrivateVaultContentGenesisRuntime {
     });
     byOrigin.set(input.origin, coordinator);
     return coordinator;
+  }
+
+  recover(input: { session: ContentGenesisSession; origin: string }) {
+    return new PrivateVaultContentBootstrapTransport(input).transfer(
+      this.#native,
+    );
   }
 }
 

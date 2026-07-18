@@ -1,6 +1,7 @@
 import {
   IPC,
   type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultRecoveryResult,
   type DesktopPrivateVaultResumeGenesisResult,
 } from "@shared/ipc-channels";
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
@@ -13,6 +14,10 @@ export interface ContentPrivateVaultIpcDeps {
   coordinatorForEvent(
     event: IpcMainInvokeEvent,
   ): PrivateVaultGenesisAdmissionCoordinator | null;
+  recoveryForEvent(event: IpcMainInvokeEvent): Promise<{
+    vaultId: string;
+    head: { sequence: number; hash: string };
+  }> | null;
 }
 
 export function createContentPrivateVaultIpcHandlers(
@@ -26,6 +31,10 @@ export function createContentPrivateVaultIpcHandlers(
     event: IpcMainInvokeEvent,
     ...arguments_: unknown[]
   ): Promise<DesktopPrivateVaultResumeGenesisResult>;
+  recover(
+    event: IpcMainInvokeEvent,
+    ...arguments_: unknown[]
+  ): Promise<DesktopPrivateVaultRecoveryResult>;
 } {
   return {
     async create(event, ...arguments_) {
@@ -53,6 +62,22 @@ export function createContentPrivateVaultIpcHandlers(
         return { ok: false, error: UNAVAILABLE };
       }
     },
+    async recover(event, ...arguments_) {
+      try {
+        const recovery =
+          arguments_.length === 0 ? deps.recoveryForEvent(event) : null;
+        if (!recovery) return { ok: false, error: UNAVAILABLE };
+        const result = await recovery;
+        return {
+          ok: true,
+          vaultId: result.vaultId,
+          sequence: result.head.sequence,
+          headHash: result.head.hash,
+        };
+      } catch {
+        return { ok: false, error: UNAVAILABLE };
+      }
+    },
   };
 }
 
@@ -62,4 +87,5 @@ export function registerContentPrivateVaultIpc(
   const handlers = createContentPrivateVaultIpcHandlers(deps);
   ipcMain.handle(IPC.CONTENT_PRIVATE_VAULT_CREATE_GENESIS, handlers.create);
   ipcMain.handle(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS, handlers.resume);
+  ipcMain.handle(IPC.CONTENT_PRIVATE_VAULT_RECOVER, handlers.recover);
 }

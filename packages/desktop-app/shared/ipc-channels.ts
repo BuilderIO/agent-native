@@ -59,6 +59,7 @@ export const IPC = {
   /** Trusted Content Private Vault ceremony (Content webview -> main/native UI) */
   CONTENT_PRIVATE_VAULT_CREATE_GENESIS: "content-private-vault:create-genesis",
   CONTENT_PRIVATE_VAULT_RESUME_GENESIS: "content-private-vault:resume-genesis",
+  CONTENT_PRIVATE_VAULT_RECOVER: "content-private-vault:recover",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -327,6 +328,10 @@ export type DesktopPrivateVaultCreateGenesisResult =
 
 export type DesktopPrivateVaultResumeGenesisResult =
   | { ok: true; vaults: DesktopPrivateVaultGenesisIdentity[] }
+  | { ok: false; error: string };
+
+export type DesktopPrivateVaultRecoveryResult =
+  | { ok: true; vaultId: string; sequence: number; headHash: string }
   | { ok: false; error: string };
 
 export type CodeAgentRunStatus =

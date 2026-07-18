@@ -5730,6 +5730,24 @@ function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
   }
 }
 
+function contentPrivateVaultRecoveryForEvent(event: IpcMainInvokeEvent) {
+  if (!isContentFilesWebviewSender(event)) return null;
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  const origin = contentApp ? getAppOrigin(contentApp) : null;
+  if (!origin) return null;
+  try {
+    if (new URL(origin).protocol !== "https:") return null;
+    return privateVaultContentGenesisRuntime.recover({
+      session: event.sender.session,
+      origin,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function requireContentFilesWebviewAccess(
   event: IpcMainInvokeEvent,
 ): DesktopContentFilesResult | null {
@@ -7897,6 +7915,7 @@ registerContentFilesIpc({
 // recovery text, candidate bytes, account coordinates, paths, or endpoints.
 registerContentPrivateVaultIpc({
   coordinatorForEvent: contentPrivateVaultCoordinatorForEvent,
+  recoveryForEvent: contentPrivateVaultRecoveryForEvent,
 });
 
 // ---------- IPC: Frame settings ----------

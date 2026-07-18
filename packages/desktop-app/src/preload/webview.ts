@@ -12,6 +12,7 @@ import {
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultRecoveryResult,
   type DesktopPrivateVaultResumeGenesisResult,
   type DesktopPlanFilesChooseFolderRequest,
   type DesktopPlanFilesClearFolderRequest,
@@ -102,6 +103,8 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_CREATE_GENESIS),
     resumeGenesis: (): Promise<DesktopPrivateVaultResumeGenesisResult> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS),
+    recover: (): Promise<DesktopPrivateVaultRecoveryResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RECOVER),
   },
 };
 

@@ -10,6 +10,7 @@ import { TeamPage } from "@agent-native/core/client/org";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 
+import { PrivateVaultSettingsCard } from "@/components/settings/PrivateVaultSettingsCard";
 import { Label } from "@/components/ui/label";
 import { messagesByLocale } from "@/i18n-data";
 
@@ -31,6 +32,12 @@ export default function SettingsRoute() {
         label: t("settings.languageTitle"),
         keywords: "language locale translation i18n",
         hash: "language",
+      },
+      {
+        id: "content-private-vault",
+        label: "Private vault",
+        keywords: "security privacy encryption e2ee recovery vault",
+        hash: "private-vault",
       },
     ],
     [t],
@@ -65,6 +72,8 @@ export default function SettingsRoute() {
                 <LanguagePicker label={t("settings.languageLabel")} />
               </div>
             </section>
+
+            <PrivateVaultSettingsCard />
           </main>
         }
         team={
