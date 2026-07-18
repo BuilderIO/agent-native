@@ -2627,6 +2627,20 @@ pub async fn native_fullscreen_recording_retry_upload(
 }
 
 #[tauri::command]
+pub async fn native_fullscreen_recording_mark_upload_error(
+    app: AppHandle,
+    recording_id: String,
+    error: String,
+) -> Result<(), String> {
+    let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
+    saved.last_attempt_at = Some(now_iso());
+    saved.last_error = Some(error);
+    write_saved_recording_metadata(&app, &saved)?;
+    let _ = app.emit("clips:pending-uploads-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn native_fullscreen_recording_dismiss_upload(
     app: AppHandle,
     recording_id: String,

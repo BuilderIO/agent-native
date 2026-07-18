@@ -141,6 +141,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_rotate_segment,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
+            native_screen::native_fullscreen_recording_mark_upload_error,
             native_screen::native_fullscreen_recording_dismiss_upload,
             native_screen::native_fullscreen_open_drafts_folder,
             // local-only always-on screen memory compatibility helpers

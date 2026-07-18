@@ -1,3 +1,5 @@
+import { appStateGet } from "@agent-native/core/application-state";
+
 export const MEDIA_VERIFICATION_STATE_PREFIX = "recording-media-verification-";
 
 export type MediaVerificationMarker = {
@@ -35,4 +37,19 @@ export function parseMediaVerificationMarker(
     return null;
   }
   return state as MediaVerificationMarker;
+}
+
+export async function isMediaVerificationPending(args: {
+  ownerEmail: string;
+  recordingId: string;
+  recordingStatus: string;
+}): Promise<boolean> {
+  if (args.recordingStatus !== "processing") return false;
+
+  const value = await appStateGet(
+    args.ownerEmail,
+    mediaVerificationStateKey(args.recordingId),
+  ).catch(() => null);
+  const marker = parseMediaVerificationMarker(value);
+  return marker?.recordingId === args.recordingId;
 }

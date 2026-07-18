@@ -3,11 +3,10 @@
     "name": "Agent Native",
     "slug": "agent-native-mobile",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "agentnative",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.agentnative.mobile",
       "supportsTablet": true,
@@ -26,7 +25,43 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-router", "expo-web-browser", "expo-notifications"],
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Agent Native to record dictation, meetings, and audio notes you start.",
+          "enableBackgroundRecording": true,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Agent Native to record videos you choose to share.",
+          "microphonePermission": "Allow Agent Native to record sound with your videos.",
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Agent Native to import videos you choose from your library.",
+          "cameraPermission": "Allow Agent Native to record videos you choose to share.",
+          "microphonePermission": "Allow Agent Native to record sound with your videos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      "./plugins/with-mobile-companion",
+      "./plugins/with-ios-app-intents",
+      "./plugins/with-android-capture-tile"
+    ],
     "extra": {
       "router": {},
       "eas": {

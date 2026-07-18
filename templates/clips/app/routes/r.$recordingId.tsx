@@ -376,6 +376,7 @@ export default function RecordingPage() {
   }, [recordingId, playerDataForbidden, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const verificationPending = recording?.verificationPending === true;
   const role = playerDataQ.data?.role as
     | "owner"
     | "admin"
@@ -781,13 +782,22 @@ export default function RecordingPage() {
       setProcessingTimeout(false);
       return;
     }
+    if (verificationPending) {
+      setProcessingTimeout(false);
+      return;
+    }
     const timeoutMs =
       recording.status === "processing"
         ? PROCESSING_STUCK_TIMEOUT_MS
         : UPLOAD_STUCK_TIMEOUT_MS;
     const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
-  }, [recording?.status, recording?.videoUrl, recordingId]);
+  }, [
+    recording?.status,
+    recording?.videoUrl,
+    recordingId,
+    verificationPending,
+  ]);
 
   usePlayerShortcuts({ playerRef, chapters });
 
@@ -873,7 +883,8 @@ export default function RecordingPage() {
       isNativeSaveFailureReason(rawFailureReason);
     // Give a long-running desktop save an actionable recovery state without
     // claiming the upload failed while its bounded final request is still live.
-    const stuckFailure = !explicitFailure && processingTimeout;
+    const stuckFailure =
+      !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || waitingForStorage || nativeSaveFailed;
     const showRecoveryState = isFailure || stuckFailure;
     const displayReason = explicitFailure

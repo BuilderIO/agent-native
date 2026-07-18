@@ -14,6 +14,18 @@ export interface LocalRecordingProof {
 
 export type FinalizeReceiptStatus = "processing" | "ready";
 
+export function parseFinalizeReceipt(body: string): FinalizeReceipt | null {
+  if (!body) return null;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed && typeof parsed === "object"
+      ? (parsed as FinalizeReceipt)
+      : null;
+  } catch {
+    throw new Error("Upload returned an invalid finalization response");
+  }
+}
+
 export function verifyFinalizeReceipt(
   receipt: FinalizeReceipt | null,
   local: LocalRecordingProof,
