@@ -102,6 +102,8 @@ describe("parseUpgradeArgs", () => {
       parseUpgradeArgs([
         "check",
         "--dry-run",
+        "--codemods",
+        "--yes",
         "--skip-install",
         "--skip-skills",
         "--skip-verify",
@@ -113,6 +115,8 @@ describe("parseUpgradeArgs", () => {
     ).toEqual({
       command: "check",
       dryRun: true,
+      codemods: true,
+      yes: true,
       skipInstall: true,
       skipSkills: true,
       skipVerify: true,
