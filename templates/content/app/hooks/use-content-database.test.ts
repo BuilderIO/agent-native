@@ -12,14 +12,61 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
+  contentNotificationPreferenceQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
+  writeContentNotificationPreferenceResponseToCache,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+it("writes successful notification mutations to the flat GET cache key", () => {
+  const queryClient = new QueryClient();
+  const target = {
+    scope: "item" as const,
+    databaseId: "database",
+    documentId: "document",
+  };
+
+  writeContentNotificationPreferenceResponseToCache(queryClient, {
+    target,
+    preference: {
+      id: "preference",
+      ownerEmail: "owner@example.com",
+      orgId: "organization",
+      scope: "item",
+      scopeId: "document",
+      databaseId: "database",
+      subscriptionId: null,
+      documentId: "document",
+      enabled: false,
+      createdAt,
+      updatedAt: createdAt,
+    },
+  });
+
+  expect(
+    queryClient.getQueryData(contentNotificationPreferenceQueryKey(target)),
+  ).toMatchObject({
+    target,
+    documentId: "document",
+    preference: {
+      enabled: false,
+      source: "item",
+      preferenceId: "preference",
+    },
+  });
+  expect(
+    queryClient.getQueryData([
+      "action",
+      "get-content-notification-preference",
+      { target },
+    ]),
+  ).toBeUndefined();
+});
 
 function databaseResponse(): ContentDatabaseResponse {
   return {

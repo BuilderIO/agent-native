@@ -1,9 +1,101 @@
 import type { LocaleCode } from "@agent-native/core/client";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { databasePolicyMessagesByLocale } from "./database-policy-i18n";
+import { hookMessagesByLocale } from "./hook-i18n";
+import { hookRuntimeMessagesByLocale } from "./hook-runtime-i18n";
 import zhTW from "./i18n/zh-TW";
+import { validationMessagesByLocale } from "./validation-i18n";
 
 const databaseMessages = {
+  ...databasePolicyMessagesByLocale["en-US"],
+  ...hookRuntimeMessagesByLocale["en-US"],
+  ...validationMessagesByLocale["en-US"],
+  setPropertyEffect: "Set property",
+  propertyToSet: "Property to set",
+  propertyValue: "Property value",
+  propertyValuePlaceholder: "Enter text or a JSON value",
+  hookCycleStopped: "Stopped a cyclic rule chain",
+  hookDepthStopped: "Stopped the rule chain at the depth limit",
+  notificationsAndHooks: "Rules",
+  notificationRulesDescription:
+    "Run actions when items in this database change.",
+  addNotificationRule: "New rule",
+  noNotificationRules: "No rules yet.",
+  whenItemSubmitted: "When an item is submitted",
+  whenItemCreated: "When an item is created",
+  whenPropertyChanges: "When a property changes",
+  ruleEnabled: "Active",
+  rulePaused: "Paused",
+  ruleName: "Rule name",
+  ruleNamePlaceholder: "Ready for review",
+  when: "When",
+  if: "If",
+  addConditions: "Add conditions",
+  removeConditions: "Remove conditions",
+  matchAllConditions: "Match all conditions",
+  matchAnyCondition: "Match any condition",
+  operatorEquals: "Equals",
+  operatorNotEquals: "Does not equal",
+  operatorContains: "Contains",
+  operatorIsEmpty: "Is empty",
+  operatorIsNotEmpty: "Is not empty",
+  removeCondition: "Remove condition",
+  addCondition: "Add condition",
+  conditionValuePlaceholder: "Enter text or a JSON value",
+  anItemIsSubmitted: "An item is submitted",
+  itemCreatedUnavailable: "An item is created (not available yet)",
+  anItemIsCreated: "An item is created",
+  aPropertyChanges: "A property changes",
+  property: "Property",
+  chooseAProperty: "Choose a property",
+  resultingOption: "Resulting option",
+  anyOption: "Any option",
+  previousOptionCondition: "Add a previous-value condition",
+  previousOption: "Previous option",
+  effects: "Actions",
+  addEffect: "Add action",
+  personalNotification: "Personal notification",
+  teamSlackAnnouncement: "Team Slack announcement",
+  signedWebhook: "Signed webhook",
+  removeEffect: "Remove action",
+  slackWebhookSecretKey: "Slack webhook secret key",
+  webhookUrlSecretKey: "Webhook URL secret key",
+  webhookSigningSecretKey: "Webhook signing secret key",
+  personalDatabaseNotifications: "Personal database notifications",
+  personalDatabaseNotificationsDescription:
+    "Receive notifications from this database unless a rule or item overrides it.",
+  personal: "Personal",
+  personalContentNotifications: "Personal Content notifications",
+  personalContentNotificationsDescription:
+    "Set your default for personal notifications across Content.",
+  unsubscribeFromItem: "Mute notifications for this item",
+  subscribeToItem: "Receive notifications for this item",
+  notifyPeopleIn: "Notify people in",
+  choosePersonProperty: "Choose a Person property",
+  personPropertyRequired:
+    "Add a Person property to this database before creating this rule.",
+  ruleEnabledDescription: "Run this rule when matching changes are committed.",
+  saveRule: "Save rule",
+  deleteRule: "Delete rule",
+  deleteNotificationRuleQuestion: "Delete this rule?",
+  deleteNotificationRuleDescription:
+    "Future matching changes will no longer run these actions. Existing run history is kept.",
+  notificationRuleCreated: "Rule created",
+  notificationRuleUpdated: "Rule updated",
+  notificationRuleDeleted: "Rule deleted",
+  notificationRuleSaveFailed: "Couldn’t save rule",
+  notificationRuleDeleteFailed: "Couldn’t delete rule",
+  latestHookExecutions: "Run history",
+  noHookExecutions: "This database has no rule runs yet.",
+  deletedRule: "Deleted rule",
+  executionPending: "Pending",
+  executionRunning: "Running",
+  executionSucceeded: "Succeeded",
+  executionFailed: "Failed",
+  executionRetrying: "Retrying",
+  executionUnknown: "Unknown",
+  executionAcknowledged: "Acknowledged",
   aField: "a field",
   addAnotherItemSourceBeforeChangingToDetails:
     "Add another item source before changing this source to details.",
@@ -463,8 +555,18 @@ const databaseMessages = {
 
 const databaseMessagesByLocale = {
   "en-US": databaseMessages,
-  "zh-TW": zhTW.database,
+  "zh-TW": {
+    ...zhTW.database,
+    ...hookMessagesByLocale["zh-TW"],
+    ...hookRuntimeMessagesByLocale["zh-TW"],
+    ...databasePolicyMessagesByLocale["zh-TW"],
+    ...validationMessagesByLocale["zh-TW"],
+  },
   "zh-CN": {
+    ...hookMessagesByLocale["zh-CN"],
+    ...hookRuntimeMessagesByLocale["zh-CN"],
+    ...databasePolicyMessagesByLocale["zh-CN"],
+    ...validationMessagesByLocale["zh-CN"],
     formChecked: "已勾选",
     formChooseOption: "选择一个选项",
     formDescription: "填写以下问题以向此数据库添加页面。",
@@ -666,6 +768,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "换行显示所有内容",
   },
   "es-ES": {
+    ...hookMessagesByLocale["es-ES"],
+    ...hookRuntimeMessagesByLocale["es-ES"],
+    ...databasePolicyMessagesByLocale["es-ES"],
+    ...validationMessagesByLocale["es-ES"],
     formChecked: "Marcado",
     formChooseOption: "Elige una opción",
     formDescription:
@@ -889,6 +995,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Ajustar todo el contenido",
   },
   "fr-FR": {
+    ...hookMessagesByLocale["fr-FR"],
+    ...hookRuntimeMessagesByLocale["fr-FR"],
+    ...databasePolicyMessagesByLocale["fr-FR"],
+    ...validationMessagesByLocale["fr-FR"],
     formChecked: "Coché",
     formChooseOption: "Choisir une option",
     formDescription:
@@ -1113,6 +1223,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Renvoyer tout le contenu à la ligne",
   },
   "de-DE": {
+    ...hookMessagesByLocale["de-DE"],
+    ...hookRuntimeMessagesByLocale["de-DE"],
+    ...databasePolicyMessagesByLocale["de-DE"],
+    ...validationMessagesByLocale["de-DE"],
     formChecked: "Ausgewählt",
     formChooseOption: "Option auswählen",
     formDescription:
@@ -1337,6 +1451,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Gesamten Inhalt umbrechen",
   },
   "ja-JP": {
+    ...hookMessagesByLocale["ja-JP"],
+    ...hookRuntimeMessagesByLocale["ja-JP"],
+    ...databasePolicyMessagesByLocale["ja-JP"],
+    ...validationMessagesByLocale["ja-JP"],
     formChecked: "チェック済み",
     formChooseOption: "オプションを選択",
     formDescription:
@@ -1555,6 +1673,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "すべての内容を折り返す",
   },
   "ko-KR": {
+    ...hookMessagesByLocale["ko-KR"],
+    ...hookRuntimeMessagesByLocale["ko-KR"],
+    ...databasePolicyMessagesByLocale["ko-KR"],
+    ...validationMessagesByLocale["ko-KR"],
     formChecked: "선택됨",
     formChooseOption: "옵션 선택",
     formDescription:
@@ -1770,6 +1892,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "모든 콘텐츠 줄바꿈",
   },
   "pt-BR": {
+    ...hookMessagesByLocale["pt-BR"],
+    ...hookRuntimeMessagesByLocale["pt-BR"],
+    ...databasePolicyMessagesByLocale["pt-BR"],
+    ...validationMessagesByLocale["pt-BR"],
     formChecked: "Marcado",
     formChooseOption: "Escolha uma opção",
     formDescription:
@@ -1993,6 +2119,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Quebrar todo o conteúdo",
   },
   "hi-IN": {
+    ...hookMessagesByLocale["hi-IN"],
+    ...hookRuntimeMessagesByLocale["hi-IN"],
+    ...databasePolicyMessagesByLocale["hi-IN"],
+    ...validationMessagesByLocale["hi-IN"],
     formChecked: "चयनित",
     formChooseOption: "एक विकल्प चुनें",
     formDescription: "इस डेटाबेस में पेज जोड़ने के लिए नीचे दिए सवाल भरें।",
@@ -2203,6 +2333,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "सभी सामग्री रैप करें",
   },
   "ar-SA": {
+    ...hookMessagesByLocale["ar-SA"],
+    ...hookRuntimeMessagesByLocale["ar-SA"],
+    ...databasePolicyMessagesByLocale["ar-SA"],
+    ...validationMessagesByLocale["ar-SA"],
     formChecked: "محدد",
     formChooseOption: "اختر خيارا",
     formDescription: "أجب عن الأسئلة أدناه لإضافة صفحة إلى قاعدة البيانات هذه.",
@@ -2685,6 +2819,13 @@ const editorToolbarMessages = {
   morePageActions: "More page actions",
   noPagesFound: "No pages found",
   notifications: "Notifications",
+  muteNotificationsForPage: "Mute notifications for this page",
+  receiveNotificationsForPage: "Receive notifications for this page",
+  databasePageNotificationScope:
+    "Applies to this database page. Rows have their own notification settings.",
+  notificationsMutedForPage: "Notifications muted for this page",
+  notificationsEnabledForPage: "Notifications enabled for this page",
+  notificationPreferenceUpdateFailed: "Couldn’t update notification preference",
   notionSync: "Notion sync",
   notionPageUrlOrId: "Notion page URL or page ID",
   open: "Open",
@@ -5684,6 +5825,13 @@ const editorMessagesByLocale = {
       morePageActions: "更多页面操作",
       noPagesFound: "没有找到页面",
       notifications: "通知",
+      muteNotificationsForPage: "将此页面的通知设为静音",
+      receiveNotificationsForPage: "接收此页面的通知",
+      databasePageNotificationScope:
+        "仅适用于此数据库页面。各行有自己的通知设置。",
+      notificationsMutedForPage: "已将此页面的通知设为静音",
+      notificationsEnabledForPage: "已启用此页面的通知",
+      notificationPreferenceUpdateFailed: "无法更新通知偏好设置",
       notionSync: "概念同步",
       openInNotion: "在概念中打开",
       orgCanFindAndView: "您组织中的任何人都可以查找和查看",
@@ -6025,6 +6173,14 @@ const editorMessagesByLocale = {
       morePageActions: "Más acciones de página",
       noPagesFound: "No se encontraron páginas",
       notifications: "Notificaciones",
+      muteNotificationsForPage: "Silenciar las notificaciones de esta página",
+      receiveNotificationsForPage: "Recibir notificaciones de esta página",
+      databasePageNotificationScope:
+        "Se aplica a esta página de base de datos. Las filas tienen su propia configuración de notificaciones.",
+      notificationsMutedForPage: "Notificaciones silenciadas para esta página",
+      notificationsEnabledForPage: "Notificaciones activadas para esta página",
+      notificationPreferenceUpdateFailed:
+        "No se pudo actualizar la preferencia de notificaciones",
       notionSync: "Sincronización de nociones",
       openInNotion: "Abierto en noción",
       orgCanFindAndView:
@@ -6375,6 +6531,14 @@ const editorMessagesByLocale = {
       morePageActions: "Plus d'actions sur la page",
       noPagesFound: "Aucune page trouvée",
       notifications: "Notifications [fr-FR]",
+      muteNotificationsForPage: "Désactiver les notifications pour cette page",
+      receiveNotificationsForPage: "Recevoir les notifications de cette page",
+      databasePageNotificationScope:
+        "S’applique à cette page de base de données. Les lignes ont leurs propres paramètres de notification.",
+      notificationsMutedForPage: "Notifications désactivées pour cette page",
+      notificationsEnabledForPage: "Notifications activées pour cette page",
+      notificationPreferenceUpdateFailed:
+        "Impossible de mettre à jour les préférences de notification",
       notionSync: "Synchronisation des notions",
       openInNotion: "Ouvrir dans Notion",
       orgCanFindAndView:
@@ -6727,6 +6891,18 @@ const editorMessagesByLocale = {
       morePageActions: "Weitere Seitenaktionen",
       noPagesFound: "Keine Seiten gefunden",
       notifications: "Benachrichtigungen",
+      muteNotificationsForPage:
+        "Benachrichtigungen für diese Seite stummschalten",
+      receiveNotificationsForPage:
+        "Benachrichtigungen für diese Seite erhalten",
+      databasePageNotificationScope:
+        "Gilt für diese Datenbankseite. Zeilen haben eigene Benachrichtigungseinstellungen.",
+      notificationsMutedForPage:
+        "Benachrichtigungen für diese Seite stummgeschaltet",
+      notificationsEnabledForPage:
+        "Benachrichtigungen für diese Seite aktiviert",
+      notificationPreferenceUpdateFailed:
+        "Benachrichtigungseinstellung konnte nicht aktualisiert werden",
       notionSync: "Begriffssynchronisierung",
       openInNotion: "In Notion öffnen",
       orgCanFindAndView:
@@ -7073,6 +7249,13 @@ const editorMessagesByLocale = {
       morePageActions: "その他のページアクション",
       noPagesFound: "ページが見つかりませんでした",
       notifications: "通知",
+      muteNotificationsForPage: "このページの通知をミュート",
+      receiveNotificationsForPage: "このページの通知を受け取る",
+      databasePageNotificationScope:
+        "このデータベースページに適用されます。各行には独自の通知設定があります。",
+      notificationsMutedForPage: "このページの通知をミュートしました",
+      notificationsEnabledForPage: "このページの通知を有効にしました",
+      notificationPreferenceUpdateFailed: "通知設定を更新できませんでした",
       notionSync: "Notionの同期",
       openInNotion: "概念で開く",
       orgCanFindAndView: "組織内の誰でも検索して表示できます",
@@ -7416,6 +7599,14 @@ const editorMessagesByLocale = {
       morePageActions: "추가 페이지 작업",
       noPagesFound: "페이지를 찾을 수 없습니다",
       notifications: "알림",
+      muteNotificationsForPage: "이 페이지 알림 음소거",
+      receiveNotificationsForPage: "이 페이지 알림 받기",
+      databasePageNotificationScope:
+        "이 데이터베이스 페이지에 적용됩니다. 각 행에는 자체 알림 설정이 있습니다.",
+      notificationsMutedForPage: "이 페이지의 알림이 음소거되었습니다",
+      notificationsEnabledForPage: "이 페이지의 알림이 활성화되었습니다",
+      notificationPreferenceUpdateFailed:
+        "알림 환경설정을 업데이트할 수 없습니다",
       notionSync: "노션싱크",
       openInNotion: "노션에서 열기",
       orgCanFindAndView: "조직의 모든 사용자가 찾고 볼 수 있습니다.",
@@ -7762,6 +7953,14 @@ const editorMessagesByLocale = {
       morePageActions: "Mais ações de página",
       noPagesFound: "Nenhuma página encontrada",
       notifications: "Notificações",
+      muteNotificationsForPage: "Silenciar notificações desta página",
+      receiveNotificationsForPage: "Receber notificações desta página",
+      databasePageNotificationScope:
+        "Aplica-se a esta página de banco de dados. As linhas têm suas próprias configurações de notificação.",
+      notificationsMutedForPage: "Notificações silenciadas para esta página",
+      notificationsEnabledForPage: "Notificações ativadas para esta página",
+      notificationPreferenceUpdateFailed:
+        "Não foi possível atualizar a preferência de notificações",
       notionSync: "Sincronização de noções",
       openInNotion: "Aberto em noção",
       orgCanFindAndView:
@@ -8103,6 +8302,13 @@ const editorMessagesByLocale = {
       morePageActions: "अधिक पृष्ठ क्रियाएँ",
       noPagesFound: "कोई पेज नहीं मिला",
       notifications: "सूचनाएं",
+      muteNotificationsForPage: "इस पेज की सूचनाएं म्यूट करें",
+      receiveNotificationsForPage: "इस पेज की सूचनाएं पाएं",
+      databasePageNotificationScope:
+        "यह इस डेटाबेस पेज पर लागू होता है। पंक्तियों की अपनी सूचना सेटिंग होती हैं।",
+      notificationsMutedForPage: "इस पेज की सूचनाएं म्यूट की गईं",
+      notificationsEnabledForPage: "इस पेज की सूचनाएं चालू की गईं",
+      notificationPreferenceUpdateFailed: "सूचना प्राथमिकता अपडेट नहीं की जा सकी",
       notionSync: "धारणा सिंक",
       openInNotion: "धारणा में खोलें",
       orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
@@ -8441,6 +8647,13 @@ const editorMessagesByLocale = {
       morePageActions: "المزيد من إجراءات الصفحة",
       noPagesFound: "لم يتم العثور على صفحات",
       notifications: "الإخطارات",
+      muteNotificationsForPage: "كتم إشعارات هذه الصفحة",
+      receiveNotificationsForPage: "تلقي إشعارات هذه الصفحة",
+      databasePageNotificationScope:
+        "ينطبق على صفحة قاعدة البيانات هذه. للصفوف إعدادات إشعارات خاصة بها.",
+      notificationsMutedForPage: "تم كتم إشعارات هذه الصفحة",
+      notificationsEnabledForPage: "تم تفعيل إشعارات هذه الصفحة",
+      notificationPreferenceUpdateFailed: "تعذر تحديث تفضيل الإشعارات",
       notionSync: "مزامنة الفكرة",
       openInNotion: "فتح في Notion",
       orgCanFindAndView: "يمكن لأي شخص في مؤسستك البحث والعرض",
@@ -8728,7 +8941,16 @@ function mergeMessagesForLocale(
 
 export const messagesByLocale = {
   "en-US": enUS,
-  "zh-TW": mergeMessagesForLocale("zh-TW", zhTW),
+  "zh-TW": mergeMessagesForLocale("zh-TW", {
+    ...zhTW,
+    database: {
+      ...zhTW.database,
+      ...hookMessagesByLocale["zh-TW"],
+      ...hookRuntimeMessagesByLocale["zh-TW"],
+      ...databasePolicyMessagesByLocale["zh-TW"],
+      ...validationMessagesByLocale["zh-TW"],
+    },
+  }),
   "zh-CN": mergeMessagesForLocale("zh-CN", {
     database: {
       ...databaseMessagesByLocale["zh-CN"],

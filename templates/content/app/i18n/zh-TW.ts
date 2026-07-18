@@ -1,5 +1,10 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
+import { databasePolicyMessagesByLocale } from "../database-policy-i18n";
+import { hookMessagesByLocale } from "../hook-i18n";
+import { hookRuntimeMessagesByLocale } from "../hook-runtime-i18n";
+import { validationMessagesByLocale } from "../validation-i18n";
+
 const messages = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
@@ -507,6 +512,13 @@ const messages = {
       morePageActions: "更多頁面操作",
       noPagesFound: "沒有找到頁面",
       notifications: "通知",
+      muteNotificationsForPage: "將此頁面的通知設為靜音",
+      receiveNotificationsForPage: "接收此頁面的通知",
+      databasePageNotificationScope:
+        "僅適用於此資料庫頁面。各列有自己的通知設定。",
+      notificationsMutedForPage: "已將此頁面的通知設為靜音",
+      notificationsEnabledForPage: "已啟用此頁面的通知",
+      notificationPreferenceUpdateFailed: "無法更新通知偏好設定",
       notionSync: "概念同步",
       notionPageUrlOrId: "Notion 頁面 URL 或頁面 ID",
       open: "開啟",
@@ -568,6 +580,10 @@ const messages = {
     updated: "Actualizado {{date}}",
   },
   database: {
+    ...hookMessagesByLocale["zh-TW"],
+    ...hookRuntimeMessagesByLocale["zh-TW"],
+    ...databasePolicyMessagesByLocale["zh-TW"],
+    ...validationMessagesByLocale["zh-TW"],
     formChecked: "已勾選",
     formChooseOption: "選擇一個選項",
     formDescription: "填寫以下問題，將頁面新增至此資料庫。",

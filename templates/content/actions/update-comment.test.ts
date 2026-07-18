@@ -17,7 +17,9 @@ type Row = {
 const state = vi.hoisted(() => ({ rows: [] as Row[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
-const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockWriteAppState = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
@@ -112,6 +114,7 @@ function run(args: {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockWriteAppState.mockResolvedValue(undefined);
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.rows = [
     {

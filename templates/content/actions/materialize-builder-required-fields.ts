@@ -19,6 +19,7 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { assertContentDatabaseSchemaUnlocked } from "./_content-database-hooks.js";
 import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
@@ -267,6 +268,7 @@ export default defineAction({
   run: async (args) => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
+    assertContentDatabaseSchemaUnlocked(database);
     await assertAccess("document", database.documentId, "editor");
     const db = getDb();
     const sourceFilters = [

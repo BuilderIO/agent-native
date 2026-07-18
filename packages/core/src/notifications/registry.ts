@@ -4,6 +4,8 @@ import { emit as emitBusEvent } from "../event-bus/bus.js";
 import { registerEvent } from "../event-bus/registry.js";
 import type { EventDefinition } from "../event-bus/types.js";
 import { truncate } from "../shared/truncate.js";
+import { recordNotificationDeliveryAttempt } from "../workflow/store.js";
+import type { WorkflowDeliveryStatus } from "../workflow/types.js";
 import { insertNotification, updateDeliveredChannels } from "./store.js";
 import {
   NOTIFICATION_SEVERITIES,
@@ -11,23 +13,36 @@ import {
   type NotificationInput,
   type NotificationMeta,
   type Notification,
+  type NotificationChannelOutcome,
 } from "./types.js";
+
+export interface NotificationChannelDeliveryOutcome {
+  channel: string;
+  status: "delivered" | "unknown" | "skipped" | "failed";
+  evidence?: Record<string, unknown>;
+  errorMessage?: string;
+}
 
 export interface NotificationDeliveryResult {
   notification?: Notification;
   deliveredChannels: string[];
+  unknownChannels: string[];
+  skippedChannels: string[];
+  failedChannels: string[];
+  channelOutcomes: NotificationChannelDeliveryOutcome[];
 }
 
 registerEvent({
   name: "notification.sent",
   description:
-    "Fires after notify() delivers to at least one channel. Automations can chain off this — e.g. fan critical notifications to Slack.",
+    "Fires after notify() delivers to or is accepted by at least one channel. Automations can chain off this — e.g. fan critical notifications to Slack.",
   payloadSchema: z.object({
     notificationId: z.string().optional(),
     severity: z.enum(NOTIFICATION_SEVERITIES),
     title: z.string(),
     body: z.string().optional(),
     deliveredChannels: z.array(z.string()),
+    unknownChannels: z.array(z.string()),
   }) as unknown as EventDefinition["payloadSchema"],
   example: {
     notificationId: "ntf_abc",
@@ -35,6 +50,7 @@ registerEvent({
     title: "Payment failed",
     body: "Card ending 4242 declined",
     deliveredChannels: ["inbox", "webhook"],
+    unknownChannels: [],
   },
 });
 
@@ -109,10 +125,11 @@ export async function notifyWithDelivery(
 
   // The inbox channel is always included unless explicitly excluded.
   const runInbox = !input.channels || input.channels.includes("inbox");
-  const delivered: string[] = [];
+  const outcomes: NotificationChannelDeliveryOutcome[] = [];
   let stored: Notification | undefined;
 
   if (runInbox) {
+    await recordDelivery(meta, "inbox", "unknown");
     try {
       // Stored with just "inbox" first; the real delivered list is written
       // after fan-out so a failing webhook doesn't claim it was delivered.
@@ -124,24 +141,53 @@ export async function notifyWithDelivery(
         metadata: storedMetadata,
         deliveredChannels: ["inbox"],
       });
-      delivered.push("inbox");
+      outcomes.push({
+        channel: "inbox",
+        status: "delivered",
+        evidence: { notificationId: stored.id },
+      });
+      await recordDelivery(meta, "inbox", "delivered", stored.id);
     } catch (err) {
+      if (err instanceof WorkflowDeliveryLedgerError) throw err;
       console.error("[notifications] inbox persist failed:", err);
+      await recordDelivery(meta, "inbox", "failed", undefined, err);
+      outcomes.push({
+        channel: "inbox",
+        status: "failed",
+        errorMessage: errorMessage(err),
+      });
     }
   }
 
   // Await every channel so a 500-ing webhook doesn't end up in `delivered`.
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      const delivered = await channel.deliver(input, meta);
-      // Explicit `false` means the channel skipped (no URL / recipients).
-      if (delivered === false) return null;
-      return channel.name;
+      await recordDelivery(meta, channel.name, "unknown", stored?.id);
+      try {
+        const rawOutcome = await channel.deliver(input, meta);
+        const outcome = normalizeChannelOutcome(channel.name, rawOutcome);
+        await recordDelivery(
+          meta,
+          channel.name,
+          outcome.status,
+          stored?.id,
+          outcome.errorMessage,
+        );
+        return outcome;
+      } catch (error) {
+        if (error instanceof WorkflowDeliveryLedgerError) throw error;
+        await recordDelivery(meta, channel.name, "failed", stored?.id, error);
+        return {
+          channel: channel.name,
+          status: "failed" as const,
+          errorMessage: errorMessage(error),
+        };
+      }
     }),
   );
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
-      if (r.value) delivered.push(r.value);
+      outcomes.push(r.value);
     } else {
       console.error(
         `[notifications] channel "${channels[i].name}" failed:`,
@@ -149,6 +195,17 @@ export async function notifyWithDelivery(
       );
     }
   });
+  const ledgerFailure = results.find(
+    (result) =>
+      result.status === "rejected" &&
+      result.reason instanceof WorkflowDeliveryLedgerError,
+  );
+  if (ledgerFailure?.status === "rejected") throw ledgerFailure.reason;
+
+  const delivered = channelsForStatus(outcomes, "delivered");
+  const unknown = channelsForStatus(outcomes, "unknown");
+  const skipped = channelsForStatus(outcomes, "skipped");
+  const failed = channelsForStatus(outcomes, "failed");
 
   const hasExtraChannel = delivered.some((c) => c !== "inbox");
   if (stored && hasExtraChannel) {
@@ -163,7 +220,7 @@ export async function notifyWithDelivery(
   // Only emit when at least one channel delivered — an emission with an
   // empty delivery list (and likely a null notificationId) would mislead
   // any automation chaining off this event.
-  if (delivered.length > 0) {
+  if (delivered.length > 0 || unknown.length > 0) {
     try {
       emitBusEvent(
         "notification.sent",
@@ -173,6 +230,7 @@ export async function notifyWithDelivery(
           title: input.title,
           body: input.body,
           deliveredChannels: delivered,
+          unknownChannels: unknown,
         },
         { owner: meta.owner },
       );
@@ -181,7 +239,94 @@ export async function notifyWithDelivery(
     }
   }
 
-  return { notification: stored, deliveredChannels: delivered };
+  return {
+    notification: stored,
+    deliveredChannels: delivered,
+    unknownChannels: unknown,
+    skippedChannels: skipped,
+    failedChannels: failed,
+    channelOutcomes: outcomes,
+  };
+}
+
+async function recordDelivery(
+  meta: NotificationMeta,
+  channel: string,
+  status: WorkflowDeliveryStatus,
+  notificationId?: string,
+  error?: unknown,
+): Promise<void> {
+  if (!meta.workflowEffectId) return;
+  try {
+    await recordNotificationDeliveryAttempt({
+      effectId: meta.workflowEffectId,
+      notificationId,
+      channel,
+      attempt: meta.workflowAttempt ?? 1,
+      status,
+      errorMessage:
+        error == null
+          ? undefined
+          : error instanceof Error
+            ? error.message
+            : String(error),
+    });
+  } catch (ledgerError) {
+    throw new WorkflowDeliveryLedgerError(channel, ledgerError);
+  }
+}
+
+function normalizeChannelOutcome(
+  channel: string,
+  outcome: void | boolean | NotificationChannelOutcome,
+): NotificationChannelDeliveryOutcome {
+  if (outcome === false) return { channel, status: "skipped" };
+  if (outcome == null || outcome === true) {
+    return { channel, status: "unknown" };
+  }
+  if (outcome.status === "delivered") {
+    if (Object.keys(outcome.evidence).length === 0) {
+      return { channel, status: "unknown" };
+    }
+    return { channel, status: "delivered", evidence: outcome.evidence };
+  }
+  if (outcome.status === "unknown") {
+    return { channel, status: "unknown", evidence: outcome.evidence };
+  }
+  if (outcome.status === "skipped") {
+    return {
+      channel,
+      status: "skipped",
+      errorMessage: outcome.reason,
+    };
+  }
+  return {
+    channel,
+    status: "failed",
+    errorMessage: outcome.errorMessage,
+  };
+}
+
+function channelsForStatus(
+  outcomes: NotificationChannelDeliveryOutcome[],
+  status: NotificationChannelDeliveryOutcome["status"],
+): string[] {
+  return outcomes
+    .filter((outcome) => outcome.status === status)
+    .map((outcome) => outcome.channel);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+class WorkflowDeliveryLedgerError extends Error {
+  constructor(channel: string, cause: unknown) {
+    super(`Notification delivery ledger failed for channel "${channel}"`, {
+      cause,
+    });
+    this.name = "WorkflowDeliveryLedgerError";
+  }
 }
 
 function scrubStoredMetadata(

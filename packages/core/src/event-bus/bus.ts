@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
+import { assertEphemeralEventTopic } from "./authority.js";
 import { getEvent } from "./registry.js";
 import type { EventMeta } from "./types.js";
 
@@ -43,6 +44,7 @@ export function subscribe(event: string, handler: Handler): string {
   if (typeof handler !== "function") {
     throw new Error("subscribe: handler must be a function");
   }
+  assertEphemeralEventTopic("subscribe", event);
   const bus = getBus();
   const id = randomUUID();
   bus.subscriptions.set(id, { event, handler });
@@ -67,6 +69,7 @@ export function emit(
   if (typeof event !== "string" || !event) {
     throw new Error("emit: event name is required");
   }
+  assertEphemeralEventTopic("emit", event);
   const bus = getBus();
   const def = getEvent(event);
 

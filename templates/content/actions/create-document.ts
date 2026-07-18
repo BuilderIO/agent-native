@@ -21,6 +21,11 @@ import {
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  appendContentWorkflowEvent,
+  contentWorkflowFingerprint,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 function nanoid(size = 12): string {
@@ -108,7 +113,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -219,6 +224,7 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const id = args.id || nanoid();
+    let workflowEventId = "";
 
     await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
@@ -277,9 +283,26 @@ export default defineAction({
             userEmail: currentUserEmail,
             orgId: orgId ?? undefined,
           });
+          workflowEventId = await appendContentWorkflowEvent(tx, {
+            topic: "content.document.created",
+            subjectType: "document",
+            subjectId: id,
+            documentId: id,
+            ownerEmail,
+            orgId,
+            occurredAt: now,
+            actionContext: ctx,
+            payload: {
+              parentId,
+              spaceId,
+              changedFields: ["title", "content", "description", "icon"],
+              contentHash: contentWorkflowFingerprint(content),
+            },
+          });
         });
       },
     );
+    wakeContentWorkflowEvent(workflowEventId);
 
     const [doc] = await db
       .select()

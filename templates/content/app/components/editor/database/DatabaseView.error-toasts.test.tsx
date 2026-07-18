@@ -158,6 +158,7 @@ vi.mock("@/hooks/use-content-database", () => ({
   useDuplicateDatabaseItems: () => benignMutation,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
+  useManageContentDatabasePolicy: () => benignMutation,
 }));
 
 vi.mock("@/hooks/use-document-properties", () => ({

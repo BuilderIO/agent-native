@@ -1,5 +1,6 @@
 import {
   AgentToggleButton,
+  NotificationsBell,
   PresenceBar,
   appPath,
   useActionMutation,
@@ -8,11 +9,14 @@ import {
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconBell,
+  IconBellOff,
   IconCopy,
   IconDownload,
   IconDotsVertical,
@@ -59,6 +63,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useContentNotificationPreference,
+  useManageContentNotificationPreference,
+} from "@/hooks/use-content-database";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -259,6 +267,142 @@ interface DocumentToolbarProps {
   canEdit?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
+  notificationDatabaseId?: string;
+  isDatabasePage?: boolean;
+}
+
+function ItemNotificationSetting({
+  databaseId,
+  documentId,
+  isDatabasePage,
+}: {
+  databaseId: string;
+  documentId: string;
+  isDatabasePage: boolean;
+}) {
+  const t = useT();
+  const preference = useContentNotificationPreference({
+    scope: "item",
+    databaseId,
+    documentId,
+  });
+  const managePreference = useManageContentNotificationPreference(databaseId);
+  const enabled = preference.data?.preference.enabled ?? true;
+  const descriptionId = `page-notification-scope-${documentId}`;
+
+  const handleToggle = useCallback(async () => {
+    try {
+      await managePreference.mutateAsync({
+        action: "set",
+        target: { scope: "item", databaseId, documentId },
+        enabled: !enabled,
+      });
+      toast.success(
+        t(
+          enabled
+            ? "editor.toolbar.notificationsMutedForPage"
+            : "editor.toolbar.notificationsEnabledForPage",
+        ),
+      );
+    } catch (error) {
+      toast.error(t("editor.toolbar.notificationPreferenceUpdateFailed"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    }
+  }, [databaseId, documentId, enabled, managePreference, t]);
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-start px-3 py-2.5 text-start text-sm text-foreground hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-50"
+      disabled={preference.isLoading || managePreference.isPending}
+      aria-describedby={isDatabasePage ? descriptionId : undefined}
+      onClick={() => void handleToggle()}
+    >
+      {enabled ? (
+        <IconBellOff className="me-2 mt-0.5 h-4 w-4 shrink-0" />
+      ) : (
+        <IconBell className="me-2 mt-0.5 h-4 w-4 shrink-0" />
+      )}
+      <span className="min-w-0">
+        <span className="block">
+          {t(
+            enabled
+              ? "editor.toolbar.muteNotificationsForPage"
+              : "editor.toolbar.receiveNotificationsForPage",
+          )}
+        </span>
+        {isDatabasePage ? (
+          <span
+            id={descriptionId}
+            className="mt-0.5 block text-xs leading-snug text-muted-foreground"
+          >
+            {t("editor.toolbar.databasePageNotificationScope")}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
+function PersonalNotificationSetting({
+  databaseId,
+  scope,
+}: {
+  databaseId: string;
+  scope: "database" | "global";
+}) {
+  const t = useT();
+  const target =
+    scope === "global"
+      ? ({ scope: "global" } as const)
+      : ({ scope: "database", databaseId } as const);
+  const preference = useContentNotificationPreference(target);
+  const managePreference = useManageContentNotificationPreference(databaseId);
+  const enabled = preference.data?.preference.enabled ?? true;
+  const label = t(
+    scope === "global"
+      ? "database.personalContentNotifications"
+      : "database.personalDatabaseNotifications",
+  );
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm text-foreground">{label}</span>
+        <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+          {t(
+            scope === "global"
+              ? "database.personalContentNotificationsDescription"
+              : "database.personalDatabaseNotificationsDescription",
+          )}
+        </span>
+      </span>
+      <Switch
+        aria-label={label}
+        checked={enabled}
+        disabled={preference.isLoading || managePreference.isPending}
+        onCheckedChange={(next) =>
+          managePreference.mutate(
+            { action: "set", target, enabled: next },
+            {
+              onError: (error) =>
+                toast.error(
+                  t("editor.toolbar.notificationPreferenceUpdateFailed"),
+                  {
+                    description:
+                      error instanceof Error
+                        ? error.message
+                        : t("empty.genericError"),
+                  },
+                ),
+            },
+          )
+        }
+      />
+    </div>
+  );
 }
 
 export function DocumentToolbar({
@@ -274,6 +418,8 @@ export function DocumentToolbar({
   canEdit = true,
   hideFromSearch = false,
   source,
+  notificationDatabaseId,
+  isDatabasePage = false,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -1206,6 +1352,28 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          <NotificationsBell
+            browserNotifications
+            contextualSettings={
+              notificationDatabaseId ? (
+                <div className="divide-y divide-border">
+                  <ItemNotificationSetting
+                    databaseId={notificationDatabaseId}
+                    documentId={documentId}
+                    isDatabasePage={isDatabasePage}
+                  />
+                  <PersonalNotificationSetting
+                    databaseId={notificationDatabaseId}
+                    scope="database"
+                  />
+                  <PersonalNotificationSetting
+                    databaseId={notificationDatabaseId}
+                    scope="global"
+                  />
+                </div>
+              ) : undefined
+            }
+          />
           <AgentToggleButton />
         </div>
       </div>

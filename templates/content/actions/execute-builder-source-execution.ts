@@ -45,6 +45,10 @@ import {
 } from "./_builder-cms-write-client.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
+  appendContentWorkflowEvent,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
+import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
@@ -110,7 +114,17 @@ export interface ExecuteBuilderSourceExecutionDeps {
     payload: unknown;
     now: string;
     attemptToken?: string;
-  }) => Promise<void>;
+    confirmedEvent?: {
+      databaseId: string;
+      documentId?: string | null;
+      ownerEmail: string;
+      orgId?: string | null;
+      sourceId: string;
+      entryId?: string | null;
+      effect: BuilderCmsExecutionPayload["effect"];
+      model: string;
+    };
+  }) => Promise<{ workflowEventId?: string } | void>;
   markExecutionFailed: (args: {
     executionId: string;
     summary: string;
@@ -758,6 +772,7 @@ export function realExecutionDeps(
     },
     markExecutionSucceeded: async (args) => {
       const db = getDb();
+      let workflowEventId: string | undefined;
       await db.transaction(async (tx) => {
         const result = await tx
           .update(schema.contentDatabaseSourceExecutions)
@@ -791,7 +806,58 @@ export function realExecutionDeps(
           .where(
             eq(schema.contentDatabaseSourceChangeSets.id, args.changeSetId),
           );
+        if (args.confirmedEvent) {
+          const confirmed = args.confirmedEvent;
+          const propertyValues = confirmed.documentId
+            ? Object.fromEntries(
+                (
+                  await tx
+                    .select({
+                      propertyId: schema.documentPropertyValues.propertyId,
+                      valueJson: schema.documentPropertyValues.valueJson,
+                    })
+                    .from(schema.documentPropertyValues)
+                    .where(
+                      eq(
+                        schema.documentPropertyValues.documentId,
+                        confirmed.documentId,
+                      ),
+                    )
+                ).map((row) => [row.propertyId, JSON.parse(row.valueJson)]),
+              )
+            : {};
+          workflowEventId = await appendContentWorkflowEvent(tx, {
+            topic:
+              confirmed.effect === "publish" || confirmed.effect === "unpublish"
+                ? "content.builder.publication.confirmed"
+                : "content.builder.write.confirmed",
+            subjectType: confirmed.documentId
+              ? "content_database_item"
+              : "content_database",
+            subjectId: confirmed.documentId ?? confirmed.databaseId,
+            databaseId: confirmed.databaseId,
+            documentId: confirmed.documentId ?? undefined,
+            ownerEmail: confirmed.ownerEmail,
+            orgId: confirmed.orgId,
+            payload: {
+              provider: "builder",
+              sourceId: confirmed.sourceId,
+              changeSetId: args.changeSetId,
+              entryId: confirmed.entryId ?? null,
+              model: confirmed.model,
+              effect: confirmed.effect,
+              confirmation: "provider_success",
+              propertyValues,
+            },
+            occurredAt: args.now,
+            actorOverrides: {
+              executor: { kind: "provider", id: "builder" },
+              origin: { kind: "integration", platform: "builder" },
+            },
+          });
+        }
       });
+      return workflowEventId ? { workflowEventId } : undefined;
     },
     markExecutionFailed: async (args) => {
       await getDb()
@@ -1078,13 +1144,27 @@ export async function executeBuilderSourceExecutionWithDeps(
         });
         throw builderExecutionConflict(lastError);
       }
-      await deps.markExecutionSucceeded({
+      const completed = await deps.markExecutionSucceeded({
         executionId: execution.id,
         changeSetId: changeSet.id,
         summary: `Builder ${plan.pushMode} execution succeeded.`,
         payload: payloadWithResponse,
         now: reconciledAt,
+        confirmedEvent: {
+          databaseId: database.id,
+          documentId: changeSet.documentId,
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+          sourceId: source.id,
+          entryId:
+            storedWriteResult.entryId ?? plan.payload.target.entryId ?? null,
+          effect: plan.payload.effect,
+          model: plan.payload.target.model,
+        },
       });
+      if (completed?.workflowEventId) {
+        wakeContentWorkflowEvent(completed.workflowEventId);
+      }
       const response = await deps.getResponse(database.id);
       timing.record("reconciliation_and_persistence", reconciliationStartedAt);
       const result = { ...response, timings: timing.finish() };
@@ -1241,14 +1321,27 @@ export async function executeBuilderSourceExecutionWithDeps(
       });
       throw builderExecutionConflict(lastError);
     }
-    await deps.markExecutionSucceeded({
+    const completed = await deps.markExecutionSucceeded({
       executionId: execution.id,
       changeSetId: changeSet.id,
       summary: `Builder ${plan.pushMode} execution succeeded.`,
       payload: payloadWithResponse,
       now: succeededAt,
       attemptToken,
+      confirmedEvent: {
+        databaseId: database.id,
+        documentId: changeSet.documentId,
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        sourceId: source.id,
+        entryId: writeResult.entryId ?? plan.payload.target.entryId ?? null,
+        effect: plan.payload.effect,
+        model: plan.payload.target.model,
+      },
     });
+    if (completed?.workflowEventId) {
+      wakeContentWorkflowEvent(completed.workflowEventId);
+    }
 
     const response = await deps.getResponse(database.id);
     timing.record("reconciliation_and_persistence", reconciliationStartedAt);

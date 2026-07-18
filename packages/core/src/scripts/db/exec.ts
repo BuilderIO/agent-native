@@ -17,6 +17,7 @@
 import path from "path";
 
 import { getDatabaseUrl } from "../../db/client.js";
+import { assertSqlDoesNotMutateProtectedTable } from "../../db/protected-mutations.js";
 import { parseArgs, fail } from "../utils.js";
 import {
   assertNoRawDbAccessControlWrite,
@@ -205,6 +206,7 @@ function validateWriteSql(sql: string, index: number): string {
   assertNoSensitiveFrameworkTables(normalized, "write");
   assertNoRawDbAccessControlWrite(normalized);
   assertNoSchemaQualifiedTables(normalized, "write");
+  assertSqlDoesNotMutateProtectedTable(normalized);
   return normalized;
 }
 

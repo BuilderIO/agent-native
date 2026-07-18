@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { serializeDatabaseViewConfig } from "./_property-utils.js";
+import {
+  parseDatabaseViewConfig,
+  serializeDatabaseViewConfig,
+} from "./_property-utils.js";
 
 const sortSchema = z.object({
   key: z.string(),
@@ -125,10 +128,14 @@ export default defineAction({
 
     await assertAccess("document", database.documentId, "editor");
 
+    const existingConfig = parseDatabaseViewConfig(database.viewConfigJson);
     await db
       .update(schema.contentDatabases)
       .set({
-        viewConfigJson: serializeDatabaseViewConfig(viewConfig),
+        viewConfigJson: serializeDatabaseViewConfig({
+          ...viewConfig,
+          validation: existingConfig.validation,
+        }),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.contentDatabases.id, databaseId));

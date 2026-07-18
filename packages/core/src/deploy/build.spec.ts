@@ -21,6 +21,7 @@ import {
   cloudflareWorkerStubAliasArgs,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
+  emitSingleTemplateNetlifyWorkflowScheduledFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
   generateCloudflarePagesStaticShellFromManifest,
@@ -1610,6 +1611,30 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain("cachedHandler(rewritten, context)");
     expect(entry).toMatch(/try\s*\{/);
     expect(entry).toContain("wrapper failed before reaching the route");
+  });
+
+  it("emits the Content workflow minute sweep through the shared Nitro handler", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyWorkflowScheduledFunction(cwd);
+
+    const dest = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-workflow-scheduled",
+    );
+    const entry = fs.readFileSync(
+      path.join(dest, "server-workflow-scheduled.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain(
+      "globalThis.__AGENT_NATIVE_WORKFLOW_SCHEDULED_RUNTIME__ = true",
+    );
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain('url.pathname = "/_agent-native/workflow/_drain"');
+    expect(entry).toContain('await import("./main.mjs")');
+    expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
   });
 
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {

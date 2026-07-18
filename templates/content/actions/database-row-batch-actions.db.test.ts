@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -15,7 +15,9 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
+let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let moveDatabaseItemAction: typeof import("./move-database-item.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let spaceId: string;
 
@@ -29,8 +31,11 @@ beforeAll(async () => {
   schema = dbModule.schema;
   duplicateDatabaseItemsAction = (await import("./duplicate-database-items.js"))
     .default;
+  duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
+    .default;
   deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
     .default;
+  moveDatabaseItemAction = (await import("./move-database-item.js")).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -161,6 +166,29 @@ async function orderedRows(databaseId: string) {
     .orderBy(asc(schema.contentDatabaseItems.position));
 }
 
+async function workflowEventsForSubjects(topic: string, subjectIds: string[]) {
+  const rows = await getDb()
+    .select()
+    .from(schema.workflowEvents)
+    .where(
+      and(
+        eq(schema.workflowEvents.topic, topic),
+        inArray(schema.workflowEvents.subjectId, subjectIds),
+      ),
+    );
+  return rows
+    .map((row: any) => ({
+      ...row,
+      payload: JSON.parse(row.payload) as Record<string, unknown>,
+      actorContext: JSON.parse(row.actorContext) as Record<string, unknown>,
+    }))
+    .sort(
+      (left, right) =>
+        Number(left.payload.position ?? left.payload.previousPosition ?? 0) -
+        Number(right.payload.position ?? right.payload.previousPosition ?? 0),
+    );
+}
+
 describe("database row batch actions", () => {
   it("duplicates selected rows as one ordered block with copied values and inherited shares", async () => {
     const db = getDb();
@@ -286,11 +314,32 @@ describe("database row batch actions", () => {
       COLLABORATOR,
       COLLABORATOR,
     ]);
+    const events = await workflowEventsForSubjects(
+      "content.database.item.created",
+      result.duplicatedDocumentIds ?? [],
+    );
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.payload)).toEqual(
+      result.sourceToDuplicate?.map((duplicate, index) =>
+        expect.objectContaining({
+          databaseId,
+          documentId: duplicate.duplicatedDocumentId,
+          itemId: duplicate.duplicatedItemId,
+          sourceItemId: duplicate.sourceItemId,
+          sourceDocumentId: duplicate.sourceDocumentId,
+          position: 3 + index,
+        }),
+      ),
+    );
+    expect(events.every((event) => !("content" in event.payload))).toBe(true);
   });
 
   it("rejects mixed database duplicate batches before writing", async () => {
     const first = await createDatabaseWithRows(2);
     const second = await createDatabaseWithRows(1);
+    const eventCountBefore = (
+      await getDb().select().from(schema.workflowEvents)
+    ).length;
 
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
@@ -303,6 +352,9 @@ describe("database row batch actions", () => {
 
     expect(await orderedRows(first.databaseId)).toHaveLength(2);
     expect(await orderedRows(second.databaseId)).toHaveLength(1);
+    expect((await getDb().select().from(schema.workflowEvents)).length).toBe(
+      eventCountBefore,
+    );
   });
 
   it("deletes selected rows recursively in one batch and renumbers survivors", async () => {
@@ -354,6 +406,26 @@ describe("database row batch actions", () => {
     expect(remainingRows.map((row) => row.title)).toEqual(["Row 0", "Row 3"]);
     expect(remainingRows.map((row) => row.itemPosition)).toEqual([0, 1]);
 
+    const events = await workflowEventsForSubjects(
+      "content.database.item.deleted",
+      result.deletedDocumentIds,
+    );
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.payload)).toEqual([
+      expect.objectContaining({
+        databaseId,
+        documentId: rows[1].documentId,
+        itemId: rows[1].itemId,
+        previousPosition: 1,
+      }),
+      expect.objectContaining({
+        databaseId,
+        documentId: rows[2].documentId,
+        itemId: rows[2].itemId,
+        previousPosition: 2,
+      }),
+    ]);
+
     const deletedDocs = await db
       .select({ id: schema.documents.id })
       .from(schema.documents)
@@ -372,9 +444,66 @@ describe("database row batch actions", () => {
     expect(deletedValues).toEqual([]);
   });
 
+  it("emits one bounded create event for a single duplicate and one move event only for a real move", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(2);
+    const duplicated = await runWithRequestContext(
+      {
+        userEmail: OWNER,
+        run: { owner: OWNER, threadId: "mutation-thread", model: "test-model" },
+      },
+      () => duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+    );
+    const createdEvents = await workflowEventsForSubjects(
+      "content.database.item.created",
+      [duplicated.duplicatedDocumentId],
+    );
+    expect(createdEvents).toHaveLength(1);
+    expect(createdEvents[0]).toMatchObject({
+      payload: {
+        databaseId,
+        documentId: duplicated.duplicatedDocumentId,
+        itemId: duplicated.duplicatedItemId,
+        sourceItemId: rows[0].itemId,
+        sourceDocumentId: rows[0].documentId,
+        position: 1,
+      },
+      actorContext: {
+        executor: { kind: "agent", id: "mutation-thread", model: "test-model" },
+      },
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      moveDatabaseItemAction.run({ itemId: rows[1].itemId, position: 0 }),
+    );
+    let movedEvents = await workflowEventsForSubjects(
+      "content.database.item.moved",
+      [rows[1].documentId],
+    );
+    expect(movedEvents).toHaveLength(1);
+    expect(movedEvents[0].payload).toMatchObject({
+      databaseId,
+      documentId: rows[1].documentId,
+      itemId: rows[1].itemId,
+      beforePosition: 2,
+      afterPosition: 0,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      moveDatabaseItemAction.run({ itemId: rows[1].itemId, position: 0 }),
+    );
+    movedEvents = await workflowEventsForSubjects(
+      "content.database.item.moved",
+      [rows[1].documentId],
+    );
+    expect(movedEvents).toHaveLength(1);
+  });
+
   it("rejects unauthorized delete batches before writing", async () => {
     const { databaseId, databaseDocumentId, rows } =
       await createDatabaseWithRows(2);
+    const eventCountBefore = (
+      await getDb().select().from(schema.workflowEvents)
+    ).length;
     const db = getDb();
     await db.insert(schema.documentShares).values({
       id: nextId("share"),
@@ -396,6 +525,9 @@ describe("database row batch actions", () => {
     ).rejects.toThrow(`No access to document ${rows[0].documentId}`);
 
     expect(await orderedRows(databaseId)).toHaveLength(2);
+    expect((await getDb().select().from(schema.workflowEvents)).length).toBe(
+      eventCountBefore,
+    );
   });
 
   it("rejects oversized batches before mutation", async () => {

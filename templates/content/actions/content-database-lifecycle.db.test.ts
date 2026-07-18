@@ -378,6 +378,9 @@ describe("content database soft-delete actions and reads", () => {
     expect((await databaseRow(databaseId))?.deletedAt).toEqual(
       deleted.deletedAt,
     );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabaseAction.run({ databaseId }),
+    );
 
     const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
       restoreContentDatabaseAction.run({ databaseId }),
@@ -385,6 +388,26 @@ describe("content database soft-delete actions and reads", () => {
     expect(restored.documentId).toBe(databaseDocumentId);
     expect(restored.deletedAt).toBeNull();
     expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreContentDatabaseAction.run({ databaseId }),
+    );
+
+    const events = await getDb()
+      .select()
+      .from(schema.workflowEvents)
+      .where(eq(schema.workflowEvents.subjectId, databaseId));
+    expect(events.map((event) => event.topic).sort()).toEqual([
+      "content.database.archived",
+      "content.database.restored",
+    ]);
+    expect(events.map((event) => JSON.parse(event.payload))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          databaseId,
+          documentId: databaseDocumentId,
+        }),
+      ]),
+    );
   });
 
   it("clears stale inline ownership when restoring after the owner block is gone", async () => {

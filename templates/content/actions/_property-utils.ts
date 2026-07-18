@@ -194,6 +194,17 @@ export function defaultDatabaseViewConfig(
     sorts: view.sorts,
     filters: view.filters,
     columnWidths: view.columnWidths,
+    schemaLocked: false,
+    defaultPersonNotificationsEnabled: true,
+    defaultPersonNotificationsPolicyVersion: 1,
+    validation: defaultDatabaseValidationConfig(),
+  };
+}
+
+function defaultDatabaseValidationConfig() {
+  return {
+    requiredForSubmission: [],
+    statusRequirements: [],
   };
 }
 
@@ -238,7 +249,64 @@ function normalizeDatabaseViewConfig(
     sorts: activeView.sorts,
     filters: activeView.filters,
     columnWidths: activeView.columnWidths,
+    schemaLocked: value?.schemaLocked === true,
+    defaultPersonNotificationsEnabled:
+      value?.defaultPersonNotificationsEnabled !== false,
+    defaultPersonNotificationsPolicyVersion:
+      typeof value?.defaultPersonNotificationsPolicyVersion === "number" &&
+      Number.isSafeInteger(value.defaultPersonNotificationsPolicyVersion) &&
+      value.defaultPersonNotificationsPolicyVersion >= 1
+        ? value.defaultPersonNotificationsPolicyVersion
+        : 1,
+    validation: normalizeDatabaseValidationConfig(value?.validation),
   };
+}
+
+function normalizeDatabaseValidationConfig(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultDatabaseValidationConfig();
+  }
+  const candidate = value as {
+    requiredForSubmission?: unknown;
+    statusRequirements?: unknown;
+  };
+  const requiredForSubmission = normalizeStringList(
+    candidate.requiredForSubmission,
+  );
+  const seen = new Set<string>();
+  const statusRequirements = Array.isArray(candidate.statusRequirements)
+    ? candidate.statusRequirements.flatMap((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return [];
+        }
+        const requirement = entry as {
+          statusPropertyId?: unknown;
+          statusOptionId?: unknown;
+          requiredPropertyIds?: unknown;
+        };
+        const statusPropertyId =
+          typeof requirement.statusPropertyId === "string"
+            ? requirement.statusPropertyId.trim()
+            : "";
+        const statusOptionId =
+          typeof requirement.statusOptionId === "string"
+            ? requirement.statusOptionId.trim()
+            : "";
+        const key = `${statusPropertyId}:${statusOptionId}`;
+        if (!statusPropertyId || !statusOptionId || seen.has(key)) return [];
+        seen.add(key);
+        return [
+          {
+            statusPropertyId,
+            statusOptionId,
+            requiredPropertyIds: normalizeStringList(
+              requirement.requiredPropertyIds,
+            ),
+          },
+        ];
+      })
+    : [];
+  return { requiredForSubmission, statusRequirements };
 }
 
 function defaultDatabaseView(

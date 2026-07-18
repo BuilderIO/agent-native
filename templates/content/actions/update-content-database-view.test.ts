@@ -107,6 +107,10 @@ describe("update content database view", () => {
       }),
     );
     expect(legacy.views[0].formQuestions).toEqual([]);
+    expect(legacy.validation).toEqual({
+      requiredForSubmission: [],
+      statusRequirements: [],
+    });
 
     const form = parseDatabaseViewConfig(
       JSON.stringify({
@@ -127,6 +131,38 @@ describe("update content database view", () => {
     expect(form.views[0]).toMatchObject({
       type: "form",
       formQuestions: [{ key: "name", enabled: true, required: true }],
+    });
+  });
+
+  it("normalizes stable-ID submission and status requirements", () => {
+    const parsed = parseDatabaseViewConfig(
+      JSON.stringify({
+        validation: {
+          requiredForSubmission: ["brief", "brief", "assets"],
+          statusRequirements: [
+            {
+              statusPropertyId: "status",
+              statusOptionId: "ready",
+              requiredPropertyIds: ["brief", "brief"],
+            },
+            {
+              statusPropertyId: "status",
+              statusOptionId: "ready",
+              requiredPropertyIds: ["ignored-duplicate-rule"],
+            },
+          ],
+        },
+      }),
+    );
+    expect(parsed.validation).toEqual({
+      requiredForSubmission: ["brief", "assets"],
+      statusRequirements: [
+        {
+          statusPropertyId: "status",
+          statusOptionId: "ready",
+          requiredPropertyIds: ["brief"],
+        },
+      ],
     });
   });
 });

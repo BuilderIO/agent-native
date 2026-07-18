@@ -8,6 +8,8 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentHookRuntimeControlsResponse,
+  ContentNotificationPreferenceTarget,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
@@ -15,6 +17,9 @@ import type {
   DocumentPropertyType,
   ListTrashedContentDatabasesResponse,
   ListContentDatabasesResponse,
+  ListContentDatabaseHooksResponse,
+  ListContentDatabaseHookExecutionsResponse,
+  GetContentNotificationPreferenceResponse,
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
@@ -26,6 +31,19 @@ import type {
   DuplicateDatabaseItemRequest,
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
+  ManageContentDatabaseHookRequest,
+  ManageContentDatabaseHookResponse,
+  ManageContentDatabaseHookExecutionRequest,
+  ManageContentDatabaseHookExecutionResponse,
+  ManageContentDatabasePolicyRequest,
+  ManageContentDatabasePolicyResponse,
+  ManageContentHookRuntimeControlRequest,
+  ManageContentDatabaseValidationRequest,
+  ManageContentDatabaseValidationResponse,
+  ManageContentNotificationPreferenceRequest,
+  ManageContentNotificationPreferenceResponse,
+  PreviewContentDatabaseHookRequest,
+  PreviewContentDatabaseHookResponse,
   PrepareBuilderSourceExecutionRequest,
   PreviewBuilderSourceReviewResponse,
   PrepareBuilderSourceReviewRequest,
@@ -468,6 +486,173 @@ export function useContentDatabaseById(databaseId: string | null) {
       placeholderData: (previous) => previous,
     },
   );
+}
+
+export function useContentDatabaseHooks(databaseId: string | null) {
+  return useActionQuery<ListContentDatabaseHooksResponse>(
+    "list-content-database-hooks",
+    databaseId ? { databaseId } : undefined,
+    { enabled: !!databaseId, retry: false },
+  );
+}
+
+export function useManageContentDatabasePolicy() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ManageContentDatabasePolicyResponse,
+    ManageContentDatabasePolicyRequest
+  >("manage-content-database-policy", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+    },
+  });
+}
+
+export function useContentDatabaseHookExecutions(
+  databaseId: string | null,
+  hookId?: string,
+) {
+  return useActionQuery<ListContentDatabaseHookExecutionsResponse>(
+    "list-content-database-hook-executions",
+    databaseId ? { databaseId, hookId, limit: 20 } : undefined,
+    { enabled: !!databaseId, retry: false },
+  );
+}
+
+export function useManageContentDatabaseHook(databaseId: string | null) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ManageContentDatabaseHookResponse,
+    ManageContentDatabaseHookRequest
+  >("manage-content-database-hook", {
+    onSuccess: () => {
+      if (!databaseId) return;
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-database-hooks", { databaseId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-database-hook-executions"],
+      });
+    },
+  });
+}
+
+export function useManageContentDatabaseHookExecution(
+  databaseId: string | null,
+) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ManageContentDatabaseHookExecutionResponse,
+    ManageContentDatabaseHookExecutionRequest
+  >("manage-content-database-hook-execution", {
+    onSuccess: () => {
+      if (!databaseId) return;
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-database-hook-executions"],
+      });
+    },
+  });
+}
+
+export function usePreviewContentDatabaseHook() {
+  return useActionMutation<
+    PreviewContentDatabaseHookResponse,
+    PreviewContentDatabaseHookRequest
+  >("preview-content-database-hook");
+}
+
+export function useContentHookRuntimeControls(databaseId: string | null) {
+  return useActionQuery<ContentHookRuntimeControlsResponse>(
+    "get-content-hook-runtime-controls",
+    databaseId ? { databaseId } : undefined,
+    { enabled: !!databaseId, retry: false },
+  );
+}
+
+export function useManageContentHookRuntimeControl(databaseId: string | null) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentHookRuntimeControlsResponse,
+    ManageContentHookRuntimeControlRequest
+  >("manage-content-hook-runtime-control", {
+    onSuccess: (response) => {
+      if (!databaseId) return;
+      queryClient.setQueryData(
+        ["action", "get-content-hook-runtime-controls", { databaseId }],
+        response,
+      );
+    },
+  });
+}
+
+export function useManageContentDatabaseValidation(databaseId: string | null) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ManageContentDatabaseValidationResponse,
+    ManageContentDatabaseValidationRequest
+  >("manage-content-database-validation", {
+    onSuccess: () => {
+      if (!databaseId) return;
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+    },
+  });
+}
+
+export function useContentNotificationPreference(
+  target: ContentNotificationPreferenceTarget | null,
+) {
+  return useActionQuery<GetContentNotificationPreferenceResponse>(
+    "get-content-notification-preference",
+    target ?? undefined,
+    { enabled: !!target, retry: false },
+  );
+}
+
+export function contentNotificationPreferenceQueryKey(
+  target: ContentNotificationPreferenceTarget,
+) {
+  return ["action", "get-content-notification-preference", target] as const;
+}
+
+export function writeContentNotificationPreferenceResponseToCache(
+  queryClient: QueryClient,
+  response: ManageContentNotificationPreferenceResponse,
+) {
+  if (!response.preference) return;
+  queryClient.setQueryData<GetContentNotificationPreferenceResponse>(
+    contentNotificationPreferenceQueryKey(response.target),
+    {
+      target: response.target,
+      documentId:
+        response.target.scope === "item" ? response.target.documentId : null,
+      preference: {
+        enabled: response.preference.enabled,
+        source: response.target.scope,
+        preferenceId: response.preference.id,
+      },
+    },
+  );
+}
+
+export function useManageContentNotificationPreference(
+  _databaseId: string | null,
+) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ManageContentNotificationPreferenceResponse,
+    ManageContentNotificationPreferenceRequest
+  >("manage-content-notification-preference", {
+    onSuccess: (response) => {
+      writeContentNotificationPreferenceResponseToCache(queryClient, response);
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-notification-preference"],
+      });
+    },
+  });
 }
 
 export function useCreateContentDatabase(documentId: string | null) {

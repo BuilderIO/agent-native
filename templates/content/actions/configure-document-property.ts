@@ -16,6 +16,7 @@ import {
   normalizePropertyVisibility,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { assertContentDatabaseSchemaUnlocked } from "./_content-database-hooks.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -102,6 +103,7 @@ export default defineAction({
         "Properties belong to databases. Create or open a database before adding properties.",
       );
     }
+    assertContentDatabaseSchemaUnlocked(database);
 
     if (args.id) {
       const [existing] = await db

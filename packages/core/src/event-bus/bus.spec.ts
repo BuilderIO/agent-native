@@ -84,6 +84,16 @@ describe("event-bus", () => {
       expect(() => emit("", {})).toThrow(/event name is required/);
     });
 
+    it("refuses authoritative dispatch for certified durable topics", () => {
+      expect(() => subscribe("content.item.changed", () => {})).toThrow(
+        /certified durable workflow topic/,
+      );
+      expect(() => emit("content.item.changed", {})).toThrow(
+        /certified durable workflow topic/,
+      );
+      expect(listSubscriptions("content.item.changed")).toHaveLength(0);
+    });
+
     it("only delivers to subscribers of the matching event", () => {
       const a = vi.fn();
       const b = vi.fn();

@@ -680,6 +680,16 @@ describe("execute Builder source execution", () => {
         body: expect.objectContaining({ published: "published" }),
       }),
     });
+    expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmedEvent: expect.objectContaining({
+          databaseId: "database-1",
+          sourceId: builderSource.id,
+          entryId: "builder-entry-1",
+          effect: "publish",
+        }),
+      }),
+    );
   });
 
   it("blocks publish transitions when the entry is already published", async () => {

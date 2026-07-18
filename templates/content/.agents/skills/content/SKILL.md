@@ -111,6 +111,22 @@ For a named intake workflow:
    from the result. The canonical Content row route is `/page/<createdDocumentId>`;
    never invent a different path, slug, ID, or host.
 
+Content Rules observe committed changes rather than a particular UI route.
+Database owners may use `manage-content-database-hook` with stable property,
+option, and Person-property IDs; inspect `list-content-database-hooks` and
+`list-content-database-hook-executions` before creating a similar Rule. An
+optional `conditions` group supports inspectable all/any predicates; preview
+and execution use the same deterministic evaluator.
+Natural-language agent work belongs in a framework Automation subscribed to the
+same durable Content event, not in a duplicate deterministic hook.
+
+Newly added Person values receive personal Content notifications by default.
+Any recipient may remove themself globally, per database, per rule, or per item
+with `manage-content-notification-preference`; the most specific override wins.
+Do not treat a personal Slack route as a team-channel announcement, and do not
+use notification delivery as the conversational receipt for a Slack-invoked
+agent command.
+
 When the user supplies a complete description in one message, do not force a
 questionnaire: extract the matching fields, show only genuinely uncertain
 inferences for confirmation, then submit once. When required information is

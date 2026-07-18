@@ -9,6 +9,17 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 
+export {
+  notificationDeliveryAttempts,
+  workflowEffects,
+  workflowEvents,
+  workflowExecutions,
+  workflowScheduledWork,
+  workflowSequenceCounters,
+  workflowSubscriptionVersions,
+  workflowSubscriptions,
+} from "@agent-native/core/workflow";
+
 export const documents = table("documents", {
   id: text("id").primaryKey(),
   spaceId: text("space_id"),
@@ -423,6 +434,69 @@ export const contentDatabaseSourceExecutionClaims = table(
     executionId: text("execution_id").notNull(),
     createdAt: text("created_at").notNull().default(now()),
   },
+);
+
+export const contentNotificationPreferences = table(
+  "content_notification_preferences",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    scope: text("scope", {
+      enum: ["global", "database", "rule", "item"],
+    }).notNull(),
+    scopeId: text("scope_id").notNull(),
+    databaseId: text("database_id"),
+    subscriptionId: text("subscription_id"),
+    documentId: text("document_id"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (preference) => [
+    uniqueIndex("content_notification_preferences_scope_unique").on(
+      preference.ownerEmail,
+      preference.orgId,
+      preference.scope,
+      preference.scopeId,
+    ),
+    index("content_notification_preferences_resolution_idx").on(
+      preference.ownerEmail,
+      preference.orgId,
+      preference.databaseId,
+      preference.subscriptionId,
+      preference.documentId,
+    ),
+  ],
+);
+
+export const contentDatabasePolicies = table(
+  "content_database_policies",
+  {
+    id: text("id").primaryKey(),
+    databaseId: text("database_id").notNull(),
+    policyKey: text("policy_key").notNull(),
+    version: integer("version").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull(),
+    activeAfterSequence: integer("active_after_sequence").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (policy) => [
+    uniqueIndex("content_database_policies_version_unique").on(
+      policy.databaseId,
+      policy.policyKey,
+      policy.version,
+    ),
+    index("content_database_policies_resolution_idx").on(
+      policy.databaseId,
+      policy.policyKey,
+      policy.ownerEmail,
+      policy.orgId,
+      policy.activeAfterSequence,
+    ),
+  ],
 );
 
 export const documentPropertyValues = table("document_property_values", {

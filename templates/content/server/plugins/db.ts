@@ -3,8 +3,20 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import {
+  ensureWorkflowSchema,
+  registerWorkflowExecutionHandler,
+  registerScheduledWorkflowHandler,
+  startWorkflowWakeProcessor,
+} from "@agent-native/core/workflow";
 
+import { registerContentDefaultPersonVirtualRule } from "../../actions/_content-default-person-rule.js";
+import {
+  executeContentDatabaseHook,
+  executeScheduledContentDatabaseHook,
+} from "../../actions/_content-hook-execution.js";
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
+import { registerContentProtectedMutationTables } from "../db/protected-mutation-tables.js";
 import * as schema from "../db/schema.js";
 
 /**
@@ -24,6 +36,40 @@ function isDrizzleTable(value: unknown): value is object {
 }
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+let contentWorkflowHandlerRegistered = false;
+let sharedWorkflowProcessorStarted = false;
+const sharedWorkflowWorkerId = "content-workflow";
+
+function registerContentWorkflowHandler() {
+  if (contentWorkflowHandlerRegistered) return;
+  registerWorkflowExecutionHandler({
+    kind: "deterministic",
+    domain: "content",
+    execute: executeContentDatabaseHook,
+  });
+  registerScheduledWorkflowHandler({
+    workType: "content_hook_timing",
+    execute: executeScheduledContentDatabaseHook,
+  });
+  contentWorkflowHandlerRegistered = true;
+}
+
+function startSharedWorkflowProcessor() {
+  if (sharedWorkflowProcessorStarted) return;
+  sharedWorkflowProcessorStarted = true;
+  startWorkflowWakeProcessor({
+    workerId: sharedWorkflowWorkerId,
+    maxPerWake: 25,
+    wakeDelayMs: 1_000,
+    onError: (error) => {
+      console.warn(
+        "[workflow] shared claim drain failed:",
+        error instanceof Error ? error.message : error,
+      );
+    },
+  });
+}
 
 function scheduleBlocksRepairRetry(attempt = 1): void {
   const delayMs = Math.min(30_000 * attempt, 5 * 60_000);
@@ -847,6 +893,50 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique
           ON content_database_items (database_id, document_id)`,
     },
+    {
+      version: 75,
+      name: "content-notification-preferences",
+      sql: `CREATE TABLE IF NOT EXISTS content_notification_preferences (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        scope TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        database_id TEXT,
+        subscription_id TEXT,
+        document_id TEXT,
+        enabled INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_notification_preferences_scope_unique
+        ON content_notification_preferences (owner_email, org_id, scope, scope_id);
+      CREATE INDEX IF NOT EXISTS content_notification_preferences_resolution_idx
+        ON content_notification_preferences (
+          owner_email, org_id, database_id, subscription_id, document_id
+        )`,
+    },
+    {
+      version: 76,
+      name: "content-database-policies",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_policies (
+        id TEXT PRIMARY KEY,
+        database_id TEXT NOT NULL,
+        policy_key TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        enabled INTEGER NOT NULL,
+        active_after_sequence INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_policies_version_unique
+        ON content_database_policies (database_id, policy_key, version);
+      CREATE INDEX IF NOT EXISTS content_database_policies_resolution_idx
+        ON content_database_policies (
+          database_id, policy_key, owner_email, org_id, active_after_sequence
+        )`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -889,8 +979,13 @@ const runContentSourceMigrations = runMigrations(
 export default async function contentDatabasePlugin(
   nitroApp: Parameters<typeof runContentMigrations>[0],
 ) {
+  registerContentProtectedMutationTables();
+  registerContentWorkflowHandler();
   await runContentMigrations(nitroApp);
   await runContentSourceMigrations(nitroApp);
+  await ensureWorkflowSchema();
+  await registerContentDefaultPersonVirtualRule();
+  startSharedWorkflowProcessor();
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

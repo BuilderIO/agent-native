@@ -3,7 +3,10 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { describeCron, isValidCron, nextOccurrence } from "../../jobs/cron.js";
 import { resourceGetByPath, resourceList } from "../../resources/store.js";
-import { parseTriggerFrontmatter } from "../dispatcher.js";
+import {
+  getDurableAutomationStatus,
+  parseTriggerFrontmatter,
+} from "../dispatcher.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -73,6 +76,7 @@ export default defineAction({
       const full = await resourceGetByPath(owner, resource.path);
       if (!full || !hasTriggerFrontmatter(full.content)) continue;
       const { meta, body } = parseTriggerFrontmatter(full.content);
+      const durableStatus = await getDurableAutomationStatus(full, meta);
       automations.push({
         id: full.id,
         name: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
@@ -85,9 +89,15 @@ export default defineAction({
         condition: meta.condition ?? null,
         body,
         enabled: meta.enabled,
-        lastRun: meta.lastRun ?? null,
-        lastStatus: meta.lastStatus ?? null,
-        lastError: meta.lastError ?? null,
+        lastRun: durableStatus
+          ? (durableStatus.lastRun ?? null)
+          : (meta.lastRun ?? null),
+        lastStatus: durableStatus
+          ? (durableStatus.lastStatus ?? null)
+          : (meta.lastStatus ?? null),
+        lastError: durableStatus
+          ? (durableStatus.lastError ?? null)
+          : (meta.lastError ?? null),
         nextRun: nextRun(meta),
         createdBy: meta.createdBy ?? null,
         canUpdate: true,

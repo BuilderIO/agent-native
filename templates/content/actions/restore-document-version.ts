@@ -9,6 +9,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  appendContentWorkflowEvent,
+  contentWorkflowFingerprint,
+  wakeContentWorkflowEvent,
+} from "./_content-workflow.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -26,7 +31,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Document ID"),
     versionId: z.string().optional().describe("Version ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.documentId) throw new Error("--documentId is required");
     if (!args.versionId) throw new Error("--versionId is required");
 
@@ -50,28 +55,55 @@ export default defineAction({
     if (!version) throw new Error(`Version not found: ${args.versionId}`);
 
     const now = new Date().toISOString();
-    await db.insert(schema.documentVersions).values({
-      id: nanoid(),
-      ownerEmail,
-      documentId: args.documentId,
-      title: doc.title,
-      content: doc.content,
-      createdAt: now,
-    });
+    let workflowEventId = "";
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.documentVersions).values({
+        id: nanoid(),
+        ownerEmail,
+        documentId: args.documentId!,
+        title: doc.title,
+        content: doc.content,
+        createdAt: now,
+      });
 
-    await db
-      .update(schema.documents)
-      .set({
-        title: version.title,
-        content: version.content,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.documents.id, args.documentId),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
+      await tx
+        .update(schema.documents)
+        .set({
+          title: version.title,
+          content: version.content,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.documents.id, args.documentId!),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        );
+      workflowEventId = await appendContentWorkflowEvent(tx, {
+        topic: "content.document.changed",
+        subjectType: "document",
+        subjectId: args.documentId!,
+        documentId: args.documentId!,
+        ownerEmail,
+        orgId: (doc.orgId as string | null | undefined) ?? null,
+        occurredAt: now,
+        actionContext: ctx,
+        payload: {
+          changeKind: "version_restore",
+          versionId: args.versionId,
+          changedFields: ["title", "content"],
+          before: {
+            title: doc.title,
+            contentHash: contentWorkflowFingerprint(doc.content),
+          },
+          after: {
+            title: version.title,
+            contentHash: contentWorkflowFingerprint(version.content),
+          },
+        },
+      });
+    });
+    wakeContentWorkflowEvent(workflowEventId);
 
     const [updated] = await db
       .select()

@@ -14,7 +14,7 @@ export default defineAction({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [comment] = await db
       .select({
@@ -32,7 +32,7 @@ export default defineAction({
       throw new Error(`Comment not found: ${args.id}`);
     }
 
-    const userEmail = getRequestUserEmail();
+    const userEmail = ctx?.userEmail ?? getRequestUserEmail();
     if (comment.authorEmail === userEmail) {
       await assertAccess("document", comment.documentId, "viewer");
     } else {
@@ -48,7 +48,7 @@ export default defineAction({
         ),
       );
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {});
     return { ok: true };
   },
 });

@@ -9,6 +9,9 @@ const mockMarkAllNotificationsRead = vi.fn();
 const mockDeleteNotification = vi.fn();
 const mockEmit = vi.fn();
 const mockGetSession = vi.fn();
+const mockRecordDeliveryAttempt = vi.fn();
+const mockGetPersonalRouting = vi.fn();
+const mockSetPersonalRouting = vi.fn();
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -47,8 +50,24 @@ vi.mock("../event-bus/bus.js", () => ({
   emit: (...args: unknown[]) => mockEmit(...args),
 }));
 
+vi.mock("../workflow/store.js", () => ({
+  recordNotificationDeliveryAttempt: (...args: unknown[]) =>
+    mockRecordDeliveryAttempt(...args),
+}));
+
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
+
+vi.mock("../server/h3-helpers.js", () => ({
+  readBody: (event: any) => event._body,
+}));
+
+vi.mock("./routing.js", () => ({
+  getPersonalNotificationRouting: (...args: unknown[]) =>
+    mockGetPersonalRouting(...args),
+  setPersonalNotificationRouting: (...args: unknown[]) =>
+    mockSetPersonalRouting(...args),
 }));
 
 import { createNotificationToolEntries } from "./actions.js";
@@ -68,6 +87,7 @@ function createEvent(path: string, method = "GET") {
     url: new URL(`http://app.test${path}`),
     context: {},
     _status: 200,
+    _body: undefined as unknown,
   };
 }
 
@@ -78,6 +98,7 @@ describe("notifications registry", () => {
     mockGetSession.mockResolvedValue({ email: "boni@local" });
     mockListNotifications.mockResolvedValue([]);
     mockCountUnread.mockResolvedValue(0);
+    mockRecordDeliveryAttempt.mockResolvedValue("attempt-1");
     mockInsertNotification.mockResolvedValue({
       id: "n-1",
       owner: "boni@local",
@@ -121,6 +142,47 @@ describe("notifications registry", () => {
       await expect(
         notify({ severity: "info", title: "x" }, { owner: "" }),
       ).rejects.toThrow(/owner is required/);
+    });
+
+    it("fails closed before workflow channel I/O when the delivery ledger is unavailable", async () => {
+      const deliver = vi.fn();
+      registerNotificationChannel({ name: "slack", deliver });
+      mockRecordDeliveryAttempt.mockRejectedValueOnce(new Error("db offline"));
+
+      await expect(
+        notifyWithDelivery(
+          {
+            severity: "warning",
+            title: "Review requested",
+            channels: ["slack"],
+          },
+          { owner: "boni@local", workflowEffectId: "effect-1" },
+        ),
+      ).rejects.toThrow(/delivery ledger failed/i);
+      expect(deliver).not.toHaveBeenCalled();
+    });
+
+    it("propagates a post-send ledger failure and leaves the reserved attempt unknown", async () => {
+      const deliver = vi.fn(async () => {});
+      registerNotificationChannel({ name: "slack", deliver });
+      mockRecordDeliveryAttempt
+        .mockResolvedValueOnce("attempt-1")
+        .mockRejectedValueOnce(new Error("db offline"));
+
+      await expect(
+        notifyWithDelivery(
+          {
+            severity: "warning",
+            title: "Review requested",
+            channels: ["slack"],
+          },
+          { owner: "boni@local", workflowEffectId: "effect-1" },
+        ),
+      ).rejects.toThrow(/delivery ledger failed/i);
+      expect(deliver).toHaveBeenCalledTimes(1);
+      expect(mockRecordDeliveryAttempt.mock.calls[0][0]).toMatchObject({
+        status: "unknown",
+      });
     });
 
     it("does not persist delivery-only webhook metadata in the inbox row", async () => {
@@ -167,7 +229,10 @@ describe("notifications registry", () => {
       const badDeliver = vi.fn(() => {
         throw new Error("slack is down");
       });
-      const goodDeliver = vi.fn();
+      const goodDeliver = vi.fn(() => ({
+        status: "delivered" as const,
+        evidence: { receiptId: "receipt-1" },
+      }));
       registerNotificationChannel({ name: "slack", deliver: badDeliver });
       registerNotificationChannel({ name: "pager", deliver: goodDeliver });
 
@@ -190,7 +255,10 @@ describe("notifications registry", () => {
       });
       registerNotificationChannel({
         name: "pager",
-        deliver: async () => {},
+        deliver: async () => ({
+          status: "delivered" as const,
+          evidence: { receiptId: "receipt-1" },
+        }),
       });
 
       await notify(
@@ -230,7 +298,10 @@ describe("notifications registry", () => {
     });
 
     it("explicit channels allowlist scopes delivery and excludes inbox when omitted", async () => {
-      const deliverSlack = vi.fn();
+      const deliverSlack = vi.fn(() => ({
+        status: "unknown" as const,
+        evidence: { providerAccepted: true },
+      }));
       const deliverPager = vi.fn();
       registerNotificationChannel({ name: "slack", deliver: deliverSlack });
       registerNotificationChannel({ name: "pager", deliver: deliverPager });
@@ -255,16 +326,75 @@ describe("notifications registry", () => {
       );
 
       expect(delivery.notification).toBeUndefined();
-      expect(delivery.deliveredChannels).toEqual(["slack"]);
+      expect(delivery.deliveredChannels).toEqual([]);
+      expect(delivery.unknownChannels).toEqual(["slack"]);
       expect(mockInsertNotification).not.toHaveBeenCalled();
       expect(mockEmit).toHaveBeenCalledWith(
         "notification.sent",
         expect.objectContaining({
           notificationId: undefined,
-          deliveredChannels: ["slack"],
+          deliveredChannels: [],
+          unknownChannels: ["slack"],
         }),
         { owner: "boni@local" },
       );
+    });
+
+    it("records skipped and receipt-free sends honestly", async () => {
+      registerNotificationChannel({
+        name: "skipped",
+        deliver: () => ({ status: "skipped", reason: "not configured" }),
+      });
+      registerNotificationChannel({
+        name: "accepted",
+        deliver: () => ({
+          status: "unknown",
+          evidence: { providerAccepted: true },
+        }),
+      });
+
+      const delivery = await notifyWithDelivery(
+        {
+          severity: "info",
+          title: "Test",
+          channels: ["skipped", "accepted"],
+        },
+        { owner: "boni@local", workflowEffectId: "effect-1" },
+      );
+
+      expect(delivery).toMatchObject({
+        deliveredChannels: [],
+        unknownChannels: ["accepted"],
+        skippedChannels: ["skipped"],
+        failedChannels: [],
+      });
+      expect(mockRecordDeliveryAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "skipped",
+          status: "skipped",
+        }),
+      );
+      expect(mockRecordDeliveryAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "accepted",
+          status: "unknown",
+        }),
+      );
+    });
+
+    it("requires evidence before a channel can claim delivery", async () => {
+      registerNotificationChannel({
+        name: "receipt",
+        deliver: () => ({ status: "delivered", evidence: {} }),
+      });
+
+      const delivery = await notifyWithDelivery(
+        { severity: "info", title: "Test", channels: ["receipt"] },
+        { owner: "boni@local" },
+      );
+
+      expect(delivery.deliveredChannels).toEqual([]);
+      expect(delivery.unknownChannels).toEqual(["receipt"]);
     });
 
     it("channels=['inbox'] persists but skips custom channels", async () => {
@@ -316,6 +446,13 @@ describe("notifications routes", () => {
     mockGetSession.mockResolvedValue({ email: "boni@local" });
     mockListNotifications.mockResolvedValue([]);
     mockCountUnread.mockResolvedValue(3);
+    mockGetPersonalRouting.mockResolvedValue({
+      inbox: true,
+      browser: true,
+      email: false,
+      personalSlack: false,
+      personalSlackWebhookKey: null,
+    });
   });
 
   it("handles HEAD like GET for read endpoints", async () => {
@@ -326,6 +463,28 @@ describe("notifications routes", () => {
     });
 
     expect(mockCountUnread).toHaveBeenCalledWith("boni@local");
+  });
+
+  it("reads and writes only the signed-in user's delivery routing", async () => {
+    const handler = createNotificationsHandler() as any;
+    const getEvent = createEvent("/routing");
+    await handler(getEvent);
+    expect(mockGetPersonalRouting).toHaveBeenCalledWith("boni@local");
+
+    const putEvent = createEvent("/routing", "PUT");
+    putEvent._body = {
+      inbox: true,
+      browser: false,
+      email: true,
+      personalSlack: false,
+      personalSlackWebhookKey: null,
+    };
+    mockSetPersonalRouting.mockResolvedValue(putEvent._body);
+    await expect(handler(putEvent)).resolves.toEqual(putEvent._body);
+    expect(mockSetPersonalRouting).toHaveBeenCalledWith(
+      "boni@local",
+      putEvent._body,
+    );
   });
 
   it("clamps invalid list limits before reaching the store", async () => {

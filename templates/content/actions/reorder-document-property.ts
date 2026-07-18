@@ -5,6 +5,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertContentDatabaseSchemaUnlocked } from "./_content-database-hooks.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
@@ -28,6 +29,7 @@ export default defineAction({
     const db = getDb();
     const database = await resolvePropertyDatabaseForDocument(document);
     if (!database) throw new Error("Document is not part of a database.");
+    assertContentDatabaseSchemaUnlocked(database);
 
     const definitions = await db
       .select()

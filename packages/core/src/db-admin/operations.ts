@@ -19,6 +19,10 @@ import {
   type DbExec,
   type Dialect,
 } from "../db/client.js";
+import {
+  assertMutationTableIsNotProtected,
+  assertSqlDoesNotMutateProtectedTable,
+} from "../db/protected-mutations.js";
 import { notifyActionChange } from "../server/action-change.js";
 import type {
   DbAdminColumn,
@@ -659,6 +663,7 @@ export async function applyMutations(
   runtime?: DbAdminRuntime,
 ): Promise<DbAdminMutationResult> {
   assertIdent(table, "table name");
+  assertMutationTableIsNotProtected(table);
 
   const statements: { sql: string; args: unknown[] }[] = [];
   for (const row of m.inserts ?? []) statements.push(buildInsert(table, row));
@@ -761,6 +766,8 @@ export async function runSql(
   if (typeof sql !== "string" || !sql.trim()) {
     throw new Error("SQL is required");
   }
+
+  assertSqlDoesNotMutateProtectedTable(sql);
 
   if (isDestructiveSql(sql) && !opts.confirmDestructive) {
     throw new DbAdminConfirmRequiredError(

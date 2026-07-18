@@ -27,6 +27,7 @@ import {
   builderCmsQualifiedId,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
+import { assertContentDatabaseSchemaUnlocked } from "./_content-database-hooks.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
@@ -326,6 +327,7 @@ export default defineAction({
   ): Promise<ContentDatabaseSourceFieldPropertyResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
+    assertContentDatabaseSchemaUnlocked(database);
     await assertAccess("document", database.documentId, "editor");
 
     const db = getDb();

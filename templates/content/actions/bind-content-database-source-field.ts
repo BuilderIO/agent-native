@@ -10,6 +10,7 @@ import type {
 } from "../shared/api.js";
 import { serializePropertyValue } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { assertContentDatabaseSchemaUnlocked } from "./_content-database-hooks.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -40,6 +41,7 @@ export default defineAction({
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
+    assertContentDatabaseSchemaUnlocked(database);
 
     const db = getDb();
     const [field] = await db

@@ -88,11 +88,12 @@ describe("webhook notification channel", () => {
     delete process.env.NOTIFICATIONS_WEBHOOK_URL;
     const channel = (await loadWebhookChannel())!;
     expect(channel).toBeDefined();
-    await channel.deliver(
+    const outcome = await channel.deliver(
       { severity: "critical", title: "x" },
       { owner: "alice@example.com" },
     );
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({ status: "skipped" });
   });
 
   it("prefers metadata.webhookUrl over the env default", async () => {
@@ -137,6 +138,46 @@ describe("webhook notification channel", () => {
     expect(url).toBe("https://hooks.example.com/per-monitor");
     expect(init.headers.Authorization).toBeUndefined();
     expect(JSON.parse(init.body).metadata).toEqual({ monitorId: "mon_1" });
+  });
+
+  it("resolves a private delivery auth key and sends stable workflow idempotency", async () => {
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) => ({
+        resolved: text.includes("HOOK_AUTH")
+          ? "Bearer example-secret"
+          : text.includes("HOOK_SIGN")
+            ? "example-signing-secret"
+            : text,
+        usedKeys: [],
+        secretValues: [],
+      }),
+    );
+    const channel = (await loadWebhookChannel())!;
+
+    await channel.deliver(
+      {
+        severity: "info",
+        title: "Published",
+        metadata: {
+          delivery: {
+            webhookUrl: "https://hooks.example.com/publish",
+            webhookAuth: "Bearer ${keys.HOOK_AUTH}",
+            webhookSignature: "${keys.HOOK_SIGN}",
+          },
+        },
+      },
+      { owner: "alice@example.com", workflowEffectId: "effect-example" },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer example-secret");
+    expect(init.headers["X-Agent-Native-Idempotency-Key"]).toBe(
+      "effect-example",
+    );
+    expect(init.headers["X-Agent-Native-Signature"]).toMatch(
+      /^sha256=[a-f0-9]{64}$/,
+    );
+    expect(JSON.parse(init.body).metadata).toBeUndefined();
   });
 
   it("POSTs the notification payload as JSON scoped to the owner", async () => {
@@ -425,7 +466,7 @@ describe("Slack notification channel", () => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.name === "slack")!;
 
-    await channel.deliver(
+    const outcome = await channel.deliver(
       {
         severity: "critical",
         title: "Clip uploads failing",
@@ -442,6 +483,42 @@ describe("Slack notification channel", () => {
     const payload = JSON.parse(init.body);
     expect(payload.text).toContain("[critical] Clip uploads failing");
     expect(payload.blocks[0].text.text).toBe("*Clip uploads failing*");
+    expect(outcome).toEqual({
+      status: "unknown",
+      evidence: { providerAccepted: true, httpStatus: 200 },
+    });
+  });
+
+  it("keeps personal Slack separate and resolves only its secret placeholder", async () => {
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) => ({
+        resolved: text.includes("PERSONAL_SLACK")
+          ? "https://hooks.slack.example.com/services/PERSONAL"
+          : text,
+        usedKeys: text.includes("PERSONAL_SLACK") ? ["PERSONAL_SLACK"] : [],
+        secretValues: [],
+      }),
+    );
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "personal-slack")!;
+
+    const outcome = await channel.deliver(
+      {
+        severity: "info",
+        title: "Review requested",
+        metadata: {
+          delivery: {
+            personalSlackWebhookUrl: "${keys.PERSONAL_SLACK}",
+          },
+        },
+      },
+      { owner: "alice@example.com" },
+    );
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://hooks.slack.example.com/services/PERSONAL",
+    );
+    expect(outcome).toMatchObject({ status: "unknown" });
   });
 
   it("prefers metadata.slackWebhookUrl over the env default", async () => {

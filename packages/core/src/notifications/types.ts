@@ -33,7 +33,25 @@ export interface NotificationInput {
 export interface NotificationMeta {
   /** Owner email — scopes the notification in the inbox. */
   owner: string;
+  /** Durable workflow effect whose delivery attempts this notification fulfills. */
+  workflowEffectId?: string;
+  /** Effect attempt number. Defaults to 1 when a workflow effect is supplied. */
+  workflowAttempt?: number;
 }
+
+export type NotificationChannelOutcome =
+  | {
+      /** The provider supplied concrete delivery evidence. */
+      status: "delivered";
+      evidence: Record<string, unknown>;
+    }
+  | {
+      /** The provider accepted the send but supplied no delivery receipt. */
+      status: "unknown";
+      evidence?: Record<string, unknown>;
+    }
+  | { status: "skipped"; reason?: string }
+  | { status: "failed"; errorMessage?: string };
 
 export interface NotificationChannel {
   /** Unique channel name, e.g. `"inbox"`, `"webhook"`, `"slack"`. */
@@ -42,11 +60,17 @@ export interface NotificationChannel {
    * Deliver the notification. Must be best-effort — throwing will be logged
    * but will not block other channels from running.
    *
-   * Return `false` to skip (e.g. no URL / no recipients configured) so the
-   * channel is not recorded in `deliveredChannels`.
+   * Return a structured outcome. `delivered` requires provider evidence;
+   * accepted sends without a delivery receipt are `unknown`. Legacy `true`
+   * and void returns are conservatively interpreted as `unknown`; `false`
+   * is interpreted as `skipped`.
    */
   deliver(
     input: NotificationInput,
     meta: NotificationMeta,
-  ): void | boolean | Promise<void | boolean>;
+  ):
+    | void
+    | boolean
+    | NotificationChannelOutcome
+    | Promise<void | boolean | NotificationChannelOutcome>;
 }

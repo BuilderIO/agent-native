@@ -55,3 +55,10 @@ export {
   type EnsureAdditiveColumnsResult,
   type EnsureAdditiveColumnsLogger,
 } from "./ensure-additive-columns.js";
+export {
+  registerProtectedMutationTables,
+  assertMutationTableIsNotProtected,
+  assertSqlDoesNotMutateProtectedTable,
+  protectedMutationTableFromSql,
+  type ProtectedMutationTablesRegistration,
+} from "./protected-mutations.js";

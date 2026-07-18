@@ -2557,6 +2557,48 @@ export const config = {
   );
 }
 
+export function emitSingleTemplateNetlifyWorkflowScheduledFunction(
+  projectCwd: string,
+): void {
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverDir = path.join(internalDir, "server");
+  if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {
+    throw new Error(
+      "Workflow scheduled-function emit requires .netlify/functions-internal/server/main.mjs",
+    );
+  }
+  const functionName = "server-workflow-scheduled";
+  const dest = path.join(internalDir, functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(serverDir, dest);
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+  const entry = `globalThis.__AGENT_NATIVE_WORKFLOW_SCHEDULED_RUNTIME__ = true;
+
+let cachedHandler;
+
+export default async function handler(request, context) {
+  cachedHandler ??= (await import("./main.mjs")).default;
+  const url = new URL(request.url);
+  url.pathname = "/_agent-native/workflow/_drain";
+  const rewritten = new Request(url.toString(), {
+    method: "POST",
+    headers: request.headers,
+  });
+  return cachedHandler(rewritten, context);
+}
+
+export const config = {
+  name: "agent workflow scheduled drain",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+}
+
 /**
  * Nitro's Netlify preset can emit a harmful fallback rewrite to
  * `/.netlify/functions/server`. With `config.path: "/*"`, that default URL is
@@ -3537,6 +3579,20 @@ export default bundle;
     } catch (err) {
       console.warn(
         "[build] Failed to emit durable-background Netlify function (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  if (
+    preset === "netlify" &&
+    fs.existsSync(path.join(cwd, "actions", "manage-content-database-hook.ts"))
+  ) {
+    try {
+      emitSingleTemplateNetlifyWorkflowScheduledFunction(cwd);
+    } catch (err) {
+      console.warn(
+        "[build] Failed to emit workflow scheduled function (non-fatal):",
         err instanceof Error ? err.message : err,
       );
     }
