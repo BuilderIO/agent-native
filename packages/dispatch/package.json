@@ -17,6 +17,12 @@
     "src"
   ],
   "type": "module",
+  "sideEffects": [
+    "*.css",
+    "dist/server/index.js",
+    "dist/server/lib/usage-metrics-store.js",
+    "dist/server/plugins/core-routes.js"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./routes": "./dist/routes/index.js",

@@ -1195,6 +1195,9 @@ describe("local-core dev aliases and router dedupe", () => {
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).toContain("@agent-native/core/client/i18n");
     expect(deps).toContain("@agent-native/toolkit/collab-ui");
+    expect(deps).toContain("@agent-native/toolkit/context-ui");
+    expect(deps).toContain("@agent-native/toolkit/design-tweaks");
+    expect(deps).toContain("@agent-native/toolkit/editor");
     expect(deps).toContain("@agent-native/toolkit/sharing");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });

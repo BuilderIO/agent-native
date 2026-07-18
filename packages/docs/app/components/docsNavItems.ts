@@ -286,6 +286,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "toolkit-ui",
       },
       {
+        id: "toolkit-editors-canvases",
+        labelKey: "toolkitEditorsCanvases",
+        slug: "toolkit-editors-canvases",
+      },
+      {
+        id: "toolkit-context-knowledge",
+        labelKey: "toolkitContextKnowledge",
+        slug: "toolkit-context-knowledge",
+      },
+      {
         id: "toolkit-feature-kits",
         labelKey: "featureKits",
         children: [
@@ -349,6 +359,22 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-agent-ux",
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
+          },
+        ],
+      },
+      {
+        id: "toolkit-capability-packages",
+        labelKey: "capabilityPackages",
+        children: [
+          {
+            id: "toolkit-capability-packages-overview",
+            labelKey: "capabilityPackagesOverview",
+            slug: "toolkit-capability-packages",
+          },
+          {
+            id: "package-lifecycle",
+            labelKey: "packageLifecycle",
+            slug: "package-lifecycle",
           },
         ],
       },

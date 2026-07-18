@@ -1,0 +1,21 @@
+---
+title: "Paquetes de capacidad"
+description: "Gestiona capacidades de dominio y su ciclo de vida mediante manifiestos sin incorporarlas a Toolkit."
+---
+
+# Paquetes de capacidad
+
+Toolkit ofrece bases de producto transversales; los paquetes de capacidad aportan un dominio delimitado, acciones, habilidades y metadatos de ciclo de vida. Scheduling y Creative Context son paquetes de capacidad separados, no kits de Toolkit.
+
+`@agent-native/scheduling` participa en el piloto del manifiesto genérico. Consulta la documentación local y el manifiesto de cada paquete para sus puntos de extensión y propiedad.
+
+- [Documentación del paquete Scheduling](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Documentación del paquete Creative Context](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Consulta [Ciclo de vida de paquetes](/docs/package-lifecycle) para las reglas de inspección, simulación y expulsión.

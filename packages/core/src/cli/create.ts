@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
@@ -44,6 +45,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+const localPackageTarballs = new Map<string, string>();
 
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
@@ -904,6 +906,40 @@ function findLocalPackage(name: string): string | undefined {
 }
 
 /**
+ * Pack a local framework package before linking it into a generated app.
+ * Raw file: dependencies retain workspace-only catalog references, while a
+ * packed artifact has the publish-ready manifest that consumers receive.
+ */
+function localPackageTarball(packageDir: string): string {
+  const cached = localPackageTarballs.get(packageDir);
+  if (cached) return cached;
+
+  const packDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-"),
+  );
+  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  execFileSync(pnpm, ["pack", "--pack-destination", packDir], {
+    cwd: packageDir,
+    encoding: "utf-8",
+    env: { ...process.env, npm_config_ignore_scripts: "true" },
+    stdio: "pipe",
+  });
+
+  const tarballs = fs
+    .readdirSync(packDir)
+    .filter((entry) => entry.endsWith(".tgz"));
+  if (tarballs.length !== 1) {
+    throw new Error(
+      `Expected one packed local package artifact in ${packDir}, found ${tarballs.length}.`,
+    );
+  }
+
+  const tarball = pathToFileURL(path.join(packDir, tarballs[0]!)).href;
+  localPackageTarballs.set(packageDir, tarball);
+  return tarball;
+}
+
+/**
  * Scaffold internal workspace packages required by the selected templates.
  * Deduplicates so each package is only copied once even if multiple
  * templates need it.
@@ -1691,7 +1727,7 @@ function fixWebManifestName(
 function getCoreDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localCore = findLocalPackage("core");
-    if (localCore) return pathToFileURL(localCore).href;
+    if (localCore) return localPackageTarball(localCore);
   }
 
   // Generated apps must install before the current package version is
@@ -1713,7 +1749,7 @@ function getDispatchDependencyVersion(): string {
 function getToolkitDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localToolkit = findLocalPackage("toolkit");
-    if (localToolkit) return pathToFileURL(localToolkit).href;
+    if (localToolkit) return localPackageTarball(localToolkit);
   }
 
   return "latest";
@@ -1722,7 +1758,7 @@ function getToolkitDependencyVersion(): string {
 function localToolkitOverride(): string | null {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
   const localToolkit = findLocalPackage("toolkit");
-  return localToolkit ? pathToFileURL(localToolkit).href : null;
+  return localToolkit ? localPackageTarball(localToolkit) : null;
 }
 
 function localRecapCliOverride(): string | null {

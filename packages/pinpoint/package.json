@@ -21,6 +21,10 @@
     ".agents"
   ],
   "type": "module",
+  "sideEffects": [
+    "dist/cli.js",
+    "dist/index.browser.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

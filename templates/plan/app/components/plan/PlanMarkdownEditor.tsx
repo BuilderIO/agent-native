@@ -1,13 +1,15 @@
 import {
-  RichMarkdownEditor,
-  useCollaborativeDoc,
   generateTabId,
   uploadEditorImage,
-  createImageSlashCommand,
-  DEFAULT_SLASH_COMMANDS,
-  type RichMarkdownCollabUser,
+  useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client";
+import {
+  createImageSlashCommand,
+  DEFAULT_SLASH_COMMANDS,
+  RichMarkdownEditor,
+  type RichMarkdownCollabUser,
+} from "@agent-native/toolkit/editor";
 import { useCallback, useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";

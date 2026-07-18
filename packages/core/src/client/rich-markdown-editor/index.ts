@@ -1,73 +1,58 @@
 export {
-  createSharedEditorExtensions,
-  MARKDOWN_DIALECT_CONFIG,
-  type RichMarkdownDialect,
-  type RichMarkdownEditorPreset,
-  type RichMarkdownCollabUser,
-  type SharedEditorCollab,
-  type SharedEditorFeatures,
-  type CreateSharedEditorExtensionsOptions,
-} from "./extensions.js";
-export {
-  useCollabReconcile,
-  getEditorMarkdown,
-  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
-  type UseCollabReconcileOptions,
-  type UseCollabReconcileResult,
-} from "./useCollabReconcile.js";
-export {
   applyDocSurgically,
-  defaultParseValue,
-  diffTopLevel,
-  type TopLevelDiff,
-} from "./surgical-apply.js";
-export {
-  SlashCommandMenu,
-  DEFAULT_SLASH_COMMANDS,
-  createImageSlashCommand,
-  type SlashCommandItem,
-  type SlashCommandMenuProps,
-} from "./SlashCommandMenu.js";
-export {
-  SharedImage,
-  createImageExtension,
-  pickAndInsertImage,
-  type ImageUploadFn,
-  type SharedImageOptions,
-} from "./ImageExtension.js";
-export { uploadEditorImage } from "./uploadEditorImage.js";
-export {
   BubbleToolbar,
   buildDefaultBubbleItems,
+  createCodeBlockNode,
+  createImageExtension,
+  createImageSlashCommand,
+  createRichMarkdownExtensions,
+  createSharedEditorExtensions,
+  DEFAULT_CODE_LANGUAGES,
+  DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  DEFAULT_SLASH_COMMANDS,
+  defaultParseValue,
+  diffTopLevel,
+  DragHandle,
+  getEditorMarkdown,
+  gfmToProseJSON,
+  MARKDOWN_DIALECT_CONFIG,
+  pickAndInsertImage,
+  proseJSONToGfm,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  RichMarkdownEditor,
+  RunId,
+  RUN_ID_NODE_TYPES,
+  SharedImage,
+  SharedRichEditor,
+  SlashCommandMenu,
+  useCollabReconcile,
   type BubbleToolbarItem,
   type BubbleToolbarProps,
-} from "./BubbleToolbar.js";
-export {
-  SharedRichEditor,
-  type SharedRichEditorProps,
-} from "./SharedRichEditor.js";
-export {
-  createCodeBlockNode,
-  DEFAULT_CODE_LANGUAGES,
-  type CodeLanguageOption,
   type CodeBlockClassNames,
+  type CodeLanguageOption,
   type CreateCodeBlockNodeOptions,
-} from "./CodeBlockNode.js";
-export {
-  RichMarkdownEditor,
-  createRichMarkdownExtensions,
-  type RichMarkdownEditorProps,
   type CreateRichMarkdownExtensionsOptions,
-} from "./RichMarkdownEditor.js";
-export { RunId, RUN_ID_NODE_TYPES } from "./RunId.js";
-export { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
-export {
-  DragHandle,
-  DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  type CreateSharedEditorExtensionsOptions,
   type DragHandleDropContext,
   type DragHandleDropPlacement,
   type DragHandleOptions,
-} from "./DragHandle.js";
+  type ImageUploadFn,
+  type RichMarkdownCollabUser,
+  type RichMarkdownDialect,
+  type RichMarkdownEditorPreset,
+  type RichMarkdownEditorProps,
+  type SharedEditorCollab,
+  type SharedEditorFeatures,
+  type SharedImageOptions,
+  type SharedRichEditorProps,
+  type SlashCommandItem,
+  type SlashCommandMenuProps,
+  type TopLevelDiff,
+  type UseCollabReconcileOptions,
+  type UseCollabReconcileResult,
+} from "@agent-native/toolkit/editor";
+
+export { uploadEditorImage } from "./uploadEditorImage.js";
 export {
   createRegistryBlockNode,
   RegistryBlockNodeView,

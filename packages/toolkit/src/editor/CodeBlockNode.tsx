@@ -10,11 +10,7 @@ import {
 import type { createLowlight } from "lowlight";
 import { useMemo, useState } from "react";
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
 import { cn } from "../utils.js";
 
 /**

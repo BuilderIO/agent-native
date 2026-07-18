@@ -23,4 +23,4 @@ export {
   type DesignConnectBridge,
 } from "./cli/design-connect.js";
 
-export { DragHandle } from "./client/rich-markdown-editor/DragHandle.js";
+export { DragHandle } from "@agent-native/toolkit/editor";

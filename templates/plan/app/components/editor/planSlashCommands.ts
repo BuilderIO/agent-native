@@ -3,16 +3,16 @@ import {
   buildRegistryBlockSlashItems,
   getRegistryBlockSlashDescription,
   getRegistryBlockSlashSearchText,
-  type SlashCommandItem,
 } from "@agent-native/core/client";
+import type { SlashCommandItem } from "@agent-native/toolkit/editor";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 import { createPlanBlockId } from "@shared/plan-content";
 
 /**
- * The Tiptap editor handed to a slash command's `action`. Derived from the core
+ * The Tiptap editor handed to a slash command's `action`. Derived from the Toolkit
  * {@link SlashCommandItem} contract instead of importing `@tiptap/react`
  * directly, so this file carries no extra tiptap dependency (the plan template
- * uses tiptap transitively through `@agent-native/core/client`).
+ * uses tiptap through `@agent-native/toolkit/editor`).
  */
 type SlashEditor = Parameters<SlashCommandItem["action"]>[0];
 
@@ -20,7 +20,7 @@ type SlashEditor = Parameters<SlashCommandItem["action"]>[0];
  * The `insertTable` command is contributed by `@tiptap/extension-table`, which
  * the shared editor registers at runtime but whose `ChainedCommands` type
  * augmentation is not visible from this template (it has no direct tiptap
- * dependency — tiptap is transitive through `@agent-native/core/client`). This
+ * dependency — tiptap is transitive through `@agent-native/toolkit/editor`). This
  * narrow shape re-adds just that one command signature so the Table slash item
  * stays type-safe without importing tiptap here.
  */
@@ -34,7 +34,7 @@ type TableChain = {
 
 /**
  * Build the plan document editor's slash command list, returned in the exact
- * shape the shared core {@link SlashCommandItem} contract expects. `icon` is a
+ * shape the shared Toolkit {@link SlashCommandItem} contract expects. `icon` is a
  * short text glyph; `description` is compact visible copy; `searchText` carries
  * raw block types and aliases. `SharedRichEditor`/`RichMarkdownEditor` forward
  * this array to `SlashCommandMenu` via its `items` prop.
@@ -42,7 +42,7 @@ type TableChain = {
  * Two tiers of commands:
  *  - Base prose commands (Text, Headings, lists, quote, code, divider, table,
  *    image) drive standard Tiptap chains — mirroring the content app's slash set
- *    but emitting the core menu item type.
+ *    but emitting the Toolkit menu item type.
  *  - Registry block commands are derived from every `BlockSpec` whose
  *    `placement` includes `"block"`. Each inserts a `planBlock` node referencing
  *    the spec by `blockType` with a freshly minted `blockId`. The editor seeds

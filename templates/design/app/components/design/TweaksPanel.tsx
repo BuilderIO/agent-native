@@ -1,4 +1,5 @@
-import { useT, VisualTweakControl } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
+import { VisualTweakControl } from "@agent-native/toolkit/design-tweaks";
 import type { TweakDefinition } from "@shared/api";
 import {
   IconX,
