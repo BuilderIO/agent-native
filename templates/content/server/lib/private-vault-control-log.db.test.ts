@@ -247,11 +247,13 @@ describe("Private Vault signed control-log persistence", () => {
     expect(snapshot.state).toEqual(appended.state);
     expect(snapshot.entries).toEqual([
       {
+        entryId: initialized.genesis.envelopeId,
         sequence: 0,
         entryHash: initialized.state.headHash,
         entryBytes: encodeSignedControlLogEntry(initialized.genesis),
       },
       {
+        entryId: addBroker.envelopeId,
         sequence: 1,
         entryHash: appended.state.headHash,
         entryBytes: encodeSignedControlLogEntry(addBroker),

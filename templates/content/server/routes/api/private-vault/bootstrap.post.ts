@@ -30,7 +30,10 @@ export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
 
-  if (getHeader(event, "sec-fetch-site")?.trim() !== "same-origin") {
+  if (
+    getHeader(event, "x-agent-native-csrf")?.trim() !== "1" &&
+    getHeader(event, "sec-fetch-site")?.trim() !== "same-origin"
+  ) {
     return fail(event, 403);
   }
 

@@ -693,13 +693,18 @@ same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and
 workspace coordinates from current membership, fully replays the signed
 control log, and returns bounded contiguous pages pinned to one exact head.
-Only the final page carries the exact encrypted recovery wrap whose immutable
-binding matches that replayed head. A concurrent append, stale pin, log gap,
-binding mismatch, noncanonical request, wrong media type, or cross-site request
-fails closed. The response contains public control entries and ciphertext
-only—never recovery entropy, endpoint secrets, or a server recovery key. Core
-protocol vectors, route/service tests, and a real SQLite canonical-snapshot
-test pass. Trusted native replay, mnemonic import, replacement recovery
+Each page carries the exact encrypted recovery wrap for every control edge on
+that page that activated one, while the final page separately carries the
+current wrap; immutable entry-to-wrap bindings prevent the hosted projection
+from quietly skipping an epoch transition. A concurrent append, stale pin, log
+gap, binding mismatch, noncanonical request, wrong media type, or cross-site
+request fails closed. The response contains public control entries and
+ciphertext only—never recovery entropy, endpoint secrets, or a server recovery
+key. The desktop transport streams pages into an injected signed-native replay
+consumer under one pinned head rather than aggregating them in the renderer.
+Core protocol vectors, route/service tests, a real SQLite canonical-snapshot
+test, and desktop transport tests pass. Durable genesis/recovery evidence for
+independent native authorization replay, mnemonic import, replacement recovery
 authority, and recovered-endpoint admission remain the next product gate.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,

@@ -4,7 +4,7 @@ import {
   encodeAncV1VaultBootstrapResponse,
 } from "@agent-native/core/e2ee";
 import { readProtectedCiphertextAt } from "@agent-native/core/protected-ciphertext";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { privateVaultControlLogService } from "./private-vault-control-log-runtime.js";
@@ -56,7 +56,73 @@ export async function readPrivateVaultBootstrapPage(input: {
     const throughSequence = input.request.afterSequence + page.length;
     const complete = throughSequence === state.sequence;
     let recoveryWrap: Uint8Array | null = null;
+    const entryRecoveryWraps: Array<Uint8Array | null> = [];
     try {
+      const pageEntryIds = page.map((entry) => entry.entryId);
+      const pageBindings =
+        pageEntryIds.length === 0
+          ? []
+          : await getDb()
+              .select({
+                controlEntryId:
+                  schema.contentEncryptedVaultRecoveryWraps.controlEntryId,
+                recoveryWrapHash:
+                  schema.contentEncryptedVaultRecoveryWraps.recoveryWrapHash,
+                ciphertextByteLength:
+                  schema.contentEncryptedVaultRecoveryWraps
+                    .ciphertextByteLength,
+              })
+              .from(schema.contentEncryptedVaultRecoveryWraps)
+              .where(
+                and(
+                  eq(
+                    schema.contentEncryptedVaultRecoveryWraps.ownerEmail,
+                    input.scope.ownerEmail,
+                  ),
+                  eq(
+                    schema.contentEncryptedVaultRecoveryWraps.orgId,
+                    input.scope.orgId,
+                  ),
+                  eq(
+                    schema.contentEncryptedVaultRecoveryWraps.vaultId,
+                    input.scope.vaultId,
+                  ),
+                  inArray(
+                    schema.contentEncryptedVaultRecoveryWraps.controlEntryId,
+                    pageEntryIds,
+                  ),
+                ),
+              );
+      if (
+        pageBindings.some(
+          (binding) => !pageEntryIds.includes(binding.controlEntryId),
+        ) ||
+        new Set(pageBindings.map((binding) => binding.controlEntryId)).size !==
+          pageBindings.length
+      ) {
+        throw new PrivateVaultBootstrapError("unavailable");
+      }
+      for (const entry of page) {
+        const binding = pageBindings.find(
+          (candidate) => candidate.controlEntryId === entry.entryId,
+        );
+        if (!binding) {
+          entryRecoveryWraps.push(null);
+          continue;
+        }
+        const stored = await readProtectedCiphertextAt({
+          kind: "recovery-wrap",
+          vaultId: input.scope.vaultId,
+          recoveryWrapHash: binding.recoveryWrapHash,
+        });
+        const wrap = Uint8Array.from(stored.ciphertext);
+        if (binding.ciphertextByteLength !== wrap.byteLength) {
+          wrap.fill(0);
+          throw new PrivateVaultBootstrapError("unavailable");
+        }
+        entryRecoveryWraps.push(wrap);
+      }
+
       if (complete) {
         const [binding] = await getDb()
           .select({
@@ -121,9 +187,11 @@ export async function readPrivateVaultBootstrapPage(input: {
           recoveryWrapHash: complete ? state.recoveryWrapHash : null,
         },
         entries: page.map((entry) => entry.entryBytes),
+        entryRecoveryWraps,
         recoveryWrap,
       });
     } finally {
+      for (const wrap of entryRecoveryWraps) wrap?.fill(0);
       recoveryWrap?.fill(0);
     }
   } catch (error) {

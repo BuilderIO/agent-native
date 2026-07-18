@@ -4,13 +4,14 @@ import { opaqueIdSchema } from "./contracts.js";
 import { E2EE_SIZE_LIMITS, E2EE_SUITE_ID } from "./suite.js";
 
 export const ANC_V1_VAULT_BOOTSTRAP_CONTROL_MAX_BYTES = 8 * 1024;
-export const ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES = 64;
+export const ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES = 8;
 export const ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES = 1024 * 1024;
 export const ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES =
   4 +
   ANC_V1_VAULT_BOOTSTRAP_CONTROL_MAX_BYTES +
   ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES *
-    E2EE_SIZE_LIMITS.vaultLogEntryBytes +
+    (E2EE_SIZE_LIMITS.vaultLogEntryBytes +
+      ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES) +
   ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES;
 
 const sequence = z.number().int().min(-1).max(Number.MAX_SAFE_INTEGER);
@@ -25,6 +26,11 @@ const byteLength = z
   .int()
   .positive()
   .max(E2EE_SIZE_LIMITS.vaultLogEntryBytes);
+const recoveryWrapByteLength = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES);
 
 export const ancV1VaultBootstrapHeadSchema = z
   .object({ sequence: committedSequence, hash })
@@ -70,6 +76,9 @@ export const ancV1VaultBootstrapResponseMetadataSchema = z
     entryByteLengths: z
       .array(byteLength)
       .max(ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES),
+    entryRecoveryWrapByteLengths: z
+      .array(recoveryWrapByteLength)
+      .max(ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES),
     recoveryWrapHash: hash.nullable(),
     recoveryWrapByteLength: z
       .number()
@@ -80,6 +89,15 @@ export const ancV1VaultBootstrapResponseMetadataSchema = z
   .strict()
   .superRefine((value, context) => {
     const expectedThrough = value.afterSequence + value.entryByteLengths.length;
+    if (
+      value.entryRecoveryWrapByteLengths.length !==
+      value.entryByteLengths.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Bootstrap entry and recovery-wrap vectors differ",
+      });
+    }
     if (value.throughSequence !== expectedThrough) {
       context.addIssue({
         code: "custom",
@@ -119,6 +137,7 @@ export type AncV1VaultBootstrapResponseMetadata = z.infer<
 export interface AncV1VaultBootstrapResponse {
   readonly metadata: AncV1VaultBootstrapResponseMetadata;
   readonly entries: readonly Uint8Array[];
+  readonly entryRecoveryWraps: readonly (Uint8Array | null)[];
   readonly recoveryWrap: Uint8Array | null;
 }
 
@@ -202,14 +221,19 @@ export function decodeAncV1VaultBootstrapRequest(
 export function encodeAncV1VaultBootstrapResponse(input: {
   metadata: Omit<
     AncV1VaultBootstrapResponseMetadata,
-    "entryByteLengths" | "recoveryWrapByteLength"
+    | "entryByteLengths"
+    | "entryRecoveryWrapByteLengths"
+    | "recoveryWrapByteLength"
   >;
   entries: readonly Uint8Array[];
+  entryRecoveryWraps: readonly (Uint8Array | null)[];
   recoveryWrap: Uint8Array | null;
 }): Uint8Array {
   if (
     !Array.isArray(input.entries) ||
-    input.entries.length > ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES
+    input.entries.length > ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES ||
+    !Array.isArray(input.entryRecoveryWraps) ||
+    input.entryRecoveryWraps.length !== input.entries.length
   ) {
     fail();
   }
@@ -232,10 +256,24 @@ export function encodeAncV1VaultBootstrapResponse(input: {
   ) {
     fail();
   }
+  const entryRecoveryWraps = input.entryRecoveryWraps.map((wrap) => {
+    if (wrap === null) return null;
+    if (
+      !(wrap instanceof Uint8Array) ||
+      wrap.byteLength === 0 ||
+      wrap.byteLength > ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES
+    ) {
+      fail();
+    }
+    return Uint8Array.from(wrap);
+  });
   try {
     const metadata = ancV1VaultBootstrapResponseMetadataSchema.parse({
       ...input.metadata,
       entryByteLengths: entries.map((entry) => entry.byteLength),
+      entryRecoveryWrapByteLengths: entryRecoveryWraps.map(
+        (wrap) => wrap?.byteLength ?? 0,
+      ),
       recoveryWrapByteLength: recoveryWrap?.byteLength ?? 0,
     });
     const control = encodeControl(
@@ -246,15 +284,24 @@ export function encodeAncV1VaultBootstrapResponse(input: {
       4 +
       control.byteLength +
       entries.reduce((sum, entry) => sum + entry.byteLength, 0) +
+      entryRecoveryWraps.reduce(
+        (sum, wrap) => sum + (wrap?.byteLength ?? 0),
+        0,
+      ) +
       (recoveryWrap?.byteLength ?? 0);
     if (total > ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES) fail();
     const output = new Uint8Array(total);
     new DataView(output.buffer).setUint32(0, control.byteLength, false);
     output.set(control, 4);
     let offset = 4 + control.byteLength;
-    for (const entry of entries) {
+    for (const [index, entry] of entries.entries()) {
       output.set(entry, offset);
       offset += entry.byteLength;
+      const entryRecoveryWrap = entryRecoveryWraps[index];
+      if (entryRecoveryWrap) {
+        output.set(entryRecoveryWrap, offset);
+        offset += entryRecoveryWrap.byteLength;
+      }
     }
     if (recoveryWrap) output.set(recoveryWrap, offset);
     return output;
@@ -263,6 +310,7 @@ export function encodeAncV1VaultBootstrapResponse(input: {
     return fail();
   } finally {
     for (const entry of entries) entry.fill(0);
+    for (const wrap of entryRecoveryWraps) wrap?.fill(0);
     recoveryWrap?.fill(0);
   }
 }
@@ -294,18 +342,28 @@ export function decodeAncV1VaultBootstrapResponse(
     encoded.slice(4, 4 + controlLength),
   );
   let offset = 4 + controlLength;
-  const entries = metadata.entryByteLengths.map((length) => {
+  const entries: Uint8Array[] = [];
+  const entryRecoveryWraps: Array<Uint8Array | null> = [];
+  for (const [index, length] of metadata.entryByteLengths.entries()) {
     const end = offset + length;
     if (!Number.isSafeInteger(end) || end > encoded.byteLength) fail();
     const entry = encoded.slice(offset, end);
     offset = end;
-    return entry;
-  });
+    entries.push(entry);
+    const wrapLength = metadata.entryRecoveryWrapByteLengths[index]!;
+    const wrapEnd = offset + wrapLength;
+    if (!Number.isSafeInteger(wrapEnd) || wrapEnd > encoded.byteLength) fail();
+    entryRecoveryWraps.push(
+      wrapLength === 0 ? null : encoded.slice(offset, wrapEnd),
+    );
+    offset = wrapEnd;
+  }
   const expectedEnd = offset + metadata.recoveryWrapByteLength;
   if (expectedEnd !== encoded.byteLength) fail();
   return {
     metadata,
     entries,
+    entryRecoveryWraps,
     recoveryWrap:
       metadata.recoveryWrapByteLength === 0
         ? null

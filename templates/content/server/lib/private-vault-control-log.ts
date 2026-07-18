@@ -335,6 +335,7 @@ export function createPrivateVaultControlLogService(
   ): Promise<{
     state: ControlLogState | null;
     entries: Array<{
+      entryId: string;
       sequence: number;
       entryHash: string;
       entryBytes: Uint8Array;
@@ -363,6 +364,7 @@ export function createPrivateVaultControlLogService(
     return {
       state,
       entries: rows.map((row) => ({
+        entryId: row.entryId,
         sequence: row.sequence,
         entryHash: row.entryHash,
         entryBytes: decodeStoredBytes(row.entryBytesBase64url),

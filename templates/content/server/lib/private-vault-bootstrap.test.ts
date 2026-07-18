@@ -22,9 +22,10 @@ vi.mock("../db/index.js", async (importOriginal) => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
-        where: () => ({
-          limit: async () => bindingRows,
-        }),
+        where: () =>
+          Object.assign(Promise.resolve(bindingRows), {
+            limit: async () => bindingRows,
+          }),
       }),
     }),
   }),
@@ -46,8 +47,18 @@ const state = {
   recoveryWrapHash: "cd".repeat(32),
 };
 const entries = [
-  { sequence: 0, entryHash: "01".repeat(32), entryBytes: Uint8Array.of(1) },
-  { sequence: 1, entryHash: "02".repeat(32), entryBytes: Uint8Array.of(2, 3) },
+  {
+    entryId: "entry-bootstrap-0",
+    sequence: 0,
+    entryHash: "01".repeat(32),
+    entryBytes: Uint8Array.of(1),
+  },
+  {
+    entryId: "entry-bootstrap-1",
+    sequence: 1,
+    entryHash: "02".repeat(32),
+    entryBytes: Uint8Array.of(2, 3),
+  },
 ];
 
 describe("Private Vault bootstrap page", () => {
@@ -61,17 +72,26 @@ describe("Private Vault bootstrap page", () => {
   });
 
   it("returns only a replay-verified public log page before the pinned head", async () => {
-    const manyEntries = Array.from({ length: 65 }, (_, sequence) => ({
+    const manyEntries = Array.from({ length: 9 }, (_, sequence) => ({
+      entryId: `entry-bootstrap-${sequence}`,
       sequence,
       entryHash: sequence.toString(16).padStart(2, "0").repeat(32),
       entryBytes: Uint8Array.of(sequence),
     }));
-    const manyState = { ...state, sequence: 64 };
+    const manyState = { ...state, sequence: 8 };
     loadVerifiedSnapshot.mockResolvedValueOnce({
       state: manyState,
       entries: manyEntries,
     });
     loadVerifiedState.mockResolvedValueOnce(manyState);
+    bindingRows.push({
+      controlEntryId: manyEntries[0]!.entryId,
+      recoveryWrapHash: "de".repeat(32),
+      ciphertextByteLength: 2,
+    });
+    readProtectedCiphertextAt.mockResolvedValue({
+      ciphertext: Uint8Array.of(4, 5),
+    });
     const encoded = await readPrivateVaultBootstrapPage({
       scope,
       request: {
@@ -85,19 +105,28 @@ describe("Private Vault bootstrap page", () => {
     const decoded = decodeAncV1VaultBootstrapResponse(encoded);
     expect(decoded.metadata).toMatchObject({
       afterSequence: -1,
-      throughSequence: 63,
-      head: { sequence: 64, hash: state.headHash },
+      throughSequence: 7,
+      head: { sequence: 8, hash: state.headHash },
       complete: false,
       recoveryWrapHash: null,
       recoveryWrapByteLength: 0,
     });
-    expect(decoded.entries).toHaveLength(64);
+    expect(decoded.entries).toHaveLength(8);
+    expect(decoded.entryRecoveryWraps).toEqual([
+      Uint8Array.of(4, 5),
+      ...Array(7).fill(null),
+    ]);
     expect(decoded.recoveryWrap).toBeNull();
-    expect(readProtectedCiphertextAt).not.toHaveBeenCalled();
+    expect(readProtectedCiphertextAt).toHaveBeenCalledWith({
+      kind: "recovery-wrap",
+      vaultId: scope.vaultId,
+      recoveryWrapHash: "de".repeat(32),
+    });
   });
 
   it("returns the exact current encrypted recovery wrap only on the final page", async () => {
     bindingRows.push({
+      controlEntryId: entries[1]!.entryId,
       recoveryWrapHash: state.recoveryWrapHash,
       ciphertextByteLength: 3,
     });
@@ -121,6 +150,7 @@ describe("Private Vault bootstrap page", () => {
       recoveryWrapByteLength: 3,
     });
     expect(decoded.entries).toEqual([Uint8Array.of(2, 3)]);
+    expect(decoded.entryRecoveryWraps).toEqual([stored]);
     expect(decoded.recoveryWrap).toEqual(stored);
     expect(readProtectedCiphertextAt).toHaveBeenCalledWith({
       kind: "recovery-wrap",
@@ -161,6 +191,7 @@ describe("Private Vault bootstrap page", () => {
     ).rejects.toBeInstanceOf(PrivateVaultBootstrapError);
 
     bindingRows.push({
+      controlEntryId: entries[1]!.entryId,
       recoveryWrapHash: state.recoveryWrapHash,
       ciphertextByteLength: 4,
     });
@@ -181,6 +212,7 @@ describe("Private Vault bootstrap page", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
 
     bindingRows[0] = {
+      controlEntryId: entries[1]!.entryId,
       recoveryWrapHash: state.recoveryWrapHash,
       ciphertextByteLength: 3,
     };
