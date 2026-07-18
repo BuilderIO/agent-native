@@ -23,6 +23,7 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("const showNewDocumentTypeChooser =");
+    expect(source).toContain("!document.database?.systemRole");
     expect(source).toContain("isEffectivelyEmptyDocumentContent(localContent)");
     expect(source).toContain("const handleChoosePage = useCallback");
     expect(source).toContain(
