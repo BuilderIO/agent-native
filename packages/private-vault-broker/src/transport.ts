@@ -23,9 +23,9 @@ export type BrokerJobPath =
 export const ANC_ENDPOINT_PROOF_HEADER = "X-ANC-Endpoint-Proof";
 export const BROKER_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 export const BROKER_JOB_RESPONSE_MAX_BYTES =
-  E2EE_SIZE_LIMITS.jobPayloadBytes + 64 * 1024;
+  E2EE_SIZE_LIMITS.jobEnvelopeBytes + 64 * 1024;
 export const BROKER_REQUEST_MAX_BYTES =
-  E2EE_SIZE_LIMITS.resultPayloadBytes + 8 * 1024 + 4;
+  E2EE_SIZE_LIMITS.resultEnvelopeBytes + 8 * 1024 + 4;
 
 export type BrokerTransportErrorCode =
   | "invalid_configuration"

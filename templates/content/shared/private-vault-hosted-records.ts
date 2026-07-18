@@ -429,7 +429,7 @@ const jobRowSchema = z
     recipientEndpointId: opaqueIdSchema,
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     algorithmId: opaqueAlgorithmIdSchema,
-    ciphertextByteLength: byteLength(E2EE_SIZE_LIMITS.jobPayloadBytes),
+    ciphertextByteLength: byteLength(E2EE_SIZE_LIMITS.jobEnvelopeBytes),
     issuedAt: protocolTimestampSchema,
     expiresAt: protocolTimestampSchema,
     jobState: encryptedJobStateSchema,
@@ -486,7 +486,7 @@ const resultRowSchema = z
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     jobHash: opaqueIdSchema,
     algorithmId: opaqueAlgorithmIdSchema,
-    ciphertextByteLength: byteLength(E2EE_SIZE_LIMITS.resultPayloadBytes),
+    ciphertextByteLength: byteLength(E2EE_SIZE_LIMITS.resultEnvelopeBytes),
     jobState: z.enum(["completed", "failed", "cancelled"]),
     serverReceivedAt: protocolTimestampSchema,
   })

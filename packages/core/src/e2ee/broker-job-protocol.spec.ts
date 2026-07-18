@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   ANC_V1_BROKER_CONTROL_MAX_BYTES,
+  ANC_V1_BROKER_JOB_FRAME_MAX_BYTES,
+  ANC_V1_BROKER_RESULT_FRAME_MAX_BYTES,
   AncV1BrokerJobProtocolError,
   decodeAncV1BrokerAckRequest,
   decodeAncV1BrokerAckResponse,
@@ -24,6 +26,7 @@ import {
   encodeAncV1BrokerRetryRequest,
   encodeAncV1BrokerRetryResponse,
 } from "./broker-job-protocol.js";
+import { E2EE_SIZE_LIMITS } from "./suite.js";
 
 const base = { version: 1 as const, suite: "anc/v1" as const };
 const job = {
@@ -173,6 +176,23 @@ describe("anc/v1 broker job protocol", () => {
       },
       ciphertext: resultCiphertext,
     });
+  });
+
+  it("reserves envelope overhead above the protected payload cap", () => {
+    expect(ANC_V1_BROKER_JOB_FRAME_MAX_BYTES).toBe(
+      4 + ANC_V1_BROKER_CONTROL_MAX_BYTES + E2EE_SIZE_LIMITS.jobEnvelopeBytes,
+    );
+    expect(ANC_V1_BROKER_RESULT_FRAME_MAX_BYTES).toBe(
+      4 +
+        ANC_V1_BROKER_CONTROL_MAX_BYTES +
+        E2EE_SIZE_LIMITS.resultEnvelopeBytes,
+    );
+    expect(E2EE_SIZE_LIMITS.jobEnvelopeBytes).toBeGreaterThan(
+      E2EE_SIZE_LIMITS.jobPayloadBytes,
+    );
+    expect(E2EE_SIZE_LIMITS.resultEnvelopeBytes).toBeGreaterThan(
+      E2EE_SIZE_LIMITS.resultPayloadBytes,
+    );
   });
 
   it("rejects unknown fields, noncanonical bytes, malformed frames, and bounds", () => {

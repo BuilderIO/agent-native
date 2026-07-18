@@ -9,9 +9,9 @@ import { E2EE_SIZE_LIMITS, E2EE_SUITE_ID } from "./suite.js";
 
 export const ANC_V1_BROKER_CONTROL_MAX_BYTES = 8 * 1024;
 export const ANC_V1_BROKER_JOB_FRAME_MAX_BYTES =
-  4 + ANC_V1_BROKER_CONTROL_MAX_BYTES + E2EE_SIZE_LIMITS.jobPayloadBytes;
+  4 + ANC_V1_BROKER_CONTROL_MAX_BYTES + E2EE_SIZE_LIMITS.jobEnvelopeBytes;
 export const ANC_V1_BROKER_RESULT_FRAME_MAX_BYTES =
-  4 + ANC_V1_BROKER_CONTROL_MAX_BYTES + E2EE_SIZE_LIMITS.resultPayloadBytes;
+  4 + ANC_V1_BROKER_CONTROL_MAX_BYTES + E2EE_SIZE_LIMITS.resultEnvelopeBytes;
 
 const header = {
   version: z.literal(1),
@@ -33,7 +33,7 @@ export const ancV1BrokerClaimedJobSchema = z
     retryCount,
     algorithmId: opaqueAlgorithmIdSchema,
     ciphertextByteLength: ciphertextByteLength(
-      E2EE_SIZE_LIMITS.jobPayloadBytes,
+      E2EE_SIZE_LIMITS.jobEnvelopeBytes,
     ),
   })
   .strict();
@@ -64,7 +64,7 @@ export const ancV1BrokerRequestFrameMetadataSchema = z
     retryCount,
     algorithmId: opaqueAlgorithmIdSchema,
     ciphertextByteLength: ciphertextByteLength(
-      E2EE_SIZE_LIMITS.jobPayloadBytes,
+      E2EE_SIZE_LIMITS.jobEnvelopeBytes,
     ),
   })
   .strict();
@@ -120,7 +120,7 @@ export const ancV1BrokerResultFrameMetadataSchema = z
     algorithmId: opaqueAlgorithmIdSchema,
     state: z.enum(["completed", "failed"]),
     ciphertextByteLength: ciphertextByteLength(
-      E2EE_SIZE_LIMITS.resultPayloadBytes,
+      E2EE_SIZE_LIMITS.resultEnvelopeBytes,
     ),
   })
   .strict();
@@ -311,14 +311,14 @@ export function encodeAncV1BrokerRequestFrame(
     ancV1BrokerRequestFrameMetadataSchema,
     metadata,
     ciphertext,
-    E2EE_SIZE_LIMITS.jobPayloadBytes,
+    E2EE_SIZE_LIMITS.jobEnvelopeBytes,
   );
 }
 export const decodeAncV1BrokerRequestFrame = (value: Uint8Array) =>
   decodeFrame(
     ancV1BrokerRequestFrameMetadataSchema,
     value,
-    E2EE_SIZE_LIMITS.jobPayloadBytes,
+    E2EE_SIZE_LIMITS.jobEnvelopeBytes,
   );
 export const encodeAncV1BrokerAckRequest = (value: AncV1BrokerAckRequest) =>
   encodeControl(ancV1BrokerAckRequestSchema, value);
@@ -345,14 +345,14 @@ export function encodeAncV1BrokerResultFrame(
     ancV1BrokerResultFrameMetadataSchema,
     metadata,
     ciphertext,
-    E2EE_SIZE_LIMITS.resultPayloadBytes,
+    E2EE_SIZE_LIMITS.resultEnvelopeBytes,
   );
 }
 export const decodeAncV1BrokerResultFrame = (value: Uint8Array) =>
   decodeFrame(
     ancV1BrokerResultFrameMetadataSchema,
     value,
-    E2EE_SIZE_LIMITS.resultPayloadBytes,
+    E2EE_SIZE_LIMITS.resultEnvelopeBytes,
   );
 export const encodeAncV1BrokerResultResponse = (
   value: AncV1BrokerResultResponse,

@@ -51,9 +51,9 @@ import {
   enqueuePrivateVaultRetentionItems,
 } from "./private-vault-retention.js";
 
-export const PRIVATE_VAULT_JOB_MAX_BYTES = E2EE_SIZE_LIMITS.jobPayloadBytes;
+export const PRIVATE_VAULT_JOB_MAX_BYTES = E2EE_SIZE_LIMITS.jobEnvelopeBytes;
 export const PRIVATE_VAULT_RESULT_MAX_BYTES =
-  E2EE_SIZE_LIMITS.resultPayloadBytes;
+  E2EE_SIZE_LIMITS.resultEnvelopeBytes;
 export const PRIVATE_VAULT_JOB_ACTION_MAX_BYTES = 1024 * 1024;
 export const PRIVATE_VAULT_JOB_MAX_RETRIES = 100;
 export const PRIVATE_VAULT_DEFAULT_LEASE_MS = 60_000;

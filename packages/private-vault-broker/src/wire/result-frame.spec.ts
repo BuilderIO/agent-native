@@ -115,7 +115,7 @@ describe("broker result frame codec", () => {
     expect(BROKER_RESULT_FRAME_MAX_BYTES).toBe(
       4 +
         BROKER_RESULT_METADATA_MAX_BYTES +
-        E2EE_SIZE_LIMITS.resultPayloadBytes,
+        E2EE_SIZE_LIMITS.resultEnvelopeBytes,
     );
     expect(() =>
       encodeBrokerResultMetadata({
@@ -126,7 +126,7 @@ describe("broker result frame codec", () => {
     expect(() =>
       encodeBrokerResultFrame(
         metadata,
-        new Uint8Array(E2EE_SIZE_LIMITS.resultPayloadBytes + 1),
+        new Uint8Array(E2EE_SIZE_LIMITS.resultEnvelopeBytes + 1),
       ),
     ).toThrow(BrokerResultFrameError);
   });

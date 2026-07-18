@@ -277,6 +277,14 @@ describe("anc/v1 suite freeze", () => {
   it("pins bounded payload and authorization lifetimes", () => {
     expect(E2EE_SIZE_LIMITS.chunkPlaintextBytes).toBe(1024 * 1024);
     expect(E2EE_SIZE_LIMITS.objectPlaintextBytes).toBe(256 * 1024 * 1024);
+    expect(E2EE_SIZE_LIMITS.jobPayloadBytes).toBe(16 * 1024 * 1024);
+    expect(E2EE_SIZE_LIMITS.resultPayloadBytes).toBe(16 * 1024 * 1024);
+    expect(E2EE_SIZE_LIMITS.jobEnvelopeBytes).toBe(
+      E2EE_SIZE_LIMITS.jobPayloadBytes + 64 * 1024,
+    );
+    expect(E2EE_SIZE_LIMITS.resultEnvelopeBytes).toBe(
+      E2EE_SIZE_LIMITS.resultPayloadBytes + 64 * 1024,
+    );
     expect(E2EE_SIZE_LIMITS.enrollmentAuthorizationBytes).toBe(256 * 1024);
     expect(E2EE_SIZE_LIMITS.genesisBootstrapTranscriptBytes).toBe(4 * 1024);
     expect(E2EE_LIFETIME_LIMITS_SECONDS).toEqual({

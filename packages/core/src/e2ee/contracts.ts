@@ -49,10 +49,10 @@ export const opaqueObjectCiphertextSchema = boundedOpaquePayloadSchema(
   E2EE_SIZE_LIMITS.objectPlaintextBytes,
 );
 export const opaqueJobCiphertextSchema = boundedOpaquePayloadSchema(
-  E2EE_SIZE_LIMITS.jobPayloadBytes,
+  E2EE_SIZE_LIMITS.jobEnvelopeBytes,
 );
 export const opaqueResultCiphertextSchema = boundedOpaquePayloadSchema(
-  E2EE_SIZE_LIMITS.resultPayloadBytes,
+  E2EE_SIZE_LIMITS.resultEnvelopeBytes,
 );
 export const opaqueAlgorithmIdSchema = z
   .string()
@@ -322,7 +322,7 @@ export const encryptedJobEnvelopeSchema = z
       .number()
       .int()
       .nonnegative()
-      .max(E2EE_SIZE_LIMITS.jobPayloadBytes),
+      .max(E2EE_SIZE_LIMITS.jobEnvelopeBytes),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -346,7 +346,7 @@ export const encryptedResultEnvelopeSchema = z
       .number()
       .int()
       .nonnegative()
-      .max(E2EE_SIZE_LIMITS.resultPayloadBytes),
+      .max(E2EE_SIZE_LIMITS.resultEnvelopeBytes),
   })
   .strict()
   .superRefine((value, ctx) => {

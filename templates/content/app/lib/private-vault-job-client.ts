@@ -23,7 +23,7 @@ const jobMetadataSchema = z
     epoch: positiveIntegerSchema,
     algorithmId: z.literal(E2EE_SUITE_ID),
     ciphertextByteLength: positiveIntegerSchema.max(
-      E2EE_SIZE_LIMITS.jobPayloadBytes,
+      E2EE_SIZE_LIMITS.jobEnvelopeBytes,
     ),
     issuedAt: protocolTimestampSchema,
     expiresAt: protocolTimestampSchema,
@@ -191,7 +191,7 @@ export async function getPrivateVaultJobResult(
   const ciphertextByteLength = positiveInteger(
     response.headers.get("x-anc-ciphertext-byte-length"),
   );
-  if (ciphertextByteLength > E2EE_SIZE_LIMITS.resultPayloadBytes)
+  if (ciphertextByteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes)
     throw invalidJobResponse();
   const state = response.headers.get("x-anc-job-state");
   const algorithmId = response.headers.get("x-anc-algorithm-id") ?? "";
@@ -203,7 +203,7 @@ export async function getPrivateVaultJobResult(
   )
     throw new PrivateVaultJobTransportError(502);
   const ciphertext = await readBoundedResponseBytes(response, {
-    maximumByteLength: E2EE_SIZE_LIMITS.resultPayloadBytes,
+    maximumByteLength: E2EE_SIZE_LIMITS.resultEnvelopeBytes,
     expectedByteLength: ciphertextByteLength,
     invalidResponse: invalidJobResponse,
   });

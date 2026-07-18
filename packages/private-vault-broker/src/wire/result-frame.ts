@@ -2,7 +2,7 @@ import { E2EE_SIZE_LIMITS, opaqueIdSchema } from "@agent-native/core/e2ee";
 
 export const BROKER_RESULT_METADATA_MAX_BYTES = 8 * 1024;
 export const BROKER_RESULT_FRAME_MAX_BYTES =
-  4 + BROKER_RESULT_METADATA_MAX_BYTES + E2EE_SIZE_LIMITS.resultPayloadBytes;
+  4 + BROKER_RESULT_METADATA_MAX_BYTES + E2EE_SIZE_LIMITS.resultEnvelopeBytes;
 
 export interface BrokerResultFrameMetadata {
   readonly version: 1;
@@ -46,7 +46,7 @@ function parseMetadata(value: unknown): BrokerResultFrameMetadata {
     (record.state !== "completed" && record.state !== "failed") ||
     !Number.isSafeInteger(record.ciphertextLength) ||
     (record.ciphertextLength as number) < 0 ||
-    (record.ciphertextLength as number) > E2EE_SIZE_LIMITS.resultPayloadBytes
+    (record.ciphertextLength as number) > E2EE_SIZE_LIMITS.resultEnvelopeBytes
   ) {
     fail();
   }
@@ -110,7 +110,7 @@ export function encodeBrokerResultFrame(
 ): Uint8Array {
   if (
     !(ciphertext instanceof Uint8Array) ||
-    ciphertext.byteLength > E2EE_SIZE_LIMITS.resultPayloadBytes
+    ciphertext.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes
   ) {
     fail();
   }

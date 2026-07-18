@@ -144,7 +144,11 @@ Object headers bind suite, vault/object ID, monotonic revision, epoch, chunk cou
 
 Single-frame content uses XChaCha20-Poly1305 with a random 24-byte nonce. Large content uses `secretstream` in fixed 1 MiB plaintext chunks, with per-frame associated data binding object, revision, chunk index, and count. The final frame must carry `TAG_FINAL`; truncation, reordering, splicing, wrong recipient/object/revision, any bit flip, or missing final tag fails with one opaque local `VaultCryptoError` and zero released plaintext.
 
-Caps: 64 KiB control/log envelopes, 16 KiB object headers, 1 MiB chunks, 256 MiB objects, and 16 MiB encrypted job/result payloads.
+Caps: 64 KiB control/log envelopes, 16 KiB object headers, 1 MiB chunks,
+256 MiB objects, and 16 MiB encrypted job/result payloads. Signed canonical
+job and result envelopes receive a separate 64 KiB framing budget so a valid
+maximum payload is not rejected merely because its authenticated fields and
+signature also occupy bytes.
 
 ## Control log, rollback, and deletion
 

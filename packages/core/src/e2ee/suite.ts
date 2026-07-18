@@ -374,6 +374,8 @@ export const E2EE_SIZE_LIMITS = Object.freeze({
   objectPlaintextBytes: 256 * 1024 * 1024,
   jobPayloadBytes: 16 * 1024 * 1024,
   resultPayloadBytes: 16 * 1024 * 1024,
+  jobEnvelopeBytes: 16 * 1024 * 1024 + 64 * 1024,
+  resultEnvelopeBytes: 16 * 1024 * 1024 + 64 * 1024,
   vaultLogEntryBytes: 64 * 1024,
   enrollmentAuthorizationBytes: 256 * 1024,
 });
