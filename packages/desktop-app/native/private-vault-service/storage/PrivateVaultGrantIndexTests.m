@@ -3,6 +3,7 @@
 #import "PrivateVaultGrantIndex.h"
 #import "PrivateVaultJobProcessor.h"
 #import "PrivateVaultResultSpool.h"
+#import "PrivateVaultAncCanonical.h"
 
 #include <assert.h>
 #include <sys/stat.h>
@@ -89,6 +90,14 @@ static NSData *Pattern(uint8_t byte, NSUInteger length) {
          ANC_PV_CRYPTO_OK);
   anc_pv_zeroize(seed, sizeof seed);
   anc_pv_zeroize(privateKey, sizeof privateKey);
+  uint8_t signingSeed[32] = {0};
+  uint8_t signingPrivate[64] = {0};
+  memset(signingSeed, 0x44, sizeof signingSeed);
+  assert(anc_pv_ed25519_seed_keypair(snapshot->signing_public_key,
+                                     signingPrivate, signingSeed) ==
+         ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(signingSeed, sizeof signingSeed);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
   *handle = self.handle;
   return 0;
 }
@@ -364,7 +373,44 @@ int main(void) {
     assert([authorizedJob.body isEqualToData:
         [@"{\"action\":\"get-document\"}"
             dataUsingEncoding:NSUTF8StringEncoding]] &&
-           authorizedJob.jobHash.length == 32);
+           authorizedJob.jobHash.length == 32 &&
+           [authorizedJob.resourceId isEqualToData:Pattern(0x09, 16)] &&
+           [authorizedJob.operation isEqualToString:@"read"]);
+    AncPrivateVaultCanonicalStatus proofStatus;
+    NSData *unsignedProof = AncPrivateVaultCanonicalEncode(
+        [AncPrivateVaultCanonicalValue map:@{
+          @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+          @2 : [AncPrivateVaultCanonicalValue integer:1],
+          @3 : [AncPrivateVaultCanonicalValue text:@"endpoint_request"],
+          @4 : [AncPrivateVaultCanonicalValue text:kVaultId],
+          @5 : [AncPrivateVaultCanonicalValue
+              text:@"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"],
+          @6 : [AncPrivateVaultCanonicalValue text:@"POST"],
+          @7 : [AncPrivateVaultCanonicalValue
+              text:@"/api/private-vault/jobs/broker/claim"],
+          @8 : [AncPrivateVaultCanonicalValue bytes:Pattern(0x55, 32)],
+          @9 : [AncPrivateVaultCanonicalValue
+              text:@"2024-07-16T00:00:00.000Z"],
+          @10 : [AncPrivateVaultCanonicalValue
+              text:@"66666666666666666666666666666666"],
+        }],
+        &proofStatus);
+    NSData *endpointSignature = nil;
+    assert(proofStatus == AncPrivateVaultCanonicalStatusOK &&
+           [processor signEndpointRequestProof:unsignedProof
+                                     nowSeconds:1721111200
+                                         result:&endpointSignature] ==
+               AncPrivateVaultJobProcessorStatusOK &&
+           endpointSignature.length == 64);
+    static const uint8_t proofDomain[] = "anc/v1/endpoint-request";
+    NSMutableData *proofMessage = [NSMutableData
+        dataWithCapacity:sizeof proofDomain + unsignedProof.length];
+    [proofMessage appendBytes:proofDomain length:sizeof proofDomain];
+    [proofMessage appendData:unsignedProof];
+    assert(anc_pv_ed25519_verify(endpointSignature.bytes, proofMessage.bytes,
+                                 proofMessage.length,
+                                 broker.signingPublicKey.bytes) ==
+           ANC_PV_CRYPTO_OK);
     NSData *authorizedJobHash = [authorizedJob.jobHash copy];
     assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
                                 jobId:Pattern(0x06, 16)

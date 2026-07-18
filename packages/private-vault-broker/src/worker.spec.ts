@@ -49,6 +49,8 @@ function successFixture() {
       operation: "openHostedJob" as const,
       jobHash,
       jobPayload: openedPayload,
+      resourceId: new Uint8Array(16),
+      operationName: "get-document",
     })),
     sealHostedResult: vi.fn(async () => ({
       ...base,

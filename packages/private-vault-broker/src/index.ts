@@ -1,4 +1,5 @@
 export type { AncV1CryptoProvider } from "./crypto/provider.js";
+export * from "./action-executor.js";
 export {
   SodiumNativeAncV1CryptoProvider,
   sodiumNativeAncV1,

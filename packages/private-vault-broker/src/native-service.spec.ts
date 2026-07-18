@@ -261,6 +261,8 @@ describe("private-vault native service contract", () => {
         operation: "openHostedJob",
         jobHash: "33".repeat(32),
         jobPayload: new Uint8Array(),
+        resourceId: new Uint8Array(16),
+        operationName: "get-document",
       },
       {
         ...BASE,
@@ -385,6 +387,8 @@ describe("private-vault native service contract", () => {
       operation: "openHostedJob",
       jobHash: "33".repeat(32),
       jobPayload: resultPayload,
+      resourceId: new Uint8Array(16),
+      operationName: "get-document",
     });
     expect(parsedResult.operation).toBe("openHostedJob");
     if (parsedResult.operation !== "openHostedJob") throw new Error();

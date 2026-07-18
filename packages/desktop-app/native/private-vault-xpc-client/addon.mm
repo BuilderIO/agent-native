@@ -58,6 +58,7 @@ enum class PVOperation {
   SealResult,
   CompleteResult,
   PendingResult,
+  SignRequest,
 };
 enum class PVFailure {
   None,
@@ -98,6 +99,7 @@ struct PVParsedReply {
   char jobID[33] = {0};
   char resultState[10] = {0};
   char algorithmID[161] = {0};
+  char operationName[121] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
@@ -108,6 +110,7 @@ struct PVParsedReply {
   uint64_t hostedRetryCount = 0;
   bool complete = false;
   std::vector<uint8_t> body;
+  std::vector<uint8_t> resourceID;
   std::vector<PVCandidate> candidates;
 };
 
@@ -203,6 +206,7 @@ struct PVAsyncRequest {
   char jobID[33] = {0};
   char resultState[10] = {0};
   char algorithmID[161] = {0};
+  char operationName[121] = {0};
   char accountID[161] = {0};
   char workspaceID[161] = {0};
   char endpointID[33] = {0};
@@ -227,6 +231,7 @@ struct PVAsyncRequest {
   std::vector<uint8_t> bootstrapFrame;
   std::vector<uint8_t> jobEnvelope;
   std::vector<uint8_t> resultPayload;
+  std::vector<uint8_t> resourceID;
   std::vector<PVCandidate> candidates;
 
   ~PVAsyncRequest() {
@@ -250,6 +255,8 @@ struct PVAsyncRequest {
       PVClearBytes(jobEnvelope);
     if (!resultPayload.empty())
       PVClearBytes(resultPayload);
+    if (!resourceID.empty())
+      PVClearBytes(resourceID);
     for (auto &candidate : candidates)
       PVClearBytes(candidate.candidate);
   }
@@ -528,18 +535,24 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
   }
 
   if (operation == PVOperation::OpenJob) {
-    const char *const keys[] = {"version", "ok", "requestId", "jobHash",
-                                "jobPayload"};
+    const char *const keys[] = {"version",      "ok",          "requestId",
+                                "jobHash",      "jobPayload",  "resourceId",
+                                "operationName"};
     const char *jobHash = PVGetString(reply, "jobHash");
-    if (!PVHasExactKeys(reply, keys, 5) ||
+    const char *operationName = PVGetString(reply, "operationName");
+    if (!PVHasExactKeys(reply, keys, 7) ||
         !PVRequestIDMatches(reply, requestID) ||
         !PVIsLowerHex(jobHash, 64) ||
+        !PVIsOpaqueID(operationName) || strlen(operationName) > 120 ||
+        !PVCopyBoundedData(reply, "resourceId", 16, parsed.resourceID) ||
+        parsed.resourceID.size() != 16 ||
         !PVCopyBoundedData(reply, "jobPayload", PV_JOB_PAYLOAD_MAXIMUM_BYTES,
                            parsed.body)) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
     memcpy(parsed.jobHash, jobHash, 65);
+    memcpy(parsed.operationName, operationName, strlen(operationName) + 1);
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -550,6 +563,18 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
         !PVRequestIDMatches(reply, requestID) ||
         !PVCopyBoundedData(reply, "resultEnvelope",
                            PV_JOB_ENVELOPE_MAXIMUM_BYTES, parsed.body)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+  if (operation == PVOperation::SignRequest) {
+    const char *const keys[] = {"version", "ok", "requestId", "signature"};
+    if (!PVHasExactKeys(reply, keys, 4) ||
+        !PVRequestIDMatches(reply, requestID) ||
+        !PVCopyBoundedData(reply, "signature", 64, parsed.body) ||
+        parsed.body.size() != 64) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
@@ -1028,6 +1053,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "complete_result"
                           : request->operation == PVOperation::PendingResult
                               ? "pending_result"
+                          : request->operation == PVOperation::SignRequest
+                              ? "sign_request"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -1087,6 +1114,11 @@ void PVExecute(napi_env env, void *data) {
     xpc_dictionary_set_data(message, "jobEnvelope",
                             request->jobEnvelope.data(),
                             request->jobEnvelope.size());
+  }
+  if (request->operation == PVOperation::SignRequest) {
+    xpc_dictionary_set_data(message, "unsignedProof",
+                            request->resultPayload.data(),
+                            request->resultPayload.size());
   }
   if (request->operation == PVOperation::SealResult) {
     static const uint8_t emptyPayload = 0;
@@ -1197,12 +1229,15 @@ void PVExecute(napi_env env, void *data) {
     request->headSequence = parsed.headSequence;
     request->complete = parsed.complete;
     request->body = std::move(parsed.body);
+    request->resourceID = std::move(parsed.resourceID);
     memcpy(request->jobHash, parsed.jobHash, sizeof(request->jobHash));
     memcpy(request->jobID, parsed.jobID, sizeof(request->jobID));
     memcpy(request->resultState, parsed.resultState,
            sizeof(request->resultState));
     memcpy(request->algorithmID, parsed.algorithmID,
            sizeof(request->algorithmID));
+    memcpy(request->operationName, parsed.operationName,
+           sizeof(request->operationName));
     request->hostedEpoch = parsed.hostedEpoch;
     request->hostedRetryCount = parsed.hostedRetryCount;
     request->candidates = std::move(parsed.candidates);
@@ -1300,9 +1335,12 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "complete_result"
                 : request->operation == PVOperation::PendingResult
                     ? "pending_result"
+                : request->operation == PVOperation::SignRequest
+                    ? "sign_request"
                     : "finalize_genesis");
     if (request->operation != PVOperation::OpenJob &&
-        request->operation != PVOperation::SealResult)
+        request->operation != PVOperation::SealResult &&
+        request->operation != PVOperation::SignRequest)
       PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
       napi_value available;
@@ -1321,7 +1359,9 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       PVSetString(env, result, "vaultId", request->vaultID);
     } else if (request->operation == PVOperation::OpenJob) {
       PVSetString(env, result, "jobHash", request->jobHash);
-      if (!PVSetBuffer(env, result, "jobPayload", request->body)) {
+      PVSetString(env, result, "operationName", request->operationName);
+      if (!PVSetBuffer(env, result, "jobPayload", request->body) ||
+          !PVSetBuffer(env, result, "resourceId", request->resourceID)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",
@@ -1334,6 +1374,18 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       }
     } else if (request->operation == PVOperation::SealResult) {
       if (!PVSetBuffer(env, result, "resultEnvelope", request->body)) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::SignRequest) {
+      if (!PVSetBuffer(env, result, "signature", request->body)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",
@@ -1529,6 +1581,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::CompleteResult;
   } else if (strcmp(operation, "pending_result") == 0) {
     request->operation = PVOperation::PendingResult;
+  } else if (strcmp(operation, "sign_request") == 0) {
+    request->operation = PVOperation::SignRequest;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1553,6 +1607,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::SealResult ? 6
       : request->operation == PVOperation::CompleteResult ? 5
       : request->operation == PVOperation::PendingResult ? 2
+      : request->operation == PVOperation::SignRequest ? 2
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -1651,6 +1706,21 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     }
     resultPayload = static_cast<const uint8_t *>(bytes);
   }
+  if (request->operation == PVOperation::SignRequest) {
+    void *bytes = nullptr;
+    bool isBuffer = false;
+    if (napi_is_buffer(env, argv[1], &isBuffer) != napi_ok || !isBuffer ||
+        napi_get_buffer_info(env, argv[1], &bytes, &resultPayloadLength) !=
+            napi_ok ||
+        bytes == nullptr || resultPayloadLength == 0 ||
+        resultPayloadLength > 64 * 1024) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    resultPayload = static_cast<const uint8_t *>(bytes);
+  }
   if (request->operation == PVOperation::CompleteResult) {
     size_t jobLength = 0, hashLength = 0, stateLength = 0;
     if (napi_typeof(env, argv[2], &argumentType) != napi_ok ||
@@ -1731,7 +1801,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       return nullptr;
     }
   }
-  if (request->operation == PVOperation::SealResult) {
+  if (request->operation == PVOperation::SealResult ||
+      request->operation == PVOperation::SignRequest) {
     try {
       if (resultPayloadLength > 0)
         request->resultPayload.assign(resultPayload,

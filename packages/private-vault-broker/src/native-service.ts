@@ -138,6 +138,8 @@ export type NativeOpenHostedJobRequest = ServiceHeader<"openHostedJob"> & {
 export type NativeOpenHostedJobResult = ServiceHeader<"openHostedJob"> & {
   readonly jobPayload: Uint8Array;
   readonly jobHash: string;
+  readonly resourceId: Uint8Array;
+  readonly operationName: string;
 };
 
 export type NativeSealHostedResultRequest =
@@ -840,16 +842,27 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
       };
     }
     case "openHostedJob": {
-      const record = resultHeader(value, operation, ["jobHash", "jobPayload"]);
+      const record = resultHeader(value, operation, [
+        "jobHash",
+        "jobPayload",
+        "operationName",
+        "resourceId",
+      ]);
       if (
         typeof record.jobHash !== "string" ||
-        !LOWERCASE_HEX_32.test(record.jobHash)
+        !LOWERCASE_HEX_32.test(record.jobHash) ||
+        typeof record.operationName !== "string" ||
+        record.operationName.length === 0 ||
+        record.operationName.length > 160 ||
+        !/^[\x21-\x7e]+$/.test(record.operationName)
       ) {
         fail("invalid_result");
       }
       return {
         ...base(operation),
         jobHash: record.jobHash,
+        resourceId: resultBytes(record.resourceId, 16, 16),
+        operationName: record.operationName,
         jobPayload: resultBytes(
           record.jobPayload,
           0,

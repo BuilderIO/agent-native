@@ -145,6 +145,19 @@ int main(void) {
          strcmp(parsed.operation, "pending_result") == 0);
   xpc_release(pendingResult);
 
+  xpc_object_t signRequest =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "sign_request", "request-sign");
+  xpc_dictionary_set_data(signRequest, "unsignedProof", jobBytes,
+                          sizeof jobBytes);
+  assert(PVParseRequest(signRequest, &parsed) == PVRequestValid &&
+         strcmp(parsed.operation, "sign_request") == 0 &&
+         parsed.unsignedProofLength == sizeof jobBytes &&
+         memcmp(parsed.unsignedProof, jobBytes, sizeof jobBytes) == 0);
+  xpc_dictionary_set_string(signRequest, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(signRequest, &parsed) == PVRequestInvalid);
+  xpc_release(signRequest);
+
   xpc_object_t openJobMissing =
       PVMakeRequest(PV_PROTOCOL_VERSION, "open_job", "request-open-missing");
   xpc_dictionary_set_string(openJobMissing, "vaultId",

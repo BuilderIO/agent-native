@@ -324,6 +324,10 @@ static void PVOpenJob(xpc_connection_t peer, xpc_object_t message,
         xpc_dictionary_set_string(reply, "jobHash", jobHash.UTF8String);
         xpc_dictionary_set_data(reply, "jobPayload", opened.body.bytes,
                                 opened.body.length);
+        xpc_dictionary_set_data(reply, "resourceId", opened.resourceId.bytes,
+                                opened.resourceId.length);
+        xpc_dictionary_set_string(reply, "operationName",
+                                  opened.operation.UTF8String);
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -417,6 +421,35 @@ static void PVPendingResult(xpc_connection_t peer, xpc_object_t message,
                                     pending.resultEnvelope.bytes,
                                     pending.resultEnvelope.length);
         }
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVSignEndpointRequest(xpc_connection_t peer, xpc_object_t message,
+                                  const PVRequest *request) {
+    @autoreleasepool {
+        if (gJobProcessor == nil || request->unsignedProof == NULL ||
+            request->unsignedProofLength == 0) {
+            PVSendError(peer, message, "sign_request_denied");
+            return;
+        }
+        NSData *proof = [NSData dataWithBytes:request->unsignedProof
+                                       length:request->unsignedProofLength];
+        NSData *signature = nil;
+        AncPrivateVaultJobProcessorStatus status = [gJobProcessor
+            signEndpointRequestProof:proof
+                         nowSeconds:
+                             (uint64_t)floor(NSDate.date.timeIntervalSince1970)
+                             result:&signature];
+        if (status != AncPrivateVaultJobProcessorStatusOK ||
+            signature.length != 64) {
+            PVSendError(peer, message, "sign_request_denied");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_data(reply, "signature", signature.bytes,
+                                signature.length);
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -1129,6 +1162,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "pending_result") == 0) {
                 PVPendingResult(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "sign_request") == 0) {
+                PVSignEndpointRequest(peer, message, &request);
                 return;
             }
             PVSendSuccess(peer, message, &request);

@@ -719,8 +719,29 @@ requester-encrypted result bytes are staged before terminalization and retained
 until a matching hosted receipt advances the native job to `delivered`.
 Startup reconciliation now reloads the retained hosted attempt coordinates and
 exact envelope, idempotently resubmits it before claiming new work, and never
-re-executes the action. The remaining broker exit gate is the Content app action
-executor and desktop supervisor lifecycle composition.
+re-executes the action.
+
+The Content action and desktop composition seam is now executable. A canonical,
+bounded `content-action` body names exactly one registered Content action; the
+native job boundary returns the authenticated resource id and operation, and
+the executor refuses to run unless that operation exactly matches the action
+name. URLs, SQL strings, module paths, dangerous object keys, noncanonical JSON,
+and unregistered actions collapse to the same encrypted failure result. Native
+code also requires the semantic provider to be Content before releasing the
+body. The signed XPC path now returns those minimal authenticated coordinates
+and signs broker-route request proofs only after independently rechecking the
+fresh single-broker control authority and unlocked custody identity.
+
+An authenticated, content-free runtime descriptor supplies the current public
+vault, broker endpoint, and control head to Desktop without accepting renderer
+coordinates. The Desktop composition uses cookie-free signed broker transport,
+one serialized supervisor, current-descriptor revocation checks, and an
+OS-encrypted atomic checkpoint store that contains no content. Startup failure
+and shutdown lock native custody. The focused broker, desktop transport/store,
+runtime lifecycle, route, protocol, native grant-index, universal addon, and
+production service builds pass. The remaining PR 5 product dependency is
+ordinary broker enrollment/replacement; the runtime can accept its real Content
+action registry as PR 6 brings up encrypted document storage.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault

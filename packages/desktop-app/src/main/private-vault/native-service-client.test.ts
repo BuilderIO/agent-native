@@ -157,6 +157,8 @@ describe("Private Vault native service client", () => {
       operation: "open_job",
       jobHash: "ab".repeat(32),
       jobPayload: Buffer.from("scoped action"),
+      resourceId: Buffer.alloc(16, 7),
+      operationName: "get-document",
     }));
     const client = createPrivateVaultNativeServiceClientForTest(async () => ({
       request,
@@ -180,6 +182,8 @@ describe("Private Vault native service client", () => {
       operation: "openHostedJob",
       jobHash: "ab".repeat(32),
       jobPayload: Buffer.from("scoped action"),
+      resourceId: Buffer.alloc(16, 7),
+      operationName: "get-document",
     });
     expect(request).toHaveBeenCalledWith(
       "open_job",
@@ -240,6 +244,38 @@ describe("Private Vault native service client", () => {
         resultPayload: new Uint8Array(),
       }),
     ).resolves.toMatchObject({ operation: "sealHostedResult" });
+  });
+
+  it("signs only through the narrow native endpoint-proof operation", async () => {
+    let transferred: Buffer | null = null;
+    const request = vi.fn(async (_operation: string, proof: Buffer) => {
+      transferred = proof;
+      return {
+        version: 3,
+        operation: "sign_request",
+        signature: Buffer.alloc(64, 9),
+      };
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    const proof = new Uint8Array([0xa1, 0x01, 0x01]);
+    await expect(
+      client.signEndpointRequest({
+        version: 1,
+        suite: "anc/v1",
+        operation: "signEndpointRequest",
+        unsignedProof: proof,
+      }),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "signEndpointRequest",
+      signature: Buffer.alloc(64, 9),
+    });
+    expect(request).toHaveBeenCalledWith("sign_request", expect.any(Buffer));
+    expect(transferred).toEqual(Buffer.alloc(3));
+    expect(proof).toEqual(new Uint8Array([0xa1, 0x01, 0x01]));
   });
 
   it("releases a sealed result only after an exact hosted receipt", async () => {

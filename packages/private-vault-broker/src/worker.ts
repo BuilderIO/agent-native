@@ -34,6 +34,8 @@ export interface PrivateVaultBrokerActionExecutor {
     /** Authenticated plaintext bytes borrowed only for this local call. */
     readonly payload: Uint8Array;
     readonly jobId: string;
+    readonly resourceId: Uint8Array;
+    readonly operation: string;
   }): Promise<{
     readonly state: "completed" | "failed";
     readonly payload: Uint8Array;
@@ -43,7 +45,13 @@ export interface PrivateVaultBrokerActionExecutor {
 export interface PrivateVaultBrokerWorkerOptions {
   readonly vaultId: string;
   readonly endpointId: string;
-  readonly native: PrivateVaultNativeService;
+  readonly native: Pick<
+    PrivateVaultNativeService,
+    | "recoverHostedResult"
+    | "openHostedJob"
+    | "sealHostedResult"
+    | "acknowledgeHostedResult"
+  >;
   readonly transport: Pick<
     SignedHostedBrokerTransport,
     "claim" | "request" | "ack" | "retry" | "result"
@@ -85,7 +93,7 @@ function sameClaim(
 export class PrivateVaultBrokerWorker {
   readonly #vaultId: string;
   readonly #endpointId: string;
-  readonly #native: PrivateVaultNativeService;
+  readonly #native: PrivateVaultBrokerWorkerOptions["native"];
   readonly #transport: PrivateVaultBrokerWorkerOptions["transport"];
   readonly #executor: PrivateVaultBrokerActionExecutor;
   readonly #crypto: AncV1CryptoProvider;
@@ -220,6 +228,8 @@ export class PrivateVaultBrokerWorker {
         const execution = await this.#executor.execute({
           payload,
           jobId: claimed.jobId,
+          resourceId: opened.resourceId,
+          operation: opened.operationName,
         });
         if (!(execution.payload instanceof Uint8Array)) {
           throw new PrivateVaultBrokerWorkerError();

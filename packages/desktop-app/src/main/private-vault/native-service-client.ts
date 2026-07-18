@@ -16,6 +16,8 @@ import type {
   NativeRecoverHostedResultResult,
   NativeSealHostedResultRequest,
   NativeSealHostedResultResult,
+  NativeSignEndpointRequestRequest,
+  NativeSignEndpointRequestResult,
   NativeUnlockResult,
 } from "@agent-native/private-vault-broker";
 
@@ -60,7 +62,8 @@ type NativeOperation =
   | "open_job"
   | "seal_result"
   | "complete_result"
-  | "pending_result";
+  | "pending_result"
+  | "sign_request";
 
 interface NativeAddon {
   request(
@@ -90,6 +93,9 @@ export interface PrivateVaultNativeServiceClient
   recoverHostedResult(
     request: NativeRecoverHostedResultRequest,
   ): Promise<NativeRecoverHostedResultResult>;
+  signEndpointRequest(
+    request: NativeSignEndpointRequestRequest,
+  ): Promise<NativeSignEndpointRequestResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
   commitGenesis(
     input: NativeCommitGenesisInput,
@@ -602,11 +608,22 @@ function parseFinalizeGenesis(value: unknown, lookupId: string): void {
 function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["version", "operation", "jobHash", "jobPayload"]) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "jobHash",
+      "jobPayload",
+      "resourceId",
+      "operationName",
+    ]) ||
     value.version !== XPC_PROTOCOL_VERSION ||
     value.operation !== "open_job" ||
     typeof value.jobHash !== "string" ||
     !/^[0-9a-f]{64}$/.test(value.jobHash) ||
+    !(value.resourceId instanceof Uint8Array) ||
+    value.resourceId.byteLength !== 16 ||
+    typeof value.operationName !== "string" ||
+    !/^[a-z][a-z0-9-]{0,119}$/.test(value.operationName) ||
     !(value.jobPayload instanceof Uint8Array) ||
     value.jobPayload.byteLength > E2EE_SIZE_LIMITS.jobPayloadBytes
   ) {
@@ -618,6 +635,8 @@ function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
     operation: "openHostedJob",
     jobHash: value.jobHash,
     jobPayload: value.jobPayload.slice(),
+    resourceId: value.resourceId.slice(),
+    operationName: value.operationName,
   };
 }
 
@@ -722,6 +741,26 @@ function parsePendingResult(value: unknown): NativeRecoverHostedResultResult {
       algorithmId: value.algorithmId,
       resultEnvelope: value.resultEnvelope.slice(),
     },
+  };
+}
+
+function parseEndpointSignature(
+  value: unknown,
+): NativeSignEndpointRequestResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "signature"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "sign_request" ||
+    !(value.signature instanceof Uint8Array) ||
+    value.signature.byteLength !== 64
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return {
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "signEndpointRequest",
+    signature: value.signature.slice(),
   };
 }
 
@@ -992,6 +1031,33 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  signEndpointRequest(
+    request: NativeSignEndpointRequestRequest,
+  ): Promise<NativeSignEndpointRequestResult> {
+    if (
+      request.version !== SERVICE_VERSION ||
+      request.suite !== SERVICE_SUITE ||
+      request.operation !== "signEndpointRequest" ||
+      !(request.unsignedProof instanceof Uint8Array) ||
+      request.unsignedProof.byteLength === 0 ||
+      request.unsignedProof.byteLength > 64 * 1024
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    const proof = Buffer.from(request.unsignedProof);
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseEndpointSignature(
+          await addon.request("sign_request", proof),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        proof.fill(0);
       }
     });
   }

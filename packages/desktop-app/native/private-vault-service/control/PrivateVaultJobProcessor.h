@@ -22,6 +22,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
 @interface AncPrivateVaultAuthorizedJob : NSObject
 @property(nonatomic, readonly) NSData *body;
 @property(nonatomic, readonly) NSData *jobHash;
+@property(nonatomic, readonly) NSData *resourceId;
+@property(nonatomic, readonly) NSString *operation;
 @end
 
 @interface AncPrivateVaultPendingResult : NSObject
@@ -74,6 +76,13 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
                                     result:
                                         (AncPrivateVaultPendingResult *_Nullable
                                              *_Nullable)result;
+
+/** Signs one canonical broker-route proof after independently binding it to
+ * the fresh single-broker authority and currently unlocked native identity. */
+- (AncPrivateVaultJobProcessorStatus)
+    signEndpointRequestProof:(NSData *)unsignedProof
+                   nowSeconds:(uint64_t)nowSeconds
+                       result:(NSData *_Nullable *_Nullable)result;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

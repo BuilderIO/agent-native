@@ -57,6 +57,7 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 strcmp(key, "algorithmId") == 0) {
                 return true;
             }
+            if (strcmp(key, "unsignedProof") == 0) return true;
             allowed = false;
             return false;
         }
@@ -168,18 +169,28 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool sealResult = strcmp(operation, "seal_result") == 0;
     bool completeResult = strcmp(operation, "complete_result") == 0;
     bool pendingResult = strcmp(operation, "pending_result") == 0;
+    bool signRequest = strcmp(operation, "sign_request") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
-        !openJob && !sealResult && !completeResult && !pendingResult) {
+        !openJob && !sealResult && !completeResult && !pendingResult &&
+        !signRequest) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (sealResult || completeResult) {
+    if (signRequest) {
+        if (fieldCount != 4 || vaultIDValue != NULL ||
+            !PVReadBoundedData(message, "unsignedProof",
+                               PV_ENDPOINT_PROOF_MAXIMUM_BYTES,
+                               &request->unsignedProof,
+                               &request->unsignedProofLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (sealResult || completeResult) {
         xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
         xpc_object_t jobHashValue = xpc_dictionary_get_value(message, "jobHash");
         xpc_object_t stateValue = xpc_dictionary_get_value(message, "state");

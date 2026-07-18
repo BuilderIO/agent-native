@@ -568,14 +568,20 @@ from `result` to `delivered`; the service commits that rollback-fenced state
 before deleting the exact matching spool bytes, and the operation is
 idempotent across a crash between those two steps. A local acknowledgment
 failure after the hosted receipt preserves the spool and cannot move the
-already-terminal hosted job back to retry. The remaining lifecycle gate is
-the Content action executor and supervisor composition. For the narrow
-post-receipt crash window, the encrypted index now retains the authenticated
+already-terminal hosted job back to retry. For the narrow post-receipt crash
+window, the encrypted index now retains the authenticated
 hosted epoch, retry count, and algorithm alongside the claimed job. Before a
 new claim or action execution, native custody returns at most one exact pending
 encrypted result; the worker idempotently resubmits it to the already
 conflict-safe hosted result slot, verifies the returned coordinates, records
 delivery, and zeroizes the transferred frame. Pending results are never pruned
 merely because their original execution lease expired.
+
+The remaining lifecycle gate is the ordinary broker enrollment/replacement
+product flow and the encrypted Content action registry. The canonical Content
+action executor, native-bound semantic operation/resource coordinates,
+cookie-free signed transport, authenticated runtime discovery, OS-encrypted
+content-free checkpoint store, revocation verifier, and fail-closed Desktop
+supervisor composition are now executable.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.
