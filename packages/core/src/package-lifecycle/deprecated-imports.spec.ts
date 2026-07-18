@@ -32,20 +32,23 @@ describe("scanDeprecatedImports", () => {
     expect(isMigrationManifestActive(manifest, "0.112.0")).toBe(true);
   });
 
-  it("keeps the prepublished composer move planned", () => {
+  it("keeps the framework-wired composer on its focused Core entry", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest).not.toBeNull();
     expect(manifest?.sinceVersion).toBe("0.110.0");
-    expect(manifest?.moves["@agent-native/core/client/composer"]?.status).toBe(
-      "planned",
-    );
+    expect(
+      manifest?.moves["@agent-native/core/client/composer"],
+    ).toBeUndefined();
     const clientMove = manifest?.moves["@agent-native/core/client"];
     expect(clientMove).toBeDefined();
     expect(
       clientMove
-        ? resolveMigrationSymbolMove(clientMove, "PromptComposer")?.status
+        ? resolveMigrationSymbolMove(clientMove, "PromptComposer")
         : null,
-    ).toBe("planned");
+    ).toMatchObject({
+      to: "@agent-native/core/client/composer",
+      status: "planned",
+    });
   });
 
   it("prepublishes the split editor adapter destinations as planned", () => {
