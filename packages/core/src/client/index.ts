@@ -1,7 +1,3 @@
-import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
-
-installRouteChunkRecovery();
-
 export { getBrowserTabId } from "./browser-tab-id.js";
 export {
   AgentAskPopover,
@@ -63,6 +59,7 @@ export {
   appBasePath,
   appPath,
 } from "./api-path.js";
+export { initializeAgentNativeClient } from "./client-bootstrap.js";
 export {
   deleteClientAppState,
   readClientAppState,
