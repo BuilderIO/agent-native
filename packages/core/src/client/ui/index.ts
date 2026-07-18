@@ -52,3 +52,4 @@ export {
   AppearancePicker,
   type AppearancePickerProps,
 } from "../AppearancePicker.js";
+export { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
