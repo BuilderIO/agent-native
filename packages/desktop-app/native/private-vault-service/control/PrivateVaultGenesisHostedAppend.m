@@ -16,6 +16,18 @@
 @implementation AncPrivateVaultGenesisHostedAppendReceipt
 @end
 
+@interface AncPrivateVaultRecoveryHostedAppendReceipt ()
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) NSString *entryId;
+@property(nonatomic, readwrite) uint64_t sequence;
+@property(nonatomic, readwrite) NSData *headHash;
+@property(nonatomic, readwrite) NSData *recoveryWrapHash;
+@property(nonatomic, readwrite) uint64_t recoveryWrapByteLength;
+@end
+
+@implementation AncPrivateVaultRecoveryHostedAppendReceipt
+@end
+
 static BOOL AncGenesisHostedOpaqueId(NSString *value) {
   NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
   if (bytes.length < 8 || bytes.length > 160)
@@ -86,6 +98,63 @@ AncPrivateVaultGenesisHostedAppendReceiptDecode(NSData *encoded) {
   receipt.vaultId = [vault.textValue copy];
   receipt.entryId = [entry.textValue copy];
   receipt.sequence = 0;
+  receipt.headHash = [head.bytesValue copy];
+  receipt.recoveryWrapHash = [wrapHash.bytesValue copy];
+  receipt.recoveryWrapByteLength = (uint64_t)wrapLength.integerValue;
+  return receipt;
+}
+
+AncPrivateVaultRecoveryHostedAppendReceipt *
+AncPrivateVaultRecoveryHostedAppendReceiptDecode(NSData *encoded) {
+  if (![encoded isKindOfClass:NSData.class] || encoded.length == 0 ||
+      encoded.length > ANC_PV_GENESIS_HOSTED_APPEND_RECEIPT_MAX_BYTES)
+    return nil;
+  AncPrivateVaultCanonicalStatus status;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      encoded, ANC_PV_GENESIS_HOSTED_APPEND_RECEIPT_MAX_BYTES, &status);
+  if (root == nil || root.type != AncPrivateVaultCanonicalTypeMap ||
+      root.mapValue.count != 9)
+    return nil;
+  NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map =
+      root.mapValue;
+  for (NSUInteger key = 1; key <= 9; key += 1)
+    if (map[@(key)] == nil)
+      return nil;
+  AncPrivateVaultCanonicalValue *suite = map[@1], *version = map[@2],
+                                 *type = map[@3], *vault = map[@4],
+                                 *entry = map[@5], *sequence = map[@6],
+                                 *head = map[@7], *wrapHash = map[@8],
+                                 *wrapLength = map[@9];
+  if (suite.type != AncPrivateVaultCanonicalTypeText ||
+      ![suite.textValue isEqualToString:@"anc/v1"] ||
+      version.type != AncPrivateVaultCanonicalTypeInteger ||
+      version.integerValue != 1 ||
+      type.type != AncPrivateVaultCanonicalTypeText ||
+      ![type.textValue
+          isEqualToString:@"control-log-recovery-append-receipt"] ||
+      vault.type != AncPrivateVaultCanonicalTypeText ||
+      entry.type != AncPrivateVaultCanonicalTypeText ||
+      !AncGenesisHostedOpaqueId(vault.textValue) ||
+      !AncGenesisHostedOpaqueId(entry.textValue) ||
+      sequence.type != AncPrivateVaultCanonicalTypeInteger ||
+      sequence.integerValue <= 0 ||
+      head.type != AncPrivateVaultCanonicalTypeBytes ||
+      head.bytesValue.length != ANC_PV_HASH_BYTES ||
+      wrapHash.type != AncPrivateVaultCanonicalTypeBytes ||
+      wrapHash.bytesValue.length != ANC_PV_HASH_BYTES ||
+      wrapLength.type != AncPrivateVaultCanonicalTypeInteger ||
+      wrapLength.integerValue <= 0 ||
+      wrapLength.integerValue >
+          ANC_PV_GENESIS_PREPARATION_ARTIFACT_WRAP_MAX_BYTES)
+    return nil;
+  NSData *roundTrip = AncPrivateVaultCanonicalEncode(root, &status);
+  if (roundTrip == nil || ![roundTrip isEqualToData:encoded])
+    return nil;
+  AncPrivateVaultRecoveryHostedAppendReceipt *receipt =
+      [AncPrivateVaultRecoveryHostedAppendReceipt new];
+  receipt.vaultId = [vault.textValue copy];
+  receipt.entryId = [entry.textValue copy];
+  receipt.sequence = (uint64_t)sequence.integerValue;
   receipt.headHash = [head.bytesValue copy];
   receipt.recoveryWrapHash = [wrapHash.bytesValue copy];
   receipt.recoveryWrapByteLength = (uint64_t)wrapLength.integerValue;

@@ -18,6 +18,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m"
+  "$SOURCE_ROOT/control/PrivateVaultRecoveryBuilder.m"
   "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m"
   "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
@@ -311,10 +312,12 @@ case "${PRIVATE_VAULT_BUILD_ENDPOINT_REQUEST_TESTS:-}" in
     xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
       -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" \
       -I"$sodium_root/include" -framework Foundation \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
       "$SOURCE_ROOT/control/PrivateVaultEndpointRequestTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"
@@ -480,7 +483,8 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
     xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
       -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
-      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery" \
+      -I"$SOURCE_ROOT/transport" -I"$sodium_root/include" \
       -DANC_PRIVATE_VAULT_TESTING=1 \
       -DANC_PV_AUTHORITY_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-authority-store-vectors.json"'"' \
       -framework Foundation -framework Security -framework LocalAuthentication \
@@ -492,6 +496,10 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryBuilder.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
@@ -499,6 +507,8 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplay.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshotTests.m" \
       "$sodium_root/lib/libsodium.a" \
       -o "$output"
@@ -1076,7 +1086,8 @@ case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_REPLAY_TESTS:-}" in
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
       -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery" \
       -I"$SOURCE_ROOT/transport" -I"$sodium_root/include" \
-      -framework Foundation \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -framework Foundation -framework Security -framework LocalAuthentication \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
@@ -1087,9 +1098,15 @@ case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_REPLAY_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryBuilder.m" \
       "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplay.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplayTests.m" \

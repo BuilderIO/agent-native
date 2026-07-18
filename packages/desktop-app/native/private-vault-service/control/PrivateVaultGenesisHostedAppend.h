@@ -16,8 +16,20 @@ enum {
 @property(nonatomic, readonly) uint64_t recoveryWrapByteLength;
 @end
 
+@interface AncPrivateVaultRecoveryHostedAppendReceipt : NSObject
+@property(nonatomic, readonly) NSString *vaultId;
+@property(nonatomic, readonly) NSString *entryId;
+@property(nonatomic, readonly) uint64_t sequence;
+@property(nonatomic, readonly) NSData *headHash;
+@property(nonatomic, readonly) NSData *recoveryWrapHash;
+@property(nonatomic, readonly) uint64_t recoveryWrapByteLength;
+@end
+
 FOUNDATION_EXPORT AncPrivateVaultGenesisHostedAppendReceipt *_Nullable
 AncPrivateVaultGenesisHostedAppendReceiptDecode(NSData *encoded);
+
+FOUNDATION_EXPORT AncPrivateVaultRecoveryHostedAppendReceipt *_Nullable
+AncPrivateVaultRecoveryHostedAppendReceiptDecode(NSData *encoded);
 
 /* Constructs only the fixed canonical public-artifact request. Network origin,
  * path, authentication proof, and receipt handling remain separate native

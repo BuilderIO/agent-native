@@ -4,6 +4,8 @@
 
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultEndpointRequest.h"
+#import "PrivateVaultGenesisHostedAppend.h"
+#import "PrivateVaultAncCanonical.h"
 
 static NSData *Hex(NSString *value) {
   NSMutableData *data = [NSMutableData dataWithLength:value.length / 2];
@@ -31,6 +33,48 @@ int main(void) {
         isEqualToData:
             Hex(@"a50166616e632f76310201037823636f6e74726f6c2d6c6f672d726f74617"
                 @"4696f6e2d617070656e642d72657175657374044301020305420405")]);
+    NSData *recoveryBody =
+        AncPrivateVaultControlLogRecoveryAppendRequestEncode(
+            signedEntry, recoveryWrap, [NSData dataWithBytes:(uint8_t[]){6}
+                                                     length:1],
+            [NSData dataWithBytes:(uint8_t[]){7, 8} length:2], &status);
+    assert(status == AncPrivateVaultEndpointRequestStatusOK);
+    assert([recoveryBody
+        isEqualToData:
+            Hex(@"a70166616e632f76310201037823636f6e74726f6c2d6c6f672d7265636"
+                @"f766572792d617070656e642d726571756573740443010203054204050641"
+                @"0607420708")]);
+    AncPrivateVaultCanonicalStatus canonicalStatus;
+    NSData *receiptBytes = AncPrivateVaultCanonicalEncode(
+        [AncPrivateVaultCanonicalValue map:@{
+          @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+          @2 : [AncPrivateVaultCanonicalValue integer:1],
+          @3 : [AncPrivateVaultCanonicalValue
+                   text:@"control-log-recovery-append-receipt"],
+          @4 : [AncPrivateVaultCanonicalValue
+                   text:@"21212121212121212121212121212121"],
+          @5 : [AncPrivateVaultCanonicalValue
+                   text:@"39393939393939393939393939393939"],
+          @6 : [AncPrivateVaultCanonicalValue integer:1],
+          @7 : [AncPrivateVaultCanonicalValue bytes:
+                   [NSData dataWithBytes:(uint8_t[32]){0x44} length:32]],
+          @8 : [AncPrivateVaultCanonicalValue bytes:
+                   [NSData dataWithBytes:(uint8_t[32]){0x55} length:32]],
+          @9 : [AncPrivateVaultCanonicalValue integer:64],
+        }],
+        &canonicalStatus);
+    assert(receiptBytes != nil &&
+           canonicalStatus == AncPrivateVaultCanonicalStatusOK);
+    AncPrivateVaultRecoveryHostedAppendReceipt *recoveryReceipt =
+        AncPrivateVaultRecoveryHostedAppendReceiptDecode(receiptBytes);
+    assert(recoveryReceipt != nil && recoveryReceipt.sequence == 1 &&
+           recoveryReceipt.recoveryWrapByteLength == 64 &&
+           recoveryReceipt.headHash.length == 32 &&
+           recoveryReceipt.recoveryWrapHash.length == 32);
+    NSMutableData *nonCanonicalReceipt = [receiptBytes mutableCopy];
+    [nonCanonicalReceipt appendBytes:(uint8_t[]){0} length:1];
+    assert(AncPrivateVaultRecoveryHostedAppendReceiptDecode(
+               nonCanonicalReceipt) == nil);
 
     uint8_t seed[32];
     for (NSUInteger index = 0; index < sizeof seed; index += 1)
@@ -86,6 +130,14 @@ int main(void) {
     NSMutableData *oversized = [NSMutableData dataWithLength:1024 * 1024 + 1];
     assert(AncPrivateVaultControlLogAppendRequestEncode(signedEntry, oversized,
                                                         &status) == nil);
+    assert(status == AncPrivateVaultEndpointRequestStatusTooLarge);
+    assert(AncPrivateVaultControlLogRecoveryAppendRequestEncode(
+               signedEntry, recoveryWrap, NSData.data, NSData.data,
+               &status) == nil);
+    oversized = [NSMutableData dataWithLength:64 * 1024 + 1];
+    assert(AncPrivateVaultControlLogRecoveryAppendRequestEncode(
+               signedEntry, recoveryWrap, oversized, NSData.data,
+               &status) == nil);
     assert(status == AncPrivateVaultEndpointRequestStatusTooLarge);
     anc_pv_zeroize(seed, sizeof seed);
     puts("endpoint request tests passed");

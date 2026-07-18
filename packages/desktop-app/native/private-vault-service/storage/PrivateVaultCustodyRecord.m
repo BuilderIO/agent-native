@@ -236,6 +236,13 @@ anc_pv_valid_public_state(const AncPrivateVaultCustodySnapshot *snapshot) {
     return 0;
   }
   if (!snapshot->authority_anchor_present) {
+    if (snapshot->pending_kind == ANC_PV_CUSTODY_PENDING_RECOVERY &&
+        snapshot->enrollment_phase ==
+            ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED) {
+      return snapshot->expected_next_sequence > 0 &&
+             anc_pv_is_nonzero(snapshot->expected_previous_head,
+                               ANC_PV_HASH_BYTES);
+    }
     const uint64_t expectedGenesisSequence =
         snapshot->record_version == ANC_PV_CUSTODY_LEGACY_VERSION ? 1 : 0;
     return snapshot->expected_next_sequence == expectedGenesisSequence &&
@@ -348,11 +355,9 @@ anc_pv_valid_state_matrix(const AncPrivateVaultCustodySnapshot *snapshot,
     }
     return 1;
   }
-  if (snapshot->enrollment_phase != ANC_PV_CUSTODY_ENROLLMENT_NONE) {
-    return 0;
-  }
   if (snapshot->pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS) {
-    return snapshot->rotation_phase != ANC_PV_CUSTODY_ROTATION_NONE &&
+    return snapshot->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+           snapshot->rotation_phase != ANC_PV_CUSTODY_ROTATION_NONE &&
            snapshot->role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
            snapshot->active_epoch == 0 && !has_active_key &&
            snapshot->pending_epoch == 1 && has_pending_key &&
@@ -362,12 +367,21 @@ anc_pv_valid_state_matrix(const AncPrivateVaultCustodySnapshot *snapshot,
            snapshot->recovery_generation == 0;
   }
   if (snapshot->pending_kind == ANC_PV_CUSTODY_PENDING_RECOVERY) {
+    const int existingEndpointRecovery =
+        snapshot->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+        snapshot->active_epoch > 0 &&
+        snapshot->pending_epoch == snapshot->active_epoch + 1 &&
+        snapshot->authority_anchor_present;
+    const int freshEndpointRecovery =
+        snapshot->enrollment_phase ==
+            ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED &&
+        snapshot->active_epoch == 0 && snapshot->pending_epoch > 0 &&
+        !snapshot->authority_anchor_present;
     return snapshot->rotation_phase != ANC_PV_CUSTODY_ROTATION_NONE &&
-           snapshot->role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
-           snapshot->active_epoch > 0 && !has_active_key &&
-           snapshot->pending_epoch == snapshot->active_epoch + 1 &&
-           has_pending_key && snapshot->authority_anchor_present &&
-           snapshot->expected_edge_present && snapshot->recovery_generation > 0;
+           snapshot->role == ANC_PV_CUSTODY_ROLE_ENDPOINT && !has_active_key &&
+           has_pending_key && snapshot->expected_edge_present &&
+           snapshot->recovery_generation > 0 &&
+           (existingEndpointRecovery || freshEndpointRecovery);
   }
   return 0;
 }

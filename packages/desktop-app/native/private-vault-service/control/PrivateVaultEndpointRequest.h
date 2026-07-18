@@ -21,6 +21,13 @@ FOUNDATION_EXPORT NSData
         NSData *signedEntry, NSData *recoveryWrap,
         AncPrivateVaultEndpointRequestStatus *_Nullable status);
 
+/* Canonical anc/v1 body for the recovery append route variant. */
+FOUNDATION_EXPORT NSData
+    *_Nullable AncPrivateVaultControlLogRecoveryAppendRequestEncode(
+        NSData *signedEntry, NSData *recoveryWrap, NSData *currentSnapshot,
+        NSData *recoveryAuthorization,
+        AncPrivateVaultEndpointRequestStatus *_Nullable status);
+
 /* Returns canonical unpadded base64url(JSON) for X-ANC-Endpoint-Request-Proof.
  * The signing seed remains caller-owned and is borrowed only for this call. */
 FOUNDATION_EXPORT NSString

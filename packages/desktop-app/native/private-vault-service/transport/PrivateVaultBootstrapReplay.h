@@ -32,6 +32,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultBootstrapReplayStatus) {
 @property(nonatomic, readonly, nullable) AncPrivateVaultGuardedMemory *verifiedEEK;
 @property(nonatomic, readonly, nullable)
     AncPrivateVaultRecoveryAuthority *currentRecoveryAuthority;
+@property(nonatomic, readonly, nullable)
+    AncPrivateVaultRecoveryAuthority *replacementRecoveryAuthority;
 @property(nonatomic, readonly, getter=isComplete) BOOL complete;
 @property(nonatomic, readonly) AncPrivateVaultBootstrapReplayStatus status;
 

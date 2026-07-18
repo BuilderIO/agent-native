@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, an account-authorized first-device genesis, and mnemonic-proven native recovery replay through trusted desktop UI have executable proof; recovered custody admission, endpoint enrollment, complete broker packaging, and the product slice remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, an account-authorized first-device genesis, mnemonic-proven native recovery replay, and exact fresh-device custody promotion have executable proof; hosted recovery receipt supervision, ordinary endpoint enrollment, complete broker packaging, and the product slice remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -769,10 +769,32 @@ a new native beginning invalidates any abandoned partial replay. Exact reply
 schemas distinguish `accepted` pages from the final `verified` page. Real
 genesis-frame replay, corrupt-wrap fail-closed tests, dual-architecture native
 replay and protocol runners, the universal service and addon builds, desktop
-client tests, and desktop typecheck pass. The remaining recovery gate is
-durable promotion of the verified EEK and replayed authority into fresh-device
-custody followed by recovered-endpoint admission; verification alone is not
-reported as recovery success.
+client tests, and desktop typecheck pass.
+
+The completed replay now pre-derives the replacement recovery authority before
+closing phrase entropy. A production-only native builder consumes that replay
+and guarded candidate endpoint seeds to create the forced recovery membership
+edge, replacement wrap, replacement-authority confirmation, recovery
+authorization, and current snapshot. It replays its own output through the
+production authorization verifier before returning immutable public artifacts;
+an unforgeable in-process evidence registry is the only route from those
+artifacts to a commit-capable authority result.
+
+Fresh-device custody installs as an exact unanchored generation-one recovery
+record: candidate endpoint seeds and the verified EEK are guarded by Keychain,
+while the expected prior head, next sequence, epoch, replacement recovery
+generation, ceremony, and authorization hash are pinned as public commitments.
+The authority store accepts no prior local checkpoint for this one bootstrap
+case. It commits only when builder evidence, pending custody, and the replayed
+next snapshot agree byte-for-byte, then atomically promotes the same EEK to the
+active epoch, clears pending custody, and writes the encrypted generation-two
+authority frame. A real native test covers mnemonic-proven replay through
+recovered custody, exact retry after a simulated lost response, and secret
+cleanup. The hosted recovery request and strict recovery receipt codec also
+have dual-architecture vectors. The remaining recovery gate is a crash-safe
+hosted append supervisor that persists only appropriately protected retry
+material and reports product success only after exact receipt verification and
+local commit.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
@@ -782,8 +804,9 @@ recovery generation. This preserves the frozen `anc/v1` wire format while
 removing an otherwise fatal recovery interoperability ambiguity. Core/native
 derivation parity is closed on arm64 and x86_64 and independently reviewed.
 The generation-one recovery wrap is persisted as an immutable hosted artifact
-and is now consumed through exact native replay; durable fresh-device custody
-promotion remains the next implementation gate.
+and is now consumed through exact native replay; fresh-device custody promotion
+is executable, while hosted receipt and restart supervision remain the next
+implementation gate.
 
 The public lifecycle `AncV1RecoveryEnvelope` codec retains an arbitrary salt
 only to decode its frozen synthetic compatibility vector. It is a parallel

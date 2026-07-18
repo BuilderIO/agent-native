@@ -16,6 +16,10 @@ NSString *const AncPrivateVaultGenesisAdmissionContentType =
 static const NSUInteger kSignedEntryMaximumBytes = 64 * 1024;
 static const NSUInteger kRecoveryWrapMaximumBytes = 1024 * 1024;
 static const NSUInteger kRequestMaximumBytes = 64 * 1024 + 1024 * 1024 + 256;
+static const NSUInteger kCurrentSnapshotMaximumBytes = 64 * 1024;
+static const NSUInteger kRecoveryAuthorizationMaximumBytes = 1024 * 1024;
+static const NSUInteger kRecoveryRequestMaximumBytes =
+    64 * 1024 + 1024 * 1024 + 64 * 1024 + 1024 * 1024 + 256;
 static const uint8_t kBodyHashDomain[] = "anc/v1/endpoint-request-body";
 static const uint8_t kRequestSignatureDomain[] = "anc/v1/endpoint-request";
 
@@ -121,6 +125,56 @@ NSData *AncPrivateVaultControlLogAppendRequestEncode(
       encoded.length > kRequestMaximumBytes) {
     AncEndpointRequestSetStatus(
         status, encoded.length > kRequestMaximumBytes
+                    ? AncPrivateVaultEndpointRequestStatusTooLarge
+                    : AncPrivateVaultEndpointRequestStatusInvalid);
+    return nil;
+  }
+  AncEndpointRequestSetStatus(status, AncPrivateVaultEndpointRequestStatusOK);
+  return encoded;
+}
+
+NSData *AncPrivateVaultControlLogRecoveryAppendRequestEncode(
+    NSData *signedEntry, NSData *recoveryWrap, NSData *currentSnapshot,
+    NSData *recoveryAuthorization,
+    AncPrivateVaultEndpointRequestStatus *status) {
+  AncEndpointRequestSetStatus(status,
+                              AncPrivateVaultEndpointRequestStatusInvalid);
+  NSArray<NSData *> *values = @[
+    signedEntry ?: NSData.data, recoveryWrap ?: NSData.data,
+    currentSnapshot ?: NSData.data, recoveryAuthorization ?: NSData.data
+  ];
+  const NSUInteger maximums[] = {
+    kSignedEntryMaximumBytes, kRecoveryWrapMaximumBytes,
+    kCurrentSnapshotMaximumBytes, kRecoveryAuthorizationMaximumBytes
+  };
+  for (NSUInteger index = 0; index < values.count; index++) {
+    NSData *value = values[index];
+    if (![value isKindOfClass:NSData.class] || value.length == 0 ||
+        value.length > maximums[index]) {
+      if (value.length > maximums[index])
+        AncEndpointRequestSetStatus(
+            status, AncPrivateVaultEndpointRequestStatusTooLarge);
+      return nil;
+    }
+  }
+  AncPrivateVaultCanonicalValue *envelope =
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue
+            text:@"control-log-recovery-append-request"],
+        @4 : [AncPrivateVaultCanonicalValue bytes:[signedEntry copy]],
+        @5 : [AncPrivateVaultCanonicalValue bytes:[recoveryWrap copy]],
+        @6 : [AncPrivateVaultCanonicalValue bytes:[currentSnapshot copy]],
+        @7 : [AncPrivateVaultCanonicalValue
+            bytes:[recoveryAuthorization copy]],
+      }];
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(envelope, &canonicalStatus);
+  if (encoded == nil || canonicalStatus != AncPrivateVaultCanonicalStatusOK ||
+      encoded.length > kRecoveryRequestMaximumBytes) {
+    AncEndpointRequestSetStatus(
+        status, encoded.length > kRecoveryRequestMaximumBytes
                     ? AncPrivateVaultEndpointRequestStatusTooLarge
                     : AncPrivateVaultEndpointRequestStatusInvalid);
     return nil;
@@ -243,7 +297,8 @@ NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
     AncPrivateVaultEndpointRequestStatus *status) {
   return AncPrivateVaultEndpointProofHeaderCreate(
       vaultId, endpointId, body, issuedAt, nonce,
-      AncPrivateVaultControlLogAppendPath, kRequestMaximumBytes, signingSeed,
+      AncPrivateVaultControlLogAppendPath, kRecoveryRequestMaximumBytes,
+      signingSeed,
       expectedSigningPublicKey, status);
 }
 

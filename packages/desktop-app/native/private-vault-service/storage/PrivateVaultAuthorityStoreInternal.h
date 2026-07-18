@@ -2,6 +2,7 @@
 
 @class AncPrivateVaultControlLogReplayResult;
 @class AncPrivateVaultGenesisAuthorizationResult;
+@class AncPrivateVaultPreparedRecoveryArtifacts;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -20,6 +21,15 @@ FOUNDATION_EXPORT AncPrivateVaultVerifiedReplayResult *_Nullable
 AncPrivateVaultVerifiedGenesisReplayResultCreate(
     AncPrivateVaultControlLogReplayResult *replayResult,
     AncPrivateVaultGenesisAuthorizationResult *authorizationResult,
+    uint64_t verifiedAtMs);
+
+/* Fresh-device recovery constructor. It accepts only the immutable artifact
+ * bundle emitted by the production recovery builder. The result has no prior
+ * local authority checkpoint: its authenticated prior state is carried by the
+ * builder registry and is committed only against matching pending custody. */
+FOUNDATION_EXPORT AncPrivateVaultVerifiedReplayResult *_Nullable
+AncPrivateVaultVerifiedRecoveryBootstrapResultCreate(
+    AncPrivateVaultPreparedRecoveryArtifacts *artifacts,
     uint64_t verifiedAtMs);
 
 @interface AncPrivateVaultAuthorityStore (GenesisAbsenceInternal)

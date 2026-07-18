@@ -4,6 +4,8 @@
 #import "PrivateVaultHostedOrigin.h"
 
 static const NSUInteger kReceiptMaximumBytes = 1024;
+static const NSUInteger kAppendMaximumBytes =
+    64 * 1024 + 1024 * 1024 + 64 * 1024 + 1024 * 1024 + 256;
 
 static BOOL AncHostedAppendExactOrigin(NSURL *url) {
   return url != nil && [url.scheme.lowercaseString isEqualToString:@"https"] &&
@@ -226,7 +228,7 @@ static NSUInteger AncHostedAppendContentLength(NSString *value) {
        proofHeader:(NSString *)proofHeader
         completion:(AncPrivateVaultHostedAppendCompletion)completion {
   if (![body isKindOfClass:NSData.class] || body.length == 0 ||
-      body.length > 64 * 1024 + 1024 * 1024 + 256 ||
+      body.length > kAppendMaximumBytes ||
       ![proofHeader isKindOfClass:NSString.class] || proofHeader.length == 0 ||
       proofHeader.length > 8192 || completion == nil) {
     if (completion != nil)

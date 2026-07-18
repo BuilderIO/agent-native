@@ -125,6 +125,8 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
 @property(nonatomic, readwrite, nullable) AncPrivateVaultGuardedMemory *verifiedEEK;
 @property(nonatomic, readwrite, nullable)
     AncPrivateVaultRecoveryAuthority *currentRecoveryAuthority;
+@property(nonatomic, readwrite, nullable)
+    AncPrivateVaultRecoveryAuthority *replacementRecoveryAuthority;
 @property(nonatomic) AncPrivateVaultControlLog *controlLog;
 @property(nonatomic) NSString *vaultId;
 @property(nonatomic) uint64_t pinnedHeadSequence;
@@ -164,6 +166,8 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
   self.verifiedEEK = nil;
   CloseAuthority(self.currentRecoveryAuthority);
   self.currentRecoveryAuthority = nil;
+  CloseAuthority(self.replacementRecoveryAuthority);
+  self.replacementRecoveryAuthority = nil;
   self.currentRecoveryWrap = nil;
   self.state = nil;
   self.complete = NO;
@@ -481,12 +485,20 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
       return [self fail:AncPrivateVaultBootstrapReplayStatusFinalWrap
                    output:status];
     }
-    if ([self.recoveryEntropy close] !=
+    AncPrivateVaultRecoveryAuthority *replacement =
+        self.state.recoveryGeneration == UINT64_MAX
+            ? nil
+            : [self deriveAuthority:self.state.recoveryGeneration + 1
+                               vault:vault];
+    if (replacement == nil ||
+        [self.recoveryEntropy close] !=
         AncPrivateVaultGuardedMemoryStatusOK) {
+      CloseAuthority(replacement);
       return [self fail:AncPrivateVaultBootstrapReplayStatusAuthority
                    output:status];
     }
     self.recoveryEntropy = nil;
+    self.replacementRecoveryAuthority = replacement;
     self.complete = YES;
   }
   self.status = AncPrivateVaultBootstrapReplayStatusOK;

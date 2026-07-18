@@ -2,6 +2,7 @@
 
 #import "PrivateVaultCustodyRepository.h"
 #import "PrivateVaultCustodyRepositoryGenesisInternal.h"
+#import "PrivateVaultCustodyRepositoryRecoveryInternal.h"
 
 #include <assert.h>
 
@@ -1893,6 +1894,115 @@ static void TestPromoteGenesisAuthorityAnchorCAS(void) {
   anc_pv_zeroize(&secrets, sizeof secrets);
 }
 
+static void TestPendingRecoveryPromotionCAS(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  NSString *vault = @"11112222333344445555666677778888";
+  NSString *endpoint = @"9999aaaabbbbccccddddeeeeffff0000";
+  NSString *ceremony = @"0123456789abcdeffedcba9876543210";
+  TestSecrets secrets = {0};
+  Fill(secrets.signingSeed, 32, 0x21);
+  Fill(secrets.boxSeed, 32, 0x31);
+  Fill(secrets.localKey, 32, 0x41);
+  Fill(secrets.pendingKey, 32, 0x51);
+  uint8_t signingPublic[32] = {0};
+  uint8_t signingPrivate[64] = {0};
+  uint8_t boxPublic[32] = {0};
+  uint8_t boxPrivate[32] = {0};
+  assert(anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                     secrets.signingSeed) ==
+         ANC_PV_CRYPTO_OK);
+  assert(anc_pv_box_seed_keypair(boxPublic, boxPrivate, secrets.boxSeed) ==
+         ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  NSData *signing = [NSData dataWithBytes:signingPublic length:32];
+  NSData *box = [NSData dataWithBytes:boxPublic length:32];
+  NSData *previousHead = [NSData dataWithBytes:(uint8_t[32]){1} length:32];
+  NSData *authorizationHash =
+      [NSData dataWithBytes:(uint8_t[32]){2} length:32];
+  AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
+  AncPrivateVaultPendingRecoveryCustodyCheckpoint *checkpoint = nil;
+  AncPrivateVaultCustodyRepositoryStatus recoveryInstall = [repository
+             installPendingRecoveryVaultId:vault
+                                  endpointId:endpoint
+                                  ceremonyId:ceremony
+                             signingPublicKey:signing
+                                  boxPublicKey:box
+                                    nextEpoch:4
+                    replacementRecoveryGeneration:3
+                            expectedNextSequence:8
+                             expectedPreviousHead:previousHead
+                       recoveryAuthorizationHash:authorizationHash
+                                     secrets:&inputs
+                                  checkpoint:&checkpoint];
+  assert(recoveryInstall == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(checkpoint.custodyGeneration == 1 &&
+         checkpoint.recordDigest.length == 32);
+  AncPrivateVaultCustodySnapshot pending;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:vault snapshot:&pending handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(pending.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
+         pending.pending_kind == ANC_PV_CUSTODY_PENDING_RECOVERY &&
+         pending.rotation_phase == ANC_PV_CUSTODY_ROTATION_PREPARED &&
+         pending.enrollment_phase ==
+             ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED &&
+         pending.pending_epoch == 4 && pending.recovery_generation == 3 &&
+         pending.expected_next_sequence == 8);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+
+  AncPrivateVaultCustodySnapshot official = pending;
+  official.authority_anchor_present = 1;
+  official.expected_edge_present = 0;
+  official.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
+  official.pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
+  official.rotation_phase = ANC_PV_CUSTODY_ROTATION_NONE;
+  official.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
+  official.custody_generation = 2;
+  memset(official.ceremony_id, 0, sizeof official.ceremony_id);
+  official.ceremony_id_length = 0;
+  official.active_epoch = 4;
+  official.pending_epoch = 0;
+  official.anchored_sequence = 8;
+  Fill(official.anchored_head, 32, 0x61);
+  Fill(official.membership_digest, 32, 0x71);
+  official.signed_at_ms = 1700000010000ULL;
+  Fill(official.snapshot_digest, 32, 0x81);
+  official.freshness_ms = 1700000011000ULL;
+  official.expected_next_sequence = 0;
+  memset(official.expected_previous_head, 0, 32);
+  memset(official.pending_transcript_digest, 0, 32);
+  assert(AncPrivateVaultCustodyPromoteRecoveryAuthorityAnchor(
+             repository, vault, &official) ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  handle = nil;
+  assert([repository readVaultId:vault snapshot:&pending handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(pending.custody_generation == 2 &&
+         pending.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+         pending.active_epoch == 4 && pending.pending_epoch == 0 &&
+         pending.anchored_sequence == 8);
+  __block BOOL promoted = NO;
+  assert([handle borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *value) {
+           uint8_t zero[32] = {0};
+           promoted = memcmp(value->active_epoch_key, secrets.pendingKey, 32) ==
+                          0 &&
+                      memcmp(value->pending_epoch_key, zero, 32) == 0;
+           return promoted;
+         }] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK &&
+         promoted);
+  assert(AncPrivateVaultCustodyPromoteRecoveryAuthorityAnchor(
+             repository, vault, &official) ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  official.recovery_generation += 1;
+  assert(AncPrivateVaultCustodyPromoteRecoveryAuthorityAnchor(
+             repository, vault, &official) ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+}
+
 static void TestLegacyCodecMigrations(void) {
   Reset();
   AncPrivateVaultKeychain *keychain = Keychain();
@@ -2136,6 +2246,7 @@ int main(void) {
     TestTombstonesAndConcurrentWriters();
     TestAdvanceAuthorityAnchorCAS();
     TestPromoteGenesisAuthorityAnchorCAS();
+    TestPendingRecoveryPromotionCAS();
     TestLegacyCodecMigrations();
     puts("private-vault custody repository tests passed");
   }
