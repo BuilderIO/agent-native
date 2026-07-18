@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.110.2
+
+### Patch Changes
+
+- b3f04e7: Correct the prepublished registry editor migration so the framework-wired data provider remains on Core's blocks entry.
+
 ## 0.110.1
 
 ### Patch Changes
