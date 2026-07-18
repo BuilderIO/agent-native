@@ -12,4 +12,9 @@ NSURL *_Nullable AncPrivateVaultPrepareStateRoot(NSURL *applicationSupportURL);
 // markers must never share a directory or interpretation surface.
 NSURL *_Nullable AncPrivateVaultPrepareRecoveryStateRoot(NSURL *stateRootURL);
 
+// Creates and validates an independent unattended-broker namespace. Broker
+// authority, grants, result spools, and rollback fences must not share file
+// interpretation with the attended endpoint domain.
+NSURL *_Nullable AncPrivateVaultPrepareBrokerStateRoot(NSURL *stateRootURL);
+
 NS_ASSUME_NONNULL_END

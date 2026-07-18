@@ -760,6 +760,21 @@ existing control-log append suite pass. Native candidate/authorizer ceremony,
 SAS confirmation, custody activation, and broker replacement remain the PR 5
 exit work.
 
+Endpoint and broker custody can now coexist on one Mac without sharing an
+identity slot. The attended endpoint retains the original `custody` Keychain
+record for backward compatibility; the unattended broker uses a distinct
+`custody:broker` record and rollback-fence identity. Open custody handles are
+registered and revoked by record domain plus vault, so an endpoint rotation or
+lock cannot revoke a broker handle (or vice versa). The broker also has a
+separate owner-only `Broker` filesystem root, authority store, grant index, and
+result spool. Production XPC construction binds genesis, recovery, and rotation
+to endpoint custody while the job processor, broker request signer, grants, and
+results bind only to broker custody. State-root tests, dual-architecture custody
+tests, cross-domain revocation proof, and the production arm64 service build
+pass. The enrollment coordinator can now promote a broker without overwriting
+the attended endpoint—the native storage precondition that had previously been
+missing.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

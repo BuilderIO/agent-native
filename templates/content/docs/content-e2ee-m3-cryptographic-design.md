@@ -593,4 +593,15 @@ cookie-free signed transport, authenticated runtime discovery, OS-encrypted
 content-free checkpoint store, revocation verifier, and fail-closed Desktop
 supervisor composition are now executable.
 
+On a combined personal desktop, attended endpoint custody and unattended broker
+custody are independent local principals. They use distinct Keychain record and
+rollback-fence identities plus separate owner-only authority, grant, and result
+state roots. The original endpoint record identifier remains stable; only the
+new broker uses the broker domain. Handle revocation is keyed by custody domain
+and vault rather than vault alone. The XPC service therefore cannot satisfy a
+broker job or broker-route signature from the endpoint's signing seed, and an
+endpoint lifecycle mutation cannot silently close or replace broker custody.
+The two principals meet only through the signed enrollment/control-log
+transcript and the epoch key explicitly boxed to the broker.
+
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

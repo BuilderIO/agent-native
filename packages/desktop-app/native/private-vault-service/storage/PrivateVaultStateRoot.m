@@ -127,26 +127,39 @@ NSURL *AncPrivateVaultPrepareStateRoot(NSURL *applicationSupportURL) {
                       isDirectory:YES];
 }
 
-NSURL *AncPrivateVaultPrepareRecoveryStateRoot(NSURL *stateRootURL) {
+static NSURL *AncPrivateVaultPrepareChildStateRoot(NSURL *stateRootURL,
+                                                   NSString *name) {
   if (stateRootURL == nil || !stateRootURL.isFileURL)
     return nil;
+  if (name.length == 0 || name.length > 64 || [name containsString:@"/"] ||
+      [name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+    return nil;
+  }
   uid_t userID = getuid();
   dev_t device = 0;
   int stateRoot = AncPrivateVaultOpenExistingPath(stateRootURL.path, userID,
                                                   &device);
   if (stateRoot < 0)
     return nil;
-  int recovery = AncPrivateVaultOpenOrCreatePrivateDirectory(
-      stateRoot, "Recovery", userID, device, YES);
+  int child = AncPrivateVaultOpenOrCreatePrivateDirectory(
+      stateRoot, name.fileSystemRepresentation, userID, device, YES);
   close(stateRoot);
-  if (recovery < 0)
+  if (child < 0)
     return nil;
   struct stat pinned;
-  BOOL valid = fstat(recovery, &pinned) == 0 && S_ISDIR(pinned.st_mode) &&
+  BOOL valid = fstat(child, &pinned) == 0 && S_ISDIR(pinned.st_mode) &&
                pinned.st_uid == userID && pinned.st_dev == device &&
                (pinned.st_mode & 0777) == 0700;
-  close(recovery);
-  return valid ? [stateRootURL URLByAppendingPathComponent:@"Recovery"
+  close(child);
+  return valid ? [stateRootURL URLByAppendingPathComponent:name
                                                 isDirectory:YES]
                : nil;
+}
+
+NSURL *AncPrivateVaultPrepareRecoveryStateRoot(NSURL *stateRootURL) {
+  return AncPrivateVaultPrepareChildStateRoot(stateRootURL, @"Recovery");
+}
+
+NSURL *AncPrivateVaultPrepareBrokerStateRoot(NSURL *stateRootURL) {
+  return AncPrivateVaultPrepareChildStateRoot(stateRootURL, @"Broker");
 }

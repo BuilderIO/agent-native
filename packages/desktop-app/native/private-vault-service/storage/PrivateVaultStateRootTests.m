@@ -43,6 +43,12 @@ int main(void) {
     assert(lstat(recoveryRoot.fileSystemRepresentation, &state) == 0);
     assert(S_ISDIR(state.st_mode) && !S_ISLNK(state.st_mode) &&
            state.st_uid == getuid() && (state.st_mode & 0777) == 0700);
+    NSURL *brokerRoot = AncPrivateVaultPrepareBrokerStateRoot(root);
+    assert(brokerRoot != nil && ![brokerRoot isEqual:recoveryRoot] &&
+           [AncPrivateVaultPrepareBrokerStateRoot(root) isEqual:brokerRoot]);
+    assert(lstat(brokerRoot.fileSystemRepresentation, &state) == 0);
+    assert(S_ISDIR(state.st_mode) && !S_ISLNK(state.st_mode) &&
+           state.st_uid == getuid() && (state.st_mode & 0777) == 0700);
     Remove(base);
 
     NSURL *missing =

@@ -42,6 +42,7 @@
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
+static AncPrivateVaultCustodyRepository *gBrokerCustodyRepository = nil;
 static AncPrivateVaultSession *gSession = nil;
 static AncPrivateVaultGenesisCoordinator *gGenesisCoordinator = nil;
 static AncPrivateVaultBootstrapReplay *gBootstrapReplay = nil;
@@ -1212,14 +1213,20 @@ int main(void) {
         NSURL *stateRoot = PVStateRootURL();
         NSURL *recoveryStateRoot =
             AncPrivateVaultPrepareRecoveryStateRoot(stateRoot);
+        NSURL *brokerStateRoot =
+            AncPrivateVaultPrepareBrokerStateRoot(stateRoot);
         AncPrivateVaultKeychain *keychain =
             [[AncPrivateVaultKeychain alloc] init];
         gCustodyRepository = [[AncPrivateVaultCustodyRepository alloc]
-            initWithKeychain:keychain];
+            initWithKeychain:keychain
+                     recordId:AncPrivateVaultEndpointCustodyRecordId];
+        gBrokerCustodyRepository = [[AncPrivateVaultCustodyRepository alloc]
+            initWithKeychain:keychain
+                     recordId:AncPrivateVaultBrokerCustodyRecordId];
         gSession = [[AncPrivateVaultSession alloc]
             initWithRepository:
                 (id<AncPrivateVaultSessionCustodyRepository>)
-                    gCustodyRepository];
+                    gBrokerCustodyRepository];
         AncPrivateVaultRotationPreparationSpoolStore *spool =
             [[AncPrivateVaultRotationPreparationSpoolStore alloc]
                 initWithStateRootURL:stateRoot];
@@ -1231,12 +1238,19 @@ int main(void) {
             [[AncPrivateVaultAuthorityStore alloc]
                 initWithStateRootURL:stateRoot
                    custodyRepository:gCustodyRepository];
+        AncPrivateVaultAuthorityStore *brokerAuthority =
+            [[AncPrivateVaultAuthorityStore alloc]
+                initWithStateRootURL:brokerStateRoot
+                   custodyRepository:gBrokerCustodyRepository];
         gGrantIndex = [[AncPrivateVaultGrantIndex alloc]
-            initWithStateRootURL:stateRoot session:gSession keychain:keychain];
+            initWithStateRootURL:brokerStateRoot
+                         session:gSession
+                        keychain:keychain];
         AncPrivateVaultResultSpool *resultSpool =
-            [[AncPrivateVaultResultSpool alloc] initWithStateRootURL:stateRoot];
+            [[AncPrivateVaultResultSpool alloc]
+                initWithStateRootURL:brokerStateRoot];
         gJobProcessor = [[AncPrivateVaultJobProcessor alloc]
-            initWithSession:gSession authorityStore:authority
+            initWithSession:gSession authorityStore:brokerAuthority
                  grantIndex:gGrantIndex resultSpool:resultSpool];
         AncPrivateVaultControlLog *controlLog =
             [[AncPrivateVaultControlLog alloc] init];
@@ -1316,10 +1330,13 @@ int main(void) {
                                   (id<AncPrivateVaultHostedAppendTransporting>)
                                       gHostedAppendTransport
                               scheduler:retryScheduler];
-        if (stateRoot == nil || recoveryStateRoot == nil || keychain == nil ||
-            gCustodyRepository == nil || gSession == nil ||
+        if (stateRoot == nil || recoveryStateRoot == nil ||
+            brokerStateRoot == nil || keychain == nil ||
+            gCustodyRepository == nil || gBrokerCustodyRepository == nil ||
+            gSession == nil ||
             spool == nil || preparation == nil || authority == nil ||
-            gGrantIndex == nil || gJobProcessor == nil ||
+            brokerAuthority == nil || gGrantIndex == nil ||
+            gJobProcessor == nil ||
             controlLog == nil || genesisArtifacts == nil ||
             genesisPreparationArtifacts == nil ||
             genesisPreparationStore == nil ||

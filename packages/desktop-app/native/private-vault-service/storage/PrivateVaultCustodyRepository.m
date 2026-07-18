@@ -7,6 +7,8 @@
 #include <stdlib.h>
 
 NSString *const AncPrivateVaultCustodyRecordId = @"custody";
+NSString *const AncPrivateVaultEndpointCustodyRecordId = @"custody";
+NSString *const AncPrivateVaultBrokerCustodyRecordId = @"custody:broker";
 static NSString *const kAncCustodyBorrowScopeThreadKey =
     @"com.agentnative.private-vault.custody.borrow-scope";
 
@@ -1127,6 +1129,7 @@ void AncPrivateVaultCustodySetHandleCloseStatusForTesting(
 @property(nonatomic, strong) AncPrivateVaultKeychain *keychain;
 @property(nonatomic, strong) AncPrivateVaultGenerationFence *fence;
 @property(nonatomic, strong) dispatch_queue_t queue;
+@property(nonatomic, copy) NSString *recordId;
 @end
 
 static dispatch_queue_t AncCustodyRepositoryQueue(void) {
@@ -1151,13 +1154,24 @@ AncCustodyHandleRegistry(void) {
   return registry;
 }
 
+static NSString *AncCustodyHandleRegistryId(NSString *recordId,
+                                             NSString *vaultId) {
+  if (recordId.length == 0 || vaultId.length == 0)
+    return nil;
+  return [NSString
+      stringWithFormat:@"%lu:%@%@", (unsigned long)[recordId
+                                             lengthOfBytesUsingEncoding:
+                                                 NSUTF8StringEncoding],
+                       recordId, vaultId];
+}
+
 static void AncRegisterHandle(AncPrivateVaultCustodyHandle *handle,
-                              NSString *vaultId, uint64_t generation) {
+                              NSString *registryId, uint64_t generation) {
   NSMutableDictionary<NSNumber *, NSHashTable *> *vault =
-      AncCustodyHandleRegistry()[vaultId];
+      AncCustodyHandleRegistry()[registryId];
   if (vault == nil) {
     vault = [NSMutableDictionary dictionary];
-    AncCustodyHandleRegistry()[vaultId] = vault;
+    AncCustodyHandleRegistry()[registryId] = vault;
   }
   NSNumber *key = @(generation);
   NSHashTable *handles = vault[key];
@@ -1169,9 +1183,9 @@ static void AncRegisterHandle(AncPrivateVaultCustodyHandle *handle,
 }
 
 static AncPrivateVaultCustodyRepositoryStatus
-AncRevokeHandles(NSString *vaultId) {
+AncRevokeHandles(NSString *registryId) {
   NSMutableDictionary<NSNumber *, NSHashTable *> *vault =
-      AncCustodyHandleRegistry()[vaultId];
+      AncCustodyHandleRegistry()[registryId];
   if (vault == nil)
     return AncPrivateVaultCustodyRepositoryStatusOK;
   AncPrivateVaultCustodyRepositoryStatus result =
@@ -1183,7 +1197,7 @@ AncRevokeHandles(NSString *vaultId) {
         result = AncPrivateVaultCustodyRepositoryStatusFailed;
     }
   }
-  [AncCustodyHandleRegistry() removeObjectForKey:vaultId];
+  [AncCustodyHandleRegistry() removeObjectForKey:registryId];
   return result;
 }
 
@@ -1441,10 +1455,18 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
 }
 
 - (instancetype)initWithKeychain:(AncPrivateVaultKeychain *)keychain {
+  return [self initWithKeychain:keychain
+                       recordId:AncPrivateVaultCustodyRecordId];
+}
+
+- (instancetype)initWithKeychain:(AncPrivateVaultKeychain *)keychain
+                        recordId:(NSString *)recordId {
   self = [super init];
-  if (self == nil || keychain == nil)
+  if (self == nil || keychain == nil || recordId.length == 0 ||
+      [recordId lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 512)
     return nil;
   _keychain = keychain;
+  _recordId = [recordId copy];
   _fence = [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
   if (_fence == nil)
     return nil;
@@ -1465,7 +1487,7 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   AncPrivateVaultKeychainStatus read = [self.keychain
       consumeCustodyRecordForService:service
                              vaultId:vaultId
-                            recordId:AncPrivateVaultCustodyRecordId
+                            recordId:self.recordId
                             consumer:^BOOL(const uint8_t *bytes) {
                               record = [[AncCustodyRecordBuffer alloc] initEmpty];
                               if (record == nil) {
@@ -1548,13 +1570,13 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
                                      length:ANC_PV_CUSTODY_RECORD_BYTES
                                forService:service
                                   vaultId:vaultId
-                                 recordId:AncPrivateVaultCustodyRecordId]
+                                 recordId:self.recordId]
                     : [self.keychain
                           updateCustodyRecord:bytes
                                         length:ANC_PV_CUSTODY_RECORD_BYTES
                                   forService:service
                                      vaultId:vaultId
-                                    recordId:AncPrivateVaultCustodyRecordId];
+                                    recordId:self.recordId];
         return YES;
       }];
   if (borrowed != AncPrivateVaultCustodyRepositoryStatusOK)
@@ -1593,14 +1615,14 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
       [self.keychain
           deleteCustodyRecordForService:AncPrivateVaultCustodyStageService
                                  vaultId:vaultId
-                                recordId:AncPrivateVaultCustodyRecordId];
+                                recordId:self.recordId];
   if (deleted != AncPrivateVaultKeychainStatusOK)
     return AncRepositoryStatusForKeychain(deleted);
   __block BOOL observed = NO;
   AncPrivateVaultKeychainStatus read = [self.keychain
       consumeCustodyRecordForService:AncPrivateVaultCustodyStageService
                              vaultId:vaultId
-                            recordId:AncPrivateVaultCustodyRecordId
+                            recordId:self.recordId
                             consumer:^BOOL(const uint8_t *bytes) {
                               (void)bytes;
                               observed = YES;
@@ -1615,17 +1637,21 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
 
 - (AncPrivateVaultCustodyRepositoryStatus)
     finishStage:(AncCustodyRecordBuffer *)stage
-                                               digest:(NSData *)digest
+                                              digest:(NSData *)digest
                                            generation:(uint64_t)generation
                                               vaultId:(NSString *)vaultId {
-  AncPrivateVaultCustodyRepositoryStatus revoked = AncRevokeHandles(vaultId);
+  NSString *registryId = AncCustodyHandleRegistryId(self.recordId, vaultId);
+  if (registryId == nil)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  AncPrivateVaultCustodyRepositoryStatus revoked =
+      AncRevokeHandles(registryId);
   if (revoked != AncPrivateVaultCustodyRepositoryStatusOK)
     return revoked;
   AncPrivateVaultFenceStatus fence =
       [self.fence beginGeneration:generation
                      recordDigest:digest
                           vaultId:vaultId
-                         recordId:AncPrivateVaultCustodyRecordId];
+                         recordId:self.recordId];
   if (fence != AncPrivateVaultFenceStatusOK)
     return AncRepositoryStatusForFence(fence);
   AncPrivateVaultCustodyRepositoryStatus live =
@@ -1637,12 +1663,12 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   fence = [self.fence commitGeneration:generation
                           recordDigest:digest
                                vaultId:vaultId
-                              recordId:AncPrivateVaultCustodyRecordId];
+                              recordId:self.recordId];
   if (fence != AncPrivateVaultFenceStatusOK)
     return AncRepositoryStatusForFence(fence);
   AncPrivateVaultFenceSnapshot *verifiedFence = nil;
   fence = [self.fence readVaultId:vaultId
-                         recordId:AncPrivateVaultCustodyRecordId
+                         recordId:self.recordId
                          snapshot:&verifiedFence];
   if (fence != AncPrivateVaultFenceStatusOK)
     return AncRepositoryStatusForFence(fence);
@@ -1758,7 +1784,7 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   AncPrivateVaultFenceSnapshot *fence = nil;
   AncPrivateVaultFenceStatus fenceStatus =
       [self.fence readVaultId:vaultId
-                     recordId:AncPrivateVaultCustodyRecordId
+                     recordId:self.recordId
                      snapshot:&fence];
   if (fenceStatus != AncPrivateVaultFenceStatusOK)
     return closeBoth(AncRepositoryStatusForFence(fenceStatus));
@@ -1834,7 +1860,7 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
           [self.fence commitGeneration:fence.generation
                           recordDigest:fence.recordDigest
                                vaultId:vaultId
-                              recordId:AncPrivateVaultCustodyRecordId];
+                              recordId:self.recordId];
       if (committed != AncPrivateVaultFenceStatusOK)
         return closeBoth(AncRepositoryStatusForFence(committed));
       AncPrivateVaultCustodyRepositoryStatus deleted =
@@ -1954,7 +1980,11 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
     if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
       return closed;
   }
-  AncPrivateVaultCustodyRepositoryStatus revoked = AncRevokeHandles(vaultId);
+  NSString *registryId = AncCustodyHandleRegistryId(self.recordId, vaultId);
+  if (registryId == nil)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  AncPrivateVaultCustodyRepositoryStatus revoked =
+      AncRevokeHandles(registryId);
   if (revoked != AncPrivateVaultCustodyRepositoryStatusOK)
     return revoked;
   AncPrivateVaultCustodyRepositoryStatus staged =
@@ -2593,7 +2623,16 @@ static BOOL AncRecoveryOfficialPublicStateValid(
       status = [custodyHandle close];
       return;
     }
-    AncRegisterHandle(custodyHandle, vaultId, decoded.custody_generation);
+    NSString *registryId =
+        AncCustodyHandleRegistryId(self.recordId, vaultId);
+    if (registryId == nil) {
+      status = [custodyHandle close];
+      if (status == AncPrivateVaultCustodyRepositoryStatusOK)
+        status = AncPrivateVaultCustodyRepositoryStatusInvalid;
+      return;
+    }
+    AncRegisterHandle(custodyHandle, registryId,
+                      decoded.custody_generation);
     resultHandle = custodyHandle;
   });
   if (status == AncPrivateVaultCustodyRepositoryStatusOK) {

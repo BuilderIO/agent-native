@@ -584,6 +584,81 @@ static void TestRoundTripAndMonotonicity(void) {
          AncPrivateVaultCustodyRepositoryStatusInvalid);
 }
 
+static void TestEndpointAndBrokerCustodyDomainsAreIsolated(void) {
+  Reset();
+  AncPrivateVaultKeychain *keychain = Keychain();
+  AncPrivateVaultCustodyRepository *endpointRepository =
+      [[AncPrivateVaultCustodyRepository alloc]
+          initWithKeychain:keychain
+                   recordId:AncPrivateVaultEndpointCustodyRecordId];
+  AncPrivateVaultCustodyRepository *brokerRepository =
+      [[AncPrivateVaultCustodyRepository alloc]
+          initWithKeychain:keychain
+                   recordId:AncPrivateVaultBrokerCustodyRecordId];
+  assert(endpointRepository != nil && brokerRepository != nil);
+
+  AncPrivateVaultCustodySnapshot endpoint, broker;
+  TestSecrets endpointSecrets, brokerSecrets;
+  MakeActive(&endpoint, &endpointSecrets, 1, 1, @"shared-vault");
+  MakeActive(&broker, &brokerSecrets, 1, 101, @"shared-vault");
+  broker.role = ANC_PV_CUSTODY_ROLE_BROKER;
+  SetId(broker.endpoint_id, &broker.endpoint_id_length, @"broker-1");
+  AncPrivateVaultCustodySecretInputs endpointInputs = Inputs(&endpointSecrets);
+  AncPrivateVaultCustodySecretInputs brokerInputs = Inputs(&brokerSecrets);
+  assert([endpointRepository storeSnapshot:&endpoint
+                                   secrets:&endpointInputs
+                                   vaultId:@"shared-vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([brokerRepository storeSnapshot:&broker
+                                 secrets:&brokerInputs
+                                 vaultId:@"shared-vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+
+  AncPrivateVaultCustodySnapshot endpointRead, brokerRead;
+  AncPrivateVaultCustodyHandle *endpointHandle = nil, *brokerHandle = nil;
+  assert([endpointRepository readVaultId:@"shared-vault"
+                                snapshot:&endpointRead
+                                  handle:&endpointHandle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([brokerRepository readVaultId:@"shared-vault"
+                              snapshot:&brokerRead
+                                handle:&brokerHandle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(endpointRead.role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
+         brokerRead.role == ANC_PV_CUSTODY_ROLE_BROKER);
+
+  AncPrivateVaultCustodySnapshot endpointNext;
+  TestSecrets endpointNextSecrets;
+  MakeActive(&endpointNext, &endpointNextSecrets, 2, 2, @"shared-vault");
+  AncPrivateVaultCustodySecretInputs endpointNextInputs =
+      Inputs(&endpointNextSecrets);
+  assert([endpointRepository storeSnapshot:&endpointNext
+                                   secrets:&endpointNextInputs
+                                   vaultId:@"shared-vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(endpointHandle.closed);
+  __block BOOL brokerStillBorrowed = NO;
+  assert([brokerHandle
+             borrow:^BOOL(
+                 const AncPrivateVaultCustodySecretInputs *secrets) {
+               brokerStillBorrowed = secrets->signing_seed[0] == 101;
+               return brokerStillBorrowed;
+             }] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(brokerStillBorrowed);
+  assert([brokerHandle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+
+  AncPrivateVaultCustodyRepository *legacyRepository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodyHandle *legacyHandle = nil;
+  assert([legacyRepository readVaultId:@"shared-vault"
+                              snapshot:&brokerRead
+                                handle:&legacyHandle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(brokerRead.role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
+         legacyHandle != nil);
+  assert([legacyHandle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+}
+
 static void TestCrashMatrixAndAmbiguousCommits(void) {
   for (NSUInteger failure = 1; failure <= 7; failure += 1) {
     Reset();
@@ -2231,6 +2306,7 @@ int main(void) {
     assert(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
     TestExactCustodyKeychainBoundary();
     TestRoundTripAndMonotonicity();
+    TestEndpointAndBrokerCustodyDomainsAreIsolated();
     TestCrashMatrixAndAmbiguousCommits();
     TestCorruptionSwapAndMissing();
     TestPendingMissingMismatchAndFutureStage();

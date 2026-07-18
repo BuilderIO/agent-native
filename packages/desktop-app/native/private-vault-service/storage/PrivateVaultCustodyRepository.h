@@ -8,6 +8,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *const AncPrivateVaultCustodyRecordId;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultEndpointCustodyRecordId;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultBrokerCustodyRecordId;
 
 typedef NS_ENUM(NSInteger, AncPrivateVaultCustodyRepositoryStatus) {
   AncPrivateVaultCustodyRepositoryStatusOK = 0,
@@ -37,7 +39,9 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultCustodyEpochTransition) {
 
 @interface AncPrivateVaultCustodyRepository : NSObject
 
+- (instancetype)initWithKeychain:(AncPrivateVaultKeychain *)keychain;
 - (instancetype)initWithKeychain:(AncPrivateVaultKeychain *)keychain
+                        recordId:(NSString *)recordId
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init;
 
