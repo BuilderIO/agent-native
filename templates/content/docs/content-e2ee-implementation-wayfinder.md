@@ -897,9 +897,9 @@ the receipt on every read, makes exact crash retries idempotent, rejects a
 changed decision, preserves mismatch as terminal for that ceremony, and still
 allows a later replacement ceremony its own slot. Corrupt storage, substituted
 transcripts, wrong candidate seeds, invalid signatures, and decisions outside
-the challenge lifetime fail closed on Apple Silicon. Universal proof and the
-native UI-to-XPC orchestration remain the next boundary before this receipt may
-authorize custody activation.
+the challenge lifetime fail closed. The receipt and Keychain-store corpora pass
+on Apple Silicon and Intel. Native UI-to-XPC orchestration remains the next
+boundary before this receipt may authorize custody activation.
 
 The production enrollment activation capability is now minted only by joining
 three independently sealed facts: a registry-backed authorization result, a
@@ -912,10 +912,25 @@ authority snapshot from the exact generation-2 predecessor. Forged result
 objects, mutable challenge substitution, mismatch receipts, changed membership
 edges, and altered signed-entry bytes cannot mint the capability. The focused
 constructor path and the complete authority corpus pass on Apple Silicon and
-Intel. This closes the previous test-only constructor gap; the remaining native
-boundary is the coordinator that opens the EEK from pending custody, performs
-the generation-1-to-2 authorization CAS, commits this capability, and proves
-the resulting generation-3 custody and authority reread.
+Intel. EEK opening also consumes only registry-backed verifier evidence; a
+runtime mutation of the public wrap cannot redirect the key-opening path. This
+closes the previous test-only constructor gap.
+
+The native enrollment coordinator now owns that complete crash-resumable
+transition. Verified challenge results are immutable, registry-backed
+capabilities rather than caller-constructible display objects. The candidate
+signing seed remains inside broker custody while it signs and durably fences the
+attended SAS decision. Activation refuses a missing or mismatch receipt, opens
+the authorized EEK into guarded memory, advances the exact offer from custody
+generation 1 to the authorization-bound generation 2 state, commits the sealed
+membership capability, and returns only after authority and custody reread as
+generation 3. A retry after the intermediate or completed state is idempotent;
+the epoch key, candidate private keys, and local state key never cross the
+native boundary. The synthetic broker corpus proves refusal before SAS,
+successful activation, active-epoch equality, official authority reread, and a
+completed retry on Apple Silicon and Intel. Wiring the trusted native SAS sheet
+into this coordinator through the private XPC operation remains the next
+boundary.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault

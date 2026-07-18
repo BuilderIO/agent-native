@@ -5,12 +5,70 @@
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultEnrollmentAuthorization.h"
 #import "PrivateVaultEnrollmentAuthorizationInternal.h"
+#import "PrivateVaultEnrollmentCoordinator.h"
 #import "PrivateVaultEnrollmentOffer.h"
 #import "PrivateVaultEnrollmentSasReceipt.h"
 
 #import <objc/runtime.h>
 
 #include <assert.h>
+
+static NSMutableDictionary<NSString *, NSData *> *gEnrollmentStore;
+
+static NSString *EnrollmentKey(NSDictionary *query) {
+  return
+      [NSString stringWithFormat:@"%@|%@", query[(__bridge id)kSecAttrService],
+                                 query[(__bridge id)kSecAttrAccount]];
+}
+static OSStatus EnrollmentCopy(CFDictionaryRef raw, CFTypeRef *result) {
+  NSData *value = gEnrollmentStore[EnrollmentKey((__bridge NSDictionary *)raw)];
+  if (value == nil)
+    return errSecItemNotFound;
+  if (result != NULL)
+    *result = CFBridgingRetain([value copy]);
+  return errSecSuccess;
+}
+static OSStatus EnrollmentAdd(CFDictionaryRef raw, CFTypeRef *result) {
+  (void)result;
+  NSDictionary *attributes = (__bridge NSDictionary *)raw;
+  NSString *key = EnrollmentKey(attributes);
+  if (gEnrollmentStore[key] != nil)
+    return errSecDuplicateItem;
+  NSData *value = attributes[(__bridge id)kSecValueData];
+  gEnrollmentStore[key] = [NSData dataWithBytes:value.bytes
+                                         length:value.length];
+  return errSecSuccess;
+}
+static OSStatus EnrollmentUpdate(CFDictionaryRef rawQuery,
+                                 CFDictionaryRef rawAttributes) {
+  NSString *key = EnrollmentKey((__bridge NSDictionary *)rawQuery);
+  if (gEnrollmentStore[key] == nil)
+    return errSecItemNotFound;
+  NSData *value =
+      ((__bridge NSDictionary *)rawAttributes)[(__bridge id)kSecValueData];
+  gEnrollmentStore[key] = [NSData dataWithBytes:value.bytes
+                                         length:value.length];
+  return errSecSuccess;
+}
+static OSStatus EnrollmentDelete(CFDictionaryRef raw) {
+  NSString *key = EnrollmentKey((__bridge NSDictionary *)raw);
+  if (gEnrollmentStore[key] == nil)
+    return errSecItemNotFound;
+  [gEnrollmentStore removeObjectForKey:key];
+  return errSecSuccess;
+}
+static AncPrivateVaultKeychain *EnrollmentKeychain(void) {
+  AncPrivateVaultSecItemFunctions functions = {.copyMatching = EnrollmentCopy,
+                                               .add = EnrollmentAdd,
+                                               .update = EnrollmentUpdate,
+                                               .deleteItem = EnrollmentDelete};
+  return [[AncPrivateVaultKeychain alloc]
+      initWithFunctions:functions
+         contextFactory:^LAContext * {
+           return [[LAContext alloc] init];
+         }
+          storageDomain:@"enrollment-activation-test"];
+}
 
 @interface AncPrivateVaultControlLogMember (EnrollmentAuthorizationTests)
 @property(nonatomic, readwrite) NSString *endpointId;
@@ -397,9 +455,141 @@ int main(void) {
     assert(mismatchReceipt != nil &&
            AncPrivateVaultVerifiedEnrollmentBootstrapResultCreate(
                verified, mismatchReceipt, UINT64_C(1721111163000)) == nil);
+
+    gEnrollmentStore = [NSMutableDictionary dictionary];
+    AncPrivateVaultKeychain *enrollmentKeychain = EnrollmentKeychain();
+    AncPrivateVaultCustodyRepository *brokerRepository =
+        [[AncPrivateVaultCustodyRepository alloc]
+            initWithKeychain:enrollmentKeychain
+                    recordId:AncPrivateVaultBrokerCustodyRecordId];
+    AncPrivateVaultEnrollmentOfferArtifactStore *offerStore =
+        [[AncPrivateVaultEnrollmentOfferArtifactStore alloc]
+            initWithKeychain:enrollmentKeychain
+                    recordId:AncPrivateVaultBrokerCustodyRecordId];
+    AncPrivateVaultEnrollmentSasReceiptStore *receiptStore =
+        [[AncPrivateVaultEnrollmentSasReceiptStore alloc]
+            initWithKeychain:enrollmentKeychain
+                    recordId:AncPrivateVaultBrokerCustodyRecordId];
+    assert([offerStore storeVaultId:vault
+                       encodedOffer:offer.encodedOffer
+                          offerHash:offer.offerHash
+                  candidateKeyProof:offer.candidateKeyProof] ==
+           AncPrivateVaultEnrollmentOfferArtifactStatusOK);
+    AncPrivateVaultCustodySnapshot pending = {0};
+    pending.record_version = ANC_PV_CUSTODY_VERSION;
+    pending.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+    pending.role = ANC_PV_CUSTODY_ROLE_BROKER;
+    pending.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
+    pending.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+    pending.custody_generation = 1;
+    NSData *vaultText = [Hex(vault) dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *candidateText =
+        [Hex(candidateId) dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *ceremonyText =
+        [Hex(ceremonyId) dataUsingEncoding:NSUTF8StringEncoding];
+    memcpy(pending.vault_id, vaultText.bytes, vaultText.length);
+    pending.vault_id_length = vaultText.length;
+    memcpy(pending.endpoint_id, candidateText.bytes, candidateText.length);
+    pending.endpoint_id_length = candidateText.length;
+    memcpy(pending.ceremony_id, ceremonyText.bytes, ceremonyText.length);
+    pending.ceremony_id_length = ceremonyText.length;
+    memcpy(pending.signing_public_key, offer.signingPublicKey.bytes, 32);
+    memcpy(pending.box_public_key, offer.keyAgreementPublicKey.bytes, 32);
+    memcpy(pending.pending_transcript_digest, offer.offerHash.bytes, 32);
+    uint8_t localStateKey[32], activeZeroKey[32] = {0},
+        pendingZeroKey[32] = {0};
+    memset(localStateKey, 0x66, sizeof localStateKey);
+    AncPrivateVaultCustodySecretInputs pendingSecrets = {
+        .signing_seed = candidateSigningSeed,
+        .box_seed = candidateBoxSeed,
+        .local_state_key = localStateKey,
+        .active_epoch_key = activeZeroKey,
+        .pending_epoch_key = pendingZeroKey};
+    AncPrivateVaultCustodyRepositoryStatus storedPending =
+        [brokerRepository storeSnapshot:&pending
+                                secrets:&pendingSecrets
+                                vaultId:Hex(vault)];
+    if (storedPending != AncPrivateVaultCustodyRepositoryStatusOK)
+      fprintf(stderr, "pending custody store status: %ld\n",
+              (long)storedPending);
+    assert(storedPending == AncPrivateVaultCustodyRepositoryStatusOK);
+    NSString *authorityRoot = [NSTemporaryDirectory()
+        stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"enrollment-activation-%@",
+                                       NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager
+              createDirectoryAtPath:authorityRoot
+        withIntermediateDirectories:YES
+                         attributes:@{
+                           NSFilePosixPermissions : @0700
+                         }
+                              error:nil]);
+    AncPrivateVaultAuthorityStore *authorityStore =
+        [[AncPrivateVaultAuthorityStore alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:authorityRoot
+                                            isDirectory:YES]
+               custodyRepository:brokerRepository];
+    AncPrivateVaultEnrollmentCoordinator *coordinator =
+        [[AncPrivateVaultEnrollmentCoordinator alloc]
+            initWithBrokerCustodyRepository:brokerRepository
+                              artifactStore:offerStore
+                             sasReceiptStore:receiptStore
+                              authorityStore:authorityStore];
+    AncPrivateVaultAuthorityCheckpoint *prematureCheckpoint = nil;
+    assert([coordinator activateAuthorization:verified
+                                  verifiedAtMs:UINT64_C(1721111162000)
+                                    checkpoint:&prematureCheckpoint] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusConflict &&
+           prematureCheckpoint == nil);
+    AncPrivateVaultEnrollmentSasReceipt *durableReceipt = nil;
+    assert(
+        [coordinator
+            recordSasDecisionForChallenge:verified.challenge
+                                receiptId:Repeated(0x5d, 16)
+                                decidedAt:1721111162
+                                 decision:
+                                     AncPrivateVaultEnrollmentSasDecisionConfirmed
+                                  receipt:&durableReceipt] ==
+            AncPrivateVaultEnrollmentCoordinatorStatusOK &&
+        durableReceipt != nil);
+    AncPrivateVaultAuthorityCheckpoint *coordinatorCheckpoint = nil;
+    assert([coordinator activateAuthorization:verified
+                                 verifiedAtMs:UINT64_C(1721111162000)
+                                   checkpoint:&coordinatorCheckpoint] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusOK &&
+           coordinatorCheckpoint.custodyGeneration == 3 &&
+           coordinatorCheckpoint.snapshot.sequence ==
+               verified.replay.state.sequence);
+    AncPrivateVaultAuthorityCheckpoint *retryCheckpoint = nil;
+    assert([coordinator activateAuthorization:verified
+                                 verifiedAtMs:UINT64_C(1721111163000)
+                                   checkpoint:&retryCheckpoint] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusOK &&
+           [retryCheckpoint.frameDigest
+               isEqualToData:coordinatorCheckpoint.frameDigest]);
+    AncPrivateVaultCustodySnapshot activeBroker;
+    AncPrivateVaultCustodyHandle *activeHandle = nil;
+    assert([brokerRepository readVaultId:Hex(vault)
+                                snapshot:&activeBroker
+                                  handle:&activeHandle] ==
+               AncPrivateVaultCustodyRepositoryStatusOK &&
+           activeBroker.custody_generation == 3 &&
+           activeBroker.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE);
+    __block BOOL activeEpochMatches = NO;
+    assert([activeHandle
+               borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+                 activeEpochMatches = anc_pv_memcmp(secrets->active_epoch_key,
+                                                    Repeated(0x44, 32).bytes,
+                                                    32) == ANC_PV_CRYPTO_OK;
+                 return activeEpochMatches;
+               }] == AncPrivateVaultCustodyRepositoryStatusOK &&
+           [activeHandle close] == AncPrivateVaultCustodyRepositoryStatusOK &&
+           activeEpochMatches);
+    assert([NSFileManager.defaultManager removeItemAtPath:authorityRoot
+                                                    error:nil]);
+    anc_pv_zeroize(localStateKey, sizeof localStateKey);
     Ivar exposedWrap = class_getInstanceVariable(
-        AncPrivateVaultEnrollmentAuthorizationResult.class,
-        "_eekWrapEnvelope");
+        AncPrivateVaultEnrollmentAuthorizationResult.class, "_eekWrapEnvelope");
     assert(exposedWrap != NULL);
     object_setIvar(verified, exposedWrap, Repeated(0x9d, 96));
     __block BOOL opened = NO;

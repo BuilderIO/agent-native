@@ -1,4 +1,5 @@
 #import "PrivateVaultEnrollmentChallenge.h"
+#import "PrivateVaultEnrollmentChallengeInternal.h"
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
@@ -31,6 +32,132 @@ static const uint64_t kMaxSafeInteger = UINT64_C(9007199254740991);
 @property(nonatomic, readwrite) uint64_t expiresAt;
 @end
 @implementation AncPrivateVaultEnrollmentChallengeResult
+@end
+
+@interface AncPrivateVaultImmutableEnrollmentChallengeResult
+    : AncPrivateVaultEnrollmentChallengeResult
+@end
+
+@interface AncPrivateVaultEnrollmentChallengeEvidence : NSObject
+@property(nonatomic) NSData *vaultId;
+@property(nonatomic) NSData *encodedChallenge;
+@property(nonatomic) NSData *offerHash;
+@property(nonatomic) NSData *challengeHash;
+@property(nonatomic) NSData *sasTranscriptHash;
+@property(nonatomic) NSData *candidateEndpointId;
+@property(nonatomic) NSData *candidateSigningPublicKey;
+@property(nonatomic) NSData *candidateAgreementPublicKey;
+@property(nonatomic) NSData *ceremonyId;
+@property(nonatomic) NSString *targetMembershipRole;
+@property(nonatomic) uint64_t createdAt;
+@property(nonatomic) uint64_t expiresAt;
+@end
+@implementation AncPrivateVaultEnrollmentChallengeEvidence
+@end
+
+static NSMapTable<AncPrivateVaultEnrollmentChallengeResult *,
+                  AncPrivateVaultEnrollmentChallengeEvidence *> *
+ChallengeEvidenceRegistry(void) {
+  static NSMapTable *registry;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    registry = [NSMapTable weakToStrongObjectsMapTable];
+  });
+  return registry;
+}
+
+static NSLock *ChallengeEvidenceLock(void) {
+  static NSLock *lock;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    lock = [NSLock new];
+  });
+  return lock;
+}
+
+static void RaiseImmutableChallenge(void) {
+  [NSException raise:NSInternalInconsistencyException
+              format:@"enrollment challenge results are immutable"];
+}
+
+@implementation AncPrivateVaultImmutableEnrollmentChallengeResult
+- (void)setEncodedChallenge:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setChallengeHash:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setSasTranscript:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setSasTranscriptHash:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setSasCode:(NSString *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setOfferHash:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setCandidateEndpointId:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setCandidateSigningPublicKey:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setCandidateKeyAgreementPublicKey:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setCeremonyId:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setChallengeEnvelopeId:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setAuthorizerEndpointId:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setAuthorizerSigningPublicKey:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setAuthorizerKeyAgreementPublicKey:(NSData *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setTargetMembershipRole:(NSString *)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setControlSequence:(uint64_t)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setCreatedAt:(uint64_t)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setExpiresAt:(uint64_t)value {
+  (void)value;
+  RaiseImmutableChallenge();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  RaiseImmutableChallenge();
+}
 @end
 
 static void SetStatus(AncPrivateVaultEnrollmentChallengeStatus *status,
@@ -365,10 +492,110 @@ AncPrivateVaultEnrollmentChallengeVerify(
     result.controlSequence = (uint64_t)sequence.integerValue;
     result.createdAt = createdAt;
     result.expiresAt = expiresAt;
+    AncPrivateVaultEnrollmentChallengeEvidence *evidence =
+        [AncPrivateVaultEnrollmentChallengeEvidence new];
+    evidence.vaultId = [vaultId copy];
+    evidence.encodedChallenge = [result.encodedChallenge copy];
+    evidence.offerHash = [result.offerHash copy];
+    evidence.challengeHash = [result.challengeHash copy];
+    evidence.sasTranscriptHash = [result.sasTranscriptHash copy];
+    evidence.candidateEndpointId = [result.candidateEndpointId copy];
+    evidence.candidateSigningPublicKey =
+        [result.candidateSigningPublicKey copy];
+    evidence.candidateAgreementPublicKey =
+        [result.candidateKeyAgreementPublicKey copy];
+    evidence.ceremonyId = [result.ceremonyId copy];
+    evidence.targetMembershipRole = [result.targetMembershipRole copy];
+    evidence.createdAt = result.createdAt;
+    evidence.expiresAt = result.expiresAt;
+    NSLock *evidenceLock = ChallengeEvidenceLock();
+    [evidenceLock lock];
+    @try {
+      if (ChallengeEvidenceRegistry().count >= 1024) {
+        SetStatus(status, AncPrivateVaultEnrollmentChallengeStatusCryptoFailed);
+        return nil;
+      }
+      [ChallengeEvidenceRegistry() setObject:evidence forKey:result];
+    } @finally {
+      [evidenceLock unlock];
+    }
+    object_setClass(result,
+                    AncPrivateVaultImmutableEnrollmentChallengeResult.class);
     SetStatus(status, AncPrivateVaultEnrollmentChallengeStatusOK);
     return result;
   } @catch (__unused NSException *exception) {
     SetStatus(status, AncPrivateVaultEnrollmentChallengeStatusInvalid);
     return nil;
+  }
+}
+
+BOOL AncPrivateVaultEnrollmentChallengeCopyEvidence(
+    AncPrivateVaultEnrollmentChallengeResult *result, NSData **vaultId,
+    NSData **encodedChallenge, NSData **offerHash, NSData **challengeHash,
+    NSData **sasTranscriptHash, NSData **candidateEndpointId,
+    NSData **candidateSigningPublicKey, NSData **candidateAgreementPublicKey,
+    NSData **ceremonyId, NSString **targetMembershipRole, uint64_t *createdAt,
+    uint64_t *expiresAt) {
+  if (vaultId == NULL || encodedChallenge == NULL || offerHash == NULL ||
+      challengeHash == NULL || sasTranscriptHash == NULL ||
+      candidateEndpointId == NULL || candidateSigningPublicKey == NULL ||
+      candidateAgreementPublicKey == NULL || ceremonyId == NULL ||
+      targetMembershipRole == NULL || createdAt == NULL || expiresAt == NULL)
+    return NO;
+  *vaultId = nil;
+  *encodedChallenge = nil;
+  *offerHash = nil;
+  *challengeHash = nil;
+  *sasTranscriptHash = nil;
+  *candidateEndpointId = nil;
+  *candidateSigningPublicKey = nil;
+  *candidateAgreementPublicKey = nil;
+  *ceremonyId = nil;
+  *targetMembershipRole = nil;
+  *createdAt = 0;
+  *expiresAt = 0;
+  if (result == nil ||
+      object_getClass(result) !=
+          AncPrivateVaultImmutableEnrollmentChallengeResult.class)
+    return NO;
+  NSLock *lock = ChallengeEvidenceLock();
+  [lock lock];
+  AncPrivateVaultEnrollmentChallengeEvidence *evidence =
+      [ChallengeEvidenceRegistry() objectForKey:result];
+  [lock unlock];
+  if (evidence == nil)
+    return NO;
+  @try {
+    if (![result.encodedChallenge isEqualToData:evidence.encodedChallenge] ||
+        ![result.offerHash isEqualToData:evidence.offerHash] ||
+        ![result.challengeHash isEqualToData:evidence.challengeHash] ||
+        ![result.sasTranscriptHash isEqualToData:evidence.sasTranscriptHash] ||
+        ![result.candidateEndpointId
+            isEqualToData:evidence.candidateEndpointId] ||
+        ![result.candidateSigningPublicKey
+            isEqualToData:evidence.candidateSigningPublicKey] ||
+        ![result.candidateKeyAgreementPublicKey
+            isEqualToData:evidence.candidateAgreementPublicKey] ||
+        ![result.ceremonyId isEqualToData:evidence.ceremonyId] ||
+        ![result.targetMembershipRole
+            isEqualToString:evidence.targetMembershipRole] ||
+        result.createdAt != evidence.createdAt ||
+        result.expiresAt != evidence.expiresAt)
+      return NO;
+    *vaultId = [evidence.vaultId copy];
+    *encodedChallenge = [evidence.encodedChallenge copy];
+    *offerHash = [evidence.offerHash copy];
+    *challengeHash = [evidence.challengeHash copy];
+    *sasTranscriptHash = [evidence.sasTranscriptHash copy];
+    *candidateEndpointId = [evidence.candidateEndpointId copy];
+    *candidateSigningPublicKey = [evidence.candidateSigningPublicKey copy];
+    *candidateAgreementPublicKey = [evidence.candidateAgreementPublicKey copy];
+    *ceremonyId = [evidence.ceremonyId copy];
+    *targetMembershipRole = [evidence.targetMembershipRole copy];
+    *createdAt = evidence.createdAt;
+    *expiresAt = evidence.expiresAt;
+    return YES;
+  } @catch (__unused NSException *exception) {
+    return NO;
   }
 }

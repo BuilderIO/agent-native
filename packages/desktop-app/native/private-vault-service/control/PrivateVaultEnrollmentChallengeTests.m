@@ -3,7 +3,10 @@
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultEnrollmentChallenge.h"
+#import "PrivateVaultEnrollmentChallengeInternal.h"
 #import "PrivateVaultEnrollmentOffer.h"
+
+#import <objc/runtime.h>
 
 #include <assert.h>
 
@@ -165,6 +168,33 @@ int main(void) {
                 @"7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a719014e50"
                 @"0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f19014f1a669612501901501a66961"
                 @"4a8")]);
+    NSData *copiedVault = nil, *copiedEncoded = nil, *copiedOffer = nil,
+           *copiedChallenge = nil, *copiedSas = nil, *copiedCandidate = nil,
+           *copiedSigning = nil, *copiedAgreement = nil,
+           *copiedCeremony = nil;
+    NSString *copiedRole = nil;
+    uint64_t copiedCreatedAt = 0, copiedExpiresAt = 0;
+    assert(AncPrivateVaultEnrollmentChallengeCopyEvidence(
+               result, &copiedVault, &copiedEncoded, &copiedOffer,
+               &copiedChallenge, &copiedSas, &copiedCandidate, &copiedSigning,
+               &copiedAgreement, &copiedCeremony, &copiedRole,
+               &copiedCreatedAt, &copiedExpiresAt) &&
+           [copiedVault isEqualToData:Repeated(0x01, 16)] &&
+           [copiedEncoded isEqualToData:challenge] &&
+           [copiedRole isEqualToString:@"endpoint"]);
+    BOOL mutationRejected = NO;
+    @try {
+      [result setValue:Repeated(0x99, 32) forKey:@"offerHash"];
+    } @catch (__unused NSException *exception) {
+      mutationRejected = YES;
+    }
+    assert(mutationRejected);
+    AncPrivateVaultEnrollmentChallengeResult *forged = class_createInstance(
+        AncPrivateVaultEnrollmentChallengeResult.class, 0);
+    assert(!AncPrivateVaultEnrollmentChallengeCopyEvidence(
+        forged, &copiedVault, &copiedEncoded, &copiedOffer, &copiedChallenge,
+        &copiedSas, &copiedCandidate, &copiedSigning, &copiedAgreement,
+        &copiedCeremony, &copiedRole, &copiedCreatedAt, &copiedExpiresAt));
 
     NSMutableData *badSignature = [challenge mutableCopy];
     ((uint8_t *)badSignature.mutableBytes)[badSignature.length - 1] ^= 1;

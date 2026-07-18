@@ -1,7 +1,10 @@
 #import <Foundation/Foundation.h>
 
+#import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultCustodyRepository.h"
+#import "PrivateVaultEnrollmentAuthorization.h"
 #import "PrivateVaultEnrollmentOfferArtifactStore.h"
+#import "PrivateVaultEnrollmentSasReceiptStore.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -31,9 +34,19 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultEnrollmentCoordinatorStatus) {
 - (instancetype)
     initWithBrokerCustodyRepository:
         (AncPrivateVaultCustodyRepository *)brokerCustodyRepository
-                    artifactStore:
-                        (AncPrivateVaultEnrollmentOfferArtifactStore *)artifactStore
-    NS_DESIGNATED_INITIALIZER;
+                      artifactStore:
+                          (AncPrivateVaultEnrollmentOfferArtifactStore *)
+                              artifactStore
+                    sasReceiptStore:(AncPrivateVaultEnrollmentSasReceiptStore *)
+                                        sasReceiptStore
+                     authorityStore:
+                         (AncPrivateVaultAuthorityStore *)authorityStore;
+- (instancetype)
+    initWithBrokerCustodyRepository:
+        (AncPrivateVaultCustodyRepository *)brokerCustodyRepository
+                      artifactStore:
+                          (AncPrivateVaultEnrollmentOfferArtifactStore *)
+                              artifactStore;
 - (instancetype)init NS_UNAVAILABLE;
 
 /* Creates or resumes the one local broker candidate for this vault. The
@@ -41,9 +54,32 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultEnrollmentCoordinatorStatus) {
  * broker-domain native custody. */
 - (AncPrivateVaultEnrollmentCoordinatorStatus)
     prepareBrokerVaultId:(NSData *)vaultId
-            nowSeconds:(uint64_t)nowSeconds
-             candidate:
-                 (AncPrivateVaultEnrollmentCandidate *_Nullable *_Nonnull)candidate;
+              nowSeconds:(uint64_t)nowSeconds
+               candidate:
+                   (AncPrivateVaultEnrollmentCandidate *_Nullable *_Nonnull)
+                       candidate;
+
+/* Builds and durably fences the exact trusted-UI decision using the candidate
+ * signing seed without releasing that seed from native custody. */
+- (AncPrivateVaultEnrollmentCoordinatorStatus)
+    recordSasDecisionForChallenge:
+        (AncPrivateVaultEnrollmentChallengeResult *)challenge
+                        receiptId:(NSData *)receiptId
+                        decidedAt:(uint64_t)decidedAt
+                         decision:(AncPrivateVaultEnrollmentSasDecision)decision
+                          receipt:(AncPrivateVaultEnrollmentSasReceipt
+                                       *_Nullable *_Nonnull)receipt;
+
+/* Rereads the durable confirmed SAS receipt, opens the EEK only inside native
+ * custody, advances offer g1 to authorization-bound g2, commits the sealed
+ * enrollment replay, and returns only after official g3 authority reread. */
+- (AncPrivateVaultEnrollmentCoordinatorStatus)
+    activateAuthorization:
+        (AncPrivateVaultEnrollmentAuthorizationResult *)authorization
+             verifiedAtMs:(uint64_t)verifiedAtMs
+               checkpoint:
+                   (AncPrivateVaultAuthorityCheckpoint *_Nullable *_Nonnull)
+                       checkpoint;
 @end
 
 NS_ASSUME_NONNULL_END
