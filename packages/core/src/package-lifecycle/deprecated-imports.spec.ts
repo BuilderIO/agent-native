@@ -35,6 +35,7 @@ describe("scanDeprecatedImports", () => {
   it("keeps the prepublished composer move planned", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest).not.toBeNull();
+    expect(manifest?.sinceVersion).toBe("0.110.0");
     expect(manifest?.moves["@agent-native/core/client/composer"]?.status).toBe(
       "planned",
     );
@@ -47,7 +48,7 @@ describe("scanDeprecatedImports", () => {
     ).toBe("planned");
   });
 
-  it("keeps editor adapters planned until Toolkit exports them", () => {
+  it("prepublishes the split editor adapter destinations as planned", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     const clientMove = manifest?.moves["@agent-native/core/client"];
     const adapterSymbols = [
@@ -79,6 +80,31 @@ describe("scanDeprecatedImports", () => {
           : null,
       ).toBe("planned");
     }
+    for (const specifier of [
+      "@agent-native/core/client/editor",
+      "@agent-native/core/client/rich-markdown-editor",
+    ]) {
+      const move = manifest?.moves[specifier];
+      expect(move).toBeDefined();
+      expect(
+        move ? resolveMigrationSymbolMove(move, "RichMarkdownEditor") : null,
+      ).toMatchObject({
+        to: "@agent-native/toolkit/editor",
+        status: "planned",
+      });
+      expect(
+        move ? resolveMigrationSymbolMove(move, "uploadEditorImage") : null,
+      ).toMatchObject({
+        to: "@agent-native/core/client/uploads",
+        status: "planned",
+      });
+    }
+    expect(
+      manifest?.moves["@agent-native/core/testing"]?.symbols?.DragHandle,
+    ).toMatchObject({
+      to: "@agent-native/toolkit/editor",
+      status: "planned",
+    });
   });
 
   it("reports only symbols covered by the manifest", () => {
