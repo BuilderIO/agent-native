@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.15.2
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
 ## 0.15.1
 
 ### Patch Changes
