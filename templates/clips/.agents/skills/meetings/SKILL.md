@@ -47,6 +47,13 @@ Meeting capture records **two streams** and tags transcript segments by source:
 
 Each transcript segment carries a `source: "mic" | "system"` tag, which we use to attribute action items to the right attendee. This is why **per-attendee action items only work reliably with mic + system capture** — mic-only recordings make remote attendees silent. Document this caveat whenever you surface action items.
 
+The iOS/Android companion is intentionally different: mobile background meeting
+capture is microphone-only because the operating systems do not expose another
+phone app's Zoom/Meet/Teams audio. It is appropriate for in-person rooms and for
+capturing audio played from a separate device. Mobile recordings still receive
+Clips transcription and summaries, but do not promise desktop-quality remote
+speaker attribution or per-attendee action items.
+
 ## Bidirectional recording ↔ meeting link
 
 A meeting can have an associated recording, and a recording can be linked back to a meeting:

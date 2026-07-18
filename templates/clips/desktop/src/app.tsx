@@ -1836,6 +1836,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("clips:pending-uploads-changed", () => {
+      void loadPendingUploads();
+    })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [loadPendingUploads]);
+
+  useEffect(() => {
     if (popoverView === "meetings" && popoverVisible) {
       void fetchUpcomingMeetings();
     }

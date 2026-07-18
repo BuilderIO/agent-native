@@ -478,6 +478,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const verificationPending = recording?.verificationPending === true;
   const comments = dataQ.data?.data?.comments ?? [];
   const reactions = dataQ.data?.data?.reactions ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
@@ -560,6 +561,10 @@ export default function ShareRoute() {
       setProcessingTimeout(false);
       return;
     }
+    if (verificationPending) {
+      setProcessingTimeout(false);
+      return;
+    }
 
     const timeoutMs =
       recording.status === "processing"
@@ -567,7 +572,12 @@ export default function ShareRoute() {
         : UPLOAD_STUCK_TIMEOUT_MS;
     const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
-  }, [recording?.id, recording?.status, recording?.videoUrl]);
+  }, [
+    recording?.id,
+    recording?.status,
+    recording?.videoUrl,
+    verificationPending,
+  ]);
 
   usePlayerShortcuts({ playerRef });
 
@@ -712,7 +722,8 @@ export default function ShareRoute() {
     const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
-    const stuckFailure = !explicitFailure && processingTimeout;
+    const stuckFailure =
+      !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
     const signInHref = buildSignInHref(`/r/${recording.id}`);

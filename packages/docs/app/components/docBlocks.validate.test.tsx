@@ -294,10 +294,10 @@ describe("docs visual blocks", () => {
     });
   });
 
-  it("accepts the diagram frame attribute", () => {
+  it("accepts the diagram display attributes", () => {
     const segment = splitDocSegments(
       [
-        '<Diagram frame="hide">',
+        '<Diagram frame="hide" renderMode="design">',
         "",
         "```html",
         '<div class="diagram-node">A</div>',

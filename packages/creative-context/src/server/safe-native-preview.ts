@@ -67,9 +67,8 @@ export function sanitizeSafeNativePreviewHtml(html: string): string {
 }
 
 async function importPlaywright(): Promise<PlaywrightModule> {
-  const specifier = "playwright";
   return (await import(
-    /* @vite-ignore */ specifier
+    /* @vite-ignore */ "playwright"
   )) as unknown as PlaywrightModule;
 }
 

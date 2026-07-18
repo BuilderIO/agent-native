@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { verifyFinalizeReceipt } from "./upload-verification";
+import {
+  parseFinalizeReceipt,
+  verifyFinalizeReceipt,
+} from "./upload-verification";
 
 const local = { bytes: 581_614_005, durationMs: 1_592_773 };
 
@@ -76,5 +79,19 @@ describe("verifyFinalizeReceipt", () => {
         local,
       ),
     ).toThrow(/duration/i);
+  });
+});
+
+describe("parseFinalizeReceipt", () => {
+  it("returns structured receipts and rejects malformed successful responses", () => {
+    expect(parseFinalizeReceipt('{"ok":true,"status":"ready"}')).toEqual({
+      ok: true,
+      status: "ready",
+    });
+    expect(parseFinalizeReceipt("")).toBeNull();
+    expect(parseFinalizeReceipt('"ok"')).toBeNull();
+    expect(() => parseFinalizeReceipt("<html>not json</html>")).toThrow(
+      /invalid finalization response/i,
+    );
   });
 });
