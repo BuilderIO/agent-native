@@ -20,6 +20,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRecoveryBuilderStatus) {
 @property(nonatomic, readonly) NSData *signedEntry;
 @property(nonatomic, readonly) NSData *recoveryWrap;
 @property(nonatomic, readonly) NSData *currentSnapshot;
+@property(nonatomic, readonly) NSData *currentStateSnapshot;
 @property(nonatomic, readonly) NSData *recoveryAuthorization;
 @property(nonatomic, readonly) NSData *entryHash;
 @property(nonatomic, readonly) NSData *authorizationHash;
@@ -28,6 +29,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRecoveryBuilderStatus) {
 @property(nonatomic, readonly) NSData *candidateSigningPublicKey;
 @property(nonatomic, readonly) NSData *candidateKeyAgreementPublicKey;
 @property(nonatomic, readonly) NSData *ceremonyId;
+@property(nonatomic, readonly) NSString *entryId;
 @property(nonatomic, readonly) AncPrivateVaultControlLogState *nextState;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;

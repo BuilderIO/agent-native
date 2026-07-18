@@ -33,6 +33,8 @@
 #import "PrivateVaultBootstrapReplay.h"
 #import "PrivateVaultTrustedTimeStore.h"
 #import "PrivateVaultMnemonic.h"
+#import "PrivateVaultRecoveryCoordinator.h"
+#import "PrivateVaultRecoveryPreparationStore.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -43,9 +45,49 @@ static AncPrivateVaultRotationCoordinator *gRotationCoordinator = nil;
 static AncPrivateVaultHostedAppendTransport *gHostedAppendTransport = nil;
 static AncPrivateVaultHostedAppendCandidateIndex *gHostedAppendCandidates = nil;
 static AncPrivateVaultHostedAppendRetryCoordinator *gHostedAppendRetry = nil;
+static AncPrivateVaultRecoveryCoordinator *gRecoveryCoordinator = nil;
+static NSMutableDictionary<NSString *, NSString *> *gRecoveryStatuses = nil;
+static NSLock *gRecoveryStatusLock = nil;
 static bool gStartupComplete = false;
 
 static const char *PVRotationAckState(void);
+
+static void PVSetRecoveryStatus(NSString *vaultID, NSString *state) {
+    if (vaultID.length != 32 || state.length == 0) return;
+    [gRecoveryStatusLock lock];
+    gRecoveryStatuses[vaultID] = state;
+    [gRecoveryStatusLock unlock];
+}
+
+static NSString *PVRecoveryStatus(NSString *vaultID) {
+    [gRecoveryStatusLock lock];
+    NSString *state = [gRecoveryStatuses[vaultID] copy];
+    [gRecoveryStatusLock unlock];
+    return state;
+}
+
+static void PVRecoveryFinished(AncPrivateVaultRecoveryCoordinatorStatus status,
+                               NSString *vaultID) {
+    NSString *state =
+        status == AncPrivateVaultRecoveryCoordinatorStatusOK
+            ? @"recovered"
+        : status == AncPrivateVaultRecoveryCoordinatorStatusNetworkFailed ||
+                status == AncPrivateVaultRecoveryCoordinatorStatusStorageFailed
+            ? @"retryable"
+            : @"failed";
+    PVSetRecoveryStatus(vaultID, state);
+}
+
+static void PVResumeRecovery(NSString *vaultID) {
+    if (gRecoveryCoordinator == nil || vaultID.length != 32) return;
+    PVSetRecoveryStatus(vaultID, @"committing");
+    [gRecoveryCoordinator
+        resumeVaultId:vaultID
+           completion:^(AncPrivateVaultRecoveryCoordinatorStatus status,
+                        NSString *completedVaultID) {
+             PVRecoveryFinished(status, completedVaultID);
+           }];
+}
 
 static NSURL *PVStateRootURL(void) {
     NSArray<NSString *> *roots =
@@ -320,6 +362,7 @@ static void PVRecoverBootstrap(xpc_connection_t peer, xpc_object_t message,
         }
         [gBootstrapReplayLock lock];
         BOOL accepted = NO;
+        AncPrivateVaultBootstrapReplay *completedReplay = nil;
         AncPrivateVaultBootstrapReplayStatus replayStatus;
         @try {
             if (begin) {
@@ -365,6 +408,9 @@ static void PVRecoverBootstrap(xpc_connection_t peer, xpc_object_t message,
             if (!accepted && gBootstrapReplay != nil) {
                 [gBootstrapReplay invalidate];
                 gBootstrapReplay = nil;
+            } else if (accepted && frame.complete) {
+                completedReplay = gBootstrapReplay;
+                gBootstrapReplay = nil;
             }
         } @finally {
             [gBootstrapReplayLock unlock];
@@ -373,16 +419,52 @@ static void PVRecoverBootstrap(xpc_connection_t peer, xpc_object_t message,
             PVSendError(peer, message, "recovery_failed");
             return;
         }
+        if (frame.complete) {
+            if (completedReplay == nil || gRecoveryCoordinator == nil) {
+                [completedReplay invalidate];
+                PVSendError(peer, message, "recovery_failed");
+                return;
+            }
+            PVSetRecoveryStatus(frame.vaultId, @"committing");
+            [gRecoveryCoordinator
+                beginWithReplay:completedReplay
+                     completion:^(
+                         AncPrivateVaultRecoveryCoordinatorStatus status,
+                         NSString *completedVaultID) {
+                       PVRecoveryFinished(status, completedVaultID);
+                     }];
+        }
         xpc_object_t reply = PVCreateReply(message, request);
         if (reply == NULL) return;
         xpc_dictionary_set_string(reply, "state",
-                                  frame.complete ? "verified" : "accepted");
+                                  frame.complete ? "committing" : "accepted");
         xpc_dictionary_set_string(reply, "vaultId", frame.vaultId.UTF8String);
         xpc_dictionary_set_uint64(reply, "throughSequence",
                                   (uint64_t)frame.throughSequence);
         xpc_dictionary_set_uint64(reply, "headSequence", frame.headSequence);
         xpc_dictionary_set_string(reply, "headHash", frame.headHash.UTF8String);
         xpc_dictionary_set_bool(reply, "complete", frame.complete);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVRecoverStatus(xpc_connection_t peer, xpc_object_t message,
+                            const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultID = request->vaultID == NULL
+                                ? nil
+                                : [NSString stringWithUTF8String:
+                                                request->vaultID];
+        NSString *state = PVRecoveryStatus(vaultID);
+        if ([state isEqualToString:@"retryable"]) {
+            PVResumeRecovery(vaultID);
+            state = @"committing";
+        }
+        if (state == nil) state = @"failed";
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", state.UTF8String);
+        xpc_dictionary_set_string(reply, "vaultId", vaultID.UTF8String);
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -831,6 +913,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVRecoverBootstrap(peer, message, &request, NO);
                 return;
             }
+            if (strcmp(request.operation, "recover_status") == 0) {
+                PVRecoverStatus(peer, message, &request);
+                return;
+            }
             PVSendSuccess(peer, message, &request);
             return;
         case PVRequestUnsupportedVersion:
@@ -870,7 +956,11 @@ int main(void) {
             return EXIT_FAILURE;
         }
         gBootstrapReplayLock = [NSLock new];
+        gRecoveryStatusLock = [NSLock new];
+        gRecoveryStatuses = [NSMutableDictionary dictionary];
         NSURL *stateRoot = PVStateRootURL();
+        NSURL *recoveryStateRoot =
+            AncPrivateVaultPrepareRecoveryStateRoot(stateRoot);
         AncPrivateVaultKeychain *keychain =
             [[AncPrivateVaultKeychain alloc] init];
         gCustodyRepository = [[AncPrivateVaultCustodyRepository alloc]
@@ -927,6 +1017,23 @@ int main(void) {
         AncPrivateVaultHostedAppendRetryStore *retryStore =
             [[AncPrivateVaultHostedAppendRetryStore alloc]
                 initWithStateRootURL:stateRoot];
+        AncPrivateVaultHostedAppendRetryStore *recoveryRetryStore =
+            [[AncPrivateVaultHostedAppendRetryStore alloc]
+                initWithStateRootURL:recoveryStateRoot];
+        AncPrivateVaultGenesisPreparationArtifactStore
+            *recoveryArtifactStore =
+                [[AncPrivateVaultGenesisPreparationArtifactStore alloc]
+                    initWithStateRootURL:recoveryStateRoot];
+        AncPrivateVaultRecoveryPreparationStore *recoveryPreparationStore =
+            [[AncPrivateVaultRecoveryPreparationStore alloc]
+                initWithKeychain:keychain];
+        gRecoveryCoordinator = [[AncPrivateVaultRecoveryCoordinator alloc]
+            initWithPreparationStore:recoveryPreparationStore
+                        artifactStore:recoveryArtifactStore
+                           retryStore:recoveryRetryStore
+                    custodyRepository:gCustodyRepository
+                        authorityStore:authority
+                             transport:gHostedAppendTransport];
         gHostedAppendCandidates =
             [[AncPrivateVaultHostedAppendCandidateIndex alloc]
                 initWithSpool:spool
@@ -947,7 +1054,8 @@ int main(void) {
                                   (id<AncPrivateVaultHostedAppendTransporting>)
                                       gHostedAppendTransport
                               scheduler:retryScheduler];
-        if (stateRoot == nil || keychain == nil || gCustodyRepository == nil ||
+        if (stateRoot == nil || recoveryStateRoot == nil || keychain == nil ||
+            gCustodyRepository == nil ||
             spool == nil || preparation == nil || authority == nil ||
             controlLog == nil || genesisArtifacts == nil ||
             genesisPreparationArtifacts == nil ||
@@ -955,6 +1063,9 @@ int main(void) {
             trustedTimeStore == nil || genesisTrustedClock == nil ||
             gGenesisCoordinator == nil || gRotationCoordinator == nil ||
             gHostedAppendTransport == nil || retryStore == nil ||
+            recoveryRetryStore == nil || recoveryArtifactStore == nil ||
+            recoveryPreparationStore == nil || gRecoveryCoordinator == nil ||
+            gRecoveryStatusLock == nil || gRecoveryStatuses == nil ||
             gHostedAppendCandidates == nil || retryScheduler == nil ||
             gHostedAppendRetry == nil) {
             return EXIT_FAILURE;
@@ -974,6 +1085,16 @@ int main(void) {
         }
 
         [gHostedAppendRetry start];
+        NSArray<NSData *> *recoveryVaultIDs = nil;
+        if ([recoveryRetryStore listVaultIds:&recoveryVaultIDs] !=
+            AncPrivateVaultHostedAppendRetryStoreStatusOK) {
+            return EXIT_FAILURE;
+        }
+        for (NSData *vaultID in recoveryVaultIDs) {
+            NSString *vaultIDHex = PVVaultIDHex(vaultID);
+            if (vaultIDHex.length != 32) return EXIT_FAILURE;
+            PVResumeRecovery(vaultIDHex);
+        }
         gStartupComplete = true;
 
         xpc_main(PVConnectionHandler);

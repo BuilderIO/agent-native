@@ -33,4 +33,13 @@ FOUNDATION_EXPORT NSString
     *_Nullable AncPrivateVaultControlLogSignedEntrySignerEndpointId(
         NSData *signedEntry);
 
+/* Canonical restart snapshot for an already-authenticated control state. The
+ * decoder validates structure but does not confer authenticity; callers must
+ * bind the exact bytes to protected native preparation evidence. */
+FOUNDATION_EXPORT NSData *_Nullable
+AncPrivateVaultControlLogStatePersistenceEncode(
+    AncPrivateVaultControlLogState *state);
+FOUNDATION_EXPORT AncPrivateVaultControlLogState *_Nullable
+AncPrivateVaultControlLogStatePersistenceDecode(NSData *encoded);
+
 NS_ASSUME_NONNULL_END

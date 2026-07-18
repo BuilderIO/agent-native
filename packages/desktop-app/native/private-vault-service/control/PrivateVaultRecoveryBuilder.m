@@ -7,6 +7,7 @@
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultRecoveryAuthorization.h"
 #import "PrivateVaultRecoveryWrap.h"
+#import "PrivateVaultRecoveryPreparationStoreInternal.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -25,6 +26,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
 - (instancetype)initPrivateWithSignedEntry:(NSData *)signedEntry
                               recoveryWrap:(NSData *)recoveryWrap
                            currentSnapshot:(NSData *)currentSnapshot
+                      currentStateSnapshot:(NSData *)currentStateSnapshot
                      recoveryAuthorization:(NSData *)recoveryAuthorization
                                  entryHash:(NSData *)entryHash
                          authorizationHash:(NSData *)authorizationHash
@@ -34,6 +36,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
            candidateKeyAgreementPublicKey:
                (NSData *)candidateKeyAgreementPublicKey
                                 ceremonyId:(NSData *)ceremonyId
+                                   entryId:(NSString *)entryId
                                  nextState:
                                      (AncPrivateVaultControlLogState *)nextState;
 @end
@@ -42,6 +45,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
 @synthesize signedEntry = _signedEntry;
 @synthesize recoveryWrap = _recoveryWrap;
 @synthesize currentSnapshot = _currentSnapshot;
+@synthesize currentStateSnapshot = _currentStateSnapshot;
 @synthesize recoveryAuthorization = _recoveryAuthorization;
 @synthesize entryHash = _entryHash;
 @synthesize authorizationHash = _authorizationHash;
@@ -50,11 +54,13 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
 @synthesize candidateSigningPublicKey = _candidateSigningPublicKey;
 @synthesize candidateKeyAgreementPublicKey = _candidateKeyAgreementPublicKey;
 @synthesize ceremonyId = _ceremonyId;
+@synthesize entryId = _entryId;
 @synthesize nextState = _nextState;
 + (BOOL)accessInstanceVariablesDirectly { return NO; }
 - (instancetype)initPrivateWithSignedEntry:(NSData *)signedEntry
                               recoveryWrap:(NSData *)recoveryWrap
                            currentSnapshot:(NSData *)currentSnapshot
+                      currentStateSnapshot:(NSData *)currentStateSnapshot
                      recoveryAuthorization:(NSData *)recoveryAuthorization
                                  entryHash:(NSData *)entryHash
                          authorizationHash:(NSData *)authorizationHash
@@ -64,6 +70,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
            candidateKeyAgreementPublicKey:
                (NSData *)candidateKeyAgreementPublicKey
                                 ceremonyId:(NSData *)ceremonyId
+                                   entryId:(NSString *)entryId
                                  nextState:
                                      (AncPrivateVaultControlLogState *)nextState {
   self = [super init];
@@ -71,6 +78,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
     _signedEntry = [signedEntry copy];
     _recoveryWrap = [recoveryWrap copy];
     _currentSnapshot = [currentSnapshot copy];
+    _currentStateSnapshot = [currentStateSnapshot copy];
     _recoveryAuthorization = [recoveryAuthorization copy];
     _entryHash = [entryHash copy];
     _authorizationHash = [authorizationHash copy];
@@ -80,6 +88,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
     _candidateKeyAgreementPublicKey =
         [candidateKeyAgreementPublicKey copy];
     _ceremonyId = [ceremonyId copy];
+    _entryId = [entryId copy];
     _nextState = nextState;
   }
   return self;
@@ -95,6 +104,7 @@ static const uint8_t kLogDomain[] = "anc/v1/log-entry";
 @property(nonatomic) NSData *candidateEndpointId;
 @property(nonatomic) NSData *candidateSigningPublicKey;
 @property(nonatomic) NSData *candidateKeyAgreementPublicKey;
+@property(nonatomic) NSData *currentStateSnapshot;
 @end
 @implementation AncPrivateVaultRecoveryBuilderEvidence
 @end
@@ -151,7 +161,9 @@ BOOL AncPrivateVaultPreparedRecoveryArtifactsCopyEvidence(
       [artifacts.candidateSigningPublicKey
           isEqualToData:evidence.candidateSigningPublicKey] &&
       [artifacts.candidateKeyAgreementPublicKey
-          isEqualToData:evidence.candidateKeyAgreementPublicKey]) {
+          isEqualToData:evidence.candidateKeyAgreementPublicKey] &&
+      [artifacts.currentStateSnapshot
+          isEqualToData:evidence.currentStateSnapshot]) {
     *currentState = evidence.currentState;
     *nextState = evidence.nextState;
     *entryHash = [evidence.entryHash copy];
@@ -250,6 +262,31 @@ static NSData *Hash(const uint8_t *domain, size_t domainLength,
       okay ? [NSData dataWithBytes:digest length:sizeof digest] : nil;
   anc_pv_zeroize(digest, sizeof digest);
   return result;
+}
+
+NSData *AncPrivateVaultRecoveryPreparationArtifactsCommitment(
+    NSData *signedEntry, NSData *recoveryWrap, NSData *currentSnapshot,
+    NSData *currentStateSnapshot, NSData *recoveryAuthorization) {
+  if (![signedEntry isKindOfClass:NSData.class] || signedEntry.length == 0 ||
+      signedEntry.length > 262144 ||
+      ![recoveryWrap isKindOfClass:NSData.class] || recoveryWrap.length == 0 ||
+      recoveryWrap.length > 1048576 ||
+      ![currentSnapshot isKindOfClass:NSData.class] ||
+      currentSnapshot.length == 0 || currentSnapshot.length > 65536 ||
+      ![currentStateSnapshot isKindOfClass:NSData.class] ||
+      currentStateSnapshot.length == 0 ||
+      currentStateSnapshot.length > 65536 ||
+      ![recoveryAuthorization isKindOfClass:NSData.class] ||
+      recoveryAuthorization.length == 0 ||
+      recoveryAuthorization.length > 1048576)
+    return nil;
+  static const uint8_t domain[] =
+      "anc/v1/recovery-preparation-artifacts";
+  NSData *encoded =
+      Encode(@{@1 : B(signedEntry), @2 : B(recoveryWrap),
+               @3 : B(currentSnapshot), @4 : B(currentStateSnapshot),
+               @5 : B(recoveryAuthorization)});
+  return Hash(domain, sizeof domain, encoded);
 }
 static NSData *Sign(const uint8_t *domain, size_t domainLength, NSData *payload,
                     AncPrivateVaultGuardedMemory *privateKey) {
@@ -421,6 +458,8 @@ AncPrivateVaultBuildRecoveryArtifacts(
       @220 : I(current.sequence), @221 : B(current.headHash),
       @222 : B(current.membershipHash), @223 : A(priorValues),
     });
+    NSData *stateSnapshot =
+        AncPrivateVaultControlLogStatePersistenceEncode(current);
     NSData *snapshotHash =
         Hash(kRecoveryDomain, sizeof kRecoveryDomain, snapshot);
     uint64_t newEpoch = current.epoch + 1;
@@ -585,7 +624,8 @@ AncPrivateVaultBuildRecoveryArtifacts(
                              result:&replayed];
     NSData *entryHash = AncPrivateVaultControlLogSignedEntryDomainHash(
         signedEntry);
-    if (snapshot == nil || snapshotHash == nil || candidate == nil ||
+    if (snapshot == nil || stateSnapshot == nil || snapshotHash == nil ||
+        candidate == nil ||
         replacementWrap == nil || replacementWrapHash == nil ||
         confirmation == nil || authorization == nil ||
         authorizationHash == nil || inner == nil || signedEntry == nil ||
@@ -603,6 +643,7 @@ AncPrivateVaultBuildRecoveryArtifacts(
         initPrivateWithSignedEntry:signedEntry
                      recoveryWrap:replacementWrap
                   currentSnapshot:snapshot
+             currentStateSnapshot:stateSnapshot
             recoveryAuthorization:authorization
                         entryHash:entryHash
                 authorizationHash:authorizationHash
@@ -611,6 +652,7 @@ AncPrivateVaultBuildRecoveryArtifacts(
        candidateSigningPublicKey:signingPublic
   candidateKeyAgreementPublicKey:agreementPublic
                        ceremonyId:ceremony
+                          entryId:Hex(logEnvelope)
                         nextState:replayed.state];
     AncPrivateVaultRecoveryBuilderEvidence *evidence =
         [AncPrivateVaultRecoveryBuilderEvidence new];
@@ -622,6 +664,7 @@ AncPrivateVaultBuildRecoveryArtifacts(
     evidence.candidateEndpointId = [candidateId copy];
     evidence.candidateSigningPublicKey = [signingPublic copy];
     evidence.candidateKeyAgreementPublicKey = [agreementPublic copy];
+    evidence.currentStateSnapshot = [stateSnapshot copy];
     NSLock *registryLock = RecoveryBuilderRegistryLock();
     [registryLock lock];
     BOOL registered = RecoveryBuilderRegistry().count < 1024 && result != nil;
@@ -651,6 +694,217 @@ AncPrivateVaultBuildRecoveryArtifacts(
   if (!cleanup) {
     SetStatus(status, AncPrivateVaultRecoveryBuilderStatusCleanup);
     return nil;
+  }
+  return result;
+}
+
+@interface AncPersistedRecoveryAuthorizationVerifier
+    : NSObject <AncPrivateVaultControlLogAuthorizationVerifier>
+@property(nonatomic) NSData *signedEntry;
+@property(nonatomic) NSData *currentStateCanonical;
+@property(nonatomic) NSData *snapshotHash;
+@property(nonatomic) NSData *authorizationHash;
+@property(nonatomic) NSString *ceremonyId;
+@property(nonatomic) NSString *candidateEndpointId;
+@property(nonatomic) NSData *candidateSigningPublicKey;
+@property(nonatomic) NSData *candidateAgreementPublicKey;
+@property(nonatomic) NSData *recoveryWrapHash;
+@property(nonatomic) uint64_t nextEpoch;
+@property(nonatomic) uint64_t replacementRecoveryGeneration;
+@end
+
+@implementation AncPersistedRecoveryAuthorizationVerifier
+- (BOOL)verifyRecoveryMembershipCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                            signedEntry:
+                                (AncPrivateVaultControlLogSignedEntry *)entry
+                           currentState:
+                               (AncPrivateVaultControlLogState *)state
+                       signedEntryBytes:(NSData *)signedEntryBytes
+                     innerEnvelopeBytes:(NSData *)innerEnvelopeBytes {
+  NSData *presentedState =
+      AncPrivateVaultControlLogStatePersistenceEncode(state);
+  AncPrivateVaultControlLogMember *member =
+      commit.activeMembers.count == 1 ? commit.activeMembers.firstObject : nil;
+  return [signedEntryBytes isEqualToData:self.signedEntry] &&
+         [presentedState isEqualToData:self.currentStateCanonical] &&
+         [entry.innerEnvelopeBytes isEqualToData:innerEnvelopeBytes] &&
+         [entry.envelopeId
+             isEqualToString:
+                 AncPrivateVaultControlLogSignedEntryEnvelopeId(
+                     self.signedEntry)] &&
+         [entry.signerEndpointId
+             isEqualToString:self.candidateEndpointId] &&
+         [commit.ceremonyKind isEqualToString:@"recovery"] &&
+         [commit.ceremonyId isEqualToString:self.ceremonyId] &&
+         commit.epoch == self.nextEpoch &&
+         [commit.recoverySnapshotHash isEqualToData:self.snapshotHash] &&
+         [commit.recoveryAuthorizationHash
+             isEqualToData:self.authorizationHash] &&
+         commit.recoveryGeneration ==
+             self.replacementRecoveryGeneration &&
+         [commit.recoveryWrapHash isEqualToData:self.recoveryWrapHash] &&
+         member != nil &&
+         [member.endpointId isEqualToString:self.candidateEndpointId] &&
+         [member.role isEqualToString:@"endpoint"] && !member.unattended &&
+         [member.signingPublicKey
+             isEqualToData:self.candidateSigningPublicKey] &&
+         [member.keyAgreementPublicKey
+             isEqualToData:self.candidateAgreementPublicKey];
+}
+@end
+
+AncPrivateVaultPreparedRecoveryArtifacts *
+AncPrivateVaultRestorePreparedRecoveryArtifacts(
+    AncPrivateVaultRecoveryPreparationEvidence *evidence,
+    NSData *signedEntry, NSData *recoveryWrap, NSData *currentSnapshot,
+    NSData *currentStateSnapshot, NSData *recoveryAuthorization) {
+  AncPrivateVaultRecoveryPreparationSnapshot preparation = {0};
+  if (!AncPrivateVaultRecoveryPreparationEvidenceCopySnapshot(
+          evidence, &preparation))
+    return nil;
+  AncPrivateVaultPreparedRecoveryArtifacts *result = nil;
+  @try {
+    NSData *commitment =
+        AncPrivateVaultRecoveryPreparationArtifactsCommitment(
+            signedEntry, recoveryWrap, currentSnapshot, currentStateSnapshot,
+            recoveryAuthorization);
+    NSData *expectedCommitment =
+        [NSData dataWithBytes:preparation.artifact_commitment length:32];
+    NSData *entryHash =
+        AncPrivateVaultControlLogSignedEntryDomainHash(signedEntry);
+    NSData *wrapHash = Hash(kWrapDomain, sizeof kWrapDomain, recoveryWrap);
+    NSData *authorizationHash = Hash(
+        kAuthorizationDomain, sizeof kAuthorizationDomain,
+        recoveryAuthorization);
+    NSData *snapshotHash =
+        Hash(kRecoveryDomain, sizeof kRecoveryDomain, currentSnapshot);
+    NSString *vaultId = Hex([NSData dataWithBytes:preparation.vault_id
+                                           length:16]);
+    NSString *entryId = Hex([NSData dataWithBytes:preparation.entry_id
+                                           length:16]);
+    NSString *ceremonyId =
+        Hex([NSData dataWithBytes:preparation.ceremony_id length:16]);
+    NSString *candidateId = Hex(
+        [NSData dataWithBytes:preparation.candidate_endpoint_id length:16]);
+    NSData *candidateSigning = [NSData
+        dataWithBytes:preparation.candidate_signing_public_key
+               length:32];
+    NSData *candidateAgreement = [NSData
+        dataWithBytes:preparation.candidate_key_agreement_public_key
+               length:32];
+    AncPrivateVaultControlLogState *current =
+        AncPrivateVaultControlLogStatePersistenceDecode(currentStateSnapshot);
+    NSData *roundTrip =
+        AncPrivateVaultControlLogStatePersistenceEncode(current);
+    if (commitment.length != 32 ||
+        ![commitment isEqualToData:expectedCommitment] ||
+        entryHash.length != 32 ||
+        anc_pv_memcmp(entryHash.bytes, preparation.entry_hash, 32) !=
+            ANC_PV_CRYPTO_OK ||
+        wrapHash.length != 32 ||
+        anc_pv_memcmp(wrapHash.bytes, preparation.recovery_wrap_hash, 32) !=
+            ANC_PV_CRYPTO_OK ||
+        recoveryWrap.length != preparation.recovery_wrap_byte_length ||
+        authorizationHash.length != 32 ||
+        anc_pv_memcmp(authorizationHash.bytes,
+                      preparation.recovery_authorization_hash, 32) !=
+            ANC_PV_CRYPTO_OK ||
+        current == nil || ![roundTrip isEqualToData:currentStateSnapshot] ||
+        ![current.vaultId isEqualToString:vaultId] ||
+        current.sequence == kMaximumSafeInteger ||
+        current.sequence + 1 != preparation.expected_next_sequence ||
+        anc_pv_memcmp(current.headHash.bytes,
+                      preparation.expected_previous_head, 32) !=
+            ANC_PV_CRYPTO_OK ||
+        current.epoch == kMaximumSafeInteger ||
+        current.epoch + 1 != preparation.next_epoch ||
+        current.recoveryGeneration == kMaximumSafeInteger ||
+        current.recoveryGeneration + 1 !=
+            preparation.replacement_recovery_generation ||
+        ![AncPrivateVaultControlLogSignedEntryEnvelopeId(signedEntry)
+            isEqualToString:entryId])
+      return nil;
+    AncPersistedRecoveryAuthorizationVerifier *verifier =
+        [AncPersistedRecoveryAuthorizationVerifier new];
+    verifier.signedEntry = [signedEntry copy];
+    verifier.currentStateCanonical = [currentStateSnapshot copy];
+    verifier.snapshotHash = snapshotHash;
+    verifier.authorizationHash = authorizationHash;
+    verifier.ceremonyId = ceremonyId;
+    verifier.candidateEndpointId = candidateId;
+    verifier.candidateSigningPublicKey = candidateSigning;
+    verifier.candidateAgreementPublicKey = candidateAgreement;
+    verifier.recoveryWrapHash = wrapHash;
+    verifier.nextEpoch = preparation.next_epoch;
+    verifier.replacementRecoveryGeneration =
+        preparation.replacement_recovery_generation;
+    AncPrivateVaultControlLogReplayResult *replayed = nil;
+    AncPrivateVaultControlLogStatus replayStatus =
+        [[AncPrivateVaultControlLog new]
+            replaySignedEntry:signedEntry
+                 currentState:current
+                     verifier:verifier
+                       result:&replayed];
+    if (replayStatus != AncPrivateVaultControlLogStatusOK || replayed == nil ||
+        ![replayed.entryHash isEqualToData:entryHash] ||
+        replayed.state.sequence != preparation.expected_next_sequence ||
+        replayed.state.epoch != preparation.next_epoch ||
+        replayed.state.recoveryGeneration !=
+            preparation.replacement_recovery_generation ||
+        ![replayed.state.recoveryWrapHash isEqualToData:wrapHash] ||
+        replayed.state.activeMembers.count != 1 ||
+        ![replayed.state.activeMembers.firstObject.endpointId
+            isEqualToString:candidateId] ||
+        ![replayed.state.activeMembers.firstObject.signingPublicKey
+            isEqualToData:candidateSigning] ||
+        ![replayed.state.activeMembers.firstObject.keyAgreementPublicKey
+            isEqualToData:candidateAgreement])
+      return nil;
+    result = [[AncPrivateVaultPreparedRecoveryArtifacts alloc]
+        initPrivateWithSignedEntry:signedEntry
+                     recoveryWrap:recoveryWrap
+                  currentSnapshot:currentSnapshot
+             currentStateSnapshot:currentStateSnapshot
+            recoveryAuthorization:recoveryAuthorization
+                        entryHash:entryHash
+                authorizationHash:authorizationHash
+                     snapshotHash:snapshotHash
+              candidateEndpointId:
+                  [NSData dataWithBytes:preparation.candidate_endpoint_id
+                                 length:16]
+       candidateSigningPublicKey:candidateSigning
+  candidateKeyAgreementPublicKey:candidateAgreement
+                       ceremonyId:
+                           [NSData dataWithBytes:preparation.ceremony_id
+                                          length:16]
+                          entryId:entryId
+                        nextState:replayed.state];
+    AncPrivateVaultRecoveryBuilderEvidence *builderEvidence =
+        [AncPrivateVaultRecoveryBuilderEvidence new];
+    builderEvidence.currentState = current;
+    builderEvidence.nextState = replayed.state;
+    builderEvidence.entryHash = [entryHash copy];
+    builderEvidence.authorizationHash = [authorizationHash copy];
+    builderEvidence.ceremonyId =
+        [NSData dataWithBytes:preparation.ceremony_id length:16];
+    builderEvidence.candidateEndpointId =
+        [NSData dataWithBytes:preparation.candidate_endpoint_id length:16];
+    builderEvidence.candidateSigningPublicKey = candidateSigning;
+    builderEvidence.candidateKeyAgreementPublicKey = candidateAgreement;
+    builderEvidence.currentStateSnapshot = [currentStateSnapshot copy];
+    NSLock *lock = RecoveryBuilderRegistryLock();
+    [lock lock];
+    BOOL registered = RecoveryBuilderRegistry().count < 1024 && result != nil;
+    if (registered)
+      [RecoveryBuilderRegistry() setObject:builderEvidence forKey:result];
+    [lock unlock];
+    if (!registered)
+      result = nil;
+  } @catch (__unused NSException *exception) {
+    result = nil;
+  } @finally {
+    anc_pv_zeroize(&preparation, sizeof preparation);
   }
   return result;
 }

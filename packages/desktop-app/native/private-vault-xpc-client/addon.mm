@@ -49,6 +49,7 @@ enum class PVOperation {
   AcceptBootstrap,
   RecoverBegin,
   RecoverPage,
+  RecoverStatus,
 };
 enum class PVFailure {
   None,
@@ -623,6 +624,26 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     return parsed;
   }
 
+  if (operation == PVOperation::RecoverStatus) {
+    const char *const keys[] = {"version", "ok", "requestId", "state",
+                                "vaultId"};
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    if (!PVHasExactKeys(reply, keys, 5) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        expectedVaultID == nullptr ||
+        !PVIsLowerHex(vaultID, 32) || strcmp(vaultID, expectedVaultID) != 0 ||
+        (strcmp(state, "committing") != 0 &&
+         strcmp(state, "recovered") != 0 && strcmp(state, "failed") != 0)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
   if (operation == PVOperation::AcceptBootstrap ||
       operation == PVOperation::RecoverBegin ||
       operation == PVOperation::RecoverPage) {
@@ -658,7 +679,7 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     }
     const bool completeValue = xpc_dictionary_get_bool(reply, "complete");
     const char *expectedState =
-        recovery ? (completeValue ? "verified" : "accepted") : "parsed";
+        recovery ? (completeValue ? "committing" : "accepted") : "parsed";
     if (strcmp(state, expectedState) != 0) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
@@ -873,6 +894,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "recover_begin"
                           : request->operation == PVOperation::RecoverPage
                               ? "recover_page"
+                          : request->operation == PVOperation::RecoverStatus
+                              ? "recover_status"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -913,7 +936,8 @@ void PVExecute(napi_env env, void *data) {
   xpc_dictionary_set_int64(message, "version", PV_PROTOCOL_VERSION);
   xpc_dictionary_set_string(message, "operation", operation);
   xpc_dictionary_set_string(message, "requestId", requestID);
-  if (request->operation == PVOperation::ResumeRotation)
+  if (request->operation == PVOperation::ResumeRotation ||
+      request->operation == PVOperation::RecoverStatus)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   if (request->operation == PVOperation::CommitGenesis) {
     xpc_dictionary_set_data(message, "recoveryConfirmation",
@@ -971,6 +995,8 @@ void PVExecute(napi_env env, void *data) {
     xpc_object_t reply = state->copyReply();
     const char *expectedID =
         request->operation == PVOperation::ResumeRotation
+            ? request->vaultID
+        : request->operation == PVOperation::RecoverStatus
             ? request->vaultID
         : request->operation == PVOperation::FinalizeGenesis
             ? request->lookupID
@@ -1089,6 +1115,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "recover_begin"
                 : request->operation == PVOperation::RecoverPage
                     ? "recover_page"
+                : request->operation == PVOperation::RecoverStatus
+                    ? "recover_status"
                     : "finalize_genesis");
     PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
@@ -1104,6 +1132,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                        request->custodyGeneration);
       PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
       PVSetSafeInteger(env, result, "sequence", request->sequence);
+    } else if (request->operation == PVOperation::RecoverStatus) {
+      PVSetString(env, result, "vaultId", request->vaultID);
     } else if (request->operation == PVOperation::CommitGenesis) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "headHash", request->headHash);
@@ -1258,6 +1288,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::RecoverBegin;
   } else if (strcmp(operation, "recover_page") == 0) {
     request->operation = PVOperation::RecoverPage;
+  } else if (strcmp(operation, "recover_status") == 0) {
+    request->operation = PVOperation::RecoverStatus;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1265,7 +1297,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     return nullptr;
   }
   const size_t expectedArgumentCount =
-      request->operation == PVOperation::ResumeRotation
+      request->operation == PVOperation::ResumeRotation ||
+              request->operation == PVOperation::RecoverStatus
           ? 2
       : request->operation == PVOperation::CommitGenesis ? 4
       : request->operation == PVOperation::AuthorizeAdmission
@@ -1283,7 +1316,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
                           "Private Vault native service request failed");
     return nullptr;
   }
-  if (request->operation == PVOperation::ResumeRotation) {
+  if (request->operation == PVOperation::ResumeRotation ||
+      request->operation == PVOperation::RecoverStatus) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||

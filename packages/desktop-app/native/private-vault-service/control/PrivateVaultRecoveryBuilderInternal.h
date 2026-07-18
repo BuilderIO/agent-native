@@ -1,5 +1,7 @@
 #import "PrivateVaultRecoveryBuilder.h"
 
+@class AncPrivateVaultRecoveryPreparationEvidence;
+
 NS_ASSUME_NONNULL_BEGIN
 
 /* Registry-backed evidence bridge. Only artifacts emitted by the production
@@ -14,5 +16,18 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultPreparedRecoveryArtifactsCopyEvidence(
     NSData *_Nullable *_Nonnull candidateEndpointId,
     NSData *_Nullable *_Nonnull candidateSigningPublicKey,
     NSData *_Nullable *_Nonnull candidateKeyAgreementPublicKey);
+
+FOUNDATION_EXPORT NSData *_Nullable
+AncPrivateVaultRecoveryPreparationArtifactsCommitment(
+    NSData *signedEntry, NSData *recoveryWrap, NSData *currentSnapshot,
+    NSData *currentStateSnapshot, NSData *recoveryAuthorization);
+
+/* Rehydrates the builder capability after process death only when the exact
+ * public artifacts match a protected Keychain preparation-evidence token. */
+FOUNDATION_EXPORT AncPrivateVaultPreparedRecoveryArtifacts *_Nullable
+AncPrivateVaultRestorePreparedRecoveryArtifacts(
+    AncPrivateVaultRecoveryPreparationEvidence *evidence,
+    NSData *signedEntry, NSData *recoveryWrap, NSData *currentSnapshot,
+    NSData *currentStateSnapshot, NSData *recoveryAuthorization);
 
 NS_ASSUME_NONNULL_END

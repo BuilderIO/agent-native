@@ -766,7 +766,9 @@ ceremony. Phrase bytes cross only the code-signed XPC channel, are bounded and
 cleared, and never enter Electron IPC, the renderer, logs, or the typed
 main-process result. Failed beginnings do not advance the TypeScript consumer;
 a new native beginning invalidates any abandoned partial replay. Exact reply
-schemas distinguish `accepted` pages from the final `verified` page. Real
+schemas distinguish `accepted` pages from the final `committing` page, and the
+client then polls the content-free `recover_status` operation until native
+authority reports `recovered`. Real
 genesis-frame replay, corrupt-wrap fail-closed tests, dual-architecture native
 replay and protocol runners, the universal service and addon builds, desktop
 client tests, and desktop typecheck pass.
@@ -791,10 +793,23 @@ active epoch, clears pending custody, and writes the encrypted generation-two
 authority frame. A real native test covers mnemonic-proven replay through
 recovered custody, exact retry after a simulated lost response, and secret
 cleanup. The hosted recovery request and strict recovery receipt codec also
-have dual-architecture vectors. The remaining recovery gate is a crash-safe
-hosted append supervisor that persists only appropriately protected retry
-material and reports product success only after exact receipt verification and
-local commit.
+have dual-architecture vectors.
+
+The crash-safe hosted append supervisor is now executable. Before the network
+request it durably stages the exact public recovery artifacts in an owner-only
+recovery namespace, writes a content-free retry marker, and seals candidate
+endpoint seeds, the local state key, and the verified EEK into a fixed,
+checksummed Keychain preparation record. A restarted process can rehydrate a
+commit-capable builder result only when the Keychain evidence, artifact
+commitment, canonical prior control state, and replayed recovery edge all match.
+It then idempotently installs pending custody, signs the hosted request, accepts
+only the exact strict receipt, promotes authority and custody, and cleans the
+artifact, Keychain record, and retry marker in that order. Rotation and recovery
+retry markers live under distinct pinned roots. A real restart test stops the
+first coordinator after dispatch and proves a fresh coordinator can finish the
+same ceremony on both arm64 and x86_64. Product success is withheld until that
+entire chain is complete; transient network/storage failures remain retryable,
+while receipt, binding, or verification conflicts fail closed.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
@@ -804,9 +819,10 @@ recovery generation. This preserves the frozen `anc/v1` wire format while
 removing an otherwise fatal recovery interoperability ambiguity. Core/native
 derivation parity is closed on arm64 and x86_64 and independently reviewed.
 The generation-one recovery wrap is persisted as an immutable hosted artifact
-and is now consumed through exact native replay; fresh-device custody promotion
-is executable, while hosted receipt and restart supervision remain the next
-implementation gate.
+and is now consumed through exact native replay; fresh-device custody promotion,
+hosted receipt verification, and restart supervision are executable. The next
+implementation gate is the product enrollment/recovery surface around these
+native capabilities.
 
 The public lifecycle `AncV1RecoveryEnvelope` codec retains an arbitrary salt
 only to decode its frozen synthetic compatibility vector. It is a parallel

@@ -36,6 +36,13 @@ int main(void) {
     assert([AncPrivateVaultPrepareStateRoot(base) isEqual:root]);
     assert(lstat(root.fileSystemRepresentation, &state) == 0);
     assert(first.st_dev == state.st_dev && first.st_ino == state.st_ino);
+    NSURL *recoveryRoot = AncPrivateVaultPrepareRecoveryStateRoot(root);
+    assert(recoveryRoot != nil &&
+           [AncPrivateVaultPrepareRecoveryStateRoot(root)
+               isEqual:recoveryRoot]);
+    assert(lstat(recoveryRoot.fileSystemRepresentation, &state) == 0);
+    assert(S_ISDIR(state.st_mode) && !S_ISLNK(state.st_mode) &&
+           state.st_uid == getuid() && (state.st_mode & 0777) == 0700);
     Remove(base);
 
     NSURL *missing =

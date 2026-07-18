@@ -7,6 +7,14 @@
 #import "PrivateVaultGenesisAccountAdmission.h"
 #import "PrivateVaultGenesisBuilder.h"
 #import "PrivateVaultRecoveryBuilder.h"
+#import "PrivateVaultRecoveryBuilderInternal.h"
+#import "PrivateVaultRecoveryPreparationStoreInternal.h"
+#import "PrivateVaultRecoveryCoordinator.h"
+#import "PrivateVaultGenesisPreparationArtifactStore.h"
+#import "PrivateVaultHostedAppendRetryStore.h"
+#import "PrivateVaultHostedAppendTransport.h"
+#import "PrivateVaultGenesisHostedAppend.h"
+#import "PrivateVaultControlLogInternal.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -56,18 +64,20 @@ static OSStatus RecoveryKeychainDelete(CFDictionaryRef raw) {
   [gRecoveryKeychain removeObjectForKey:key];
   return errSecSuccess;
 }
-static AncPrivateVaultCustodyRepository *RecoveryRepository(void) {
+static AncPrivateVaultKeychain *RecoveryKeychain(void) {
   AncPrivateVaultSecItemFunctions functions = {
       .copyMatching = RecoveryKeychainCopy,
       .add = RecoveryKeychainAdd,
       .update = RecoveryKeychainUpdate,
       .deleteItem = RecoveryKeychainDelete,
   };
-  AncPrivateVaultKeychain *keychain =
-      [[AncPrivateVaultKeychain alloc] initWithFunctions:functions
+  return [[AncPrivateVaultKeychain alloc] initWithFunctions:functions
                                           contextFactory:^LAContext * {
                                             return [[LAContext alloc] init];
                                           }];
+}
+static AncPrivateVaultCustodyRepository *RecoveryRepository(
+    AncPrivateVaultKeychain *keychain) {
   return [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
 }
 
@@ -181,6 +191,53 @@ static AncPrivateVaultBootstrapFrame *Frame(NSData *entry, NSData *wrap,
 @implementation GenesisFixture
 @end
 
+@interface RecoveryTestTransport : AncPrivateVaultHostedAppendTransport
+@property(nonatomic) BOOL hold;
+@property(nonatomic) dispatch_semaphore_t called;
+@end
+@implementation RecoveryTestTransport
+- (instancetype)init {
+  self = [super init];
+  if (self != nil)
+    _called = dispatch_semaphore_create(0);
+  return self;
+}
+- (void)appendBody:(NSData *)body
+       proofHeader:(NSString *)proofHeader
+        completion:(AncPrivateVaultHostedAppendCompletion)completion {
+  assert(body.length > 0 && proofHeader.length > 0);
+  dispatch_semaphore_signal(self.called);
+  if (self.hold)
+    return;
+  AncPrivateVaultCanonicalStatus status;
+  AncPrivateVaultCanonicalValue *root =
+      AncPrivateVaultCanonicalDecode(body, 4 * 1024 * 1024, &status);
+  NSData *entry = root.mapValue[@4].bytesValue;
+  NSData *wrap = root.mapValue[@5].bytesValue;
+  NSData *head = AncPrivateVaultControlLogSignedEntryDomainHash(entry);
+  NSData *wrapHash = Hash(@"anc/v1/recovery-wrap", wrap);
+  NSString *entryID = AncPrivateVaultControlLogSignedEntryEnvelopeId(entry);
+  NSData *receipt = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue
+                 text:@"control-log-recovery-append-receipt"],
+        @4 : [AncPrivateVaultCanonicalValue
+                 text:@"21212121212121212121212121212121"],
+        @5 : [AncPrivateVaultCanonicalValue text:entryID],
+        @6 : [AncPrivateVaultCanonicalValue integer:1],
+        @7 : [AncPrivateVaultCanonicalValue bytes:head],
+        @8 : [AncPrivateVaultCanonicalValue bytes:wrapHash],
+        @9 : [AncPrivateVaultCanonicalValue integer:(int64_t)wrap.length],
+      }],
+      &status);
+  assert(receipt != nil &&
+         AncPrivateVaultRecoveryHostedAppendReceiptDecode(receipt) != nil);
+  completion(AncPrivateVaultHostedAppendTransportStatusOK, receipt);
+}
+@end
+
 static GenesisFixture *BuildFixture(BOOL corruptFinalWrap) {
   NSData *entropyBytes = Pattern(0x11, 32);
   NSData *signingBytes = Pattern(0x12, 32);
@@ -278,10 +335,12 @@ int main(void) {
            prepared.signedEntry.length > 0 &&
            prepared.recoveryWrap.length > 0 &&
            prepared.currentSnapshot.length > 0 &&
+           prepared.currentStateSnapshot.length > 0 &&
            prepared.recoveryAuthorization.length > 0 &&
            prepared.entryHash.length == 32 &&
            prepared.authorizationHash.length == 32 &&
            prepared.snapshotHash.length == 32 &&
+           [prepared.entryId isEqualToString:Hex(Pattern(0x39, 16))] &&
            prepared.nextState.sequence == 1 && prepared.nextState.epoch == 2 &&
            prepared.nextState.recoveryGeneration == 2 &&
            prepared.nextState.activeMembers.count == 1 &&
@@ -302,11 +361,48 @@ int main(void) {
            recoveryCapability.nextSnapshot.epoch == 2 &&
            recoveryCapability.nextSnapshot.recoveryGeneration == 2);
     gRecoveryKeychain = [NSMutableDictionary dictionary];
-    AncPrivateVaultCustodyRepository *repository = RecoveryRepository();
+    AncPrivateVaultKeychain *recoveryKeychain = RecoveryKeychain();
+    AncPrivateVaultCustodyRepository *repository =
+        RecoveryRepository(recoveryKeychain);
+    AncPrivateVaultRecoveryPreparationStore *preparationStore =
+        [[AncPrivateVaultRecoveryPreparationStore alloc]
+            initWithKeychain:recoveryKeychain];
     NSMutableData *localStateKey = [Pattern(0x3c, 32) mutableCopy];
     NSMutableData *zeroEpochKey = [NSMutableData dataWithLength:32];
+    NSData *artifactCommitment =
+        AncPrivateVaultRecoveryPreparationArtifactsCommitment(
+            prepared.signedEntry, prepared.recoveryWrap,
+            prepared.currentSnapshot, prepared.currentStateSnapshot,
+            prepared.recoveryAuthorization);
+    NSData *preparedWrapHash =
+        Hash(@"anc/v1/recovery-wrap", prepared.recoveryWrap);
+    AncPrivateVaultRecoveryPreparationSnapshot preparation = {0};
+    memcpy(preparation.vault_id, Pattern(0x21, 16).bytes, 16);
+    memcpy(preparation.lookup_id, Pattern(0x3d, 16).bytes, 16);
+    memcpy(preparation.ceremony_id, Pattern(0x33, 16).bytes, 16);
+    memcpy(preparation.candidate_endpoint_id, Pattern(0x34, 16).bytes, 16);
+    memcpy(preparation.artifact_digest, Pattern(0x3e, 32).bytes, 32);
+    preparation.verified_at_ms = UINT64_C(1721200060000);
+    preparation.next_epoch = prepared.nextState.epoch;
+    preparation.replacement_recovery_generation =
+        prepared.nextState.recoveryGeneration;
+    preparation.expected_next_sequence = prepared.nextState.sequence;
+    memcpy(preparation.expected_previous_head, replay.state.headHash.bytes, 32);
+    memcpy(preparation.recovery_authorization_hash,
+           prepared.authorizationHash.bytes, 32);
+    memcpy(preparation.entry_id, Pattern(0x39, 16).bytes, 16);
+    memcpy(preparation.entry_hash, prepared.entryHash.bytes, 32);
+    memcpy(preparation.recovery_wrap_hash, preparedWrapHash.bytes, 32);
+    memcpy(preparation.candidate_signing_public_key,
+           prepared.candidateSigningPublicKey.bytes, 32);
+    memcpy(preparation.candidate_key_agreement_public_key,
+           prepared.candidateKeyAgreementPublicKey.bytes, 32);
+    preparation.recovery_wrap_byte_length = prepared.recoveryWrap.length;
+    memcpy(preparation.artifact_commitment, artifactCommitment.bytes, 32);
     __block AncPrivateVaultCustodyRepositoryStatus installStatus =
         AncPrivateVaultCustodyRepositoryStatusFailed;
+    __block AncPrivateVaultRecoveryPreparationStoreStatus preparationStatus =
+        AncPrivateVaultRecoveryPreparationStoreStatusFailed;
     AncPrivateVaultGuardedMemoryStatus signingBorrow =
         [candidateSigning borrow:^BOOL(uint8_t *signingBytes,
                                         size_t signingLength) {
@@ -324,6 +420,18 @@ int main(void) {
               .active_epoch_key = zeroEpochKey.mutableBytes,
               .pending_epoch_key = eekBytes,
           };
+          AncPrivateVaultRecoveryPreparationSecretInputs preparationSecrets = {
+              .endpoint_signing_seed = signingBytes,
+              .endpoint_box_seed = agreementBytes,
+              .local_state_key = localStateKey.mutableBytes,
+              .eek = eekBytes,
+          };
+          preparationStatus =
+              [preparationStore createSnapshot:&preparation
+                                        secrets:&preparationSecrets];
+          if (preparationStatus !=
+              AncPrivateVaultRecoveryPreparationStoreStatusOK)
+            return NO;
           installStatus = [repository
               installPendingRecoveryVaultId:replay.state.vaultId
                                   endpointId:Hex(Pattern(0x34, 16))
@@ -347,6 +455,32 @@ int main(void) {
     }];
     assert(signingBorrow == AncPrivateVaultGuardedMemoryStatusOK);
     assert(installStatus == AncPrivateVaultCustodyRepositoryStatusOK);
+    assert(preparationStatus ==
+           AncPrivateVaultRecoveryPreparationStoreStatusOK);
+    AncPrivateVaultRecoveryPreparationEvidence *persistedEvidence = nil;
+    assert([preparationStore readEvidenceVaultId:replay.state.vaultId
+                                       evidence:&persistedEvidence
+                                         handle:nil] ==
+           AncPrivateVaultRecoveryPreparationStoreStatusOK);
+    AncPrivateVaultPreparedRecoveryArtifacts *restored =
+        AncPrivateVaultRestorePreparedRecoveryArtifacts(
+            persistedEvidence, prepared.signedEntry, prepared.recoveryWrap,
+            prepared.currentSnapshot, prepared.currentStateSnapshot,
+            prepared.recoveryAuthorization);
+    assert(restored != nil &&
+           [restored.entryHash isEqualToData:prepared.entryHash] &&
+           restored.nextState.sequence == prepared.nextState.sequence);
+    NSMutableData *substitutedEntry = [prepared.signedEntry mutableCopy];
+    ((uint8_t *)substitutedEntry.mutableBytes)[substitutedEntry.length - 1] ^=
+        1;
+    assert(AncPrivateVaultRestorePreparedRecoveryArtifacts(
+               persistedEvidence, substitutedEntry, prepared.recoveryWrap,
+               prepared.currentSnapshot, prepared.currentStateSnapshot,
+               prepared.recoveryAuthorization) == nil);
+    recoveryCapability =
+        AncPrivateVaultVerifiedRecoveryBootstrapResultCreate(
+            restored, UINT64_C(1721200060000));
+    assert(recoveryCapability != nil);
     NSString *authorityRoot = [NSTemporaryDirectory()
         stringByAppendingPathComponent:[NSString
             stringWithFormat:@"recovery-authority-%@",
@@ -412,6 +546,126 @@ int main(void) {
     assert([candidateSigning close] == AncPrivateVaultGuardedMemoryStatusOK);
     assert([candidateAgreement close] == AncPrivateVaultGuardedMemoryStatusOK);
     [replay invalidate];
+
+    GenesisFixture *restartFixture = BuildFixture(NO);
+    CloseInputs(restartFixture);
+    AncPrivateVaultBootstrapReplay *restartReplay =
+        [[AncPrivateVaultBootstrapReplay alloc]
+            initWithOwnedRecoveryEntropy:restartFixture.entropy
+                  trustedNowMilliseconds:UINT64_C(1721200060000)
+                                  status:&status];
+    assert(restartReplay != nil &&
+           [restartReplay consumeFrame:restartFixture.frame status:&status] &&
+           restartReplay.isComplete);
+    gRecoveryKeychain = [NSMutableDictionary dictionary];
+    AncPrivateVaultKeychain *restartKeychain = RecoveryKeychain();
+    NSString *recoveryRoot = [NSTemporaryDirectory()
+        stringByAppendingPathComponent:[NSString
+            stringWithFormat:@"recovery-coordinator-%@",
+                             NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager
+               createDirectoryAtPath:recoveryRoot
+         withIntermediateDirectories:YES
+                          attributes:@{NSFilePosixPermissions : @0700}
+                               error:nil]);
+    NSURL *recoveryRootURL =
+        [NSURL fileURLWithPath:recoveryRoot isDirectory:YES];
+    AncPrivateVaultRecoveryPreparationStore *restartPreparation =
+        [[AncPrivateVaultRecoveryPreparationStore alloc]
+            initWithKeychain:restartKeychain];
+    AncPrivateVaultGenesisPreparationArtifactStore *restartArtifacts =
+        [[AncPrivateVaultGenesisPreparationArtifactStore alloc]
+            initWithStateRootURL:recoveryRootURL];
+    AncPrivateVaultHostedAppendRetryStore *restartRetry =
+        [[AncPrivateVaultHostedAppendRetryStore alloc]
+            initWithStateRootURL:recoveryRootURL];
+    AncPrivateVaultCustodyRepository *restartRepository =
+        RecoveryRepository(restartKeychain);
+    AncPrivateVaultAuthorityStore *restartAuthority =
+        [[AncPrivateVaultAuthorityStore alloc]
+            initWithStateRootURL:recoveryRootURL
+               custodyRepository:restartRepository];
+    RecoveryTestTransport *heldTransport = [RecoveryTestTransport new];
+    heldTransport.hold = YES;
+    AncPrivateVaultRecoveryCoordinator *firstCoordinator =
+        [[AncPrivateVaultRecoveryCoordinator alloc]
+            initWithPreparationStore:restartPreparation
+                        artifactStore:restartArtifacts
+                           retryStore:restartRetry
+                    custodyRepository:restartRepository
+                        authorityStore:restartAuthority
+                             transport:heldTransport];
+    [firstCoordinator beginWithReplay:restartReplay
+                           completion:^(
+                               AncPrivateVaultRecoveryCoordinatorStatus ignored,
+                               NSString *ignoredVaultID) {
+                             (void)ignored;
+                             (void)ignoredVaultID;
+                             assert(false);
+                           }];
+    assert(dispatch_semaphore_wait(
+               heldTransport.called,
+               dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+
+    AncPrivateVaultKeychain *resumedKeychain = RecoveryKeychain();
+    AncPrivateVaultRecoveryPreparationStore *resumedPreparation =
+        [[AncPrivateVaultRecoveryPreparationStore alloc]
+            initWithKeychain:resumedKeychain];
+    AncPrivateVaultGenesisPreparationArtifactStore *resumedArtifacts =
+        [[AncPrivateVaultGenesisPreparationArtifactStore alloc]
+            initWithStateRootURL:recoveryRootURL];
+    AncPrivateVaultHostedAppendRetryStore *resumedRetry =
+        [[AncPrivateVaultHostedAppendRetryStore alloc]
+            initWithStateRootURL:recoveryRootURL];
+    AncPrivateVaultCustodyRepository *resumedRepository =
+        RecoveryRepository(resumedKeychain);
+    AncPrivateVaultAuthorityStore *resumedAuthority =
+        [[AncPrivateVaultAuthorityStore alloc]
+            initWithStateRootURL:recoveryRootURL
+               custodyRepository:resumedRepository];
+    RecoveryTestTransport *successTransport = [RecoveryTestTransport new];
+    AncPrivateVaultRecoveryCoordinator *resumedCoordinator =
+        [[AncPrivateVaultRecoveryCoordinator alloc]
+            initWithPreparationStore:resumedPreparation
+                        artifactStore:resumedArtifacts
+                           retryStore:resumedRetry
+                    custodyRepository:resumedRepository
+                        authorityStore:resumedAuthority
+                             transport:successTransport];
+    dispatch_semaphore_t recoveryComplete = dispatch_semaphore_create(0);
+    __block AncPrivateVaultRecoveryCoordinatorStatus completedStatus =
+        AncPrivateVaultRecoveryCoordinatorStatusInvalid;
+    [resumedCoordinator
+        resumeVaultId:@"21212121212121212121212121212121"
+           completion:^(AncPrivateVaultRecoveryCoordinatorStatus result,
+                        NSString *completedVaultID) {
+             assert([completedVaultID
+                 isEqualToString:@"21212121212121212121212121212121"]);
+             completedStatus = result;
+             dispatch_semaphore_signal(recoveryComplete);
+           }];
+    assert(dispatch_semaphore_wait(
+               recoveryComplete,
+               dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    assert(completedStatus == AncPrivateVaultRecoveryCoordinatorStatusOK);
+    AncPrivateVaultAuthorityCheckpoint *recoveredCheckpoint = nil;
+    assert([resumedAuthority
+               loadVaultId:@"21212121212121212121212121212121"
+                checkpoint:&recoveredCheckpoint
+                     error:nil] == AncPrivateVaultAuthorityStoreStatusOK);
+    assert(recoveredCheckpoint.custodyGeneration == 2 &&
+           recoveredCheckpoint.snapshot.sequence == 1);
+    NSArray<NSData *> *remainingRetries = nil;
+    assert([resumedRetry listVaultIds:&remainingRetries] ==
+               AncPrivateVaultHostedAppendRetryStoreStatusOK &&
+           remainingRetries.count == 0);
+    assert([resumedPreparation
+               readEvidenceVaultId:@"21212121212121212121212121212121"
+                           evidence:&persistedEvidence
+                             handle:nil] ==
+           AncPrivateVaultRecoveryPreparationStoreStatusNotFound);
+    assert([NSFileManager.defaultManager removeItemAtPath:recoveryRoot
+                                                    error:nil]);
 
     GenesisFixture *corrupt = BuildFixture(YES);
     CloseInputs(corrupt);

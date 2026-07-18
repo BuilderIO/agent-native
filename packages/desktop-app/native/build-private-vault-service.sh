@@ -33,6 +33,8 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultTrustedTimeStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m"
+  "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m"
+  "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
@@ -505,6 +507,7 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
@@ -517,6 +520,36 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
   build_authority_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_authority_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_RECOVERY_PREPARATION_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  RECOVERY_PREPARATION_TEST_OUTPUT="$OUTPUT_ROOT/.recovery-preparation-tests"
+  rm -rf "$RECOVERY_PREPARATION_TEST_OUTPUT"
+  mkdir -p "$RECOVERY_PREPARATION_TEST_OUTPUT"
+  build_recovery_preparation_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$RECOVERY_PREPARATION_TEST_OUTPUT/private-vault-recovery-preparation-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/storage" \
+      -I"$sodium_root/include" -framework Foundation -framework Security \
+      -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStoreTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_recovery_preparation_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_recovery_preparation_tests x86_64
   fi
   ;;
 esac
@@ -892,6 +925,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture"
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control"
       -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery"
+      -I"$SOURCE_ROOT/transport"
       -I"$sodium_root/include"
       -framework Foundation -framework Security -framework LocalAuthentication
     )
@@ -914,9 +948,12 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryBuilder.m" \
       "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
@@ -925,9 +962,12 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplay.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStoreTests.m" \
       "$sodium_root/lib/libsodium.a" \
       -o "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-store-tests-$architecture"
@@ -1085,7 +1125,8 @@ case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_REPLAY_TESTS:-}" in
       -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
       -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery" \
-      -I"$SOURCE_ROOT/transport" -I"$sodium_root/include" \
+      -I"$SOURCE_ROOT/transport" -I"$SOURCE_ROOT" -I"$sodium_root/include" \
+      "$HOSTED_ORIGIN_DEFINE" \
       -DANC_PRIVATE_VAULT_TESTING=1 \
       -framework Foundation -framework Security -framework LocalAuthentication \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
@@ -1095,7 +1136,9 @@ case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_REPLAY_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryBuilder.m" \
@@ -1105,10 +1148,15 @@ case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_REPLAY_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultHostedAppendRetryStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplay.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m" \
       "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplayTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"
     lipo "$output" -verify_arch "$architecture"

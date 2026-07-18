@@ -113,6 +113,15 @@ int main(void) {
   assert(PVRequestCanRun(&parsed, true));
   xpc_release(recoverPage);
 
+  xpc_object_t recoveryStatus = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "recover_status", "request-recover-status");
+  xpc_dictionary_set_string(recoveryStatus, "vaultId",
+                            "31313131313131313131313131313131");
+  assert(PVParseRequest(recoveryStatus, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "recover_status") == 0);
+  assert(strcmp(parsed.vaultID, "31313131313131313131313131313131") == 0);
+  xpc_release(recoveryStatus);
+
   xpc_object_t missingRecoveryPhrase = PVMakeRequest(
       PV_PROTOCOL_VERSION, "recover_begin", "request-recover-missing");
   xpc_dictionary_set_data(missingRecoveryPhrase, "bootstrapFrame",

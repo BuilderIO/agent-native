@@ -126,3 +126,27 @@ NSURL *AncPrivateVaultPrepareStateRoot(NSURL *applicationSupportURL) {
       URLByAppendingPathComponent:@"PrivateVault"
                       isDirectory:YES];
 }
+
+NSURL *AncPrivateVaultPrepareRecoveryStateRoot(NSURL *stateRootURL) {
+  if (stateRootURL == nil || !stateRootURL.isFileURL)
+    return nil;
+  uid_t userID = getuid();
+  dev_t device = 0;
+  int stateRoot = AncPrivateVaultOpenExistingPath(stateRootURL.path, userID,
+                                                  &device);
+  if (stateRoot < 0)
+    return nil;
+  int recovery = AncPrivateVaultOpenOrCreatePrivateDirectory(
+      stateRoot, "Recovery", userID, device, YES);
+  close(stateRoot);
+  if (recovery < 0)
+    return nil;
+  struct stat pinned;
+  BOOL valid = fstat(recovery, &pinned) == 0 && S_ISDIR(pinned.st_mode) &&
+               pinned.st_uid == userID && pinned.st_dev == device &&
+               (pinned.st_mode & 0777) == 0700;
+  close(recovery);
+  return valid ? [stateRootURL URLByAppendingPathComponent:@"Recovery"
+                                                isDirectory:YES]
+               : nil;
+}

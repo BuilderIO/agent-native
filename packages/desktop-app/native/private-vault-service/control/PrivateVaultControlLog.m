@@ -734,6 +734,138 @@ static NSData *AncControlStateCanonical(
   }
 }
 
+NSData *AncPrivateVaultControlLogStatePersistenceEncode(
+    AncPrivateVaultControlLogState *state) {
+  return AncControlStateCanonical(state);
+}
+
+static BOOL AncPersistenceIdentifier(NSString *value) {
+  NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
+  return bytes.length >= 8 && bytes.length <= 160;
+}
+
+AncPrivateVaultControlLogState *
+AncPrivateVaultControlLogStatePersistenceDecode(NSData *encoded) {
+  if (![encoded isKindOfClass:NSData.class] || encoded.length == 0 ||
+      encoded.length > 65536)
+    return nil;
+  @try {
+    AncPrivateVaultCanonicalStatus canonicalStatus;
+    AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+        encoded, 65536, &canonicalStatus);
+    NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map =
+        root.type == AncPrivateVaultCanonicalTypeMap ? root.mapValue : nil;
+    if (map.count != 14)
+      return nil;
+    for (NSUInteger key = 1; key <= 14; key += 1)
+      if (map[@(key)] == nil)
+        return nil;
+    if (map[@1].type != AncPrivateVaultCanonicalTypeText ||
+        !AncPersistenceIdentifier(map[@1].textValue) ||
+        map[@2].type != AncPrivateVaultCanonicalTypeInteger ||
+        map[@2].integerValue < 0 ||
+        map[@2].integerValue > INT64_C(9007199254740991) ||
+        map[@3].type != AncPrivateVaultCanonicalTypeBytes ||
+        map[@3].bytesValue.length != 32 ||
+        map[@4].type != AncPrivateVaultCanonicalTypeBytes ||
+        map[@4].bytesValue.length != 32 ||
+        map[@5].type != AncPrivateVaultCanonicalTypeText ||
+        map[@5].textValue.length == 0 ||
+        map[@6].type != AncPrivateVaultCanonicalTypeArray ||
+        map[@6].arrayValue.count == 0 || map[@6].arrayValue.count > 64 ||
+        map[@7].type != AncPrivateVaultCanonicalTypeArray ||
+        map[@7].arrayValue.count > 256 ||
+        map[@8].type != AncPrivateVaultCanonicalTypeInteger ||
+        map[@8].integerValue < 1 ||
+        map[@8].integerValue > INT64_C(9007199254740991) ||
+        map[@9].type != AncPrivateVaultCanonicalTypeInteger ||
+        map[@9].integerValue < 1 ||
+        map[@9].integerValue > INT64_C(9007199254740991) ||
+        map[@10].type != AncPrivateVaultCanonicalTypeText ||
+        !AncPersistenceIdentifier(map[@10].textValue) ||
+        map[@11].type != AncPrivateVaultCanonicalTypeBytes ||
+        map[@11].bytesValue.length != 32 ||
+        map[@12].type != AncPrivateVaultCanonicalTypeBytes ||
+        map[@12].bytesValue.length != 32 ||
+        map[@13].type != AncPrivateVaultCanonicalTypeBytes ||
+        map[@13].bytesValue.length != 32 ||
+        map[@14].type != AncPrivateVaultCanonicalTypeText ||
+        (![map[@14].textValue isEqualToString:@"endpoint_witnessed"] &&
+         ![map[@14].textValue
+             isEqualToString:@"eventual_fork_detection"]))
+      return nil;
+    NSMutableArray *members = [NSMutableArray array];
+    NSString *priorId = nil;
+    for (AncPrivateVaultCanonicalValue *tuple in map[@6].arrayValue) {
+      if (tuple.type != AncPrivateVaultCanonicalTypeArray ||
+          tuple.arrayValue.count != 6)
+        return nil;
+      NSArray<AncPrivateVaultCanonicalValue *> *values = tuple.arrayValue;
+      NSString *endpointId = values[0].textValue;
+      NSString *role = values[1].textValue;
+      if (values[0].type != AncPrivateVaultCanonicalTypeText ||
+          !AncPersistenceIdentifier(endpointId) ||
+          values[1].type != AncPrivateVaultCanonicalTypeText ||
+          (![role isEqualToString:@"endpoint"] &&
+           ![role isEqualToString:@"broker"]) ||
+          values[2].type != AncPrivateVaultCanonicalTypeBoolean ||
+          ([role isEqualToString:@"endpoint"] && values[2].booleanValue) ||
+          ([role isEqualToString:@"broker"] && !values[2].booleanValue) ||
+          values[3].type != AncPrivateVaultCanonicalTypeBytes ||
+          values[3].bytesValue.length != 32 ||
+          values[4].type != AncPrivateVaultCanonicalTypeBytes ||
+          values[4].bytesValue.length != 32 ||
+          values[5].type != AncPrivateVaultCanonicalTypeText ||
+          !AncPersistenceIdentifier(values[5].textValue) ||
+          (priorId != nil && [priorId compare:endpointId] != NSOrderedAscending))
+        return nil;
+      AncPrivateVaultControlLogMember *member =
+          [AncPrivateVaultControlLogMember new];
+      member.endpointId = [endpointId copy];
+      member.role = [role copy];
+      member.unattended = values[2].booleanValue;
+      member.signingPublicKey = [values[3].bytesValue copy];
+      member.keyAgreementPublicKey = [values[4].bytesValue copy];
+      member.enrollmentRef = [values[5].textValue copy];
+      [members addObject:member];
+      priorId = endpointId;
+    }
+    NSMutableArray *removed = [NSMutableArray array];
+    priorId = nil;
+    for (AncPrivateVaultCanonicalValue *value in map[@7].arrayValue) {
+      if (value.type != AncPrivateVaultCanonicalTypeText ||
+          !AncPersistenceIdentifier(value.textValue) ||
+          (priorId != nil &&
+           [priorId compare:value.textValue] != NSOrderedAscending))
+        return nil;
+      [removed addObject:[value.textValue copy]];
+      priorId = value.textValue;
+    }
+    AncPrivateVaultControlLogState *state =
+        [AncPrivateVaultControlLogState new];
+    state.vaultId = [map[@1].textValue copy];
+    state.sequence = (uint64_t)map[@2].integerValue;
+    state.headHash = [map[@3].bytesValue copy];
+    state.membershipHash = [map[@4].bytesValue copy];
+    state.signedAt = [map[@5].textValue copy];
+    state.activeMembers = [members copy];
+    state.removedEndpointIds = [removed copy];
+    state.epoch = (uint64_t)map[@8].integerValue;
+    state.recoveryGeneration = (uint64_t)map[@9].integerValue;
+    state.recoveryId = [map[@10].textValue copy];
+    state.recoverySigningPublicKey = [map[@11].bytesValue copy];
+    state.recoveryKeyAgreementPublicKey = [map[@12].bytesValue copy];
+    state.recoveryWrapHash = [map[@13].bytesValue copy];
+    state.freshnessMode = [map[@14].textValue copy];
+    NSData *roundTrip = AncControlStateCanonical(state);
+    return [roundTrip isEqualToData:encoded]
+               ? AncPrivateVaultControlLogStateCreateImmutableCopy(state)
+               : nil;
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
 static NSMapTable<AncPrivateVaultControlLogReplayResult *,
                   AncPrivateVaultReplayEvidence *> *
 AncReplayEvidenceRegistry(void) {

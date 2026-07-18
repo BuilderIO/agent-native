@@ -216,6 +216,14 @@ describe("Private Vault native service client", () => {
     }> = [];
     const request = vi.fn(
       async (operation: string, ...arguments_: Array<string | Buffer>) => {
+        if (operation === "recover_status") {
+          return {
+            version: 3,
+            operation,
+            state: "recovered",
+            vaultId,
+          };
+        }
         const frame = arguments_[0] as Buffer;
         observed.push({
           operation,
@@ -227,7 +235,7 @@ describe("Private Vault native service client", () => {
         return {
           version: 3,
           operation,
-          state: complete ? "verified" : "accepted",
+          state: complete ? "committing" : "accepted",
           vaultId,
           throughSequence: complete ? 5 : 2,
           headSequence: 5,
@@ -271,7 +279,8 @@ describe("Private Vault native service client", () => {
     await expect(client.acceptPage(Uint8Array.of(6))).rejects.toEqual(
       new PrivateVaultNativeServiceClientError(),
     );
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenNthCalledWith(3, "recover_status", vaultId);
   });
 
   it("does not advance recovery after a failed or hostile first page", async () => {

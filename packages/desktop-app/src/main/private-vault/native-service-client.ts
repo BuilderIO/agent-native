@@ -42,7 +42,8 @@ type NativeOperation =
   | "finalize_genesis"
   | "accept_bootstrap"
   | "recover_begin"
-  | "recover_page";
+  | "recover_page"
+  | "recover_status";
 
 interface NativeAddon {
   request(
@@ -351,7 +352,10 @@ function parseBootstrapFrame(value: unknown): NativeParsedBootstrapFrameResult {
 function parseRecoveryPage(
   value: unknown,
   operation: "recover_begin" | "recover_page",
-): PrivateVaultBootstrapPageAcceptance {
+): {
+  readonly acceptance: PrivateVaultBootstrapPageAcceptance;
+  readonly committing: boolean;
+} {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, [
@@ -373,20 +377,45 @@ function parseRecoveryPage(
     !isLowerHex(value.headHash, 64) ||
     typeof value.complete !== "boolean" ||
     value.complete !== (value.throughSequence === value.headSequence) ||
-    value.state !== (value.complete ? "verified" : "accepted")
+    value.state !== (value.complete ? "committing" : "accepted")
   ) {
     throw new PrivateVaultNativeServiceClientError();
   }
   return Object.freeze({
-    vaultId: value.vaultId,
-    throughSequence: value.throughSequence,
-    head: Object.freeze({
-      sequence: value.headSequence,
-      hash: value.headHash,
+    acceptance: Object.freeze({
+      vaultId: value.vaultId,
+      throughSequence: value.throughSequence,
+      head: Object.freeze({
+        sequence: value.headSequence,
+        hash: value.headHash,
+      }),
+      complete: value.complete,
     }),
-    complete: value.complete,
+    committing: value.state === "committing",
   });
 }
+
+function parseRecoveryStatus(
+  value: unknown,
+  vaultId: string,
+): "committing" | "recovered" | "failed" {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state", "vaultId"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "recover_status" ||
+    value.vaultId !== vaultId ||
+    (value.state !== "committing" &&
+      value.state !== "recovered" &&
+      value.state !== "failed")
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return value.state;
+}
+
+const waitForRecoveryPoll = () =>
+  new Promise<void>((resolve) => setTimeout(resolve, 250));
 
 function copyBoundedBytes(value: unknown, maximum: number): Uint8Array {
   if (
@@ -732,13 +761,33 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         : "recover_begin";
       try {
         const addon = await this.#addon;
-        const accepted = parseRecoveryPage(
+        const parsed = parseRecoveryPage(
           await addon.request(operation, frame),
           operation,
         );
         this.#bootstrapStarted = true;
-        this.#bootstrapComplete = accepted.complete;
-        return accepted;
+        if (parsed.committing) {
+          let recovered = false;
+          for (let attempt = 0; attempt < 240; attempt += 1) {
+            const state = parseRecoveryStatus(
+              await addon.request("recover_status", parsed.acceptance.vaultId),
+              parsed.acceptance.vaultId,
+            );
+            if (state === "recovered") {
+              recovered = true;
+              break;
+            }
+            if (state === "failed") {
+              throw new PrivateVaultNativeServiceClientError();
+            }
+            await waitForRecoveryPoll();
+          }
+          if (!recovered) {
+            throw new PrivateVaultNativeServiceClientError();
+          }
+        }
+        this.#bootstrapComplete = parsed.acceptance.complete;
+        return parsed.acceptance;
       } catch {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
