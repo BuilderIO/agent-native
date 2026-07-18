@@ -10,6 +10,8 @@ import type {
   NativeLockResult,
   NativeOpenHostedJobRequest,
   NativeOpenHostedJobResult,
+  NativeSealHostedResultRequest,
+  NativeSealHostedResultResult,
   NativeUnlockResult,
 } from "@agent-native/private-vault-broker";
 
@@ -51,7 +53,8 @@ type NativeOperation =
   | "recover_begin"
   | "recover_page"
   | "recover_status"
-  | "open_job";
+  | "open_job"
+  | "seal_result";
 
 interface NativeAddon {
   request(
@@ -72,6 +75,9 @@ export interface PrivateVaultNativeServiceClient
   openHostedJob(
     request: NativeOpenHostedJobRequest,
   ): Promise<NativeOpenHostedJobResult>;
+  sealHostedResult(
+    request: NativeSealHostedResultRequest,
+  ): Promise<NativeSealHostedResultResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
   commitGenesis(
     input: NativeCommitGenesisInput,
@@ -603,6 +609,25 @@ function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
   };
 }
 
+function parseSealedResult(value: unknown): NativeSealHostedResultResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "resultEnvelope"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "seal_result" ||
+    !(value.resultEnvelope instanceof Uint8Array) ||
+    value.resultEnvelope.byteLength === 0 ||
+    value.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return {
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "sealHostedResult",
+    resultEnvelope: value.resultEnvelope.slice(),
+  };
+}
+
 function copyCommitGenesisInput(
   input: unknown,
 ): readonly [Buffer, Buffer, Buffer] {
@@ -765,6 +790,45 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
         envelope.fill(0);
+      }
+    });
+  }
+
+  sealHostedResult(
+    request: NativeSealHostedResultRequest,
+  ): Promise<NativeSealHostedResultResult> {
+    if (
+      request.version !== SERVICE_VERSION ||
+      request.suite !== SERVICE_SUITE ||
+      request.operation !== "sealHostedResult" ||
+      !isLowerHex(request.vaultId, 32) ||
+      !isLowerHex(request.endpointId, 32) ||
+      !isLowerHex(request.jobId, 32) ||
+      !/^[0-9a-f]{64}$/.test(request.jobHash) ||
+      (request.state !== "completed" && request.state !== "failed") ||
+      !(request.resultPayload instanceof Uint8Array) ||
+      request.resultPayload.byteLength === 0 ||
+      request.resultPayload.byteLength > E2EE_SIZE_LIMITS.resultPayloadBytes
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    const payload = Buffer.from(request.resultPayload);
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseSealedResult(
+          await addon.request(
+            "seal_result",
+            request.vaultId,
+            request.jobId,
+            request.jobHash,
+            request.state,
+            payload,
+          ),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        payload.fill(0);
       }
     });
   }

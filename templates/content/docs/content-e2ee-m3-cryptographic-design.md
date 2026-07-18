@@ -548,8 +548,11 @@ single-broker authority and local signing/box key continuity, seals the
 terminal result in the reverse direction, and durably binds a
 domain-separated hash of the exact result envelope before it may leave native
 code. Result substitution and a second terminalization conflict. The remaining
-broker gate is to retain the encrypted result frame itself until the hosted
-receipt is durable, expose result sealing through XPC, and connect the Content
-action executor and supervisor lifecycle.
+The bounded `seal_result` XPC/addon operation and trusted main-process mapping
+now expose only that requester-sealed envelope; result plaintext and native key
+material never become addon inputs or outputs beyond the explicit local action
+result body. The remaining broker gate is to retain the encrypted result frame
+itself until the hosted receipt is durable and connect the Content action
+executor and supervisor lifecycle.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

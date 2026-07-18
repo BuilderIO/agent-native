@@ -208,6 +208,21 @@ static NSData *PVLookupIDData(const char *lookupID) {
     return result;
 }
 
+static NSData *PVHashData(const char *hex) {
+    if (hex == NULL || strlen(hex) != 64) return nil;
+    NSMutableData *data = [NSMutableData dataWithLength:32];
+    for (size_t index = 0; index < 32; index += 1) {
+        unsigned int byte = 0;
+        NSString *pair = [[NSString alloc]
+            initWithBytes:hex + index * 2 length:2
+                 encoding:NSUTF8StringEncoding];
+        NSScanner *scanner = [NSScanner scannerWithString:pair];
+        if (![scanner scanHexInt:&byte] || !scanner.isAtEnd) return nil;
+        ((uint8_t *)data.mutableBytes)[index] = (uint8_t)byte;
+    }
+    return data;
+}
+
 static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
                           const PVRequest *request) {
     xpc_object_t reply = xpc_dictionary_create_reply(message);
@@ -302,6 +317,36 @@ static void PVOpenJob(xpc_connection_t peer, xpc_object_t message,
         xpc_dictionary_set_string(reply, "jobHash", jobHash.UTF8String);
         xpc_dictionary_set_data(reply, "jobPayload", opened.body.bytes,
                                 opened.body.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVSealResult(xpc_connection_t peer, xpc_object_t message,
+                         const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultID = request->vaultID == NULL ? nil :
+            [NSString stringWithUTF8String:request->vaultID];
+        NSData *jobID = PVLookupIDData(request->jobID);
+        NSData *jobHash = PVHashData(request->jobHash);
+        NSString *state = request->resultState == NULL ? nil :
+            [NSString stringWithUTF8String:request->resultState];
+        NSData *payload = request->resultPayload == NULL ? nil :
+            [NSData dataWithBytes:request->resultPayload
+                          length:request->resultPayloadLength];
+        NSData *sealed = nil;
+        AncPrivateVaultJobProcessorStatus status = [gJobProcessor
+            sealResultPayload:payload state:state vaultId:vaultID jobId:jobID
+                       jobHash:jobHash
+                    nowSeconds:(uint64_t)floor(NSDate.date.timeIntervalSince1970)
+                        result:&sealed];
+        if (status != AncPrivateVaultJobProcessorStatusOK || sealed.length == 0) {
+            PVSendError(peer, message, "result_denied");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_data(reply, "resultEnvelope", sealed.bytes,
+                                sealed.length);
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -1002,6 +1047,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "open_job") == 0) {
                 PVOpenJob(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "seal_result") == 0) {
+                PVSealResult(peer, message, &request);
                 return;
             }
             PVSendSuccess(peer, message, &request);

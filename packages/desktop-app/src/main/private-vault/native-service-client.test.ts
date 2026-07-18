@@ -186,6 +186,43 @@ describe("Private Vault native service client", () => {
     );
   });
 
+  it("returns only the native requester-sealed result envelope", async () => {
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "seal_result",
+      resultEnvelope: Buffer.from([0xa1, 0x01, 0x01]),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.sealHostedResult({
+        version: 1,
+        suite: "anc/v1",
+        operation: "sealHostedResult",
+        vaultId: "00112233445566778899aabbccddeeff",
+        endpointId: "11112222333344445555666677778888",
+        jobId: "ffeeddccbbaa99887766554433221100",
+        jobHash: "ab".repeat(32),
+        state: "completed",
+        resultPayload: Buffer.from("private result"),
+      }),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "sealHostedResult",
+      resultEnvelope: Buffer.from([0xa1, 0x01, 0x01]),
+    });
+    expect(request).toHaveBeenCalledWith(
+      "seal_result",
+      "00112233445566778899aabbccddeeff",
+      "ffeeddccbbaa99887766554433221100",
+      "ab".repeat(32),
+      "completed",
+      expect.any(Buffer),
+    );
+  });
+
   it("copies and bounds bootstrap frames without claiming cryptographic acceptance", async () => {
     const vaultId = "10".repeat(16);
     const headHash = "20".repeat(32);

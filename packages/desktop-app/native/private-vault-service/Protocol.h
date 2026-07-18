@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 #define PV_PROTOCOL_VERSION 3
-#define PV_MAXIMUM_REQUEST_FIELDS 6
+#define PV_MAXIMUM_REQUEST_FIELDS 8
 #define PV_MAXIMUM_OPERATION_BYTES 16
 #define PV_MAXIMUM_REQUEST_ID_BYTES 64
 #define PV_VAULT_ID_BYTES 32
@@ -31,6 +31,8 @@ typedef struct {
     const char *vaultID;
     const char *lookupID;
     const char *jobID;
+    const char *jobHash;
+    const char *resultState;
     const void *recoveryConfirmation;
     size_t recoveryConfirmationLength;
     const void *bootstrapTranscript;
@@ -47,6 +49,8 @@ typedef struct {
     size_t bootstrapFrameLength;
     const void *jobEnvelope;
     size_t jobEnvelopeLength;
+    const void *resultPayload;
+    size_t resultPayloadLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);
