@@ -84,6 +84,7 @@ export {
   unregisterRemotePushRegistrationForOwner,
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
+export { deliverPendingRemotePushNotifications } from "./remote-push-delivery.js";
 export type {
   ComputerApprovalScope,
   ComputerCommandAction,

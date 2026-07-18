@@ -53,4 +53,26 @@ describe("set-mobile-capture-state", () => {
       }),
     ).toThrow();
   });
+
+  it("reflects a selected native clip without storing private media data", () => {
+    expect(
+      action.schema.parse({
+        view: "clips",
+        phase: "playing",
+        recordingId: "recording_123",
+      }),
+    ).toEqual({
+      view: "clips",
+      phase: "playing",
+      recordingId: "recording_123",
+    });
+    expect(() =>
+      action.schema.parse({
+        view: "clips",
+        phase: "playing",
+        recordingId: "recording_123",
+        mediaUrl: "https://private.example/video.mp4",
+      }),
+    ).toThrow();
+  });
 });

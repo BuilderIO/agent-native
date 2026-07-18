@@ -138,6 +138,25 @@ Attribution parsing is fully defensive and never blocks signup — a missing/mal
 Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
+- `action.response` from the browser action transport, with action name,
+  browser-perceived duration and TTFB, response status/outcome, response size
+  when known, and parsed `Server-Timing` phases for framework readiness and
+  database work. Its `request_id` joins the exact browser and server events.
+  This separates server time from CDN/network/body overhead.
+- `http.response` from Nitro request/response hooks, with normalized path,
+  status, request duration, first-request-in-isolate cold marker, process age,
+  framework readiness wait, deploy/runtime fingerprint, database
+  connection/query counts and timings, retries, timeouts, and failures. It also
+  emits `Server-Timing` for `app`, `startup`, `db`, `db-connect`, and
+  `db-slowest` plus an `X-Agent-Native-Request-Id` correlation header where
+  applicable. Query text and parameters are never captured.
+  Database activity that begins during the first two minutes of process/plugin
+  initialization is reported separately as `startup_db_*` on the first
+  framework request that passes the readiness gate.
+  Slow, cold-isolate, server failures, and 4xx action routes are always
+  retained; fast successful requests default to 10% sampling. Override with
+  `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
+  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable

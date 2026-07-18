@@ -1,4 +1,3 @@
-// @ts-expect-error Vitest is provided by the repository test workspace.
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tabler/icons-react-native", () => ({
@@ -21,6 +20,7 @@ vi.mock("react-native", () => ({
   AppState: { currentState: "active" },
   BackHandler: {},
   Linking: {},
+  Platform: { OS: "android" },
   Pressable: vi.fn(),
   StyleSheet: {
     absoluteFill: {},
@@ -34,6 +34,11 @@ vi.mock("react-native-safe-area-context", () => ({
 }));
 vi.mock("@/lib/mobile-state-api", () => ({
   setMobileCaptureStateBestEffort: vi.fn(),
+}));
+vi.mock("@/lib/ios-companion", () => ({
+  endIOSCaptureActivity: vi.fn(),
+  startIOSCaptureActivity: vi.fn(),
+  subscribeToIOSCaptureStop: vi.fn(() => vi.fn()),
 }));
 
 import {
@@ -53,6 +58,7 @@ describe("completeVideoRecording", () => {
 
     await expect(
       completeVideoRecording({
+        captureId: "capture-1",
         disposition: "discard",
         uri: "file:///private/canceled.mp4",
         startedAt: 1_000,
@@ -72,6 +78,7 @@ describe("completeVideoRecording", () => {
 
     await expect(
       completeVideoRecording({
+        captureId: "capture-2",
         disposition: "capture",
         uri: "file:///private/completed.mp4",
         startedAt: 1_000,
@@ -98,6 +105,7 @@ describe("completeVideoRecording", () => {
 
     await expect(
       completeVideoRecording({
+        captureId: "capture-3",
         disposition: "discard",
         uri: undefined,
         startedAt: 1_000,

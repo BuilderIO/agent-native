@@ -204,7 +204,9 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk) {
         const servedBytes = servedMediaSizeBytes(response);
-        if (await responseHasReadableMediaBytes(response)) {
+        if (servedBytes === null) {
+          lastFailure = "Stored media byte count could not be verified";
+        } else if (await responseHasReadableMediaBytes(response)) {
           // Builder stable video URLs intentionally replace the source object
           // with a smaller compressed generation at the same URL. A positive,
           // readable object is the invariant here; source-byte equality is

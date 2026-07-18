@@ -109,6 +109,7 @@ import {
   unregisterRemoteDevice,
   updateRemoteDeviceDetails,
 } from "./remote-devices-store.js";
+import { startRemotePushDeliveryJob } from "./remote-push-delivery-job.js";
 import {
   listRemotePushNotificationsForOwner,
   listRemotePushRegistrationsForOwner,
@@ -579,7 +580,6 @@ function mountedPathParts(event: any, mountSuffix: string): string[] {
 function remoteCommandPushPayload(
   command: RemoteCommand,
 ): Record<string, unknown> {
-  const result = readObject(command.result);
   const status = command.status;
   const title =
     status === "completed"
@@ -587,14 +587,19 @@ function remoteCommandPushPayload(
       : status === "failed"
         ? "Remote run failed"
         : "Remote run updated";
+  const body =
+    status === "completed"
+      ? "Open Agent Native to review the result."
+      : status === "failed"
+        ? "Open Agent Native to review the failure."
+        : "Open Agent Native to review the latest status.";
   return {
     title,
-    body: command.errorMessage ?? readString(result?.message),
+    body,
     commandId: command.id,
     hostId: command.deviceId,
     kind: command.kind,
     status,
-    result: command.result,
     updatedAt: command.updatedAt,
   };
 }
@@ -2897,6 +2902,7 @@ export function createIntegrationsPlugin(
     });
     startA2AContinuationRetryJob(adapterMap);
     startRemoteCommandsRetryJob();
+    startRemotePushDeliveryJob();
 
     // ─── Start Google Docs poller/push ────────────────────────────
     if (adapterMap.has("google-docs")) {

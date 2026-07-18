@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, Stack } from "expo-router";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,9 +13,13 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 
+import { getSessionToken } from "@/lib/session-token-store";
 import { useApps } from "@/lib/use-apps";
+import {
+  isTrustedWebViewUrl,
+  parseTrustedOrigin,
+} from "@/lib/webview-security";
 
-const SESSION_TOKEN_KEY = "agent-native:session-token";
 const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
@@ -40,24 +44,28 @@ export default function AppScreen() {
   const openedExternal = useRef(false);
 
   const app = apps.find((a) => a.id === id);
+  const trustedOrigin = useMemo(
+    () => parseTrustedOrigin(app?.url ?? ""),
+    [app?.url],
+  );
   const [sessionToken, setSessionToken] = useState<string | null>(null);
 
-  // Load stored session token on mount
+  // Load stored session token on mount.
   useEffect(() => {
-    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => setSessionToken(t));
+    void getSessionToken().then((token) => setSessionToken(token));
   }, []);
 
   // When the app returns to foreground after external OAuth, re-read the token
   // (it may have been set by oauth-complete) and reload the WebView.
-  // Use a short delay to let oauth-complete store the token in AsyncStorage
+  // Use a short delay to let oauth-complete store the token in SecureStore
   // before we read it — the deep link handler and AppState listener race.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && openedExternal.current) {
         openedExternal.current = false;
         setTimeout(() => {
-          AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-            setSessionToken(t);
+          void getSessionToken().then((token) => {
+            setSessionToken(token);
             webviewRef.current?.reload();
           });
         }, 500);
@@ -72,20 +80,27 @@ export default function AppScreen() {
     webviewRef.current?.reload();
   }, []);
 
-  const handleShouldStartLoad = useCallback((event: { url: string }) => {
-    try {
-      const parsed = new URL(event.url);
-      if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-        openedExternal.current = true;
-        rememberOAuthState(event.url);
-        Linking.openURL(event.url);
-        return false;
+  const handleShouldStartLoad = useCallback(
+    (event: { url: string }) => {
+      if (isTrustedWebViewUrl(event.url, trustedOrigin)) return true;
+      try {
+        const parsed = new URL(event.url);
+        if (parsed.protocol === "about:") return true;
+        parsed.searchParams.delete("_session");
+        if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+          openedExternal.current = true;
+          rememberOAuthState(parsed.toString());
+        }
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          void Linking.openURL(parsed.toString());
+        }
+      } catch {
+        // Invalid and non-web URLs do not belong in the authenticated WebView.
       }
-    } catch {
-      // Invalid URL — let WebView handle it
-    }
-    return true;
-  }, []);
+      return false;
+    },
+    [trustedOrigin],
+  );
 
   if (!app) {
     return (
@@ -99,9 +114,16 @@ export default function AppScreen() {
 
   // Append the session token as a query param so the server can promote it to
   // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
-  const url = sessionToken
-    ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_session=${sessionToken}`
-    : baseUrl;
+  const url = (() => {
+    if (!sessionToken) return baseUrl;
+    try {
+      const parsed = new URL(baseUrl);
+      parsed.searchParams.set("_session", sessionToken);
+      return parsed.toString();
+    } catch {
+      return baseUrl;
+    }
+  })();
 
   return (
     <>
@@ -126,7 +148,7 @@ export default function AppScreen() {
           <View style={styles.center}>
             <Feather name="alert-circle" size={48} color="#EF4444" />
             <Text style={styles.errorText}>Failed to load {app.name}</Text>
-            <Text style={styles.errorUrl}>{url}</Text>
+            <Text style={styles.errorUrl}>{baseUrl}</Text>
             <TouchableOpacity style={styles.retryButton} onPress={handleReload}>
               <Feather name="refresh-cw" size={16} color="#ffffff" />
               <Text style={styles.retryText}>Retry</Text>

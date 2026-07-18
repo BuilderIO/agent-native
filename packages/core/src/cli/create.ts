@@ -200,18 +200,28 @@ export async function createApp(
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
 ): Promise<"template" | "chat" | "headless"> {
-  const choice = await clack.select({
+  const choice = await clack.select(startShapePromptOptions());
+  if (clack.isCancel(choice)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return choice as "template" | "chat" | "headless";
+}
+
+function startShapePromptOptions() {
+  return {
     message: "How do you want to start?",
+    initialValue: "chat",
     options: [
-      {
-        value: "template",
-        label: "Full template(s)",
-        hint: "Clone complete apps (Mail, Calendar, Slides, ...) into a workspace",
-      },
       {
         value: "chat",
         label: "Chat",
         hint: "A single app with a minimal chat UI and the browser shell wired up",
+      },
+      {
+        value: "template",
+        label: "Full template(s)",
+        hint: "Clone complete apps (Mail, Calendar, Slides, ...) into a workspace",
       },
       {
         value: "headless",
@@ -219,12 +229,7 @@ async function promptStartShape(
         hint: "A single action-first app with one primitive and no UI shell",
       },
     ],
-  });
-  if (clack.isCancel(choice)) {
-    clack.cancel("Cancelled.");
-    process.exit(0);
-  }
-  return choice as "template" | "chat" | "headless";
+  };
 }
 
 /**
@@ -1348,6 +1353,7 @@ export {
   githubTarballUrl as _githubTarballUrl,
   findLocalTemplateFrom as _findLocalTemplateFrom,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
+  startShapePromptOptions as _startShapePromptOptions,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
 };

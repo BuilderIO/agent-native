@@ -1,5 +1,10 @@
 import { callClipsAction, getClipsBaseUrl } from "./clips-api";
 import { type ClipsSession, getClipsSession } from "./clips-session";
+import {
+  buildDictationInstructions,
+  listDictationVocabulary,
+  loadDictationPreferences,
+} from "./dictation-preferences";
 
 interface TranscribeVoiceResult {
   text?: string;
@@ -36,6 +41,10 @@ export async function transcribeMobileAudio(
   expectedOwnerKey?: string,
 ): Promise<string> {
   const session = await resolveDictationSession(expectedOwnerKey);
+  const [preferences, vocabulary] = await Promise.all([
+    loadDictationPreferences(),
+    listDictationVocabulary(session).catch(() => []),
+  ]);
   const form = new FormData();
   form.append("audio", {
     uri,
@@ -43,9 +52,10 @@ export async function transcribeMobileAudio(
     type: mimeType,
   } as unknown as Blob);
   form.append("provider", "auto");
+  if (preferences.language) form.append("language", preferences.language);
   form.append(
     "instructions",
-    "Preserve the speaker's meaning and voice. Remove accidental fillers and false starts, fix punctuation, and keep intentional formatting concise.",
+    buildDictationInstructions(preferences, vocabulary),
   );
 
   const response = await fetch(

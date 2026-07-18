@@ -71,7 +71,7 @@ type AndroidActivityWithMetadata = ReturnType<
   }>;
 };
 
-function addIosShortcutRouting(source: string) {
+export function addIosShortcutRouting(source: string) {
   const supportedUrls = QUICK_ACTIONS.map(
     (action) => `    "${action.url}",`,
   ).join("\n");

@@ -27,6 +27,7 @@ import {
   AppState,
   BackHandler,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -35,9 +36,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import IOSBroadcastPicker from "@/components/IOSBroadcastPicker";
+import { createCaptureId } from "@/lib/capture-id";
+import { shouldStopVideoForAppState } from "@/lib/capture-lifecycle";
+import {
+  endIOSCaptureActivity,
+  startIOSCaptureActivity,
+  subscribeToIOSCaptureStop,
+} from "@/lib/ios-companion";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
 
 export type CapturedVideoMedia = {
+  captureId: string;
   type: "video";
   source: "camera" | "library";
   uri: string;
@@ -124,6 +134,7 @@ function mediaFromPickerAsset(
   asset: ImagePicker.ImagePickerAsset,
 ): CapturedVideoMedia {
   return {
+    captureId: createCaptureId(),
     type: "video",
     source: "library",
     uri: asset.uri,
@@ -140,6 +151,7 @@ export function canCancelVideoRecording(deliveryStarted: boolean): boolean {
 }
 
 export async function completeVideoRecording({
+  captureId,
   disposition,
   uri,
   startedAt,
@@ -147,6 +159,7 @@ export async function completeVideoRecording({
   deliverMedia,
   discardMedia = discardLocalVideo,
 }: {
+  captureId: string;
   disposition: RecordingCompletionDisposition;
   uri?: string;
   startedAt: number | null;
@@ -163,6 +176,7 @@ export async function completeVideoRecording({
   const durationMs =
     startedAt === null ? undefined : Math.max(0, stoppedAt - startedAt);
   await deliverMedia({
+    captureId,
     type: "video",
     source: "camera",
     uri,
@@ -220,6 +234,7 @@ export function VideoCaptureView({
     useRef<RecordingCompletionDisposition>("capture");
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordingStoppedAtRef = useRef<number | null>(null);
+  const recordingCaptureIdRef = useRef<string | null>(null);
 
   const [cameraPermission, requestCameraPermission, getCameraPermission] =
     useCameraPermissions();
@@ -379,10 +394,18 @@ export function VideoCaptureView({
     cameraRef.current?.stopRecording();
   }, []);
 
+  useEffect(
+    () =>
+      subscribeToIOSCaptureStop((captureId) => {
+        if (captureId === recordingCaptureIdRef.current) stopRecording();
+      }),
+    [stopRecording],
+  );
+
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       setAppState(nextState);
-      if (nextState !== "active" && recordingRef.current) {
+      if (shouldStopVideoForAppState(nextState) && recordingRef.current) {
         setMessage("Recording stopped because the camera was interrupted.");
         stopRecording();
       } else if (nextState === "active") {
@@ -488,23 +511,37 @@ export function VideoCaptureView({
     deliveryStartedRef.current = false;
     recordingCompletionDispositionRef.current = "capture";
     recordingStartedAtRef.current = Date.now();
+    recordingCaptureIdRef.current = createCaptureId();
     recordingStoppedAtRef.current = null;
     setElapsedMs(0);
     setIsRecording(true);
     setIsStopping(false);
+    void startIOSCaptureActivity({
+      captureId: recordingCaptureIdRef.current,
+      kind: "video",
+      startedAt: recordingStartedAtRef.current,
+    });
 
     try {
       const result = await cameraRef.current?.recordAsync();
       const startedAt = recordingStartedAtRef.current;
       const stoppedAt = recordingStoppedAtRef.current ?? Date.now();
-      await completeVideoRecording({
+      const outcome = await completeVideoRecording({
+        captureId: recordingCaptureIdRef.current,
         disposition: recordingCompletionDispositionRef.current,
         uri: result?.uri,
         startedAt,
         stoppedAt,
         deliverMedia,
       });
+      void endIOSCaptureActivity(
+        recordingCaptureIdRef.current,
+        outcome === "discarded" ? "discarded" : "completed",
+      );
     } catch (error) {
+      if (recordingCaptureIdRef.current) {
+        void endIOSCaptureActivity(recordingCaptureIdRef.current, "failed");
+      }
       if (mountedRef.current) {
         setMessage(errorMessage(error, "Recording stopped unexpectedly."));
       }
@@ -513,6 +550,7 @@ export function VideoCaptureView({
       stoppingRef.current = false;
       recordingStartedAtRef.current = null;
       recordingStoppedAtRef.current = null;
+      recordingCaptureIdRef.current = null;
       if (mountedRef.current) {
         setIsRecording(false);
         setIsStopping(false);
@@ -843,6 +881,20 @@ export function VideoCaptureView({
               <Text style={styles.controlLabel}>Library</Text>
             </View>
           </View>
+          {Platform.OS === "ios" && !isRecording ? (
+            <View style={styles.screenCaptureRow}>
+              <View style={styles.screenCaptureCopy}>
+                <Text style={styles.screenCaptureTitle}>
+                  Record your screen
+                </Text>
+                <Text style={styles.screenCaptureDescription}>
+                  Capture other apps with ReplayKit, system audio, and optional
+                  microphone.
+                </Text>
+              </View>
+              <IOSBroadcastPicker />
+            </View>
+          ) : null}
         </View>
       </View>
     </SafeAreaView>
@@ -1075,6 +1127,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
+  },
+  screenCaptureRow: {
+    alignItems: "center",
+    borderTopColor: "rgba(255, 255, 255, 0.14)",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 14,
+    paddingTop: 12,
+  },
+  screenCaptureCopy: { flex: 1 },
+  screenCaptureTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  screenCaptureDescription: {
+    color: "#A6A6A6",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
   sideControl: {
     width: 76,

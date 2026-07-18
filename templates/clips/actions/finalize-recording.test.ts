@@ -427,9 +427,9 @@ describe("finalize-recording media serve verification", () => {
     );
   });
 
-  it("accepts readable media when storage omits a determinate byte count", async () => {
+  it("keeps verification pending when storage omits a determinate byte count", async () => {
     const chunkKeys = seedBufferedRecording();
-    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok", { status: 206 }));
+    vi.mocked(fetch).mockResolvedValue(new Response("ok", { status: 206 }));
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -437,9 +437,23 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(
-      expect.objectContaining({ id: "rec_1", status: "ready" }),
+      expect.objectContaining({
+        id: "rec_1",
+        status: "processing",
+        verificationPending: true,
+      }),
     );
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec_1",
+      expect.objectContaining({
+        pendingMediaVerification: true,
+        mediaVerificationLastError: expect.stringMatching(/byte count/i),
+      }),
+    );
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).toHaveBeenCalledWith(key);
     }

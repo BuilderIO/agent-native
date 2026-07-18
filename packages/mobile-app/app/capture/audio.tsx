@@ -16,9 +16,14 @@ export default function MeetingCaptureScreen() {
 
   const handleCaptured = useCallback(
     async (media: CapturedAudioMedia) => {
-      const localUri = await persistCaptureFile(media.uri, media.mimeType);
+      const localUri = await persistCaptureFile(
+        media.uri,
+        media.mimeType,
+        media.captureId,
+      );
       const session = await getClipsSession();
       const job = await enqueueCaptureJob({
+        id: media.captureId,
         localUri,
         ownerKey: session?.ownerKey,
         kind: "meeting",

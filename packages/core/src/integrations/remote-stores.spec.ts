@@ -404,4 +404,115 @@ describe("remote relay stores", () => {
       ]),
     );
   });
+
+  it("claims a due Expo outbox row without returning another worker's claim", async () => {
+    const { claimNextRemotePushDelivery } = await loadPushStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("INNER JOIN integration_remote_push_registrations")) {
+          return {
+            rows: [
+              {
+                id: "notification-1",
+                registration_id: "push-1",
+                payload_json: JSON.stringify({ title: "Ready" }),
+                status: "pending",
+                attempts: 0,
+                provider_ticket_id: null,
+                updated_at: 1,
+                provider: "expo",
+                token: "ExpoPushToken[example_token]",
+              },
+            ],
+            rowsAffected: 0,
+          };
+        }
+        if (
+          sql.includes("UPDATE integration_remote_push_notifications") &&
+          sql.includes("attempts = attempts + 1")
+        ) {
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    const claimed = await claimNextRemotePushDelivery({ now: 10_000 });
+
+    expect(claimed).toEqual({
+      id: "notification-1",
+      registrationId: "push-1",
+      provider: "expo",
+      token: "ExpoPushToken[example_token]",
+      payload: { title: "Ready" },
+      phase: "send",
+      providerTicketId: null,
+      attempts: 1,
+    });
+    const claimCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("attempts = attempts + 1"),
+    );
+    expect(queryArgs(claimCall![0])).toEqual([
+      "sending",
+      10_000,
+      "notification-1",
+      "pending",
+      1,
+    ]);
+  });
+
+  it("clears the old receipt ticket before resending a failed provider handoff", async () => {
+    const { retryRemotePushDelivery } = await loadPushStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      retryRemotePushDelivery({
+        id: "notification-1",
+        phase: "receipt",
+        retryAt: 20_000,
+        errorCode: "MessageRateExceeded",
+        resend: true,
+      }),
+    ).resolves.toBe(true);
+
+    const retryCall = executeMock.mock.calls.find(([query]) => {
+      const sql = querySql(query);
+      return (
+        sql.includes("UPDATE integration_remote_push_notifications") &&
+        sql.includes("provider_ticket_id = NULL")
+      );
+    });
+    expect(retryCall).toBeTruthy();
+    expect(queryArgs(retryCall![0])).toEqual([
+      "pending",
+      20_000,
+      "MessageRateExceeded",
+      expect.any(Number),
+      "notification-1",
+      "checking",
+    ]);
+  });
+
+  it("fails remaining outbox rows when a push registration becomes inactive", async () => {
+    const { deactivateRemotePushRegistration } = await loadPushStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      deactivateRemotePushRegistration("registration-1"),
+    ).resolves.toBe(true);
+
+    const cleanupCall = executeMock.mock.calls.find(([query]) => {
+      const sql = querySql(query);
+      return (
+        sql.includes("UPDATE integration_remote_push_notifications") &&
+        sql.includes("registration_inactive")
+      );
+    });
+    expect(cleanupCall).toBeTruthy();
+    expect(queryArgs(cleanupCall![0])).toEqual([
+      expect.any(Number),
+      "registration-1",
+    ]);
+  });
 });

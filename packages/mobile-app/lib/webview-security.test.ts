@@ -1,4 +1,3 @@
-// @ts-expect-error Vitest is provided by the repository test workspace.
 import { describe, expect, it } from "vitest";
 
 import { isTrustedWebViewUrl, parseTrustedOrigin } from "./webview-security";

@@ -1105,7 +1105,11 @@ async function buildDatabaseConfig(
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
     const url = getDatabaseUrl();
-    const { isNeonUrl } = await import("../db/create-get-db.js");
+    const {
+      buildResilientNeonPool,
+      buildResilientPostgresJsClient,
+      isNeonUrl,
+    } = await import("../db/create-get-db.js");
 
     if (isPgliteUrl(url)) {
       const { drizzle } = await loadPgliteDrizzle();
@@ -1133,7 +1137,9 @@ async function buildDatabaseConfig(
       });
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
-      const db = drizzle(_neonAuthPool, { schema: pgAuthSchema });
+      const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
+        schema: pgAuthSchema,
+      });
       const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
       return drizzleAdapter(db, {
         provider: "pg",
@@ -1149,7 +1155,9 @@ async function buildDatabaseConfig(
     const { default: postgres } = await import("postgres");
     const sql = postgres(url, pgPoolOptions(url));
     const { drizzle } = await import("drizzle-orm/postgres-js");
-    const db = drizzle(sql, { schema: pgAuthSchema });
+    const db = drizzle(buildResilientPostgresJsClient(sql), {
+      schema: pgAuthSchema,
+    });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",

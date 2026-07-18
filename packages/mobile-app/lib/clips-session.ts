@@ -1,5 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import {
+  clearSessionToken,
+  getSessionToken,
+  saveSessionToken,
+} from "./session-token-store";
+
 export const CLIPS_SESSION_TOKEN_KEY = "agent-native:session-token:clips";
 export const CLIPS_SESSION_OWNER_KEY = "agent-native:session-owner:clips";
 
@@ -23,12 +29,11 @@ export function clipsSessionOwnerKey(
 }
 
 export async function getClipsSession(): Promise<ClipsSession | null> {
-  const entries = await AsyncStorage.multiGet([
-    CLIPS_SESSION_TOKEN_KEY,
-    CLIPS_SESSION_OWNER_KEY,
+  const [token, ownerKeyValue] = await Promise.all([
+    getSessionToken(CLIPS_SESSION_TOKEN_KEY),
+    AsyncStorage.getItem(CLIPS_SESSION_OWNER_KEY),
   ]);
-  const token = clean(entries[0]?.[1]);
-  const ownerKey = clean(entries[1]?.[1]);
+  const ownerKey = clean(ownerKeyValue);
   return token && ownerKey ? { token, ownerKey } : null;
 }
 
@@ -42,16 +47,14 @@ export async function saveClipsSession(
     ownerKey: clipsSessionOwnerKey(email, orgId),
   };
   if (!session.token) throw new Error("Clips session token is missing");
-  await AsyncStorage.multiSet([
-    [CLIPS_SESSION_TOKEN_KEY, session.token],
-    [CLIPS_SESSION_OWNER_KEY, session.ownerKey],
-  ]);
+  await saveSessionToken(session.token, CLIPS_SESSION_TOKEN_KEY);
+  await AsyncStorage.setItem(CLIPS_SESSION_OWNER_KEY, session.ownerKey);
   return session;
 }
 
 export async function clearClipsSession(): Promise<void> {
-  await AsyncStorage.multiRemove([
-    CLIPS_SESSION_TOKEN_KEY,
-    CLIPS_SESSION_OWNER_KEY,
+  await Promise.all([
+    clearSessionToken(CLIPS_SESSION_TOKEN_KEY),
+    AsyncStorage.removeItem(CLIPS_SESSION_OWNER_KEY),
   ]);
 }

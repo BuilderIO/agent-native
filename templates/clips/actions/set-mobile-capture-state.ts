@@ -6,7 +6,7 @@ export const MOBILE_CAPTURE_STATE_KEY = "mobile-capture-state";
 
 const mobileCaptureStateSchema = z
   .object({
-    view: z.enum(["home", "dictate", "meeting", "video"]),
+    view: z.enum(["home", "dictate", "meeting", "video", "clips"]),
     phase: z.enum([
       "idle",
       "ready",
@@ -15,9 +15,12 @@ const mobileCaptureStateSchema = z
       "saving",
       "processing",
       "review",
+      "browsing",
+      "playing",
       "error",
     ]),
     captureId: z.string().trim().min(1).max(200).optional(),
+    recordingId: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
 
