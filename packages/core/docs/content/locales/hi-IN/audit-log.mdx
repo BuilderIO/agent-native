@@ -82,8 +82,9 @@ export default defineAction({
 `useActionQuery` के साथ UI से `list-audit-events` को कॉल करके एक गतिविधि फ़ीड या "यह किसने बदला" लाइन बनाएं - कभी भी ऑडिट टेबल पर हाथ से न लिखें:
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionQuery,
+} from "@agent-native/core/client/hooks"
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,

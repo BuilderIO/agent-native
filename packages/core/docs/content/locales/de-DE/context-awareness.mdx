@@ -196,8 +196,9 @@ Verwenden Sie den `selection`-App-Statusschlüssel für eine dauerhafte Auswahl,
 Schreiben Sie es aus UI, wenn der Benutzer bedeutungsvolle Objekte auswählt, fokussiert oder mehrfach auswählt:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -226,8 +227,9 @@ Der Produktionsagent fügt diesen Schlüssel als unmittelbaren Auswahlkontext in
 Benutzerdefinierte Editoren können denselben Schlüssel schreiben, wenn ihre Auswahl nicht durch die native Browserauswahl repräsentiert wird:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 await setClientAppState(
   "pending-selection-context",
   {
@@ -289,8 +291,9 @@ Der Agent sollte `pnpm action view-screen` aufrufen, bevor er auf den aktuellen 
 Manchmal sollte der Kontext nicht nur im App-Status verbleiben. Ein Benutzer klickt auf eine Schaltfläche, hinterlässt eine Kommentarnadel, wählt ein Element aus und wählt „Agenten fragen“ oder drückt einen KI-Befehl in einer Symbolleiste. Dieser Klick ist eine Anweisung. Übergeben Sie es im Browser UI mit `sendToAgentChat()`.
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -373,7 +376,9 @@ Es bleibt kurz, weil es ein dünner Wrapper um das eigentliche Framework-Grundel
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

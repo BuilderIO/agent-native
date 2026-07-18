@@ -14,8 +14,9 @@ search: "हेडलेस एजेंट रिच चैट पूर्ण 
 मोड इन प्रवाहों को दोहराए बिना पूरे पेज पर जा सकें।
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client";
-
+import {
+  AgentTabsPage,
+} from "@agent-native/core/client/agent-chat"
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -409,8 +410,9 @@ export default createAgentNativeEmbeddedPlugin({
 React साइडकार पेज संदर्भ और होस्ट कमांड पास करता है:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import {
+  AgentNativeEmbedded,
+} from "@agent-native/core/client/host"
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

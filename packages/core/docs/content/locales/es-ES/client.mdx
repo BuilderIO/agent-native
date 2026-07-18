@@ -65,8 +65,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/hooks"
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -83,8 +82,9 @@ await callAction("archive-lead", { leadId });
 Envíe un mensaje al chat del agente a través de postMessage, la forma común de delegar una tarea de IA desde una interacción UI. Pase `context` para contexto de modelo oculto y `submit: true` para enviar inmediatamente, o `submit: false` para completar previamente un borrador que el usuario revisa primero.
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -174,8 +174,9 @@ la pestaña Configuración de la barra lateral del agente. Pase una identificaci
 `"automations"`, `"voice"` o `"limits"` para abrir una sección específica.
 
 ```ts
-import { openAgentSettings } from "@agent-native/core/client";
-
+import {
+  openAgentSettings,
+} from "@agent-native/core/client/navigation"
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -183,8 +184,9 @@ openAgentSettings("secrets");
 Prefiera este ayudante a enviar `agent-panel:open-settings` directamente.
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core/client";
-
+import {
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat"
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -242,8 +244,10 @@ inicia el trabajo del agente, en lugar de crear un modal personalizado. Alcanza 
 compositor para detalles de forma libre y un formulario/ventana emergente para entrada de múltiples campos.
 
 ```tsx
-import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  askUserQuestion,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -286,7 +290,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat"
 ```
 
 `getMcpAppHostContext()` lee la última instantánea del contexto del host enviado;
@@ -321,8 +325,9 @@ Configure `dynamicSuggestions={false}` para mantener solo chips estáticos. Pase
 Enganche React que incluye sendToAgentChat con seguimiento del estado de carga:
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core/client";
-
+import {
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat"
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
 
@@ -348,7 +353,9 @@ function GenerateButton() {
 Enganche React (anteriormente `useFileWatcher`) que escucha los cambios en la base de datos a través de SSE, recurre al sondeo e invalida los cachés de consultas del marco que mantienen el UI alineado con las escrituras del agente:
 
 ```ts
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -393,8 +400,9 @@ Cuando ocurre cualquier mutación en la base de datos del lado del servidor, el 
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import { useChangeVersion } from "@agent-native/core/client";
-
+import {
+  useChangeVersion,
+} from "@agent-native/core/client/hooks"
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");
@@ -459,8 +467,9 @@ function DashboardView({ id }) {
 Utilidad para fusionar nombres de clases (clsx + tailwind-merge):
 
 ```ts
-import { cn } from "@agent-native/core/client";
-
+import {
+  cn,
+} from "@agent-native/toolkit/utils"
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",

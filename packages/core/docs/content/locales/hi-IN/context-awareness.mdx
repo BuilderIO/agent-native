@@ -200,8 +200,9 @@ if (url?.searchParams) {
 जब उपयोगकर्ता सार्थक वस्तुओं का चयन, फोकस, या बहु-चयन करता है तो इसे UI से लिखें:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -230,8 +231,9 @@ async function syncSelection(selection: unknown | null) {
 कस्टम संपादक वही कुंजी लिख सकते हैं जब उनका चयन मूल ब्राउज़र चयन द्वारा दर्शाया नहीं जाता है:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 await setClientAppState(
   "pending-selection-context",
   {
@@ -293,8 +295,9 @@ await setClientAppState(
 कभी-कभी संदर्भ केवल ऐप स्थिति में नहीं रहना चाहिए। उपयोगकर्ता एक बटन क्लिक करता है, एक टिप्पणी पिन छोड़ता है, एक आइटम का चयन करता है और "एजेंट से पूछें" चुनता है, या टूलबार में एआई कमांड दबाता है। वह क्लिक एक निर्देश है. ब्राउज़र UI में, इसे `sendToAgentChat()` वाले एजेंट को सौंप दें।
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -377,7 +380,9 @@ UI की तरफ आप कभी भी इस कुंजी को हा
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

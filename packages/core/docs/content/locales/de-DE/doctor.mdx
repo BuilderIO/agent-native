@@ -1,0 +1,8 @@
+---
+title: Doctor
+description: Sicherheits- und Migrationsprüfungen.
+---
+
+# Doctor
+
+`agent-native doctor` führt acht Guards aus: sieben Sicherheits-Guards und `migration-manifest`. Dieser findet Imports aus installiertem `migration-manifest.json` und hat kein Opt-out. Nutzen Sie `agent-native doctor --only migration-manifest`, prüfen Sie mit `npx @agent-native/core@latest upgrade --codemods` vor und wenden Sie mit `--yes` an. JSON listet alle acht Namen in `guardsRun`.

@@ -29,14 +29,14 @@ method gives the UI, docs, and future agents one stable contract.
 
    | Need | Use |
    | --- | --- |
-   | App action reads/writes | `useActionQuery` / `useActionMutation` from `@agent-native/core/client` |
-   | Imperative action calls | `callAction` from `@agent-native/core/client` |
-   | Browser application state | `readClientAppState`, `writeClientAppState`, `setClientAppState`, `deleteClientAppState` |
-   | Navigation/app-state sync | `useAgentRouteState` / `useSemanticNavigationState` from `@agent-native/core/client` |
-   | Agent chat context | Agent chat client helpers from `@agent-native/core/client` |
-   | Ask the user a multiple-choice question from app code | `askUserQuestion` from `@agent-native/core/client` (renders inline in the agent panel; answer goes to the agent — do not build a custom modal) |
-   | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` |
-   | Listen to the shared SSE/poll change stream | `subscribeSyncEvents` from `@agent-native/core/client` — never open a second `EventSource` to `/_agent-native/events` |
+   | App action reads/writes | `useActionQuery` / `useActionMutation` from `@agent-native/core/client/hooks` |
+   | Imperative action calls | `callAction` from `@agent-native/core/client/hooks` |
+   | Browser application state | `readClientAppState`, `writeClientAppState`, `setClientAppState`, `deleteClientAppState` from `@agent-native/core/client/hooks` |
+   | Navigation/app-state sync | `useAgentRouteState` / `useSemanticNavigationState` from `@agent-native/core/client/navigation` |
+   | Agent chat context | Agent chat helpers from `@agent-native/core/client/agent-chat` |
+   | Ask the user a multiple-choice question from app code | `askUserQuestion` from `@agent-native/core/client/agent-chat` (renders inline in the agent panel; answer goes to the agent — do not build a custom modal) |
+   | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` from `@agent-native/core/client/hooks` |
+   | Listen to the shared SSE/poll change stream | `subscribeSyncEvents` from `@agent-native/core/client/hooks` — never open a second `EventSource` to `/_agent-native/events` |
    | Extension iframe calls | `appAction`, `appFetch`, `extensionFetch` from the extension runtime |
 
    Action fetch behavior: every `useActionQuery` / `useActionMutation` /
@@ -51,8 +51,9 @@ method gives the UI, docs, and future agents one stable contract.
    - Put shared framework helpers in `packages/core/src/client/*`.
    - Put template-local helpers in `templates/<app>/app/hooks/*`,
      `templates/<app>/app/lib/*`, or an existing local client module.
-   - Export reusable core helpers from `@agent-native/core/client`; add a leaf
-     export when callers may need to avoid the broad barrel.
+   - Export reusable core helpers from the focused `@agent-native/core/client/*`
+     entry for their domain. Never recommend the deprecated broad
+     `@agent-native/core/client` barrel in new code.
    - Keep raw `fetch`, `agentNativePath`, and route paths inside that helper,
      not scattered through components or docs.
    - Add focused tests for URL construction, headers, response parsing, error

@@ -270,8 +270,10 @@ export default runMigrations(
 ルートは `app/routes/` に存在し、React Router v8 ファイル ルーティングを使用します。 actions または API ハンドラーを通じてデータをクエリし、デフォルトでミューテーションを楽観的にします。
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks"
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +289,9 @@ export default function ProjectsPage() {
 ライブ同期をアプリ シェルの近くに 1 回接続して、エージェント、別のタブ、またはアクションがデータを変更したときに React クエリ キャッシュが更新されるようにします。
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +304,7 @@ export function AppSync() {
 **エージェント ネイティブの約束: エージェントの書き込みは手動更新なしで UI に表示されます。** `useActionQuery` が簡単なパスです。変更アクションが `source: "action"` を発行すると、すべてのフックが再フェッチされます。カスタム キー (統合ステータスを読み取る低レベルのクライアント ヘルパーなど) を使用して生の `useQuery` に到達する場合は、ターゲットを絞った更新のためにソースごとのカウンターを queryKey に組み込みます。
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +327,9 @@ useQuery({
 アプリケーション状態の書き込み、タブスコープのコマンド読み取り、読み取り後の削除、および重複コマンド保護の一貫性を維持するには、UI フックに `useAgentRouteState` を使用します。
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

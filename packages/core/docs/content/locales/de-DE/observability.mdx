@@ -94,8 +94,9 @@ Fügen Sie das Dashboard mit einer einzigen Route zu jeder Vorlage hinzu:
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import {
+  ObservabilityDashboard,
+} from "@agent-native/core/client/observability"
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">

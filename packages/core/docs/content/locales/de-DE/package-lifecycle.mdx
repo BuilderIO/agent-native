@@ -20,3 +20,6 @@ Dateien und startet den erkannten Paketmanager. Kollisionen und unbekannte
 Layouts werden abgelehnt; bei einem Installationsfehler werden Dateien und
 Lockdateien zurückgesetzt. Zunächst unterstützt nur Scheduling das Auswerfen;
 Pinpoint bleibt bis nach dem Pilotprojekt zurückgestellt.
+## Migrationen
+
+Veröffentlichte Pakete enthalten `migration-manifest.json` für verschobene Pfade und Symbole. `npx @agent-native/core@latest upgrade --codemods` zeigt den Diff; `--yes` wendet ihn nach Prüfung an. In CI: `agent-native doctor --only migration-manifest`, ohne Opt-out.

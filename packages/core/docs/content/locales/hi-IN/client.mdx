@@ -65,8 +65,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/hooks"
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -83,8 +82,9 @@ await callAction("archive-lead", { leadId });
 पोस्टमैसेज के माध्यम से एजेंट चैट को एक संदेश भेजें - UI इंटरैक्शन से AI कार्य सौंपने का सामान्य तरीका। छिपे हुए मॉडल संदर्भ के लिए `context` और तुरंत भेजने के लिए `submit: true` पास करें, या उपयोगकर्ता द्वारा पहले समीक्षा किए गए ड्राफ्ट को प्रीफिल करने के लिए `submit: false` पास करें।
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -174,8 +174,9 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 किसी विशिष्ट अनुभाग को खोलने के लिए `"automations"`, `"voice"`, या `"limits"`।
 
 ```ts
-import { openAgentSettings } from "@agent-native/core/client";
-
+import {
+  openAgentSettings,
+} from "@agent-native/core/client/navigation"
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -183,8 +184,9 @@ openAgentSettings("secrets");
 सीधे `agent-panel:open-settings` भेजने के बजाय इस सहायक को प्राथमिकता दें।
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core/client";
-
+import {
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat"
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -242,8 +244,10 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 फ्रीफॉर्म विवरण के लिए कंपोजर, और मल्टी-फील्ड इनपुट के लिए एक फॉर्म/पॉपओवर।
 
 ```tsx
-import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  askUserQuestion,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -286,7 +290,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat"
 ```
 
 `getMcpAppHostContext()` नवीनतम पुश किए गए होस्ट संदर्भ स्नैपशॉट को पढ़ता है;
@@ -321,8 +325,9 @@ import {
 React हुक जो लोडिंग स्थिति ट्रैकिंग के साथ sentToAgentChat को लपेटता है:
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core/client";
-
+import {
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat"
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
 
@@ -348,7 +353,9 @@ function GenerateButton() {
 React हुक (पूर्व में `useFileWatcher`) जो SSE पर डेटाबेस परिवर्तनों को सुनता है, पोलिंग पर वापस आ जाता है, और फ्रेमवर्क क्वेरी कैश को अमान्य कर देता है जो UI को एजेंट राइट्स के साथ संरेखित रखता है:
 
 ```ts
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -393,8 +400,9 @@ function App() {
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import { useChangeVersion } from "@agent-native/core/client";
-
+import {
+  useChangeVersion,
+} from "@agent-native/core/client/hooks"
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");
@@ -459,8 +467,9 @@ function DashboardView({ id }) {
 वर्ग नामों को मर्ज करने की उपयोगिता (clsx + टेलविंड-मर्ज):
 
 ```ts
-import { cn } from "@agent-native/core/client";
-
+import {
+  cn,
+} from "@agent-native/toolkit/utils"
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",

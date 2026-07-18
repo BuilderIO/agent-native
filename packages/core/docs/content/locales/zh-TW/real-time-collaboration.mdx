@@ -252,7 +252,9 @@ export default createCollabPlugin({
 ### 4.使用用戶端鉤子
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import {
+  useCollaborativeDoc,
+} from "@agent-native/core/client/collab"
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -425,8 +427,9 @@ import {
 返回遠端參與者的反應清單和本機線上狀態有效負載的設定器：
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import {
+  usePresence,
+} from "@agent-native/core/client/collab"
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -488,8 +491,9 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 每當跟隨的參與者的視口發生變化時呼叫回調：
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import {
+  useFollowUser,
+} from "@agent-native/core/client/collab"
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -523,8 +527,10 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### 標準化坐標助手 {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import {
+  toNormalized,
+  fromNormalized,
+} from "@agent-native/core/client/collab"
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,

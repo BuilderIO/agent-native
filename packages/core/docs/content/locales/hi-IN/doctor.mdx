@@ -1,0 +1,8 @@
+---
+title: Doctor
+description: सुरक्षा और माइग्रेशन जाँच।
+---
+
+# Doctor
+
+`agent-native doctor` आठ guards चलाता है: सात सुरक्षा guards और `migration-manifest`। यह installed `migration-manifest.json` में imports ढूँढता है और इसका opt-out नहीं है। `agent-native doctor --only migration-manifest` चलाएँ, `npx @agent-native/core@latest upgrade --codemods` से preview करें और `--yes` से लागू करें। JSON में `guardsRun` सभी आठ नाम दिखाता है।

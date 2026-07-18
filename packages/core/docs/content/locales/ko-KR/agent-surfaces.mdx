@@ -14,8 +14,9 @@ search: "헤드리스 에이전트 리치 채팅 전체 앱 BYO 에이전트 런
 모드에서 흐름을 중복하지 않고 전체 페이지로 이동할 수 있습니다.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client";
-
+import {
+  AgentTabsPage,
+} from "@agent-native/core/client/agent-chat"
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -412,8 +413,9 @@ export default createAgentNativeEmbeddedPlugin({
 React 사이드카는 페이지 컨텍스트 및 호스트 명령을 전달합니다.
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import {
+  AgentNativeEmbedded,
+} from "@agent-native/core/client/host"
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

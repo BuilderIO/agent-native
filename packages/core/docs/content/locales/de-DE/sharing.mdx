@@ -122,8 +122,9 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 Die Schaltfläche „Teilen“ ist ein einzelner Import:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import {
+  ShareButton,
+} from "@agent-native/core/client/sharing"
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}

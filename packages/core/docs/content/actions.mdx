@@ -427,8 +427,9 @@ Two hooks, both in `@agent-native/core/client`. Types are inferred from your `de
 For actions that change state:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+} from "@agent-native/core/client/hooks"
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -446,8 +447,9 @@ On success, the framework emits a change event with `source: "action"` so `useAc
 For read-only GET actions:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionQuery,
+} from "@agent-native/core/client/hooks"
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 

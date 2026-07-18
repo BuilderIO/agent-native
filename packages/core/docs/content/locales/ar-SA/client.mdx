@@ -65,8 +65,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/hooks"
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -83,8 +82,9 @@ await callAction("archive-lead", { leadId });
 أرسل رسالة إلى دردشة الوكيل عبر postMessage — الطريقة الشائعة لتفويض مهمة الذكاء الاصطناعي من تفاعل UI. مرر `context` لسياق النموذج المخفي و`submit: true` للإرسال فورًا، أو `submit: false` لملء مسودة مراجعات المستخدم أولاً مسبقًا.
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -174,8 +174,9 @@ const tabId = sendToAgentChat({
 `"automations"` أو `"voice"` أو `"limits"` لفتح قسم معين.
 
 ```ts
-import { openAgentSettings } from "@agent-native/core/client";
-
+import {
+  openAgentSettings,
+} from "@agent-native/core/client/navigation"
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -183,8 +184,9 @@ openAgentSettings("secrets");
 تفضل هذا المساعد على إرسال `agent-panel:open-settings` مباشرة.
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core/client";
-
+import {
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat"
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -242,8 +244,10 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 مؤلف للتفاصيل الحرة، ونموذج/بوبوفر للإدخال متعدد الحقول.
 
 ```tsx
-import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  askUserQuestion,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -286,7 +290,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat"
 ```
 
 يقرأ `getMcpAppHostContext()` أحدث لقطة لسياق المضيف المدفوع؛
@@ -321,8 +325,9 @@ import {
 خطاف React الذي يلتف sendToAgentChat مع تتبع حالة التحميل:
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core/client";
-
+import {
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat"
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
 
@@ -348,7 +353,9 @@ function GenerateButton() {
 خطاف React (`useFileWatcher` سابقًا) الذي يستمع إلى تغييرات قاعدة البيانات عبر SSE، ويعود إلى الاستقصاء، ويبطل ذاكرة التخزين المؤقت لاستعلام إطار العمل التي تحافظ على محاذاة UI مع الوكيل:
 
 ```ts
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -393,8 +400,9 @@ function App() {
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import { useChangeVersion } from "@agent-native/core/client";
-
+import {
+  useChangeVersion,
+} from "@agent-native/core/client/hooks"
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");
@@ -460,8 +468,9 @@ function DashboardView({ id }) {
 أداة مساعدة لدمج أسماء الفئات (clsx + tailwind-merge):
 
 ```ts
-import { cn } from "@agent-native/core/client";
-
+import {
+  cn,
+} from "@agent-native/toolkit/utils"
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",

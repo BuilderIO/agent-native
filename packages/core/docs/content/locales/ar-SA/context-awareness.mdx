@@ -198,8 +198,9 @@ if (url?.searchParams) {
 اكتبه من UI عندما يقوم المستخدم بتحديد كائنات ذات معنى أو التركيز عليها أو تحديدها بشكل متعدد:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -228,8 +229,9 @@ async function syncSelection(selection: unknown | null) {
 يمكن للمحررين المخصصين كتابة نفس المفتاح عندما لا يتم تمثيل اختيارهم بواسطة تحديد المتصفح الأصلي:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 await setClientAppState(
   "pending-selection-context",
   {
@@ -291,8 +293,9 @@ await setClientAppState(
 في بعض الأحيان، لا يجب أن يكون السياق موجودًا في حالة التطبيق فحسب. ينقر المستخدم على زر، ويسقط دبوس تعليق، ويحدد عنصرًا ويختار "اسأل الوكيل"، أو يضغط على أمر AI في شريط الأدوات. تلك النقرة هي تعليمات. في المتصفح UI، قم بتسليمها إلى الوكيل باستخدام `sendToAgentChat()`.
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -375,7 +378,9 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

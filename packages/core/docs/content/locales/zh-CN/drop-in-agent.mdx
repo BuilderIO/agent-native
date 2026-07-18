@@ -105,7 +105,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="我能帮什么？"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="我能帮什么？"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -154,8 +154,9 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import {
+  AgentPanel,
+} from "@agent-native/core/client/agent-chat"
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -182,8 +183,9 @@ export default function AgentRoute() {
 将工作交给代理的按钮（而不是运行内联 `llm()` 调用 - [ladder](/docs/what-is-agent-native#the-ladder) 的反模式）：
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -232,8 +234,9 @@ sendToAgentChat({
 如果您想要加载状态，请使用 `useSendToAgentChat()` 钩子 - 它返回 `send` 和 `isGenerating`：
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import {
+  useSendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -267,8 +270,9 @@ const { send, isGenerating } = useSendToAgentChat();
 当 UI 需要运行代理工具将运行的相同操作（[ladder](/docs/what-is-agent-native#rung-three) 的梯级 3）时，请使用 `useActionMutation`：
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+} from "@agent-native/core/client/hooks"
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -298,8 +302,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat"
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>

@@ -176,8 +176,9 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import {
+  track,
+} from "@agent-native/core/client/analytics"
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +197,9 @@ track("checkout.completed", { total: 49.99, items: 3 });
 Agent Native アプリは、2 つ目の分析 SDK を追加することなく、ファーストパーティのブラウザー セッション リプレイを利用できます。ブラウザー ルートで一度 `configureTracking()` を呼び出し、Analytics の公開キーとコレクター エンドポイントを渡します。
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import {
+  configureTracking,
+} from "@agent-native/core/client/analytics"
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",

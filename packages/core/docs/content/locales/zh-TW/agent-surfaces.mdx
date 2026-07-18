@@ -14,8 +14,9 @@ search: "無頭代理豐富聊天完整應用程式 BYO 代理執行時 AgentCha
 而不必重複這些流程。
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client";
-
+import {
+  AgentTabsPage,
+} from "@agent-native/core/client/agent-chat"
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -406,8 +407,9 @@ export default createAgentNativeEmbeddedPlugin({
 React sidecar 傳遞頁面脈絡和主機指令：
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import {
+  AgentNativeEmbedded,
+} from "@agent-native/core/client/host"
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

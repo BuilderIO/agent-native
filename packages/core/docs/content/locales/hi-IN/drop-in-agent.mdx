@@ -105,7 +105,7 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="मैं कैसे मदद कर सकता हूं?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="मैं कैसे मदद कर सकता हूं?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -154,8 +154,9 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import {
+  AgentPanel,
+} from "@agent-native/core/client/agent-chat"
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -182,8 +183,9 @@ export default function AgentRoute() {
 एक बटन जो एजेंट को काम सौंपता है (इनलाइन `llm()` कॉल चलाने के बजाय - [ladder](/docs/what-is-agent-native#the-ladder) से एंटी-पैटर्न):
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -232,8 +234,9 @@ MCP ऐप ब्रिज व्यवहार के लिए [Client](/docs
 यदि आप लोडिंग स्थिति चाहते हैं, तो `useSendToAgentChat()` हुक का उपयोग करें - यह `send` और `isGenerating` दोनों लौटाता है:
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import {
+  useSendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -267,8 +270,9 @@ const { send, isGenerating } = useSendToAgentChat();
 जब UI को समान ऑपरेशन चलाने की आवश्यकता होती है तो एक एजेंट टूल चलेगा - [ladder](/docs/what-is-agent-native#rung-three) का क्रमांक 3 - `useActionMutation` का उपयोग करें:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+} from "@agent-native/core/client/hooks"
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -298,8 +302,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat"
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>

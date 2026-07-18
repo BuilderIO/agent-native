@@ -15,7 +15,11 @@ En anglais lorsqu'une application n'a pas encore traduit une chaîne.
 Utilisez le fournisseur via `AppProviders` :
 
 ```tsx
-import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import {
+  AppProviders,
+} from "@agent-native/core/client/hooks"import {
+  getLocaleInitScript,
+} from "@agent-native/core/client/i18n"
 import { i18nCatalog } from "./i18n";
 
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
@@ -42,8 +46,9 @@ Chaque modèle localisé conserve les catalogues sous `app/i18n/` :
 ```ts
 // app/i18n/index.ts
 import enUS from "./en-US";
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
-
+import type {
+  AgentNativeI18nCatalog,
+} from "@agent-native/core/client/i18n"
 export const i18nCatalog = {
   sourceLocale: "en-US",
   messages: enUS,
@@ -71,10 +76,10 @@ l'icône de langue d'en-tête n'est qu'un raccourci.
 ```tsx
 import {
   LanguagePicker,
-  openAgentSettings,
   useT,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/i18n"import {
+  openAgentSettings,
+} from "@agent-native/core/client/navigation"
 function SettingsPage() {
   const t = useT();
   return (

@@ -270,8 +270,10 @@ Use `http: { method: "GET" }` ou `readOnly: true` para actions somente leitura. 
 As rotas residem em `app/routes/` e usam o roteamento de arquivos do React Router v8. Consulte dados por meio de manipuladores actions ou API e torne as mutações otimistas por padrão.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks"
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +289,9 @@ export default function ProjectsPage() {
 Conecte a sincronização ao vivo uma vez perto do shell do aplicativo para que os caches de consulta React sejam atualizados quando o agente, outra guia ou uma ação alterar os dados:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +304,7 @@ export function AppSync() {
 **A promessa do agente nativo: as gravações do agente aparecem no UI sem uma atualização manual.** `useActionQuery` é o caminho mais fácil — cada gancho é buscado novamente quando uma ação mutante emite `source: "action"`. Se você acessar `useQuery` bruto com uma chave personalizada (por exemplo, um auxiliar de cliente de baixo nível que lê o status de integração), inclua o contador por origem no queryKey para atualizações direcionadas:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +327,9 @@ O estado da aplicação é como o agente sabe o que o usuário está vendo. No m
 Use `useAgentRouteState` para o gancho UI para que gravações no estado do aplicativo, leituras de comandos com escopo de guia, exclusão após leitura e proteção de comando duplicado permaneçam consistentes:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

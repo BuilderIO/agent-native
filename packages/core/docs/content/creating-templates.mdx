@@ -273,8 +273,10 @@ Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `pa
 Routes live in `app/routes/` and use React Router v8 file routing. Query data through actions or API handlers, and make mutations optimistic by default.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks"
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +292,9 @@ export default function ProjectsPage() {
 Wire live sync once near the app shell so React Query caches refresh when the agent, another tab, or an action changes data:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +307,7 @@ export function AppSync() {
 **The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (for example, a low-level client helper that reads integration status), fold the per-source counter into the queryKey for targeted refreshes:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -326,7 +330,9 @@ Application state is how the agent knows what the user is seeing. At minimum, ad
 Use `useAgentRouteState` for the UI hook so application-state writes, tab-scoped command reads, delete-after-read, and duplicate-command protection stay consistent:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

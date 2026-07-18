@@ -1,0 +1,8 @@
+---
+title: Doctor
+description: セキュリティと移行のチェック。
+---
+
+# Doctor
+
+`agent-native doctor` は 7 つのセキュリティ guard と `migration-manifest` の計 8 guard を実行します。後者はインストール済み `migration-manifest.json` の import を検出し、opt-out はできません。`agent-native doctor --only migration-manifest`、`npx @agent-native/core@latest upgrade --codemods`、確認後の `--yes` を使います。JSON の `guardsRun` には 8 件が出ます。

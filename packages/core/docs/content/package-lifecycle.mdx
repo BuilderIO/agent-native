@@ -37,6 +37,31 @@ imports a package's JavaScript manifest and passes `--ignore-scripts` while
 downloading an uninstalled package archive. Reports show credential key names,
 never credential values.
 
+## Migration manifests and tombstones
+
+Published framework packages ship a `migration-manifest.json`. It records moved
+package specifiers and renamed symbols before a breaking release. When a path is
+removed, its tombstone module remains in the package long enough to throw an
+actionable error that names the replacement and the exact migration command.
+
+Preview the manifest-driven rewrite before making any manual import edits:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+```
+
+The command is dry-run by default and prints the proposed diff. After review,
+apply the same rewrite explicitly:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods --yes
+```
+
+Run `agent-native doctor --only migration-manifest` in CI or before an upgrade
+to identify imports that are listed in installed manifests. The guard has no
+opt-out: migrate the import with the codemod instead of suppressing a future
+breaking change.
+
 ## Scheduling pilot
 
 `@agent-native/scheduling` is the first package with the generic manifest. Add

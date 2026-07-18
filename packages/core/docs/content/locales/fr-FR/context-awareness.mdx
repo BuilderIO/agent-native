@@ -196,8 +196,9 @@ Utilisez la clé d'état de l'application `selection` pour une sélection durabl
 Écrivez-le à partir du UI lorsque l'utilisateur sélectionne, concentre ou sélectionne plusieurs objets significatifs :
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -226,8 +227,9 @@ L'agent de production injecte cette clé dans le tour suivant comme contexte de 
 Les éditeurs personnalisés peuvent écrire la même clé lorsque leur sélection n'est pas représentée par la sélection native du navigateur :
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import {
+  setClientAppState,
+} from "@agent-native/core/client/hooks"
 await setClientAppState(
   "pending-selection-context",
   {
@@ -289,8 +291,9 @@ L'agent doit appeler `pnpm action view-screen` avant d'agir sur le UI actuel. Il
 Parfois, le contexte ne doit pas simplement rester dans l'état de l'application. Un utilisateur clique sur un bouton, dépose une épingle de commentaire, sélectionne un élément et choisit « Demander à l'agent » ou appuie sur une commande AI dans une barre d'outils. Ce clic est une instruction. Dans le navigateur UI, remettez-le à l'agent avec `sendToAgentChat()`.
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -373,7 +376,9 @@ Il reste court car il s'agit d'une fine enveloppe autour de la véritable primit
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+} from "@agent-native/core/client/navigation"
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

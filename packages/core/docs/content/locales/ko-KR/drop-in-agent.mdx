@@ -105,7 +105,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="무엇을 도와드릴까요?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="무엇을 도와드릴까요?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -154,8 +154,9 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import {
+  AgentPanel,
+} from "@agent-native/core/client/agent-chat"
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -182,8 +183,9 @@ export default function AgentRoute() {
 인라인 `llm()` 호출을 실행하는 대신 에이전트에 직접 작업을 전달하는 버튼 - [ladder](/docs/what-is-agent-native#the-ladder)의 안티 패턴:
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -232,8 +234,9 @@ MCP 앱 브리지 동작을 위한 [Client](/docs/client#sendtoagentchat).
 로드 상태를 원하면 `useSendToAgentChat()` 후크를 사용하세요. `send`와 `isGenerating`를 모두 반환합니다.
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import {
+  useSendToAgentChat,
+} from "@agent-native/core/client/agent-chat"
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -267,8 +270,9 @@ const { send, isGenerating } = useSendToAgentChat();
 UI가 에이전트 도구가 실행하는 것과 동일한 작업을 실행해야 하는 경우([ladder](/docs/what-is-agent-native#rung-three)의 3번 단계) `useActionMutation`를 사용하세요.
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+} from "@agent-native/core/client/hooks"
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -298,8 +302,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat"
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
