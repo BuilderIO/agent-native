@@ -15,10 +15,16 @@ import { E2EE_SIZE_LIMITS, E2EE_SUITE_ID } from "./suite.js";
 export const ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES =
   E2EE_SIZE_LIMITS.vaultLogEntryBytes;
 export const ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES = 1024 * 1024;
+export const ANC_V1_CONTROL_LOG_APPEND_CURRENT_SNAPSHOT_MAX_BYTES =
+  E2EE_SIZE_LIMITS.controlEnvelopeBytes;
+export const ANC_V1_CONTROL_LOG_APPEND_RECOVERY_AUTHORIZATION_MAX_BYTES =
+  1024 * 1024;
 /** Includes the two bounded artifacts and the small deterministic CBOR envelope. */
 export const ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES =
   ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES +
   ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES +
+  ANC_V1_CONTROL_LOG_APPEND_CURRENT_SNAPSHOT_MAX_BYTES +
+  ANC_V1_CONTROL_LOG_APPEND_RECOVERY_AUTHORIZATION_MAX_BYTES +
   256;
 export const ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES = 1024;
 
@@ -96,6 +102,29 @@ export const controlLogGenesisAppendReceiptSchema = z
   })
   .strict();
 
+export const controlLogRecoveryAppendRequestSchema = z
+  .object({
+    version: z.literal(1),
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("control-log-recovery-append-request"),
+    signedEntry: boundedBytes(ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES),
+    recoveryWrap: boundedBytes(
+      ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES,
+    ),
+    currentSnapshot: boundedBytes(
+      ANC_V1_CONTROL_LOG_APPEND_CURRENT_SNAPSHOT_MAX_BYTES,
+    ),
+    recoveryAuthorization: boundedBytes(
+      ANC_V1_CONTROL_LOG_APPEND_RECOVERY_AUTHORIZATION_MAX_BYTES,
+    ),
+  })
+  .strict();
+
+export const controlLogRecoveryAppendReceiptSchema =
+  controlLogRotationAppendReceiptSchema.extend({
+    type: z.literal("control-log-recovery-append-receipt"),
+  });
+
 export type ControlLogRotationAppendRequest = z.infer<
   typeof controlLogRotationAppendRequestSchema
 >;
@@ -107,6 +136,12 @@ export type ControlLogGenesisAppendRequest = z.infer<
 >;
 export type ControlLogGenesisAppendReceipt = z.infer<
   typeof controlLogGenesisAppendReceiptSchema
+>;
+export type ControlLogRecoveryAppendRequest = z.infer<
+  typeof controlLogRecoveryAppendRequestSchema
+>;
+export type ControlLogRecoveryAppendReceipt = z.infer<
+  typeof controlLogRecoveryAppendReceiptSchema
 >;
 
 export class AncV1ControlLogAppendCodecError extends Error {
@@ -122,6 +157,11 @@ const REQUEST = Object.freeze({
   type: 3,
   signedEntry: 4,
   recoveryWrap: 5,
+});
+const RECOVERY_REQUEST = Object.freeze({
+  ...REQUEST,
+  currentSnapshot: 6,
+  recoveryAuthorization: 7,
 });
 const RECEIPT = Object.freeze({
   suite: 1,
@@ -305,6 +345,140 @@ export function decodeAncV1ControlLogRotationAppendReceipt(
       ),
     },
     "Control-log rotation append receipt",
+  );
+}
+
+export function encodeAncV1ControlLogRecoveryAppendRequest(
+  value: ControlLogRecoveryAppendRequest,
+): Uint8Array {
+  const parsed = parse(
+    controlLogRecoveryAppendRequestSchema,
+    value,
+    "Control-log recovery append request",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [RECOVERY_REQUEST.suite, parsed.suite],
+      [RECOVERY_REQUEST.version, parsed.version],
+      [RECOVERY_REQUEST.type, parsed.type],
+      [RECOVERY_REQUEST.signedEntry, parsed.signedEntry],
+      [RECOVERY_REQUEST.recoveryWrap, parsed.recoveryWrap],
+      [RECOVERY_REQUEST.currentSnapshot, parsed.currentSnapshot],
+      [RECOVERY_REQUEST.recoveryAuthorization, parsed.recoveryAuthorization],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES) {
+    fail("Control-log recovery append request exceeds its canonical size cap");
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogRecoveryAppendRequest(
+  encoded: Uint8Array,
+): ControlLogRecoveryAppendRequest {
+  const map = envelope(
+    encoded,
+    Object.values(RECOVERY_REQUEST),
+    ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
+  );
+  return parse(
+    controlLogRecoveryAppendRequestSchema,
+    {
+      suite: text(field(map, RECOVERY_REQUEST.suite, "suite"), "suite"),
+      version: integer(
+        field(map, RECOVERY_REQUEST.version, "version"),
+        "version",
+      ),
+      type: text(field(map, RECOVERY_REQUEST.type, "type"), "type"),
+      signedEntry: bytes(
+        field(map, RECOVERY_REQUEST.signedEntry, "signedEntry"),
+        ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
+        "signedEntry",
+      ),
+      recoveryWrap: bytes(
+        field(map, RECOVERY_REQUEST.recoveryWrap, "recoveryWrap"),
+        ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES,
+        "recoveryWrap",
+      ),
+      currentSnapshot: bytes(
+        field(map, RECOVERY_REQUEST.currentSnapshot, "currentSnapshot"),
+        ANC_V1_CONTROL_LOG_APPEND_CURRENT_SNAPSHOT_MAX_BYTES,
+        "currentSnapshot",
+      ),
+      recoveryAuthorization: bytes(
+        field(
+          map,
+          RECOVERY_REQUEST.recoveryAuthorization,
+          "recoveryAuthorization",
+        ),
+        ANC_V1_CONTROL_LOG_APPEND_RECOVERY_AUTHORIZATION_MAX_BYTES,
+        "recoveryAuthorization",
+      ),
+    },
+    "Control-log recovery append request",
+  );
+}
+
+export function encodeAncV1ControlLogRecoveryAppendReceipt(
+  value: ControlLogRecoveryAppendReceipt,
+): Uint8Array {
+  const parsed = parse(
+    controlLogRecoveryAppendReceiptSchema,
+    value,
+    "Control-log recovery append receipt",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [RECEIPT.suite, parsed.suite],
+      [RECEIPT.version, parsed.version],
+      [RECEIPT.type, parsed.type],
+      [RECEIPT.vaultId, parsed.vaultId],
+      [RECEIPT.entryId, parsed.entryId],
+      [RECEIPT.sequence, parsed.sequence],
+      [RECEIPT.headHash, ancV1HexToBytes(parsed.headHash)],
+      [RECEIPT.recoveryWrapHash, ancV1HexToBytes(parsed.recoveryWrapHash)],
+      [RECEIPT.recoveryWrapByteLength, parsed.recoveryWrapByteLength],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES) {
+    fail("Control-log recovery append receipt exceeds its canonical size cap");
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogRecoveryAppendReceipt(
+  encoded: Uint8Array,
+): ControlLogRecoveryAppendReceipt {
+  const map = envelope(
+    encoded,
+    Object.values(RECEIPT),
+    ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
+  );
+  return parse(
+    controlLogRecoveryAppendReceiptSchema,
+    {
+      suite: text(field(map, RECEIPT.suite, "suite"), "suite"),
+      version: integer(field(map, RECEIPT.version, "version"), "version"),
+      type: text(field(map, RECEIPT.type, "type"), "type"),
+      vaultId: text(field(map, RECEIPT.vaultId, "vaultId"), "vaultId"),
+      entryId: text(field(map, RECEIPT.entryId, "entryId"), "entryId"),
+      sequence: integer(field(map, RECEIPT.sequence, "sequence"), "sequence"),
+      headHash: ancV1BytesToHex(
+        bytes(field(map, RECEIPT.headHash, "headHash"), 32, "headHash"),
+      ),
+      recoveryWrapHash: ancV1BytesToHex(
+        bytes(
+          field(map, RECEIPT.recoveryWrapHash, "recoveryWrapHash"),
+          32,
+          "recoveryWrapHash",
+        ),
+      ),
+      recoveryWrapByteLength: integer(
+        field(map, RECEIPT.recoveryWrapByteLength, "recoveryWrapByteLength"),
+        "recoveryWrapByteLength",
+      ),
+    },
+    "Control-log recovery append receipt",
   );
 }
 

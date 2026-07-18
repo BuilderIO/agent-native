@@ -1267,6 +1267,31 @@ const runContentMigrations = runMigrations(
       ALTER TABLE content_encrypted_vault_ciphertext_staging
         ADD COLUMN IF NOT EXISTS evidence_hash TEXT`,
     },
+    {
+      version: 88,
+      name: "content-private-vault-recovery-nonce-fence",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_recovery_nonce_claims (
+        claim_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        control_entry_id TEXT NOT NULL,
+        ceremony_id TEXT NOT NULL,
+        confirmation_envelope_id TEXT NOT NULL,
+        confirmation_nonce_digest TEXT NOT NULL,
+        prior_recovery_generation INTEGER NOT NULL,
+        replacement_recovery_generation INTEGER NOT NULL,
+        claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_recovery_nonce_unique
+        ON content_encrypted_vault_recovery_nonce_claims (vault_id, confirmation_nonce_digest);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_recovery_nonce_entry_unique
+        ON content_encrypted_vault_recovery_nonce_claims (vault_id, control_entry_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_recovery_nonce_scope_idx
+        ON content_encrypted_vault_recovery_nonce_claims (owner_email, org_id, vault_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

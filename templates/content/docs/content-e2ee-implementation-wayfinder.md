@@ -708,10 +708,19 @@ the admitted control entry without putting evidence bytes or provider locators
 in SQL. Bootstrap frames carry per-entry typed evidence alongside wraps, with a
 strict 8-entry and approximately 25 MiB worst-case frame bound. Core protocol
 vectors, route/service tests, a real SQLite genesis ceremony and canonical-log
-snapshot tests, and desktop transport tests pass. Durable recovery-transition
-evidence, full independent native authorization replay, mnemonic import,
-replacement recovery authority, and recovered-endpoint admission remain the
-next product gate.
+snapshot tests, and desktop transport tests pass. Recovery now has a distinct,
+bounded append envelope carrying the exact current snapshot and recovery
+authorization. The server verifies every publicly checkable recovery signature
+and binding, authenticates the replacement endpoint over the exact request,
+stages the replacement wrap and canonical evidence independently, and commits
+both bindings, the signed edge, the replacement endpoint, old-endpoint
+revocation, and a durable confirmation-nonce fence in one SQL transaction.
+Historical replay reloads those immutable artifacts and the exact nonce claim;
+it evaluates time at the signed edge rather than incorrectly expiring valid
+history. Only native code may assert that the mnemonic unsealed the consumed
+wrap. Full independent native authorization replay, mnemonic import,
+replacement recovery authority, and recovered-endpoint admission through XPC
+remain the next product gate.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

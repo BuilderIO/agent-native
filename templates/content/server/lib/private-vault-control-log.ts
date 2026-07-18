@@ -234,6 +234,7 @@ export function createPrivateVaultControlLogService(
     current: ControlLogState | null,
     entry: SignedControlLogEntry,
     entryBytes: Uint8Array,
+    verifyRecoveryAuthorization?: PrivateVaultControlLogServiceOptions["verifyRecoveryAuthorization"],
   ): Promise<VerifiedReduction> {
     try {
       return await verifyAndReduceControlLogEntry({
@@ -252,15 +253,17 @@ export function createPrivateVaultControlLogService(
                 return false;
               }
             },
-        verifyRecoveryAuthorization: options.verifyRecoveryAuthorization
-          ? ({ commit, entry: recoveryEntry, current: recoveryCurrent }) =>
-              options.verifyRecoveryAuthorization!({
-                scope,
-                commit,
-                entry: recoveryEntry,
-                current: recoveryCurrent,
-              })
-          : undefined,
+        verifyRecoveryAuthorization:
+          (verifyRecoveryAuthorization ?? options.verifyRecoveryAuthorization)
+            ? ({ commit, entry: recoveryEntry, current: recoveryCurrent }) =>
+                (verifyRecoveryAuthorization ??
+                  options.verifyRecoveryAuthorization)!({
+                  scope,
+                  commit,
+                  entry: recoveryEntry,
+                  current: recoveryCurrent,
+                })
+            : undefined,
         verifyRecoveryWrapRotation: options.verifyRecoveryWrapRotation
           ? ({ commit, entry: rotationEntry, current: rotationCurrent }) =>
               options.verifyRecoveryWrapRotation!({
@@ -459,6 +462,8 @@ export function createPrivateVaultControlLogService(
       onVerifiedAppend?: (
         append: PrivateVaultVerifiedControlAppend,
       ) => Promise<void>;
+      /** Exact, request-bound verifier used for a newly submitted recovery edge. */
+      verifyRecoveryAuthorization?: PrivateVaultControlLogServiceOptions["verifyRecoveryAuthorization"];
     },
   ): Promise<{ state: ControlLogState; idempotent: boolean }> {
     const scope = normalizeScope(scopeInput);
@@ -518,6 +523,7 @@ export function createPrivateVaultControlLogService(
           current,
           candidate,
           input.entryBytes,
+          input.verifyRecoveryAuthorization,
         );
         const stored = rows[rows.length - 1];
         if (
@@ -539,6 +545,7 @@ export function createPrivateVaultControlLogService(
         current,
         candidate,
         input.entryBytes,
+        input.verifyRecoveryAuthorization,
       );
       if (reduced.idempotent) {
         throw new PrivateVaultControlLogError("invalid_entry");
@@ -630,6 +637,7 @@ export function createPrivateVaultControlLogService(
         onVerifiedAppend?: (
           append: PrivateVaultVerifiedControlAppend,
         ) => Promise<void>;
+        verifyRecoveryAuthorization?: PrivateVaultControlLogServiceOptions["verifyRecoveryAuthorization"];
       },
     ) {
       for (let attempt = 0; attempt < 2; attempt += 1) {

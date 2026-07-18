@@ -532,10 +532,21 @@ describe("Private Vault signed control-log persistence", () => {
         code: "recovery_authorization_required",
       },
     );
+    const requestBoundVerifier = vi.fn(async () => true);
     await expect(
-      service(true).append(scope(vaultId), input),
+      service().append(scope(vaultId), {
+        ...input,
+        verifyRecoveryAuthorization: requestBoundVerifier,
+      }),
     ).resolves.toMatchObject({
       state: { activeMembers: [recovered.member], epoch: 2 },
+    });
+    expect(requestBoundVerifier).toHaveBeenCalledOnce();
+    await expect(
+      service(true).loadVerifiedState(scope(vaultId)),
+    ).resolves.toMatchObject({
+      activeMembers: [recovered.member],
+      epoch: 2,
     });
   });
 

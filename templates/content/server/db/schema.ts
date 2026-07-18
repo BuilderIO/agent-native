@@ -839,6 +839,41 @@ export const contentEncryptedVaultControlEvidence = table(
   ],
 );
 
+/** Durable replay fence for recovery-authority replacement confirmations. */
+export const contentEncryptedVaultRecoveryNonceClaims = table(
+  "content_encrypted_vault_recovery_nonce_claims",
+  {
+    claimId: text("claim_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    controlEntryId: text("control_entry_id").notNull(),
+    ceremonyId: text("ceremony_id").notNull(),
+    confirmationEnvelopeId: text("confirmation_envelope_id").notNull(),
+    confirmationNonceDigest: text("confirmation_nonce_digest").notNull(),
+    priorRecoveryGeneration: integer("prior_recovery_generation").notNull(),
+    replacementRecoveryGeneration: integer(
+      "replacement_recovery_generation",
+    ).notNull(),
+    claimedAt: text("claimed_at").notNull().default(now()),
+  },
+  (claim) => [
+    uniqueIndex("content_encrypted_vault_recovery_nonce_unique").on(
+      claim.vaultId,
+      claim.confirmationNonceDigest,
+    ),
+    uniqueIndex("content_encrypted_vault_recovery_nonce_entry_unique").on(
+      claim.vaultId,
+      claim.controlEntryId,
+    ),
+    index("content_encrypted_vault_recovery_nonce_scope_idx").on(
+      claim.ownerEmail,
+      claim.orgId,
+      claim.vaultId,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultGrants = table(
   "content_encrypted_vault_grants",
   {

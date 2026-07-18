@@ -7,25 +7,33 @@ import {
   CONTROL_LOG_ZERO_HASH,
   decodeAncV1ControlLogGenesisAppendRequest,
   decodeAncV1ControlLogRotationAppendRequest,
+  decodeAncV1ControlLogRecoveryAppendRequest,
   decodeSignedControlLogEntry,
   encodeAncV1ControlLogGenesisAppendReceipt,
   encodeAncV1ControlLogRotationAppendReceipt,
+  encodeAncV1ControlLogRecoveryAppendReceipt,
+  encodeAncV1RecoveryControlEvidence,
   hashAncV1RecoveryWrap,
   verifyEndpointRequestProofWithIdentity,
   verifyAncV1RecoveryWrap,
+  verifyAncV1RecoveryAuthorizationPublicEvidence,
   type EndpointRequestProof,
 } from "@agent-native/core/e2ee";
 import {
   putProtectedCiphertext,
   readProtectedCiphertextAt,
 } from "@agent-native/core/protected-ciphertext";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import {
   commitPrivateVaultCiphertextStageInTransaction,
   privateVaultCiphertextStagingService,
 } from "./private-vault-ciphertext-staging.js";
+import {
+  privateVaultControlEvidenceHash,
+  privateVaultRecoveryNonceDigest,
+} from "./private-vault-control-evidence.js";
 import {
   authorizePrivateVaultGenesisCandidate,
   privateVaultControlLogService,
@@ -53,6 +61,15 @@ export class PrivateVaultControlLogAppendError extends Error {
 function bindingId(vaultId: string, entryId: string): string {
   return createHash("sha256")
     .update("anc/v1/content-recovery-wrap-binding\0")
+    .update(vaultId)
+    .update("\0")
+    .update(entryId)
+    .digest("hex");
+}
+
+function evidenceBindingId(vaultId: string, entryId: string): string {
+  return createHash("sha256")
+    .update("anc/v1/content-control-evidence-binding\0")
     .update(vaultId)
     .update("\0")
     .update(entryId)
@@ -125,6 +142,55 @@ async function requireExactCommittedBinding(input: {
   if (
     stored.byteLength !== input.recoveryWrap.byteLength ||
     !equalBytes(stored.ciphertext, input.recoveryWrap)
+  ) {
+    throw new PrivateVaultControlLogAppendError("conflict");
+  }
+  return true;
+}
+
+async function requireExactCommittedEvidence(input: {
+  ownerEmail: string;
+  orgId: string;
+  vaultId: string;
+  entryId: string;
+  evidenceHash: string;
+  evidence: Uint8Array;
+}) {
+  const [binding] = await getDb()
+    .select()
+    .from(schema.contentEncryptedVaultControlEvidence)
+    .where(
+      and(
+        eq(
+          schema.contentEncryptedVaultControlEvidence.ownerEmail,
+          input.ownerEmail,
+        ),
+        eq(schema.contentEncryptedVaultControlEvidence.orgId, input.orgId),
+        eq(schema.contentEncryptedVaultControlEvidence.vaultId, input.vaultId),
+        eq(
+          schema.contentEncryptedVaultControlEvidence.controlEntryId,
+          input.entryId,
+        ),
+      ),
+    )
+    .limit(1);
+  if (!binding) return false;
+  if (
+    binding.evidenceKind !== "recovery" ||
+    binding.evidenceHash !== input.evidenceHash ||
+    binding.evidenceByteLength !== input.evidence.byteLength
+  ) {
+    throw new PrivateVaultControlLogAppendError("conflict");
+  }
+  const stored = await readProtectedCiphertextAt({
+    kind: "control-evidence",
+    vaultId: input.vaultId,
+    evidenceKind: "recovery",
+    evidenceHash: input.evidenceHash,
+  });
+  if (
+    stored.byteLength !== input.evidence.byteLength ||
+    !equalBytes(stored.ciphertext, input.evidence)
   ) {
     throw new PrivateVaultControlLogAppendError("conflict");
   }
@@ -290,6 +356,55 @@ async function verifiedGenesisReceipt(input: {
     vaultId: input.scope.vaultId,
     entryId: input.entryId,
     sequence: 0,
+    headHash: verified.entryHash,
+    recoveryWrapHash: input.recoveryWrapHash,
+    recoveryWrapByteLength: input.recoveryWrap.byteLength,
+  });
+}
+
+async function verifiedRecoveryReceipt(input: {
+  scope: { ownerEmail: string; orgId: string; vaultId: string };
+  signedEntry: Uint8Array;
+  entryId: string;
+  sequence: number;
+  recoveryWrapHash: string;
+  recoveryWrap: Uint8Array;
+  evidenceHash: string;
+  evidence: Uint8Array;
+}): Promise<Uint8Array> {
+  const verified = await privateVaultControlLogService.loadVerifiedEntry(
+    input.scope,
+    input.signedEntry,
+  );
+  if (
+    verified.entry.envelopeId !== input.entryId ||
+    verified.entry.innerEnvelope.type !== "membership_commit" ||
+    verified.entry.innerEnvelope.ceremonyKind !== "recovery" ||
+    verified.state.sequence !== input.sequence ||
+    verified.state.headHash !== verified.entryHash ||
+    verified.state.recoveryWrapHash !== input.recoveryWrapHash ||
+    !(await requireExactCommittedBinding({
+      ...input.scope,
+      recoveryWrapHash: input.recoveryWrapHash,
+      entryId: input.entryId,
+      recoveryWrap: input.recoveryWrap,
+    })) ||
+    !(await requireExactCommittedEvidence({
+      ...input.scope,
+      entryId: input.entryId,
+      evidenceHash: input.evidenceHash,
+      evidence: input.evidence,
+    }))
+  ) {
+    throw new PrivateVaultControlLogAppendError("unavailable");
+  }
+  return encodeAncV1ControlLogRecoveryAppendReceipt({
+    version: 1,
+    suite: "anc/v1",
+    type: "control-log-recovery-append-receipt",
+    vaultId: input.scope.vaultId,
+    entryId: input.entryId,
+    sequence: input.sequence,
     headHash: verified.entryHash,
     recoveryWrapHash: input.recoveryWrapHash,
     recoveryWrapByteLength: input.recoveryWrap.byteLength,
@@ -710,4 +825,315 @@ export async function appendPrivateVaultControlLogRotation(input: {
     recoveryWrapHash,
     recoveryWrap: request.recoveryWrap,
   });
+}
+
+export async function appendPrivateVaultControlLogRecovery(input: {
+  body: Uint8Array;
+  proof: EndpointRequestProof;
+  now?: Date;
+}): Promise<Uint8Array> {
+  let request: ReturnType<typeof decodeAncV1ControlLogRecoveryAppendRequest>;
+  let entry: ReturnType<typeof decodeSignedControlLogEntry>;
+  try {
+    request = decodeAncV1ControlLogRecoveryAppendRequest(input.body);
+    entry = decodeSignedControlLogEntry(request.signedEntry);
+  } catch {
+    throw new PrivateVaultControlLogAppendError("invalid_request");
+  }
+  if (
+    entry.sequence < 1 ||
+    entry.innerEnvelope.type !== "membership_commit" ||
+    entry.innerEnvelope.ceremonyKind !== "recovery" ||
+    entry.innerEnvelope.activeMembers.length !== 1 ||
+    !entry.innerEnvelope.rotationCompleted
+  ) {
+    throw new PrivateVaultControlLogAppendError("invalid_request");
+  }
+  const scope = await resolveActivePrivateVaultControlScope(entry.vaultId);
+  if (!scope) throw new PrivateVaultControlLogAppendError("not_found");
+  const evidence = encodeAncV1RecoveryControlEvidence({
+    suite: "anc/v1",
+    version: 1,
+    type: "recovery-control-evidence",
+    currentSnapshot: request.currentSnapshot,
+    recoveryAuthorization: request.recoveryAuthorization,
+  });
+  const evidenceHash = privateVaultControlEvidenceHash("recovery", evidence);
+  const recoveryWrapHash = ancV1BytesToHex(
+    await hashAncV1RecoveryWrap(
+      request.recoveryWrap,
+      ancV1LifecycleIdFromHex(entry.vaultId),
+    ),
+  );
+  const receiptInput = {
+    scope,
+    signedEntry: request.signedEntry,
+    entryId: entry.envelopeId,
+    sequence: entry.sequence,
+    recoveryWrapHash,
+    recoveryWrap: request.recoveryWrap,
+    evidenceHash,
+    evidence,
+  };
+  const current = await privateVaultControlLogService.loadVerifiedState(scope);
+  if (!current) throw new PrivateVaultControlLogAppendError("not_found");
+  if (entry.sequence <= current.sequence) {
+    return verifiedRecoveryReceipt(receiptInput).catch(() => {
+      throw new PrivateVaultControlLogAppendError("conflict");
+    });
+  }
+  if (
+    entry.sequence !== current.sequence + 1 ||
+    entry.previousHash !== current.headHash ||
+    entry.innerEnvelope.epoch !== current.epoch + 1 ||
+    entry.innerEnvelope.recoveryWrapHash !== recoveryWrapHash
+  ) {
+    throw new PrivateVaultControlLogAppendError("conflict");
+  }
+  const currentWrap = await readProtectedCiphertextAt({
+    kind: "recovery-wrap",
+    vaultId: scope.vaultId,
+    recoveryWrapHash: current.recoveryWrapHash,
+  }).catch(() => null);
+  if (!currentWrap) throw new PrivateVaultControlLogAppendError("unavailable");
+  let nonceClaim:
+    | {
+        ceremonyId: string;
+        confirmationEnvelopeId: string;
+        confirmationNonce: Uint8Array;
+        priorRecoveryGeneration: number;
+        replacementRecoveryGeneration: number;
+      }
+    | undefined;
+  let projection: Awaited<
+    ReturnType<typeof verifyAncV1RecoveryAuthorizationPublicEvidence>
+  >;
+  try {
+    projection = await verifyAncV1RecoveryAuthorizationPublicEvidence(
+      request.recoveryAuthorization,
+      {
+        currentRecoveryWrap: currentWrap.ciphertext,
+        currentSnapshot: request.currentSnapshot,
+        verifiedControlState: current,
+        commit: entry.innerEnvelope,
+        entry,
+        now: Math.floor((input.now ?? new Date()).getTime() / 1000),
+        isConfirmationNonceAvailable: async (claim) => {
+          const digest = privateVaultRecoveryNonceDigest(
+            claim.confirmationNonce,
+          );
+          const [existing] = await getDb()
+            .select({
+              claimId: schema.contentEncryptedVaultRecoveryNonceClaims.claimId,
+            })
+            .from(schema.contentEncryptedVaultRecoveryNonceClaims)
+            .where(
+              and(
+                eq(
+                  schema.contentEncryptedVaultRecoveryNonceClaims.vaultId,
+                  scope.vaultId,
+                ),
+                or(
+                  eq(
+                    schema.contentEncryptedVaultRecoveryNonceClaims
+                      .confirmationNonceDigest,
+                    digest,
+                  ),
+                  eq(
+                    schema.contentEncryptedVaultRecoveryNonceClaims
+                      .controlEntryId,
+                    entry.envelopeId,
+                  ),
+                ),
+              ),
+            )
+            .limit(1);
+          if (existing) return false;
+          nonceClaim = {
+            ...claim,
+            confirmationNonce: claim.confirmationNonce.slice(),
+          };
+          return true;
+        },
+      },
+    );
+  } catch {
+    throw new PrivateVaultControlLogAppendError("unauthorized");
+  }
+  if (
+    !nonceClaim ||
+    projection.next.recoveryWrapHash !== recoveryWrapHash ||
+    projection.next.soleEndpointId !== entry.signerEndpointId
+  ) {
+    throw new PrivateVaultControlLogAppendError("invalid_request");
+  }
+  const member = entry.innerEnvelope.activeMembers[0]!;
+  if (
+    member.endpointId !== projection.next.soleEndpointId ||
+    member.signingPublicKey !== projection.next.soleEndpointSigningPublicKey ||
+    member.keyAgreementPublicKey !==
+      projection.next.soleEndpointKeyAgreementPublicKey
+  ) {
+    throw new PrivateVaultControlLogAppendError("invalid_request");
+  }
+  try {
+    const authenticated = await verifyEndpointRequestProofWithIdentity({
+      proof: input.proof,
+      expectedMethod: "POST",
+      expectedPath: PRIVATE_VAULT_CONTROL_LOG_APPEND_PATH,
+      body: input.body,
+      now: input.now ?? new Date(),
+      resolveAuthorizedEndpoint: async ({ vaultId, endpointId }) =>
+        vaultId === scope.vaultId && endpointId === member.endpointId
+          ? {
+              vaultId,
+              endpointId,
+              state: "active" as const,
+              signingPublicKey: Uint8Array.from(
+                ancV1HexToBytes(member.signingPublicKey),
+              ),
+            }
+          : null,
+      claimNonce: ({ vaultId, endpointId, nonce, expiresAt }) =>
+        sqlPrivateVaultEndpointRequestNonceStore.claimAuthorizedControlRequest({
+          ...scope,
+          vaultId,
+          endpointId,
+          nonce,
+          expiresAt,
+        }),
+    });
+    if (authenticated.endpointId !== member.endpointId) throw new Error();
+  } catch {
+    throw new PrivateVaultControlLogAppendError("unauthorized");
+  }
+
+  const wrapCoordinate = {
+    kind: "recovery-wrap" as const,
+    vaultId: scope.vaultId,
+    recoveryWrapHash,
+  };
+  const evidenceCoordinate = {
+    kind: "control-evidence" as const,
+    vaultId: scope.vaultId,
+    evidenceKind: "recovery" as const,
+    evidenceHash,
+  };
+  const [wrapStage, evidenceStage] = await Promise.all([
+    privateVaultCiphertextStagingService.stage(scope, wrapCoordinate),
+    privateVaultCiphertextStagingService.stage(scope, evidenceCoordinate),
+  ]).catch(() => []);
+  if (!wrapStage || !evidenceStage) {
+    return verifiedRecoveryReceipt(receiptInput).catch(() => {
+      throw new PrivateVaultControlLogAppendError("conflict");
+    });
+  }
+  try {
+    await Promise.all([
+      putProtectedCiphertext({
+        coordinate: wrapCoordinate,
+        ciphertext: request.recoveryWrap,
+        expectedByteLength: request.recoveryWrap.byteLength,
+      }),
+      putProtectedCiphertext({
+        coordinate: evidenceCoordinate,
+        ciphertext: evidence,
+        expectedByteLength: evidence.byteLength,
+      }),
+    ]);
+    const exactNonceClaim = nonceClaim;
+    await privateVaultControlLogService.append(scope, {
+      entryBytes: request.signedEntry,
+      expectedHead: {
+        sequence: projection.expectedCurrent.sequence,
+        hash: projection.expectedCurrent.headHash,
+      },
+      verifyRecoveryAuthorization: async ({ current: verifiedCurrent }) =>
+        verifiedCurrent.sequence === projection.expectedCurrent.sequence &&
+        verifiedCurrent.headHash === projection.expectedCurrent.headHash &&
+        verifiedCurrent.membershipHash ===
+          projection.expectedCurrent.membershipHash &&
+        verifiedCurrent.recoveryId ===
+          projection.consumedAuthority.recoveryId &&
+        verifiedCurrent.recoveryGeneration ===
+          projection.consumedAuthority.recoveryGeneration,
+      onVerifiedAppend: async ({ tx, serverReceivedAt }) => {
+        await tx.insert(schema.contentEncryptedVaultRecoveryWraps).values({
+          bindingId: bindingId(scope.vaultId, entry.envelopeId),
+          ...scope,
+          recoveryWrapHash,
+          controlEntryId: entry.envelopeId,
+          ciphertextByteLength: request.recoveryWrap.byteLength,
+          serverReceivedAt,
+        });
+        await tx.insert(schema.contentEncryptedVaultControlEvidence).values({
+          bindingId: evidenceBindingId(scope.vaultId, entry.envelopeId),
+          ...scope,
+          controlEntryId: entry.envelopeId,
+          evidenceKind: "recovery",
+          evidenceHash,
+          evidenceByteLength: evidence.byteLength,
+          serverReceivedAt,
+        });
+        await tx
+          .insert(schema.contentEncryptedVaultRecoveryNonceClaims)
+          .values({
+            claimId: createHash("sha256")
+              .update("anc/v1/content-recovery-nonce-claim\0")
+              .update(scope.vaultId)
+              .update("\0")
+              .update(entry.envelopeId)
+              .digest("hex"),
+            ...scope,
+            controlEntryId: entry.envelopeId,
+            ceremonyId: exactNonceClaim.ceremonyId,
+            confirmationEnvelopeId: exactNonceClaim.confirmationEnvelopeId,
+            confirmationNonceDigest: privateVaultRecoveryNonceDigest(
+              exactNonceClaim.confirmationNonce,
+            ),
+            priorRecoveryGeneration: exactNonceClaim.priorRecoveryGeneration,
+            replacementRecoveryGeneration:
+              exactNonceClaim.replacementRecoveryGeneration,
+            claimedAt: serverReceivedAt,
+          });
+        await tx
+          .update(schema.contentEncryptedVaultEndpoints)
+          .set({ endpointState: "revoked", healthState: "revoked" })
+          .where(
+            and(
+              eq(schema.contentEncryptedVaultEndpoints.vaultId, scope.vaultId),
+              inArray(
+                schema.contentEncryptedVaultEndpoints.endpointId,
+                projection.next.removedEndpointIds,
+              ),
+            ),
+          );
+        await tx.insert(schema.contentEncryptedVaultEndpoints).values({
+          ...scope,
+          endpointId: member.endpointId,
+          endpointState: "online",
+          publicIdentityJson: endpointPublicIdentityJson(member),
+          healthState: "healthy",
+          serverReceivedAt,
+        });
+        await commitPrivateVaultCiphertextStageInTransaction(
+          tx,
+          wrapStage,
+          serverReceivedAt,
+        );
+        await commitPrivateVaultCiphertextStageInTransaction(
+          tx,
+          evidenceStage,
+          serverReceivedAt,
+        );
+      },
+    });
+  } catch {
+    return verifiedRecoveryReceipt(receiptInput).catch(() => {
+      throw new PrivateVaultControlLogAppendError("conflict");
+    });
+  } finally {
+    nonceClaim.confirmationNonce.fill(0);
+  }
+  return verifiedRecoveryReceipt(receiptInput);
 }

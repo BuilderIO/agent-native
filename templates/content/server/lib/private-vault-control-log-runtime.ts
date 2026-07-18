@@ -2,12 +2,18 @@ import {
   ancV1BytesToHex,
   ancV1Hash,
   type SignedControlLogEntry,
+  decodeAncV1RecoveryControlEvidence,
+  verifyAncV1RecoveryAuthorizationPublicEvidence,
   verifyAncV1RecoveryWrapRotation,
 } from "@agent-native/core/e2ee";
 import { readProtectedCiphertextAt } from "@agent-native/core/protected-ciphertext";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  privateVaultControlEvidenceHash,
+  privateVaultRecoveryNonceDigest,
+} from "./private-vault-control-evidence.js";
 import {
   createPrivateVaultControlLogService,
   type PrivateVaultControlLogScope,
@@ -86,6 +92,125 @@ export async function authorizePrivateVaultGenesisCandidate(input: {
 export const privateVaultControlLogService =
   createPrivateVaultControlLogService({
     authorizeGenesis: authorizePrivateVaultGenesisCandidate,
+    verifyRecoveryAuthorization: async ({ scope, commit, entry, current }) => {
+      try {
+        const [binding] = await getDb()
+          .select()
+          .from(schema.contentEncryptedVaultControlEvidence)
+          .where(
+            and(
+              eq(
+                schema.contentEncryptedVaultControlEvidence.ownerEmail,
+                scope.ownerEmail,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.orgId,
+                scope.orgId,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.vaultId,
+                scope.vaultId,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.controlEntryId,
+                entry.envelopeId,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.evidenceKind,
+                "recovery",
+              ),
+            ),
+          )
+          .limit(1);
+        if (!binding) return false;
+        const storedEvidence = await readProtectedCiphertextAt({
+          kind: "control-evidence",
+          vaultId: scope.vaultId,
+          evidenceKind: "recovery",
+          evidenceHash: binding.evidenceHash,
+        });
+        if (
+          storedEvidence.byteLength !== binding.evidenceByteLength ||
+          privateVaultControlEvidenceHash(
+            "recovery",
+            storedEvidence.ciphertext,
+          ) !== binding.evidenceHash
+        ) {
+          return false;
+        }
+        const evidence = decodeAncV1RecoveryControlEvidence(
+          storedEvidence.ciphertext,
+        );
+        const currentWrap = await readProtectedCiphertextAt({
+          kind: "recovery-wrap",
+          vaultId: scope.vaultId,
+          recoveryWrapHash: current.recoveryWrapHash,
+        });
+        await verifyAncV1RecoveryAuthorizationPublicEvidence(
+          evidence.recoveryAuthorization,
+          {
+            currentRecoveryWrap: currentWrap.ciphertext,
+            currentSnapshot: evidence.currentSnapshot,
+            verifiedControlState: current,
+            commit,
+            entry,
+            now: Date.parse(entry.createdAt) / 1000,
+            isConfirmationNonceAvailable: async (claim) => {
+              const [storedClaim] = await getDb()
+                .select({
+                  controlEntryId:
+                    schema.contentEncryptedVaultRecoveryNonceClaims
+                      .controlEntryId,
+                })
+                .from(schema.contentEncryptedVaultRecoveryNonceClaims)
+                .where(
+                  and(
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims.vaultId,
+                      scope.vaultId,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims
+                        .controlEntryId,
+                      entry.envelopeId,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims
+                        .ceremonyId,
+                      claim.ceremonyId,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims
+                        .confirmationEnvelopeId,
+                      claim.confirmationEnvelopeId,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims
+                        .confirmationNonceDigest,
+                      privateVaultRecoveryNonceDigest(claim.confirmationNonce),
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims
+                        .priorRecoveryGeneration,
+                      claim.priorRecoveryGeneration,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultRecoveryNonceClaims
+                        .replacementRecoveryGeneration,
+                      claim.replacementRecoveryGeneration,
+                    ),
+                  ),
+                )
+                .limit(1);
+              return Boolean(storedClaim);
+            },
+          },
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
     verifyRecoveryWrapRotation: async ({ scope, commit, entry, current }) => {
       try {
         const stored = await readProtectedCiphertextAt({

@@ -7,16 +7,21 @@ import {
 } from "./canonical.js";
 import {
   ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
+  ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
   ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES,
   ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
   decodeAncV1ControlLogGenesisAppendReceipt,
   decodeAncV1ControlLogGenesisAppendRequest,
   decodeAncV1ControlLogRotationAppendReceipt,
   decodeAncV1ControlLogRotationAppendRequest,
+  decodeAncV1ControlLogRecoveryAppendReceipt,
+  decodeAncV1ControlLogRecoveryAppendRequest,
   encodeAncV1ControlLogGenesisAppendReceipt,
   encodeAncV1ControlLogGenesisAppendRequest,
   encodeAncV1ControlLogRotationAppendReceipt,
   encodeAncV1ControlLogRotationAppendRequest,
+  encodeAncV1ControlLogRecoveryAppendReceipt,
+  encodeAncV1ControlLogRecoveryAppendRequest,
   hashAncV1ControlLogGenesisAppendReceipt,
 } from "./control-log-append.js";
 
@@ -51,12 +56,21 @@ const genesisReceipt = {
   sequence: 0 as const,
 };
 
+const recoveryRequest = {
+  ...request,
+  type: "control-log-recovery-append-request" as const,
+  currentSnapshot: Uint8Array.of(0x07, 0x08),
+  recoveryAuthorization: Uint8Array.of(0x09, 0x0a, 0x0b),
+};
+
+const recoveryReceipt = {
+  ...receipt,
+  type: "control-log-recovery-append-receipt" as const,
+};
+
 function map(encoded: Uint8Array): Map<number, AncV1CanonicalValue> {
   return decodeAncV1Canonical(encoded, {
-    maxBytes:
-      ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES +
-      ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES +
-      256,
+    maxBytes: ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
   }) as Map<number, AncV1CanonicalValue>;
 }
 
@@ -109,6 +123,21 @@ describe("anc/v1 control-log rotation append codec", () => {
         await hashAncV1ControlLogGenesisAppendReceipt(encodedReceipt),
       ).toString("hex"),
     ).toBe("8b12f022c253de5b52cf7866e2b328a74e61fa8f83914b3e51c7dde8986dd547");
+  });
+
+  it("round-trips recovery requests with the exact snapshot and authorization evidence", () => {
+    const encoded = encodeAncV1ControlLogRecoveryAppendRequest(recoveryRequest);
+    expect(decodeAncV1ControlLogRecoveryAppendRequest(encoded)).toEqual(
+      recoveryRequest,
+    );
+    expect(map(encoded).get(6)).toEqual(recoveryRequest.currentSnapshot);
+    expect(map(encoded).get(7)).toEqual(recoveryRequest.recoveryAuthorization);
+    const encodedReceipt =
+      encodeAncV1ControlLogRecoveryAppendReceipt(recoveryReceipt);
+    expect(decodeAncV1ControlLogRecoveryAppendReceipt(encodedReceipt)).toEqual(
+      recoveryReceipt,
+    );
+    expect(() => decodeAncV1ControlLogRotationAppendRequest(encoded)).toThrow();
   });
 
   it("rejects genesis and rotation type confusion and nonzero genesis sequence", () => {

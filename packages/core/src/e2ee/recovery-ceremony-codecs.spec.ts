@@ -37,6 +37,7 @@ import {
   signAncV1RecoveryReplacementConfirmation,
   unsealAncV1RecoveryWrap,
   verifyAncV1RecoveryAuthorization,
+  verifyAncV1RecoveryAuthorizationPublicEvidence,
   verifyAncV1RecoveryWrapRotation,
 } from "./recovery-ceremony-codecs.js";
 import { setAncV1RecoveryDerivationTestHook } from "./recovery-ceremony-test-hooks.js";
@@ -530,6 +531,20 @@ describe("anc/v1 public-key recovery ceremony", () => {
         soleEndpointId: ancV1BytesToHex(candidateId),
       },
     });
+    await expect(
+      verifyAncV1RecoveryAuthorizationPublicEvidence(
+        value.encodedAuthorization,
+        {
+          currentRecoveryWrap: value.encodedCurrentWrap,
+          currentSnapshot: value.encodedSnapshot,
+          verifiedControlState: value.state,
+          commit: value.commit,
+          entry: value.entry,
+          now: 1_721_200_060,
+          isConfirmationNonceAvailable: value.isConfirmationNonceAvailable,
+        },
+      ),
+    ).resolves.toEqual(projection);
     let preparedNonceChecks = 0;
     let preparedUnsealChecks = 0;
     const prepared = createAncV1RecoveryAuthorizationVerifier({

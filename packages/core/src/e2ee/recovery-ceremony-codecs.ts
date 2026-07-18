@@ -163,6 +163,8 @@ export interface AncV1VerifiedRecoveryProjection {
     recoveryKeyAgreementPublicKey: string;
     recoveryWrapHash: string;
     soleEndpointId: string;
+    soleEndpointSigningPublicKey: string;
+    soleEndpointKeyAgreementPublicKey: string;
     removedEndpointIds: string[];
   };
   consumedAuthority: {
@@ -1909,6 +1911,10 @@ export async function verifyAncV1RecoveryAuthorization(
       recoveryKeyAgreementPublicKey: commit.recoveryKeyAgreementPublicKey,
       recoveryWrapHash: commit.recoveryWrapHash,
       soleEndpointId: candidateId,
+      soleEndpointSigningPublicKey: ancV1BytesToHex(candidate.signingPublicKey),
+      soleEndpointKeyAgreementPublicKey: ancV1BytesToHex(
+        candidate.keyAgreementPublicKey,
+      ),
       removedEndpointIds: [...commit.removedEndpointIds],
     },
     consumedAuthority: {
@@ -1921,6 +1927,25 @@ export async function verifyAncV1RecoveryAuthorization(
     confirmationEnvelopeId: ancV1BytesToHex(replacement.envelopeId),
     ceremonyId: ancV1BytesToHex(authorization.ceremonyId),
   };
+}
+
+/**
+ * Verifies the complete publicly checkable recovery transition. The signed
+ * recovery authorization proves possession of the current recovery authority;
+ * a trusted client must still use verifyAncV1RecoveryAuthorization to prove
+ * that its mnemonic actually unseals the consumed wrap.
+ */
+export async function verifyAncV1RecoveryAuthorizationPublicEvidence(
+  encodedAuthorization: Uint8Array,
+  input: Omit<
+    Parameters<typeof verifyAncV1RecoveryAuthorization>[1],
+    "verifyConsumedWrapUnseals"
+  >,
+): Promise<AncV1VerifiedRecoveryProjection> {
+  return verifyAncV1RecoveryAuthorization(encodedAuthorization, {
+    ...input,
+    verifyConsumedWrapUnseals: async () => true,
+  });
 }
 
 export function createAncV1RecoveryAuthorizationVerifier(input: {
