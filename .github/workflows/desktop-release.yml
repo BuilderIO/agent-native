@@ -90,7 +90,7 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --mac --config --publish always
+        run: pnpm build:native:mac && pnpm build && npx electron-builder --mac --config --publish always
 
   build-windows:
     needs: resolve-version

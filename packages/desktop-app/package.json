@@ -25,6 +25,7 @@
     "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
     "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
+    "test:private-vault-packaging": "vitest run scripts/sign-private-vault.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -42,6 +43,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@electron/osx-sign": "2.6.0",
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",

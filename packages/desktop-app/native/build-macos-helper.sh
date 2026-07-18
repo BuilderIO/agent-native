@@ -20,3 +20,18 @@ lipo -create \
   -output "$OUTPUT_DIR/agent-native-computer-helper"
 rm "$OUTPUT_DIR/agent-native-computer-helper-arm64" "$OUTPUT_DIR/agent-native-computer-helper-x64"
 chmod 0755 "$OUTPUT_DIR/agent-native-computer-helper"
+
+# Private Vault ships as one universal XPC service plus a universal N-API
+# transport addon. Build both before electron-builder copies and signs them.
+bash "$ROOT/native/build-private-vault-service.sh"
+bash "$ROOT/native/build-private-vault-xpc-client.sh"
+
+PRIVATE_VAULT_SERVICE="$ROOT/native/private-vault-service/build/com.agentnative.desktop.private-vault-service.xpc"
+PRIVATE_VAULT_SERVICE_EXECUTABLE="$PRIVATE_VAULT_SERVICE/Contents/MacOS/AgentNativePrivateVaultService"
+PRIVATE_VAULT_ADDON="$ROOT/native/private-vault-xpc-client/build/private-vault-xpc-client.node"
+
+[[ -d "$PRIVATE_VAULT_SERVICE" ]]
+[[ -f "$PRIVATE_VAULT_SERVICE_EXECUTABLE" ]]
+[[ -f "$PRIVATE_VAULT_ADDON" ]]
+lipo "$PRIVATE_VAULT_SERVICE_EXECUTABLE" -verify_arch arm64 x86_64
+lipo "$PRIVATE_VAULT_ADDON" -verify_arch arm64 x86_64

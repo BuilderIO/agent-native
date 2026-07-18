@@ -31,6 +31,13 @@ mac:
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
   icon: build/icon.icns
+  sign: scripts/sign-private-vault.ts
+  extraFiles:
+    - from: native/private-vault-service/build/com.agentnative.desktop.private-vault-service.xpc
+      to: XPCServices/com.agentnative.desktop.private-vault-service.xpc
+  extraResources:
+    - from: native/private-vault-xpc-client/build/private-vault-xpc-client.node
+      to: native/private-vault-xpc-client.node
   extendInfo:
     CFBundleIconName: agent-native
     NSMicrophoneUsageDescription: Agent Native uses your microphone for dictation and realtime voice conversations.

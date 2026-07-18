@@ -236,6 +236,11 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
           rm certificate.p12
 
+      - name: Build Private Vault native artifacts
+        if: matrix.platform == 'mac'
+        working-directory: packages/desktop-app
+        run: pnpm build:native:mac
+
       - name: Build and publish
         working-directory: packages/desktop-app
         env:
