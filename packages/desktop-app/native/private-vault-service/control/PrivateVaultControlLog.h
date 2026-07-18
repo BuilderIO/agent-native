@@ -78,8 +78,12 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
 
 @protocol AncPrivateVaultControlLogAuthorizationVerifier <NSObject>
 @optional
-- (BOOL)verifyGenesisSignedEntry:(NSData *)signedEntry
-                   innerEnvelope:(NSData *)innerEnvelope;
+/// Authorizes genesis from immutable typed snapshots and the exact canonical
+/// bytes whose signature was authenticated.
+- (BOOL)verifyGenesisMembershipCommit:(AncPrivateVaultControlLogMembershipCommit *)commit
+                           signedEntry:(AncPrivateVaultControlLogSignedEntry *)entry
+                      signedEntryBytes:(NSData *)signedEntryBytes
+                    innerEnvelopeBytes:(NSData *)innerEnvelopeBytes;
 - (BOOL)verifyRecoverySignedEntry:(NSData *)signedEntry
                     innerEnvelope:(NSData *)innerEnvelope
                       currentState:(AncPrivateVaultControlLogState *)state;

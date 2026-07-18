@@ -85,54 +85,142 @@ static const char kLogEntryDomain[] = "anc/v1/log-entry";
 @implementation AncPrivateVaultControlLogReplayResult
 @end
 
-static void AncRaiseImmutableMutation(void) {
+static const void *kAncImmutableMutationAttempted =
+    &kAncImmutableMutationAttempted;
+
+static void AncRaiseImmutableMutation(id object) {
+  objc_setAssociatedObject(object, kAncImmutableMutationAttempted, @YES,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   [NSException raise:NSInternalInconsistencyException
               format:@"authenticated replay values are immutable"];
+}
+
+static BOOL AncImmutableMutationAttempted(id object) {
+  return [objc_getAssociatedObject(object, kAncImmutableMutationAttempted)
+      boolValue];
+}
+
+@interface AncPrivateVaultImmutableCallbackData : NSData
+- (instancetype)initWithData:(NSData *)data;
+@end
+
+@implementation AncPrivateVaultImmutableCallbackData {
+  NSData *_backing;
+}
+- (instancetype)initWithData:(NSData *)data {
+  self = [super init];
+  if (self != nil)
+    _backing = [NSData dataWithBytes:data.bytes length:data.length];
+  return self;
+}
+- (NSUInteger)length { return _backing.length; }
+- (const void *)bytes { return _backing.bytes; }
+- (void *)mutableBytes { AncRaiseImmutableMutation(self); return NULL; }
+- (void)setLength:(NSUInteger)length { (void)length; AncRaiseImmutableMutation(self); }
+- (void)increaseLengthBy:(NSUInteger)extraLength { (void)extraLength; AncRaiseImmutableMutation(self); }
+- (void)appendBytes:(const void *)bytes length:(NSUInteger)length {
+  (void)bytes; (void)length; AncRaiseImmutableMutation(self);
+}
+- (void)appendData:(NSData *)data { (void)data; AncRaiseImmutableMutation(self); }
+- (void)replaceBytesInRange:(NSRange)range withBytes:(const void *)bytes {
+  (void)range; (void)bytes; AncRaiseImmutableMutation(self);
+}
+- (void)replaceBytesInRange:(NSRange)range
+                  withBytes:(const void *)bytes
+                     length:(NSUInteger)length {
+  (void)range; (void)bytes; (void)length; AncRaiseImmutableMutation(self);
+}
+- (void)resetBytesInRange:(NSRange)range {
+  (void)range; AncRaiseImmutableMutation(self);
+}
+- (void)setData:(NSData *)data { (void)data; AncRaiseImmutableMutation(self); }
+@end
+
+static NSData *AncImmutableCallbackData(NSData *data) {
+  return [[AncPrivateVaultImmutableCallbackData alloc] initWithData:data];
 }
 
 @interface AncPrivateVaultAuthenticatedControlLogMember
     : AncPrivateVaultControlLogMember
 @end
 @implementation AncPrivateVaultAuthenticatedControlLogMember
-- (void)setEndpointId:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRole:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setUnattended:(BOOL)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setSigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setEnrollmentRef:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(); }
+- (void)setEndpointId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRole:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setUnattended:(BOOL)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setSigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setEnrollmentRef:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(self); }
+@end
+
+@interface AncPrivateVaultAuthenticatedControlLogMembershipCommit
+    : AncPrivateVaultControlLogMembershipCommit
+@end
+@implementation AncPrivateVaultAuthenticatedControlLogMembershipCommit
+- (void)setVaultId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setCeremonyId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setCeremonyKind:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setEpoch:(uint64_t)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setPreviousMembershipHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setActiveMembers:(NSArray *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRemovedEndpointIds:(NSArray *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRotationCompleted:(BOOL)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setOutstandingJobsResolved:(BOOL)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoverySnapshotHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryAuthorizationHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryGeneration:(uint64_t)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoverySigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryWrapHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(self); }
+@end
+
+@interface AncPrivateVaultAuthenticatedControlLogSignedEntry
+    : AncPrivateVaultControlLogSignedEntry
+@end
+@implementation AncPrivateVaultAuthenticatedControlLogSignedEntry
+- (void)setVaultId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setCreatedAt:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setEnvelopeId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setSequence:(uint64_t)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setPreviousHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setInnerEnvelopeBytes:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setSignerEndpointId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setSignature:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(self); }
 @end
 
 @interface AncPrivateVaultAuthenticatedControlLogState
     : AncPrivateVaultControlLogState
 @end
 @implementation AncPrivateVaultAuthenticatedControlLogState
-- (void)setVaultId:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setSequence:(uint64_t)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setHeadHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setMembershipHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setSignedAt:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setActiveMembers:(NSArray *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRemovedEndpointIds:(NSArray *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setEpoch:(uint64_t)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRecoveryGeneration:(uint64_t)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRecoveryId:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRecoverySigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRecoveryKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setRecoveryWrapHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setFreshnessMode:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(); }
+- (void)setVaultId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setSequence:(uint64_t)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setHeadHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setMembershipHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setSignedAt:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setActiveMembers:(NSArray *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRemovedEndpointIds:(NSArray *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setEpoch:(uint64_t)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryGeneration:(uint64_t)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryId:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoverySigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setRecoveryWrapHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setFreshnessMode:(NSString *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(self); }
 @end
 
 @interface AncPrivateVaultAuthenticatedReplayResult
     : AncPrivateVaultControlLogReplayResult
 @end
 @implementation AncPrivateVaultAuthenticatedReplayResult
-- (void)setState:(AncPrivateVaultControlLogState *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setEntryHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setIdempotent:(BOOL)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setAuthenticatedPriorState:(AncPrivateVaultControlLogState *)value { (void)value; AncRaiseImmutableMutation(); }
-- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(); }
+- (void)setState:(AncPrivateVaultControlLogState *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setEntryHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setIdempotent:(BOOL)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setAuthenticatedPriorState:(AncPrivateVaultControlLogState *)value { (void)value; AncRaiseImmutableMutation(self); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(self); }
 @end
 
 typedef NS_ENUM(NSInteger, AncInnerType) {
@@ -517,6 +605,14 @@ static NSArray<AncPrivateVaultControlLogMember *> *AncCopyMembers(NSArray *membe
   return [copies copy];
 }
 
+static NSArray<AncPrivateVaultControlLogMember *> *AncCopyImmutableMembers(
+    NSArray *members) {
+  NSArray *copies = AncCopyMembers(members);
+  for (AncPrivateVaultControlLogMember *member in copies)
+    object_setClass(member, AncPrivateVaultAuthenticatedControlLogMember.class);
+  return copies;
+}
+
 static AncPrivateVaultControlLogState *AncCopyState(AncPrivateVaultControlLogState *state) {
   AncPrivateVaultControlLogState *copy = [[AncPrivateVaultControlLogState alloc] init];
   copy.vaultId = [state.vaultId copy]; copy.sequence = state.sequence;
@@ -759,7 +855,7 @@ static AncPrivateVaultControlLogMembershipCommit *AncCopyCommit(AncControlInner 
   copy.vaultId = [inner.vaultId copy]; copy.ceremonyId = [inner.ceremonyId copy];
   copy.ceremonyKind = [inner.ceremonyKind copy]; copy.epoch = inner.epoch;
   copy.previousMembershipHash = [inner.previousMembershipHash copy];
-  copy.activeMembers = AncCopyMembers(inner.activeMembers);
+  copy.activeMembers = AncCopyImmutableMembers(inner.activeMembers);
   copy.removedEndpointIds = [[NSArray alloc] initWithArray:inner.removedEndpointIds copyItems:YES];
   copy.rotationCompleted = inner.rotationCompleted;
   copy.outstandingJobsResolved = inner.outstandingJobsResolved;
@@ -769,6 +865,8 @@ static AncPrivateVaultControlLogMembershipCommit *AncCopyCommit(AncControlInner 
   copy.recoverySigningPublicKey = [inner.recoverySigningPublicKey copy];
   copy.recoveryKeyAgreementPublicKey = [inner.recoveryKeyAgreementPublicKey copy];
   copy.recoveryWrapHash = [inner.recoveryWrapHash copy];
+  object_setClass(copy,
+                  AncPrivateVaultAuthenticatedControlLogMembershipCommit.class);
   return copy;
 }
 
@@ -778,7 +876,16 @@ static AncPrivateVaultControlLogSignedEntry *AncCopySignedEntry(AncControlEntry 
   copy.envelopeId = [entry.envelopeId copy]; copy.sequence = entry.sequence;
   copy.previousHash = [entry.previousHash copy]; copy.innerEnvelopeBytes = [entry.innerBytes copy];
   copy.signerEndpointId = [entry.signerEndpointId copy]; copy.signature = [entry.signature copy];
+  object_setClass(copy, AncPrivateVaultAuthenticatedControlLogSignedEntry.class);
   return copy;
+}
+
+static BOOL AncCommitMutationAttempted(
+    AncPrivateVaultControlLogMembershipCommit *commit) {
+  if (AncImmutableMutationAttempted(commit)) return YES;
+  for (AncPrivateVaultControlLogMember *member in commit.activeMembers)
+    if (AncImmutableMutationAttempted(member)) return YES;
+  return NO;
 }
 
 static BOOL AncMembersEqual(NSArray *left, NSArray *right) {
@@ -984,9 +1091,17 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
                result:(AncPrivateVaultControlLogReplayResult **)outResult {
   if (outResult == NULL) return AncPrivateVaultControlLogStatusInvalidEntry;
   *outResult = nil;
-  AncControlEntry *entry = AncParseEntry(signedEntry);
+  NSData *authenticatedSignedEntry = nil;
+  @try {
+    if (![signedEntry isKindOfClass:NSData.class])
+      return AncPrivateVaultControlLogStatusInvalidEntry;
+    authenticatedSignedEntry = [NSData dataWithData:signedEntry];
+  } @catch (__unused NSException *exception) {
+    return AncPrivateVaultControlLogStatusInvalidEntry;
+  }
+  AncControlEntry *entry = AncParseEntry(authenticatedSignedEntry);
   if (entry == nil) return AncPrivateVaultControlLogStatusInvalidEntry;
-  NSData *entryHash = AncHash(signedEntry);
+  NSData *entryHash = AncHash(authenticatedSignedEntry);
   if (entryHash == nil) return AncPrivateVaultControlLogStatusFailed;
   if (current != nil) {
     @try {
@@ -1064,19 +1179,31 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
   NSData *membershipHash = inner.type == AncInnerMembership ? AncHash(entry.innerBytes) : current.membershipHash;
   if (membershipHash == nil) return AncPrivateVaultControlLogStatusFailed;
   if (current == nil) {
-    if (![verifier respondsToSelector:@selector(verifyGenesisSignedEntry:innerEnvelope:)])
+    SEL selector = @selector(verifyGenesisMembershipCommit:signedEntry:signedEntryBytes:innerEnvelopeBytes:);
+    if (![verifier respondsToSelector:selector])
       return AncPrivateVaultControlLogStatusGenesisAuthorizationRequired;
-    NSData *signedSnapshot = [signedEntry copy];
-    NSData *innerSnapshot = [entry.innerBytes copy];
+    AncPrivateVaultControlLogMembershipCommit *commitSnapshot = AncCopyCommit(inner);
+    AncPrivateVaultControlLogSignedEntry *entrySnapshot = AncCopySignedEntry(entry);
+    NSData *signedBytesSnapshot = AncImmutableCallbackData(authenticatedSignedEntry);
+    NSData *innerBytesSnapshot = AncImmutableCallbackData(entry.innerBytes);
     BOOL authorized = NO;
     @try {
-      authorized = [verifier verifyGenesisSignedEntry:signedSnapshot
-                                        innerEnvelope:innerSnapshot];
+      authorized = [verifier verifyGenesisMembershipCommit:commitSnapshot
+                                                signedEntry:entrySnapshot
+                                           signedEntryBytes:signedBytesSnapshot
+                                         innerEnvelopeBytes:innerBytesSnapshot];
     } @catch (__unused NSException *exception) {
       authorized = NO;
     }
-    if (!authorized || ![innerSnapshot isEqualToData:entry.innerBytes] ||
-        ![AncHash(signedSnapshot) isEqualToData:entryHash])
+    if (!authorized || AncCommitMutationAttempted(commitSnapshot) ||
+        AncImmutableMutationAttempted(entrySnapshot) ||
+        AncImmutableMutationAttempted(signedBytesSnapshot) ||
+        AncImmutableMutationAttempted(innerBytesSnapshot) ||
+        !AncCommitSnapshotEqual(commitSnapshot, inner) ||
+        !AncSignedEntrySnapshotEqual(entrySnapshot, entry) ||
+        ![signedBytesSnapshot isEqualToData:authenticatedSignedEntry] ||
+        ![innerBytesSnapshot isEqualToData:entry.innerBytes] ||
+        ![signedEntry isEqualToData:authenticatedSignedEntry])
       return AncPrivateVaultControlLogStatusGenesisAuthorizationRequired;
   } else if (inner.type == AncInnerContinuity) {
     if (![inner.membershipHash isEqualToData:current.membershipHash])
@@ -1086,7 +1213,7 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
         ![verifier respondsToSelector:@selector(verifyCeremonyAbortSignedEntry:innerEnvelope:currentState:)])
       return AncPrivateVaultControlLogStatusCeremonyAbortAuthorizationRequired;
     AncPrivateVaultControlLogState *stateSnapshot = AncCopyState(current);
-    NSData *signedSnapshot = [signedEntry copy];
+    NSData *signedSnapshot = [authenticatedSignedEntry copy];
     NSData *innerSnapshot = [entry.innerBytes copy];
     BOOL authorized = NO;
     @try {
@@ -1110,7 +1237,7 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
       return AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired;
     if ([inner.ceremonyKind isEqualToString:@"recovery"]) {
       AncPrivateVaultControlLogState *stateSnapshot = AncCopyState(current);
-      NSData *signedSnapshot = [signedEntry copy];
+      NSData *signedSnapshot = [authenticatedSignedEntry copy];
       NSData *innerSnapshot = [entry.innerBytes copy];
       BOOL authorized = NO;
       @try {
@@ -1138,12 +1265,14 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
         authorized = [verifier verifyRecoveryWrapRotationCommit:commitSnapshot
                                                      signedEntry:entrySnapshot
                                                     currentState:stateSnapshot
-                                                signedEntryBytes:[signedEntry copy]
+                                                signedEntryBytes:[authenticatedSignedEntry copy]
                                               innerEnvelopeBytes:[entry.innerBytes copy]];
       } @catch (__unused NSException *exception) {
         authorized = NO;
       }
-      if (!authorized || !AncCommitSnapshotEqual(commitSnapshot, inner) ||
+      if (!authorized || AncCommitMutationAttempted(commitSnapshot) ||
+          AncImmutableMutationAttempted(entrySnapshot) ||
+          !AncCommitSnapshotEqual(commitSnapshot, inner) ||
           !AncSignedEntrySnapshotEqual(entrySnapshot, entry) ||
           !AncStateSnapshotEqual(stateSnapshot, current))
         return AncPrivateVaultControlLogStatusRecoveryWrapRotationRequired;

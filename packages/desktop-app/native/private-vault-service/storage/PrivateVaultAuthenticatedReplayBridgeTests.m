@@ -115,9 +115,14 @@ static BOOL BridgeInvocationSetterThrew(id object, SEL selector, id value) {
     : NSObject <AncPrivateVaultControlLogAuthorizationVerifier>
 @end
 @implementation BridgeAuthorizationVerifier
-- (BOOL)verifyGenesisSignedEntry:(NSData *)signedEntry
-                   innerEnvelope:(NSData *)innerEnvelope {
-  return signedEntry.length > 0 && innerEnvelope.length > 0;
+- (BOOL)verifyGenesisMembershipCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                           signedEntry:
+                               (AncPrivateVaultControlLogSignedEntry *)entry
+                      signedEntryBytes:(NSData *)signedEntryBytes
+                    innerEnvelopeBytes:(NSData *)innerEnvelopeBytes {
+  return commit != nil && entry != nil && signedEntryBytes.length > 0 &&
+         innerEnvelopeBytes.length > 0;
 }
 - (BOOL)verifyRecoverySignedEntry:(NSData *)signedEntry
                     innerEnvelope:(NSData *)innerEnvelope

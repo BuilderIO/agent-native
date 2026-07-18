@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { describe, it, afterEach } from "node:test";
 
 import {
+  assertNoNativeTestVectorArtifacts,
   looksLikeMaterializedCorpus,
   swapCorpusDirIntoPlace,
 } from "./materialize-source-corpus.mjs";
@@ -66,6 +67,28 @@ describe("looksLikeMaterializedCorpus", () => {
   it("is false for a directory that does not exist", () => {
     const dir = join(makeScratchDir(), "missing");
     assert.equal(looksLikeMaterializedCorpus(dir), false);
+  });
+});
+
+describe("assertNoNativeTestVectorArtifacts", () => {
+  it("excludes genesis authorization generators and fixtures from the shipped corpus", () => {
+    const dir = makeScratchDir();
+    const sourceDir = join(dir, "packages/core/src/e2ee");
+    const fixtureDir = join(sourceDir, "fixtures");
+    mkdirSync(fixtureDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, "native-genesis-authorization-vectors.ts"),
+      "test-only generator",
+    );
+    writeFileSync(
+      join(fixtureDir, "anc-v1-native-genesis-authorization-vectors.json"),
+      "{}",
+    );
+
+    assert.throws(
+      () => assertNoNativeTestVectorArtifacts(dir),
+      /native-genesis-authorization-vectors/,
+    );
   });
 });
 

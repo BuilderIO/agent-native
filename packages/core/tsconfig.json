@@ -32,6 +32,7 @@
     "src/**/*.e2e-host.tsx",
     "src/e2ee/native-control-log-vectors.ts",
     "src/e2ee/native-genesis-bootstrap-vectors.ts",
+    "src/e2ee/native-genesis-authorization-vectors.ts",
     "src/e2ee/native-rotation-preparation-vectors.ts",
     "src/e2ee/native-recovery-wrap-vectors.ts",
     "src/e2ee/native-authority-store-vectors.ts",

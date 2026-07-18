@@ -122,6 +122,10 @@ static NSData *ReplaceFirstMemberUnattended(NSData *inner,
 @property(nonatomic) BOOL allowRecovery;
 @property(nonatomic) BOOL allowRecoveryWrapRotation;
 @property(nonatomic) BOOL allowAbort;
+@property(nonatomic) NSInteger genesisMutation;
+@property(nonatomic) BOOL catchGenesisMutationException;
+@property(nonatomic) BOOL caughtGenesisMutationException;
+@property(nonatomic) BOOL throwGenesisException;
 @property(nonatomic) BOOL mutateRecoveryWrapSnapshot;
 @property(nonatomic) BOOL mutateRecoverySnapshot;
 @property(nonatomic) BOOL mutateAbortSnapshot;
@@ -131,10 +135,50 @@ static NSData *ReplaceFirstMemberUnattended(NSData *inner,
 @property(nonatomic, nullable) NSData *expectedPriorMembershipHash;
 @property(nonatomic) uint64_t expectedRecoveryWrapEpoch;
 @property(nonatomic, nullable) NSString *expectedRecoveryWrapActivationTime;
+@property(nonatomic, nullable) NSData *expectedGenesisSignedEntry;
+@property(nonatomic, nullable) NSData *expectedGenesisInnerEnvelope;
+@property(nonatomic, nullable) NSMutableData *genesisOriginalInput;
 @end
 @implementation TestVerifier
-- (BOOL)verifyGenesisSignedEntry:(NSData *)entry innerEnvelope:(NSData *)inner {
-  return self.allowGenesis && entry.length > inner.length;
+- (BOOL)verifyGenesisMembershipCommit:(AncPrivateVaultControlLogMembershipCommit *)commit
+                           signedEntry:(AncPrivateVaultControlLogSignedEntry *)entry
+                      signedEntryBytes:(NSData *)signedEntryBytes
+                    innerEnvelopeBytes:(NSData *)innerEnvelopeBytes {
+  if (self.throwGenesisException)
+    [NSException raise:NSInternalInconsistencyException format:@"genesis verifier failure"];
+  @try {
+    switch (self.genesisMutation) {
+      case 1:
+        [commit setValue:@"ceremony:mutated" forKey:@"ceremonyId"];
+        break;
+      case 2:
+        [entry setValue:@"log-entry:mutated" forKey:@"envelopeId"];
+        break;
+      case 3:
+        [commit.activeMembers[0] setValue:@"endpoint:mutated" forKey:@"endpointId"];
+        break;
+      case 4:
+        ((uint8_t *)[(NSMutableData *)signedEntryBytes mutableBytes])[0] ^= 1;
+        break;
+      case 5:
+        ((uint8_t *)[(NSMutableData *)innerEnvelopeBytes mutableBytes])[0] ^= 1;
+        break;
+      case 6:
+        ((uint8_t *)self.genesisOriginalInput.mutableBytes)[0] ^= 1;
+        break;
+    }
+  } @catch (NSException *exception) {
+    if (!self.catchGenesisMutationException) @throw exception;
+    self.caughtGenesisMutationException = YES;
+  }
+  return self.allowGenesis &&
+      [commit.ceremonyKind isEqualToString:@"first_device"] &&
+      commit.activeMembers.count == 1 && entry.sequence == 0 &&
+      [entry.innerEnvelopeBytes isEqualToData:innerEnvelopeBytes] &&
+      (self.expectedGenesisSignedEntry == nil ||
+       [signedEntryBytes isEqualToData:self.expectedGenesisSignedEntry]) &&
+      (self.expectedGenesisInnerEnvelope == nil ||
+       [innerEnvelopeBytes isEqualToData:self.expectedGenesisInnerEnvelope]);
 }
 - (BOOL)verifyRecoveryWrapRotationCommit:(AncPrivateVaultControlLogMembershipCommit *)commit
                               signedEntry:(AncPrivateVaultControlLogSignedEntry *)entry
@@ -186,6 +230,8 @@ static void TestReplayAndAdversarialCases(void) {
                                 owner, privateKey, @"2026-07-17T01:00:00.000Z");
   AncPrivateVaultControlLog *log = [[AncPrivateVaultControlLog alloc] init];
   TestVerifier *verifier = [[TestVerifier alloc] init]; verifier.allowGenesis = YES;
+  verifier.expectedGenesisSignedEntry = genesis;
+  verifier.expectedGenesisInnerEnvelope = genesisInner;
   AncPrivateVaultControlLogReplayResult *result = nil;
   for (AncPrivateVaultCanonicalValue *wrongSequence in
        @[[AncPrivateVaultCanonicalValue boolean:NO], [AncPrivateVaultCanonicalValue boolean:YES]]) {
@@ -218,6 +264,27 @@ static void TestReplayAndAdversarialCases(void) {
                                   owner, privateKey, @"2026-07-17T01:00:00.000Z");
     assert([log replaySignedEntry:invalid currentState:nil verifier:verifier result:&result] ==
            AncPrivateVaultControlLogStatusInvalidEntry);
+  }
+  assert([log replaySignedEntry:genesis currentState:nil verifier:nil result:&result] ==
+         AncPrivateVaultControlLogStatusGenesisAuthorizationRequired && result == nil);
+  TestVerifier *throwingVerifier = [[TestVerifier alloc] init];
+  throwingVerifier.allowGenesis = YES;
+  throwingVerifier.throwGenesisException = YES;
+  assert([log replaySignedEntry:genesis currentState:nil verifier:throwingVerifier
+                          result:&result] ==
+         AncPrivateVaultControlLogStatusGenesisAuthorizationRequired && result == nil);
+  for (NSInteger mutation = 1; mutation <= 6; mutation += 1) {
+    NSMutableData *mutableGenesis = [genesis mutableCopy];
+    TestVerifier *mutatingVerifier = [[TestVerifier alloc] init];
+    mutatingVerifier.allowGenesis = YES;
+    mutatingVerifier.genesisMutation = mutation;
+    mutatingVerifier.catchGenesisMutationException = YES;
+    mutatingVerifier.genesisOriginalInput = mutableGenesis;
+    assert([log replaySignedEntry:mutableGenesis currentState:nil
+                        verifier:mutatingVerifier result:&result] ==
+           AncPrivateVaultControlLogStatusGenesisAuthorizationRequired && result == nil);
+    if (mutation <= 5) assert(mutatingVerifier.caughtGenesisMutationException);
+    if (mutation != 6) assert([mutableGenesis isEqualToData:genesis]);
   }
   assert([log replaySignedEntry:genesis currentState:nil verifier:verifier result:&result] ==
          AncPrivateVaultControlLogStatusOK);

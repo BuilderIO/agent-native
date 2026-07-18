@@ -12,6 +12,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m"
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
+  "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
@@ -526,6 +527,36 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_BOOTSTRAP_TESTS:-}" in
   }
   build_genesis_bootstrap_tests arm64
   build_genesis_bootstrap_tests x86_64
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_GENESIS_AUTHORIZATION_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  GENESIS_AUTHORIZATION_TEST_OUTPUT="$OUTPUT_ROOT/.genesis-authorization-tests"
+  rm -rf "$GENESIS_AUTHORIZATION_TEST_OUTPUT"
+  mkdir -p "$GENESIS_AUTHORIZATION_TEST_OUTPUT"
+  build_genesis_authorization_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$GENESIS_AUTHORIZATION_TEST_OUTPUT/private-vault-genesis-authorization-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -DANC_PRIVATE_VAULT_TESTING=1 \
+      -DANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-genesis-authorization-vectors.json"'"' \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorizationTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_genesis_authorization_tests arm64
+  build_genesis_authorization_tests x86_64
   ;;
 esac
 

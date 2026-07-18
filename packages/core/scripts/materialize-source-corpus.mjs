@@ -136,10 +136,10 @@ function shouldSkipFile(name) {
 function isNativeTestVectorArtifact(relativePath) {
   const normalized = relativePath.split("\\").join("/");
   return (
-    /(?:^|\/)native-(?:control-log|authority-store|recovery-wrap|genesis-bootstrap|rotation-preparation)-vectors\.ts$/.test(
+    /(?:^|\/)native-(?:control-log|authority-store|recovery-wrap|genesis-bootstrap|genesis-authorization|rotation-preparation)-vectors\.ts$/.test(
       normalized,
     ) ||
-    /(?:^|\/)fixtures\/anc-v1-native-(?:control-log|authority-store|recovery-wrap|genesis-bootstrap|rotation-preparation)-vectors\.json$/.test(
+    /(?:^|\/)fixtures\/anc-v1-native-(?:control-log|authority-store|recovery-wrap|genesis-bootstrap|genesis-authorization|rotation-preparation)-vectors\.json$/.test(
       normalized,
     )
   );

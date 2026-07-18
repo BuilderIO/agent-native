@@ -458,11 +458,23 @@ native, public-only genesis recovery-confirmation and bootstrap-transcript
 verifier. It matches the frozen Core bytes and domain-separated digests, rejects
 all 72 frozen malformed or misbound cases on arm64 and x86_64, snapshots caller
 bytes across multi-step verification, and returns immutable decoded results.
-The verifier is compiled into the universal production XPC service and passed an
-independent trust-boundary review. It does not close PR 5: native genesis
-authorization and crash-safe enrollment, complete enrollment and recovery
-product flows, malicious-directory and stolen-session transcripts, and the
-independently packageable broker exit gate still remain.
+The first-device path now continues through a concrete native genesis
+authorization verifier. Its source-anchored, public-only Core corpus contains
+7 signed positive boundary cases and 205 exact-category negative cases across
+35 rejection categories. The native verifier binds the authorization to the
+locally verified bootstrap transcript and recovery confirmation, checks the
+endpoint, control-log, and authorization signatures under their exact
+domain-separated messages, enforces inclusive timestamp ordering and the typed
+first-device commit invariants, and returns only immutable public results. The
+hardened ControlLog callback supplies immutable typed snapshots plus the exact
+signed bytes and fails closed on exceptions, caught mutation attempts, or caller
+buffer changes. Both the verifier and callback passed arm64 and x86_64 corpus
+tests, the 9-test production native-service suite, deterministic corpus
+regeneration, and an independent trust-boundary review with a GO verdict. The
+verifier is compiled into the universal production XPC service. This still does
+not close PR 5: crash-safe durable first-device enrollment, complete enrollment
+and recovery product flows, malicious-directory and stolen-session transcripts,
+and the independently packageable broker exit gate remain.
 
 ### PR 6 — Feature-gated Content Private Vault vertical slice
 
