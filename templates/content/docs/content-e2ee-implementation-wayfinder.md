@@ -801,6 +801,32 @@ verifier can mint this capability; only the test build can synthesize one. The
 authority corpus exercises a broker candidate from offer through authorization,
 encrypted authority-frame creation, custody activation, and reread.
 
+Native candidate preparation now has a Core-parity offer primitive. Given only
+exact 16-byte lifecycle identifiers, bounded ceremony times, a role, and
+borrowed native seeds, it derives the candidate signing and agreement keys,
+emits the frozen canonical `anc/v1` enrollment offer, hashes it with the exact
+`enrollment-offer` domain, and signs the key-possession proof with the exact
+`enrollment-key-proof` domain. Private keys and temporary domain messages are
+zeroized before return; the result contains public bytes only. A deterministic
+Core-generated vector matches the native offer, both public keys, offer hash,
+and proof byte-for-byte on arm64 and x86_64, while role/unattended mismatch and
+overlong lifetime fail closed. The coordinator still needs a hardened local
+artifact store before it may persist candidate custody: a crash between custody
+creation and hosted offer publication must not orphan an unreconstructable
+offer.
+
+Native candidate offer construction now matches the frozen Core ceremony
+byte-for-byte. Given only exact lifecycle identifiers, bounded timestamps, a
+32-byte enrollment nonce, and native-held signing and agreement seeds, it derives
+the public keys, emits deterministic canonical CBOR, computes the domain-separated
+offer hash, and signs the candidate key-possession proof. The returned result
+contains public bytes only; derived private keys are zeroized before return.
+Apple Silicon and Intel tests match a Core-generated broker offer, offer hash,
+public keys, and proof exactly, and reject role/unattended mismatches and an
+overlong ceremony lifetime. The coordinator still must generate these inputs,
+persist the exact resumable public artifact, and install the corresponding
+offer-pending custody record atomically.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and
