@@ -131,6 +131,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         return PVRequestInvalid;
     }
 
+    bool unlock = strcmp(operation, "unlock") == 0;
     bool resumeRotation = strcmp(operation, "resume_rotation") == 0;
     bool commitGenesis = strcmp(operation, "commit_genesis") == 0;
     bool prepareGenesis = strcmp(operation, "prepare_genesis") == 0;
@@ -145,7 +146,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool recoverPage = strcmp(operation, "recover_page") == 0;
     bool recoverStatus = strcmp(operation, "recover_status") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
-        !resumeRotation && !commitGenesis && !prepareGenesis &&
+        !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus) {
@@ -154,7 +155,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (resumeRotation || recoverStatus) {
+    if (unlock || resumeRotation || recoverStatus) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
@@ -254,7 +255,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->operation = operation;
     request->requestID = requestID;
     request->vaultID =
-        resumeRotation || recoverStatus
+        unlock || resumeRotation || recoverStatus
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =

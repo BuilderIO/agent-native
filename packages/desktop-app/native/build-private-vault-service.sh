@@ -33,6 +33,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultTrustedTimeStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m"
+  "$SOURCE_ROOT/storage/PrivateVaultSession.m"
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
@@ -276,6 +277,35 @@ case "${PRIVATE_VAULT_BUILD_RECOVERY_TESTS:-}" in
   fi
   ;;
   *) echo "Invalid Private Vault recovery-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_SESSION_TESTS:-}" in
+  "") ;;
+  1)
+  SESSION_TEST_OUTPUT="$OUTPUT_ROOT/.session-tests"
+  rm -rf "$SESSION_TEST_OUTPUT"
+  mkdir -p "$SESSION_TEST_OUTPUT"
+  compile_session_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$SESSION_TEST_OUTPUT/private-vault-session-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/storage" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultSession.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultSessionTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_session_test_slice arm64 "$ARM64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_session_test_slice x86_64 "$X86_64_SODIUM"
+  fi
+  ;;
+  *) echo "Invalid Private Vault session-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_CANONICAL_TESTS:-}" in

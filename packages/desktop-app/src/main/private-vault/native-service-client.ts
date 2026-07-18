@@ -5,6 +5,7 @@ import { ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES } from "@agent-native/core/e2ee"
 import type {
   NativeHealthResult,
   NativeLockResult,
+  NativeUnlockResult,
 } from "@agent-native/private-vault-broker";
 
 import type {
@@ -33,6 +34,7 @@ type RotationAckState =
 type NativeOperation =
   | "health"
   | "lock"
+  | "unlock"
   | "resume_rotation"
   | "commit_genesis"
   | "create_genesis"
@@ -60,6 +62,7 @@ export interface PrivateVaultNativeServiceClient
     PrivateVaultBootstrapPageConsumer {
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
+  unlock(vaultId: string): Promise<NativeUnlockResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
   commitGenesis(
     input: NativeCommitGenesisInput,
@@ -204,6 +207,24 @@ function parseLock(value: unknown): NativeLockResult {
     suite: SERVICE_SUITE,
     operation: "lock",
     state: "locked",
+  });
+}
+
+function parseUnlock(value: unknown): NativeUnlockResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "unlock" ||
+    value.state !== "unlocked"
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "unlock",
+    state: "unlocked",
   });
 }
 
@@ -665,6 +686,20 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       () => this.#clearLockFlight(flight),
     );
     return flight;
+  }
+
+  unlock(vaultId: string): Promise<NativeUnlockResult> {
+    if (!isLowerHex(vaultId, 32)) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseUnlock(await addon.request("unlock", vaultId));
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
   }
 
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult> {

@@ -9,6 +9,7 @@
 #include "Protocol.h"
 #include "PrivateVaultCrypto.h"
 #import "PrivateVaultCustodyRepository.h"
+#import "PrivateVaultSession.h"
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultControlLog.h"
 #import "PrivateVaultGenesisBootstrap.h"
@@ -38,6 +39,7 @@
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
+static AncPrivateVaultSession *gSession = nil;
 static AncPrivateVaultGenesisCoordinator *gGenesisCoordinator = nil;
 static AncPrivateVaultBootstrapReplay *gBootstrapReplay = nil;
 static NSLock *gBootstrapReplayLock = nil;
@@ -216,11 +218,14 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
         if (gHostedAppendRetry != nil) {
             [gHostedAppendRetry wake];
         }
-        bool available = gGenesisCoordinator != nil &&
+        bool available = gGenesisCoordinator != nil && gSession != nil &&
                          gRotationCoordinator != nil &&
                          gHostedAppendRetry != nil;
-        xpc_dictionary_set_string(reply, "state",
-                                  available ? "locked" : "unavailable");
+        const char *state = !available
+                                ? "unavailable"
+                            : gSession.isUnlocked ? "unlocked"
+                                                  : "locked";
+        xpc_dictionary_set_string(reply, "state", state);
         xpc_dictionary_set_bool(reply, "available", available);
         xpc_dictionary_set_string(reply, "rotationAckState",
                                   PVRotationAckState());
@@ -229,6 +234,39 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
     }
 
     xpc_connection_send_message(peer, reply);
+}
+
+static void PVUnlock(xpc_connection_t peer, xpc_object_t message,
+                     const PVRequest *request) {
+    if (gSession == nil || request->vaultID == NULL) {
+        PVSendError(peer, message, "unlock_failed");
+        return;
+    }
+    NSString *vaultID = [NSString stringWithUTF8String:request->vaultID];
+    if (vaultID.length != 32 ||
+        [gSession unlockVaultId:vaultID] != AncPrivateVaultSessionStatusOK) {
+        PVSendError(peer, message, "unlock_failed");
+        return;
+    }
+    xpc_object_t reply = PVCreateReply(message, request);
+    if (reply == NULL) return;
+    xpc_dictionary_set_string(reply, "state", "unlocked");
+    xpc_connection_send_message(peer, reply);
+    xpc_release(reply);
+}
+
+static void PVLock(xpc_connection_t peer, xpc_object_t message,
+                   const PVRequest *request) {
+    if (gSession == nil ||
+        [gSession lock] != AncPrivateVaultSessionStatusOK) {
+        PVSendError(peer, message, "lock_failed");
+        return;
+    }
+    xpc_object_t reply = PVCreateReply(message, request);
+    if (reply == NULL) return;
+    xpc_dictionary_set_string(reply, "state", "locked");
+    xpc_connection_send_message(peer, reply);
+    xpc_release(reply);
 }
 
 static void PVCommitGenesis(xpc_connection_t peer, xpc_object_t message,
@@ -869,6 +907,14 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVCommitGenesis(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "unlock") == 0) {
+                PVUnlock(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "lock") == 0) {
+                PVLock(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "resume_rotation") == 0) {
                 PVResumeRotation(peer, message, &request);
                 return;
@@ -965,6 +1011,10 @@ int main(void) {
             [[AncPrivateVaultKeychain alloc] init];
         gCustodyRepository = [[AncPrivateVaultCustodyRepository alloc]
             initWithKeychain:keychain];
+        gSession = [[AncPrivateVaultSession alloc]
+            initWithRepository:
+                (id<AncPrivateVaultSessionCustodyRepository>)
+                    gCustodyRepository];
         AncPrivateVaultRotationPreparationSpoolStore *spool =
             [[AncPrivateVaultRotationPreparationSpoolStore alloc]
                 initWithStateRootURL:stateRoot];
@@ -1055,7 +1105,7 @@ int main(void) {
                                       gHostedAppendTransport
                               scheduler:retryScheduler];
         if (stateRoot == nil || recoveryStateRoot == nil || keychain == nil ||
-            gCustodyRepository == nil ||
+            gCustodyRepository == nil || gSession == nil ||
             spool == nil || preparation == nil || authority == nil ||
             controlLog == nil || genesisArtifacts == nil ||
             genesisPreparationArtifacts == nil ||

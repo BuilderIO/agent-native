@@ -38,7 +38,7 @@ function clientFor(value: unknown) {
 }
 
 describe("Private Vault native service client", () => {
-  it("normalizes the exact health and lock service contracts", async () => {
+  it("normalizes the exact health, lock, and unlock service contracts", async () => {
     await expect(
       clientFor({
         version: 3,
@@ -65,6 +65,26 @@ describe("Private Vault native service client", () => {
       operation: "lock",
       state: "locked",
     });
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "unlock",
+      state: "unlocked",
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(client.unlock(vaultId)).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "unlock",
+      state: "unlocked",
+    });
+    expect(request).toHaveBeenCalledWith("unlock", vaultId);
+    await expect(client.unlock("not-a-vault")).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it("binds rotation resume to one exact vault and proof tuple", async () => {

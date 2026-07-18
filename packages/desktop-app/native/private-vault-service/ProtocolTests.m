@@ -59,6 +59,20 @@ int main(void) {
   assert(PVRequestCanRun(&parsed, true));
   xpc_release(lock);
 
+  xpc_object_t unlock =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "unlock", "request-unlock");
+  xpc_dictionary_set_string(unlock, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(unlock, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "unlock") == 0);
+  assert(strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  xpc_release(unlock);
+
+  xpc_object_t unlockWithoutVault =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "unlock", "request-unlock-missing");
+  assert(PVParseRequest(unlockWithoutVault, &parsed) == PVRequestInvalid);
+  xpc_release(unlockWithoutVault);
+
   xpc_object_t resume =
       PVMakeRequest(PV_PROTOCOL_VERSION, "resume_rotation", "request-rotate");
   xpc_dictionary_set_string(resume, "vaultId",
@@ -355,7 +369,7 @@ int main(void) {
   xpc_release(wrongVersion);
 
   xpc_object_t unknown =
-      PVMakeRequest(PV_PROTOCOL_VERSION, "unlock", "request_4");
+      PVMakeRequest(PV_PROTOCOL_VERSION, "derive_key", "request_4");
   assert(PVParseRequest(unknown, &parsed) == PVRequestUnsupportedOperation);
   xpc_release(unknown);
 

@@ -55,6 +55,7 @@ describe("Private Vault XPC service contract", () => {
     expect(protocol).toContain("PV_MAXIMUM_REQUEST_ID_BYTES");
     expect(protocol).toContain('strcmp(operation, "health")');
     expect(protocol).toContain('strcmp(operation, "lock")');
+    expect(protocol).toContain('strcmp(operation, "unlock")');
     for (const operation of [
       "prepare_genesis",
       "confirm_genesis",
@@ -79,6 +80,17 @@ describe("Private Vault XPC service contract", () => {
     expect(source).not.toContain('"message"');
     expect(source).toContain('"unavailable"');
   });
+
+  it("keeps unlocked custody inside a guarded native session", () => {
+    expect(source).toContain("AncPrivateVaultSession");
+    expect(source).toContain("unlockVaultId");
+    expect(source).toContain("[gSession lock]");
+    expect(
+      execFileSync(join(serviceRoot, "run-session-tests.sh"), {
+        encoding: "utf8",
+      }),
+    ).toContain("private-vault session tests passed");
+  }, 120_000);
 
   it("rejects adversarial protocol dictionaries in the native parser", () => {
     expect(

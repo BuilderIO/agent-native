@@ -39,6 +39,7 @@ PVRequestGate gRequestGate;
 enum class PVOperation {
   Health,
   Lock,
+  Unlock,
   ResumeRotation,
   CommitGenesis,
   CreateGenesis,
@@ -720,7 +721,7 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
   const bool validKeys =
       operation == PVOperation::Health
           ? PVHasExactKeys(reply, healthKeys, 6)
-      : operation == PVOperation::Lock
+      : operation == PVOperation::Lock || operation == PVOperation::Unlock
           ? PVHasExactKeys(reply, lockKeys, 4)
       : operation == PVOperation::CommitGenesis
           ? PVHasExactKeys(reply, genesisKeys, 12)
@@ -771,8 +772,11 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     }
     memcpy(parsed.rotationAckState, rotationAckState,
            strlen(rotationAckState) + 1);
-  } else if (operation == PVOperation::Lock) {
-    if (strcmp(state, "locked") != 0) {
+  } else if (operation == PVOperation::Lock ||
+             operation == PVOperation::Unlock) {
+    const char *expected =
+        operation == PVOperation::Unlock ? "unlocked" : "locked";
+    if (strcmp(state, expected) != 0) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
@@ -876,6 +880,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "health"
                           : request->operation == PVOperation::Lock
                               ? "lock"
+                          : request->operation == PVOperation::Unlock
+                              ? "unlock"
                           : request->operation == PVOperation::ResumeRotation
                               ? "resume_rotation"
                           : request->operation == PVOperation::CommitGenesis
@@ -937,7 +943,8 @@ void PVExecute(napi_env env, void *data) {
   xpc_dictionary_set_string(message, "operation", operation);
   xpc_dictionary_set_string(message, "requestId", requestID);
   if (request->operation == PVOperation::ResumeRotation ||
-      request->operation == PVOperation::RecoverStatus)
+      request->operation == PVOperation::RecoverStatus ||
+      request->operation == PVOperation::Unlock)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   if (request->operation == PVOperation::CommitGenesis) {
     xpc_dictionary_set_data(message, "recoveryConfirmation",
@@ -1097,6 +1104,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "health"
                 : request->operation == PVOperation::Lock
                     ? "lock"
+                : request->operation == PVOperation::Unlock
+                    ? "unlock"
                 : request->operation == PVOperation::ResumeRotation
                     ? "resume_rotation"
                 : request->operation == PVOperation::CommitGenesis
@@ -1268,6 +1277,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::Health;
   } else if (strcmp(operation, "lock") == 0) {
     request->operation = PVOperation::Lock;
+  } else if (strcmp(operation, "unlock") == 0) {
+    request->operation = PVOperation::Unlock;
   } else if (strcmp(operation, "resume_rotation") == 0) {
     request->operation = PVOperation::ResumeRotation;
   } else if (strcmp(operation, "commit_genesis") == 0) {
@@ -1297,7 +1308,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     return nullptr;
   }
   const size_t expectedArgumentCount =
-      request->operation == PVOperation::ResumeRotation ||
+      request->operation == PVOperation::Unlock ||
+              request->operation == PVOperation::ResumeRotation ||
               request->operation == PVOperation::RecoverStatus
           ? 2
       : request->operation == PVOperation::CommitGenesis ? 4
@@ -1316,7 +1328,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
                           "Private Vault native service request failed");
     return nullptr;
   }
-  if (request->operation == PVOperation::ResumeRotation ||
+  if (request->operation == PVOperation::Unlock ||
+      request->operation == PVOperation::ResumeRotation ||
       request->operation == PVOperation::RecoverStatus) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
