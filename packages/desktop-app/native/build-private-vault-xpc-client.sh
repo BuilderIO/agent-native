@@ -35,6 +35,7 @@ compile_slice() {
     -framework AppKit \
     "$SOURCE" \
     "$SOURCE_ROOT/TrustedGenesisUI.mm" \
+    "$SOURCE_ROOT/TrustedEnrollmentUI.mm" \
     -o "$output"
 }
 
