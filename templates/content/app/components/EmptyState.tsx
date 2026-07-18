@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { IconFileText, IconPlus } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";

@@ -1,10 +1,9 @@
 import {
   AgentChatSurface,
-  appBasePath,
-  appPath,
   markAgentChatHomeHandoff,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useCallback,
   useEffect,

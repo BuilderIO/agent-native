@@ -1,9 +1,9 @@
 import {
   createRegistryBlockNode,
   RegistryBlockDataProvider,
-  useRegistryBlockData,
   type RegistryBlockDataValue,
-} from "@agent-native/core/client";
+  useRegistryBlockData,
+} from "@agent-native/core/client/rich-markdown-editor";
 import { createPlanBlockId, type PlanBlock } from "@shared/plan-content";
 import type { ReactNode } from "react";
 

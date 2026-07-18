@@ -1,10 +1,10 @@
+import { captureClientException } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
-  callAction,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {

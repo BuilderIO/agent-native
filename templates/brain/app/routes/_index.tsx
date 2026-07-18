@@ -1,8 +1,8 @@
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";

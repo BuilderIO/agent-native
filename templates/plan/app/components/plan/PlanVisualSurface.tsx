@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
 import type { PlanAnnotation } from "@shared/plan-content";
 import {

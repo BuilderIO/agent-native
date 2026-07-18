@@ -1,8 +1,5 @@
-import {
-  useActionMutation,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconBrandFigma,

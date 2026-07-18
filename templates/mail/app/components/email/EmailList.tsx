@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
 import {
   IconAlertCircle,

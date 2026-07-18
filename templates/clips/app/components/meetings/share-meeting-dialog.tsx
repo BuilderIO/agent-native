@@ -1,4 +1,6 @@
-import { appPath, useActionQuery, useT } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLink, IconMail } from "@tabler/icons-react";
 import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";

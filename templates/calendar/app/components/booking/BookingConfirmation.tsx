@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Booking, CustomField } from "@shared/api";
 import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
 import { format, parseISO } from "date-fns";

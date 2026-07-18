@@ -1,20 +1,24 @@
 import {
   AgentToggleButton,
-  appPath,
-  getBrowserTabId,
-  getEmbedAuthToken,
-  isEmbedMcpChatBridgeActive,
-  isEmbedAuthActive,
   insertAgentComposerReference,
-  readClientAppState,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  getBrowserTabId,
+  readClientAppState,
   useActionMutation,
   useActionQuery,
-  useAgentChatGenerating,
-  useT,
   writeClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import {
+  getEmbedAuthToken,
+  isEmbedAuthActive,
+  isEmbedMcpChatBridgeActive,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   createAgentNativeEmbedEnvelope,

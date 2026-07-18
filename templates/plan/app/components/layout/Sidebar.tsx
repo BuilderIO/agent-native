@@ -1,22 +1,21 @@
 import {
-  agentNativePath,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
   isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
-  PromptComposer,
   sendToAgentChat,
-  useCodeMode,
   useChatThreads,
   useSendToAgentChat,
-  useSession,
-  useT,
   type ChatThreadSummary,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconArchive,
   IconBrain,

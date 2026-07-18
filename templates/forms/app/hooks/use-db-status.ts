@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useQuery } from "@tanstack/react-query";
 
 interface EnvStatusEntry {

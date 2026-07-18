@@ -1,7 +1,7 @@
 import {
   GuidedQuestionFlow,
   type GuidedQuestion,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
 import { useMemo } from "react";
 

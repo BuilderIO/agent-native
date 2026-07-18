@@ -1,9 +1,11 @@
 import {
-  agentNativePath,
-  appBasePath,
   isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";

@@ -1,8 +1,6 @@
-import {
-  useSendToAgentChat,
-  PromptComposer,
-  useT,
-} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPlus } from "@tabler/icons-react";
 import { useState } from "react";
 

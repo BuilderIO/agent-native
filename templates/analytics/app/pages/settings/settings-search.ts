@@ -1,7 +1,7 @@
 import {
   getAgentSettingsSearchTabs,
   type SettingsSearchEntry,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 
 interface SettingsCommandItem {
   id: string;

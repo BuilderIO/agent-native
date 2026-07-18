@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { ExtensionsListPage } from "@agent-native/core/client/extensions";
 
 import { PageHeader } from "@/components/library/page-header";

@@ -1,11 +1,13 @@
 import {
   FeatureFlagsEditor,
-  useActionMutation,
-  useActionQuery,
-  useT,
   type FeatureFlagMetadata,
   type SetFeatureFlagInput,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/feature-flags";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconRefresh } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 

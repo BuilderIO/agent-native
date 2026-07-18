@@ -1,4 +1,5 @@
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 

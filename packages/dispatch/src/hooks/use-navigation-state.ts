@@ -1,10 +1,12 @@
 import {
+  isAgentChatHomeHandoffActive,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client/agent-chat";
+import {
   agentNativePath,
   appBasePath,
   appPath,
-  isAgentChatHomeHandoffActive,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";

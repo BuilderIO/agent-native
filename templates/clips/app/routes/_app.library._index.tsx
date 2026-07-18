@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconPlayerRecord } from "@tabler/icons-react";
 import { NavLink } from "react-router";

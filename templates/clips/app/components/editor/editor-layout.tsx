@@ -1,22 +1,12 @@
-/**
- * Non-destructive editor for a single recording.
- *
- * Three rows, top to bottom:
- *   1. Preview — a simple <video> element plus a side panel for transcript.
- *   2. Transcript editor (middle) + chapters sidebar.
- *   3. Waveform, trim handles, timeline ruler (bottom).
- *
- * All edits (trim, split, thumbnail, chapters, stitch) go through actions so
- * the agent and UI stay in sync via `useDbSync` + the `refresh-signal` poke.
- */
-
 import {
   agentNativePath,
   appBasePath,
+} from "@agent-native/core/client/api-path";
+import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 

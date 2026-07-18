@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 

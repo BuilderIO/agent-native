@@ -1,21 +1,21 @@
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  setClientAppState,
-  useActionMutation,
-  useCodeMode,
-  useT,
-} from "@agent-native/core/client";
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
 import {
+  setClientAppState,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
   OrgSwitcher,
   useOrg,
   useSwitchOrg,
 } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   closestCenter,
   DndContext,

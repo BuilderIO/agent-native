@@ -3,13 +3,15 @@ import {
   type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import {
-  PresenceBar,
-  RecentEditHighlights,
-  useT,
   type AttributedRecentEdit,
   type CollabUser,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  PresenceBar,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { Button } from "@agent-native/toolkit/ui/button";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {

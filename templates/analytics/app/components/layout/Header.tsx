@@ -1,5 +1,5 @@
-import { AgentToggleButton } from "@agent-native/core/client";
-import { useT } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import type { ReactNode } from "react";
 import { useLocation } from "react-router";

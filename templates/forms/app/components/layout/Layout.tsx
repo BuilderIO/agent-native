@@ -4,8 +4,8 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";

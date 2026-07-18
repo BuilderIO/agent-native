@@ -1,4 +1,5 @@
-import { Turnstile, PoweredByBadge, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
 import type { FormField, FormSettings } from "@shared/types";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import { useState, useMemo, useEffect } from "react";

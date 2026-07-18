@@ -1,4 +1,5 @@
-import { callAction, setClientAppState, useT } from "@agent-native/core/client";
+import { callAction, setClientAppState } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import type { Document } from "@shared/api";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";

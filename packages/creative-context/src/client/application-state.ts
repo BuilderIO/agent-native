@@ -3,7 +3,7 @@ import {
   readClientAppState,
   setClientAppState,
   useChangeVersion,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useState } from "react";
 
 export const CREATIVE_CONTEXT_STATE_KEY = "creative-context";

@@ -3,8 +3,8 @@ import {
   setClientAppState,
   useActionMutation,
   useChangeVersion,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   designRepromptPendingStateKey,
   isNodeRewriteProposal,

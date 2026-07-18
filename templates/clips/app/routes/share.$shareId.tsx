@@ -1,13 +1,12 @@
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
+import { track } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
   appPath,
-  track,
-  useSession,
-  AgentPanel,
-  getBrowserTabId,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconArrowLeft,

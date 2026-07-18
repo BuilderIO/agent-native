@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef } from "react";
 
 import { clampCompletionPct } from "../../shared/view-analytics";
