@@ -8,6 +8,10 @@ import type {
 } from "@agent-native/private-vault-broker";
 
 import type {
+  PrivateVaultBootstrapPageAcceptance,
+  PrivateVaultBootstrapPageConsumer,
+} from "./content-bootstrap-transport.js";
+import type {
   PendingPrivateVaultGenesis,
   PrivateVaultEndpointAuthenticatedRequest,
   PrivateVaultGenesisAdmissionResult,
@@ -36,7 +40,9 @@ type NativeOperation =
   | "authorize_admit"
   | "accept_admit"
   | "finalize_genesis"
-  | "accept_bootstrap";
+  | "accept_bootstrap"
+  | "recover_begin"
+  | "recover_page";
 
 interface NativeAddon {
   request(
@@ -47,7 +53,10 @@ interface NativeAddon {
 
 type NativeAddonLoader = () => Promise<NativeAddon>;
 
-export interface PrivateVaultNativeServiceClient extends PrivateVaultTrustedGenesisOperator {
+export interface PrivateVaultNativeServiceClient
+  extends
+    PrivateVaultTrustedGenesisOperator,
+    PrivateVaultBootstrapPageConsumer {
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
@@ -339,6 +348,46 @@ function parseBootstrapFrame(value: unknown): NativeParsedBootstrapFrameResult {
   });
 }
 
+function parseRecoveryPage(
+  value: unknown,
+  operation: "recover_begin" | "recover_page",
+): PrivateVaultBootstrapPageAcceptance {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "throughSequence",
+      "headSequence",
+      "headHash",
+      "complete",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== operation ||
+    !isLowerHex(value.vaultId, 32) ||
+    !isSafeInteger(value.throughSequence, false) ||
+    !isSafeInteger(value.headSequence, false) ||
+    value.throughSequence > value.headSequence ||
+    !isLowerHex(value.headHash, 64) ||
+    typeof value.complete !== "boolean" ||
+    value.complete !== (value.throughSequence === value.headSequence) ||
+    value.state !== (value.complete ? "verified" : "accepted")
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    vaultId: value.vaultId,
+    throughSequence: value.throughSequence,
+    head: Object.freeze({
+      sequence: value.headSequence,
+      hash: value.headHash,
+    }),
+    complete: value.complete,
+  });
+}
+
 function copyBoundedBytes(value: unknown, maximum: number): Uint8Array {
   if (
     !(value instanceof Uint8Array) ||
@@ -545,6 +594,8 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
   #healthFlight: Promise<NativeHealthResult> | null = null;
   #lockFlight: Promise<NativeLockResult> | null = null;
   #genesisPending = false;
+  #bootstrapStarted = false;
+  #bootstrapComplete = false;
 
   constructor(loader: NativeAddonLoader) {
     this.#addon = loader();
@@ -649,6 +700,45 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         return parseBootstrapFrame(
           await addon.request("accept_bootstrap", frame),
         );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        frame.fill(0);
+      }
+    });
+  }
+
+  acceptPage(
+    encoded: Uint8Array,
+  ): Promise<PrivateVaultBootstrapPageAcceptance> {
+    if (this.#bootstrapComplete) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    let frame: Buffer;
+    try {
+      frame = Buffer.from(
+        copyBoundedBytes(encoded, ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES),
+      );
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      if (this.#bootstrapComplete) {
+        frame.fill(0);
+        throw new PrivateVaultNativeServiceClientError();
+      }
+      const operation = this.#bootstrapStarted
+        ? "recover_page"
+        : "recover_begin";
+      try {
+        const addon = await this.#addon;
+        const accepted = parseRecoveryPage(
+          await addon.request(operation, frame),
+          operation,
+        );
+        this.#bootstrapStarted = true;
+        this.#bootstrapComplete = accepted.complete;
+        return accepted;
       } catch {
         throw new PrivateVaultNativeServiceClientError();
       } finally {

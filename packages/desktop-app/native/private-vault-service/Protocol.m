@@ -141,11 +141,13 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool acceptAdmission = strcmp(operation, "accept_admit") == 0;
     bool finalizeGenesis = strcmp(operation, "finalize_genesis") == 0;
     bool acceptBootstrap = strcmp(operation, "accept_bootstrap") == 0;
+    bool recoverBegin = strcmp(operation, "recover_begin") == 0;
+    bool recoverPage = strcmp(operation, "recover_page") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
-        !acceptBootstrap) {
+        !acceptBootstrap && !recoverBegin && !recoverPage) {
         return PVRequestUnsupportedOperation;
     }
 
@@ -216,6 +218,26 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
             return PVRequestInvalid;
         }
     } else if (acceptBootstrap) {
+        if (fieldCount != 4 || vaultIDValue != NULL || lookupIDValue != NULL ||
+            !PVReadBoundedData(message, "bootstrapFrame",
+                               PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES,
+                               &request->bootstrapFrame,
+                               &request->bootstrapFrameLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (recoverBegin) {
+        if (fieldCount != 5 || vaultIDValue != NULL || lookupIDValue != NULL ||
+            !PVReadBoundedData(message, "bootstrapFrame",
+                               PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES,
+                               &request->bootstrapFrame,
+                               &request->bootstrapFrameLength) ||
+            !PVReadBoundedData(message, "recoveryMnemonic",
+                               PV_GENESIS_MNEMONIC_MAXIMUM_BYTES,
+                               &request->recoveryMnemonic,
+                               &request->recoveryMnemonicLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (recoverPage) {
         if (fieldCount != 4 || vaultIDValue != NULL || lookupIDValue != NULL ||
             !PVReadBoundedData(message, "bootstrapFrame",
                                PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES,

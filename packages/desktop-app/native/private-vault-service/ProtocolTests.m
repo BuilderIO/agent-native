@@ -84,6 +84,52 @@ int main(void) {
   assert(PVRequestCanRun(&parsed, true));
   xpc_release(bootstrap);
 
+  const uint8_t recoveryMnemonicBytes[] = {'a', 'b', 'a', 'n',
+                                            'd', 'o', 'n'};
+  xpc_object_t recoverBegin = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "recover_begin", "request-recover-begin");
+  xpc_dictionary_set_data(recoverBegin, "bootstrapFrame", bootstrapBytes,
+                          sizeof bootstrapBytes);
+  xpc_dictionary_set_data(recoverBegin, "recoveryMnemonic",
+                          recoveryMnemonicBytes,
+                          sizeof recoveryMnemonicBytes);
+  assert(PVParseRequest(recoverBegin, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "recover_begin") == 0);
+  assert(parsed.bootstrapFrameLength == sizeof bootstrapBytes);
+  assert(parsed.recoveryMnemonicLength == sizeof recoveryMnemonicBytes);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
+  xpc_release(recoverBegin);
+
+  xpc_object_t recoverPage = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "recover_page", "request-recover-page");
+  xpc_dictionary_set_data(recoverPage, "bootstrapFrame", bootstrapBytes,
+                          sizeof bootstrapBytes);
+  assert(PVParseRequest(recoverPage, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "recover_page") == 0);
+  assert(parsed.bootstrapFrameLength == sizeof bootstrapBytes);
+  assert(parsed.recoveryMnemonic == NULL);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
+  xpc_release(recoverPage);
+
+  xpc_object_t missingRecoveryPhrase = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "recover_begin", "request-recover-missing");
+  xpc_dictionary_set_data(missingRecoveryPhrase, "bootstrapFrame",
+                          bootstrapBytes, sizeof bootstrapBytes);
+  assert(PVParseRequest(missingRecoveryPhrase, &parsed) == PVRequestInvalid);
+  xpc_release(missingRecoveryPhrase);
+
+  xpc_object_t extraRecoveryPhrase = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "recover_page", "request-recover-extra");
+  xpc_dictionary_set_data(extraRecoveryPhrase, "bootstrapFrame",
+                          bootstrapBytes, sizeof bootstrapBytes);
+  xpc_dictionary_set_data(extraRecoveryPhrase, "recoveryMnemonic",
+                          recoveryMnemonicBytes,
+                          sizeof recoveryMnemonicBytes);
+  assert(PVParseRequest(extraRecoveryPhrase, &parsed) == PVRequestInvalid);
+  xpc_release(extraRecoveryPhrase);
+
   xpc_object_t missingBootstrap = PVMakeRequest(
       PV_PROTOCOL_VERSION, "accept_bootstrap", "request-bootstrap-missing");
   assert(PVParseRequest(missingBootstrap, &parsed) == PVRequestInvalid);

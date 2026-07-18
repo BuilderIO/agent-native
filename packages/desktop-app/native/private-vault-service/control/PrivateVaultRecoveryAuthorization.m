@@ -669,8 +669,7 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
   NSData *stateMembership = state.membershipHash;
   uint64_t now = self.trustedNowMilliseconds / 1000;
   if (vaultId == nil || stateRecoveryId == nil || stateHead.length != 32 ||
-      stateMembership.length != 32 || now < self.authorization.createdAt ||
-      now > self.authorization.expiresAt ||
+      stateMembership.length != 32 ||
       ![vaultId isEqualToData:self.authorization.vaultId] ||
       state.recoveryGeneration != self.authorization.consumedGeneration ||
       ![stateRecoveryId isEqualToData:self.authorization.consumedId] ||

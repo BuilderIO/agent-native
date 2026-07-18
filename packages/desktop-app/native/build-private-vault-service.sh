@@ -45,6 +45,7 @@ SOURCES=(
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinator.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m"
   "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m"
+  "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplay.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"
@@ -1056,6 +1057,48 @@ case "${PRIVATE_VAULT_BUILD_RECOVERY_AUTHORIZATION_TESTS:-}" in
   build_recovery_authorization_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_recovery_authorization_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_REPLAY_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  BOOTSTRAP_REPLAY_TEST_OUTPUT="$OUTPUT_ROOT/.bootstrap-replay-tests"
+  rm -rf "$BOOTSTRAP_REPLAY_TEST_OUTPUT"
+  mkdir -p "$BOOTSTRAP_REPLAY_TEST_OUTPUT"
+  build_bootstrap_replay_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$BOOTSTRAP_REPLAY_TEST_OUTPUT/private-vault-bootstrap-replay-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery" \
+      -I"$SOURCE_ROOT/transport" -I"$sodium_root/include" \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplay.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapReplayTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_bootstrap_replay_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_bootstrap_replay_tests x86_64
   fi
   ;;
 esac

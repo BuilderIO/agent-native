@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, and an account-authorized first-device genesis through trusted native UI and narrow Content IPC have executable proof; endpoint enrollment/recovery, complete broker packaging, and the product slice remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, an account-authorized first-device genesis, and mnemonic-proven native recovery replay through trusted desktop UI have executable proof; recovered custody admission, endpoint enrollment, complete broker packaging, and the product slice remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -745,10 +745,34 @@ authority generations locally; and opens both wraps inside guarded memory. It
 accepts the edge only when the two wraps contain the same EEK under a
 constant-time comparison, then zeroizes both temporary copies. A fully signed
 native ceremony passes on arm64 and x86_64, while a separately valid
-replacement wrap containing the wrong EEK is rejected. The remaining recovery
-gate is a page-by-page replay session plus trusted mnemonic-import UI and
-durable recovered custody admission; the native parser still does not promote
-parsed pages into trusted state.
+replacement wrap containing the wrong EEK is rejected.
+
+The signed native service now owns the page-by-page recovery replay session.
+It starts only at sequence zero, pins one vault and one hosted head, decodes the
+immutable genesis candidate, verifies bootstrap and account authorization,
+derives the committed generation-one recovery authority, authenticates and
+unseals the genesis wrap, and then replays ordinary rotations and recovery
+edges through their typed verifiers. Every activated wrap must contain the
+same EEK; the final frame must carry the exact authenticated current wrap and
+match the replayed control state and head. A malformed, discontinuous,
+substituted, future-dated, wrong-EEK, or corrupt-final-wrap page invalidates the
+session and closes guarded entropy, EEK, and authority material.
+
+The desktop addon exposes this as `recover_begin` and `recover_page`, never as
+a mnemonic-bearing JavaScript API. Before the first page is consumed, the
+addon asks the service to parse the bounded frame solely to obtain its public
+vault label, then collects all 24 words in a native AppKit secure-entry
+ceremony. Phrase bytes cross only the code-signed XPC channel, are bounded and
+cleared, and never enter Electron IPC, the renderer, logs, or the typed
+main-process result. Failed beginnings do not advance the TypeScript consumer;
+a new native beginning invalidates any abandoned partial replay. Exact reply
+schemas distinguish `accepted` pages from the final `verified` page. Real
+genesis-frame replay, corrupt-wrap fail-closed tests, dual-architecture native
+replay and protocol runners, the universal service and addon builds, desktop
+client tests, and desktop typecheck pass. The remaining recovery gate is
+durable promotion of the verified EEK and replayed authority into fresh-device
+custody followed by recovered-endpoint admission; verification alone is not
+reported as recovery success.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
@@ -756,9 +780,10 @@ decoded bytes rather than mnemonic text to Argon2id, and use the exact
 native-generated 16-byte vault ID as the salt for genesis and every later
 recovery generation. This preserves the frozen `anc/v1` wire format while
 removing an otherwise fatal recovery interoperability ambiguity. Core/native
-derivation parity is now closed on arm64 and independently reviewed; the
-current-source x86_64 rerun and actual recovery-wrap persistence remain
-implementation gates before the first real vault is created.
+derivation parity is closed on arm64 and x86_64 and independently reviewed.
+The generation-one recovery wrap is persisted as an immutable hosted artifact
+and is now consumed through exact native replay; durable fresh-device custody
+promotion remains the next implementation gate.
 
 The public lifecycle `AncV1RecoveryEnvelope` codec retains an arbitrary salt
 only to decode its frozen synthetic compatibility vector. It is a parallel

@@ -45,6 +45,14 @@ FOUNDATION_EXPORT NSData
         NSData *authorization,
         AncPrivateVaultGenesisAdmissionStatus *_Nullable status);
 
+/** Strictly splits the immutable account-admission candidate retained as
+ * bootstrap control evidence. Returned components are owning copies. */
+FOUNDATION_EXPORT BOOL AncPrivateVaultGenesisAdmissionCandidateDecode(
+    NSData *candidate, NSData *_Nullable *_Nonnull bootstrapTranscript,
+    NSData *_Nullable *_Nonnull recoveryConfirmation,
+    NSData *_Nullable *_Nonnull authorization,
+    AncPrivateVaultGenesisAdmissionStatus *_Nullable status);
+
 /* The server-only HMAC tag remains opaque locally and is reverified by the
  * server on admission. Native verification binds every visible coordinate,
  * candidate hash, canonical byte, and validity window before signing. */

@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "PrivateVaultServiceIdentity.h"
 #include "Protocol.h"
 #include "PrivateVaultCrypto.h"
@@ -29,12 +30,15 @@
 #import "PrivateVaultHostedAppendRetryStore.h"
 #import "PrivateVaultHostedAppendTransport.h"
 #import "PrivateVaultBootstrapFrame.h"
+#import "PrivateVaultBootstrapReplay.h"
 #import "PrivateVaultTrustedTimeStore.h"
 #import "PrivateVaultMnemonic.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
 static AncPrivateVaultGenesisCoordinator *gGenesisCoordinator = nil;
+static AncPrivateVaultBootstrapReplay *gBootstrapReplay = nil;
+static NSLock *gBootstrapReplayLock = nil;
 static AncPrivateVaultRotationCoordinator *gRotationCoordinator = nil;
 static AncPrivateVaultHostedAppendTransport *gHostedAppendTransport = nil;
 static AncPrivateVaultHostedAppendCandidateIndex *gHostedAppendCandidates = nil;
@@ -289,6 +293,90 @@ static void PVAcceptBootstrap(xpc_connection_t peer, xpc_object_t message,
         xpc_object_t reply = PVCreateReply(message, request);
         if (reply == NULL) return;
         xpc_dictionary_set_string(reply, "state", "parsed");
+        xpc_dictionary_set_string(reply, "vaultId", frame.vaultId.UTF8String);
+        xpc_dictionary_set_uint64(reply, "throughSequence",
+                                  (uint64_t)frame.throughSequence);
+        xpc_dictionary_set_uint64(reply, "headSequence", frame.headSequence);
+        xpc_dictionary_set_string(reply, "headHash", frame.headHash.UTF8String);
+        xpc_dictionary_set_bool(reply, "complete", frame.complete);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVRecoverBootstrap(xpc_connection_t peer, xpc_object_t message,
+                               const PVRequest *request, BOOL begin) {
+    @autoreleasepool {
+        NSData *encoded =
+            request->bootstrapFrame == NULL
+                ? nil
+                : [NSData dataWithBytes:request->bootstrapFrame
+                                 length:request->bootstrapFrameLength];
+        AncPrivateVaultBootstrapFrameStatus frameStatus;
+        AncPrivateVaultBootstrapFrame *frame =
+            AncPrivateVaultBootstrapFrameDecode(encoded, &frameStatus);
+        if (frame == nil || frameStatus != AncPrivateVaultBootstrapFrameStatusOK) {
+            PVSendError(peer, message, "recovery_failed");
+            return;
+        }
+        [gBootstrapReplayLock lock];
+        BOOL accepted = NO;
+        AncPrivateVaultBootstrapReplayStatus replayStatus;
+        @try {
+            if (begin) {
+                [gBootstrapReplay invalidate];
+                gBootstrapReplay = nil;
+                if (frame.afterSequence != -1 ||
+                    request->recoveryMnemonic == NULL ||
+                    request->recoveryMnemonicLength == 0) {
+                    accepted = NO;
+                } else {
+                    NSData *mnemonic = [NSData
+                        dataWithBytesNoCopy:(void *)request->recoveryMnemonic
+                                    length:request->recoveryMnemonicLength
+                              freeWhenDone:NO];
+                    AncPrivateVaultMnemonicStatus mnemonicStatus;
+                    AncPrivateVaultGuardedMemory *entropy =
+                        AncPrivateVaultMnemonicDecode(mnemonic, &mnemonicStatus);
+                    AncPrivateVaultBootstrapReplay *candidate =
+                        entropy == nil
+                            ? nil
+                            : [[AncPrivateVaultBootstrapReplay alloc]
+                                  initWithOwnedRecoveryEntropy:entropy
+                                        trustedNowMilliseconds:
+                                            (uint64_t)llround(
+                                                NSDate.date.timeIntervalSince1970 *
+                                                1000.0)
+                                                        status:&replayStatus];
+                    accepted = candidate != nil &&
+                               [candidate consumeFrame:frame status:&replayStatus];
+                    if (accepted) {
+                        gBootstrapReplay = candidate;
+                    } else {
+                        [candidate invalidate];
+                        if (candidate == nil)
+                            [entropy close];
+                    }
+                }
+            } else {
+                accepted = gBootstrapReplay != nil &&
+                           [gBootstrapReplay consumeFrame:frame
+                                                   status:&replayStatus];
+            }
+            if (!accepted && gBootstrapReplay != nil) {
+                [gBootstrapReplay invalidate];
+                gBootstrapReplay = nil;
+            }
+        } @finally {
+            [gBootstrapReplayLock unlock];
+        }
+        if (!accepted) {
+            PVSendError(peer, message, "recovery_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state",
+                                  frame.complete ? "verified" : "accepted");
         xpc_dictionary_set_string(reply, "vaultId", frame.vaultId.UTF8String);
         xpc_dictionary_set_uint64(reply, "throughSequence",
                                   (uint64_t)frame.throughSequence);
@@ -735,6 +823,14 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVAcceptBootstrap(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "recover_begin") == 0) {
+                PVRecoverBootstrap(peer, message, &request, YES);
+                return;
+            }
+            if (strcmp(request.operation, "recover_page") == 0) {
+                PVRecoverBootstrap(peer, message, &request, NO);
+                return;
+            }
             PVSendSuccess(peer, message, &request);
             return;
         case PVRequestUnsupportedVersion:
@@ -773,6 +869,7 @@ int main(void) {
         if (anc_pv_crypto_init() != ANC_PV_CRYPTO_OK) {
             return EXIT_FAILURE;
         }
+        gBootstrapReplayLock = [NSLock new];
         NSURL *stateRoot = PVStateRootURL();
         AncPrivateVaultKeychain *keychain =
             [[AncPrivateVaultKeychain alloc] init];

@@ -11,4 +11,7 @@ bool PVTrustedGenesisCollectFullPhrase(
 bool PVTrustedGenesisConfirmAdmission(const char *accountID,
                                       const char *workspaceID);
 
+bool PVTrustedRecoveryCollectPhrase(const char *vaultID,
+                                    std::vector<uint8_t> &recoveryPhrase);
+
 #endif

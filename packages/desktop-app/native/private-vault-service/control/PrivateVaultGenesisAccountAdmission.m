@@ -183,6 +183,49 @@ NSData *AncPrivateVaultGenesisAdmissionCandidateEncode(
   return encoded;
 }
 
+BOOL AncPrivateVaultGenesisAdmissionCandidateDecode(
+    NSData *candidate, NSData **bootstrapTranscript,
+    NSData **recoveryConfirmation, NSData **authorization,
+    AncPrivateVaultGenesisAdmissionStatus *status) {
+  if (bootstrapTranscript != NULL)
+    *bootstrapTranscript = nil;
+  if (recoveryConfirmation != NULL)
+    *recoveryConfirmation = nil;
+  if (authorization != NULL)
+    *authorization = nil;
+  AncAdmissionStatus(status, AncPrivateVaultGenesisAdmissionStatusInvalid);
+  if (bootstrapTranscript == NULL || recoveryConfirmation == NULL ||
+      authorization == NULL || candidate.length == 0 ||
+      candidate.length > ANC_PV_GENESIS_ADMISSION_CANDIDATE_MAX_BYTES)
+    return NO;
+  NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map =
+      AncAdmissionEnvelope(candidate,
+                           ANC_PV_GENESIS_ADMISSION_CANDIDATE_MAX_BYTES, 6);
+  if (map.count != 6 || !AncAdmissionHeader(
+                            map, @"genesis-account-admission-candidate") ||
+      map[@4].type != AncPrivateVaultCanonicalTypeBytes ||
+      map[@5].type != AncPrivateVaultCanonicalTypeBytes ||
+      map[@6].type != AncPrivateVaultCanonicalTypeBytes)
+    return NO;
+  NSData *bootstrap = map[@4].bytesValue;
+  NSData *confirmation = map[@5].bytesValue;
+  NSData *authorizationBytes = map[@6].bytesValue;
+  if (bootstrap.length == 0 || bootstrap.length > kBootstrapMaximum ||
+      confirmation.length == 0 ||
+      confirmation.length > kConfirmationMaximum ||
+      authorizationBytes.length == 0 ||
+      authorizationBytes.length > kAuthorizationMaximum ||
+      !AncAdmissionCanonicalMap(bootstrap, kBootstrapMaximum) ||
+      !AncAdmissionCanonicalMap(confirmation, kConfirmationMaximum) ||
+      !AncAdmissionCanonicalMap(authorizationBytes, kAuthorizationMaximum))
+    return NO;
+  *bootstrapTranscript = [bootstrap copy];
+  *recoveryConfirmation = [confirmation copy];
+  *authorization = [authorizationBytes copy];
+  AncAdmissionStatus(status, AncPrivateVaultGenesisAdmissionStatusOK);
+  return YES;
+}
+
 AncPrivateVaultGenesisAdmissionChallenge *
 AncPrivateVaultGenesisAdmissionChallengeDecode(
     NSData *challenge, NSData *expectedCandidate, uint64_t nowMilliseconds,

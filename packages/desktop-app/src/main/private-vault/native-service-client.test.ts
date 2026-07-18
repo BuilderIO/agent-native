@@ -205,6 +205,136 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("streams recovery through native ceremony operations without exposing the phrase", async () => {
+    const vaultId = "31".repeat(16);
+    const headHash = "42".repeat(32);
+    const observed: Array<{
+      operation: string;
+      bytes: number[];
+      argumentCount: number;
+      frame: Buffer;
+    }> = [];
+    const request = vi.fn(
+      async (operation: string, ...arguments_: Array<string | Buffer>) => {
+        const frame = arguments_[0] as Buffer;
+        observed.push({
+          operation,
+          bytes: [...frame],
+          argumentCount: arguments_.length,
+          frame,
+        });
+        const complete = operation === "recover_page";
+        return {
+          version: 3,
+          operation,
+          state: complete ? "verified" : "accepted",
+          vaultId,
+          throughSequence: complete ? 5 : 2,
+          headSequence: 5,
+          headHash,
+          complete,
+        };
+      },
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    const first = Uint8Array.of(1, 2, 3);
+    const firstPending = client.acceptPage(first);
+    first.fill(9);
+    await expect(firstPending).resolves.toEqual({
+      vaultId,
+      throughSequence: 2,
+      head: { sequence: 5, hash: headHash },
+      complete: false,
+    });
+    await expect(client.acceptPage(Uint8Array.of(4, 5))).resolves.toEqual({
+      vaultId,
+      throughSequence: 5,
+      head: { sequence: 5, hash: headHash },
+      complete: true,
+    });
+    expect(observed.map(({ operation }) => operation)).toEqual([
+      "recover_begin",
+      "recover_page",
+    ]);
+    expect(observed.map(({ bytes }) => bytes)).toEqual([
+      [1, 2, 3],
+      [4, 5],
+    ]);
+    expect(observed.every(({ argumentCount }) => argumentCount === 1)).toBe(
+      true,
+    );
+    expect(
+      observed.every(({ frame }) => frame.every((byte) => byte === 0)),
+    ).toBe(true);
+    await expect(client.acceptPage(Uint8Array.of(6))).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not advance recovery after a failed or hostile first page", async () => {
+    const vaultId = "51".repeat(16);
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("native rejection"))
+      .mockResolvedValueOnce({
+        version: 3,
+        operation: "recover_begin",
+        state: "accepted",
+        vaultId,
+        throughSequence: 1,
+        headSequence: 2,
+        headHash: "62".repeat(32),
+        complete: false,
+      });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(client.acceptPage(Uint8Array.of(1))).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    await expect(client.acceptPage(Uint8Array.of(2))).resolves.toMatchObject({
+      vaultId,
+      throughSequence: 1,
+      complete: false,
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "recover_begin",
+      expect.any(Buffer),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "recover_begin",
+      expect.any(Buffer),
+    );
+
+    for (const mutation of [
+      { state: "verified" },
+      { complete: true },
+      { throughSequence: 3 },
+      { operation: "recover_page" },
+      { extra: true },
+    ]) {
+      const hostile = clientFor({
+        version: 3,
+        operation: "recover_begin",
+        state: "accepted",
+        vaultId,
+        throughSequence: 1,
+        headSequence: 2,
+        headHash: "62".repeat(32),
+        complete: false,
+        ...mutation,
+      });
+      await expect(hostile.acceptPage(Uint8Array.of(1))).rejects.toEqual(
+        new PrivateVaultNativeServiceClientError(),
+      );
+    }
+  });
+
   it("copies and bounds the content-free genesis commit contract before queueing", async () => {
     const publicProof = {
       vaultId: "01".repeat(16),
@@ -626,6 +756,7 @@ describe("Private Vault native service client", () => {
     expect(wrapperSource).not.toContain("resume_pending_genesis");
     expect(nativeSource).toContain("PVTrustedGenesisCollectFullPhrase");
     expect(nativeSource).toContain("PVTrustedGenesisConfirmAdmission");
+    expect(nativeSource).toContain("PVTrustedRecoveryCollectPhrase");
     expect(nativeSource).not.toMatch(
       /PVSet(Buffer|String)[^\n]*recoveryMnemonic/,
     );
@@ -711,6 +842,15 @@ describe("Private Vault native service client", () => {
       addon.request("resume_rotation", "00112233445566778899aabbccddeeff"),
     ).rejects.toThrow("Private Vault native service request failed");
     expect(() => addon.request("commit_genesis")).toThrow(
+      "Private Vault native service request failed",
+    );
+    expect(() => addon.request("recover_begin")).toThrow(
+      "Private Vault native service request failed",
+    );
+    expect(() => addon.request("recover_begin", Buffer.alloc(0))).toThrow(
+      "Private Vault native service request failed",
+    );
+    expect(() => addon.request("recover_page", Buffer.alloc(0))).toThrow(
       "Private Vault native service request failed",
     );
     expect(() =>

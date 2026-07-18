@@ -431,18 +431,31 @@ monotonic anchor against coordinated restoration of both valid Keychain
 frames. A remote or hardware witness is required before making that stronger
 anti-rollback claim.
 
-This is still not a usable PREPARE ceremony. The trusted desktop confirmation
-surface, account-authorized hosted genesis admission, and native hosted retry
-transport remain required before any vault can be created. Committed local
-cleanup now independently verifies the official tuple, retained signed genesis
-entry, recovery wrap, and distinct canonical sequence-zero hosted receipt. It
-persists the exact receipt, binds its frozen domain-separated digest, deletes
-only the authenticated artifact, and completes CLEANED across each crash
-boundary. It does not synthesize acknowledgement from local authority and does
-not turn the cancellation-only digest-bound delete into a raw live-delete or
-caller-authored transition API. No builder or
-preparation operation is exposed through XPC, addon, preload, UI, or hosted
-JavaScript. Current-source x86_64 parity remains a machine-level proof gap while
-Rosetta is wedged before test entry.
+PREPARE is now exposed only through a signed native AppKit confirmation
+ceremony, authenticated XPC, the fixed N-API addon, and narrow Electron IPC.
+The hosted account authorizes and durably admits the opaque candidate before
+local cleanup; recovery phrases and private key material never enter hosted or
+web JavaScript. Committed local cleanup independently verifies the official
+tuple, retained signed genesis entry, recovery wrap, and distinct canonical
+sequence-zero hosted receipt. It persists the exact receipt, binds its frozen
+domain-separated digest, deletes only the authenticated artifact, and
+completes CLEANED across each crash boundary. It does not synthesize
+acknowledgement from local authority and does not turn the cancellation-only
+digest-bound delete into a raw live-delete or caller-authored transition API.
+
+Mnemonic recovery now enters through a separate native AppKit secure-entry
+ceremony. The addon first obtains only the strict parser's public vault label;
+the 24-word phrase then crosses the authenticated XPC boundary directly and is
+never an addon argument or typed JavaScript result. A native replay session
+pins one vault and hosted head, verifies genesis candidate/account admission,
+derives the committed recovery authority, replays every control edge and typed
+evidence object, authenticates every active recovery wrap, and requires all
+wraps to unseal the same EEK. Completion requires the exact current wrap and
+final replayed head. Any malformed page, gap, substitution, wrong EEK, or
+corrupt final wrap invalidates and clears the session. Dual-architecture replay,
+control-log, authorization, derivation, protocol, and universal-build proof is
+green. Verified replay deliberately does not yet claim recovered custody:
+durable installation of fresh-device custody and its recovered endpoint edge
+remain the next implementation gate.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.
