@@ -317,10 +317,12 @@ export function resolveSignupTrackingProperties(): Record<string, string> {
 export function shouldSkipEmailVerification(): boolean {
   const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
   if (value == null) {
+    const deployContext =
+      process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT || process.env.CONTEXT;
     return (
       process.env.NODE_ENV === "development" ||
       process.env.NODE_ENV === "test" ||
-      process.env.CONTEXT === "deploy-preview"
+      deployContext === "deploy-preview"
     );
   }
   const normalized = value.trim().toLowerCase();

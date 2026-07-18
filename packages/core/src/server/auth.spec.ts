@@ -59,7 +59,7 @@ describe("server/auth", () => {
 
     it("is enabled by default for Netlify deploy previews", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("CONTEXT", "deploy-preview");
+      vi.stubEnv("AGENT_NATIVE_BUILD_DEPLOY_CONTEXT", "deploy-preview");
       const { shouldSkipEmailVerification } =
         await import("./better-auth-instance.js");
 
