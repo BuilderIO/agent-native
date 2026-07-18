@@ -374,7 +374,7 @@
           "status": "planned"
         },
         "RegistryBlockDataProvider": {
-          "to": "@agent-native/toolkit/editor",
+          "to": "@agent-native/core/blocks",
           "status": "planned"
         },
         "RegistryBlockDataValue": {
@@ -1311,7 +1311,10 @@
         "UseCollabReconcileResult": "UseCollabReconcileResult",
         "createRegistryBlockNode": "createRegistryBlockNode",
         "RegistryBlockNodeView": "RegistryBlockNodeView",
-        "RegistryBlockDataProvider": "RegistryBlockDataProvider",
+        "RegistryBlockDataProvider": {
+          "to": "@agent-native/core/blocks",
+          "status": "planned"
+        },
         "useRegistryBlockData": "useRegistryBlockData",
         "CreateRegistryBlockNodeOptions": "CreateRegistryBlockNodeOptions",
         "RegistryBlockDataValue": "RegistryBlockDataValue",
@@ -1382,7 +1385,10 @@
         "UseCollabReconcileResult": "UseCollabReconcileResult",
         "createRegistryBlockNode": "createRegistryBlockNode",
         "RegistryBlockNodeView": "RegistryBlockNodeView",
-        "RegistryBlockDataProvider": "RegistryBlockDataProvider",
+        "RegistryBlockDataProvider": {
+          "to": "@agent-native/core/blocks",
+          "status": "planned"
+        },
         "useRegistryBlockData": "useRegistryBlockData",
         "CreateRegistryBlockNodeOptions": "CreateRegistryBlockNodeOptions",
         "RegistryBlockDataValue": "RegistryBlockDataValue",
