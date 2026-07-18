@@ -209,6 +209,23 @@ static NSData *ReplaceFirstMemberUnattended(NSData *inner,
   }
   return self.allowRecovery && entry.length > inner.length && state != nil;
 }
+- (BOOL)verifyRecoveryMembershipCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                            signedEntry:
+                                (AncPrivateVaultControlLogSignedEntry *)entry
+                           currentState:
+                               (AncPrivateVaultControlLogState *)state
+                       signedEntryBytes:(NSData *)signedEntryBytes
+                     innerEnvelopeBytes:(NSData *)innerEnvelopeBytes {
+  if (self.mutateRecoverySnapshot) {
+    [commit setValue:@"ceremony:poisoned" forKey:@"ceremonyId"];
+  }
+  return self.allowRecovery && state != nil &&
+         [commit.ceremonyKind isEqualToString:@"recovery"] &&
+         entry.sequence == state.sequence + 1 &&
+         [entry.innerEnvelopeBytes isEqualToData:innerEnvelopeBytes] &&
+         signedEntryBytes.length > innerEnvelopeBytes.length;
+}
 - (BOOL)verifyCeremonyAbortSignedEntry:(NSData *)entry innerEnvelope:(NSData *)inner
                            currentState:(AncPrivateVaultControlLogState *)state {
   if (self.mutateAbortSnapshot) {

@@ -735,6 +735,21 @@ desktop typecheck pass. Cryptographic control-log replay and recovery-authority
 verification remain required before this surface may consume a bootstrap page
 as trusted vault state.
 
+Native recovery authorization now has its own immutable typed control-log
+callback and a mnemonic-proven verifier. The callback provides the exact signed
+bytes, typed recovery commit and signer, and authenticated prior state while
+detecting attempted mutation. The verifier binds the snapshot, consumed wrap,
+candidate endpoint, replacement authority confirmation, replacement wrap, and
+membership projection; verifies all four signature domains; derives both
+authority generations locally; and opens both wraps inside guarded memory. It
+accepts the edge only when the two wraps contain the same EEK under a
+constant-time comparison, then zeroizes both temporary copies. A fully signed
+native ceremony passes on arm64 and x86_64, while a separately valid
+replacement wrap containing the wrong EEK is rejected. The remaining recovery
+gate is a page-by-page replay session plus trusted mnemonic-import UI and
+durable recovered custody admission; the native parser still does not promote
+parsed pages into trusted state.
+
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
 decoded bytes rather than mnemonic text to Argon2id, and use the exact

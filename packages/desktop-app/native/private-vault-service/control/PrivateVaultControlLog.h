@@ -87,6 +87,18 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
 - (BOOL)verifyRecoverySignedEntry:(NSData *)signedEntry
                     innerEnvelope:(NSData *)innerEnvelope
                       currentState:(AncPrivateVaultControlLogState *)state;
+/// Preferred recovery seam. It supplies the same immutable typed projection
+/// used by genesis and wrap rotation, plus the authenticated prior state and
+/// exact canonical bytes. Implementations must authenticate every projection
+/// against the separate recovery evidence before returning YES.
+- (BOOL)verifyRecoveryMembershipCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                            signedEntry:
+                                (AncPrivateVaultControlLogSignedEntry *)entry
+                           currentState:
+                               (AncPrivateVaultControlLogState *)state
+                       signedEntryBytes:(NSData *)signedEntryBytes
+                     innerEnvelopeBytes:(NSData *)innerEnvelopeBytes;
 /// Verifies the separate Core-defined recovery-wrap rotation artifact bound to
 /// this parsed commit. This callback is an authorization seam, not the wrap
 /// artifact codec or verifier itself, and must fail closed until that verifier

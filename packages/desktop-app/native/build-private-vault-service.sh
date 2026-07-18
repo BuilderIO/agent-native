@@ -17,6 +17,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
+  "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m"
   "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m"
   "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
@@ -1024,6 +1025,39 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
     echo "Invalid Private Vault rotation-preparation-test build mode" >&2
     exit 1
     ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_RECOVERY_AUTHORIZATION_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  RECOVERY_AUTHORIZATION_TEST_OUTPUT="$OUTPUT_ROOT/.recovery-authorization-tests"
+  rm -rf "$RECOVERY_AUTHORIZATION_TEST_OUTPUT"
+  mkdir -p "$RECOVERY_AUTHORIZATION_TEST_OUTPUT"
+  build_recovery_authorization_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$RECOVERY_AUTHORIZATION_TEST_OUTPUT/private-vault-recovery-authorization-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorization.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryAuthorizationTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_recovery_authorization_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_recovery_authorization_tests x86_64
+  fi
+  ;;
 esac
 
 rm -rf "$BUNDLE"

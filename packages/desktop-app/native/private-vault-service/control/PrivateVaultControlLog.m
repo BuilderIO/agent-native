@@ -1232,22 +1232,42 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
     if (![inner.ceremonyKind isEqualToString:@"recovery"] &&
         AncFindMember(inner.activeMembers, entry.signerEndpointId) == nil)
       return AncPrivateVaultControlLogStatusUnauthorizedSigner;
+    SEL typedRecoverySelector = @selector(verifyRecoveryMembershipCommit:signedEntry:currentState:signedEntryBytes:innerEnvelopeBytes:);
+    SEL legacyRecoverySelector = @selector(verifyRecoverySignedEntry:innerEnvelope:currentState:);
     if ([inner.ceremonyKind isEqualToString:@"recovery"] &&
-        ![verifier respondsToSelector:@selector(verifyRecoverySignedEntry:innerEnvelope:currentState:)])
+        ![verifier respondsToSelector:typedRecoverySelector] &&
+        ![verifier respondsToSelector:legacyRecoverySelector])
       return AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired;
     if ([inner.ceremonyKind isEqualToString:@"recovery"]) {
       AncPrivateVaultControlLogState *stateSnapshot = AncCopyState(current);
+      AncPrivateVaultControlLogMembershipCommit *commitSnapshot =
+          AncCopyCommit(inner);
+      AncPrivateVaultControlLogSignedEntry *entrySnapshot =
+          AncCopySignedEntry(entry);
       NSData *signedSnapshot = [authenticatedSignedEntry copy];
       NSData *innerSnapshot = [entry.innerBytes copy];
       BOOL authorized = NO;
       @try {
-        authorized = [verifier verifyRecoverySignedEntry:signedSnapshot
-                                           innerEnvelope:innerSnapshot
-                                             currentState:stateSnapshot];
+        if ([verifier respondsToSelector:typedRecoverySelector]) {
+          authorized = [verifier
+              verifyRecoveryMembershipCommit:commitSnapshot
+                                   signedEntry:entrySnapshot
+                                  currentState:stateSnapshot
+                              signedEntryBytes:signedSnapshot
+                            innerEnvelopeBytes:innerSnapshot];
+        } else {
+          authorized = [verifier verifyRecoverySignedEntry:signedSnapshot
+                                             innerEnvelope:innerSnapshot
+                                               currentState:stateSnapshot];
+        }
       } @catch (__unused NSException *exception) {
         authorized = NO;
       }
-      if (!authorized || !AncStateSnapshotEqual(stateSnapshot, current) ||
+      if (!authorized || AncCommitMutationAttempted(commitSnapshot) ||
+          AncImmutableMutationAttempted(entrySnapshot) ||
+          !AncCommitSnapshotEqual(commitSnapshot, inner) ||
+          !AncSignedEntrySnapshotEqual(entrySnapshot, entry) ||
+          !AncStateSnapshotEqual(stateSnapshot, current) ||
           ![innerSnapshot isEqualToData:entry.innerBytes] ||
           ![AncHash(signedSnapshot) isEqualToData:entryHash])
         return AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired;
