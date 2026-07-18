@@ -1,3 +1,11 @@
+import { TextAttachmentAdapter } from "@agent-native/toolkit/composer/attachment-accept";
+import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
+import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
+import {
+  appendRealtimeVoiceTranscriptToRepository,
+  realtimeVoiceTranscriptRegistry,
+} from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import type { ComposerImageModelMenu } from "@agent-native/toolkit/composer/TiptapComposer";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -146,24 +154,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
-import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
-import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
-import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
-  appendRealtimeVoiceTranscriptToRepository,
-  realtimeVoiceTranscriptRegistry,
-} from "./composer/realtime-voice-transcript.js";
-import {
+  AgentComposerFrame,
   TiptapComposer,
+  type AgentComposerLayoutVariant,
   type ComposerSubmitIntent,
-  type ComposerImageModelMenu,
+  type Reference,
   type TiptapComposerHandle,
-} from "./composer/TiptapComposer.js";
-import type {
-  AgentComposerLayoutVariant,
-  Reference,
-} from "./composer/types.js";
+} from "./composer/index.js";
 import { ContextMeter } from "./context-xray/ContextMeter.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import {

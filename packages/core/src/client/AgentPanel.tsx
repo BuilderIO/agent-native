@@ -100,7 +100,7 @@ import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
-import { RealtimeVoiceModeProvider } from "./composer/useRealtimeVoiceMode.js";
+import { RealtimeVoiceModeProvider } from "./composer/index.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
