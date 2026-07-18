@@ -37,6 +37,9 @@ export function ContextXRayPanel({
       onPin={onPin}
       onEvict={onEvict}
       onRestore={onRestore}
+      titleLabel={t("contextXray.pageTitle", {
+        defaultValue: "Context X-Ray",
+      })}
       systemOrderedLabel={t("contextXray.systemOrdered", {
         defaultValue: "System · ordered, not evictable",
       })}

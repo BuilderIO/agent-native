@@ -119,6 +119,7 @@ export function ContextXRayPanelView({
   onRestore,
   governanceLabels = {},
   systemOrderedLabel = "System · ordered, not evictable",
+  titleLabel = "Context X-Ray",
 }: {
   manifest: ContextManifestViewData;
   contextWindow: number;
@@ -128,6 +129,7 @@ export function ContextXRayPanelView({
   onRestore: (segmentId: string) => void;
   governanceLabels?: Partial<Record<"required" | "inherited" | "user", string>>;
   systemOrderedLabel?: string;
+  titleLabel?: string;
 }) {
   const [mode, setMode] = useState<"list" | "map">("list");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -191,7 +193,7 @@ export function ContextXRayPanelView({
       <div className="border-b border-border/60 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="min-w-0 truncate text-sm font-medium text-foreground">
-            Context X-Ray
+            {titleLabel}
           </h2>
           <div className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {formatContextTokens(manifest.totalTokens)} · {pct}%
