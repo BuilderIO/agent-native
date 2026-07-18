@@ -6,6 +6,7 @@
  */
 
 import {
+  deleteAppState,
   readAppState,
   writeAppState,
   deleteAppStateByPrefix,
@@ -22,6 +23,7 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
+import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -118,6 +120,9 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason,
       updatedAt: now,
     });
+    await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
+      () => {},
+    );
 
     const cleared = preserveRecoveryState
       ? 0

@@ -25,6 +25,7 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() =>
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec_1" }]),
@@ -57,6 +58,8 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) =>
+    mockCompareAndSetAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
   deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
@@ -284,6 +287,7 @@ describe("finalize-recording media serve verification", () => {
     mockState.selectRows = [];
     mockWriteAppState.mockResolvedValue(undefined);
     mockDeleteAppState.mockResolvedValue(undefined);
+    mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateWhere.mockImplementation(() => ({
       returning: mockUpdateReturning,
     }));
@@ -334,6 +338,15 @@ describe("finalize-recording media serve verification", () => {
         height: 720,
         hasAudio: true,
         hasCamera: false,
+      }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-media-verification-rec_1",
+      expect.objectContaining({
+        recordingId: "rec_1",
+        status: "pending",
+        completedAttempts: 0,
+        leaseUntil: null,
       }),
     );
     expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
@@ -544,6 +557,124 @@ describe("finalize-recording media serve verification", () => {
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).toHaveBeenCalledWith(key);
     }
+  });
+
+  it("claims a due durable verification before promoting the recording", async () => {
+    const marker = {
+      recordingId: "rec_1",
+      status: "pending",
+      completedAttempts: 0,
+      nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      leaseUntil: null,
+      updatedAt: new Date(Date.now() - 2_000).toISOString(),
+    };
+    mockState.uploadState = {
+      pendingMediaVerification: true,
+      mediaVerificationAttempt: 0,
+      videoUrl: "https://cdn.example.com/rec_1",
+      videoSizeBytes: 11,
+      sourceSizeBytes: 11,
+      videoFormat: "webm",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+      mimeType: "video/webm",
+    };
+    mockState.selectRows = [
+      [
+        {
+          ...mockState.existingRecording,
+          status: "processing",
+          videoUrl: "https://cdn.example.com/rec_1",
+        },
+      ],
+      [
+        {
+          status: "processing",
+          videoUrl: "https://cdn.example.com/rec_1",
+        },
+      ],
+      [],
+    ];
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-upload-rec_1") return mockState.uploadState;
+      if (key === "recording-media-verification-rec_1") return marker;
+      return null;
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("ok", {
+        status: 206,
+        headers: { "content-range": "bytes 0-1/11" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mediaVerificationRetryAttempt: 1,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "recording-media-verification-rec_1",
+      marker,
+      expect.objectContaining({
+        status: "leased",
+        leaseUntil: expect.any(String),
+      }),
+    );
+    expect(mockDeleteAppState).toHaveBeenCalledWith(
+      "recording-media-verification-rec_1",
+    );
+  });
+
+  it("leaves a duplicate durable worker pending when it loses the lease", async () => {
+    const marker = {
+      recordingId: "rec_1",
+      status: "pending",
+      completedAttempts: 0,
+      nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      leaseUntil: null,
+      updatedAt: new Date(Date.now() - 2_000).toISOString(),
+    };
+    mockState.uploadState = {
+      pendingMediaVerification: true,
+      mediaVerificationAttempt: 0,
+      videoUrl: "https://cdn.example.com/rec_1",
+      videoSizeBytes: 11,
+      sourceSizeBytes: 11,
+      videoFormat: "webm",
+      durationMs: 1234,
+    };
+    mockState.selectRows = [
+      [
+        {
+          ...mockState.existingRecording,
+          status: "processing",
+          videoUrl: "https://cdn.example.com/rec_1",
+        },
+      ],
+    ];
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-upload-rec_1") return mockState.uploadState;
+      if (key === "recording-media-verification-rec_1") return marker;
+      return null;
+    });
+    mockCompareAndSetAppState.mockResolvedValue(false);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mediaVerificationRetryAttempt: 1,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "processing",
+        verificationPending: true,
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

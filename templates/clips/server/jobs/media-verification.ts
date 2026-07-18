@@ -1,34 +1,24 @@
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq, isNull } from "drizzle-orm";
 
 import finalizeRecording from "../../actions/finalize-recording.js";
+import { getDb, schema } from "../db/index.js";
+import {
+  MEDIA_VERIFICATION_STATE_PREFIX,
+  parseMediaVerificationMarker,
+} from "../lib/media-verification-state.js";
+import { ownerEmailMatches } from "../lib/recordings.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
 const DISPATCH_FALLBACK_GRACE_MS = 30_000;
 const MAX_ATTEMPTS = 10;
-const STATE_PREFIX = "recording-upload-";
 let skippingLogged = false;
-
-function stateString(
-  value: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const raw = value[key];
-  return typeof raw === "string" && raw.trim() ? raw : undefined;
-}
-
-function stateNumber(
-  value: Record<string, unknown>,
-  key: string,
-): number | undefined {
-  const raw = value[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
-}
 
 export async function runMediaVerificationSweepOnce(): Promise<void> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ?`,
-    args: [`${STATE_PREFIX}%`],
+    args: [`${MEDIA_VERIFICATION_STATE_PREFIX}%`],
   });
   const now = Date.now();
 
@@ -37,53 +27,70 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
     key?: unknown;
     value?: unknown;
   }>) {
+    const sessionId =
+      typeof row.session_id === "string" ? row.session_id.trim() : "";
+    const key = typeof row.key === "string" ? row.key : "";
+    const recordingId = key.startsWith(MEDIA_VERIFICATION_STATE_PREFIX)
+      ? key.slice(MEDIA_VERIFICATION_STATE_PREFIX.length)
+      : "";
     const rawValue = typeof row.value === "string" ? row.value : "";
-    let state: Record<string, unknown>;
+    let rawState: unknown;
     try {
-      state = JSON.parse(rawValue) as Record<string, unknown>;
+      rawState = JSON.parse(rawValue);
     } catch {
       continue;
     }
+    const marker = parseMediaVerificationMarker(rawState);
     if (
-      state.status !== "processing" ||
-      state.pendingMediaVerification !== true
+      !sessionId ||
+      !recordingId ||
+      !marker ||
+      marker.recordingId !== recordingId
     ) {
       continue;
     }
 
-    const recordingId = stateString(state, "recordingId");
-    const ownerEmail =
-      stateString(state, "ownerEmail") ||
-      (typeof row.session_id === "string" ? row.session_id : "");
-    const nextAttemptAt = Date.parse(
-      stateString(state, "mediaVerificationNextAttemptAt") ?? "",
-    );
-    const completedAttempts = Math.max(
-      0,
-      Math.floor(stateNumber(state, "mediaVerificationAttempt") ?? 0),
-    );
-    if (
-      !recordingId ||
-      !ownerEmail ||
-      completedAttempts >= MAX_ATTEMPTS ||
-      !Number.isFinite(nextAttemptAt) ||
-      now < nextAttemptAt + DISPATCH_FALLBACK_GRACE_MS
-    ) {
+    const nextAttemptAt = Date.parse(marker.nextAttemptAt);
+    const leaseUntil = marker.leaseUntil
+      ? Date.parse(marker.leaseUntil)
+      : Number.NEGATIVE_INFINITY;
+    const due =
+      marker.status === "pending"
+        ? now >= nextAttemptAt + DISPATCH_FALLBACK_GRACE_MS
+        : now >= leaseUntil;
+    if (marker.completedAttempts >= MAX_ATTEMPTS || !due) {
       continue;
     }
 
     try {
+      const [recording] = await getDb()
+        .select({
+          ownerEmail: schema.recordings.ownerEmail,
+          orgId: schema.recordings.orgId,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, sessionId),
+            eq(schema.recordings.status, "processing"),
+            isNull(schema.recordings.trashedAt),
+          ),
+        )
+        .limit(1);
+      if (!recording) continue;
+
       await runWithRequestContext(
         {
-          userEmail: ownerEmail,
-          orgId: stateString(state, "orgId"),
+          userEmail: recording.ownerEmail,
+          orgId: recording.orgId ?? undefined,
         },
         async () => {
           await finalizeRecording.run({
             id: recordingId,
             mediaVerificationRetryAttempt: Math.min(
               MAX_ATTEMPTS,
-              completedAttempts + 1,
+              marker.completedAttempts + 1,
             ),
           });
         },

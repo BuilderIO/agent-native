@@ -10,13 +10,14 @@
 
 import { defineAction } from "@agent-native/core";
 import {
+  compareAndSetAppState,
+  deleteAppState,
   readAppState,
   writeAppState,
-  deleteAppState,
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { captureRouteError, getRequestOrgId } from "@agent-native/core/server";
+import { captureRouteError } from "@agent-native/core/server";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, isNull } from "drizzle-orm";
@@ -29,6 +30,10 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import {
+  mediaVerificationStateKey,
+  parseMediaVerificationMarker,
+} from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   listRecordingChunkKeys,
@@ -291,6 +296,12 @@ async function failStoredButUnservableRecording(params: {
     failureReason,
     updatedAt: now,
   });
+  await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
+    console.warn("[finalize] failed to clear media verification marker", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
 }
@@ -309,7 +320,6 @@ type PendingMediaVerification = {
   mimeType: string;
   providerId?: string;
   assetDbId?: string;
-  orgId?: string;
   locallyTranscoded: boolean;
 };
 
@@ -343,7 +353,6 @@ function pendingMediaVerificationFromState(
     mimeType: stateString(state, "mimeType") ?? `video/${videoFormat}`,
     providerId: stateString(state, "providerId"),
     assetDbId: stateString(state, "assetDbId"),
-    orgId: stateString(state, "orgId"),
     locallyTranscoded: stateBoolean(state, "locallyTranscoded") ?? false,
   };
 }
@@ -401,8 +410,6 @@ async function persistPendingMediaVerification(params: {
     mediaVerificationAttempt: retryAttempt,
     mediaVerificationNextAttemptAt: nextAttemptAt,
     mediaVerificationLastError: failureReason,
-    ownerEmail,
-    orgId: media.orgId,
     videoUrl: media.videoUrl,
     videoSizeBytes: media.videoSizeBytes,
     sourceSizeBytes: media.sourceSizeBytes,
@@ -419,8 +426,45 @@ async function persistPendingMediaVerification(params: {
     locallyTranscoded: media.locallyTranscoded,
     updatedAt: now,
   });
+  await writeAppState(mediaVerificationStateKey(id), {
+    recordingId: id,
+    status: "pending",
+    completedAttempts: retryAttempt,
+    nextAttemptAt,
+    leaseUntil: null,
+    updatedAt: now,
+  });
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
+}
+
+async function claimPendingMediaVerification(
+  id: string,
+  retryAttempt: number,
+): Promise<boolean> {
+  const key = mediaVerificationStateKey(id);
+  const raw = await readAppState(key).catch(() => null);
+  const marker = parseMediaVerificationMarker(raw);
+  const now = Date.now();
+  if (
+    !marker ||
+    marker.recordingId !== id ||
+    retryAttempt !== marker.completedAttempts + 1 ||
+    now < Date.parse(marker.nextAttemptAt) ||
+    (marker.status === "leased" &&
+      marker.leaseUntil !== null &&
+      now < Date.parse(marker.leaseUntil))
+  ) {
+    return false;
+  }
+
+  const updatedAt = new Date(now).toISOString();
+  return compareAndSetAppState(key, raw as Record<string, unknown>, {
+    ...marker,
+    status: "leased",
+    leaseUntil: new Date(now + 60_000).toISOString(),
+    updatedAt,
+  });
 }
 
 async function dispatchMediaVerificationRetry(
@@ -595,6 +639,12 @@ async function markRecordingReady(params: {
     sourceSizeBytes,
     durationMs: finalDurationMs,
     finishedAt: now,
+  });
+  await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
+    console.warn("[finalize] failed to clear media verification marker", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -900,6 +950,7 @@ export default defineAction({
         await deleteResumableSession(id).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
+        await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
         return {
           id,
           status: "ready" as const,
@@ -960,15 +1011,28 @@ export default defineAction({
 
       const pendingMedia = pendingMediaVerificationFromState(uploadState);
       if (existing.status === "processing" && pendingMedia) {
+        const retryAttempt =
+          args.mediaVerificationRetryAttempt ??
+          stateNumber(uploadState, "mediaVerificationAttempt") ??
+          1;
+        const claimed = await claimPendingMediaVerification(id, retryAttempt);
+        if (!claimed) {
+          return {
+            id,
+            status: "processing" as const,
+            verificationPending: true,
+            videoUrl: pendingMedia.videoUrl,
+            videoSizeBytes: pendingMedia.videoSizeBytes,
+            sourceSizeBytes: pendingMedia.sourceSizeBytes,
+            durationMs: pendingMedia.finalDurationMs,
+          };
+        }
         return retryPendingMediaVerification({
           id,
           ownerEmail,
           existingTitle: existing.title,
           media: pendingMedia,
-          retryAttempt:
-            args.mediaVerificationRetryAttempt ??
-            stateNumber(uploadState, "mediaVerificationAttempt") ??
-            1,
+          retryAttempt,
         });
       }
 
@@ -1080,7 +1144,6 @@ export default defineAction({
                 seekableApplied: false,
                 mimeType,
                 providerId: resumableSession.providerId,
-                orgId: getRequestOrgId() ?? undefined,
                 locallyTranscoded: args.locallyTranscoded === true,
               },
             });
@@ -1625,7 +1688,6 @@ export default defineAction({
             mimeType,
             providerId: upload.provider,
             assetDbId: upload.id,
-            orgId: getRequestOrgId() ?? undefined,
             locallyTranscoded:
               args.locallyTranscoded === true || Boolean(compressionMeta),
           },
