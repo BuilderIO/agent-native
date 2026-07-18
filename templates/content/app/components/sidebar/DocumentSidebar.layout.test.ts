@@ -214,6 +214,9 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("<OrgSwitcher />");
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
+    expect(sidebar).toContain('t("sidebar.newWorkspace")');
+    expect(sidebar).toContain("useCreateContentSpace");
+    expect(sidebar).toContain("handleCreateWorkspace");
     expect(sidebar).toContain('<Link to="/local-files">');
   });
 
@@ -298,10 +301,10 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("const favoriteRowWidth =");
     expect(sidebar).toContain("{showFavorites && (");
-    expect(sidebar).toContain('"mb-2 min-w-0"');
+    expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
     expect(sidebar).toContain("<FavoriteDocumentItem");
     expect(treeItem).toContain("export function FavoriteDocumentItem");
-    expect(treeItem).toContain('paddingInlineStart: "12px"');
+    expect(treeItem).toContain('paddingInlineStart: "20px"');
     expect(treeItem).toContain('"border-primary bg-accent font-medium');
     expect(treeItem).toContain("Remove from favorites");
     expect(treeItem).toContain("aria-label={`Open ${title}`}");

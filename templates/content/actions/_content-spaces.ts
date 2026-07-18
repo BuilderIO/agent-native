@@ -50,6 +50,13 @@ export function sourceBackedContentSpaceId(
   );
 }
 
+export function userContentSpaceId(email: string, workspaceId: string) {
+  return opaqueId(
+    "content_space_user",
+    `${normalizeContentSpaceEmail(email)}:${workspaceId.trim()}`,
+  );
+}
+
 export function systemIdsForContentSpace(
   scope: string,
   role: "files" | "workspaces",
@@ -456,19 +463,18 @@ export async function provisionContentSpaces(
   return result;
 }
 
-export async function provisionSourceBackedContentSpace(
+async function provisionOwnedContentSpace(
   db: Db,
   userEmail: string,
-  input: { connectionId: string; name: string },
+  input: { spaceId: string; name: string; kind: "user" | "source_backed" },
 ) {
   const email = normalizeContentSpaceEmail(userEmail);
-  const connectionId = input.connectionId.trim();
-  const name = input.name.trim() || "Local folder";
-  if (!connectionId) throw new Error("Local folder connection ID is required");
+  const name = input.name.trim();
+  if (!name) throw new Error("Workspace name is required");
   await provisionContentSpaces(db, email);
 
   const now = new Date().toISOString();
-  const spaceId = sourceBackedContentSpaceId(email, connectionId);
+  const spaceId = input.spaceId;
   const personalSpaceId = personalContentSpaceId(email);
   const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
   const created: ProvisionedContentSpaces["created"] = {
@@ -500,7 +506,7 @@ export async function provisionSourceBackedContentSpace(
         .values({
           id: spaceId,
           name,
-          kind: "source_backed",
+          kind: input.kind,
           ownerEmail: email,
           orgId: null,
           filesDatabaseId: sourceFiles.id,
@@ -599,4 +605,32 @@ export async function provisionSourceBackedContentSpace(
     db,
   });
   return { spaceId, filesDatabaseId: files.id };
+}
+
+export async function provisionSourceBackedContentSpace(
+  db: Db,
+  userEmail: string,
+  input: { connectionId: string; name: string },
+) {
+  const connectionId = input.connectionId.trim();
+  if (!connectionId) throw new Error("Local folder connection ID is required");
+  return provisionOwnedContentSpace(db, userEmail, {
+    spaceId: sourceBackedContentSpaceId(userEmail, connectionId),
+    name: input.name.trim() || "Local folder",
+    kind: "source_backed",
+  });
+}
+
+export async function provisionUserContentSpace(
+  db: Db,
+  userEmail: string,
+  input: { workspaceId: string; name: string },
+) {
+  const workspaceId = input.workspaceId.trim();
+  if (!workspaceId) throw new Error("Workspace ID is required");
+  return provisionOwnedContentSpace(db, userEmail, {
+    spaceId: userContentSpaceId(userEmail, workspaceId),
+    name: input.name,
+    kind: "user",
+  });
 }

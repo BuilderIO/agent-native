@@ -126,7 +126,7 @@ export function FavoriteDocumentItem({
           : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
       style={{
-        paddingInlineStart: "12px",
+        paddingInlineStart: "20px",
         width:
           sidebarWidth === undefined
             ? undefined

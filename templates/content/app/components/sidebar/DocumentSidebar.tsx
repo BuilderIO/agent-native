@@ -77,12 +77,21 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
@@ -102,6 +111,7 @@ import {
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  useCreateContentSpace,
   useContentSpaces,
   useEnsureContentSpaces,
   type ContentSpaceSummary,
@@ -336,6 +346,7 @@ export function DocumentSidebar({
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const contentSpacesQuery = useContentSpaces();
+  const createContentSpace = useCreateContentSpace();
   const ensureContentSpaces = useEnsureContentSpaces();
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
@@ -365,6 +376,10 @@ export function DocumentSidebar({
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useLocalStorage<
     string[]
   >(EXPANDED_WORKSPACES_STORAGE_KEY, []);
+  const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] =
+    useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const createWorkspaceRequestIdRef = useRef<string | null>(null);
   const contentSpaceState = contentSpaceAvailability({
     hasSelectedSpace: Boolean(selectedSpace),
     contentSpacesLoading: contentSpacesQuery.isLoading,
@@ -434,6 +449,34 @@ export function DocumentSidebar({
     },
     [navigate, setExpandedWorkspaceIds, setStoredSpaceId],
   );
+  const handleCreateWorkspace = useCallback(async () => {
+    const name = newWorkspaceName.trim();
+    if (!name) return;
+    const requestId = createWorkspaceRequestIdRef.current ?? nanoid();
+    createWorkspaceRequestIdRef.current = requestId;
+    try {
+      const created = await createContentSpace.mutateAsync({ name, requestId });
+      const space: ContentSpaceSummary = {
+        id: created.spaceId,
+        name: created.name,
+        kind: created.kind,
+        filesDatabaseId: created.filesDatabaseId,
+        filesDocumentId: created.filesDocumentId,
+        orgId: null,
+        role: "owner",
+        catalogItemId: "",
+        catalogDocumentId: "",
+      };
+      await handleSelectContentSpace(space);
+      setCreateWorkspaceDialogOpen(false);
+      setNewWorkspaceName("");
+      createWorkspaceRequestIdRef.current = null;
+    } catch (error) {
+      toast.error(t("sidebar.failedCreateWorkspace"), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [createContentSpace, handleSelectContentSpace, newWorkspaceName, t]);
   useEffect(() => {
     if (!selectedSpace) return;
     void setClientAppState(
@@ -528,7 +571,7 @@ export function DocumentSidebar({
   // Match the tree rows' right-side inset so favorite titles clip inside the
   // visible sidebar instead of widening the scroll surface.
   const favoriteRowWidth =
-    width === undefined ? undefined : Math.max(224, width - 8);
+    width === undefined ? undefined : Math.max(208, width - 24);
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
@@ -1321,6 +1364,13 @@ export function DocumentSidebar({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem
+                onSelect={() => setCreateWorkspaceDialogOpen(true)}
+              >
+                <IconPlus className="me-2 size-4" />
+                {t("sidebar.newWorkspace")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
                 <Link to="/local-files">
                   <IconFolder className="me-2 size-4" />
@@ -1614,7 +1664,7 @@ export function DocumentSidebar({
             <>
               {/* Favorites */}
               {showFavorites && (
-                <div className="mb-2 min-w-0">
+                <div className="mb-2 min-w-0 px-2">
                   <div className="flex h-7 min-w-0 items-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <span className="flex size-7 shrink-0 items-center justify-center">
                       <IconStar size={11} />
@@ -1698,6 +1748,60 @@ export function DocumentSidebar({
           onMouseDown={handleMouseDown}
         />
       )}
+      <Dialog
+        open={createWorkspaceDialogOpen}
+        onOpenChange={(open) => {
+          setCreateWorkspaceDialogOpen(open);
+          if (!open && !createContentSpace.isPending) {
+            setNewWorkspaceName("");
+            createWorkspaceRequestIdRef.current = null;
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleCreateWorkspace();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("sidebar.newWorkspace")}</DialogTitle>
+              <DialogDescription>
+                {t("sidebar.newWorkspaceDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              autoFocus
+              aria-label={t("sidebar.workspaceName")}
+              placeholder={t("sidebar.workspaceName")}
+              value={newWorkspaceName}
+              maxLength={200}
+              onChange={(event) => setNewWorkspaceName(event.target.value)}
+            />
+            <DialogFooter>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium hover:bg-accent"
+                disabled={createContentSpace.isPending}
+                onClick={() => setCreateWorkspaceDialogOpen(false)}
+              >
+                {t("comments.cancel")}
+              </button>
+              <button
+                type="submit"
+                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                disabled={
+                  createContentSpace.isPending || !newWorkspaceName.trim()
+                }
+              >
+                {t("sidebar.createWorkspace")}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={removeLocalFilesDialogOpen}
         onOpenChange={setRemoveLocalFilesDialogOpen}

@@ -38,3 +38,23 @@ export function useEnsureContentSpaces() {
     },
   });
 }
+
+export function useCreateContentSpace() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    {
+      spaceId: string;
+      filesDatabaseId: string;
+      filesDocumentId: string;
+      name: string;
+      kind: "user";
+    },
+    { name: string; requestId?: string }
+  >("create-content-space", {
+    onSuccess: async () => {
+      await queryClient.refetchQueries({
+        queryKey: ["action", "list-content-spaces"],
+      });
+    },
+  });
+}

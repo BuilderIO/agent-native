@@ -44,6 +44,7 @@ import {
   syncLocalControlResources,
   type LocalControlResourceFiles,
 } from "@/lib/local-control-resources";
+import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
 import { cn } from "@/lib/utils";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -193,7 +194,7 @@ function supportsDirectoryPicker() {
     typeof (window as WindowWithDirectoryPicker).showDirectoryPicker ===
       "function" &&
     !getDesktopContentFiles() &&
-    !isElectronLikeBrowser()
+    !isUnsafeNativeFolderPickerHost()
   );
 }
 
@@ -202,8 +203,7 @@ function supportsLocalFolderSync() {
 }
 
 function isElectronLikeBrowser() {
-  if (typeof navigator === "undefined") return false;
-  return /\bElectron\//.test(navigator.userAgent);
+  return isUnsafeNativeFolderPickerHost();
 }
 
 function unsupportedLocalFolderSyncMessage(t: ReturnType<typeof useT>) {
@@ -540,7 +540,7 @@ async function chooseDirectory(
   }
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
-  if (!picker || isElectronLikeBrowser()) {
+  if (!picker || isUnsafeNativeFolderPickerHost()) {
     throw new Error(unsupportedLocalFolderSyncMessage(t));
   }
   const handle = await picker({ mode: "readwrite" });

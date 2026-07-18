@@ -3112,6 +3112,7 @@ const enUS = {
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create database",
     failedCreatePage: "Failed to create page",
+    failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete database",
     failedMovePage: "Failed to move page",
@@ -3132,6 +3133,11 @@ const enUS = {
     new: "New",
     newDatabase: "New database",
     newPage: "New page",
+    newWorkspace: "New workspace",
+    newWorkspaceDescription:
+      "Create a private workspace with its own Files database.",
+    workspaceName: "Workspace name",
+    createWorkspace: "Create workspace",
     nextStep: "Next step",
     notionConfigureOAuthAuthorize:
       "Configure OAuth, then authorize your workspace.",

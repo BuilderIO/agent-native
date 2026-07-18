@@ -21,6 +21,7 @@ let organizationContentSpaceId: typeof import("./_content-spaces.js").organizati
 let resolveContentSpaceAccess: typeof import("./_content-space-access.js").resolveContentSpaceAccess;
 let listContentSpacesAction: typeof import("./list-content-spaces.js").default;
 let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").default;
+let createContentSpaceAction: typeof import("./create-content-space.js").default;
 let listDocumentsAction: typeof import("./list-documents.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
@@ -29,6 +30,7 @@ let deleteDocumentAction: typeof import("./delete-document.js").default;
 const OWNER = "owner@example.com";
 const MEMBER = "member@example.com";
 const OUTSIDER = "outsider@example.com";
+const WORKSPACE_OWNER = "workspace-owner@example.com";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -43,6 +45,8 @@ beforeAll(async () => {
   ({ resolveContentSpaceAccess } = await import("./_content-space-access.js"));
   listContentSpacesAction = (await import("./list-content-spaces.js")).default;
   ensureContentSpacesAction = (await import("./ensure-content-spaces.js"))
+    .default;
+  createContentSpaceAction = (await import("./create-content-space.js"))
     .default;
   listDocumentsAction = (await import("./list-documents.js")).default;
   getDocumentAction = (await import("./get-document.js")).default;
@@ -84,6 +88,70 @@ async function addMember(
 }
 
 describe("Content space provisioning", () => {
+  it("creates an idempotent private named workspace with canonical Files", async () => {
+    const create = () =>
+      runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+        createContentSpaceAction.run({
+          name: "Writing",
+          requestId: "named-workspace-writing",
+        }),
+      );
+    const first = await create();
+    const second = await create();
+    expect(second).toEqual(first);
+    expect(first.spaceId).toMatch(/^content_space_user_[a-f0-9]{32}$/);
+    expect(first.spaceId).not.toContain(WORKSPACE_OWNER);
+
+    const [space] = await getDb()
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, first.spaceId));
+    expect(space).toMatchObject({
+      name: "Writing",
+      kind: "user",
+      ownerEmail: WORKSPACE_OWNER,
+      orgId: null,
+      filesDatabaseId: first.filesDatabaseId,
+    });
+    const [files] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, first.filesDatabaseId));
+    expect(files).toMatchObject({
+      documentId: first.filesDocumentId,
+      ownerEmail: WORKSPACE_OWNER,
+      orgId: null,
+      systemRole: "files",
+      blocksSeeded: 1,
+    });
+    const [filesDocument] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, first.filesDocumentId));
+    expect(filesDocument).toMatchObject({
+      spaceId: first.spaceId,
+      visibility: "private",
+      ownerEmail: WORKSPACE_OWNER,
+    });
+
+    const ownerSpaces = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () => listContentSpacesAction.run({}),
+    );
+    expect(ownerSpaces.spaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.spaceId, name: "Writing" }),
+      ]),
+    );
+    const outsiderSpaces = await runWithRequestContext(
+      { userEmail: OUTSIDER },
+      () => listContentSpacesAction.run({}),
+    );
+    expect(outsiderSpaces.spaces).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: first.spaceId })]),
+    );
+  });
+
   it("is idempotent, opaque, and creates exactly one Files and Workspaces database", async () => {
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
       provisionContentSpaces(getDb(), OWNER),
