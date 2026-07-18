@@ -59,6 +59,20 @@
       "import": "./dist/collab-ui/*.js",
       "default": "./dist/collab-ui/*.js"
     },
+    "./composer": {
+      "types": "./dist/composer/index.d.ts",
+      "browser": "./dist/composer/index.js",
+      "development": "./dist/composer/index.js",
+      "import": "./dist/composer/index.js",
+      "default": "./dist/composer/index.js"
+    },
+    "./composer/*": {
+      "types": "./dist/composer/*.d.ts",
+      "browser": "./dist/composer/*.js",
+      "development": "./dist/composer/*.js",
+      "import": "./dist/composer/*.js",
+      "default": "./dist/composer/*.js"
+    },
     "./context-ui": {
       "types": "./dist/context-ui/index.d.ts",
       "browser": "./dist/context-ui/index.js",
@@ -172,6 +186,7 @@
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.12.19",
     "@radix-ui/react-accordion": "^1.2.15",
     "@radix-ui/react-alert-dialog": "^1.1.18",
     "@radix-ui/react-aspect-ratio": "^1.1.11",
