@@ -70,6 +70,44 @@ int main(void) {
   assert(PVRequestCanRun(&parsed, true));
   xpc_release(resume);
 
+  const uint8_t bootstrapBytes[] = {0x00, 0x00, 0x00, 0x02, '{', '}'};
+  xpc_object_t bootstrap = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "accept_bootstrap", "request-bootstrap");
+  xpc_dictionary_set_data(bootstrap, "bootstrapFrame", bootstrapBytes,
+                          sizeof bootstrapBytes);
+  assert(PVParseRequest(bootstrap, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "accept_bootstrap") == 0);
+  assert(parsed.bootstrapFrameLength == sizeof bootstrapBytes);
+  assert(memcmp(parsed.bootstrapFrame, bootstrapBytes,
+                sizeof bootstrapBytes) == 0);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
+  xpc_release(bootstrap);
+
+  xpc_object_t missingBootstrap = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "accept_bootstrap", "request-bootstrap-missing");
+  assert(PVParseRequest(missingBootstrap, &parsed) == PVRequestInvalid);
+  xpc_release(missingBootstrap);
+
+  xpc_object_t wrongBootstrap = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "accept_bootstrap", "request-bootstrap-type");
+  xpc_dictionary_set_string(wrongBootstrap, "bootstrapFrame", "wrong");
+  assert(PVParseRequest(wrongBootstrap, &parsed) == PVRequestInvalid);
+  xpc_release(wrongBootstrap);
+
+  uint8_t *oversizedBootstrap =
+      calloc(PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES + 1, sizeof(uint8_t));
+  assert(oversizedBootstrap != NULL);
+  xpc_object_t oversizedBootstrapRequest = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "accept_bootstrap", "request-bootstrap-large");
+  xpc_dictionary_set_data(oversizedBootstrapRequest, "bootstrapFrame",
+                          oversizedBootstrap,
+                          PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES + 1);
+  assert(PVParseRequest(oversizedBootstrapRequest, &parsed) ==
+         PVRequestInvalid);
+  xpc_release(oversizedBootstrapRequest);
+  free(oversizedBootstrap);
+
   const uint8_t confirmationBytes[] = {0x01};
   const uint8_t transcriptBytes[] = {0x02};
   const uint8_t authorizationBytes[] = {0x03};

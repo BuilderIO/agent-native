@@ -46,7 +46,8 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
             strcmp(key, "authorization") != 0 &&
             strcmp(key, "lookupId") != 0 &&
             strcmp(key, "recoveryMnemonic") != 0 &&
-            strcmp(key, "challenge") != 0 && strcmp(key, "receipt") != 0) {
+            strcmp(key, "challenge") != 0 && strcmp(key, "receipt") != 0 &&
+            strcmp(key, "bootstrapFrame") != 0) {
             allowed = false;
             return false;
         }
@@ -139,10 +140,12 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool authorizeAdmission = strcmp(operation, "authorize_admit") == 0;
     bool acceptAdmission = strcmp(operation, "accept_admit") == 0;
     bool finalizeGenesis = strcmp(operation, "finalize_genesis") == 0;
+    bool acceptBootstrap = strcmp(operation, "accept_bootstrap") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
-        !authorizeAdmission && !acceptAdmission && !finalizeGenesis) {
+        !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
+        !acceptBootstrap) {
         return PVRequestUnsupportedOperation;
     }
 
@@ -210,6 +213,14 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
             !PVReadBoundedData(message, "receipt",
                                PV_GENESIS_RECEIPT_MAXIMUM_BYTES,
                                &request->receipt, &request->receiptLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (acceptBootstrap) {
+        if (fieldCount != 4 || vaultIDValue != NULL || lookupIDValue != NULL ||
+            !PVReadBoundedData(message, "bootstrapFrame",
+                               PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES,
+                               &request->bootstrapFrame,
+                               &request->bootstrapFrameLength)) {
             return PVRequestInvalid;
         }
     } else if (fieldCount != 3 || vaultIDValue != NULL ||

@@ -127,6 +127,84 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("copies and bounds bootstrap frames without claiming cryptographic acceptance", async () => {
+    const vaultId = "10".repeat(16);
+    const headHash = "20".repeat(32);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const request = vi.fn(async (..._arguments: Array<string | Buffer>) => {
+      await gate;
+      return {
+        version: 3,
+        operation: "accept_bootstrap",
+        state: "parsed",
+        vaultId,
+        throughSequence: 3,
+        headSequence: 5,
+        headHash,
+        complete: false,
+      };
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    const source = Uint8Array.from([1, 2, 3]);
+    const pending = client.parseBootstrapFrame(source);
+    source.fill(9);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    expect(request).toHaveBeenCalledWith(
+      "accept_bootstrap",
+      Buffer.from([1, 2, 3]),
+    );
+    const ownedFrame = request.mock.calls[0]![1] as Buffer;
+    release();
+    await expect(pending).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "accept_bootstrap",
+      state: "parsed",
+      vaultId,
+      throughSequence: 3,
+      headSequence: 5,
+      headHash,
+      complete: false,
+    });
+    expect(ownedFrame.every((byte) => byte === 0)).toBe(true);
+
+    await expect(client.parseBootstrapFrame(new Uint8Array())).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    await expect(
+      client.parseBootstrapFrame(new Uint8Array(26_746_885)),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    expect(request).toHaveBeenCalledTimes(1);
+
+    for (const mutation of [
+      { throughSequence: 6 },
+      { throughSequence: Number.MAX_SAFE_INTEGER + 1 },
+      { complete: true },
+      { vaultId: "AB".repeat(16) },
+      { extra: true },
+    ]) {
+      const hostile = clientFor({
+        version: 3,
+        operation: "accept_bootstrap",
+        state: "parsed",
+        vaultId,
+        throughSequence: 3,
+        headSequence: 5,
+        headHash,
+        complete: false,
+        ...mutation,
+      });
+      await expect(
+        hostile.parseBootstrapFrame(Uint8Array.of(1)),
+      ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    }
+  });
+
   it("copies and bounds the content-free genesis commit contract before queueing", async () => {
     const publicProof = {
       vaultId: "01".repeat(16),

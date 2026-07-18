@@ -28,6 +28,7 @@
 #import "PrivateVaultHostedAppendRetryCoordinator.h"
 #import "PrivateVaultHostedAppendRetryStore.h"
 #import "PrivateVaultHostedAppendTransport.h"
+#import "PrivateVaultBootstrapFrame.h"
 #import "PrivateVaultTrustedTimeStore.h"
 #import "PrivateVaultMnemonic.h"
 
@@ -261,6 +262,39 @@ static void PVCommitGenesis(xpc_connection_t peer, xpc_object_t message,
                                   result.recoveryGeneration);
         xpc_dictionary_set_string(reply, "recoveryWrapHash",
                                   recoveryWrapHash.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVAcceptBootstrap(xpc_connection_t peer, xpc_object_t message,
+                              const PVRequest *request) {
+    @autoreleasepool {
+        if (request->bootstrapFrame == NULL ||
+            request->bootstrapFrameLength == 0) {
+            PVSendError(peer, message, "bootstrap_invalid");
+            return;
+        }
+        NSData *encoded =
+            [NSData dataWithBytes:request->bootstrapFrame
+                           length:request->bootstrapFrameLength];
+        AncPrivateVaultBootstrapFrameStatus status =
+            AncPrivateVaultBootstrapFrameStatusInvalid;
+        AncPrivateVaultBootstrapFrame *frame =
+            AncPrivateVaultBootstrapFrameDecode(encoded, &status);
+        if (frame == nil || status != AncPrivateVaultBootstrapFrameStatusOK ||
+            frame.throughSequence < 0) {
+            PVSendError(peer, message, "bootstrap_invalid");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "parsed");
+        xpc_dictionary_set_string(reply, "vaultId", frame.vaultId.UTF8String);
+        xpc_dictionary_set_uint64(reply, "throughSequence",
+                                  (uint64_t)frame.throughSequence);
+        xpc_dictionary_set_uint64(reply, "headSequence", frame.headSequence);
+        xpc_dictionary_set_string(reply, "headHash", frame.headHash.UTF8String);
+        xpc_dictionary_set_bool(reply, "complete", frame.complete);
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -695,6 +729,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "finalize_genesis") == 0) {
                 PVFinalizeGenesis(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "accept_bootstrap") == 0) {
+                PVAcceptBootstrap(peer, message, &request);
                 return;
             }
             PVSendSuccess(peer, message, &request);

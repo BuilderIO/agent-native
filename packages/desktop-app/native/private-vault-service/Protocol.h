@@ -15,6 +15,7 @@
 #define PV_GENESIS_MNEMONIC_MAXIMUM_BYTES 512
 #define PV_GENESIS_CHALLENGE_MAXIMUM_BYTES 2048
 #define PV_GENESIS_RECEIPT_MAXIMUM_BYTES 2048
+#define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
 
 typedef enum {
     PVRequestValid = 0,
@@ -40,6 +41,8 @@ typedef struct {
     size_t challengeLength;
     const void *receipt;
     size_t receiptLength;
+    const void *bootstrapFrame;
+    size_t bootstrapFrameLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);

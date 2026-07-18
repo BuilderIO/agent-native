@@ -29,6 +29,7 @@
 #define PV_GENESIS_RECEIPT_MAXIMUM_BYTES 2048
 #define PV_GENESIS_REQUEST_MAXIMUM_BYTES 1317376
 #define PV_GENESIS_APPEND_MAXIMUM_BYTES (64 * 1024 + 1024 * 1024 + 256)
+#define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
 #define PV_REQUEST_TIMEOUT_NANOSECONDS (2LL * NSEC_PER_SEC)
 
 namespace {
@@ -45,6 +46,7 @@ enum class PVOperation {
   AuthorizeAdmission,
   AcceptAdmission,
   FinalizeGenesis,
+  AcceptBootstrap,
 };
 enum class PVFailure {
   None,
@@ -85,6 +87,9 @@ struct PVParsedReply {
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
   uint64_t recoveryGeneration = 0;
+  uint64_t throughSequence = 0;
+  uint64_t headSequence = 0;
+  bool complete = false;
   std::vector<uint8_t> body;
   std::vector<PVCandidate> candidates;
 };
@@ -186,6 +191,9 @@ struct PVAsyncRequest {
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
   uint64_t recoveryGeneration = 0;
+  uint64_t throughSequence = 0;
+  uint64_t headSequence = 0;
+  bool complete = false;
   std::vector<uint8_t> recoveryConfirmation;
   std::vector<uint8_t> bootstrapTranscript;
   std::vector<uint8_t> authorization;
@@ -193,6 +201,7 @@ struct PVAsyncRequest {
   std::vector<uint8_t> challenge;
   std::vector<uint8_t> receipt;
   std::vector<uint8_t> body;
+  std::vector<uint8_t> bootstrapFrame;
   std::vector<PVCandidate> candidates;
 
   ~PVAsyncRequest() {
@@ -210,6 +219,8 @@ struct PVAsyncRequest {
       PVClearBytes(receipt);
     if (!body.empty())
       PVClearBytes(body);
+    if (!bootstrapFrame.empty())
+      PVClearBytes(bootstrapFrame);
     for (auto &candidate : candidates)
       PVClearBytes(candidate.candidate);
   }
@@ -577,6 +588,50 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     return parsed;
   }
 
+  if (operation == PVOperation::AcceptBootstrap) {
+    const char *const keys[] = {
+        "version",       "ok",           "requestId",
+        "state",         "vaultId",      "throughSequence",
+        "headSequence",  "headHash",     "complete",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *headHash = PVGetString(reply, "headHash");
+    xpc_object_t through =
+        xpc_dictionary_get_value(reply, "throughSequence");
+    xpc_object_t head = xpc_dictionary_get_value(reply, "headSequence");
+    xpc_object_t complete = xpc_dictionary_get_value(reply, "complete");
+    if (!PVHasExactKeys(reply, keys, 9) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "parsed") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        !PVIsLowerHex(headHash, 64) || through == nullptr ||
+        xpc_get_type(through) != XPC_TYPE_UINT64 || head == nullptr ||
+        xpc_get_type(head) != XPC_TYPE_UINT64 || complete == nullptr ||
+        xpc_get_type(complete) != XPC_TYPE_BOOL ||
+        xpc_dictionary_get_uint64(reply, "throughSequence") >
+            UINT64_C(9007199254740991) ||
+        xpc_dictionary_get_uint64(reply, "headSequence") >
+            UINT64_C(9007199254740991) ||
+        xpc_dictionary_get_uint64(reply, "throughSequence") >
+            xpc_dictionary_get_uint64(reply, "headSequence")) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.headHash, headHash, 65);
+    parsed.throughSequence =
+        xpc_dictionary_get_uint64(reply, "throughSequence");
+    parsed.headSequence = xpc_dictionary_get_uint64(reply, "headSequence");
+    parsed.complete = xpc_dictionary_get_bool(reply, "complete");
+    if (parsed.complete && parsed.throughSequence != parsed.headSequence) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
   const char *const healthKeys[] = {"version", "ok", "requestId",
                                     "state",   "available",
                                     "rotationAckState"};
@@ -763,6 +818,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "authorize_admit"
                           : request->operation == PVOperation::AcceptAdmission
                               ? "accept_admit"
+                          : request->operation == PVOperation::AcceptBootstrap
+                              ? "accept_bootstrap"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -834,6 +891,11 @@ void PVExecute(napi_env env, void *data) {
     xpc_dictionary_set_data(message, "receipt", request->receipt.data(),
                             request->receipt.size());
   }
+  if (request->operation == PVOperation::AcceptBootstrap) {
+    xpc_dictionary_set_data(message, "bootstrapFrame",
+                            request->bootstrapFrame.data(),
+                            request->bootstrapFrame.size());
+  }
   xpc_connection_send_message_with_reply(connection, message, queue,
                                          ^(xpc_object_t reply) {
                                            state->complete(reply);
@@ -880,6 +942,9 @@ void PVExecute(napi_env env, void *data) {
     request->activeEpoch = parsed.activeEpoch;
     request->sequence = parsed.sequence;
     request->recoveryGeneration = parsed.recoveryGeneration;
+    request->throughSequence = parsed.throughSequence;
+    request->headSequence = parsed.headSequence;
+    request->complete = parsed.complete;
     request->body = std::move(parsed.body);
     request->candidates = std::move(parsed.candidates);
   }
@@ -958,6 +1023,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "authorize_admit"
                 : request->operation == PVOperation::AcceptAdmission
                     ? "accept_admit"
+                : request->operation == PVOperation::AcceptBootstrap
+                    ? "accept_bootstrap"
                     : "finalize_genesis");
     PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
@@ -1046,6 +1113,15 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       }
     } else if (request->operation == PVOperation::FinalizeGenesis) {
       PVSetString(env, result, "lookupId", request->lookupID);
+    } else if (request->operation == PVOperation::AcceptBootstrap) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetSafeInteger(env, result, "throughSequence",
+                       request->throughSequence);
+      PVSetSafeInteger(env, result, "headSequence", request->headSequence);
+      PVSetString(env, result, "headHash", request->headHash);
+      napi_value complete;
+      napi_get_boolean(env, request->complete, &complete);
+      napi_set_named_property(env, result, "complete", complete);
     }
     napi_resolve_deferred(env, request->deferred, result);
   }
@@ -1110,6 +1186,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::AcceptAdmission;
   } else if (strcmp(operation, "finalize_genesis") == 0) {
     request->operation = PVOperation::FinalizeGenesis;
+  } else if (strcmp(operation, "accept_bootstrap") == 0) {
+    request->operation = PVOperation::AcceptBootstrap;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1124,6 +1202,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
           ? 3
       : request->operation == PVOperation::AcceptAdmission ? 4
       : request->operation == PVOperation::FinalizeGenesis ? 3
+      : request->operation == PVOperation::AcceptBootstrap ? 2
                                                          : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -1169,6 +1248,23 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       genesisInputs[index] = static_cast<const uint8_t *>(bytes);
       genesisInputLengths[index] = byteLength;
     }
+  }
+  const uint8_t *bootstrapFrame = nullptr;
+  size_t bootstrapFrameLength = 0;
+  if (request->operation == PVOperation::AcceptBootstrap) {
+    void *bytes = nullptr;
+    bool isBuffer = false;
+    if (napi_is_buffer(env, argv[1], &isBuffer) != napi_ok || !isBuffer ||
+        napi_get_buffer_info(env, argv[1], &bytes, &bootstrapFrameLength) !=
+            napi_ok ||
+        bytes == nullptr || bootstrapFrameLength == 0 ||
+        bootstrapFrameLength > PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    bootstrapFrame = static_cast<const uint8_t *>(bytes);
   }
   if (request->operation == PVOperation::AuthorizeAdmission ||
       request->operation == PVOperation::AcceptAdmission ||
@@ -1241,6 +1337,18 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
                                genesisInputs[index] +
                                    genesisInputLengths[index]);
       }
+    } catch (...) {
+      gRequestGate.release();
+      delete request;
+      napi_throw_error(env, nullptr,
+                       "Private Vault native service request failed");
+      return nullptr;
+    }
+  }
+  if (request->operation == PVOperation::AcceptBootstrap) {
+    try {
+      request->bootstrapFrame.assign(
+          bootstrapFrame, bootstrapFrame + bootstrapFrameLength);
     } catch (...) {
       gRequestGate.release();
       delete request;

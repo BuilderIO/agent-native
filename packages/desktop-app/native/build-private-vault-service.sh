@@ -43,6 +43,7 @@ SOURCES=(
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendCandidateIndex.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinator.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m"
+  "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"
@@ -571,6 +572,27 @@ case "${PRIVATE_VAULT_BUILD_RECOVERY_WRAP_TESTS:-}" in
   }
   build_recovery_wrap_tests arm64
   build_recovery_wrap_tests x86_64
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_BOOTSTRAP_FRAME_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  BOOTSTRAP_FRAME_TEST_OUTPUT="$OUTPUT_ROOT/.bootstrap-frame-tests"
+  rm -rf "$BOOTSTRAP_FRAME_TEST_OUTPUT"
+  mkdir -p "$BOOTSTRAP_FRAME_TEST_OUTPUT"
+  build_bootstrap_frame_tests() {
+    local architecture="$1"
+    local output="$BOOTSTRAP_FRAME_TEST_OUTPUT/private-vault-bootstrap-frame-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/transport" -framework Foundation \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrame.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultBootstrapFrameTests.m" \
+      -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_bootstrap_frame_tests arm64
+  build_bootstrap_frame_tests x86_64
   ;;
 esac
 

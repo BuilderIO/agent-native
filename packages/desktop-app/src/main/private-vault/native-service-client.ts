@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
+import { ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES } from "@agent-native/core/e2ee";
 import type {
   NativeHealthResult,
   NativeLockResult,
@@ -34,7 +35,8 @@ type NativeOperation =
   | "list_genesis"
   | "authorize_admit"
   | "accept_admit"
-  | "finalize_genesis";
+  | "finalize_genesis"
+  | "accept_bootstrap";
 
 interface NativeAddon {
   request(
@@ -52,6 +54,21 @@ export interface PrivateVaultNativeServiceClient extends PrivateVaultTrustedGene
   commitGenesis(
     input: NativeCommitGenesisInput,
   ): Promise<NativeCommitGenesisResult>;
+  parseBootstrapFrame(
+    encoded: Uint8Array,
+  ): Promise<NativeParsedBootstrapFrameResult>;
+}
+
+export interface NativeParsedBootstrapFrameResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "accept_bootstrap";
+  readonly state: "parsed";
+  readonly vaultId: string;
+  readonly throughSequence: number;
+  readonly headSequence: number;
+  readonly headHash: string;
+  readonly complete: boolean;
 }
 
 export interface NativeCommitGenesisInput {
@@ -280,6 +297,45 @@ function parseCommitGenesis(value: unknown): NativeCommitGenesisResult {
     membershipHash: value.membershipHash,
     recoveryGeneration: 1,
     recoveryWrapHash: value.recoveryWrapHash,
+  });
+}
+
+function parseBootstrapFrame(value: unknown): NativeParsedBootstrapFrameResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "throughSequence",
+      "headSequence",
+      "headHash",
+      "complete",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "accept_bootstrap" ||
+    value.state !== "parsed" ||
+    !isLowerHex(value.vaultId, 32) ||
+    !isSafeInteger(value.throughSequence, false) ||
+    !isSafeInteger(value.headSequence, false) ||
+    value.throughSequence > value.headSequence ||
+    !isLowerHex(value.headHash, 64) ||
+    typeof value.complete !== "boolean" ||
+    (value.complete && value.throughSequence !== value.headSequence)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "accept_bootstrap",
+    state: "parsed",
+    vaultId: value.vaultId,
+    throughSequence: value.throughSequence,
+    headSequence: value.headSequence,
+    headHash: value.headHash,
+    complete: value.complete,
   });
 }
 
@@ -572,6 +628,31 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       } finally {
         for (const field of fields) field.fill(0);
         this.#genesisPending = false;
+      }
+    });
+  }
+
+  parseBootstrapFrame(
+    encoded: Uint8Array,
+  ): Promise<NativeParsedBootstrapFrameResult> {
+    let frame: Buffer;
+    try {
+      frame = Buffer.from(
+        copyBoundedBytes(encoded, ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES),
+      );
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseBootstrapFrame(
+          await addon.request("accept_bootstrap", frame),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        frame.fill(0);
       }
     });
   }

@@ -722,6 +722,19 @@ wrap. Full independent native authorization replay, mnemonic import,
 replacement recovery authority, and recovered-endpoint admission through XPC
 remain the next product gate.
 
+The bootstrap envelope now also crosses the signed desktop boundary without
+being decoded or accumulated in the webview. Protocol v3 accepts one exact
+bounded `accept_bootstrap` frame, the addon copies and clears the caller-owned
+bytes, and the XPC service applies a strict native decoder with aligned entry,
+wrap, and control-evidence slices, page-contiguity checks, completion rules,
+and no trailing-byte tolerance. The typed main-process result is deliberately
+named `parseBootstrapFrame` and reports `parsed`, not `accepted`: this closes
+native transport and grammar reachability only. Dual-architecture native frame
+tests, protocol tests, the universal addon build, desktop client tests, and the
+desktop typecheck pass. Cryptographic control-log replay and recovery-authority
+verification remain required before this surface may consume a bootstrap page
+as trusted vault state.
+
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
 decoded bytes rather than mnemonic text to Argon2id, and use the exact
