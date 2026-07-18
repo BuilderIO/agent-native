@@ -197,6 +197,9 @@ describe("document sidebar layout", () => {
       "await handleCreatePage(undefined, space.id, id, space.filesDatabaseId)",
     );
     expect(sidebar).toContain("activeDocumentId={activeDocumentId}");
+    expect(sidebar).toContain("onCreateChildPage={(nextSpace, item) =>");
+    expect(sidebar).toContain("onDeleteItem={(item) =>");
+    expect(sidebar).toContain("onToggleFavorite={(item) =>");
     expect(sidebar).toContain(
       "applyOptimisticItemToContentDatabase(current, optimisticItem)",
     );

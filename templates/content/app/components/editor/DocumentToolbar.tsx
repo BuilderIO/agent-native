@@ -30,12 +30,23 @@ import {
   IconLink,
   IconRefresh,
   IconShare3,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -259,6 +270,9 @@ interface DocumentToolbarProps {
   canEdit?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
+  canDelete?: boolean;
+  deletePending?: boolean;
+  onDelete?: () => Promise<void>;
 }
 
 export function DocumentToolbar({
@@ -274,6 +288,9 @@ export function DocumentToolbar({
   canEdit = true,
   hideFromSearch = false,
   source,
+  canDelete = false,
+  deletePending = false,
+  onDelete,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -313,6 +330,7 @@ export function DocumentToolbar({
     boolean | null
   >(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
@@ -1204,11 +1222,47 @@ export function DocumentToolbar({
                   </Popover>
                 ) : null}
               </DropdownMenuGroup>
+              {canDelete && onDelete ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setDeleteDialogOpen(true)}
+                  >
+                    <IconTrash className="me-2 h-4 w-4" />
+                    {t("database.delete")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
           <AgentToggleButton />
         </div>
       </div>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sidebar.deletePageDescription", {
+                title: documentTitle || t("sidebar.untitled"),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deletePending}
+              onClick={() => void onDelete?.()}
+            >
+              {t("database.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -7,6 +7,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { DatabaseSidebarView, databaseSidebarRows } from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
 
@@ -45,29 +47,31 @@ describe("DatabaseSidebarView", () => {
   it("renders compact router links for an ungrouped saved view", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
-        <DatabaseSidebarView
-          groups={[
-            {
-              id: "all",
-              label: "All pages",
-              items: [item("page", "Project")],
-              property: null,
-              value: "all",
-            },
-          ]}
-          grouped={false}
-          isLoading={false}
-          hasActiveConstraints={false}
-          openPagesIn="full_page"
-          loadingLabel="Loading list"
-          noMatchesLabel="No rows match this view"
-          clearLabel="Clear"
-          navigationLabel="Database pages"
-          untitledLabel="Untitled"
-          onClearResultConstraints={() => {}}
-          onPreview={() => {}}
-          activeDocumentId="page"
-        />
+        <TooltipProvider>
+          <DatabaseSidebarView
+            groups={[
+              {
+                id: "all",
+                label: "All pages",
+                items: [item("page", "Project")],
+                property: null,
+                value: "all",
+              },
+            ]}
+            grouped={false}
+            isLoading={false}
+            hasActiveConstraints={false}
+            openPagesIn="full_page"
+            loadingLabel="Loading list"
+            noMatchesLabel="No rows match this view"
+            clearLabel="Clear"
+            navigationLabel="Database pages"
+            untitledLabel="Untitled"
+            onClearResultConstraints={() => {}}
+            onPreview={() => {}}
+            activeDocumentId="page"
+          />
+        </TooltipProvider>
       </MemoryRouter>,
     );
 
@@ -127,5 +131,53 @@ describe("DatabaseSidebarView", () => {
     expect(click.defaultPrevented).toBe(true);
 
     await act(async () => root.unmount());
+  });
+
+  it("restores contextual more and add-child controls for Files rows", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <DatabaseSidebarView
+            groups={[
+              {
+                id: "all",
+                label: "All pages",
+                items: [
+                  {
+                    ...item("page", "Project"),
+                    document: {
+                      ...item("page", "Project").document,
+                      canEdit: true,
+                      canManage: true,
+                    },
+                  },
+                ],
+                property: null,
+                value: "all",
+              },
+            ]}
+            grouped={false}
+            isLoading={false}
+            hasActiveConstraints={false}
+            openPagesIn="full_page"
+            loadingLabel="Loading list"
+            noMatchesLabel="No rows match this view"
+            clearLabel="Clear"
+            navigationLabel="Database pages"
+            untitledLabel="Untitled"
+            onClearResultConstraints={() => {}}
+            onPreview={() => {}}
+            onCreateChildPage={() => {}}
+            onCreateChildDatabase={() => {}}
+            onDeleteItem={() => {}}
+            onToggleFavorite={() => {}}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="More actions for Project"');
+    expect(markup).toContain('aria-label="Add child to');
+    expect(markup).toContain("group-hover:opacity-100");
   });
 });

@@ -109,6 +109,10 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("formatEditedLabel");
     expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("setDeleteDialogOpen(true)");
+    expect(source).toContain("text-destructive focus:text-destructive");
+    expect(source).toContain("<IconTrash");
+    expect(source).toContain("sidebar.deletePageQuestion");
     expect(source).not.toContain("absolute top-2 right-2");
     expect(source).not.toContain("shadow-sm");
   });
