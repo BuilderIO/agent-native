@@ -14,7 +14,7 @@ import {
   writeFileSync,
   existsSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { materializeSourceCorpus } from "./materialize-source-corpus.mjs";
 
@@ -34,7 +34,64 @@ function pruneSpecArtifacts(dir) {
     }
   }
 }
-if (existsSync("dist")) pruneSpecArtifacts("dist");
+
+function collectSourceStems(dir, root = dir, stems = new Set()) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectSourceStems(full, root, stems);
+    } else if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
+      stems.add(
+        relative(root, full)
+          .replace(/\.[cm]?[jt]sx?$/, "")
+          .replaceAll("\\", "/"),
+      );
+    }
+  }
+  return stems;
+}
+
+function compiledArtifactStem(file) {
+  for (const suffix of [".d.ts.map", ".d.ts", ".js.map", ".js"]) {
+    if (file.endsWith(suffix)) return file.slice(0, -suffix.length);
+  }
+  return null;
+}
+
+function pruneStaleCompiledArtifacts(sourceDir, compiledDir) {
+  if (!existsSync(compiledDir)) return;
+  if (!existsSync(sourceDir)) {
+    rmSync(compiledDir, { recursive: true, force: true });
+    return;
+  }
+
+  const sourceStems = collectSourceStems(sourceDir);
+  const visit = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(full);
+        if (readdirSync(full).length === 0) rmSync(full, { recursive: true });
+        continue;
+      }
+      const stem = compiledArtifactStem(
+        relative(compiledDir, full).replaceAll("\\", "/"),
+      );
+      if (stem && !sourceStems.has(stem)) rmSync(full, { force: true });
+    }
+  };
+  visit(compiledDir);
+}
+
+if (existsSync("dist")) {
+  pruneSpecArtifacts("dist");
+  for (const entry of ["editor", "composer", "rich-markdown-editor"]) {
+    pruneStaleCompiledArtifacts(
+      join("src", "client", entry),
+      join("dist", "client", entry),
+    );
+  }
+}
 
 // Two overlapping `pnpm --filter @agent-native/core run build` invocations
 // (e.g. concurrent `scripts/dev-lazy.ts` prebuilds) both land here and used
