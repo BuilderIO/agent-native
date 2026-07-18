@@ -4,6 +4,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *const AncPrivateVaultControlLogAppendPath;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultControlLogAppendContentType;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultGenesisAdmissionPath;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultGenesisAdmissionContentType;
 
 typedef NS_ENUM(NSInteger, AncPrivateVaultEndpointRequestStatus) {
   AncPrivateVaultEndpointRequestStatusOK = 0,
@@ -23,6 +25,13 @@ FOUNDATION_EXPORT NSData
  * The signing seed remains caller-owned and is borrowed only for this call. */
 FOUNDATION_EXPORT NSString
     *_Nullable AncPrivateVaultControlLogAppendProofHeaderCreate(
+        NSString *vaultId, NSString *endpointId, NSData *body,
+        NSString *issuedAt, NSString *nonce,
+        const uint8_t *_Nonnull signingSeed, NSData *expectedSigningPublicKey,
+        AncPrivateVaultEndpointRequestStatus *_Nullable status);
+
+FOUNDATION_EXPORT NSString
+    *_Nullable AncPrivateVaultGenesisAdmissionProofHeaderCreate(
         NSString *vaultId, NSString *endpointId, NSData *body,
         NSString *issuedAt, NSString *nonce,
         const uint8_t *_Nonnull signingSeed, NSData *expectedSigningPublicKey,

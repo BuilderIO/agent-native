@@ -3078,6 +3078,11 @@ static BOOL AncGenesisCommittedReceiptExact(
                    consumer(vaultHex, endpointHex, signedCommit.bytes,
                             signedCommit.length, evidence.recoveryWrap.bytes,
                             evidence.recoveryWrap.length,
+                            evidence.confirmation.bytes,
+                            evidence.confirmation.length,
+                            evidence.bootstrap.bytes, evidence.bootstrap.length,
+                            evidence.authorization.bytes,
+                            evidence.authorization.length,
                             secrets->signing_seed, publicKey);
         return accepted;
       }];

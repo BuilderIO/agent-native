@@ -10,7 +10,10 @@ NS_ASSUME_NONNULL_BEGIN
 typedef BOOL (^AncPrivateVaultCommittedGenesisHostedAppendBorrowBlock)(
     NSString *vaultId, NSString *endpointId, const uint8_t *signedGenesisEntry,
     size_t signedGenesisEntryLength, const uint8_t *recoveryWrap,
-    size_t recoveryWrapLength, const uint8_t *endpointSigningSeed,
+    size_t recoveryWrapLength, const uint8_t *recoveryConfirmation,
+    size_t recoveryConfirmationLength, const uint8_t *bootstrapTranscript,
+    size_t bootstrapTranscriptLength, const uint8_t *authorization,
+    size_t authorizationLength, const uint8_t *endpointSigningSeed,
     NSData *endpointSigningPublicKey);
 
 /* Proof-bearing genesis transitions. These methods construct the next durable
@@ -33,11 +36,13 @@ typedef BOOL (^AncPrivateVaultCommittedGenesisHostedAppendBorrowBlock)(
  * terminal records. It derives every deletion target from the authenticated
  * record and refuses COMMITTED cleanup until the hosted receipt is bound. */
 - (AncPrivateVaultGenesisPreparationStoreStatus)
-    cleanupTerminalLookupId:(const uint8_t *)lookupId length:(size_t)length;
+    cleanupTerminalLookupId:(const uint8_t *)lookupId
+                     length:(size_t)length;
 
 /* Binds an exact canonical hosted append receipt only after independently
  * authenticating the COMMITTED official tuple and retained genesis artifacts.
- * Receipt bytes are fenced before artifact deletion; CLEANED is the final CAS. */
+ * Receipt bytes are fenced before artifact deletion; CLEANED is the final CAS.
+ */
 - (AncPrivateVaultGenesisPreparationStoreStatus)
     cleanCommittedLookupId:(const uint8_t *)lookupId
                     length:(size_t)length

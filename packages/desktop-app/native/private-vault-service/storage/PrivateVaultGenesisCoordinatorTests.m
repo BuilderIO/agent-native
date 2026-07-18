@@ -5,6 +5,7 @@
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultControlLogInternal.h"
+#import "PrivateVaultGenesisAccountAdmission.h"
 #import "PrivateVaultGenesisArtifactStore.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisCoordinator.h"
@@ -279,6 +280,79 @@ static NSData *GenesisHostedReceipt(
   return AncPrivateVaultGenesisHostedAppendReceiptDecode(encoded) != nil
              ? [NSData dataWithBytes:encoded.bytes length:encoded.length]
              : nil;
+}
+
+static NSData *GenesisAdmissionCandidateHash(NSData *candidate) {
+  static const uint8_t domain[] =
+      "anc/v1/private-vault/genesis-account-admission/candidate-hash";
+  uint8_t digest[32] = {0};
+  if (anc_pv_sha256_two_part(digest, domain, sizeof domain, candidate.bytes,
+                             candidate.length) != ANC_PV_CRYPTO_OK)
+    return nil;
+  NSData *result = [NSData dataWithBytes:digest length:sizeof digest];
+  anc_pv_zeroize(digest, sizeof digest);
+  return result;
+}
+
+static NSData *GenesisAdmissionChallenge(NSData *candidate) {
+  NSData *candidateHash = GenesisAdmissionCandidateHash(candidate);
+  if (candidateHash == nil)
+    return nil;
+  uint8_t authenticationTag[32] = {[0 ... 31] = 0x44};
+  AncPrivateVaultCanonicalValue *root = [AncPrivateVaultCanonicalValue map:@{
+    @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+    @2 : [AncPrivateVaultCanonicalValue integer:1],
+    @3 : [AncPrivateVaultCanonicalValue
+        text:@"genesis-account-admission-challenge"],
+    @4 : [AncPrivateVaultCanonicalValue text:@"challenge:test-genesis-0001"],
+    @5 : [AncPrivateVaultCanonicalValue text:@"account:test-user-0001"],
+    @6 : [AncPrivateVaultCanonicalValue text:@"workspace:test-content-0001"],
+    @7 : [AncPrivateVaultCanonicalValue bytes:candidateHash],
+    @8 : [AncPrivateVaultCanonicalValue text:@"2024-07-16T06:25:40.000Z"],
+    @9 : [AncPrivateVaultCanonicalValue text:@"2024-07-16T06:30:40.000Z"],
+    @10 : [AncPrivateVaultCanonicalValue
+        bytes:[NSData dataWithBytes:authenticationTag length:32]],
+  }];
+  AncPrivateVaultCanonicalStatus status;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(root, &status);
+  return encoded == nil
+             ? nil
+             : [NSData dataWithBytes:encoded.bytes length:encoded.length];
+}
+
+static NSData *GenesisAdmissionReceipt(
+    NSData *candidate,
+    const AncPrivateVaultGenesisPreparationSnapshot *snapshot) {
+  NSData *candidateHash = GenesisAdmissionCandidateHash(candidate);
+  if (candidateHash == nil)
+    return nil;
+  NSData *vault = [NSData dataWithBytes:snapshot->vault_id length:16];
+  NSData *entry = [NSData dataWithBytes:snapshot->log_entry_envelope_id
+                                 length:16];
+  NSData *endpoint = [NSData dataWithBytes:snapshot->endpoint_id length:16];
+  NSData *head = [NSData dataWithBytes:snapshot->genesis_control_head_hash
+                                length:32];
+  NSData *bootstrapHash =
+      [NSData dataWithBytes:snapshot->bootstrap_transcript_digest length:32];
+  AncPrivateVaultCanonicalValue *root = [AncPrivateVaultCanonicalValue map:@{
+    @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+    @2 : [AncPrivateVaultCanonicalValue integer:1],
+    @3 : [AncPrivateVaultCanonicalValue
+        text:@"genesis-account-admission-receipt"],
+    @4 : [AncPrivateVaultCanonicalValue text:@"account:test-user-0001"],
+    @5 : [AncPrivateVaultCanonicalValue text:@"workspace:test-content-0001"],
+    @6 : [AncPrivateVaultCanonicalValue text:HexString(vault)],
+    @7 : [AncPrivateVaultCanonicalValue text:HexString(entry)],
+    @8 : [AncPrivateVaultCanonicalValue bytes:head],
+    @9 : [AncPrivateVaultCanonicalValue text:HexString(endpoint)],
+    @10 : [AncPrivateVaultCanonicalValue bytes:candidateHash],
+    @11 : [AncPrivateVaultCanonicalValue bytes:bootstrapHash],
+  }];
+  AncPrivateVaultCanonicalStatus status;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(root, &status);
+  return encoded == nil
+             ? nil
+             : [NSData dataWithBytes:encoded.bytes length:encoded.length];
 }
 static void SetId(uint8_t out[160], size_t *length, NSString *value) {
   NSData *d = [value dataUsingEncoding:NSUTF8StringEncoding];
@@ -1013,6 +1087,84 @@ static int PreparationCases(void) {
         [lookupIds.firstObject
             isEqualToData:[NSData dataWithBytes:handle length:16]]);
 
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSArray<AncPrivateVaultGenesisAdmissionCandidateResult *> *candidates = nil;
+  CHECK([coordinator listPendingGenesisAdmissionCandidates:&candidates] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        candidates.count == 1 &&
+        [candidates.firstObject.lookupId isEqualToData:lookup] &&
+        [candidates.firstObject.vaultId isEqualToString:prepared.vaultId] &&
+        candidates.firstObject.candidate.length > 0);
+  NSData *admissionCandidate = candidates.firstObject.candidate;
+  NSData *admissionChallenge = GenesisAdmissionChallenge(admissionCandidate);
+  CHECK(admissionChallenge != nil);
+  AncPrivateVaultGenesisAdmissionStatus decodedAdmissionStatus;
+  CHECK(AncPrivateVaultGenesisAdmissionChallengeDecode(
+            admissionChallenge, admissionCandidate, clock.value,
+            &decodedAdmissionStatus) != nil &&
+        decodedAdmissionStatus == AncPrivateVaultGenesisAdmissionStatusOK);
+  AncPrivateVaultGenesisAdmissionAuthorizationResult *admissionAuthorization =
+      nil;
+  AncPrivateVaultGenesisCoordinatorStatus admissionAuthorizationStatus =
+      [coordinator authorizeGenesisAdmissionLookupId:lookup
+                                           challenge:admissionChallenge
+                                              result:&admissionAuthorization];
+  CHECK(admissionAuthorizationStatus ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        [admissionAuthorization.accountId
+            isEqualToString:@"account:test-user-0001"] &&
+        [admissionAuthorization.workspaceId
+            isEqualToString:@"workspace:test-content-0001"] &&
+        admissionAuthorization.request.body.length > 0 &&
+        admissionAuthorization.request.proofHeader.length > 0);
+  AncPrivateVaultCanonicalValue *admissionBody = AncPrivateVaultCanonicalDecode(
+      admissionAuthorization.request.body,
+      ANC_PV_GENESIS_ADMISSION_REQUEST_MAX_BYTES, &canonicalStatus);
+  CHECK(
+      admissionBody.type == AncPrivateVaultCanonicalTypeMap &&
+      admissionBody.mapValue.count == 5 &&
+      [admissionBody.mapValue[@3].textValue
+          isEqualToString:@"genesis-account-admission-request"] &&
+      [admissionBody.mapValue[@4].bytesValue
+          isEqualToData:admissionCandidate] &&
+      [admissionBody.mapValue[@5].bytesValue isEqualToData:admissionChallenge]);
+  NSDictionary *admissionProof =
+      DecodeEndpointProof(admissionAuthorization.request.proofHeader);
+  CHECK([admissionProof[@"path"]
+            isEqualToString:@"/api/private-vault/genesis/admit"] &&
+        [admissionProof[@"method"] isEqualToString:@"POST"]);
+  NSMutableData *wrongChallenge = [admissionChallenge mutableCopy];
+  ((uint8_t *)wrongChallenge.mutableBytes)[wrongChallenge.length - 1] ^= 1;
+  CHECK([coordinator authorizeGenesisAdmissionLookupId:lookup
+                                             challenge:wrongChallenge
+                                                result:nil] !=
+        AncPrivateVaultGenesisCoordinatorStatusOK);
+
+  NSData *admissionReceipt =
+      GenesisAdmissionReceipt(admissionCandidate, &snapshot);
+  CHECK(admissionReceipt != nil);
+  AncPrivateVaultGenesisAdmissionAcceptanceResult *admissionAcceptance = nil;
+  CHECK([coordinator acceptGenesisAdmissionLookupId:lookup
+                                          challenge:admissionChallenge
+                                            receipt:admissionReceipt
+                                             result:&admissionAcceptance] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        [admissionAcceptance.accountId
+            isEqualToString:@"account:test-user-0001"] &&
+        [admissionAcceptance.workspaceId
+            isEqualToString:@"workspace:test-content-0001"] &&
+        admissionAcceptance.appendRequest.body.length > 0 &&
+        admissionAcceptance.appendRequest.proofHeader.length > 0);
+  NSMutableData *wrongAdmissionReceipt = [admissionReceipt mutableCopy];
+  ((uint8_t *)
+       wrongAdmissionReceipt.mutableBytes)[wrongAdmissionReceipt.length - 1] ^=
+      1;
+  CHECK([coordinator acceptGenesisAdmissionLookupId:lookup
+                                          challenge:admissionChallenge
+                                            receipt:wrongAdmissionReceipt
+                                             result:nil] !=
+        AncPrivateVaultGenesisCoordinatorStatusOK);
+
   CHECK([coordinator recoverHostedGenesisAppendCleanupLookupId:lookup] ==
         AncPrivateVaultGenesisCoordinatorStatusNotFound);
   AncPrivateVaultHostedAppendRequest *appendRequest = nil;
@@ -1021,9 +1173,10 @@ static int PreparationCases(void) {
             AncPrivateVaultGenesisCoordinatorStatusOK &&
         appendRequest != nil &&
         [appendRequest.vaultId isEqualToString:prepared.vaultId] &&
-        appendRequest.endpointId.length == 32 && appendRequest.body.length > 0 &&
-        appendRequest.proofHeader.length > 0);
-  AncPrivateVaultCanonicalStatus canonicalStatus;
+        appendRequest.endpointId.length == 32 &&
+        appendRequest.body.length > 0 && appendRequest.proofHeader.length > 0 &&
+        [appendRequest.body
+            isEqualToData:admissionAcceptance.appendRequest.body]);
   AncPrivateVaultCanonicalValue *appendBody = AncPrivateVaultCanonicalDecode(
       appendRequest.body, ANC_PV_GENESIS_HOSTED_APPEND_REQUEST_MAX_BYTES,
       &canonicalStatus);

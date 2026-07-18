@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, and the opaque hosted ciphertext plane have deployed adversarial proof; the broker and product slice remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, and account-authorized first-device genesis foundations have executable proof; trusted UI/XPC integration, the broker, and the product slice remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -584,8 +584,7 @@ local rollback domain. They cannot detect a coordinated restore of both frames
 to the same older valid snapshot; that stronger claim requires the planned
 remote or hardware monotonic witness and remains a release gate.
 
-This still does not close PR 5: the trusted confirmation UI, committed
-hosted genesis append transport and account-authorized admission ceremony,
+This still does not close PR 5: the trusted confirmation UI and XPC surface,
 persistence of the actual recoverable epoch wrap, complete enrollment and
 recovery product flows, malicious-directory and stolen-session transcripts,
 and the independently packageable broker exit gate remain.
@@ -615,6 +614,34 @@ only content-free challenge coordinates and hashes and purges them after
 expiry. `CONTENT_PRIVATE_VAULT_GENESIS_CHALLENGE_SECRET` must contain 32 random
 bytes encoded as lowercase hex; rotation invalidates only live challenges and
 never changes admitted vault identity.
+
+The matching native account-admission codec now reproduces the frozen Core
+candidate, challenge, request, receipt, and candidate-hash bytes with the same
+field counts and allocation caps. The coordinator independently reconstructs
+the public candidate from a COMMITTED local ceremony, validates the bounded
+challenge under persisted trusted time, signs only the fixed admission path,
+reconstructs the candidate again while holding the per-vault lifecycle lock,
+and accepts a receipt only when account, workspace, vault, control entry,
+endpoint, candidate, and bootstrap transcript all match the official local
+tuple. Acceptance returns the already-frozen sequence-zero append request; it
+does not clean local evidence. A complete native ceremony test proves exact
+authorization and acceptance and rejects challenge and receipt substitution.
+The focused account-admission, preparation-store, coordinator, and endpoint
+request suites pass on arm64; the endpoint request suite also passes on
+x86_64.
+
+Desktop main-process orchestration now has a public-bytes-only transport seam.
+Its fixed sequence is native candidate reconstruction, session-authenticated
+challenge, native proof authorization, session-authenticated admission,
+native receipt acceptance, cookie-free sequence-zero append, and native hosted
+receipt finalization. The transport pins one exact HTTPS origin, rejects
+redirects, enforces exact media types and content lengths, omits credentials
+from append, collapses errors, and resumes only native-reported COMMITTED
+ceremonies. Recovery words, entropy, signing seeds, and endpoint private keys
+are absent from the TypeScript interface. Seven focused orchestration and
+transport tests plus the desktop typecheck pass. This is not yet reachable
+from renderer code: the signed XPC/addon and trusted native confirmation UI are
+the next gate.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

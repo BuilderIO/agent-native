@@ -1,8 +1,10 @@
 #import "PrivateVaultGenesisCoordinator.h"
 
 #import "PrivateVaultAuthorityStoreInternal.h"
+#import "PrivateVaultControlLogInternal.h"
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultEndpointRequest.h"
+#import "PrivateVaultGenesisAccountAdmission.h"
 #import "PrivateVaultGenesisAuthorization.h"
 #import "PrivateVaultGenesisAuthorizationInternal.h"
 #import "PrivateVaultGenesisBootstrap.h"
@@ -155,6 +157,106 @@ static void RaiseImmutable(void) {
 }
 @end
 @implementation AncPrivateVaultGenesisPreparationResult
++ (BOOL)accessInstanceVariablesDirectly {
+  return NO;
+}
+@end
+
+@interface AncPrivateVaultGenesisAdmissionCandidateResult ()
+@property(nonatomic, readwrite) NSData *lookupId;
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) NSData *candidate;
+@end
+@interface AncImmutableGenesisAdmissionCandidateResult
+    : AncPrivateVaultGenesisAdmissionCandidateResult
+@end
+@implementation AncImmutableGenesisAdmissionCandidateResult
+- (void)setLookupId:(NSData *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setVaultId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setCandidate:(NSData *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  RaiseImmutable();
+}
+@end
+@implementation AncPrivateVaultGenesisAdmissionCandidateResult
++ (BOOL)accessInstanceVariablesDirectly {
+  return NO;
+}
+@end
+
+@interface AncPrivateVaultGenesisAdmissionAuthorizationResult ()
+@property(nonatomic, readwrite) NSString *accountId;
+@property(nonatomic, readwrite) NSString *workspaceId;
+@property(nonatomic, readwrite) AncPrivateVaultHostedAppendRequest *request;
+@end
+@interface AncImmutableGenesisAdmissionAuthorizationResult
+    : AncPrivateVaultGenesisAdmissionAuthorizationResult
+@end
+@implementation AncImmutableGenesisAdmissionAuthorizationResult
+- (void)setAccountId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setWorkspaceId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setRequest:(AncPrivateVaultHostedAppendRequest *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  RaiseImmutable();
+}
+@end
+@implementation AncPrivateVaultGenesisAdmissionAuthorizationResult
++ (BOOL)accessInstanceVariablesDirectly {
+  return NO;
+}
+@end
+
+@interface AncPrivateVaultGenesisAdmissionAcceptanceResult ()
+@property(nonatomic, readwrite) NSString *accountId;
+@property(nonatomic, readwrite) NSString *workspaceId;
+@property(nonatomic, readwrite)
+    AncPrivateVaultHostedAppendRequest *appendRequest;
+@end
+@interface AncImmutableGenesisAdmissionAcceptanceResult
+    : AncPrivateVaultGenesisAdmissionAcceptanceResult
+@end
+@implementation AncImmutableGenesisAdmissionAcceptanceResult
+- (void)setAccountId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setWorkspaceId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setAppendRequest:(AncPrivateVaultHostedAppendRequest *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  RaiseImmutable();
+}
+@end
+@implementation AncPrivateVaultGenesisAdmissionAcceptanceResult
 + (BOOL)accessInstanceVariablesDirectly {
   return NO;
 }
@@ -501,6 +603,55 @@ AncGenesisMakeHostedAppendRequest(NSString *vaultId, NSString *endpointId,
   request.proofHeader = [proofHeader copy];
   object_setClass(request, AncImmutableGenesisHostedAppendRequest.class);
   return request;
+}
+
+static AncPrivateVaultGenesisAdmissionCandidateResult *
+AncGenesisMakeAdmissionCandidate(NSData *lookupId, NSString *vaultId,
+                                 NSData *candidate) {
+  if (lookupId.length != 16 || vaultId.length != 32 || candidate.length == 0)
+    return nil;
+  AncPrivateVaultGenesisAdmissionCandidateResult *result = class_createInstance(
+      AncPrivateVaultGenesisAdmissionCandidateResult.class, 0);
+  result.lookupId = [lookupId copy];
+  result.vaultId = [vaultId copy];
+  result.candidate = [candidate copy];
+  object_setClass(result, AncImmutableGenesisAdmissionCandidateResult.class);
+  return result;
+}
+
+static AncPrivateVaultGenesisAdmissionAuthorizationResult *
+AncGenesisMakeAdmissionAuthorization(
+    AncPrivateVaultGenesisAdmissionChallenge *challenge,
+    AncPrivateVaultHostedAppendRequest *request) {
+  if (challenge.accountId.length == 0 || challenge.workspaceId.length == 0 ||
+      request == nil)
+    return nil;
+  AncPrivateVaultGenesisAdmissionAuthorizationResult *result =
+      class_createInstance(
+          AncPrivateVaultGenesisAdmissionAuthorizationResult.class, 0);
+  result.accountId = [challenge.accountId copy];
+  result.workspaceId = [challenge.workspaceId copy];
+  result.request = request;
+  object_setClass(result,
+                  AncImmutableGenesisAdmissionAuthorizationResult.class);
+  return result;
+}
+
+static AncPrivateVaultGenesisAdmissionAcceptanceResult *
+AncGenesisMakeAdmissionAcceptance(
+    AncPrivateVaultGenesisAdmissionReceipt *receipt,
+    AncPrivateVaultHostedAppendRequest *appendRequest) {
+  if (receipt.accountId.length == 0 || receipt.workspaceId.length == 0 ||
+      appendRequest == nil)
+    return nil;
+  AncPrivateVaultGenesisAdmissionAcceptanceResult *result =
+      class_createInstance(
+          AncPrivateVaultGenesisAdmissionAcceptanceResult.class, 0);
+  result.accountId = [receipt.accountId copy];
+  result.workspaceId = [receipt.workspaceId copy];
+  result.appendRequest = appendRequest;
+  object_setClass(result, AncImmutableGenesisAdmissionAcceptanceResult.class);
+  return result;
 }
 
 static BOOL DeriveEndpointPublicKeys(AncPrivateVaultGuardedMemory *signingSeed,
@@ -1677,6 +1828,421 @@ static BOOL CopyPreparationSecrets(
 }
 
 - (AncPrivateVaultGenesisCoordinatorStatus)
+    admissionCandidateLookupId:(NSData *)lookupId
+                        result:
+                            (AncPrivateVaultGenesisAdmissionCandidateResult **)
+                                result {
+  if (result != NULL)
+    *result = nil;
+  if (self.preparationStore == nil ||
+      !ImmutableFoundationData(lookupId, 16, 16))
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t lookupBytes[16] = {0};
+  [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readLookupId:lookupBytes
+                                   length:sizeof lookupBytes
+                                 snapshot:&snapshot
+                             secretHandle:nil];
+  NSString *vaultId = read == AncPrivateVaultGenesisPreparationStoreStatusOK
+                          ? Hex(snapshot.vault_id)
+                          : nil;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultId);
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK || lock == nil) {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return read == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisCoordinatorStatusInvalid
+               : PreparationStatus(read);
+  }
+  [lock lock];
+  @try {
+    __block AncPrivateVaultGenesisAdmissionCandidateResult *prepared = nil;
+    AncPrivateVaultGenesisPreparationStoreStatus borrowed = [self.preparationStore
+        borrowCommittedHostedAppendLookupId:lookupBytes
+                                     length:sizeof lookupBytes
+                                 controlLog:self.controlLog
+                             authorityStore:self.authorityStore
+                          custodyRepository:self.custodyRepository
+                                   consumer:^BOOL(
+                                       NSString *authenticatedVaultId,
+                                       NSString *endpointId,
+                                       const uint8_t *signedGenesisEntry,
+                                       size_t signedGenesisEntryLength,
+                                       const uint8_t *recoveryWrap,
+                                       size_t recoveryWrapLength,
+                                       const uint8_t *recoveryConfirmation,
+                                       size_t recoveryConfirmationLength,
+                                       const uint8_t *bootstrapTranscript,
+                                       size_t bootstrapTranscriptLength,
+                                       const uint8_t *authorization,
+                                       size_t authorizationLength,
+                                       const uint8_t *signingSeed,
+                                       NSData *signingPublicKey) {
+                                     (void)endpointId;
+                                     (void)signedGenesisEntry;
+                                     (void)signedGenesisEntryLength;
+                                     (void)recoveryWrap;
+                                     (void)recoveryWrapLength;
+                                     (void)signingSeed;
+                                     (void)signingPublicKey;
+                                     NSData *confirmation = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)recoveryConfirmation
+                                                      length:
+                                                          recoveryConfirmationLength
+                                                freeWhenDone:NO];
+                                     NSData *bootstrap = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)bootstrapTranscript
+                                                      length:
+                                                          bootstrapTranscriptLength
+                                                freeWhenDone:NO];
+                                     NSData *authorizationData = [NSData
+                                         dataWithBytesNoCopy:(void *)
+                                                                 authorization
+                                                      length:authorizationLength
+                                                freeWhenDone:NO];
+                                     AncPrivateVaultGenesisAdmissionStatus
+                                         admissionStatus;
+                                     NSData *candidate =
+                                         AncPrivateVaultGenesisAdmissionCandidateEncode(
+                                             bootstrap, confirmation,
+                                             authorizationData,
+                                             &admissionStatus);
+                                     prepared =
+                                         admissionStatus ==
+                                                 AncPrivateVaultGenesisAdmissionStatusOK
+                                             ? AncGenesisMakeAdmissionCandidate(
+                                                   lookupId,
+                                                   authenticatedVaultId,
+                                                   candidate)
+                                             : nil;
+                                     return prepared != nil;
+                                   }];
+    if (borrowed != AncPrivateVaultGenesisPreparationStoreStatusOK ||
+        prepared == nil)
+      return borrowed == AncPrivateVaultGenesisPreparationStoreStatusOK
+                 ? AncPrivateVaultGenesisCoordinatorStatusProtectionFailed
+                 : PreparationStatus(borrowed);
+    if (result != NULL)
+      *result = prepared;
+    return AncPrivateVaultGenesisCoordinatorStatusOK;
+  } @catch (__unused NSException *exception) {
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  } @finally {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    [lock unlock];
+  }
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    listPendingGenesisAdmissionCandidates:
+        (NSArray<AncPrivateVaultGenesisAdmissionCandidateResult *> **)
+            candidates {
+  if (candidates != NULL)
+    *candidates = nil;
+  if (candidates == NULL || self.preparationStore == nil)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  NSArray<NSData *> *lookupIds = nil;
+  AncPrivateVaultGenesisPreparationStoreStatus listed =
+      [self.preparationStore listPreparationLookupIds:&lookupIds];
+  if (listed != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return PreparationStatus(listed);
+  NSMutableArray *results = [NSMutableArray array];
+  for (NSData *lookupId in lookupIds) {
+    AncPrivateVaultGenesisAdmissionCandidateResult *candidate = nil;
+    AncPrivateVaultGenesisCoordinatorStatus status =
+        [self admissionCandidateLookupId:lookupId result:&candidate];
+    if (status == AncPrivateVaultGenesisCoordinatorStatusConflict ||
+        status == AncPrivateVaultGenesisCoordinatorStatusNotFound)
+      continue;
+    if (status != AncPrivateVaultGenesisCoordinatorStatusOK || candidate == nil)
+      return status;
+    [results addObject:candidate];
+  }
+  *candidates = [results copy];
+  return AncPrivateVaultGenesisCoordinatorStatusOK;
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    authorizeGenesisAdmissionLookupId:(NSData *)lookupId
+                            challenge:(NSData *)challengeBytes
+                               result:
+                                   (AncPrivateVaultGenesisAdmissionAuthorizationResult
+                                        **)result {
+  if (result != NULL)
+    *result = nil;
+  if (result == NULL ||
+      !ImmutableFoundationData(challengeBytes, NSNotFound,
+                               ANC_PV_GENESIS_ADMISSION_CHALLENGE_MAX_BYTES))
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  AncPrivateVaultGenesisAdmissionCandidateResult *candidate = nil;
+  AncPrivateVaultGenesisCoordinatorStatus candidateStatus =
+      [self admissionCandidateLookupId:lookupId result:&candidate];
+  if (candidateStatus != AncPrivateVaultGenesisCoordinatorStatusOK ||
+      candidate == nil)
+    return candidateStatus;
+  NSRecursiveLock *lock =
+      AncPrivateVaultGenesisLockForVaultId(candidate.vaultId);
+  if (lock == nil)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  [lock lock];
+  @try {
+    uint64_t now = 0;
+    uint8_t nonceBytes[16] = {0};
+    if (![self.trustedClock readNowMilliseconds:&now] || now == 0 ||
+        now > kMaximumSafeInteger ||
+        anc_pv_random(nonceBytes, sizeof nonceBytes) != ANC_PV_CRYPTO_OK) {
+      anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+      return AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+    }
+    __block AncPrivateVaultGenesisAdmissionStatus admissionStatus;
+    AncPrivateVaultGenesisAdmissionChallenge *challenge =
+        AncPrivateVaultGenesisAdmissionChallengeDecode(
+            challengeBytes, candidate.candidate, now, &admissionStatus);
+    NSData *body =
+        challenge == nil
+            ? nil
+            : AncPrivateVaultGenesisAdmissionRequestEncode(
+                  candidate.candidate, challengeBytes, &admissionStatus);
+    NSString *issuedAt = AncGenesisHostedAppendTimestamp(now);
+    NSString *nonce = Hex(nonceBytes);
+    anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+    if (challenge == nil || body == nil || issuedAt.length != 24 ||
+        nonce.length != 32)
+      return admissionStatus == AncPrivateVaultGenesisAdmissionStatusExpired
+                 ? AncPrivateVaultGenesisCoordinatorStatusAuthorizationFailed
+                 : AncPrivateVaultGenesisCoordinatorStatusInvalid;
+
+    uint8_t lookupBytes[16] = {0};
+    [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+    __block AncPrivateVaultGenesisAdmissionAuthorizationResult *prepared = nil;
+    AncPrivateVaultGenesisPreparationStoreStatus borrowed = [self.preparationStore
+        borrowCommittedHostedAppendLookupId:lookupBytes
+                                     length:sizeof lookupBytes
+                                 controlLog:self.controlLog
+                             authorityStore:self.authorityStore
+                          custodyRepository:self.custodyRepository
+                                   consumer:^BOOL(
+                                       NSString *authenticatedVaultId,
+                                       NSString *endpointId,
+                                       const uint8_t *signedGenesisEntry,
+                                       size_t signedGenesisEntryLength,
+                                       const uint8_t *recoveryWrap,
+                                       size_t recoveryWrapLength,
+                                       const uint8_t *recoveryConfirmation,
+                                       size_t recoveryConfirmationLength,
+                                       const uint8_t *bootstrapTranscript,
+                                       size_t bootstrapTranscriptLength,
+                                       const uint8_t *authorization,
+                                       size_t authorizationLength,
+                                       const uint8_t *signingSeed,
+                                       NSData *signingPublicKey) {
+                                     (void)signedGenesisEntry;
+                                     (void)signedGenesisEntryLength;
+                                     (void)recoveryWrap;
+                                     (void)recoveryWrapLength;
+                                     NSData *confirmation = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)recoveryConfirmation
+                                                      length:
+                                                          recoveryConfirmationLength
+                                                freeWhenDone:NO];
+                                     NSData *bootstrap = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)bootstrapTranscript
+                                                      length:
+                                                          bootstrapTranscriptLength
+                                                freeWhenDone:NO];
+                                     NSData *authorizationData = [NSData
+                                         dataWithBytesNoCopy:(void *)
+                                                                 authorization
+                                                      length:authorizationLength
+                                                freeWhenDone:NO];
+                                     NSData *rebuilt =
+                                         AncPrivateVaultGenesisAdmissionCandidateEncode(
+                                             bootstrap, confirmation,
+                                             authorizationData,
+                                             &admissionStatus);
+                                     if (![rebuilt
+                                             isEqualToData:candidate.candidate])
+                                       return NO;
+                                     AncPrivateVaultEndpointRequestStatus
+                                         proofStatus;
+                                     NSString *proof =
+                                         AncPrivateVaultGenesisAdmissionProofHeaderCreate(
+                                             authenticatedVaultId, endpointId,
+                                             body, issuedAt, nonce, signingSeed,
+                                             signingPublicKey, &proofStatus);
+                                     AncPrivateVaultHostedAppendRequest *request =
+                                         proofStatus ==
+                                                 AncPrivateVaultEndpointRequestStatusOK
+                                             ? AncGenesisMakeHostedAppendRequest(
+                                                   authenticatedVaultId,
+                                                   endpointId, body, proof)
+                                             : nil;
+                                     prepared =
+                                         AncGenesisMakeAdmissionAuthorization(
+                                             challenge, request);
+                                     return prepared != nil;
+                                   }];
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    if (borrowed != AncPrivateVaultGenesisPreparationStoreStatusOK ||
+        prepared == nil)
+      return borrowed == AncPrivateVaultGenesisPreparationStoreStatusOK
+                 ? AncPrivateVaultGenesisCoordinatorStatusProtectionFailed
+                 : PreparationStatus(borrowed);
+    *result = prepared;
+    return AncPrivateVaultGenesisCoordinatorStatusOK;
+  } @finally {
+    [lock unlock];
+  }
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    acceptGenesisAdmissionLookupId:(NSData *)lookupId
+                         challenge:(NSData *)challengeBytes
+                           receipt:(NSData *)receiptBytes
+                            result:
+                                (AncPrivateVaultGenesisAdmissionAcceptanceResult
+                                     **)result {
+  if (result != NULL)
+    *result = nil;
+  if (result == NULL ||
+      !ImmutableFoundationData(challengeBytes, NSNotFound,
+                               ANC_PV_GENESIS_ADMISSION_CHALLENGE_MAX_BYTES) ||
+      !ImmutableFoundationData(receiptBytes, NSNotFound,
+                               ANC_PV_GENESIS_ADMISSION_RECEIPT_MAX_BYTES))
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  AncPrivateVaultGenesisAdmissionCandidateResult *candidate = nil;
+  AncPrivateVaultGenesisCoordinatorStatus candidateStatus =
+      [self admissionCandidateLookupId:lookupId result:&candidate];
+  if (candidateStatus != AncPrivateVaultGenesisCoordinatorStatusOK ||
+      candidate == nil)
+    return candidateStatus;
+  NSRecursiveLock *lock =
+      AncPrivateVaultGenesisLockForVaultId(candidate.vaultId);
+  if (lock == nil)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  [lock lock];
+  @try {
+    uint64_t now = 0;
+    if (![self.trustedClock readNowMilliseconds:&now] || now == 0 ||
+        now > kMaximumSafeInteger)
+      return AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+    __block AncPrivateVaultGenesisAdmissionStatus admissionStatus;
+    AncPrivateVaultGenesisAdmissionChallenge *challenge =
+        AncPrivateVaultGenesisAdmissionChallengeDecode(
+            challengeBytes, candidate.candidate, now, &admissionStatus);
+    if (challenge == nil)
+      return AncPrivateVaultGenesisCoordinatorStatusAuthorizationFailed;
+
+    uint8_t lookupBytes[16] = {0};
+    [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+    __block AncPrivateVaultGenesisAdmissionReceipt *receipt = nil;
+    AncPrivateVaultGenesisPreparationStoreStatus borrowed = [self.preparationStore
+        borrowCommittedHostedAppendLookupId:lookupBytes
+                                     length:sizeof lookupBytes
+                                 controlLog:self.controlLog
+                             authorityStore:self.authorityStore
+                          custodyRepository:self.custodyRepository
+                                   consumer:^BOOL(
+                                       NSString *authenticatedVaultId,
+                                       NSString *endpointId,
+                                       const uint8_t *signedGenesisEntry,
+                                       size_t signedGenesisEntryLength,
+                                       const uint8_t *recoveryWrap,
+                                       size_t recoveryWrapLength,
+                                       const uint8_t *recoveryConfirmation,
+                                       size_t recoveryConfirmationLength,
+                                       const uint8_t *bootstrapTranscript,
+                                       size_t bootstrapTranscriptLength,
+                                       const uint8_t *authorization,
+                                       size_t authorizationLength,
+                                       const uint8_t *signingSeed,
+                                       NSData *signingPublicKey) {
+                                     (void)recoveryWrap;
+                                     (void)recoveryWrapLength;
+                                     (void)signingSeed;
+                                     (void)signingPublicKey;
+                                     NSData *confirmation = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)recoveryConfirmation
+                                                      length:
+                                                          recoveryConfirmationLength
+                                                freeWhenDone:NO];
+                                     NSData *bootstrap = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)bootstrapTranscript
+                                                      length:
+                                                          bootstrapTranscriptLength
+                                                freeWhenDone:NO];
+                                     NSData *authorizationData = [NSData
+                                         dataWithBytesNoCopy:(void *)
+                                                                 authorization
+                                                      length:authorizationLength
+                                                freeWhenDone:NO];
+                                     NSData *rebuilt =
+                                         AncPrivateVaultGenesisAdmissionCandidateEncode(
+                                             bootstrap, confirmation,
+                                             authorizationData,
+                                             &admissionStatus);
+                                     NSData *signedData = [NSData
+                                         dataWithBytesNoCopy:
+                                             (void *)signedGenesisEntry
+                                                      length:
+                                                          signedGenesisEntryLength
+                                                freeWhenDone:NO];
+                                     AncPrivateVaultGenesisBootstrapStatus
+                                         bootstrapStatus;
+                                     NSData *bootstrapHash =
+                                         AncPrivateVaultGenesisBootstrapHash(
+                                             bootstrap, nil, &bootstrapStatus);
+                                     NSData *entryHash =
+                                         AncPrivateVaultControlLogSignedEntryDomainHash(
+                                             signedData);
+                                     NSString *entryId =
+                                         AncPrivateVaultControlLogSignedEntryEnvelopeId(
+                                             signedData);
+                                     if (![rebuilt
+                                             isEqualToData:candidate
+                                                               .candidate] ||
+                                         bootstrapStatus !=
+                                             AncPrivateVaultGenesisBootstrapStatusOK)
+                                       return NO;
+                                     receipt =
+                                         AncPrivateVaultGenesisAdmissionReceiptDecode(
+                                             receiptBytes, challenge, rebuilt,
+                                             authenticatedVaultId, entryId,
+                                             entryHash, endpointId,
+                                             bootstrapHash, &admissionStatus);
+                                     return receipt != nil;
+                                   }];
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    if (borrowed != AncPrivateVaultGenesisPreparationStoreStatusOK ||
+        receipt == nil)
+      return borrowed == AncPrivateVaultGenesisPreparationStoreStatusOK
+                 ? AncPrivateVaultGenesisCoordinatorStatusAuthorizationFailed
+                 : PreparationStatus(borrowed);
+    AncPrivateVaultHostedAppendRequest *appendRequest = nil;
+    AncPrivateVaultGenesisCoordinatorStatus appendStatus =
+        [self prepareHostedGenesisAppendLookupId:lookupId
+                                         request:&appendRequest];
+    if (appendStatus != AncPrivateVaultGenesisCoordinatorStatusOK ||
+        appendRequest == nil)
+      return appendStatus;
+    *result = AncGenesisMakeAdmissionAcceptance(receipt, appendRequest);
+    return *result != nil
+               ? AncPrivateVaultGenesisCoordinatorStatusOK
+               : AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  } @finally {
+    [lock unlock];
+  }
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
     prepareHostedGenesisAppendLookupId:(NSData *)lookupId
                                 request:
                                     (AncPrivateVaultHostedAppendRequest **)request {
@@ -1740,8 +2306,20 @@ static BOOL CopyPreparationSecrets(
                                             size_t signedGenesisEntryLength,
                                             const uint8_t *recoveryWrap,
                                             size_t recoveryWrapLength,
+                                            const uint8_t *recoveryConfirmation,
+                                            size_t recoveryConfirmationLength,
+                                            const uint8_t *bootstrapTranscript,
+                                            size_t bootstrapTranscriptLength,
+                                            const uint8_t *authorization,
+                                            size_t authorizationLength,
                                             const uint8_t *signingSeed,
                                             NSData *signingPublicKey) {
+      (void)recoveryConfirmation;
+      (void)recoveryConfirmationLength;
+      (void)bootstrapTranscript;
+      (void)bootstrapTranscriptLength;
+      (void)authorization;
+      (void)authorizationLength;
       NSData *signedData =
           [NSData dataWithBytesNoCopy:(void *)signedGenesisEntry
                                length:signedGenesisEntryLength
@@ -1831,6 +2409,12 @@ static BOOL CopyPreparationSecrets(
                                             size_t signedGenesisEntryLength,
                                             const uint8_t *recoveryWrap,
                                             size_t recoveryWrapLength,
+                                            const uint8_t *recoveryConfirmation,
+                                            size_t recoveryConfirmationLength,
+                                            const uint8_t *bootstrapTranscript,
+                                            size_t bootstrapTranscriptLength,
+                                            const uint8_t *authorization,
+                                            size_t authorizationLength,
                                             const uint8_t *signingSeed,
                                             NSData *signingPublicKey) {
       (void)authenticatedVaultId;
@@ -1839,6 +2423,12 @@ static BOOL CopyPreparationSecrets(
       (void)signedGenesisEntryLength;
       (void)recoveryWrap;
       (void)recoveryWrapLength;
+      (void)recoveryConfirmation;
+      (void)recoveryConfirmationLength;
+      (void)bootstrapTranscript;
+      (void)bootstrapTranscriptLength;
+      (void)authorization;
+      (void)authorizationLength;
       (void)signingSeed;
       (void)signingPublicKey;
       return YES;

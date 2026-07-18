@@ -70,9 +70,10 @@ anc_pv_blake2b_256(uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *message,
              : ANC_PV_CRYPTO_OPERATION_FAILED;
 }
 
-AncPrivateVaultCryptoStatus anc_pv_blake2b_256_two_part(
-    uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *first,
-    size_t first_length, const uint8_t *second, size_t second_length) {
+AncPrivateVaultCryptoStatus
+anc_pv_blake2b_256_two_part(uint8_t output[ANC_PV_HASH_BYTES],
+                            const uint8_t *first, size_t first_length,
+                            const uint8_t *second, size_t second_length) {
   if (output == NULL ||
       !anc_pv_valid_bytes(first, first_length, ANC_PV_MAX_MESSAGE_BYTES) ||
       !anc_pv_valid_bytes(second, second_length, ANC_PV_MAX_MESSAGE_BYTES) ||
@@ -82,8 +83,8 @@ AncPrivateVaultCryptoStatus anc_pv_blake2b_256_two_part(
     return ANC_PV_CRYPTO_INVALID_ARGUMENT;
   }
   crypto_generichash_blake2b_state state;
-  int result = crypto_generichash_blake2b_init(&state, NULL, 0,
-                                               ANC_PV_HASH_BYTES);
+  int result =
+      crypto_generichash_blake2b_init(&state, NULL, 0, ANC_PV_HASH_BYTES);
   if (result == 0 && first_length > 0) {
     result = crypto_generichash_blake2b_update(
         &state, first, (unsigned long long)first_length);
@@ -93,8 +94,38 @@ AncPrivateVaultCryptoStatus anc_pv_blake2b_256_two_part(
         &state, second, (unsigned long long)second_length);
   }
   if (result == 0)
-    result = crypto_generichash_blake2b_final(&state, output,
-                                              ANC_PV_HASH_BYTES);
+    result =
+        crypto_generichash_blake2b_final(&state, output, ANC_PV_HASH_BYTES);
+  sodium_memzero(&state, sizeof state);
+  if (result != 0) {
+    sodium_memzero(output, ANC_PV_HASH_BYTES);
+    return ANC_PV_CRYPTO_OPERATION_FAILED;
+  }
+  return ANC_PV_CRYPTO_OK;
+}
+
+AncPrivateVaultCryptoStatus
+anc_pv_sha256_two_part(uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *first,
+                       size_t first_length, const uint8_t *second,
+                       size_t second_length) {
+  if (output == NULL ||
+      !anc_pv_valid_bytes(first, first_length, ANC_PV_MAX_MESSAGE_BYTES) ||
+      !anc_pv_valid_bytes(second, second_length, ANC_PV_MAX_MESSAGE_BYTES) ||
+      first_length > ANC_PV_MAX_MESSAGE_BYTES - second_length ||
+      anc_pv_ranges_overlap(output, ANC_PV_HASH_BYTES, first, first_length) ||
+      anc_pv_ranges_overlap(output, ANC_PV_HASH_BYTES, second, second_length)) {
+    return ANC_PV_CRYPTO_INVALID_ARGUMENT;
+  }
+  crypto_hash_sha256_state state;
+  int result = crypto_hash_sha256_init(&state);
+  if (result == 0 && first_length > 0)
+    result = crypto_hash_sha256_update(&state, first,
+                                       (unsigned long long)first_length);
+  if (result == 0 && second_length > 0)
+    result = crypto_hash_sha256_update(&state, second,
+                                       (unsigned long long)second_length);
+  if (result == 0)
+    result = crypto_hash_sha256_final(&state, output);
   sodium_memzero(&state, sizeof state);
   if (result != 0) {
     sodium_memzero(output, ANC_PV_HASH_BYTES);

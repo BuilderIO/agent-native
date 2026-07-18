@@ -2,11 +2,16 @@
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
+#import "PrivateVaultGenesisAccountAdmission.h"
 
 NSString *const AncPrivateVaultControlLogAppendPath =
     @"/api/private-vault/control-log/append";
 NSString *const AncPrivateVaultControlLogAppendContentType =
     @"application/vnd.agent-native.control-log+cbor";
+NSString *const AncPrivateVaultGenesisAdmissionPath =
+    @"/api/private-vault/genesis/admit";
+NSString *const AncPrivateVaultGenesisAdmissionContentType =
+    @"application/vnd.agent-native.genesis-admission+cbor";
 
 static const NSUInteger kSignedEntryMaximumBytes = 64 * 1024;
 static const NSUInteger kRecoveryWrapMaximumBytes = 1024 * 1024;
@@ -124,21 +129,21 @@ NSData *AncPrivateVaultControlLogAppendRequestEncode(
   return encoded;
 }
 
-NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
+static NSString *AncPrivateVaultEndpointProofHeaderCreate(
     NSString *vaultId, NSString *endpointId, NSData *body, NSString *issuedAt,
-    NSString *nonce, const uint8_t *signingSeed,
-    NSData *expectedSigningPublicKey,
+    NSString *nonce, NSString *path, NSUInteger maximumBodyBytes,
+    const uint8_t *signingSeed, NSData *expectedSigningPublicKey,
     AncPrivateVaultEndpointRequestStatus *status) {
   AncEndpointRequestSetStatus(status,
                               AncPrivateVaultEndpointRequestStatusInvalid);
   if (!AncEndpointRequestOpaqueId(vaultId) ||
       !AncEndpointRequestOpaqueId(endpointId) ||
       ![body isKindOfClass:NSData.class] || body.length == 0 ||
-      body.length > kRequestMaximumBytes ||
-      !AncEndpointRequestTimestamp(issuedAt) ||
+      body.length > maximumBodyBytes || ![path isKindOfClass:NSString.class] ||
+      path.length == 0 || !AncEndpointRequestTimestamp(issuedAt) ||
       !AncEndpointRequestLowerHex(nonce, 32) || signingSeed == NULL ||
       expectedSigningPublicKey.length != 32) {
-    if (body.length > kRequestMaximumBytes)
+    if (body.length > maximumBodyBytes)
       AncEndpointRequestSetStatus(status,
                                   AncPrivateVaultEndpointRequestStatusTooLarge);
     return nil;
@@ -163,8 +168,7 @@ NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
         @4 : [AncPrivateVaultCanonicalValue text:vaultId],
         @5 : [AncPrivateVaultCanonicalValue text:endpointId],
         @6 : [AncPrivateVaultCanonicalValue text:@"POST"],
-        @7 : [AncPrivateVaultCanonicalValue
-            text:AncPrivateVaultControlLogAppendPath],
+        @7 : [AncPrivateVaultCanonicalValue text:path],
         @8 : [AncPrivateVaultCanonicalValue bytes:bodyHashData],
         @9 : [AncPrivateVaultCanonicalValue text:issuedAt],
         @10 : [AncPrivateVaultCanonicalValue text:nonce],
@@ -219,8 +223,8 @@ NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
                        @"\"endpointId\":\"%@\",\"method\":\"POST\",\"path\":\"%"
                        @"@\",\"bodyHash\":\"%@\",\"issuedAt\":\"%@\",\"nonce\":"
                        @"\"%@\",\"signature\":\"%@\"}",
-                       vaultId, endpointId, AncPrivateVaultControlLogAppendPath,
-                       bodyHashHex, issuedAt, nonce, signatureHex];
+                       vaultId, endpointId, path, bodyHashHex, issuedAt, nonce,
+                       signatureHex];
   NSData *jsonBytes = [json dataUsingEncoding:NSUTF8StringEncoding];
   NSString *header = AncEndpointRequestBase64URL(jsonBytes);
   if (header.length == 0 || header.length > 8192) {
@@ -230,4 +234,27 @@ NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
   }
   AncEndpointRequestSetStatus(status, AncPrivateVaultEndpointRequestStatusOK);
   return header;
+}
+
+NSString *AncPrivateVaultControlLogAppendProofHeaderCreate(
+    NSString *vaultId, NSString *endpointId, NSData *body, NSString *issuedAt,
+    NSString *nonce, const uint8_t *signingSeed,
+    NSData *expectedSigningPublicKey,
+    AncPrivateVaultEndpointRequestStatus *status) {
+  return AncPrivateVaultEndpointProofHeaderCreate(
+      vaultId, endpointId, body, issuedAt, nonce,
+      AncPrivateVaultControlLogAppendPath, kRequestMaximumBytes, signingSeed,
+      expectedSigningPublicKey, status);
+}
+
+NSString *AncPrivateVaultGenesisAdmissionProofHeaderCreate(
+    NSString *vaultId, NSString *endpointId, NSData *body, NSString *issuedAt,
+    NSString *nonce, const uint8_t *signingSeed,
+    NSData *expectedSigningPublicKey,
+    AncPrivateVaultEndpointRequestStatus *status) {
+  return AncPrivateVaultEndpointProofHeaderCreate(
+      vaultId, endpointId, body, issuedAt, nonce,
+      AncPrivateVaultGenesisAdmissionPath,
+      ANC_PV_GENESIS_ADMISSION_REQUEST_MAX_BYTES, signingSeed,
+      expectedSigningPublicKey, status);
 }

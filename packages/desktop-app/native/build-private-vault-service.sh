@@ -13,6 +13,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
+  "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
@@ -310,6 +311,7 @@ case "${PRIVATE_VAULT_BUILD_ENDPOINT_REQUEST_TESTS:-}" in
       -I"$sodium_root/include" -framework Foundation \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
       "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
       "$SOURCE_ROOT/control/PrivateVaultEndpointRequestTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"
@@ -485,6 +487,7 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
@@ -638,6 +641,34 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_AUTHORIZATION_TESTS:-}" in
   ;;
 esac
 
+case "${PRIVATE_VAULT_BUILD_GENESIS_ACCOUNT_ADMISSION_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  GENESIS_ADMISSION_TEST_OUTPUT="$OUTPUT_ROOT/.genesis-account-admission-tests"
+  rm -rf "$GENESIS_ADMISSION_TEST_OUTPUT"
+  mkdir -p "$GENESIS_ADMISSION_TEST_OUTPUT"
+  build_genesis_admission_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$GENESIS_ADMISSION_TEST_OUTPUT/private-vault-genesis-account-admission-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmissionTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_genesis_admission_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_genesis_admission_tests x86_64
+  fi
+  ;;
+esac
+
 case "${PRIVATE_VAULT_BUILD_GENESIS_BUILDER_TESTS:-}" in
 1 | true | TRUE | yes | YES)
   GENESIS_BUILDER_TEST_OUTPUT="$OUTPUT_ROOT/.genesis-builder-tests"
@@ -715,6 +746,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinator.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisStartup.m" \
       "$SOURCE_ROOT/storage/PrivateVaultTrustedTimeStore.m" \
