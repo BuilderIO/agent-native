@@ -221,7 +221,6 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
-import { DescriptionField } from "../DescriptionField";
 import { DocumentBlockFields } from "../DocumentBlockFields";
 import {
   AddProperty,
@@ -702,7 +701,6 @@ function DatabaseTable({
   );
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id, document.id);
-  const updateDatabaseDocument = useUpdateDocument();
   const updateView = useUpdateContentDatabaseView(document.id);
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -2223,19 +2221,6 @@ function DatabaseTable({
 
   return (
     <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
-      <DescriptionField
-        description={document.description}
-        canEdit={canEdit}
-        label={t("editor.properties.description")}
-        placeholder={t("editor.properties.addDatabaseDescription")}
-        className="mb-3"
-        onSave={(description) =>
-          updateDatabaseDocument.mutateAsync({
-            id: document.id,
-            description,
-          })
-        }
-      />
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}

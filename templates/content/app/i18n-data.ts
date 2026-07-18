@@ -2668,6 +2668,8 @@ const editorToolbarMessages = {
   failedToDisconnect: "Failed to disconnect.",
   failedToUpdateSharing: "Failed to update sharing",
   hideInSearch: "Hide in search",
+  info: "Info",
+  closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
   importingFromNotion: "Importing from Notion...",
@@ -3063,6 +3065,8 @@ const enUS = {
   },
   comments: {
     add: "Add a comment...",
+    title: "Comments",
+    empty: "No comments yet.",
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
@@ -3110,6 +3114,7 @@ const enUS = {
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete database",
     failedMovePage: "Failed to move page",
+    failedUpdateFavorite: "Could not update favorite",
     failedRemoveLocalFiles: "Failed to remove local files",
     failedRestoreDatabase: "Failed to restore database",
     deletePageDescription:

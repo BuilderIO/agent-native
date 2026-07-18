@@ -74,7 +74,7 @@ describe("document editor layout", () => {
     expect(source).toContain("return <DocumentEditorSkeleton />");
   });
 
-  it("keeps desktop comments inside the document scroll surface", () => {
+  it("keeps one selected utility rail inside the document scroll surface", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       {
@@ -84,16 +84,40 @@ describe("document editor layout", () => {
 
     const scrollIndex = source.indexOf("data-document-print-scroll");
     const contentIndex = source.indexOf("data-document-scroll-content");
-    const desktopCommentsIndex = source.indexOf(
-      "{showDesktopComments ? sidebar : null}",
-    );
+    const desktopPanelIndex = source.indexOf("{showDesktopUtilityPanel ? (");
     const mobileSheetIndex = source.indexOf("<Sheet");
 
     expect(scrollIndex).toBeGreaterThan(-1);
     expect(contentIndex).toBeGreaterThan(scrollIndex);
-    expect(desktopCommentsIndex).toBeGreaterThan(contentIndex);
-    expect(desktopCommentsIndex).toBeLessThan(mobileSheetIndex);
-    expect(source).not.toContain("hasComments && sidebar");
+    expect(desktopPanelIndex).toBeGreaterThan(contentIndex);
+    expect(desktopPanelIndex).toBeLessThan(mobileSheetIndex);
+    expect(source).toContain(
+      'type DocumentUtilityPanel = "info" | "comments" | null',
+    );
+    expect(source).toContain('utilityPanel === "info"');
+    expect(source).toContain('setUtilityPanel("comments")');
+    expect(source).not.toContain("showDesktopComments");
+  });
+
+  it("moves page metadata to Info and omits the body below full-page databases", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    const infoPanel = readFileSync(
+      new URL("./DocumentInfoPanel.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(source).toContain("<DocumentInfoPanel");
+    expect(source).toContain("{!isDatabasePage ? (");
+    expect(source.indexOf("{!isDatabasePage ? (")).toBeLessThan(
+      source.indexOf("const primaryEditor ="),
+    );
+    expect(infoPanel).toContain("<DescriptionField");
+    expect(infoPanel).toContain("<DocumentProperties");
+    expect(source).not.toContain("<DescriptionField");
+    expect(source).not.toContain("<DocumentProperties");
   });
 
   it("keeps the document toolbar in normal layout flow", () => {
@@ -110,6 +134,10 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("formatEditedLabel");
     expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("editor.toolbar.info");
+    expect(source).toContain("comments.title");
+    expect(source).toContain('aria-pressed={utilityPanel === "info"}');
+    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");
