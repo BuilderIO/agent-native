@@ -823,21 +823,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/voice",
 ];
 
-const TOOLKIT_CLIENT_SUBPATHS = [
-  "@agent-native/toolkit",
-  "@agent-native/toolkit/app-shell",
-  "@agent-native/toolkit/collab-ui",
-  "@agent-native/toolkit/context-ui",
-  "@agent-native/toolkit/design-tweaks",
-  "@agent-native/toolkit/editor",
-  "@agent-native/toolkit/hooks",
-  "@agent-native/toolkit/onboarding",
-  "@agent-native/toolkit/provider",
-  "@agent-native/toolkit/sharing",
-  "@agent-native/toolkit/ui",
-  "@agent-native/toolkit/utils",
-];
-
 const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -850,120 +835,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       ? []
       : ([
           { specifier: "@agent-native/core" },
-          {
-            specifier: "@agent-native/core/client",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/agent-chat",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/analytics",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/automation",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/chat",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/changelog",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/collab",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/composer",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/conversation",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/dev-overlay",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/editor",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/rich-markdown-editor",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/feature-flags",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/hooks",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/host",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/i18n",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/integrations",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/navigation",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/resources",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/route-chunk-recovery",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/settings",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/ui",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/uploads",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/widgets",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/org",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/extensions",
-            packageName: "@agent-native/core",
-          },
-          {
-            // Legacy alias — prior name for @agent-native/core/client/extensions.
-            // Keep so deployed templates that haven't been updated still resolve.
-            specifier: "@agent-native/core/client/tools",
-            packageName: "@agent-native/core",
-          },
-          ...TOOLKIT_CLIENT_SUBPATHS.map((specifier) => ({
-            specifier,
-            packageName: "@agent-native/toolkit",
-          })),
+          // Client and Toolkit subpaths are deliberately discovered from app
+          // imports. Eagerly including every leaf would rebuild the old
+          // all-app prebundle under a different set of entry names.
         ] as Array<{ specifier: string; packageName?: string }>)),
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },

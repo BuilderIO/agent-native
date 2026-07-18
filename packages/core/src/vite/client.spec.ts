@@ -1193,7 +1193,7 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("pre-optimizes core client subpaths for published core consumers", () => {
+  it("discovers focused client subpaths on demand for published consumers", () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "an-vite-optimize-i18n-"),
     );
@@ -1208,25 +1208,14 @@ describe("local-core dev aliases and router dedupe", () => {
     );
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
-    expect(deps).toContain("@agent-native/core/client/agent-chat");
-    expect(deps).toContain("@agent-native/core/client/changelog");
-    expect(deps).toContain("@agent-native/core/client/dev-overlay");
-    expect(deps).toContain("@agent-native/core/client/feature-flags");
-    expect(deps).toContain("@agent-native/core/client/hooks");
-    expect(deps).toContain("@agent-native/core/client/host");
-    expect(deps).toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@agent-native/core/client/integrations");
-    expect(deps).toContain("@agent-native/core/client/navigation");
-    expect(deps).toContain("@agent-native/core/client/route-chunk-recovery");
-    expect(deps).toContain("@agent-native/core/client/settings");
-    expect(deps).toContain("@agent-native/core/client/ui");
-    expect(deps).toContain("@agent-native/core/client/uploads");
-    expect(deps).toContain("@agent-native/core/client/widgets");
-    expect(deps).toContain("@agent-native/toolkit/collab-ui");
-    expect(deps).toContain("@agent-native/toolkit/context-ui");
-    expect(deps).toContain("@agent-native/toolkit/design-tweaks");
-    expect(deps).toContain("@agent-native/toolkit/editor");
-    expect(deps).toContain("@agent-native/toolkit/sharing");
+    expect(deps).toContain("@agent-native/core");
+    expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).not.toContain("@agent-native/core/client/agent-chat");
+    expect(deps).not.toContain("@agent-native/core/client/composer");
+    expect(deps).not.toContain("@agent-native/core/client/hooks");
+    expect(deps).not.toContain("@agent-native/core/client/widgets");
+    expect(deps).not.toContain("@agent-native/toolkit/collab-ui");
+    expect(deps).not.toContain("@agent-native/toolkit/editor");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
