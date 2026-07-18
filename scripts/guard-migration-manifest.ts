@@ -12,7 +12,7 @@ type MigrationManifest = {
   moves?: Record<string, unknown>;
 };
 type ExportSnapshot = {
-  exportKeys?: string[];
+  exports?: Record<string, string[]>;
 };
 
 type GuardedPackage = {
@@ -43,14 +43,18 @@ function tombstoneTarget(target: string): boolean {
   );
 }
 
-function collectTombstoneTargets(value: ExportValue): string[] {
-  if (typeof value === "string") return tombstoneTarget(value) ? [value] : [];
+function collectExportTargets(value: ExportValue): string[] {
+  if (typeof value === "string") return [normalizePackagePath(value)];
   if (!value || typeof value !== "object") return [];
-  return Object.values(value).flatMap(collectTombstoneTargets);
+  return Object.values(value).flatMap(collectExportTargets);
 }
 
 function normalizePackagePath(value: string): string {
   return value.replace(/^\.\//, "");
+}
+
+function normalizedTargets(value: ExportValue): string[] {
+  return [...new Set(collectExportTargets(value))].sort();
 }
 
 function hasExactMove(
@@ -85,23 +89,58 @@ export function checkMigrationManifest(
 ): MigrationManifestViolation[] {
   const packageName = packageManifest.name ?? "<unknown package>";
   const exports = packageManifest.exports ?? {};
-  const snapshotKeys = snapshot.exportKeys ?? [];
+  const snapshotExports = snapshot.exports ?? {};
   const moves = migrationManifest.moves ?? {};
   const violations: MigrationManifestViolation[] = [];
 
-  for (const exportKey of snapshotKeys) {
-    if (exportKey in exports) continue;
+  for (const [exportKey, previousTargets] of Object.entries(snapshotExports)) {
     const specifier = packageSpecifier(packageName, exportKey);
+    const exportValue = exports[exportKey];
+    if (exportValue === undefined) {
+      violations.push({
+        packageName,
+        message: `${specifier} was removed from exports; keep the export and point it to a tombstone so consumers receive the upgrade guidance.`,
+      });
+      continue;
+    }
+
+    const currentTargets = normalizedTargets(exportValue);
+    if (
+      currentTargets.length === previousTargets.length &&
+      currentTargets.every((target, index) => target === previousTargets[index])
+    ) {
+      continue;
+    }
+    const addedTargets = currentTargets.filter(
+      (target) => !previousTargets.includes(target),
+    );
+    if (
+      addedTargets.length === 0 ||
+      addedTargets.some((target) => !tombstoneTarget(target))
+    ) {
+      violations.push({
+        packageName,
+        message: `${specifier} changed its published export target; only a tombstone target with an exact migration move and sideEffects pin is allowed.`,
+      });
+      continue;
+    }
     if (!hasExactMove(moves, specifier)) {
       violations.push({
         packageName,
-        message: `${specifier} was removed from exports; add an exact migration manifest move before removing a published entrypoint.`,
+        message: `${specifier} changed to a tombstone target but has no exact migration manifest move.`,
+      });
+    }
+    for (const target of addedTargets) {
+      if (isSideEffectPinned(packageManifest, target)) continue;
+      violations.push({
+        packageName,
+        message: `${specifier} tombstone target ${target} must be pinned in sideEffects so bundlers retain its upgrade error.`,
       });
     }
   }
 
   for (const [exportKey, exportValue] of Object.entries(exports)) {
-    const targets = collectTombstoneTargets(exportValue);
+    const targets = normalizedTargets(exportValue).filter(tombstoneTarget);
     if (targets.length === 0) continue;
     const specifier = packageSpecifier(packageName, exportKey);
     if (!hasExactMove(moves, specifier)) {

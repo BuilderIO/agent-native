@@ -8,18 +8,25 @@ const manifest = {
   exports: { ".": "./dist/index.js", "./legacy": "./dist/legacy.js" },
   sideEffects: ["*.css"],
 };
+const snapshot = {
+  exports: { ".": ["dist/index.js"], "./legacy": ["dist/legacy.js"] },
+};
 
 describe("migration manifest guard", () => {
-  it("requires a manifest move for a published export removed from its snapshot", () => {
+  it("never permits a published export to disappear, even with a manifest move", () => {
     const violations = checkMigrationManifest(
       { ...manifest, exports: { ".": "./dist/index.js" } },
-      { exportKeys: [".", "./legacy"] },
-      { moves: {} },
+      snapshot,
+      {
+        moves: {
+          "@agent-native/core/legacy": { to: "@agent-native/core/new" },
+        },
+      },
     );
 
     assert.match(
       violations[0]?.message ?? "",
-      /@agent-native\/core\/legacy.*removed/,
+      /@agent-native\/core\/legacy.*keep the export.*tombstone/,
     );
   });
 
@@ -33,7 +40,7 @@ describe("migration manifest guard", () => {
         },
         sideEffects: ["dist/legacy.tombstone.js"],
       },
-      { exportKeys: [".", "./legacy"] },
+      snapshot,
       { moves: { "@agent-native/core": { to: "@agent-native/core/new" } } },
     );
 
@@ -52,7 +59,7 @@ describe("migration manifest guard", () => {
           "./legacy": "./dist/legacy.tombstone.js",
         },
       },
-      { exportKeys: [".", "./legacy"] },
+      snapshot,
       {
         moves: {
           "@agent-native/core/legacy": { to: "@agent-native/core/new" },
@@ -77,7 +84,7 @@ describe("migration manifest guard", () => {
           },
           sideEffects: ["./dist/legacy.tombstone.js"],
         },
-        { exportKeys: [".", "./legacy"] },
+        snapshot,
         {
           moves: {
             "@agent-native/core/legacy": { to: "@agent-native/core/new" },
@@ -85,6 +92,29 @@ describe("migration manifest guard", () => {
         },
       ),
       [],
+    );
+  });
+
+  it("rejects changed targets unless the new target is a tombstone", () => {
+    const violations = checkMigrationManifest(
+      {
+        ...manifest,
+        exports: {
+          ".": "./dist/index.js",
+          "./legacy": "./dist/another-runtime.js",
+        },
+      },
+      snapshot,
+      {
+        moves: {
+          "@agent-native/core/legacy": { to: "@agent-native/core/new" },
+        },
+      },
+    );
+
+    assert.match(
+      violations[0]?.message ?? "",
+      /changed its published export target.*tombstone/,
     );
   });
 });
