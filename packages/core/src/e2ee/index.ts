@@ -12,6 +12,7 @@ export * from "./failure-fixtures.js";
 export * from "./failure-vectors.js";
 export * from "./genesis-ceremony-codecs.js";
 export * from "./genesis-bootstrap-transcript.js";
+export * from "./grant-codecs.js";
 export * from "./genesis-account-admission.js";
 export * from "./interoperability-vectors.js";
 export * from "./job-envelope-codecs.js";

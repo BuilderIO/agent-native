@@ -266,6 +266,14 @@ describe("anc/v1 suite freeze", () => {
       signature: 104,
       state: 105,
     });
+    expect(E2EE_ENVELOPE_FIELDS.grantRevoke).toEqual({
+      grantRef: 72,
+      revocationRef: 73,
+      revokedAt: 74,
+      reason: 75,
+      issuerEndpointId: 76,
+      signature: 77,
+    });
     expect(E2EE_RECOVERY_KDF).toEqual({
       algorithm: "argon2id",
       inputForm: "bip39-24-word-entropy",

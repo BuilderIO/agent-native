@@ -164,6 +164,15 @@ Deletion writes a signed tombstone, destroys live DEK wraps, asks hosted storage
 
 Possessing a grant never conveys key material. Internal agent grants are endpoint-signed and bind subject endpoint/agent, exact resources, operations, issuance/expiry, and revocation reference; maximum lifetime is 30 days. External disclosure defaults to 24 hours and has a hard seven-day maximum, additionally binding provider and destination.
 
+Grant scopes are strict, sorted canonical lists and the grant reference is the
+domain-separated hash of the exact signed envelope bytes. Revocation uses the
+precommitted revocation reference and a separately signed `grant-revoke`
+envelope binding the exact grant hash, issuer, time, and reason. A broker may
+cache these only inside its rollback-resistant encrypted native index. Release
+still requires revocations to be committed into the fresh signed authority log;
+a merely hosted revocation row is not sufficient because the host could hide
+it.
+
 Jobs are endpoint-signed and sealed requester-to-broker with the requester's
 X25519 private key and the broker's enrolled public key. Results reverse that
 key-agreement direction, are broker-signed, bind the exact originating signed

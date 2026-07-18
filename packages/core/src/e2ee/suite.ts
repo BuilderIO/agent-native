@@ -259,6 +259,14 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     revocationRef: 70,
     signature: 71,
   }),
+  grantRevoke: Object.freeze({
+    grantRef: 72,
+    revocationRef: 73,
+    revokedAt: 74,
+    reason: 75,
+    issuerEndpointId: 76,
+    signature: 77,
+  }),
   disclosure: Object.freeze({
     grantRef: 80,
     providerId: 81,

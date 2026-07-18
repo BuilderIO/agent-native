@@ -23,7 +23,7 @@
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "188626851f474979ffe7a2f2eb5b9bbf2d896e48c80b2113eaca89130af0db67"
+      "sha256": "c1fea782c58d077b1bf7e9a2dbf91206f451e1d7af7502c574c594f4341f4de6"
     }
   ],
   "domains": [
