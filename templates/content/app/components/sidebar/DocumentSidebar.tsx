@@ -11,7 +11,6 @@ import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -350,6 +349,16 @@ export function DocumentSidebar({
   const ensureContentSpaces = useEnsureContentSpaces();
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
+  const workspaceCatalogDatabaseId =
+    contentSpacesQuery.data?.catalogDatabaseId ?? null;
+  const workspaceCatalogDatabase = useContentDatabaseById(
+    workspaceCatalogDatabaseId,
+  );
+  const workspaceCatalogPersonalView = useContentDatabasePersonalView(
+    workspaceCatalogDatabaseId,
+  );
+  const updateWorkspaceCatalogPersonalView =
+    useUpdateContentDatabasePersonalView(workspaceCatalogDatabaseId);
   const spaceProvisionAttemptedRef = useRef(false);
   useEffect(() => {
     if (
@@ -464,10 +473,11 @@ export function DocumentSidebar({
         filesDocumentId: created.filesDocumentId,
         orgId: null,
         role: "owner",
-        catalogItemId: "",
-        catalogDocumentId: "",
+        catalogItemId: created.catalogItemId,
+        catalogDocumentId: created.catalogDocumentId,
       };
-      await handleSelectContentSpace(space);
+      const selected = await handleSelectContentSpace(space);
+      if (!selected) return;
       setCreateWorkspaceDialogOpen(false);
       setNewWorkspaceName("");
       createWorkspaceRequestIdRef.current = null;
@@ -1266,88 +1276,141 @@ export function DocumentSidebar({
     );
   };
 
+  const renderWorkspaceRoot = (space: ContentSpaceSummary) => {
+    const selected = selectedSpace?.id === space.id;
+    const expanded = expandedWorkspaceIds.includes(space.id);
+    return (
+      <div className="min-w-0">
+        <div
+          className={cn(
+            "flex h-7 w-full min-w-0 items-center rounded-md",
+            selected
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+          )}
+        >
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+            onClick={() =>
+              setExpandedWorkspaceIds((current) =>
+                toggleExpandedWorkspaceIds(current, space.id),
+              )
+            }
+          >
+            {expanded ? (
+              <IconChevronDown size={14} />
+            ) : (
+              <IconChevronRight size={14} />
+            )}
+          </button>
+          <button
+            type="button"
+            className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
+            onClick={() => void handleSelectContentSpace(space)}
+          >
+            {space.name}
+          </button>
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+            disabled={createDocument.isPending}
+            aria-label={`${t("sidebar.newPage")} — ${space.name}`}
+            onClick={() => void handleCreatePageInSpace(space)}
+          >
+            <IconPlus size={14} />
+          </button>
+        </div>
+        {expanded && (
+          <WorkspaceFilesSection
+            space={space}
+            selected={selected}
+            activeDocumentId={activeDocumentId}
+            onActivate={(nextSpace, documentId) =>
+              void handleSelectContentSpace(nextSpace, documentId)
+            }
+            onCreateChildPage={(nextSpace, item) =>
+              void handleCreatePage(
+                item.document.id,
+                nextSpace.id,
+                undefined,
+                nextSpace.filesDatabaseId,
+              )
+            }
+            onCreateChildDatabase={(nextSpace, item) =>
+              void handleCreateDatabase(item.document.id, nextSpace.id)
+            }
+            onDeleteItem={(item) => void handleDelete(item.document.id)}
+            onToggleFavorite={(item) =>
+              handleToggleFavorite(item.document.id, !item.document.isFavorite)
+            }
+          />
+        )}
+      </div>
+    );
+  };
+
   const renderWorkspaceNavigation = () => (
     <div className="mb-2 px-2">
       {contentSpaceState === "ready" && selectedSpace ? (
         <div className="grid gap-1">
-          {contentSpaces.map((space) => {
-            const selected = selectedSpace.id === space.id;
-            const expanded = expandedWorkspaceIds.includes(space.id);
-            return (
-              <div key={space.id} className="min-w-0">
-                <div
-                  className={cn(
-                    "flex h-7 w-full min-w-0 items-center rounded-md",
-                    selected
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                  )}
-                >
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
-                    onClick={() =>
-                      setExpandedWorkspaceIds((current) =>
-                        toggleExpandedWorkspaceIds(current, space.id),
-                      )
-                    }
-                  >
-                    {expanded ? (
-                      <IconChevronDown size={14} />
-                    ) : (
-                      <IconChevronRight size={14} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
-                    onClick={() => void handleSelectContentSpace(space)}
-                  >
-                    {space.name}
-                  </button>
-                  <button
-                    type="button"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
-                    disabled={createDocument.isPending}
-                    aria-label={`${t("sidebar.newPage")} — ${space.name}`}
-                    onClick={() => void handleCreatePageInSpace(space)}
-                  >
-                    <IconPlus size={14} />
-                  </button>
-                </div>
-                {expanded && (
-                  <WorkspaceFilesSection
-                    space={space}
-                    selected={selected}
-                    activeDocumentId={activeDocumentId}
-                    onActivate={(nextSpace, documentId) =>
-                      void handleSelectContentSpace(nextSpace, documentId)
-                    }
-                    onCreateChildPage={(nextSpace, item) =>
-                      void handleCreatePage(
-                        item.document.id,
-                        nextSpace.id,
-                        undefined,
-                        nextSpace.filesDatabaseId,
-                      )
-                    }
-                    onCreateChildDatabase={(nextSpace, item) =>
-                      void handleCreateDatabase(item.document.id, nextSpace.id)
-                    }
-                    onDeleteItem={(item) => void handleDelete(item.document.id)}
-                    onToggleFavorite={(item) =>
-                      handleToggleFavorite(
-                        item.document.id,
-                        !item.document.isFavorite,
-                      )
-                    }
-                  />
-                )}
-              </div>
-            );
-          })}
+          {workspaceCatalogDatabase.isError ||
+          workspaceCatalogPersonalView.isError ? (
+            <QueryErrorState
+              compact
+              onRetry={() => {
+                void workspaceCatalogDatabase.refetch();
+                void workspaceCatalogPersonalView.refetch();
+              }}
+              retrying={
+                workspaceCatalogDatabase.isFetching ||
+                workspaceCatalogPersonalView.isFetching
+              }
+            />
+          ) : (
+            <ContentFilesSidebarView
+              data={workspaceCatalogDatabase.data}
+              overrides={workspaceCatalogPersonalView.data?.overrides}
+              isLoading={
+                workspaceCatalogDatabase.isLoading ||
+                workspaceCatalogPersonalView.isLoading
+              }
+              onSelectView={(viewId) => {
+                if (!workspaceCatalogDatabaseId) return;
+                const current = workspaceCatalogPersonalView.data?.overrides;
+                updateWorkspaceCatalogPersonalView.mutate({
+                  databaseId: workspaceCatalogDatabaseId,
+                  overrides: {
+                    version: current?.version ?? 1,
+                    activeViewId: viewId,
+                    views: current?.views ?? [],
+                  },
+                });
+              }}
+              renderItem={(item) => {
+                const space = contentSpaces.find(
+                  (candidate) =>
+                    candidate.catalogDocumentId === item.document.id,
+                );
+                return space
+                  ? renderWorkspaceRoot({
+                      ...space,
+                      name: item.document.title || space.name,
+                    })
+                  : null;
+              }}
+              scroll={false}
+              labels={{
+                loadingLabel: t("sidebar.loadingFiles"),
+                noMatchesLabel: t("database.noRowsMatchThisView"),
+                clearLabel: t("database.clearSearchAndFilters"),
+                navigationLabel: "Content navigation",
+                untitledLabel: t("sidebar.untitled"),
+              }}
+            />
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -1735,7 +1798,6 @@ export function DocumentSidebar({
             <ThemeToggle />
           </div>
         </div>
-        <OrgSwitcher />
       </div>
 
       {/* Resize handle */}

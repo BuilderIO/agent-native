@@ -24,7 +24,7 @@ import {
   IconStar,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import {
@@ -104,6 +104,8 @@ export function ContentFilesSidebarView({
   onCreateChildDatabase,
   onDeleteItem,
   onToggleFavorite,
+  renderItem,
+  scroll = true,
 }: {
   data: ContentDatabaseResponse | undefined;
   overrides: ContentDatabasePersonalViewOverrides | null | undefined;
@@ -115,6 +117,8 @@ export function ContentFilesSidebarView({
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  renderItem?: (item: ContentDatabaseItem) => ReactNode;
+  scroll?: boolean;
   labels: Omit<
     Parameters<typeof DatabaseSidebarView>[0],
     | "groups"
@@ -124,6 +128,8 @@ export function ContentFilesSidebarView({
     | "openPagesIn"
     | "onClearResultConstraints"
     | "onPreview"
+    | "renderItem"
+    | "scroll"
   >;
 }) {
   const viewConfig = applyPersonalSidebarViewOverrides(
@@ -197,6 +203,8 @@ export function ContentFilesSidebarView({
         onCreateChildDatabase={onCreateChildDatabase}
         onDeleteItem={onDeleteItem}
         onToggleFavorite={onToggleFavorite}
+        renderItem={renderItem}
+        scroll={scroll}
       />
     </div>
   );
@@ -216,6 +224,8 @@ export function DatabaseSidebarView({
   onCreateChildDatabase,
   onDeleteItem,
   onToggleFavorite,
+  renderItem,
+  scroll = true,
   loadingLabel,
   noMatchesLabel,
   clearLabel,
@@ -235,6 +245,8 @@ export function DatabaseSidebarView({
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  renderItem?: (item: ContentDatabaseItem) => ReactNode;
+  scroll?: boolean;
   loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
@@ -280,33 +292,33 @@ export function DatabaseSidebarView({
     );
   }
 
-  return (
-    <ScrollArea className="max-h-[32rem] w-full">
-      <nav aria-label={navigationLabel} className="grid gap-1 p-1">
-        {grouped
-          ? groups.map((group) => {
-              const open = !collapsedGroupIds.has(group.id);
-              return (
-                <Collapsible
-                  key={group.id}
-                  open={open}
-                  onOpenChange={(nextOpen) => setGroupOpen(group.id, nextOpen)}
-                >
-                  <CollapsibleTrigger className="group flex h-7 w-full items-center gap-1 rounded px-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    {open ? (
-                      <IconChevronDown className="size-3.5 shrink-0" />
+  const navigation = (
+    <nav aria-label={navigationLabel} className="grid gap-1 p-1">
+      {grouped
+        ? groups.map((group) => {
+            const open = !collapsedGroupIds.has(group.id);
+            return (
+              <Collapsible
+                key={group.id}
+                open={open}
+                onOpenChange={(nextOpen) => setGroupOpen(group.id, nextOpen)}
+              >
+                <CollapsibleTrigger className="group flex h-7 w-full items-center gap-1 rounded px-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {open ? (
+                    <IconChevronDown className="size-3.5 shrink-0" />
+                  ) : (
+                    <IconChevronRight className="size-3.5 shrink-0" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                  <span className="text-[11px] font-normal text-muted-foreground/75">
+                    {group.items.length}
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="grid gap-0.5 pl-2">
+                  {group.items.map((item) =>
+                    renderItem ? (
+                      <div key={item.id}>{renderItem(item)}</div>
                     ) : (
-                      <IconChevronRight className="size-3.5 shrink-0" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">
-                      {group.label}
-                    </span>
-                    <span className="text-[11px] font-normal text-muted-foreground/75">
-                      {group.items.length}
-                    </span>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="grid gap-0.5 pl-2">
-                    {group.items.map((item) => (
                       <DatabaseSidebarRow
                         key={item.id}
                         item={item}
@@ -320,12 +332,16 @@ export function DatabaseSidebarView({
                         onToggleFavorite={onToggleFavorite}
                         untitledLabel={untitledLabel}
                       />
-                    ))}
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })
-          : items.map((item) => (
+                    ),
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })
+        : items.map((item) =>
+            renderItem ? (
+              <div key={item.id}>{renderItem(item)}</div>
+            ) : (
               <DatabaseSidebarRow
                 key={item.id}
                 item={item}
@@ -339,9 +355,14 @@ export function DatabaseSidebarView({
                 onToggleFavorite={onToggleFavorite}
                 untitledLabel={untitledLabel}
               />
-            ))}
-      </nav>
-    </ScrollArea>
+            ),
+          )}
+    </nav>
+  );
+  return scroll ? (
+    <ScrollArea className="max-h-[32rem] w-full">{navigation}</ScrollArea>
+  ) : (
+    navigation
   );
 }
 

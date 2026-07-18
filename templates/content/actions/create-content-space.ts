@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
@@ -15,14 +13,16 @@ export default defineAction({
     "Create a private Content workspace with its own canonical Files database.",
   schema: z.object({
     name: z.string().trim().min(1).max(200),
-    requestId: z.string().trim().min(1).max(200).optional(),
+    requestId: z.string().trim().min(1).max(200),
+    propertyValues: z.record(z.string(), z.unknown()).optional(),
   }),
-  run: async ({ name, requestId }) => {
+  run: async ({ name, requestId, propertyValues }) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
     const result = await provisionUserContentSpace(getDb(), userEmail, {
-      workspaceId: requestId ?? randomUUID(),
+      workspaceId: requestId,
       name,
+      propertyValues,
     });
     return {
       ...result,

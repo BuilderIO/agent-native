@@ -371,6 +371,13 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
+    const [workspaceReference] = await db
+      .select({ id: schema.contentSpaceCatalogItems.id })
+      .from(schema.contentSpaceCatalogItems)
+      .where(eq(schema.contentSpaceCatalogItems.documentId, id));
+    if (workspaceReference) {
+      throw new Error("Workspace references cannot be deleted as pages");
+    }
     const deleted = await deleteDocumentRecursive(
       db,
       id,

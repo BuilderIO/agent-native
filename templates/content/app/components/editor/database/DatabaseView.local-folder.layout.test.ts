@@ -18,7 +18,7 @@ describe("Files database local-folder source entry", () => {
     );
     expect(databaseView).toContain('label="Local folder"');
     expect(databaseView).toContain(
-      "navigate(`/local-files?databaseId=${documentId}`)",
+      "navigate(`/local-files?databaseId=${databaseId}`)",
     );
     expect(localFilesRoute).toContain(
       'const targetDatabaseId = searchParams.get("databaseId") || undefined',

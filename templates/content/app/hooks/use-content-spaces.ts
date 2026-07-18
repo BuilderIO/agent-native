@@ -46,15 +46,27 @@ export function useCreateContentSpace() {
       spaceId: string;
       filesDatabaseId: string;
       filesDocumentId: string;
+      catalogDatabaseId: string;
+      catalogItemId: string;
+      catalogDocumentId: string;
       name: string;
       kind: "user";
     },
-    { name: string; requestId?: string }
+    {
+      name: string;
+      requestId: string;
+      propertyValues?: Record<string, unknown>;
+    }
   >("create-content-space", {
     onSuccess: async () => {
-      await queryClient.refetchQueries({
-        queryKey: ["action", "list-content-spaces"],
-      });
+      await Promise.all([
+        queryClient.refetchQueries({
+          queryKey: ["action", "list-content-spaces"],
+        }),
+        queryClient.refetchQueries({
+          queryKey: ["action", "get-content-database"],
+        }),
+      ]);
     },
   });
 }

@@ -183,7 +183,10 @@ import {
   useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
 } from "@/hooks/use-content-database";
-import { useContentSpaces } from "@/hooks/use-content-spaces";
+import {
+  useContentSpaces,
+  useCreateContentSpace,
+} from "@/hooks/use-content-spaces";
 import {
   useConfigureDocumentProperty,
   useSetDocumentProperty,
@@ -687,6 +690,8 @@ function DatabaseTable({
   );
   const database = useContentDatabase(document.id, databaseItemLimit);
   const addItem = useAddDatabaseItem(document.id);
+  const createContentSpace = useCreateContentSpace();
+  const workspaceCreateRequestIdRef = useRef<string | null>(null);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
@@ -1364,6 +1369,30 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
+    if (data?.database.systemRole === "workspaces") {
+      const name = title.trim() || t("sidebar.newWorkspace");
+      const requestId =
+        workspaceCreateRequestIdRef.current ?? crypto.randomUUID();
+      workspaceCreateRequestIdRef.current = requestId;
+      try {
+        const created = await createContentSpace.mutateAsync({
+          name,
+          requestId,
+          propertyValues:
+            Object.keys(propertyValueOverrides).length > 0
+              ? propertyValueOverrides
+              : undefined,
+        });
+        workspaceCreateRequestIdRef.current = null;
+        navigate(`/page/${created.filesDocumentId}`);
+      } catch (err) {
+        toast.error(dbText("failedToCreateRow"), {
+          description:
+            err instanceof Error ? err.message : dbText("somethingWentWrong"),
+        });
+      }
+      return null;
+    }
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -2358,10 +2387,18 @@ function DatabaseTable({
               type="button"
               size="sm"
               className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
-              disabled={addItem.isPending || !databaseId}
+              disabled={
+                (data?.database.systemRole === "workspaces"
+                  ? createContentSpace.isPending
+                  : addItem.isPending) || !databaseId
+              }
               onClick={() => void createRow()}
             >
-              {addItem.isPending ? (
+              {(
+                data?.database.systemRole === "workspaces"
+                  ? createContentSpace.isPending
+                  : addItem.isPending
+              ) ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : null}
               New
@@ -2726,6 +2763,7 @@ function DatabaseTable({
       <DatabaseSettingsPanelSheet
         open={settingsOpen}
         panel={settingsPanel}
+        databaseId={databaseId}
         documentId={document.id}
         isFilesDatabase={document.database?.systemRole === "files"}
         canEdit={canEdit}
@@ -7019,6 +7057,7 @@ function NotionLogoMark({ className }: { className?: string }) {
 function DatabaseSettingsPanelSheet({
   open,
   panel,
+  databaseId,
   documentId,
   isFilesDatabase,
   canEdit,
@@ -7055,6 +7094,7 @@ function DatabaseSettingsPanelSheet({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
+  databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
   canEdit: boolean;
@@ -7169,6 +7209,7 @@ function DatabaseSettingsPanelSheet({
           <DatabaseSettingsSourcePanel
             source={source}
             sources={sources}
+            databaseId={databaseId}
             documentId={documentId}
             isFilesDatabase={isFilesDatabase}
             itemCount={items.length}
@@ -7552,6 +7593,7 @@ export function buildClientBuilderReviewPayload(
 function DatabaseSettingsSourcePanel({
   source,
   sources,
+  databaseId,
   documentId,
   isFilesDatabase,
   itemCount,
@@ -7574,6 +7616,7 @@ function DatabaseSettingsSourcePanel({
 }: {
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
+  databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
   itemCount: number;
@@ -7653,7 +7696,7 @@ function DatabaseSettingsSourcePanel({
         }
         onOpenNotion={() => onNavPush({ kind: "addSource" })}
         onOpenLocalFolder={() =>
-          navigate(`/local-files?databaseId=${documentId}`)
+          navigate(`/local-files?databaseId=${databaseId}`)
         }
         showLocalFolder={isFilesDatabase}
         onOpenSecondary={(secondary) =>

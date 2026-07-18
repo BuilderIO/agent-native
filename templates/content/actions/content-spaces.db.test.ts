@@ -89,18 +89,66 @@ async function addMember(
 
 describe("Content space provisioning", () => {
   it("creates an idempotent private named workspace with canonical Files", async () => {
+    const provisioned = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () => provisionContentSpaces(getDb(), WORKSPACE_OWNER),
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: "workspace-focus-property",
+      ownerEmail: WORKSPACE_OWNER,
+      orgId: null,
+      databaseId: provisioned.catalogDatabaseId,
+      name: "Focus",
+      type: "text",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
     const create = () =>
       runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
         createContentSpaceAction.run({
           name: "Writing",
           requestId: "named-workspace-writing",
+          propertyValues: { "workspace-focus-property": "Editorial" },
         }),
       );
     const first = await create();
     const second = await create();
     expect(second).toEqual(first);
+    await expect(
+      runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+        createContentSpaceAction.run({
+          name: "Different name",
+          requestId: "named-workspace-writing",
+        }),
+      ),
+    ).rejects.toThrow("Workspace request ID is already bound to another name");
     expect(first.spaceId).toMatch(/^content_space_user_[a-f0-9]{32}$/);
     expect(first.spaceId).not.toContain(WORKSPACE_OWNER);
+    const [focusValue] = await getDb()
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, first.catalogDocumentId),
+          eq(
+            schema.documentPropertyValues.propertyId,
+            "workspace-focus-property",
+          ),
+        ),
+      );
+    expect(JSON.parse(focusValue.valueJson)).toBe("Editorial");
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Writing alias" })
+      .where(eq(schema.documents.id, first.catalogDocumentId));
+    await create();
+    const [aliasedReference] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, first.catalogDocumentId));
+    expect(aliasedReference.title).toBe("Writing alias");
 
     const [space] = await getDb()
       .select()
@@ -150,6 +198,11 @@ describe("Content space provisioning", () => {
     expect(outsiderSpaces.spaces).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: first.spaceId })]),
     );
+    await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, async () => {
+      await expect(
+        deleteDocumentAction.run({ id: first.catalogDocumentId }),
+      ).rejects.toThrow("Workspace references cannot be deleted as pages");
+    });
   });
 
   it("is idempotent, opaque, and creates exactly one Files and Workspaces database", async () => {

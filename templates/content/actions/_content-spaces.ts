@@ -1,14 +1,19 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
+import {
+  isComputedPropertyType,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
 } from "./_content-space-access.js";
 import {
   defaultDatabaseViewConfig,
+  normalizedValueJson,
   seedDefaultBlocksField,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
@@ -466,7 +471,12 @@ export async function provisionContentSpaces(
 async function provisionOwnedContentSpace(
   db: Db,
   userEmail: string,
-  input: { spaceId: string; name: string; kind: "user" | "source_backed" },
+  input: {
+    spaceId: string;
+    name: string;
+    kind: "user" | "source_backed";
+    propertyValues?: Record<string, unknown>;
+  },
 ) {
   const email = normalizeContentSpaceEmail(userEmail);
   const name = input.name.trim();
@@ -484,7 +494,7 @@ async function provisionOwnedContentSpace(
     catalogItems: 0,
   };
 
-  const files = await db.transaction(async (tx: Db) => {
+  const provisioned = await db.transaction(async (tx: Db) => {
     const sourceFiles = await ensureSystemDatabase({
       db: tx,
       spaceId,
@@ -500,6 +510,9 @@ async function provisionOwnedContentSpace(
       .select()
       .from(schema.contentSpaces)
       .where(eq(schema.contentSpaces.id, spaceId));
+    if (existingSpace && input.kind === "user" && existingSpace.name !== name) {
+      throw new Error("Workspace request ID is already bound to another name");
+    }
     if (!existingSpace) {
       await tx
         .insert(schema.contentSpaces)
@@ -515,13 +528,10 @@ async function provisionOwnedContentSpace(
           updatedAt: now,
         })
         .onConflictDoNothing();
-    } else if (
-      existingSpace.name !== name ||
-      existingSpace.filesDatabaseId !== sourceFiles.id
-    ) {
+    } else if (existingSpace.filesDatabaseId !== sourceFiles.id) {
       await tx
         .update(schema.contentSpaces)
-        .set({ name, filesDatabaseId: sourceFiles.id, updatedAt: now })
+        .set({ filesDatabaseId: sourceFiles.id, updatedAt: now })
         .where(eq(schema.contentSpaces.id, spaceId));
     }
 
@@ -549,10 +559,12 @@ async function provisionOwnedContentSpace(
       },
       created,
     );
-    await tx
-      .update(schema.documents)
-      .set({ title: name, updatedAt: now })
-      .where(eq(schema.documents.id, referenceDocumentId));
+    if (!existingSpace || input.kind !== "user") {
+      await tx
+        .update(schema.documents)
+        .set({ title: name, updatedAt: now })
+        .where(eq(schema.documents.id, referenceDocumentId));
+    }
 
     const [maxCatalogPosition] = await tx
       .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
@@ -594,17 +606,75 @@ async function provisionOwnedContentSpace(
         })
         .onConflictDoNothing();
     }
-    return sourceFiles;
+    const initialPropertyValues = Object.entries(input.propertyValues ?? {});
+    if (initialPropertyValues.length > 0) {
+      const definitions = (await tx
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(
+              schema.documentPropertyDefinitions.databaseId,
+              catalogIds.databaseId,
+            ),
+            inArray(
+              schema.documentPropertyDefinitions.id,
+              initialPropertyValues.map(([propertyId]) => propertyId),
+            ),
+          ),
+        )) as Array<typeof schema.documentPropertyDefinitions.$inferSelect>;
+      const definitionById = new Map(
+        definitions.map((definition) => [definition.id, definition]),
+      );
+      for (const [propertyId, value] of initialPropertyValues) {
+        const definition = definitionById.get(propertyId);
+        const type = definition?.type as DocumentPropertyType | undefined;
+        if (!type || isComputedPropertyType(type)) continue;
+        await tx
+          .insert(schema.documentPropertyValues)
+          .values({
+            id: opaqueId(
+              "content_workspace_property",
+              `${email}:${spaceId}:${propertyId}`,
+            ),
+            ownerEmail: email,
+            documentId: referenceDocumentId,
+            propertyId,
+            valueJson: normalizedValueJson(type, value),
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: schema.documentPropertyValues.id,
+            set: {
+              valueJson: normalizedValueJson(type, value),
+              updatedAt: now,
+            },
+          });
+      }
+    }
+    return {
+      files: sourceFiles,
+      catalogDatabaseId: catalogIds.databaseId,
+      catalogItemId,
+      catalogDocumentId: referenceDocumentId,
+    };
   });
 
   await seedDefaultBlocksField({
-    databaseId: files.id,
-    ownerEmail: files.ownerEmail,
-    orgId: files.orgId,
+    databaseId: provisioned.files.id,
+    ownerEmail: provisioned.files.ownerEmail,
+    orgId: provisioned.files.orgId,
     now,
     db,
   });
-  return { spaceId, filesDatabaseId: files.id };
+  return {
+    spaceId,
+    filesDatabaseId: provisioned.files.id,
+    catalogDatabaseId: provisioned.catalogDatabaseId,
+    catalogItemId: provisioned.catalogItemId,
+    catalogDocumentId: provisioned.catalogDocumentId,
+  };
 }
 
 export async function provisionSourceBackedContentSpace(
@@ -624,7 +694,11 @@ export async function provisionSourceBackedContentSpace(
 export async function provisionUserContentSpace(
   db: Db,
   userEmail: string,
-  input: { workspaceId: string; name: string },
+  input: {
+    workspaceId: string;
+    name: string;
+    propertyValues?: Record<string, unknown>;
+  },
 ) {
   const workspaceId = input.workspaceId.trim();
   if (!workspaceId) throw new Error("Workspace ID is required");
@@ -632,5 +706,6 @@ export async function provisionUserContentSpace(
     spaceId: userContentSpaceId(userEmail, workspaceId),
     name: input.name,
     kind: "user",
+    propertyValues: input.propertyValues,
   });
 }

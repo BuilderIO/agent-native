@@ -81,6 +81,44 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("font-semibold");
   });
 
+  it("lets a saved database view render workspace roots inside its groups", () => {
+    const groups = [
+      {
+        id: "team",
+        label: "Team",
+        items: [item("workspace", "Builder.io")],
+        property: null,
+        value: "team",
+      },
+    ] as DatabaseBoardGroup[];
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <DatabaseSidebarView
+          groups={groups}
+          grouped
+          scroll={false}
+          isLoading={false}
+          hasActiveConstraints={false}
+          openPagesIn="full_page"
+          loadingLabel="Loading workspaces"
+          noMatchesLabel="No workspaces"
+          clearLabel="Clear"
+          navigationLabel="Content navigation"
+          untitledLabel="Untitled"
+          onClearResultConstraints={() => {}}
+          onPreview={() => {}}
+          renderItem={(workspace) => (
+            <button type="button">{workspace.document.title} files</button>
+          )}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain("Team");
+    expect(markup).toContain("Builder.io files");
+    expect(markup).not.toContain('href="/page/workspace"');
+  });
+
   it("lets the Files sidebar intercept a workspace reference row", async () => {
     const onOpenItem = vi.fn(() => true);
     const container = document.createElement("div");

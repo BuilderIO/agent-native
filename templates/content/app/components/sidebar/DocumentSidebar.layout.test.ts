@@ -212,11 +212,16 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain(
       '<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">',
     );
-    expect(sidebar).toContain("<OrgSwitcher />");
+    expect(sidebar).not.toContain("<OrgSwitcher />");
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
     expect(sidebar).toContain('t("sidebar.newWorkspace")');
     expect(sidebar).toContain("useCreateContentSpace");
     expect(sidebar).toContain("handleCreateWorkspace");
+    expect(sidebar).toContain("workspaceCatalogDatabaseId");
+    expect(sidebar).toContain("workspaceCatalogPersonalView.data?.overrides");
+    expect(sidebar).toContain("renderItem={(item) =>");
+    expect(sidebar).toContain("name: item.document.title || space.name");
+    expect(sidebar).toContain("scroll={false}");
     expect(sidebar).toContain('<Link to="/local-files">');
   });
 
