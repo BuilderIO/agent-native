@@ -109,6 +109,14 @@ describe("scanDeprecatedImports", () => {
         to: "@agent-native/core/blocks",
         status: "active",
       });
+      expect(
+        move
+          ? resolveMigrationSymbolMove(move, "RegistryBlockDataProvider")
+          : null,
+      ).toMatchObject({
+        to: "@agent-native/core/blocks",
+        status: "planned",
+      });
     }
     const testingMove = manifest?.moves["@agent-native/core/testing"];
     expect(
