@@ -28,4 +28,17 @@ describe("Files database local-folder source entry", () => {
       "createSourceBackedSpace: !targetSpaceId && !targetDatabaseId",
     );
   });
+
+  it("requires an explicitly trusted native directory picker", () => {
+    const localFilesRoute = readFileSync(
+      new URL("../../../routes/_app.local-files.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(localFilesRoute).toContain("__agentNativeSafeDirectoryPicker");
+    expect(localFilesRoute).toMatch(
+      /__agentNativeSafeDirectoryPicker\s*!?==?\s*true/,
+    );
+    expect(localFilesRoute).toContain("isUnsafeNativeFolderPickerHost()");
+  });
 });

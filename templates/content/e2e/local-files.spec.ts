@@ -141,6 +141,7 @@ async function installDirectoryPicker(page: Page, root: string) {
         api.__contentLocalSourceDirectoryHandle = handle;
         return handle;
       };
+      api.__agentNativeSafeDirectoryPicker = true;
     },
     { rootPath: root, rootName: path.basename(root) },
   );

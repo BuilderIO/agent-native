@@ -80,6 +80,7 @@ type LocalDirectoryHandle = {
   isSameEntry?(other: LocalDirectoryHandle): Promise<boolean>;
 };
 type WindowWithDirectoryPicker = Window & {
+  __agentNativeSafeDirectoryPicker?: boolean;
   showDirectoryPicker?: (options?: {
     mode?: "read" | "readwrite";
   }) => Promise<LocalDirectoryHandle>;
@@ -193,6 +194,8 @@ function supportsDirectoryPicker() {
     typeof window !== "undefined" &&
     typeof (window as WindowWithDirectoryPicker).showDirectoryPicker ===
       "function" &&
+    (window as WindowWithDirectoryPicker).__agentNativeSafeDirectoryPicker ===
+      true &&
     !getDesktopContentFiles() &&
     !isUnsafeNativeFolderPickerHost()
   );
@@ -540,7 +543,12 @@ async function chooseDirectory(
   }
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
-  if (!picker || isUnsafeNativeFolderPickerHost()) {
+  if (
+    !picker ||
+    (window as WindowWithDirectoryPicker).__agentNativeSafeDirectoryPicker !==
+      true ||
+    isUnsafeNativeFolderPickerHost()
+  ) {
     throw new Error(unsupportedLocalFolderSyncMessage(t));
   }
   const handle = await picker({ mode: "readwrite" });
