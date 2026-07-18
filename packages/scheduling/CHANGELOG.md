@@ -1,5 +1,13 @@
 # @agent-native/scheduling
 
+## 0.1.26
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+- Updated dependencies [b6d7f87]
+  - @agent-native/toolkit@0.5.0
+
 ## 0.1.25
 
 ### Patch Changes
