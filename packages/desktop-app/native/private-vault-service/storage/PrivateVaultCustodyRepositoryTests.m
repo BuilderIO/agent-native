@@ -384,6 +384,30 @@ static void MakeActive(AncPrivateVaultCustodySnapshot *snapshot,
   snapshot->freshness_ms = 1700000001000ULL + generation;
 }
 
+static void MakePendingGenesis(AncPrivateVaultCustodySnapshot *snapshot,
+                               TestSecrets *secrets, NSString *vaultId) {
+  MakeActive(snapshot, secrets, 1, 201, vaultId);
+  snapshot->authority_anchor_present = 0;
+  snapshot->expected_edge_present = 1;
+  snapshot->lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  snapshot->pending_kind = ANC_PV_CUSTODY_PENDING_GENESIS;
+  snapshot->rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  snapshot->active_epoch = 0;
+  snapshot->pending_epoch = 1;
+  snapshot->recovery_generation = 0;
+  snapshot->anchored_sequence = 0;
+  memset(snapshot->anchored_head, 0, 32);
+  memset(snapshot->membership_digest, 0, 32);
+  snapshot->signed_at_ms = 0;
+  memset(snapshot->snapshot_digest, 0, 32);
+  snapshot->freshness_ms = 0;
+  SetId(snapshot->ceremony_id, &snapshot->ceremony_id_length,
+        @"ceremony:genesis-test");
+  Fill(snapshot->pending_transcript_digest, 32, 0xd1);
+  memset(secrets->activeKey, 0, 32);
+  Fill(secrets->pendingKey, 32, 0xe1);
+}
+
 static NSString *KeyForService(NSString *service) {
   for (NSString *key in gStore)
     if ([key hasPrefix:[service stringByAppendingString:@"|"]])
@@ -1357,6 +1381,71 @@ static void TestAdvanceAuthorityAnchorCAS(void) {
       AncPrivateVaultCustodyRepositoryStatusConflict);
 }
 
+static void TestPromoteGenesisAuthorityAnchorCAS(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  AncPrivateVaultCustodySnapshot pending;
+  TestSecrets secrets;
+  MakePendingGenesis(&pending, &secrets, @"vault");
+  AncPrivateVaultCustodySecretInputs source = Inputs(&secrets);
+  assert([repository storeSnapshot:&pending secrets:&source vaultId:@"vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+
+  AncPrivateVaultCustodySnapshot official = pending;
+  official.authority_anchor_present = 1;
+  official.expected_edge_present = 0;
+  official.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
+  official.pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
+  official.rotation_phase = ANC_PV_CUSTODY_ROTATION_NONE;
+  official.custody_generation = 2;
+  official.ceremony_id_length = 0;
+  memset(official.ceremony_id, 0, sizeof official.ceremony_id);
+  official.active_epoch = 1;
+  official.pending_epoch = 0;
+  official.recovery_generation = 1;
+  Fill(official.anchored_head, 32, 0xa1);
+  Fill(official.membership_digest, 32, 0xb1);
+  official.signed_at_ms = 1700000010000ULL;
+  Fill(official.snapshot_digest, 32, 0xc1);
+  official.freshness_ms = 1700000011000ULL;
+  memset(official.pending_transcript_digest, 0, 32);
+  assert([repository promoteGenesisAuthorityAnchorVaultId:@"vault"
+                                       nextPublicSnapshot:&official] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  AncPrivateVaultCustodySnapshot observed;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&observed handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(observed.custody_generation == 2 &&
+         observed.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+         observed.authority_anchor_present && !observed.expected_edge_present &&
+         observed.pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+         observed.active_epoch == 1 && observed.pending_epoch == 0);
+  __block BOOL promotedSecret = NO;
+  assert([handle borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *value) {
+           promotedSecret =
+               memcmp(value->active_epoch_key, secrets.pendingKey, 32) == 0;
+           uint8_t zero[32] = {0};
+           return promotedSecret &&
+                  memcmp(value->pending_epoch_key, zero, 32) == 0;
+         }] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(promotedSecret);
+  assert([repository promoteGenesisAuthorityAnchorVaultId:@"vault"
+                                       nextPublicSnapshot:&official] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  official.membership_digest[0] ^= 1;
+  assert([repository promoteGenesisAuthorityAnchorVaultId:@"vault"
+                                       nextPublicSnapshot:&official] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  official.membership_digest[0] ^= 1;
+  official.custody_generation = 3;
+  assert([repository promoteGenesisAuthorityAnchorVaultId:@"vault"
+                                       nextPublicSnapshot:&official] !=
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+}
+
 static void TestLegacyCodecMigrations(void) {
   Reset();
   AncPrivateVaultKeychain *keychain = Keychain();
@@ -1595,6 +1684,7 @@ int main(void) {
     TestConcurrentUserCloseBorrowAndRepositoryRevoke();
     TestTombstonesAndConcurrentWriters();
     TestAdvanceAuthorityAnchorCAS();
+    TestPromoteGenesisAuthorityAnchorCAS();
     TestLegacyCodecMigrations();
     puts("private-vault custody repository tests passed");
   }

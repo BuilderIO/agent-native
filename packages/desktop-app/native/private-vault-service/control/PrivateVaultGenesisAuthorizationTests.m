@@ -1,10 +1,13 @@
 #import "PrivateVaultGenesisAuthorization.h"
+#import "PrivateVaultGenesisAuthorizationInternal.h"
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultControlLogInternal.h"
+#import "PrivateVaultAuthorityStoreInternal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#import <objc/runtime.h>
 
 #ifndef ANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH
 #error "ANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH is required"
@@ -209,18 +212,54 @@ static void CheckPositive(NSDictionary *corpus) {
         replay.state.recoveryGeneration == 1 && replay.state.activeMembers.count == 1);
   CHECK([replay.state.headHash
       isEqualToData:AncPrivateVaultControlLogSignedEntryDomainHash(signedCommit)]);
+  AncPrivateVaultVerifiedReplayResult *authorityCapability =
+      AncPrivateVaultVerifiedGenesisReplayResultCreate(
+          replay, verifier.result, 1721117511000ULL);
+  CHECK(authorityCapability != nil &&
+        authorityCapability.expectedCheckpoint == nil &&
+        authorityCapability.nextSnapshot.targetCustodyGeneration == 2 &&
+        authorityCapability.nextSnapshot.previousCustodyGeneration == 1 &&
+        authorityCapability.nextSnapshot.previousSequence == nil &&
+        authorityCapability.nextSnapshot.previousHead == nil &&
+        authorityCapability.nextSnapshot.sequence == 0);
   CHECK(verifier.result != nil &&
         [verifier.result.authorizationDigest
             isEqualToData:DataFromHex(exact[@"authorizationDigestHex"])] &&
         [verifier.result.signedGenesisCommit isEqualToData:signedCommit]);
-  BOOL immutable = NO;
-  @try {
-    [verifier.result setValue:[NSData data] forKey:@"authorizationDigest"];
-  } @catch (__unused NSException *exception) {
-    immutable = YES;
+  NSData *e0 = nil, *e1 = nil, *e2 = nil, *e3 = nil, *e4 = nil, *e5 = nil,
+         *e6 = nil, *e7 = nil, *e8 = nil, *e9 = nil, *e10 = nil, *e11 = nil,
+         *bootstrapDigest = nil;
+  CHECK(AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
+      verifier.result, &e0, &e1, &e2, &e3, &e4, &e5, &e6, &e7, &e8, &e9,
+      &e10, &e11, &bootstrapDigest));
+  CHECK([e0 isEqualToData:verifier.result.vaultId] &&
+        [e1 isEqualToData:verifier.result.ceremonyId] &&
+        [e10 isEqualToData:verifier.result.authorizationDigest] &&
+        [e11 isEqualToData:signedCommit] && bootstrapDigest.length == 32);
+  AncPrivateVaultGenesisAuthorizationResult *forged =
+      class_createInstance(AncPrivateVaultGenesisAuthorizationResult.class, 0);
+  CHECK(!AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
+      forged, &e0, &e1, &e2, &e3, &e4, &e5, &e6, &e7, &e8, &e9, &e10,
+      &e11, &bootstrapDigest));
+  for (NSString *field in @[
+         @"vaultId", @"ceremonyId", @"endpointId",
+         @"endpointSigningPublicKey", @"endpointKeyAgreementPublicKey",
+         @"enrollmentRef", @"recoveryId", @"recoverySigningPublicKey",
+         @"recoveryKeyAgreementPublicKey", @"recoveryWrapHash",
+         @"authorizationDigest", @"signedGenesisCommit"
+       ]) {
+    BOOL fieldImmutable = NO;
+    @try {
+      [verifier.result setValue:[NSData data] forKey:field];
+    } @catch (__unused NSException *exception) {
+      fieldImmutable = YES;
+    }
+    CHECK(fieldImmutable);
   }
-  CHECK(immutable);
-  immutable = NO;
+  CHECK(AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
+      verifier.result, &e0, &e1, &e2, &e3, &e4, &e5, &e6, &e7, &e8, &e9,
+      &e10, &e11, &bootstrapDigest));
+  BOOL immutable = NO;
   @try {
     [verifier setValue:@1 forKey:@"status"];
   } @catch (__unused NSException *exception) {

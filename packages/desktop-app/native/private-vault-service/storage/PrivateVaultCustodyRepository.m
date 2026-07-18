@@ -1078,6 +1078,187 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   return status;
 }
 
+static BOOL AncAllZero(const uint8_t *bytes, size_t length) {
+  uint8_t value = 0;
+  for (size_t index = 0; index < length; index++)
+    value |= bytes[index];
+  return value == 0;
+}
+
+static BOOL AncPublicSnapshotsEqual(
+    const AncPrivateVaultCustodySnapshot *left,
+    const AncPrivateVaultCustodySnapshot *right) {
+#define ANC_EQUAL_SCALAR(field) (left->field == right->field)
+#define ANC_EQUAL_BYTES(field)                                                  \
+  (anc_pv_memcmp(left->field, right->field, sizeof left->field) ==             \
+   ANC_PV_CRYPTO_OK)
+  return ANC_EQUAL_SCALAR(record_version) &&
+         ANC_EQUAL_SCALAR(authority_anchor_present) &&
+         ANC_EQUAL_SCALAR(expected_edge_present) && ANC_EQUAL_SCALAR(lifecycle) &&
+         ANC_EQUAL_SCALAR(role) && ANC_EQUAL_SCALAR(pending_kind) &&
+         ANC_EQUAL_SCALAR(rotation_phase) && ANC_EQUAL_SCALAR(enrollment_phase) &&
+         ANC_EQUAL_SCALAR(custody_generation) && ANC_EQUAL_BYTES(vault_id) &&
+         ANC_EQUAL_SCALAR(vault_id_length) && ANC_EQUAL_BYTES(endpoint_id) &&
+         ANC_EQUAL_SCALAR(endpoint_id_length) && ANC_EQUAL_BYTES(ceremony_id) &&
+         ANC_EQUAL_SCALAR(ceremony_id_length) &&
+         ANC_EQUAL_BYTES(signing_public_key) && ANC_EQUAL_BYTES(box_public_key) &&
+         ANC_EQUAL_SCALAR(active_epoch) && ANC_EQUAL_SCALAR(pending_epoch) &&
+         ANC_EQUAL_SCALAR(recovery_generation) &&
+         ANC_EQUAL_SCALAR(anchored_sequence) && ANC_EQUAL_BYTES(anchored_head) &&
+         ANC_EQUAL_BYTES(membership_digest) && ANC_EQUAL_SCALAR(signed_at_ms) &&
+         ANC_EQUAL_BYTES(snapshot_digest) && ANC_EQUAL_SCALAR(freshness_ms) &&
+         ANC_EQUAL_SCALAR(expected_next_sequence) &&
+         ANC_EQUAL_BYTES(expected_previous_head) &&
+         ANC_EQUAL_BYTES(pending_transcript_digest) &&
+         ANC_EQUAL_SCALAR(removal_sequence) && ANC_EQUAL_BYTES(removal_head) &&
+         ANC_EQUAL_BYTES(removal_authorization_digest) &&
+         ANC_EQUAL_SCALAR(removal_time_ms);
+#undef ANC_EQUAL_BYTES
+#undef ANC_EQUAL_SCALAR
+}
+
+static BOOL AncGenesisOfficialPublicStateValid(
+    const AncPrivateVaultCustodySnapshot *pending,
+    const AncPrivateVaultCustodySnapshot *official, NSString *vaultId) {
+  return pending->record_version == ANC_PV_CUSTODY_VERSION &&
+         pending->custody_generation == 1 &&
+         pending->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
+         pending->role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
+         pending->pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS &&
+         pending->rotation_phase == ANC_PV_CUSTODY_ROTATION_PREPARED &&
+         pending->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+         !pending->authority_anchor_present && pending->expected_edge_present &&
+         pending->active_epoch == 0 && pending->pending_epoch == 1 &&
+         pending->recovery_generation == 0 &&
+         pending->anchored_sequence == 0 &&
+         AncAllZero(pending->anchored_head, ANC_PV_HASH_BYTES) &&
+         AncAllZero(pending->membership_digest, ANC_PV_HASH_BYTES) &&
+         pending->signed_at_ms == 0 &&
+         AncAllZero(pending->snapshot_digest, ANC_PV_HASH_BYTES) &&
+         pending->freshness_ms == 0 && pending->expected_next_sequence == 0 &&
+         AncAllZero(pending->expected_previous_head, ANC_PV_HASH_BYTES) &&
+         pending->ceremony_id_length > 0 &&
+         !AncAllZero(pending->pending_transcript_digest, ANC_PV_HASH_BYTES) &&
+         official->record_version == ANC_PV_CUSTODY_VERSION &&
+         official->custody_generation == 2 &&
+         official->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+         official->role == pending->role &&
+         official->pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+         official->rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
+         official->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+         official->authority_anchor_present && !official->expected_edge_present &&
+         official->active_epoch == 1 && official->pending_epoch == 0 &&
+         official->recovery_generation == 1 && official->anchored_sequence == 0 &&
+         official->ceremony_id_length == 0 &&
+         official->expected_next_sequence == 0 &&
+         AncAllZero(official->expected_previous_head, ANC_PV_HASH_BYTES) &&
+         AncAllZero(official->pending_transcript_digest, ANC_PV_HASH_BYTES) &&
+         official->signed_at_ms > 0 && official->freshness_ms > 0 &&
+         !AncAllZero(official->anchored_head, ANC_PV_HASH_BYTES) &&
+         !AncAllZero(official->membership_digest, ANC_PV_HASH_BYTES) &&
+         !AncAllZero(official->snapshot_digest, ANC_PV_HASH_BYTES) &&
+         AncSnapshotMatchesVaultId(official, vaultId) &&
+         pending->vault_id_length == official->vault_id_length &&
+         memcmp(pending->vault_id, official->vault_id,
+                pending->vault_id_length) == 0 &&
+         pending->endpoint_id_length == official->endpoint_id_length &&
+         memcmp(pending->endpoint_id, official->endpoint_id,
+                pending->endpoint_id_length) == 0 &&
+         memcmp(pending->signing_public_key, official->signing_public_key,
+                ANC_PV_SIGN_PUBLIC_KEY_BYTES) == 0 &&
+         memcmp(pending->box_public_key, official->box_public_key,
+                ANC_PV_BOX_PUBLIC_KEY_BYTES) == 0;
+}
+
+- (AncPrivateVaultCustodyRepositoryStatus)
+    promoteGenesisAuthorityAnchorVaultId:(NSString *)vaultId
+                       nextPublicSnapshot:
+                           (const AncPrivateVaultCustodySnapshot *)nextPublicSnapshot {
+  if ([NSThread.currentThread.threadDictionary[kAncCustodyBorrowScopeThreadKey]
+          boolValue])
+    return AncPrivateVaultCustodyRepositoryStatusConflict;
+  if (vaultId.length == 0 || nextPublicSnapshot == NULL)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+
+  __block AncPrivateVaultCustodyRepositoryStatus status;
+  dispatch_sync(self.queue, ^{
+    AncCustodyRecordBuffer *live = nil;
+    AncPrivateVaultCustodySnapshot current;
+    status = [self reconcileVaultId:vaultId
+                         liveRecord:&live
+                       liveSnapshot:&current];
+    if (status != AncPrivateVaultCustodyRepositoryStatusOK)
+      return;
+    if (current.record_version == ANC_PV_CUSTODY_VERSION &&
+        current.custody_generation == 2 &&
+        current.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+        current.authority_anchor_present &&
+        AncPublicSnapshotsEqual(&current, nextPublicSnapshot)) {
+      status = [live close];
+      return;
+    }
+    if (!AncGenesisOfficialPublicStateValid(&current, nextPublicSnapshot,
+                                            vaultId)) {
+      AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+      status = closed == AncPrivateVaultCustodyRepositoryStatusOK
+                   ? AncPrivateVaultCustodyRepositoryStatusConflict
+                   : closed;
+      return;
+    }
+    AncPrivateVaultCustodyHandle *handle = nil;
+    AncPrivateVaultCustodySnapshot decoded;
+    status = AncDecodeRecord(live, &decoded, &handle);
+    AncPrivateVaultCustodyRepositoryStatus liveClosed = [live close];
+    if (status != AncPrivateVaultCustodyRepositoryStatusOK ||
+        liveClosed != AncPrivateVaultCustodyRepositoryStatusOK) {
+      if (liveClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = liveClosed;
+      return;
+    }
+    AncCustodyRecordBuffer *candidate = [[AncCustodyRecordBuffer alloc] initEmpty];
+    if (candidate == nil) {
+      status = [handle close];
+      if (status == AncPrivateVaultCustodyRepositoryStatusOK)
+        status = AncPrivateVaultCustodyRepositoryStatusFailed;
+      return;
+    }
+    __block BOOL encoded = NO;
+    status = [candidate borrow:^BOOL(uint8_t *recordBytes) {
+      AncPrivateVaultCustodyRepositoryStatus borrowed = [handle
+          borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+            uint8_t zeroKey[ANC_PV_KEY_BYTES] = {0};
+            AncPrivateVaultCustodySecretInputs promoted = *secrets;
+            promoted.active_epoch_key = secrets->pending_epoch_key;
+            promoted.pending_epoch_key = zeroKey;
+            encoded = anc_pv_custody_record_encode(
+                          nextPublicSnapshot, &promoted, recordBytes,
+                          ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CUSTODY_OK;
+            anc_pv_zeroize(zeroKey, sizeof zeroKey);
+            return encoded;
+          }];
+      return borrowed == AncPrivateVaultCustodyRepositoryStatusOK && encoded;
+    }];
+    AncPrivateVaultCustodyRepositoryStatus handleClosed = [handle close];
+    if (status != AncPrivateVaultCustodyRepositoryStatusOK || !encoded ||
+        handleClosed != AncPrivateVaultCustodyRepositoryStatusOK) {
+      AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
+      status = handleClosed != AncPrivateVaultCustodyRepositoryStatusOK
+                   ? handleClosed
+               : candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK
+                   ? candidateClosed
+                   : AncPrivateVaultCustodyRepositoryStatusInvalid;
+      return;
+    }
+    status = [self commitLockedCandidate:candidate
+                                snapshot:nextPublicSnapshot
+                                 vaultId:vaultId];
+    AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
+    if (candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+      status = candidateClosed;
+  });
+  return status;
+}
+
 - (AncPrivateVaultCustodyRepositoryStatus)
     migrateLegacyCodecVaultId:(NSString *)vaultId
            expectedGeneration:(uint64_t)expectedGeneration {

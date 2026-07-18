@@ -329,7 +329,8 @@ AncPrivateVaultAuthoritySnapshot *AncPrivateVaultAuthoritySnapshotDecode(
       return nil;
     snapshot.previousSequence = @(previous);
     snapshot.previousHead = [head copy];
-  } else if (snapshot.previousCustodyGeneration != 0 ||
+  } else if (snapshot.previousCustodyGeneration != 1 ||
+             snapshot.targetCustodyGeneration != 2 ||
              snapshot.sequence != 0) {
     return nil;
   }

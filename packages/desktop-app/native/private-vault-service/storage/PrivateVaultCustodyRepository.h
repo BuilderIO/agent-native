@@ -61,6 +61,13 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultCustodyEpochTransition) {
                   epochTransition:
                       (AncPrivateVaultCustodyEpochTransition)epochTransition;
 
+/* Genesis-only CAS: pending genesis generation 1 becomes the first official,
+ * active, authority-anchored generation 2 record. */
+- (AncPrivateVaultCustodyRepositoryStatus)
+    promoteGenesisAuthorityAnchorVaultId:(NSString *)vaultId
+                       nextPublicSnapshot:
+                           (const AncPrivateVaultCustodySnapshot *)nextPublicSnapshot;
+
 - (AncPrivateVaultCustodyRepositoryStatus)
     migrateLegacyCodecVaultId:(NSString *)vaultId
            expectedGeneration:(uint64_t)expectedGeneration;

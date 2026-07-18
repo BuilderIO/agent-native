@@ -1,6 +1,7 @@
 #import "PrivateVaultAuthorityStore.h"
 
 @class AncPrivateVaultControlLogReplayResult;
+@class AncPrivateVaultGenesisAuthorizationResult;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -12,6 +13,15 @@ AncPrivateVaultVerifiedReplayResultCreate(
     uint64_t targetCustodyGeneration, uint64_t verifiedAtMs,
     AncPrivateVaultCustodyEpochTransition epochTransition);
 
+/* Genesis-only constructor. It accepts only an authenticated, non-idempotent
+ * sequence-zero replay and the concrete authorization result that authorized
+ * those exact signed bytes. */
+FOUNDATION_EXPORT AncPrivateVaultVerifiedReplayResult *_Nullable
+AncPrivateVaultVerifiedGenesisReplayResultCreate(
+    AncPrivateVaultControlLogReplayResult *replayResult,
+    AncPrivateVaultGenesisAuthorizationResult *authorizationResult,
+    uint64_t verifiedAtMs);
+
 #if ANC_PRIVATE_VAULT_TESTING
 @interface AncPrivateVaultVerifiedReplayResult (TestingInternal)
 + (instancetype)
@@ -21,6 +31,13 @@ AncPrivateVaultVerifiedReplayResultCreate(
                             (AncPrivateVaultAuthoritySnapshot *)snapshot
                      epochTransition:
                          (AncPrivateVaultCustodyEpochTransition)transition;
++ (instancetype)testGenesisResultWithSnapshot:
+                    (AncPrivateVaultAuthoritySnapshot *)snapshot
+                                  ceremonyId:(NSString *)ceremonyId
+                                  endpointId:(NSString *)endpointId
+                            endpointSigningKey:(NSData *)endpointSigningKey
+                          endpointAgreementKey:(NSData *)endpointAgreementKey
+                     bootstrapTranscriptDigest:(NSData *)bootstrapTranscriptDigest;
 @end
 #endif
 

@@ -419,6 +419,8 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
@@ -542,15 +544,23 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_AUTHORIZATION_TESTS:-}" in
     local output="$GENESIS_AUTHORIZATION_TEST_OUTPUT/private-vault-genesis-authorization-tests-$architecture"
     xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
       -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
-      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" -I"$SOURCE_ROOT/storage" \
       -I"$sodium_root/include" -DANC_PRIVATE_VAULT_TESTING=1 \
       -DANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-genesis-authorization-vectors.json"'"' \
-      -framework Foundation \
+      -framework Foundation -framework Security -framework LocalAuthentication \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorizationTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"
     lipo "$output" -verify_arch "$architecture"

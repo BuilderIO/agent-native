@@ -25,6 +25,7 @@
 typedef struct AuthorityTestSecrets {
   uint8_t signing[32], box[32], local[32], active[32], pending[32];
 } AuthorityTestSecrets;
+static void AuthorityFill(uint8_t *bytes, size_t length, uint8_t start);
 
 typedef void (^AuthorityCustodyMutation)(
     AncPrivateVaultCustodySnapshot *snapshot);
@@ -140,6 +141,196 @@ static void AuthoritySetId(uint8_t output[160], size_t *length,
   memcpy(output, data.bytes, data.length);
   *length = data.length;
 }
+
+static int AuthorityInstallOfficialGenesis(
+    AncPrivateVaultCustodyRepository *repository,
+    AncPrivateVaultCustodySnapshot *official, AuthorityTestSecrets *secrets,
+    NSString *vaultId) {
+  AncPrivateVaultCustodySnapshot pending = *official;
+  pending.authority_anchor_present = 0;
+  pending.expected_edge_present = 1;
+  pending.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  pending.pending_kind = ANC_PV_CUSTODY_PENDING_GENESIS;
+  pending.rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  pending.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
+  pending.custody_generation = 1;
+  AuthoritySetId(pending.ceremony_id, &pending.ceremony_id_length,
+                 @"ceremony:authority-test");
+  pending.active_epoch = 0;
+  pending.pending_epoch = 1;
+  pending.recovery_generation = 0;
+  pending.anchored_sequence = 0;
+  memset(pending.anchored_head, 0, 32);
+  memset(pending.membership_digest, 0, 32);
+  pending.signed_at_ms = 0;
+  memset(pending.snapshot_digest, 0, 32);
+  pending.freshness_ms = 0;
+  pending.expected_next_sequence = 0;
+  memset(pending.expected_previous_head, 0, 32);
+  memset(pending.pending_transcript_digest, 0xa7, 32);
+  AuthorityTestSecrets staged = *secrets;
+  memset(staged.active, 0, 32);
+  memcpy(staged.pending, secrets->active, 32);
+  AncPrivateVaultCustodySecretInputs inputs = {
+      .signing_seed = staged.signing,
+      .box_seed = staged.box,
+      .local_state_key = staged.local,
+      .active_epoch_key = staged.active,
+      .pending_epoch_key = staged.pending};
+  if ([repository storeSnapshot:&pending secrets:&inputs vaultId:vaultId] !=
+          AncPrivateVaultCustodyRepositoryStatusOK ||
+      [repository promoteGenesisAuthorityAnchorVaultId:vaultId
+                                    nextPublicSnapshot:official] !=
+          AncPrivateVaultCustodyRepositoryStatusOK) {
+    anc_pv_zeroize(&staged, sizeof staged);
+    return 1;
+  }
+  anc_pv_zeroize(&staged, sizeof staged);
+  return 0;
+}
+
+static int RunGenesisCommitCrashCase(
+    AncPrivateVaultAuthoritySnapshot *genesis,
+    AncPrivateVaultAuthorityFaultPoint faultPoint, NSInteger mutation) {
+  gAuthorityKeychain = [NSMutableDictionary dictionary];
+  AncPrivateVaultCustodyRepository *repository = AuthorityRepository();
+  AuthorityTestSecrets secrets = {0};
+  AuthorityFill(secrets.signing, 32, 9);
+  AuthorityFill(secrets.box, 32, 41);
+  AuthorityFill(secrets.local, 32, 73);
+  AuthorityFill(secrets.pending, 32, 105);
+  AncPrivateVaultCustodySnapshot pending = {0};
+  pending.record_version = ANC_PV_CUSTODY_VERSION;
+  pending.expected_edge_present = 1;
+  pending.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  pending.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
+  pending.pending_kind = ANC_PV_CUSTODY_PENDING_GENESIS;
+  pending.rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  pending.custody_generation = 1;
+  AuthoritySetId(pending.vault_id, &pending.vault_id_length, genesis.vaultId);
+  AuthoritySetId(pending.endpoint_id, &pending.endpoint_id_length,
+                 genesis.activeMembers[0].endpointId);
+  AuthoritySetId(pending.ceremony_id, &pending.ceremony_id_length,
+                 @"ceremony:genesis-commit-test");
+  uint8_t signingPrivate[64] = {0}, boxPrivate[32] = {0};
+  CHECK(anc_pv_ed25519_seed_keypair(pending.signing_public_key, signingPrivate,
+                                    secrets.signing) == ANC_PV_CRYPTO_OK);
+  CHECK(anc_pv_box_seed_keypair(pending.box_public_key, boxPrivate,
+                                secrets.box) == ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  pending.pending_epoch = 1;
+  memset(pending.pending_transcript_digest, 0xb5, 32);
+  NSString *expectedCeremony = @"ceremony:genesis-commit-test";
+  NSString *expectedEndpoint = genesis.activeMembers[0].endpointId;
+  NSData *expectedSigning =
+      [NSData dataWithBytes:pending.signing_public_key length:32];
+  NSData *expectedAgreement =
+      [NSData dataWithBytes:pending.box_public_key length:32];
+  NSData *expectedTranscript =
+      [NSData dataWithBytes:pending.pending_transcript_digest length:32];
+  if (mutation == 1) {
+    AuthoritySetId(pending.ceremony_id, &pending.ceremony_id_length,
+                   @"ceremony:genesis-substitution");
+  } else if (mutation == 2) {
+    pending.pending_transcript_digest[0] ^= 1;
+  } else if (mutation == 3) {
+    AuthoritySetId(pending.endpoint_id, &pending.endpoint_id_length,
+                   @"endpoint:genesis-substitution");
+  } else if (mutation == 4) {
+    secrets.signing[0] ^= 1;
+    CHECK(anc_pv_ed25519_seed_keypair(pending.signing_public_key,
+                                      signingPrivate, secrets.signing) ==
+          ANC_PV_CRYPTO_OK);
+    anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  } else if (mutation == 5) {
+    secrets.box[0] ^= 1;
+    CHECK(anc_pv_box_seed_keypair(pending.box_public_key, boxPrivate,
+                                  secrets.box) == ANC_PV_CRYPTO_OK);
+    anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  }
+  AncPrivateVaultCustodySecretInputs inputs = {
+      .signing_seed = secrets.signing,
+      .box_seed = secrets.box,
+      .local_state_key = secrets.local,
+      .active_epoch_key = secrets.active,
+      .pending_epoch_key = secrets.pending};
+  CHECK([repository storeSnapshot:&pending secrets:&inputs
+                          vaultId:genesis.vaultId] ==
+        AncPrivateVaultCustodyRepositoryStatusOK);
+  NSString *root = [NSTemporaryDirectory()
+      stringByAppendingPathComponent:[NSString
+          stringWithFormat:@"authority-genesis-crash-%@", NSUUID.UUID.UUIDString]];
+  CHECK([NSFileManager.defaultManager createDirectoryAtPath:root
+                                withIntermediateDirectories:YES
+                                                 attributes:@{
+                                                   NSFilePosixPermissions : @0700
+                                                 }
+                                                      error:nil]);
+  AncPrivateVaultAuthorityStore *store = [[AncPrivateVaultAuthorityStore alloc]
+      initWithStateRootURL:[NSURL fileURLWithPath:root isDirectory:YES]
+         custodyRepository:repository];
+  AncPrivateVaultVerifiedReplayResult *capability =
+      [AncPrivateVaultVerifiedReplayResult
+          testGenesisResultWithSnapshot:genesis
+                                ceremonyId:expectedCeremony
+                                endpointId:expectedEndpoint
+                          endpointSigningKey:expectedSigning
+                        endpointAgreementKey:expectedAgreement
+                   bootstrapTranscriptDigest:expectedTranscript];
+  CHECK(capability != nil);
+  if (mutation == 0)
+    AncPrivateVaultAuthoritySetFaultHookForTesting(
+        ^BOOL(AncPrivateVaultAuthorityFaultPoint point) {
+          return point == faultPoint;
+        });
+  AncPrivateVaultAuthorityStoreStatus first =
+      [store commitVerifiedReplayResult:capability
+                                vaultId:genesis.vaultId
+                           verifiedAtMs:genesis.verifiedAtMs
+                             checkpoint:nil
+                                  error:nil];
+  CHECK(first != AncPrivateVaultAuthorityStoreStatusOK);
+  AncPrivateVaultAuthoritySetFaultHookForTesting(nil);
+  if (mutation != 0) {
+    CHECK(first == AncPrivateVaultAuthorityStoreStatusConflict);
+    AncPrivateVaultCustodySnapshot unchanged;
+    AncPrivateVaultCustodyHandle *unchangedHandle = nil;
+    CHECK([repository readVaultId:genesis.vaultId snapshot:&unchanged
+                            handle:&unchangedHandle] ==
+          AncPrivateVaultCustodyRepositoryStatusOK);
+    CHECK(unchanged.custody_generation == 1 &&
+          unchanged.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
+          !unchanged.authority_anchor_present);
+    CHECK([unchangedHandle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    anc_pv_zeroize(&secrets, sizeof secrets);
+    return 0;
+  }
+  AncPrivateVaultAuthorityStore *recovered = [[AncPrivateVaultAuthorityStore alloc]
+      initWithStateRootURL:[NSURL fileURLWithPath:root isDirectory:YES]
+         custodyRepository:repository];
+  AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+  CHECK([recovered commitVerifiedReplayResult:capability
+                                      vaultId:genesis.vaultId
+                                 verifiedAtMs:genesis.verifiedAtMs
+                                   checkpoint:&checkpoint
+                                        error:nil] ==
+        AncPrivateVaultAuthorityStoreStatusOK);
+  CHECK(checkpoint.custodyGeneration == 2 && checkpoint.snapshot.sequence == 0 &&
+        checkpoint.snapshot.previousCustodyGeneration == 1 &&
+        checkpoint.snapshot.previousSequence == nil &&
+        checkpoint.snapshot.previousHead == nil);
+  CHECK([recovered commitVerifiedReplayResult:capability
+                                      vaultId:genesis.vaultId
+                                 verifiedAtMs:genesis.verifiedAtMs
+                                   checkpoint:nil
+                                        error:nil] ==
+        AncPrivateVaultAuthorityStoreStatusInvalid);
+  CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  return 0;
+}
 static void AuthorityFill(uint8_t *bytes, size_t length, uint8_t start) {
   for (size_t i = 0; i < length; i++)
     bytes[i] = (uint8_t)(start + i);
@@ -193,7 +384,7 @@ RunAuthorityCrashCase(AncPrivateVaultAuthoritySnapshot *genesis,
   custody.authority_anchor_present = 1;
   custody.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
   custody.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
-  custody.custody_generation = 1;
+  custody.custody_generation = 2;
   AuthoritySetId(custody.vault_id, &custody.vault_id_length, genesis.vaultId);
   AuthoritySetId(custody.endpoint_id, &custody.endpoint_id_length,
                  @"endpoint:01-owner");
@@ -215,19 +406,11 @@ RunAuthorityCrashCase(AncPrivateVaultAuthoritySnapshot *genesis,
   memset(nonce.mutableBytes, 0x44, 24);
   NSData *genesisDigest = nil;
   NSData *genesisFrame = AncPrivateVaultAuthorityFrameEncodeForTesting(
-      genesisCanonical, genesis.vaultId, 1, localKey, nonce, &genesisDigest);
+      genesisCanonical, genesis.vaultId, 2, localKey, nonce, &genesisDigest);
   CHECK(genesisFrame != nil);
   memcpy(custody.snapshot_digest, genesisDigest.bytes, 32);
-  AncPrivateVaultCustodySecretInputs inputs = {
-      .signing_seed = secrets.signing,
-      .box_seed = secrets.box,
-      .local_state_key = secrets.local,
-      .active_epoch_key = secrets.active,
-      .pending_epoch_key = secrets.pending};
-  CHECK([repository storeSnapshot:&custody
-                          secrets:&inputs
-                          vaultId:genesis.vaultId] ==
-        AncPrivateVaultCustodyRepositoryStatusOK);
+  CHECK(AuthorityInstallOfficialGenesis(repository, &custody, &secrets,
+                                        genesis.vaultId) == 0);
   NSString *root = [NSTemporaryDirectory()
       stringByAppendingPathComponent:[NSString
                                          stringWithFormat:@"authority-crash-%@",
@@ -278,8 +461,8 @@ RunAuthorityCrashCase(AncPrivateVaultAuthoritySnapshot *genesis,
                     checkpoint:&checkpoint
                          error:nil] == AncPrivateVaultAuthorityStoreStatusOK);
   uint64_t expectedGeneration =
-      faultPoint <= AncPrivateVaultAuthorityFaultAfterStageVerification ? 1 : 2;
-  uint64_t expectedSequence = expectedGeneration == 1 ? 0 : 1;
+      faultPoint <= AncPrivateVaultAuthorityFaultAfterStageVerification ? 2 : 3;
+  uint64_t expectedSequence = expectedGeneration == 2 ? 0 : 1;
   CHECK(checkpoint.custodyGeneration == expectedGeneration);
   CHECK(checkpoint.snapshot.sequence == expectedSequence);
   CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
@@ -409,7 +592,7 @@ int main(void) {
     custody.authority_anchor_present = 1;
     custody.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
     custody.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
-    custody.custody_generation = 1;
+    custody.custody_generation = 2;
     AuthoritySetId(custody.vault_id, &custody.vault_id_length, genesis.vaultId);
     AuthoritySetId(custody.endpoint_id, &custody.endpoint_id_length,
                    @"endpoint:01-owner");
@@ -432,20 +615,12 @@ int main(void) {
     memset(genesisNonce.mutableBytes, 0x44, 24);
     NSData *genesisDigest = nil;
     NSData *genesisFrame = AncPrivateVaultAuthorityFrameEncodeForTesting(
-        DataFromHex(genesisCase[@"canonicalHex"]), genesis.vaultId, 1, key,
+        DataFromHex(genesisCase[@"canonicalHex"]), genesis.vaultId, 2, key,
         genesisNonce, &genesisDigest);
     CHECK(genesisFrame != nil);
     memcpy(custody.snapshot_digest, genesisDigest.bytes, 32);
-    AncPrivateVaultCustodySecretInputs secretInputs = {
-        .signing_seed = secrets.signing,
-        .box_seed = secrets.box,
-        .local_state_key = secrets.local,
-        .active_epoch_key = secrets.active,
-        .pending_epoch_key = secrets.pending};
-    CHECK([repository storeSnapshot:&custody
-                            secrets:&secretInputs
-                            vaultId:genesis.vaultId] ==
-          AncPrivateVaultCustodyRepositoryStatusOK);
+    CHECK(AuthorityInstallOfficialGenesis(repository, &custody, &secrets,
+                                          genesis.vaultId) == 0);
     NSString *temporary = [NSTemporaryDirectory()
         stringByAppendingPathComponent:
             [NSString stringWithFormat:@"authority-store-%@",
@@ -472,7 +647,7 @@ int main(void) {
     AncPrivateVaultAuthorityCheckpoint *initial = nil;
     CHECK([store loadVaultId:genesis.vaultId checkpoint:&initial
                        error:nil] == AncPrivateVaultAuthorityStoreStatusOK);
-    CHECK(initial.custodyGeneration == 1 &&
+    CHECK(initial.custodyGeneration == 2 &&
           [initial.frameDigest isEqualToData:genesisDigest]);
     AncPrivateVaultCustodySetHandleCloseStatusForTesting(
         ^AncPrivateVaultCustodyRepositoryStatus(
@@ -587,7 +762,7 @@ int main(void) {
     AncPrivateVaultAuthorityCheckpoint *committed =
         writerA == AncPrivateVaultAuthorityStoreStatusOK ? committedA
                                                          : committedB;
-    CHECK(committed.custodyGeneration == 2 && committed.snapshot.sequence == 1);
+    CHECK(committed.custodyGeneration == 3 && committed.snapshot.sequence == 1);
     AncPrivateVaultAuthorityCheckpoint *winner = nil;
     CHECK([store loadVaultId:genesis.vaultId checkpoint:&winner
                        error:nil] == AncPrivateVaultAuthorityStoreStatusOK);
@@ -735,7 +910,7 @@ int main(void) {
                            handle:&terminalHandle] ==
           AncPrivateVaultCustodyRepositoryStatusOK);
     CHECK([terminalHandle close] == AncPrivateVaultCustodyRepositoryStatusOK);
-    terminal.custody_generation = 3;
+    terminal.custody_generation = 4;
     terminal.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_REMOVING;
     terminal.active_epoch = 0;
     terminal.pending_epoch = 0;
@@ -759,6 +934,15 @@ int main(void) {
               loadVaultId:genesis.vaultId
                checkpoint:&securityCheck
                     error:nil] == AncPrivateVaultAuthorityStoreStatusRemoved);
+    for (NSInteger point = AncPrivateVaultAuthorityFaultAfterTemporaryWrite;
+         point <= AncPrivateVaultAuthorityFaultBeforeFinalReread; point += 1) {
+      CHECK(RunGenesisCommitCrashCase(
+                genesis, (AncPrivateVaultAuthorityFaultPoint)point, 0) == 0);
+    }
+    for (NSInteger mutation = 1; mutation <= 5; mutation += 1)
+      CHECK(RunGenesisCommitCrashCase(
+                genesis, AncPrivateVaultAuthorityFaultAfterTemporaryWrite,
+                mutation) == 0);
     for (NSInteger point = AncPrivateVaultAuthorityFaultAfterTemporaryWrite;
          point <= AncPrivateVaultAuthorityFaultBeforeFinalReread; point += 1) {
       CHECK(RunAuthorityCrashCase(

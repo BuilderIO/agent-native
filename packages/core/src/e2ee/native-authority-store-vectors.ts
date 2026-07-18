@@ -66,6 +66,13 @@ export interface AncV1NativeAuthorityStoreCorpus {
     labels: Record<string, string>;
     commitments: Record<string, string>;
   };
+  genesisGenerationContract: {
+    pendingCustodyGeneration: 1;
+    authorityTargetCustodyGeneration: 2;
+    authorityPreviousCustodyGeneration: 1;
+    authorityPreviousSequence: null;
+    authorityPreviousHeadHex: null;
+  };
   custodyLayout: {
     bytes: 1088;
     versionOffset: 4;
@@ -369,7 +376,7 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     pendingKind: 0,
     rotationPhase: 0,
     enrollmentPhase: 0,
-    custodyGeneration: 2,
+    custodyGeneration: 3,
     vaultId: "vault:authority-fixture",
     endpointId: "endpoint:authority-owner",
     ceremonyId: "",
@@ -443,10 +450,8 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     record.fill(0);
     recordTemplate.fill(0);
   };
-  // Bootstrap-stage pending custody and the first official repository record
-  // intentionally both use generation 1. They occupy separate namespaces;
-  // the fixed custody record itself has no namespace field and these are not
-  // sequential commits through one CustodyRepository generation fence.
+  // Genesis is one crash-safe repository transition, not two generation-one
+  // records in imaginary namespaces: pending custody g1 becomes anchored g2.
   const genesis = {
     ...base,
     flags: 2,
@@ -478,7 +483,7 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     rotationPhase: 0,
     enrollmentPhase: 0,
     ceremonyId: "",
-    custodyGeneration: 1,
+    custodyGeneration: 2,
     activeEpoch: 1,
     activeEpochKey,
     pendingEpoch: 0,
@@ -715,8 +720,8 @@ export async function buildAncV1NativeAuthorityStoreVectors(
   const snapshotBase: AuthoritySnapshotFixture = {
     version: 1,
     vaultId: base.vaultId,
-    targetCustodyGeneration: 1,
-    previousCustodyGeneration: 0,
+    targetCustodyGeneration: 2,
+    previousCustodyGeneration: 1,
     previousSequence: null,
     previousHeadHex: null,
     verifiedAtMs: 1_721_117_511_000,
@@ -748,8 +753,8 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "descendant",
       {
         ...snapshotBase,
-        targetCustodyGeneration: 2,
-        previousCustodyGeneration: 1,
+        targetCustodyGeneration: 3,
+        previousCustodyGeneration: 2,
         previousSequence: 0,
         previousHeadHex: snapshotBase.headHex,
         sequence: 1,
@@ -762,8 +767,8 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "broker",
       {
         ...snapshotBase,
-        targetCustodyGeneration: 3,
-        previousCustodyGeneration: 2,
+        targetCustodyGeneration: 4,
+        previousCustodyGeneration: 3,
         previousSequence: 1,
         previousHeadHex: "96".repeat(32),
         sequence: 2,
@@ -777,8 +782,8 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "recovery",
       {
         ...snapshotBase,
-        targetCustodyGeneration: 4,
-        previousCustodyGeneration: 3,
+        targetCustodyGeneration: 5,
+        previousCustodyGeneration: 4,
         previousSequence: 2,
         previousHeadHex: "98".repeat(32),
         sequence: 3,
@@ -802,8 +807,8 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "tombstones_4096",
       {
         ...snapshotBase,
-        targetCustodyGeneration: 5,
-        previousCustodyGeneration: 4,
+        targetCustodyGeneration: 6,
+        previousCustodyGeneration: 5,
         previousSequence: 3,
         previousHeadHex: "9a".repeat(32),
         sequence: 4,
@@ -1102,7 +1107,7 @@ export async function buildAncV1NativeAuthorityStoreVectors(
   const vaultDigest = await hash(
     concat(DOMAINS.vaultId, u32(vaultBytes.length), vaultBytes),
   );
-  const generation = 2;
+  const generation = 3;
   const derivedKey = await hash(
     concat(DOMAINS.key, vaultDigest, u64(generation)),
     base.localStateKey,
@@ -1217,7 +1222,7 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     "wrong_generation_argument",
     frame,
     "wrong_generation",
-    { generation: 3 },
+    { generation: 4 },
   );
   await addFrameMutation("frame_digest", frame, "frame_digest_mismatch", {
     digest: pattern(0xee),
@@ -1258,6 +1263,13 @@ export async function buildAncV1NativeAuthorityStoreVectors(
           ]),
         ),
       ),
+    },
+    genesisGenerationContract: {
+      pendingCustodyGeneration: 1,
+      authorityTargetCustodyGeneration: 2,
+      authorityPreviousCustodyGeneration: 1,
+      authorityPreviousSequence: null,
+      authorityPreviousHeadHex: null,
     },
     custodyLayout: {
       bytes: 1088,

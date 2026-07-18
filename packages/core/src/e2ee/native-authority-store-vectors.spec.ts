@@ -81,6 +81,15 @@ const corpusSchema = z
         commitments: z.record(z.string(), hex32),
       })
       .strict(),
+    genesisGenerationContract: z
+      .object({
+        pendingCustodyGeneration: z.literal(1),
+        authorityTargetCustodyGeneration: z.literal(2),
+        authorityPreviousCustodyGeneration: z.literal(1),
+        authorityPreviousSequence: z.null(),
+        authorityPreviousHeadHex: z.null(),
+      })
+      .strict(),
     custodyLayout: z
       .object({
         bytes: z.literal(1088),
@@ -626,17 +635,20 @@ describe("anc/v1 native AuthorityStore vectors", () => {
     );
     expect(bootstrap).toBeDefined();
     expect(official).toBeDefined();
-    // Both are generation 1 by design, but they are fixtures for separate
-    // bootstrap-stage and official-repository namespaces—not sequential
-    // commits through the same CustodyRepository generation fence. The wire
-    // custody record has no namespace field, so names and lifecycle pin it.
-    for (const [testCase, lifecycle] of [
-      [bootstrap!, 1],
-      [official!, 2],
+    expect(fixture.genesisGenerationContract).toEqual({
+      pendingCustodyGeneration: 1,
+      authorityTargetCustodyGeneration: 2,
+      authorityPreviousCustodyGeneration: 1,
+      authorityPreviousSequence: null,
+      authorityPreviousHeadHex: null,
+    });
+    for (const [testCase, lifecycle, generation] of [
+      [bootstrap!, 1, 1],
+      [official!, 2, 2],
     ] as const) {
       const { record, secrets } = await reconstructCustody(testCase);
       try {
-        expect(readU64(record, 16), testCase.name).toBe(1);
+        expect(readU64(record, 16), testCase.name).toBe(generation);
         expect(record[8], testCase.name).toBe(lifecycle);
       } finally {
         record.fill(0);

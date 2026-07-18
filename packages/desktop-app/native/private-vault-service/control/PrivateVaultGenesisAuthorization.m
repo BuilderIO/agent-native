@@ -1,4 +1,5 @@
 #import "PrivateVaultGenesisAuthorization.h"
+#import "PrivateVaultGenesisAuthorizationInternal.h"
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
@@ -28,6 +29,136 @@ static const uint8_t kAuthorizationDomain[] = "anc/v1/genesis-authorization";
                    authorizationDigest:(NSData *)authorizationDigest
                    signedGenesisCommit:(NSData *)signedGenesisCommit;
 @end
+
+@interface AncGenesisAuthorizationEvidence : NSObject
+@property(nonatomic) NSArray<NSData *> *fields;
+@property(nonatomic) NSData *bootstrapTranscriptDigest;
+@end
+@implementation AncGenesisAuthorizationEvidence
+@end
+
+static NSMapTable<AncPrivateVaultGenesisAuthorizationResult *,
+                  AncGenesisAuthorizationEvidence *> *GenesisEvidenceRegistry(void) {
+  static NSMapTable *registry;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    registry = [[NSMapTable alloc]
+        initWithKeyOptions:NSPointerFunctionsWeakMemory |
+                           NSPointerFunctionsObjectPointerPersonality
+              valueOptions:NSPointerFunctionsStrongMemory
+                  capacity:64];
+  });
+  return registry;
+}
+
+static NSLock *GenesisEvidenceLock(void) {
+  static NSLock *lock;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ lock = [NSLock new]; });
+  return lock;
+}
+
+static NSArray<NSData *> *GenesisResultFields(
+    AncPrivateVaultGenesisAuthorizationResult *result) {
+  if (result == nil)
+    return nil;
+  @try {
+    NSArray *fields = @[
+      result.vaultId, result.ceremonyId, result.endpointId,
+      result.endpointSigningPublicKey,
+      result.endpointKeyAgreementPublicKey, result.enrollmentRef,
+      result.recoveryId, result.recoverySigningPublicKey,
+      result.recoveryKeyAgreementPublicKey, result.recoveryWrapHash,
+      result.authorizationDigest, result.signedGenesisCommit
+    ];
+    NSMutableArray *copies = [NSMutableArray arrayWithCapacity:fields.count];
+    for (NSData *field in fields) {
+      if (![field isKindOfClass:NSData.class] || field.length == 0)
+        return nil;
+      [copies addObject:[NSData dataWithData:field]];
+    }
+    return [copies copy];
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+static BOOL RegisterGenesisEvidence(
+    AncPrivateVaultGenesisAuthorizationResult *result,
+    NSData *bootstrapTranscriptDigest) {
+  NSArray<NSData *> *fields = GenesisResultFields(result);
+  if (fields == nil || bootstrapTranscriptDigest.length != 32)
+    return NO;
+  AncGenesisAuthorizationEvidence *evidence =
+      [AncGenesisAuthorizationEvidence new];
+  evidence.fields = fields;
+  evidence.bootstrapTranscriptDigest =
+      [NSData dataWithData:bootstrapTranscriptDigest];
+  NSLock *lock = GenesisEvidenceLock();
+  [lock lock];
+  BOOL registered = NO;
+  @try {
+    if (GenesisEvidenceRegistry().count < 1024) {
+      [GenesisEvidenceRegistry() setObject:evidence forKey:result];
+      registered = YES;
+    }
+  } @finally {
+    [lock unlock];
+  }
+  return registered;
+}
+
+BOOL AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
+    AncPrivateVaultGenesisAuthorizationResult *result, NSData **vaultId,
+    NSData **ceremonyId, NSData **endpointId, NSData **endpointSigningPublicKey,
+    NSData **endpointKeyAgreementPublicKey, NSData **enrollmentRef,
+    NSData **recoveryId, NSData **recoverySigningPublicKey,
+    NSData **recoveryKeyAgreementPublicKey, NSData **recoveryWrapHash,
+    NSData **authorizationDigest, NSData **signedGenesisCommit,
+    NSData **bootstrapTranscriptDigest) {
+  if (vaultId == NULL || ceremonyId == NULL || endpointId == NULL ||
+      endpointSigningPublicKey == NULL || endpointKeyAgreementPublicKey == NULL ||
+      enrollmentRef == NULL || recoveryId == NULL ||
+      recoverySigningPublicKey == NULL || recoveryKeyAgreementPublicKey == NULL ||
+      recoveryWrapHash == NULL || authorizationDigest == NULL ||
+      signedGenesisCommit == NULL || bootstrapTranscriptDigest == NULL)
+    return NO;
+  *vaultId = *ceremonyId = *endpointId = *endpointSigningPublicKey =
+      *endpointKeyAgreementPublicKey = *enrollmentRef = *recoveryId =
+          *recoverySigningPublicKey = *recoveryKeyAgreementPublicKey =
+              *recoveryWrapHash = *authorizationDigest = *signedGenesisCommit = nil;
+  *bootstrapTranscriptDigest = nil;
+  NSLock *lock = GenesisEvidenceLock();
+  [lock lock];
+  NSArray<NSData *> *official = nil;
+  NSData *officialBootstrapDigest = nil;
+  @try {
+    AncGenesisAuthorizationEvidence *registered =
+        [GenesisEvidenceRegistry() objectForKey:result];
+    official = [registered.fields copy];
+    officialBootstrapDigest = [registered.bootstrapTranscriptDigest copy];
+  } @finally {
+    [lock unlock];
+  }
+  NSArray<NSData *> *presented = GenesisResultFields(result);
+  if (official.count != 12 || officialBootstrapDigest.length != 32 ||
+      ![presented isEqualToArray:official])
+    return NO;
+  *vaultId = [official[0] copy];
+  *ceremonyId = [official[1] copy];
+  *endpointId = [official[2] copy];
+  *endpointSigningPublicKey = [official[3] copy];
+  *endpointKeyAgreementPublicKey = [official[4] copy];
+  *enrollmentRef = [official[5] copy];
+  *recoveryId = [official[6] copy];
+  *recoverySigningPublicKey = [official[7] copy];
+  *recoveryKeyAgreementPublicKey = [official[8] copy];
+  *recoveryWrapHash = [official[9] copy];
+  *authorizationDigest = [official[10] copy];
+  *signedGenesisCommit = [official[11] copy];
+  *bootstrapTranscriptDigest = officialBootstrapDigest;
+  return YES;
+}
 
 @implementation AncPrivateVaultGenesisAuthorizationResult
 @synthesize vaultId = _vaultId;
@@ -839,6 +970,11 @@ static NSData *ControlUnsignedBytes(
                    recoveryWrapHash:confirmationValue.recoveryWrapHash
                 authorizationDigest:digest
                 signedGenesisCommit:signedBytes];
+  if (_result == nil || !RegisterGenesisEvidence(_result, bootstrap.digest)) {
+    _result = nil;
+    _status = AncPrivateVaultGenesisAuthorizationStatusCryptoDomain;
+    return NO;
+  }
   _status = AncPrivateVaultGenesisAuthorizationStatusOK;
   return YES;
 }

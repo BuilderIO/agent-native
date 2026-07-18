@@ -1,5 +1,7 @@
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultAuthorityStoreInternal.h"
+#import "PrivateVaultGenesisAuthorization.h"
+#import "PrivateVaultGenesisAuthorizationInternal.h"
 
 #import "PrivateVaultAuthoritySnapshotInternal.h"
 #import "PrivateVaultControlLog.h"
@@ -235,6 +237,14 @@ CustodyVaultIdMatches(NSString *vaultId,
              ANC_PV_CRYPTO_OK;
 }
 
+static BOOL CustodyOpaqueIdMatches(
+    NSString *expected, const uint8_t bytes[ANC_PV_CUSTODY_ID_BYTES],
+    size_t length) {
+  NSData *encoded = [expected dataUsingEncoding:NSUTF8StringEncoding];
+  return encoded.length > 0 && encoded.length == length &&
+         anc_pv_memcmp(encoded.bytes, bytes, length) == ANC_PV_CRYPTO_OK;
+}
+
 static BOOL
 AuthoritySnapshotMatchesCustody(AncPrivateVaultAuthoritySnapshot *snapshot,
                                 NSString *vaultId,
@@ -324,7 +334,7 @@ static void AuthorityRaiseImmutableMutation(void) {
 @end
 
 @interface AncPrivateVaultVerifiedEvidence : NSObject
-@property(nonatomic) NSData *expectedCanonical;
+@property(nonatomic, nullable) NSData *expectedCanonical;
 @property(nonatomic) NSData *nextCanonical;
 @property(nonatomic) NSString *vaultId;
 @property(nonatomic) uint64_t expectedGeneration;
@@ -333,9 +343,39 @@ static void AuthorityRaiseImmutableMutation(void) {
 @property(nonatomic) AncPrivateVaultCustodyEpochTransition transition;
 @property(nonatomic) NSData *replayEntryHash;
 @property(nonatomic) BOOL testOnly;
+@property(nonatomic) BOOL genesis;
+@property(nonatomic, nullable) NSData *authorizationDigest;
+@property(nonatomic, nullable) NSString *genesisCeremonyId;
+@property(nonatomic, nullable) NSString *genesisEndpointId;
+@property(nonatomic, nullable) NSData *genesisEndpointSigningPublicKey;
+@property(nonatomic, nullable) NSData *genesisEndpointAgreementPublicKey;
+@property(nonatomic, nullable) NSData *genesisBootstrapTranscriptDigest;
 @end
 @implementation AncPrivateVaultVerifiedEvidence
 @end
+
+static BOOL AuthorityGenesisEvidenceMatchesPendingCustody(
+    AncPrivateVaultVerifiedEvidence *evidence,
+    const AncPrivateVaultCustodySnapshot *custody) {
+  return evidence.genesis && evidence.genesisCeremonyId.length > 0 &&
+         evidence.genesisEndpointId.length > 0 &&
+         evidence.genesisEndpointSigningPublicKey.length == 32 &&
+         evidence.genesisEndpointAgreementPublicKey.length == 32 &&
+         evidence.genesisBootstrapTranscriptDigest.length == 32 &&
+         CustodyOpaqueIdMatches(evidence.genesisCeremonyId,
+                               custody->ceremony_id,
+                               custody->ceremony_id_length) &&
+         CustodyOpaqueIdMatches(evidence.genesisEndpointId,
+                               custody->endpoint_id,
+                               custody->endpoint_id_length) &&
+         anc_pv_memcmp(evidence.genesisEndpointSigningPublicKey.bytes,
+                       custody->signing_public_key, 32) == ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.genesisEndpointAgreementPublicKey.bytes,
+                       custody->box_public_key, 32) == ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.genesisBootstrapTranscriptDigest.bytes,
+                       custody->pending_transcript_digest, 32) ==
+             ANC_PV_CRYPTO_OK;
+}
 
 static BOOL AuthorityRegisterVerifiedEvidence(
     AncPrivateVaultVerifiedReplayResult *result,
@@ -343,6 +383,9 @@ static BOOL AuthorityRegisterVerifiedEvidence(
     AncPrivateVaultAuthoritySnapshot *nextSnapshot,
     AncPrivateVaultCustodyEpochTransition transition, NSData *entryHash,
     BOOL testOnly);
+static NSMapTable<AncPrivateVaultVerifiedReplayResult *,
+                  AncPrivateVaultVerifiedEvidence *> *AuthorityVerifiedRegistry(void);
+static NSLock *AuthorityVerifiedRegistryLock(void);
 @implementation AncPrivateVaultImmutableVerifiedReplayResult
 - (void)setExpectedCheckpoint:(AncPrivateVaultAuthorityCheckpoint *)value { (void)value; AuthorityRaiseImmutableMutation(); }
 - (void)setNextSnapshot:(AncPrivateVaultAuthoritySnapshot *)value { (void)value; AuthorityRaiseImmutableMutation(); }
@@ -379,6 +422,56 @@ static BOOL AuthorityRegisterVerifiedEvidence(
                                          result.nextSnapshot, transition,
                                          result.nextSnapshot.headHash, YES))
     return nil;
+  return result;
+}
++ (instancetype)testGenesisResultWithSnapshot:
+                    (AncPrivateVaultAuthoritySnapshot *)snapshot
+                                  ceremonyId:(NSString *)ceremonyId
+                                  endpointId:(NSString *)endpointId
+                            endpointSigningKey:(NSData *)endpointSigningKey
+                          endpointAgreementKey:(NSData *)endpointAgreementKey
+                     bootstrapTranscriptDigest:(NSData *)bootstrapTranscriptDigest {
+  AncPrivateVaultAuthoritySnapshotStatus status;
+  NSData *canonical = AncPrivateVaultAuthoritySnapshotEncode(snapshot, &status);
+  AncPrivateVaultAuthoritySnapshot *frozen =
+      canonical == nil ? nil
+                       : AncPrivateVaultAuthoritySnapshotDecode(canonical,
+                                                                &status);
+  if (frozen == nil || frozen.targetCustodyGeneration != 2 ||
+      frozen.previousCustodyGeneration != 1 || frozen.previousSequence != nil ||
+      frozen.previousHead != nil || frozen.sequence != 0 ||
+      ceremonyId.length == 0 || endpointId.length == 0 ||
+      endpointSigningKey.length != 32 || endpointAgreementKey.length != 32 ||
+      bootstrapTranscriptDigest.length != 32)
+    return nil;
+  AncPrivateVaultVerifiedReplayResult *result = [super new];
+  result.expectedCheckpoint = nil;
+  result.nextSnapshot = frozen;
+  result.epochTransition =
+      AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch;
+  AncPrivateVaultVerifiedEvidence *e = [AncPrivateVaultVerifiedEvidence new];
+  e.nextCanonical = [canonical copy];
+  e.vaultId = [frozen.vaultId copy];
+  e.expectedGeneration = 1;
+  e.verifiedAtMs = frozen.verifiedAtMs;
+  e.transition = AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch;
+  e.replayEntryHash = [frozen.headHash copy];
+  e.genesis = YES;
+  e.testOnly = YES;
+  e.genesisCeremonyId = [ceremonyId copy];
+  e.genesisEndpointId = [endpointId copy];
+  e.genesisEndpointSigningPublicKey = [endpointSigningKey copy];
+  e.genesisEndpointAgreementPublicKey = [endpointAgreementKey copy];
+  e.genesisBootstrapTranscriptDigest = [bootstrapTranscriptDigest copy];
+  NSLock *lock = AuthorityVerifiedRegistryLock();
+  [lock lock];
+  @try {
+    if (AuthorityVerifiedRegistry().count >= 1024)
+      return nil;
+    [AuthorityVerifiedRegistry() setObject:e forKey:result];
+  } @finally {
+    [lock unlock];
+  }
   return result;
 }
 #endif
@@ -606,19 +699,26 @@ static AncPrivateVaultVerifiedEvidence *AuthorityCopyVerifiedEvidence(
     return nil;
   @try {
     AncPrivateVaultAuthoritySnapshotStatus status;
-    NSData *presentedExpected = AncPrivateVaultAuthoritySnapshotEncode(
-        result.expectedCheckpoint.snapshot, &status);
+    NSData *presentedExpected =
+        registered.genesis
+            ? nil
+            : AncPrivateVaultAuthoritySnapshotEncode(
+                  result.expectedCheckpoint.snapshot, &status);
     NSData *presentedNext =
         AncPrivateVaultAuthoritySnapshotEncode(result.nextSnapshot, &status);
-    if (presentedExpected == nil || presentedNext == nil ||
-        ![presentedExpected isEqualToData:registered.expectedCanonical] ||
+    if (presentedNext == nil ||
+        (!registered.genesis &&
+         (presentedExpected == nil ||
+          ![presentedExpected isEqualToData:registered.expectedCanonical])) ||
         ![presentedNext isEqualToData:registered.nextCanonical] ||
-        ![result.expectedCheckpoint.vaultId
-            isEqualToString:registered.vaultId] ||
-        result.expectedCheckpoint.custodyGeneration !=
-            registered.expectedGeneration ||
-        ![result.expectedCheckpoint.frameDigest
-            isEqualToData:registered.expectedFrameDigest] ||
+        (registered.genesis && result.expectedCheckpoint != nil) ||
+        (!registered.genesis &&
+         (![result.expectedCheckpoint.vaultId
+              isEqualToString:registered.vaultId] ||
+          result.expectedCheckpoint.custodyGeneration !=
+              registered.expectedGeneration ||
+          ![result.expectedCheckpoint.frameDigest
+              isEqualToData:registered.expectedFrameDigest])) ||
         result.epochTransition != registered.transition)
       return nil;
   } @catch (__unused NSException *exception) {
@@ -634,7 +734,153 @@ static AncPrivateVaultVerifiedEvidence *AuthorityCopyVerifiedEvidence(
   copy.transition = registered.transition;
   copy.replayEntryHash = [registered.replayEntryHash copy];
   copy.testOnly = registered.testOnly;
+  copy.genesis = registered.genesis;
+  copy.authorizationDigest = [registered.authorizationDigest copy];
+  copy.genesisCeremonyId = [registered.genesisCeremonyId copy];
+  copy.genesisEndpointId = [registered.genesisEndpointId copy];
+  copy.genesisEndpointSigningPublicKey =
+      [registered.genesisEndpointSigningPublicKey copy];
+  copy.genesisEndpointAgreementPublicKey =
+      [registered.genesisEndpointAgreementPublicKey copy];
+  copy.genesisBootstrapTranscriptDigest =
+      [registered.genesisBootstrapTranscriptDigest copy];
   return copy;
+}
+
+static void AuthorityConsumeGenesisEvidence(
+    AncPrivateVaultVerifiedReplayResult *result) {
+  NSLock *lock = AuthorityVerifiedRegistryLock();
+  [lock lock];
+  @try {
+    AncPrivateVaultVerifiedEvidence *registered =
+        [AuthorityVerifiedRegistry() objectForKey:result];
+    if (registered.genesis)
+      [AuthorityVerifiedRegistry() removeObjectForKey:result];
+  } @finally {
+    [lock unlock];
+  }
+}
+
+static NSString *AuthorityHexId(NSData *value) {
+  if (![value isKindOfClass:NSData.class] || value.length != 16)
+    return nil;
+  const uint8_t *bytes = value.bytes;
+  NSMutableString *result = [NSMutableString stringWithCapacity:32];
+  for (NSUInteger index = 0; index < value.length; index++)
+    [result appendFormat:@"%02x", bytes[index]];
+  return [result copy];
+}
+
+AncPrivateVaultVerifiedReplayResult *
+AncPrivateVaultVerifiedGenesisReplayResultCreate(
+    AncPrivateVaultControlLogReplayResult *replayResult,
+    AncPrivateVaultGenesisAuthorizationResult *authorizationResult,
+    uint64_t verifiedAtMs) {
+  if (replayResult == nil || authorizationResult == nil || verifiedAtMs == 0 ||
+      verifiedAtMs > kAuthorityMaximumSafeInteger)
+    return nil;
+  @try {
+    NSData *authVaultId = nil, *authCeremonyId = nil, *authEndpointId = nil,
+           *authSigningKey = nil,
+           *authAgreementKey = nil, *authEnrollmentRef = nil,
+           *authRecoveryId = nil, *authRecoverySigningKey = nil,
+           *authRecoveryAgreementKey = nil, *authRecoveryWrapHash = nil,
+           *authDigest = nil, *authSignedCommit = nil,
+           *authBootstrapDigest = nil;
+    if (!AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
+            authorizationResult, &authVaultId, &authCeremonyId, &authEndpointId,
+            &authSigningKey, &authAgreementKey, &authEnrollmentRef,
+            &authRecoveryId, &authRecoverySigningKey,
+            &authRecoveryAgreementKey, &authRecoveryWrapHash, &authDigest,
+            &authSignedCommit, &authBootstrapDigest))
+      return nil;
+    AncPrivateVaultControlLogState *prior = nil, *state = nil;
+    NSData *entryHash = nil;
+    BOOL idempotent = YES;
+    if (!AncPrivateVaultControlLogReplayResultCopyEvidence(
+            replayResult, &prior, &state, &entryHash, &idempotent) ||
+        idempotent || prior != nil || state == nil || state.sequence != 0 ||
+        state.epoch != 1 || state.recoveryGeneration != 1 ||
+        state.activeMembers.count != 1 || state.removedEndpointIds.count != 0 ||
+        entryHash.length != 32 ||
+        authDigest.length != 32 || authSignedCommit.length == 0)
+      return nil;
+    NSData *signedDigest =
+        AncPrivateVaultControlLogSignedEntryDomainHash(authSignedCommit);
+    if (signedDigest.length != 32 ||
+        anc_pv_memcmp(signedDigest.bytes, entryHash.bytes, 32) !=
+            ANC_PV_CRYPTO_OK) {
+      return nil;
+    }
+    NSString *vaultId = AuthorityHexId(authVaultId);
+    NSString *ceremonyId = AuthorityHexId(authCeremonyId);
+    NSString *endpointId = AuthorityHexId(authEndpointId);
+    NSString *enrollmentRef = AuthorityHexId(authEnrollmentRef);
+    NSString *recoveryId = AuthorityHexId(authRecoveryId);
+    AncPrivateVaultControlLogMember *member = state.activeMembers[0];
+    if (vaultId == nil || ceremonyId == nil || endpointId == nil ||
+        authBootstrapDigest.length != 32 || enrollmentRef == nil ||
+        recoveryId == nil || ![state.vaultId isEqualToString:vaultId] ||
+        ![member.endpointId isEqualToString:endpointId] ||
+        ![member.role isEqualToString:@"endpoint"] || member.unattended ||
+        ![member.signingPublicKey
+            isEqualToData:authSigningKey] ||
+        ![member.keyAgreementPublicKey
+            isEqualToData:authAgreementKey] ||
+        ![member.enrollmentRef isEqualToString:enrollmentRef] ||
+        ![state.recoveryId isEqualToString:recoveryId] ||
+        ![state.recoverySigningPublicKey
+            isEqualToData:authRecoverySigningKey] ||
+        ![state.recoveryKeyAgreementPublicKey
+            isEqualToData:authRecoveryAgreementKey] ||
+        ![state.recoveryWrapHash
+            isEqualToData:authRecoveryWrapHash])
+      return nil;
+    AncPrivateVaultAuthoritySnapshot *snapshot =
+        AncPrivateVaultAuthoritySnapshotCreateFromVerifiedControlState(
+            state, 2, 1, nil, nil, verifiedAtMs);
+    if (snapshot == nil || snapshot.sequence != 0 || snapshot.epoch != 1 ||
+        ![snapshot.headHash isEqualToData:entryHash])
+      return nil;
+    AncPrivateVaultAuthoritySnapshotStatus snapshotStatus;
+    NSData *canonical =
+        AncPrivateVaultAuthoritySnapshotEncode(snapshot, &snapshotStatus);
+    if (canonical == nil)
+      return nil;
+    AncPrivateVaultVerifiedReplayResult *verified =
+        class_createInstance(AncPrivateVaultVerifiedReplayResult.class, 0);
+    verified.expectedCheckpoint = nil;
+    verified.nextSnapshot = snapshot;
+    verified.epochTransition =
+        AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch;
+    object_setClass(verified, AncPrivateVaultImmutableVerifiedReplayResult.class);
+    AncPrivateVaultVerifiedEvidence *e = [AncPrivateVaultVerifiedEvidence new];
+    e.nextCanonical = [canonical copy];
+    e.vaultId = [vaultId copy];
+    e.expectedGeneration = 1;
+    e.verifiedAtMs = verifiedAtMs;
+    e.transition = AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch;
+    e.replayEntryHash = [entryHash copy];
+    e.authorizationDigest = [authDigest copy];
+    e.genesisCeremonyId = ceremonyId;
+    e.genesisEndpointId = endpointId;
+    e.genesisEndpointSigningPublicKey = [authSigningKey copy];
+    e.genesisEndpointAgreementPublicKey = [authAgreementKey copy];
+    e.genesisBootstrapTranscriptDigest = [authBootstrapDigest copy];
+    e.genesis = YES;
+    NSLock *lock = AuthorityVerifiedRegistryLock();
+    [lock lock];
+    @try {
+      if (AuthorityVerifiedRegistry().count >= 1024)
+        return nil;
+      [AuthorityVerifiedRegistry() setObject:e forKey:verified];
+    } @finally {
+      [lock unlock];
+    }
+    return verified;
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
 }
 
 AncPrivateVaultVerifiedReplayResult *AncPrivateVaultVerifiedReplayResultCreate(
@@ -1301,7 +1547,7 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
       AuthorityCopyVerifiedEvidence(result);
   AncPrivateVaultAuthoritySnapshotStatus evidenceStatus;
   AncPrivateVaultAuthoritySnapshot *expectedSnapshot =
-      evidence == nil
+      evidence == nil || evidence.genesis
           ? nil
           : AncPrivateVaultAuthoritySnapshotDecode(evidence.expectedCanonical,
                                                     &evidenceStatus);
@@ -1310,23 +1556,53 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
           ? nil
           : AncPrivateVaultAuthoritySnapshotDecode(evidence.nextCanonical,
                                                     &evidenceStatus);
-  if (evidence == nil || expectedSnapshot == nil || nextSnapshot == nil ||
+  if (evidence == nil || (!evidence.genesis && expectedSnapshot == nil) ||
+      nextSnapshot == nil ||
       vaultId.length == 0 || evidence.verifiedAtMs != verifiedAtMs ||
       nextSnapshot.verifiedAtMs != verifiedAtMs ||
-      verifiedAtMs < expectedSnapshot.verifiedAtMs ||
+      (!evidence.genesis && verifiedAtMs < expectedSnapshot.verifiedAtMs) ||
       ![evidence.vaultId isEqualToString:vaultId] ||
       ![nextSnapshot.vaultId isEqualToString:vaultId] ||
-      (!evidence.testOnly &&
+      (evidence.genesis &&
+       (evidence.expectedGeneration != 1 ||
+        nextSnapshot.targetCustodyGeneration != 2 ||
+        nextSnapshot.previousCustodyGeneration != 1 ||
+        nextSnapshot.previousSequence != nil || nextSnapshot.previousHead != nil ||
+        nextSnapshot.sequence != 0 || nextSnapshot.epoch != 1 ||
+        nextSnapshot.recoveryGeneration != 1 ||
+        ![nextSnapshot.headHash isEqualToData:evidence.replayEntryHash])) ||
+      (!evidence.genesis && !evidence.testOnly &&
        !AuthoritySnapshotTransitionValid(
            expectedSnapshot, nextSnapshot, evidence.replayEntryHash,
            evidence.expectedGeneration, evidence.transition)))
     return AncPrivateVaultAuthorityStoreStatusInvalid;
-  AncPrivateVaultAuthorityCheckpoint *expected =
-      [AncPrivateVaultAuthorityCheckpoint new];
-  expected.vaultId = evidence.vaultId;
-  expected.custodyGeneration = evidence.expectedGeneration;
-  expected.frameDigest = evidence.expectedFrameDigest;
-  expected.snapshot = expectedSnapshot;
+  AncPrivateVaultAuthorityCheckpoint *expected = nil;
+  if (!evidence.genesis) {
+    expected = [AncPrivateVaultAuthorityCheckpoint new];
+    expected.vaultId = evidence.vaultId;
+    expected.custodyGeneration = evidence.expectedGeneration;
+    expected.frameDigest = evidence.expectedFrameDigest;
+    expected.snapshot = expectedSnapshot;
+  } else {
+    AncPrivateVaultAuthorityCheckpoint *official = nil;
+    AncPrivateVaultAuthorityStoreStatus officialStatus =
+        [self loadVaultId:vaultId checkpoint:&official error:nil];
+    if (officialStatus == AncPrivateVaultAuthorityStoreStatusOK) {
+      AncPrivateVaultAuthoritySnapshotStatus ss;
+      NSData *officialCanonical =
+          AncPrivateVaultAuthoritySnapshotEncode(official.snapshot, &ss);
+      NSData *wantedCanonical =
+          AncPrivateVaultAuthoritySnapshotEncode(nextSnapshot, &ss);
+      if (official.custodyGeneration == 2 && officialCanonical != nil &&
+          [officialCanonical isEqualToData:wantedCanonical]) {
+        if (checkpoint)
+          *checkpoint = official;
+        AuthorityConsumeGenesisEvidence(result);
+        return AncPrivateVaultAuthorityStoreStatusOK;
+      }
+      return AncPrivateVaultAuthorityStoreStatusConflict;
+    }
+  }
   AncPrivateVaultCustodyEpochTransition transition = evidence.transition;
   NSRecursiveLock *operationLock = [self operationLockForVaultId:vaultId];
   if (operationLock == nil)
@@ -1354,15 +1630,25 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
                      AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch;
       uint64_t nextEpoch =
           promotes ? current.pending_epoch : current.active_epoch;
-      if (expected == nil || (!carries && !promotes) ||
+      if ((!evidence.genesis && expected == nil) || (!carries && !promotes) ||
           (promotes && current.pending_epoch == 0) ||
-          expected.custodyGeneration != current.custody_generation ||
-          anc_pv_memcmp(expected.frameDigest.bytes, current.snapshot_digest,
-                        32) != ANC_PV_CRYPTO_OK ||
-          ![expected.vaultId isEqualToString:vaultId] ||
-          !AuthoritySnapshotMatchesCustody(expected.snapshot, vaultId, &current,
-                                           expected.frameDigest,
-                                           current.active_epoch) ||
+          (!evidence.genesis &&
+           (expected.custodyGeneration != current.custody_generation ||
+            anc_pv_memcmp(expected.frameDigest.bytes, current.snapshot_digest,
+                          32) != ANC_PV_CRYPTO_OK ||
+            ![expected.vaultId isEqualToString:vaultId] ||
+            !AuthoritySnapshotMatchesCustody(expected.snapshot, vaultId,
+                                             &current, expected.frameDigest,
+                                             current.active_epoch))) ||
+          (evidence.genesis &&
+           (current.custody_generation != 1 ||
+            current.lifecycle != ANC_PV_CUSTODY_LIFECYCLE_PENDING ||
+            current.pending_kind != ANC_PV_CUSTODY_PENDING_GENESIS ||
+            current.authority_anchor_present ||
+            !current.expected_edge_present || current.active_epoch != 0 ||
+            current.pending_epoch != 1 ||
+            !AuthorityGenesisEvidenceMatchesPendingCustody(evidence,
+                                                           &current))) ||
           nextSnapshot.previousCustodyGeneration !=
               current.custody_generation ||
           nextSnapshot.targetCustodyGeneration !=
@@ -1502,12 +1788,16 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
         final = AncPrivateVaultAuthorityStoreStatusStorageFailed;
         return;
       }
-      cs = [self.custodyRepository
-          advanceAuthorityAnchorVaultId:vaultId
-                     expectedGeneration:current.custody_generation
-                 expectedSnapshotDigest:expected.frameDigest
-                     nextPublicSnapshot:&next
-                        epochTransition:transition];
+      cs = evidence.genesis
+               ? [self.custodyRepository
+                     promoteGenesisAuthorityAnchorVaultId:vaultId
+                                       nextPublicSnapshot:&next]
+               : [self.custodyRepository
+                     advanceAuthorityAnchorVaultId:vaultId
+                                expectedGeneration:current.custody_generation
+                            expectedSnapshotDigest:expected.frameDigest
+                                nextPublicSnapshot:&next
+                                   epochTransition:transition];
       if (cs != AncPrivateVaultCustodyRepositoryStatusOK) {
         final = cs == AncPrivateVaultCustodyRepositoryStatusConflict
                     ? AncPrivateVaultAuthorityStoreStatusConflict
@@ -1563,6 +1853,8 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
     }
     if (checkpoint)
       *checkpoint = committedCheckpoint;
+    if (final == AncPrivateVaultAuthorityStoreStatusOK && evidence.genesis)
+      AuthorityConsumeGenesisEvidence(result);
     return final;
   } @finally {
     [operationLock unlock];
