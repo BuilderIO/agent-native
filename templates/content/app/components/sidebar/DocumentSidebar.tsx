@@ -33,9 +33,7 @@ import type {
   DocumentTreeNode,
 } from "@shared/api";
 import {
-  IconDatabase,
   IconBrain,
-  IconFileText,
   IconPlus,
   IconRestore,
   IconSearch,
@@ -79,7 +77,6 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -285,46 +282,6 @@ function WorkspaceFilesSection({
   );
 }
 
-function WorkspaceCreateMenu({
-  space,
-  disabled,
-  onCreatePage,
-  onCreateDatabase,
-}: {
-  space: ContentSpaceSummary;
-  disabled: boolean;
-  onCreatePage: (space: ContentSpaceSummary) => void;
-  onCreateDatabase: (space: ContentSpaceSummary) => void;
-}) {
-  const t = useT();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
-          disabled={disabled}
-          aria-label={`${t("sidebar.newPage")} / ${t("sidebar.newDatabase")} — ${space.name}`}
-        >
-          <IconPlus size={14} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => onCreatePage(space)}>
-            <IconFileText />
-            {t("sidebar.page")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onCreateDatabase(space)}>
-            <IconDatabase />
-            {t("sidebar.database")}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
@@ -424,7 +381,7 @@ export function DocumentSidebar({
   const handleSelectContentSpace = useCallback(
     async (
       space: (typeof contentSpaces)[number],
-      targetDocumentId?: string,
+      targetDocumentId?: string | null,
     ) => {
       setExpandedWorkspaceIds((current) =>
         ensureWorkspaceExpanded(current, space.id),
@@ -450,10 +407,12 @@ export function DocumentSidebar({
                 { requestSource: "content-sidebar" },
               ),
             persistSelection: setStoredSpaceId,
-            openFiles: (documentId) =>
+            openFiles: (documentId) => {
+              if (targetDocumentId === null) return;
               navigate(`/page/${targetDocumentId ?? documentId}`, {
                 flushSync: true,
-              }),
+              });
+            },
           }),
         );
         return true;
@@ -605,7 +564,11 @@ export function DocumentSidebar({
   );
 
   const handleCreatePage = useCallback(
-    async (parentId?: string, rootSpaceId = selectedSpace?.id) => {
+    async (
+      parentId?: string,
+      rootSpaceId = selectedSpace?.id,
+      optimisticId?: string,
+    ) => {
       if (localFileMode) {
         try {
           const created = await createDocument.mutateAsync({
@@ -631,7 +594,7 @@ export function DocumentSidebar({
         return;
       }
 
-      const id = nanoid();
+      const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
       const tempDoc: Document = {
         id,
@@ -735,28 +698,13 @@ export function DocumentSidebar({
 
   const handleCreatePageInSpace = useCallback(
     async (space: ContentSpaceSummary) => {
-      if (
-        selectedSpace?.id !== space.id &&
-        !(await handleSelectContentSpace(space))
-      ) {
-        return;
+      const id = nanoid();
+      if (selectedSpace?.id !== space.id) {
+        void handleSelectContentSpace(space, null);
       }
-      await handleCreatePage(undefined, space.id);
+      await handleCreatePage(undefined, space.id, id);
     },
     [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
-  );
-
-  const handleCreateDatabaseInSpace = useCallback(
-    async (space: ContentSpaceSummary) => {
-      if (
-        selectedSpace?.id !== space.id &&
-        !(await handleSelectContentSpace(space))
-      ) {
-        return;
-      }
-      await handleCreateDatabase(undefined, space.id);
-    },
-    [handleCreateDatabase, handleSelectContentSpace, selectedSpace?.id],
   );
 
   const handleDelete = useCallback(
@@ -1018,31 +966,15 @@ export function DocumentSidebar({
 
   const renderNewButton = (space = selectedSpace) =>
     space ? (
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          disabled={createDocument.isPending || switchOrg.isPending}
-          onClick={() => void handleCreatePageInSpace(space)}
-        >
-          <IconPlus size={14} className="shrink-0" />
-          <span>{t("sidebar.newPage")}</span>
-        </button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              disabled={createDatabase.isPending || switchOrg.isPending}
-              aria-label={t("sidebar.newDatabase")}
-              onClick={() => void handleCreateDatabaseInSpace(space)}
-            >
-              <IconDatabase size={14} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("sidebar.newDatabase")}</TooltipContent>
-        </Tooltip>
-      </div>
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        disabled={createDocument.isPending}
+        onClick={() => void handleCreatePageInSpace(space)}
+      >
+        <IconPlus size={14} className="shrink-0" />
+        <span>{t("sidebar.newPage")}</span>
+      </button>
     ) : null;
 
   const renderCollapsedNewButton = () =>
@@ -1302,20 +1234,15 @@ export function DocumentSidebar({
                   >
                     {space.name}
                   </button>
-                  <WorkspaceCreateMenu
-                    space={space}
-                    disabled={
-                      createDocument.isPending ||
-                      createDatabase.isPending ||
-                      switchOrg.isPending
-                    }
-                    onCreatePage={(targetSpace) =>
-                      void handleCreatePageInSpace(targetSpace)
-                    }
-                    onCreateDatabase={(targetSpace) =>
-                      void handleCreateDatabaseInSpace(targetSpace)
-                    }
-                  />
+                  <button
+                    type="button"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+                    disabled={createDocument.isPending}
+                    aria-label={`${t("sidebar.newPage")} — ${space.name}`}
+                    onClick={() => void handleCreatePageInSpace(space)}
+                  >
+                    <IconPlus size={14} />
+                  </button>
                 </div>
                 {expanded && (
                   <WorkspaceFilesSection

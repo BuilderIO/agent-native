@@ -159,9 +159,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("spaceId: parentId ? undefined : rootSpaceId");
     expect(sidebar).toContain("const handleCreatePageInSpace = useCallback");
     expect(sidebar).toContain(
-      "const handleCreateDatabaseInSpace = useCallback",
-    );
-    expect(sidebar).toContain(
       "const renderNewButton = (space = selectedSpace) =>",
     );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
@@ -190,11 +187,16 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
     expect(sidebar).toContain("{expanded && (");
     expect(sidebar).toContain("<WorkspaceFilesSection");
-    expect(sidebar).toContain("<WorkspaceCreateMenu");
+    expect(sidebar).toContain(
+      'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
+    );
     expect(sidebar).toContain("selected={selected}");
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
-    expect(sidebar).toContain("onCreatePage={(targetSpace) =>");
-    expect(sidebar).toContain("onCreateDatabase={(targetSpace) =>");
+    expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
+    expect(sidebar).toContain(
+      "await handleCreatePage(undefined, space.id, id)",
+    );
+    expect(sidebar).not.toContain("<WorkspaceCreateMenu");
     expect(sidebar).toContain(
       "text-[10px] font-semibold uppercase tracking-wider",
     );

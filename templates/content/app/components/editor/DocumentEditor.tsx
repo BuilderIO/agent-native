@@ -12,7 +12,12 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import type { Document, DocumentSyncStatus } from "@shared/api";
-import { IconArrowLeft, IconDatabase, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconDatabase,
+  IconFileText,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -34,7 +39,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useComments } from "@/hooks/use-comments";
-import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
+import {
+  useCreateContentDatabase,
+  useProcessBuilderBodyHydration,
+} from "@/hooks/use-content-database";
 import {
   isDocumentUpdateConflict,
   useDocument,
@@ -309,6 +317,7 @@ function DatabaseMembershipBreadcrumb({
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
+  const createDatabase = useCreateContentDatabase(documentId);
   const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.databaseMembership?.databaseDocumentId ?? documentId,
@@ -341,6 +350,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [newDocumentTypeChosen, setNewDocumentTypeChosen] = useState(false);
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
@@ -513,6 +523,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     if (prevDocIdRef.current !== documentId) {
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
+      setNewDocumentTypeChosen(false);
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -1273,6 +1284,29 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const showNewDocumentTypeChooser =
+    canEdit &&
+    !isLocalFileDocument &&
+    !isDatabasePage &&
+    !newDocumentTypeChosen &&
+    !localTitle.trim() &&
+    !document.description?.trim() &&
+    isEffectivelyEmptyDocumentContent(localContent);
+  const handleChoosePage = useCallback(() => {
+    setNewDocumentTypeChosen(true);
+    requestAnimationFrame(() => titleInputRef.current?.focus());
+  }, []);
+  const handleChooseDatabase = useCallback(async () => {
+    try {
+      await createDatabase.mutateAsync({ documentId });
+      setNewDocumentTypeChosen(true);
+    } catch (error) {
+      toast.error(t("sidebar.failedCreateDatabase"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    }
+  }, [createDatabase, documentId, t]);
   const defaultIcon =
     defaultIconKind === "database" && !isDatabasePage ? (
       <IconDatabase className="size-12" aria-hidden="true" />
@@ -1444,6 +1478,37 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         persistDocumentUpdates({ description })
                       }
                     />
+                  ) : null}
+                  {showNewDocumentTypeChooser ? (
+                    <div
+                      className="mt-5 flex flex-wrap gap-2"
+                      aria-label={t("sidebar.newPage")}
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="justify-start gap-2"
+                        disabled={!editorCanEdit || createDatabase.isPending}
+                        onClick={handleChoosePage}
+                      >
+                        <IconFileText />
+                        {t("sidebar.page")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="justify-start gap-2"
+                        disabled={!editorCanEdit || createDatabase.isPending}
+                        onClick={() => void handleChooseDatabase()}
+                      >
+                        {createDatabase.isPending ? (
+                          <IconLoader2 className="animate-spin" />
+                        ) : (
+                          <IconDatabase />
+                        )}
+                        {t("sidebar.database")}
+                      </Button>
+                    </div>
                   ) : null}
                   {document.databaseMembership && !isLocalFileDocument ? (
                     <DocumentProperties

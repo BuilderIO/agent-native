@@ -16,6 +16,22 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
+  it("offers page or database after an optimistic blank page opens", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(source).toContain("const showNewDocumentTypeChooser =");
+    expect(source).toContain("isEffectivelyEmptyDocumentContent(localContent)");
+    expect(source).toContain("const handleChoosePage = useCallback");
+    expect(source).toContain(
+      "await createDatabase.mutateAsync({ documentId })",
+    );
+    expect(source).toContain('{t("sidebar.page")}');
+    expect(source).toContain('{t("sidebar.database")}');
+  });
+
   it("gives database pages a wider database surface", () => {
     expect(documentEditorTitleRegionClassName(true)).toContain("max-w-none");
     expect(documentEditorTitleRegionClassName(true)).toContain("pt-14");
