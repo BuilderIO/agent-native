@@ -1495,7 +1495,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         {/* Timestamped comments */}
         {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
-          <PlaybackCommentOverlay comments={comments} currentMs={currentMs} />
+          <PlaybackCommentOverlay
+            comments={comments}
+            currentMs={currentMs}
+            playbackRate={speed}
+          />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}
