@@ -50,6 +50,7 @@ export async function deliverPendingRemotePushNotifications(options?: {
     Math.min(options?.limit ?? DEFAULT_DELIVERY_LIMIT, 100),
   );
   const summary = { sent: 0, delivered: 0, retried: 0, failed: 0 };
+  const claimedDeliveries: ClaimedRemotePushDelivery[] = [];
 
   for (let processed = 0; processed < limit; processed++) {
     const delivery = await claimNextRemotePushDelivery({ now: now() });
@@ -65,12 +66,35 @@ export async function deliverPendingRemotePushNotifications(options?: {
       continue;
     }
 
+    claimedDeliveries.push(delivery);
+  }
+
+  const sendDeliveries = claimedDeliveries.filter(
+    (delivery) => delivery.phase === "send",
+  );
+  if (sendDeliveries.length > 0) {
+    let outcomes: DeliveryOutcome[];
+    try {
+      outcomes = await sendExpoPushNotifications(sendDeliveries, fetchImpl);
+    } catch (error) {
+      const errorCode = classifyTransportError(error);
+      outcomes = sendDeliveries.map(() => ({ kind: "retry", errorCode }));
+    }
+    for (let index = 0; index < sendDeliveries.length; index++) {
+      await applyDeliveryOutcome(
+        sendDeliveries[index]!,
+        outcomes[index]!,
+        summary,
+        now,
+      );
+    }
+  }
+
+  for (const delivery of claimedDeliveries) {
+    if (delivery.phase !== "receipt") continue;
     let outcome: DeliveryOutcome;
     try {
-      outcome =
-        delivery.phase === "receipt"
-          ? await readExpoPushReceipt(delivery, fetchImpl)
-          : await sendExpoPushNotification(delivery, fetchImpl);
+      outcome = await readExpoPushReceipt(delivery, fetchImpl);
     } catch (error) {
       outcome = {
         kind: "retry",
@@ -78,74 +102,122 @@ export async function deliverPendingRemotePushNotifications(options?: {
       };
     }
 
-    if (outcome.kind === "ticket") {
-      await markRemotePushTicketAccepted({
-        id: delivery.id,
-        providerTicketId: outcome.ticketId,
-        checkAfter: now() + RECEIPT_CHECK_DELAY_MS,
-      });
-      summary.sent++;
-      continue;
-    }
-    if (outcome.kind === "delivered") {
-      await markRemotePushDelivered(delivery.id);
-      summary.delivered++;
-      continue;
-    }
-    if (outcome.kind === "failed") {
-      await failRemotePushDelivery({
-        id: delivery.id,
-        phase: delivery.phase,
-        errorCode: outcome.errorCode,
-      });
-      if (outcome.deactivate) {
-        await deactivateRemotePushRegistration(delivery.registrationId);
-      }
-      summary.failed++;
-      continue;
-    }
-
-    await retryRemotePushDelivery({
-      id: delivery.id,
-      phase: delivery.phase,
-      retryAt: now() + retryDelayMs(delivery.attempts),
-      errorCode: outcome.errorCode,
-      resend: outcome.resend,
-    });
-    summary.retried++;
+    await applyDeliveryOutcome(delivery, outcome, summary, now);
   }
 
   return summary;
 }
 
-async function sendExpoPushNotification(
+async function applyDeliveryOutcome(
   delivery: ClaimedRemotePushDelivery,
-  fetchImpl: typeof fetch,
-): Promise<DeliveryOutcome> {
-  if (delivery.provider !== "expo" || !isExpoPushToken(delivery.token)) {
-    return {
-      kind: "failed",
-      errorCode: "unsupported_push_registration",
-      deactivate: true,
-    };
+  outcome: DeliveryOutcome,
+  summary: {
+    sent: number;
+    delivered: number;
+    retried: number;
+    failed: number;
+  },
+  now: () => number,
+): Promise<void> {
+  if (outcome.kind === "ticket") {
+    await markRemotePushTicketAccepted({
+      id: delivery.id,
+      providerTicketId: outcome.ticketId,
+      checkAfter: now() + RECEIPT_CHECK_DELAY_MS,
+    });
+    summary.sent++;
+    return;
+  }
+  if (outcome.kind === "delivered") {
+    await markRemotePushDelivered(delivery.id);
+    summary.delivered++;
+    return;
+  }
+  if (outcome.kind === "failed") {
+    await failRemotePushDelivery({
+      id: delivery.id,
+      phase: delivery.phase,
+      errorCode: outcome.errorCode,
+    });
+    if (outcome.deactivate) {
+      await deactivateRemotePushRegistration(delivery.registrationId);
+    }
+    summary.failed++;
+    return;
   }
 
+  await retryRemotePushDelivery({
+    id: delivery.id,
+    phase: delivery.phase,
+    retryAt: now() + retryDelayMs(delivery.attempts),
+    errorCode: outcome.errorCode,
+    resend: outcome.resend,
+  });
+  summary.retried++;
+}
+
+async function sendExpoPushNotifications(
+  deliveries: ClaimedRemotePushDelivery[],
+  fetchImpl: typeof fetch,
+): Promise<DeliveryOutcome[]> {
+  const outcomes = new Map<string, DeliveryOutcome>();
+  const supportedDeliveries = deliveries.filter((delivery) => {
+    const supported =
+      delivery.provider === "expo" && isExpoPushToken(delivery.token);
+    if (!supported) {
+      outcomes.set(delivery.id, {
+        kind: "failed",
+        errorCode: "unsupported_push_registration",
+        deactivate: true,
+      });
+    }
+    return supported;
+  });
+  if (supportedDeliveries.length === 0) {
+    return deliveries.map((delivery) => outcomes.get(delivery.id)!);
+  }
+
+  const messages = supportedDeliveries.map(buildExpoMessage);
   const response = await fetchWithTimeout(
     fetchImpl,
     EXPO_PUSH_SEND_URL,
-    expoRequestInit(buildExpoMessage(delivery)),
+    expoRequestInit(messages.length === 1 ? messages[0] : messages),
   );
   const body = await readExpoResponse(response);
-  if (!response.ok) return responseFailure(response.status, body);
+  if (!response.ok) {
+    const outcome = responseFailure(response.status, body);
+    for (const delivery of supportedDeliveries) {
+      outcomes.set(delivery.id, outcome);
+    }
+    return deliveries.map((delivery) => outcomes.get(delivery.id)!);
+  }
 
-  const ticket = Array.isArray(body.data) ? body.data[0] : body.data;
-  if (!ticket || Array.isArray(ticket) || !isExpoResult(ticket)) {
-    return { kind: "retry", errorCode: "invalid_push_ticket" };
+  const tickets = Array.isArray(body.data)
+    ? body.data
+    : body.data && isExpoResult(body.data)
+      ? [body.data]
+      : [];
+  if (tickets.length !== supportedDeliveries.length) {
+    for (const delivery of supportedDeliveries) {
+      outcomes.set(delivery.id, {
+        kind: "retry",
+        errorCode: "invalid_push_ticket",
+      });
+    }
+    return deliveries.map((delivery) => outcomes.get(delivery.id)!);
   }
-  if (ticket.status === "ok" && typeof ticket.id === "string") {
-    return { kind: "ticket", ticketId: ticket.id };
+
+  for (let index = 0; index < supportedDeliveries.length; index++) {
+    const delivery = supportedDeliveries[index]!;
+    const ticket = tickets[index]!;
+    outcomes.set(
+      delivery.id,
+      ticket.status === "ok" && typeof ticket.id === "string"
+        ? { kind: "ticket", ticketId: ticket.id }
+        : expoResultFailure(ticket, false),
+    );
   }
-  return expoResultFailure(ticket, false);
+  return deliveries.map((delivery) => outcomes.get(delivery.id)!);
 }
 
 async function readExpoPushReceipt(

@@ -104,6 +104,53 @@ describe("remote push delivery", () => {
     });
   });
 
+  it("batches multiple Expo messages into one provider request", async () => {
+    claimMock.mockResolvedValueOnce(baseDelivery).mockResolvedValueOnce({
+      ...baseDelivery,
+      id: "notification-2",
+      registrationId: "registration-2",
+      token: "ExpoPushToken[example_token_2]",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        data: [
+          { status: "ok", id: "ticket-example-1" },
+          { status: "ok", id: "ticket-example-2" },
+        ],
+      }),
+    );
+
+    const result = await deliverPendingRemotePushNotifications({
+      fetchImpl: fetchMock,
+      now: () => 1_000,
+    });
+
+    expect(result).toEqual({
+      sent: 2,
+      delivered: 0,
+      retried: 0,
+      failed: 0,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0]![1] as RequestInit;
+    const body = JSON.parse(String(request.body));
+    expect(body).toHaveLength(2);
+    expect(body.map((message: { to: string }) => message.to)).toEqual([
+      "ExpoPushToken[example_token]",
+      "ExpoPushToken[example_token_2]",
+    ]);
+    expect(ticketMock).toHaveBeenNthCalledWith(1, {
+      id: "notification-1",
+      providerTicketId: "ticket-example-1",
+      checkAfter: 901_000,
+    });
+    expect(ticketMock).toHaveBeenNthCalledWith(2, {
+      id: "notification-2",
+      providerTicketId: "ticket-example-2",
+      checkAfter: 901_000,
+    });
+  });
+
   it("marks delivery only after Expo confirms the provider receipt", async () => {
     claimMock.mockResolvedValueOnce({
       ...baseDelivery,
