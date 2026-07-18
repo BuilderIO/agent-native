@@ -9,6 +9,7 @@ import {
   encodeAncV1Canonical,
 } from "./canonical.js";
 import { opaqueIdSchema } from "./contracts.js";
+import { ancV1Hash } from "./portable-crypto.js";
 import { E2EE_SIZE_LIMITS, E2EE_SUITE_ID } from "./suite.js";
 
 export const ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES =
@@ -65,11 +66,47 @@ export const controlLogRotationAppendReceiptSchema = z
   })
   .strict();
 
+export const controlLogGenesisAppendRequestSchema = z
+  .object({
+    version: z.literal(1),
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("control-log-genesis-append-request"),
+    signedEntry: boundedBytes(ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES),
+    recoveryWrap: boundedBytes(
+      ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES,
+    ),
+  })
+  .strict();
+
+export const controlLogGenesisAppendReceiptSchema = z
+  .object({
+    version: z.literal(1),
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("control-log-genesis-append-receipt"),
+    vaultId: opaqueIdSchema,
+    entryId: opaqueIdSchema,
+    sequence: z.literal(0),
+    headHash: lowerHashSchema,
+    recoveryWrapHash: lowerHashSchema,
+    recoveryWrapByteLength: z
+      .number()
+      .int()
+      .positive()
+      .max(ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES),
+  })
+  .strict();
+
 export type ControlLogRotationAppendRequest = z.infer<
   typeof controlLogRotationAppendRequestSchema
 >;
 export type ControlLogRotationAppendReceipt = z.infer<
   typeof controlLogRotationAppendReceiptSchema
+>;
+export type ControlLogGenesisAppendRequest = z.infer<
+  typeof controlLogGenesisAppendRequestSchema
+>;
+export type ControlLogGenesisAppendReceipt = z.infer<
+  typeof controlLogGenesisAppendReceiptSchema
 >;
 
 export class AncV1ControlLogAppendCodecError extends Error {
@@ -269,4 +306,126 @@ export function decodeAncV1ControlLogRotationAppendReceipt(
     },
     "Control-log rotation append receipt",
   );
+}
+
+export function encodeAncV1ControlLogGenesisAppendRequest(
+  value: ControlLogGenesisAppendRequest,
+): Uint8Array {
+  const parsed = parse(
+    controlLogGenesisAppendRequestSchema,
+    value,
+    "Control-log genesis append request",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [REQUEST.suite, parsed.suite],
+      [REQUEST.version, parsed.version],
+      [REQUEST.type, parsed.type],
+      [REQUEST.signedEntry, parsed.signedEntry],
+      [REQUEST.recoveryWrap, parsed.recoveryWrap],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES) {
+    fail("Control-log genesis append request exceeds its canonical size cap");
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogGenesisAppendRequest(
+  encoded: Uint8Array,
+): ControlLogGenesisAppendRequest {
+  const map = envelope(
+    encoded,
+    Object.values(REQUEST),
+    ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
+  );
+  return parse(
+    controlLogGenesisAppendRequestSchema,
+    {
+      suite: text(field(map, REQUEST.suite, "suite"), "suite"),
+      version: integer(field(map, REQUEST.version, "version"), "version"),
+      type: text(field(map, REQUEST.type, "type"), "type"),
+      signedEntry: bytes(
+        field(map, REQUEST.signedEntry, "signedEntry"),
+        ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
+        "signedEntry",
+      ),
+      recoveryWrap: bytes(
+        field(map, REQUEST.recoveryWrap, "recoveryWrap"),
+        ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES,
+        "recoveryWrap",
+      ),
+    },
+    "Control-log genesis append request",
+  );
+}
+
+export function encodeAncV1ControlLogGenesisAppendReceipt(
+  value: ControlLogGenesisAppendReceipt,
+): Uint8Array {
+  const parsed = parse(
+    controlLogGenesisAppendReceiptSchema,
+    value,
+    "Control-log genesis append receipt",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [RECEIPT.suite, parsed.suite],
+      [RECEIPT.version, parsed.version],
+      [RECEIPT.type, parsed.type],
+      [RECEIPT.vaultId, parsed.vaultId],
+      [RECEIPT.entryId, parsed.entryId],
+      [RECEIPT.sequence, parsed.sequence],
+      [RECEIPT.headHash, ancV1HexToBytes(parsed.headHash)],
+      [RECEIPT.recoveryWrapHash, ancV1HexToBytes(parsed.recoveryWrapHash)],
+      [RECEIPT.recoveryWrapByteLength, parsed.recoveryWrapByteLength],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES) {
+    fail("Control-log genesis append receipt exceeds its canonical size cap");
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogGenesisAppendReceipt(
+  encoded: Uint8Array,
+): ControlLogGenesisAppendReceipt {
+  const map = envelope(
+    encoded,
+    Object.values(RECEIPT),
+    ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
+  );
+  return parse(
+    controlLogGenesisAppendReceiptSchema,
+    {
+      suite: text(field(map, RECEIPT.suite, "suite"), "suite"),
+      version: integer(field(map, RECEIPT.version, "version"), "version"),
+      type: text(field(map, RECEIPT.type, "type"), "type"),
+      vaultId: text(field(map, RECEIPT.vaultId, "vaultId"), "vaultId"),
+      entryId: text(field(map, RECEIPT.entryId, "entryId"), "entryId"),
+      sequence: integer(field(map, RECEIPT.sequence, "sequence"), "sequence"),
+      headHash: ancV1BytesToHex(
+        bytes(field(map, RECEIPT.headHash, "headHash"), 32, "headHash"),
+      ),
+      recoveryWrapHash: ancV1BytesToHex(
+        bytes(
+          field(map, RECEIPT.recoveryWrapHash, "recoveryWrapHash"),
+          32,
+          "recoveryWrapHash",
+        ),
+      ),
+      recoveryWrapByteLength: integer(
+        field(map, RECEIPT.recoveryWrapByteLength, "recoveryWrapByteLength"),
+        "recoveryWrapByteLength",
+      ),
+    },
+    "Control-log genesis append receipt",
+  );
+}
+
+export async function hashAncV1ControlLogGenesisAppendReceipt(
+  encoded: Uint8Array,
+): Promise<Uint8Array> {
+  decodeAncV1ControlLogGenesisAppendReceipt(encoded);
+  return ancV1Hash("genesis-hosted-append-receipt", encoded.slice());
 }

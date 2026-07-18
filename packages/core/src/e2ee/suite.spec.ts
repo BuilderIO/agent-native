@@ -53,6 +53,7 @@ describe("anc/v1 suite freeze", () => {
       "genesis-recovery-confirmation",
       "genesis-authorization",
       "genesis-bootstrap-transcript",
+      "genesis-hosted-append-receipt",
       "recovery-wrap",
       "recovery-replacement-confirmation",
       "recovery-authorization",

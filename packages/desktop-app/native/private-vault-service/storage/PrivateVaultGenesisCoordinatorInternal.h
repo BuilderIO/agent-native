@@ -83,6 +83,13 @@ NS_ASSUME_NONNULL_BEGIN
 /* Performs the persisted trusted-time observation required before the XPC
  * request surface opens, even when no genesis work is pending. */
 - (AncPrivateVaultGenesisCoordinatorStatus)validateTrustedTimeForStartup;
+
+/* Trusted hosted-transport completion. The caller supplies only the durable
+ * lookup identity and exact bounded canonical receipt; the native store
+ * independently proves every official/artifact binding before cleanup. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    finalizeHostedGenesisAppendLookupId:(NSData *)lookupId
+                                 receipt:(NSData *)receipt;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

@@ -31,7 +31,7 @@
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "6af1a59107782215c0a7ca8ec7f9f299086493d8ead0a8f5a3a6bb17bd3c7ec0"
+      "sha256": "859922557985708c32102e528e7d80137b13d50b206b2ae129a52e421d0e60c8"
     }
   ],
   "recordLayout": {

@@ -585,9 +585,23 @@ to the same older valid snapshot; that stronger claim requires the planned
 remote or hardware monotonic witness and remains a release gate.
 
 This still does not close PR 5: the trusted confirmation UI, committed
-preparation-artifact/receipt cleanup, persistence of the actual recoverable epoch wrap, complete
-enrollment and recovery product flows, malicious-directory and stolen-session
-transcripts, and the independently packageable broker exit gate remain.
+hosted genesis append transport and account-authorized admission ceremony,
+persistence of the actual recoverable epoch wrap, complete enrollment and
+recovery product flows, malicious-directory and stolen-session transcripts,
+and the independently packageable broker exit gate remain.
+
+Committed local cleanup now has its own protocol-confusion-resistant
+`control-log-genesis-append-*` canonical request and receipt rather than
+borrowing rotation's sequence-positive type. The exact sequence-zero receipt
+is reread from a dedicated nonsynchronizable Keychain service, hashed under the
+frozen `anc/v1/genesis-hosted-append-receipt` domain, and bound to COMMITTED
+before the digest-bound artifact can be deleted. Startup recovers the three
+crash windows—after receipt persistence, receipt binding, and artifact
+deletion—and retires the marker only after a CLEANED reread. The Core and native
+digest vector is `8b12f022…d547`. This is a receipt verifier and cleanup fence,
+not permission to synthesize a local receipt: only a hosted service that has
+independently committed the admitted genesis entry and exact recovery-wrap blob
+may issue it.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

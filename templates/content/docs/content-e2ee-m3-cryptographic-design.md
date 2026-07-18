@@ -431,11 +431,16 @@ monotonic anchor against coordinated restoration of both valid Keychain
 frames. A remote or hardware witness is required before making that stronger
 anti-rollback claim.
 
-This is still not a usable PREPARE ceremony. Committed receipt cleanup and
-the trusted desktop confirmation surface remain required before any vault can
-be created. Committed cleanup must independently verify terminal and
-hosted-receipt proof; it must not turn the cancellation-only digest-bound delete
-into a raw live-delete or caller-authored transition API. No builder or
+This is still not a usable PREPARE ceremony. The trusted desktop confirmation
+surface, account-authorized hosted genesis admission, and native hosted retry
+transport remain required before any vault can be created. Committed local
+cleanup now independently verifies the official tuple, retained signed genesis
+entry, recovery wrap, and distinct canonical sequence-zero hosted receipt. It
+persists the exact receipt, binds its frozen domain-separated digest, deletes
+only the authenticated artifact, and completes CLEANED across each crash
+boundary. It does not synthesize acknowledgement from local authority and does
+not turn the cancellation-only digest-bound delete into a raw live-delete or
+caller-authored transition API. No builder or
 preparation operation is exposed through XPC, addon, preload, UI, or hosted
 JavaScript. Current-source x86_64 parity remains a machine-level proof gap while
 Rosetta is wedged before test entry.

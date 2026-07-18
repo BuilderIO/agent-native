@@ -5,11 +5,13 @@
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultControlLog.h"
+#import "PrivateVaultControlLogInternal.h"
 #import "PrivateVaultCustodyRepositoryGenesisInternal.h"
 #import "PrivateVaultGenesisAuthorization.h"
 #import "PrivateVaultGenesisAuthorizationInternal.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisBuilder.h"
+#import "PrivateVaultGenesisHostedAppend.h"
 #import "PrivateVaultRecoveryWrap.h"
 
 #import <objc/runtime.h>
@@ -19,6 +21,10 @@ NSString *const AncPrivateVaultGenesisPreparationRecordId =
 
 static const char kAncGenesisPreparationDigestDomain[] =
     "anc/v1/private-vault/genesis-preparation-record/fence";
+static const char kAncGenesisCleanupReceiptDigestDomain[] =
+    "anc/v1/genesis-hosted-append-receipt";
+static NSString *const kAncGenesisCleanupReceiptRecordId =
+    @"genesis-cleanup-receipt";
 static const uint64_t kAncGenesisMaximumSafeInteger =
     UINT64_C(9007199254740991);
 static char kAncGenesisPreparationQueueKey;
@@ -352,6 +358,73 @@ static NSData *AncGenesisDigest(AncPrivateVaultGenesisGuardedRecord *record) {
   return result;
 }
 
+static NSData *AncGenesisCleanupReceiptDigest(NSData *receipt) {
+  if (![receipt isKindOfClass:NSData.class] || receipt.length == 0 ||
+      receipt.length > 1024)
+    return nil;
+  uint8_t digest[32] = {0};
+  BOOL okay = anc_pv_blake2b_256_two_part(
+                  digest,
+                  (const uint8_t *)kAncGenesisCleanupReceiptDigestDomain,
+                  sizeof kAncGenesisCleanupReceiptDigestDomain, receipt.bytes,
+                  receipt.length) == ANC_PV_CRYPTO_OK;
+  NSData *result =
+      okay ? [NSData dataWithBytes:digest length:sizeof digest] : nil;
+  anc_pv_zeroize(digest, sizeof digest);
+  return result;
+}
+
+static AncPrivateVaultGenesisPreparationStoreStatus
+AncGenesisReadCleanupReceipt(AncPrivateVaultKeychain *keychain,
+                             NSString *vaultId, NSData **receipt) {
+  if (receipt != NULL)
+    *receipt = nil;
+  NSData *stored = nil;
+  AncPrivateVaultKeychainStatus status = [keychain
+      copyDataForService:AncPrivateVaultGenesisCleanupReceiptService
+                 vaultId:vaultId
+                recordId:kAncGenesisCleanupReceiptRecordId
+                    data:&stored];
+  if (status != AncPrivateVaultKeychainStatusOK)
+    return AncGenesisKeychainStatus(status);
+  AncPrivateVaultGenesisHostedAppendReceipt *decoded =
+      AncPrivateVaultGenesisHostedAppendReceiptDecode(stored);
+  if (decoded == nil || ![decoded.vaultId isEqualToString:vaultId])
+    return AncPrivateVaultGenesisPreparationStoreStatusCorrupt;
+  if (receipt != NULL)
+    *receipt = stored;
+  return AncPrivateVaultGenesisPreparationStoreStatusOK;
+}
+
+static AncPrivateVaultGenesisPreparationStoreStatus
+AncGenesisPersistCleanupReceipt(AncPrivateVaultKeychain *keychain,
+                                NSString *vaultId, NSData *receipt) {
+  NSData *stored = nil;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      AncGenesisReadCleanupReceipt(keychain, vaultId, &stored);
+  if (read == AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return [stored isEqualToData:receipt]
+               ? AncPrivateVaultGenesisPreparationStoreStatusOK
+               : AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusNotFound)
+    return read;
+  AncPrivateVaultKeychainStatus write =
+      [keychain addData:receipt
+             forService:AncPrivateVaultGenesisCleanupReceiptService
+                vaultId:vaultId
+               recordId:kAncGenesisCleanupReceiptRecordId];
+  if (write != AncPrivateVaultKeychainStatusOK)
+    return AncGenesisKeychainStatus(write);
+  stored = nil;
+  AncPrivateVaultGenesisPreparationStoreStatus verified =
+      AncGenesisReadCleanupReceipt(keychain, vaultId, &stored);
+  if (verified != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return verified;
+  return [stored isEqualToData:receipt]
+             ? AncPrivateVaultGenesisPreparationStoreStatusOK
+             : AncPrivateVaultGenesisPreparationStoreStatusConflict;
+}
+
 static AncPrivateVaultGenesisPreparationStoreStatus AncGenesisDecode(
     AncPrivateVaultGenesisGuardedRecord *record,
     AncPrivateVaultGenesisPreparationSnapshot *snapshot,
@@ -600,14 +673,10 @@ static BOOL AncGenesisDataEqualsBytes(NSData *value, const uint8_t *bytes,
 @implementation AncGenesisConfirmedEvidence
 @end
 
-static BOOL AncGenesisConfirmedSnapshotMatches(
+static BOOL AncGenesisEvidenceBindingsMatch(
     const AncPrivateVaultGenesisPreparationSnapshot *snapshot,
     AncGenesisConfirmedEvidence *evidence, uint64_t confirmedAtMs) {
   return snapshot != NULL && evidence != nil &&
-         snapshot->phase == ANC_PV_GENESIS_PREPARATION_PHASE_CONFIRMED &&
-         snapshot->flags ==
-             (ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND |
-              ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE) &&
          snapshot->confirmed_at_ms == confirmedAtMs &&
          snapshot->recovery_wrap_created_at_seconds == evidence.wrapCreatedAt &&
          snapshot->endpoint_created_at_seconds == evidence.endpointCreatedAt &&
@@ -632,29 +701,39 @@ static BOOL AncGenesisConfirmedSnapshotMatches(
          snapshot->authorization_length == evidence.authorization.length;
 }
 
-static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
-    AncPrivateVaultPreparedGenesisArtifacts *artifacts, uint64_t confirmedAtMs,
-    AncPrivateVaultControlLog *controlLog,
+static BOOL AncGenesisConfirmedSnapshotMatches(
+    const AncPrivateVaultGenesisPreparationSnapshot *snapshot,
+    AncGenesisConfirmedEvidence *evidence, uint64_t confirmedAtMs) {
+  return snapshot != NULL &&
+         snapshot->phase == ANC_PV_GENESIS_PREPARATION_PHASE_CONFIRMED &&
+         snapshot->flags ==
+             (ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND |
+              ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE) &&
+         AncGenesisEvidenceBindingsMatch(snapshot, evidence, confirmedAtMs);
+}
+
+static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidenceBytes(
+    NSData *wrapBytes, NSData *confirmationBytes, NSData *bootstrapBytes,
+    NSData *authorizationBytes, NSData *declaredBootstrapDigest,
+    uint64_t confirmedAtMs, AncPrivateVaultControlLog *controlLog,
     const AncPrivateVaultGenesisPreparationSnapshot *current) {
-  if (artifacts == nil || controlLog == nil || current == NULL ||
-      object_getClass(artifacts) != AncPrivateVaultPreparedGenesisArtifacts.class ||
+  if (controlLog == nil || current == NULL ||
       object_getClass(controlLog) != AncPrivateVaultControlLog.class ||
       confirmedAtMs == 0 || confirmedAtMs % 1000 != 0)
     return nil;
-  NSData *wrapBytes = AncGenesisOwningData(
-      artifacts.recoveryWrap,
+  wrapBytes = AncGenesisOwningData(
+      wrapBytes,
       ANC_PV_GENESIS_PREPARATION_ARTIFACT_WRAP_MAX_BYTES);
-  NSData *confirmationBytes = AncGenesisOwningData(
-      artifacts.recoveryConfirmation,
+  confirmationBytes = AncGenesisOwningData(
+      confirmationBytes,
       ANC_PV_GENESIS_PREPARATION_ARTIFACT_CONFIRMATION_MAX_BYTES);
-  NSData *bootstrapBytes = AncGenesisOwningData(
-      artifacts.bootstrapTranscript,
+  bootstrapBytes = AncGenesisOwningData(
+      bootstrapBytes,
       ANC_PV_GENESIS_PREPARATION_ARTIFACT_BOOTSTRAP_MAX_BYTES);
-  NSData *authorizationBytes = AncGenesisOwningData(
-      artifacts.authorization,
+  authorizationBytes = AncGenesisOwningData(
+      authorizationBytes,
       ANC_PV_GENESIS_PREPARATION_ARTIFACT_AUTHORIZATION_MAX_BYTES);
-  NSData *declaredBootstrapDigest =
-      AncGenesisOwningData(artifacts.bootstrapTranscriptDigest, 32);
+  declaredBootstrapDigest = AncGenesisOwningData(declaredBootstrapDigest, 32);
   NSData *vaultId = AncGenesisPublicBytes(current->vault_id, 16);
   if (wrapBytes == nil || confirmationBytes == nil || bootstrapBytes == nil ||
       authorizationBytes == nil || declaredBootstrapDigest.length != 32 ||
@@ -823,6 +902,99 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
   result.logCreatedAt = logCreatedAt;
   result.authorizationCreatedAt = authorizationCreatedAt;
   return result;
+}
+
+static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
+    AncPrivateVaultPreparedGenesisArtifacts *artifacts, uint64_t confirmedAtMs,
+    AncPrivateVaultControlLog *controlLog,
+    const AncPrivateVaultGenesisPreparationSnapshot *current) {
+  if (artifacts == nil ||
+      object_getClass(artifacts) != AncPrivateVaultPreparedGenesisArtifacts.class)
+    return nil;
+  return AncGenesisVerifyConfirmedEvidenceBytes(
+      artifacts.recoveryWrap, artifacts.recoveryConfirmation,
+      artifacts.bootstrapTranscript, artifacts.authorization,
+      artifacts.bootstrapTranscriptDigest, confirmedAtMs, controlLog, current);
+}
+
+static BOOL AncGenesisCustodyIdentifierEquals(const uint8_t *bytes,
+                                              size_t length,
+                                              NSString *expected) {
+  NSData *expectedBytes =
+      [expected dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
+  return bytes != NULL && expectedBytes.length == length && length != 0 &&
+         anc_pv_memcmp(bytes, expectedBytes.bytes, length) == ANC_PV_CRYPTO_OK;
+}
+
+static BOOL AncGenesisCommittedOfficialTupleExact(
+    const AncPrivateVaultGenesisPreparationSnapshot *preparation,
+    AncPrivateVaultGenesisHostedAppendReceipt *receipt,
+    AncPrivateVaultAuthorityCheckpoint *authority,
+    const AncPrivateVaultCustodySnapshot *custody) {
+  if (preparation == NULL || receipt == nil || authority == nil ||
+      authority.snapshot == nil || custody == NULL)
+    return NO;
+  NSString *vaultHex = AncGenesisHex(preparation->vault_id, 16);
+  NSString *endpointHex = AncGenesisHex(preparation->endpoint_id, 16);
+  AncPrivateVaultAuthoritySnapshot *snapshot = authority.snapshot;
+  return preparation->phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
+         vaultHex.length == 32 && endpointHex.length == 32 &&
+         [receipt.vaultId isEqualToString:vaultHex] && receipt.sequence == 0 &&
+         [authority.vaultId isEqualToString:vaultHex] &&
+         [snapshot.vaultId isEqualToString:vaultHex] &&
+         authority.custodyGeneration == 2 &&
+         snapshot.targetCustodyGeneration == 2 &&
+         snapshot.previousCustodyGeneration == 1 &&
+         snapshot.previousSequence == nil && snapshot.previousHead == nil &&
+         snapshot.sequence == 0 && snapshot.epoch == 1 &&
+         snapshot.recoveryGeneration == 1 &&
+         snapshot.activeMembers.count == 1 &&
+         [snapshot.activeMembers.firstObject.endpointId
+             isEqualToString:endpointHex] &&
+         [snapshot.activeMembers.firstObject.role isEqualToString:@"endpoint"] &&
+         !snapshot.activeMembers.firstObject.unattended &&
+         snapshot.removedEndpointIds.count == 0 &&
+         snapshot.verifiedAtMs == preparation->terminal_at_ms &&
+         AncGenesisDataEqualsBytes(authority.frameDigest,
+                                   preparation->official_authority_g2_frame_digest,
+                                   32) &&
+         AncGenesisDataEqualsBytes(snapshot.headHash,
+                                   preparation->genesis_control_head_hash, 32) &&
+         AncGenesisDataEqualsBytes(snapshot.membershipHash,
+                                   preparation->membership_hash, 32) &&
+         AncGenesisDataEqualsBytes(snapshot.recoveryWrapHash,
+                                   preparation->recovery_wrap_hash, 32) &&
+         [receipt.headHash isEqualToData:snapshot.headHash] &&
+         [receipt.recoveryWrapHash isEqualToData:snapshot.recoveryWrapHash] &&
+         receipt.recoveryWrapByteLength == preparation->recovery_wrap_length &&
+         custody->record_version == ANC_PV_CUSTODY_VERSION &&
+         custody->authority_anchor_present == 1 &&
+         custody->expected_edge_present == 0 &&
+         custody->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+         custody->role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
+         custody->pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+         custody->rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
+         custody->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+         custody->custody_generation == 2 && custody->active_epoch == 1 &&
+         custody->pending_epoch == 0 && custody->recovery_generation == 1 &&
+         custody->anchored_sequence == 0 &&
+         custody->freshness_ms == preparation->terminal_at_ms &&
+         AncGenesisCustodyIdentifierEquals(custody->vault_id,
+                                           custody->vault_id_length, vaultHex) &&
+         AncGenesisCustodyIdentifierEquals(
+             custody->endpoint_id, custody->endpoint_id_length, endpointHex) &&
+         anc_pv_memcmp(custody->signing_public_key,
+                       preparation->endpoint_signing_public_key, 32) ==
+             ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(custody->box_public_key,
+                       preparation->endpoint_agreement_public_key, 32) ==
+             ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(custody->snapshot_digest, authority.frameDigest.bytes,
+                       32) == ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(custody->anchored_head, snapshot.headHash.bytes, 32) ==
+             ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(custody->membership_digest,
+                       snapshot.membershipHash.bytes, 32) == ANC_PV_CRYPTO_OK;
 }
 
 @implementation AncPrivateVaultGenesisPreparationStore
@@ -2662,13 +2834,8 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
     return status;
   const AncPrivateVaultGenesisPreparationPhase phase = observed.phase;
   if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED) {
-    const BOOL cleaned =
-        (observed.flags &
-         ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) != 0;
     anc_pv_genesis_preparation_snapshot_zero(&observed);
-    if (!cleaned)
-      return AncPrivateVaultGenesisPreparationStoreStatusConflict;
-    return [self reconcileLookupId:lookupId length:length];
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
   }
   if (phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED &&
       phase != ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED) {
@@ -2756,6 +2923,325 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
 }
 
 - (AncPrivateVaultGenesisPreparationStoreStatus)
+    cleanCommittedLookupId:(const uint8_t *)lookupId
+                    length:(size_t)length
+                   receipt:(NSData *)receiptBytes
+                controlLog:(AncPrivateVaultControlLog *)controlLog
+            authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+         custodyRepository:
+             (AncPrivateVaultCustodyRepository *)custodyRepository {
+  NSData *canonicalReceipt = [receiptBytes copy];
+  AncPrivateVaultGenesisHostedAppendReceipt *receipt =
+      AncPrivateVaultGenesisHostedAppendReceiptDecode(canonicalReceipt);
+  if (lookupId == NULL ||
+      length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES ||
+      canonicalReceipt == nil || receipt == nil ||
+      object_getClass(controlLog) != AncPrivateVaultControlLog.class ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+
+  AncPrivateVaultGenesisPreparationSnapshot observed;
+  AncPrivateVaultGenesisPreparationStoreStatus status =
+      [self readLookupId:lookupId
+                  length:length
+                snapshot:&observed
+             secretHandle:nil];
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return status;
+  if (observed.phase != ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+  NSString *vaultHex = AncGenesisHex(observed.vault_id, 16);
+  NSData *receiptDigest = AncGenesisCleanupReceiptDigest(canonicalReceipt);
+  if (![receipt.vaultId isEqualToString:vaultHex] || receiptDigest.length != 32) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+
+  AncPrivateVaultAuthorityCheckpoint *authority = nil;
+  NSError *authorityError = nil;
+  AncPrivateVaultAuthorityStoreStatus authorityStatus =
+      [authorityStore loadVaultId:vaultHex
+                       checkpoint:&authority
+                            error:&authorityError];
+  AncPrivateVaultCustodySnapshot custody = {0};
+  AncPrivateVaultCustodyHandle *custodyHandle = nil;
+  AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+      [custodyRepository readVaultId:vaultHex
+                            snapshot:&custody
+                              handle:&custodyHandle];
+  BOOL tuple = authorityStatus == AncPrivateVaultAuthorityStoreStatusOK &&
+               authorityError == nil && custodyStatus ==
+                                            AncPrivateVaultCustodyRepositoryStatusOK &&
+               custodyHandle != nil &&
+               AncGenesisCommittedOfficialTupleExact(&observed, receipt,
+                                                      authority, &custody);
+
+  __block NSData *wrap = nil, *confirmation = nil, *bootstrap = nil,
+                         *authorization = nil;
+  AncPrivateVaultGenesisPreparationArtifactStatus artifactStatus =
+      tuple ? [self.artifactStore
+                    readLiveLookupId:observed.preparation_lookup_id
+                             vaultId:observed.vault_id
+                          ceremonyId:observed.ceremony_id
+                          generation:2
+                      expectedDigest:observed.artifact_spool_digest
+                           consumer:^BOOL(
+                               const uint8_t *wrapBytes, size_t wrapLength,
+                               const uint8_t *confirmationBytes,
+                               size_t confirmationLength,
+                               const uint8_t *bootstrapBytes,
+                               size_t bootstrapLength,
+                               const uint8_t *authorizationBytes,
+                               size_t authorizationLength) {
+        wrap = [NSData dataWithBytes:wrapBytes length:wrapLength];
+        confirmation = [NSData dataWithBytes:confirmationBytes
+                                      length:confirmationLength];
+        bootstrap = [NSData dataWithBytes:bootstrapBytes
+                                   length:bootstrapLength];
+        authorization = [NSData dataWithBytes:authorizationBytes
+                                       length:authorizationLength];
+        return wrap.length == wrapLength &&
+               confirmation.length == confirmationLength &&
+               bootstrap.length == bootstrapLength &&
+               authorization.length == authorizationLength;
+      }]
+            : AncPrivateVaultGenesisPreparationArtifactStatusBindingMismatch;
+  BOOL artifactExact = NO;
+  if (artifactStatus == AncPrivateVaultGenesisPreparationArtifactStatusOK) {
+    NSData *bootstrapDigest =
+        AncGenesisPublicBytes(observed.bootstrap_transcript_digest, 32);
+    AncGenesisConfirmedEvidence *evidence =
+        AncGenesisVerifyConfirmedEvidenceBytes(
+            wrap, confirmation, bootstrap, authorization, bootstrapDigest,
+            observed.confirmed_at_ms, controlLog, &observed);
+    AncPrivateVaultGenesisAuthorizationStatus commitStatus;
+    NSData *vaultId = AncGenesisPublicBytes(observed.vault_id, 16);
+    NSData *signedCommit =
+        AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+            authorization, vaultId, &commitStatus);
+    NSString *entryId =
+        AncPrivateVaultControlLogSignedEntryEnvelopeId(signedCommit);
+    artifactExact =
+        evidence != nil &&
+        AncGenesisEvidenceBindingsMatch(&observed, evidence,
+                                        observed.confirmed_at_ms) &&
+        [entryId isEqualToString:receipt.entryId] &&
+        [AncPrivateVaultControlLogSignedEntryDomainHash(signedCommit)
+            isEqualToData:receipt.headHash] &&
+        [evidence.recoveryWrapHash isEqualToData:receipt.recoveryWrapHash] &&
+        evidence.recoveryWrap.length == receipt.recoveryWrapByteLength;
+  } else if (artifactStatus ==
+             AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+    NSData *storedReceipt = nil;
+    status = AncGenesisReadCleanupReceipt(self.keychain, vaultHex,
+                                          &storedReceipt);
+    artifactExact =
+        status == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        [storedReceipt isEqualToData:canonicalReceipt];
+    if (status == AncPrivateVaultGenesisPreparationStoreStatusNotFound)
+      status = AncPrivateVaultGenesisPreparationStoreStatusRollbackDetected;
+  }
+  AncPrivateVaultCustodyRepositoryStatus custodyClosed =
+      custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusInaccessible
+                           : [custodyHandle close];
+  anc_pv_custody_snapshot_zero(&custody);
+  if (!tuple || !artifactExact ||
+      custodyClosed != AncPrivateVaultCustodyRepositoryStatusOK) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    if (custodyClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return AncPrivateVaultGenesisPreparationStoreStatusInaccessible;
+    if (artifactStatus ==
+            AncPrivateVaultGenesisPreparationArtifactStatusNotFound &&
+        status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+      return status;
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+
+  status = AncGenesisPersistCleanupReceipt(self.keychain, vaultHex,
+                                           canonicalReceipt);
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return status;
+  }
+  if (AncGenesisFault(
+          AncPrivateVaultGenesisPreparationStoreFaultAfterCleanupReceiptPersist)) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  }
+  const BOOL receiptAlreadyBound =
+      (observed.flags &
+       ANC_PV_GENESIS_PREPARATION_FLAG_HOSTED_RECEIPT_BOUND) != 0;
+  if (receiptAlreadyBound &&
+      !AncGenesisDataEqualsBytes(
+          receiptDigest, observed.hosted_recovery_receipt_digest, 32)) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+  if (!receiptAlreadyBound) {
+    AncPrivateVaultGenesisPreparationSnapshot expected = observed;
+    status = [self
+        guardedCASTerminalTransitionLookupId:lookupId
+                                      length:length
+                                   construct:^AncPrivateVaultGenesisPreparationStoreStatus(
+                                       const AncPrivateVaultGenesisPreparationSnapshot
+                                           *current,
+                                       AncPrivateVaultGenesisPreparationSnapshot
+                                           *next,
+                                       BOOL *shouldCommit,
+                                       BOOL *terminalizeSecrets) {
+      if (!AncGenesisSnapshotPublicEqual(current, &expected) ||
+          current->phase != ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED)
+        return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      *next = *current;
+      next->flags |= ANC_PV_GENESIS_PREPARATION_FLAG_HOSTED_RECEIPT_BOUND;
+      memcpy(next->hosted_recovery_receipt_digest, receiptDigest.bytes, 32);
+      next->generation++;
+      *terminalizeSecrets = YES;
+      *shouldCommit = YES;
+      return AncPrivateVaultGenesisPreparationStoreStatusOK;
+    }];
+    anc_pv_genesis_preparation_snapshot_zero(&expected);
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return status;
+    }
+    if (AncGenesisFault(
+            AncPrivateVaultGenesisPreparationStoreFaultAfterHostedReceiptBind)) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncPrivateVaultGenesisPreparationStoreStatusFailed;
+    }
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    status = [self readLookupId:lookupId
+                         length:length
+                       snapshot:&observed
+                    secretHandle:nil];
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+      return status;
+  }
+
+  if ((observed.flags & ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) ==
+      0) {
+    AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+        [self.artifactStore
+            deleteLiveLookupId:observed.preparation_lookup_id
+                expectedDigest:observed.artifact_spool_digest];
+    if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+        deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncGenesisArtifactStatus(deleted);
+    }
+    if (AncGenesisFault(
+            AncPrivateVaultGenesisPreparationStoreFaultAfterHostedArtifactCleanup)) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncPrivateVaultGenesisPreparationStoreStatusFailed;
+    }
+    AncPrivateVaultGenesisPreparationSnapshot expected = observed;
+    status = [self
+        guardedCASTerminalTransitionLookupId:lookupId
+                                      length:length
+                                   construct:^AncPrivateVaultGenesisPreparationStoreStatus(
+                                       const AncPrivateVaultGenesisPreparationSnapshot
+                                           *current,
+                                       AncPrivateVaultGenesisPreparationSnapshot
+                                           *next,
+                                       BOOL *shouldCommit,
+                                       BOOL *terminalizeSecrets) {
+      if (!AncGenesisSnapshotPublicEqual(current, &expected) ||
+          current->phase != ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED ||
+          (current->flags &
+           ANC_PV_GENESIS_PREPARATION_FLAG_HOSTED_RECEIPT_BOUND) == 0)
+        return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      *next = *current;
+      next->flags &=
+          (uint8_t)~ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE;
+      next->flags |= ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED;
+      next->generation++;
+      *terminalizeSecrets = YES;
+      *shouldCommit = YES;
+      return AncPrivateVaultGenesisPreparationStoreStatusOK;
+    }];
+    anc_pv_genesis_preparation_snapshot_zero(&expected);
+  }
+  if (status == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+      AncGenesisFault(
+          AncPrivateVaultGenesisPreparationStoreFaultAfterHostedCleanedCAS)) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  }
+  anc_pv_genesis_preparation_snapshot_zero(&observed);
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return status;
+  AncPrivateVaultGenesisPreparationSnapshot cleanedSnapshot;
+  status = [self readLookupId:lookupId
+                       length:length
+                     snapshot:&cleanedSnapshot
+                  secretHandle:nil];
+  BOOL exactCleaned =
+      status == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+      cleanedSnapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
+      (cleanedSnapshot.flags &
+       ANC_PV_GENESIS_PREPARATION_FLAG_HOSTED_RECEIPT_BOUND) != 0 &&
+      (cleanedSnapshot.flags &
+       ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) != 0 &&
+      (cleanedSnapshot.flags &
+       ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE) == 0 &&
+      AncGenesisDataEqualsBytes(
+          receiptDigest, cleanedSnapshot.hosted_recovery_receipt_digest, 32);
+  anc_pv_genesis_preparation_snapshot_zero(&cleanedSnapshot);
+  if (!exactCleaned)
+    return status == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisPreparationStoreStatusConflict
+               : status;
+  AncPrivateVaultGenesisPreparationArtifactStatus markerDeleted =
+      [self.artifactStore deletePreparationIndexLookupId:lookupId];
+  return markerDeleted == AncPrivateVaultGenesisPreparationArtifactStatusOK ||
+                 markerDeleted ==
+                     AncPrivateVaultGenesisPreparationArtifactStatusNotFound
+             ? AncPrivateVaultGenesisPreparationStoreStatusOK
+             : AncGenesisArtifactStatus(markerDeleted);
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    recoverCommittedCleanupLookupId:(const uint8_t *)lookupId
+                              length:(size_t)length
+                          controlLog:(AncPrivateVaultControlLog *)controlLog
+                      authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+                   custodyRepository:
+                       (AncPrivateVaultCustodyRepository *)custodyRepository {
+  if (lookupId == NULL ||
+      length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self readLookupId:lookupId
+                  length:length
+                snapshot:&snapshot
+             secretHandle:nil];
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return read;
+  NSString *vaultHex = AncGenesisHex(snapshot.vault_id, 16);
+  BOOL committed =
+      snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  if (!committed || vaultHex.length != 32)
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  NSData *receipt = nil;
+  read = AncGenesisReadCleanupReceipt(self.keychain, vaultHex, &receipt);
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return read;
+  return [self cleanCommittedLookupId:lookupId
+                               length:length
+                              receipt:receipt
+                           controlLog:controlLog
+                       authorityStore:authorityStore
+                    custodyRepository:custodyRepository];
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
     reconcileLookupId:(const uint8_t *)lookupId length:(size_t)length {
   if (lookupId == NULL ||
       length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES)
@@ -2772,8 +3258,7 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
                              secretHandle:&secrets];
     retireMarker =
         status == AncPrivateVaultGenesisPreparationStoreStatusOK &&
-        (snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED ||
-         snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED ||
+        (snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED ||
          snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED) &&
         (snapshot.flags & ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) !=
             0;

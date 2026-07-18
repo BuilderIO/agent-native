@@ -13,6 +13,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
+  "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
   "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m"
@@ -484,6 +485,7 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
@@ -619,6 +621,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_AUTHORIZATION_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
@@ -694,6 +697,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
       "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m" \
@@ -843,6 +847,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \

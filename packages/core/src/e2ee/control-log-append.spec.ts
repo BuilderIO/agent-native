@@ -9,10 +9,15 @@ import {
   ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
   ANC_V1_CONTROL_LOG_APPEND_RECOVERY_WRAP_MAX_BYTES,
   ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
+  decodeAncV1ControlLogGenesisAppendReceipt,
+  decodeAncV1ControlLogGenesisAppendRequest,
   decodeAncV1ControlLogRotationAppendReceipt,
   decodeAncV1ControlLogRotationAppendRequest,
+  encodeAncV1ControlLogGenesisAppendReceipt,
+  encodeAncV1ControlLogGenesisAppendRequest,
   encodeAncV1ControlLogRotationAppendReceipt,
   encodeAncV1ControlLogRotationAppendRequest,
+  hashAncV1ControlLogGenesisAppendReceipt,
 } from "./control-log-append.js";
 
 const request = {
@@ -33,6 +38,17 @@ const receipt = {
   headHash: "ab".repeat(32),
   recoveryWrapHash: "cd".repeat(32),
   recoveryWrapByteLength: 4,
+};
+
+const genesisRequest = {
+  ...request,
+  type: "control-log-genesis-append-request" as const,
+};
+
+const genesisReceipt = {
+  ...receipt,
+  type: "control-log-genesis-append-receipt" as const,
+  sequence: 0 as const,
 };
 
 function map(encoded: Uint8Array): Map<number, AncV1CanonicalValue> {
@@ -72,6 +88,49 @@ describe("anc/v1 control-log rotation append codec", () => {
         decodeAncV1ControlLogRotationAppendReceipt(encoded),
       ),
     ).toEqual(encoded);
+  });
+
+  it("round-trips distinct sequence-zero genesis append envelopes", async () => {
+    const encodedRequest =
+      encodeAncV1ControlLogGenesisAppendRequest(genesisRequest);
+    expect(decodeAncV1ControlLogGenesisAppendRequest(encodedRequest)).toEqual(
+      genesisRequest,
+    );
+    const encodedReceipt =
+      encodeAncV1ControlLogGenesisAppendReceipt(genesisReceipt);
+    expect(encodedReceipt.byteLength).toBeLessThanOrEqual(
+      ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
+    );
+    expect(decodeAncV1ControlLogGenesisAppendReceipt(encodedReceipt)).toEqual(
+      genesisReceipt,
+    );
+    expect(
+      Buffer.from(
+        await hashAncV1ControlLogGenesisAppendReceipt(encodedReceipt),
+      ).toString("hex"),
+    ).toBe("8b12f022c253de5b52cf7866e2b328a74e61fa8f83914b3e51c7dde8986dd547");
+  });
+
+  it("rejects genesis and rotation type confusion and nonzero genesis sequence", () => {
+    expect(() =>
+      decodeAncV1ControlLogRotationAppendRequest(
+        encodeAncV1ControlLogGenesisAppendRequest(genesisRequest),
+      ),
+    ).toThrow(/rotation append request/);
+    expect(() =>
+      decodeAncV1ControlLogGenesisAppendReceipt(
+        encodeAncV1ControlLogRotationAppendReceipt({
+          ...receipt,
+          sequence: 0,
+        }),
+      ),
+    ).toThrow(/genesis append receipt/);
+    expect(() =>
+      encodeAncV1ControlLogGenesisAppendReceipt({
+        ...genesisReceipt,
+        sequence: 1,
+      } as never),
+    ).toThrow(/frozen anc\/v1 schema/);
   });
 
   it("rejects unknown and missing fields in both directions", () => {

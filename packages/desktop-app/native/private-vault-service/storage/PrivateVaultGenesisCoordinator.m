@@ -1479,18 +1479,41 @@ static BOOL CopyPreparationSecrets(
     memcpy(vaultId, snapshot.vault_id, sizeof vaultId);
     AncPrivateVaultGenesisPreparationStoreStatus closed = [secrets close];
     anc_pv_genesis_preparation_snapshot_zero(&snapshot);
-    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
     if (closed != AncPrivateVaultGenesisPreparationStoreStatusOK) {
       anc_pv_zeroize(vaultId, sizeof vaultId);
+      anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
       return PreparationStatus(closed);
     }
     AncPrivateVaultGenesisCoordinatorResult *result = nil;
     AncPrivateVaultGenesisCoordinatorStatus resumed =
         [self resumeVaultId:vaultId result:&result];
     anc_pv_zeroize(vaultId, sizeof vaultId);
-    return resumed == AncPrivateVaultGenesisCoordinatorStatusOK && result != nil
-               ? resumed
-               : AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+    if (resumed != AncPrivateVaultGenesisCoordinatorStatusOK || result == nil) {
+      anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+      return AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+    }
+    NSRecursiveLock *cleanupLock =
+        AncPrivateVaultGenesisLockForVaultId(result.vaultId);
+    if (cleanupLock == nil) {
+      anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+      return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+    }
+    [cleanupLock lock];
+    AncPrivateVaultGenesisPreparationStoreStatus recovered;
+    @try {
+      recovered = [self.preparationStore
+          recoverCommittedCleanupLookupId:lookupBytes
+                                       length:sizeof lookupBytes
+                                   controlLog:self.controlLog
+                               authorityStore:self.authorityStore
+                            custodyRepository:self.custodyRepository];
+    } @catch (__unused NSException *exception) {
+      recovered = AncPrivateVaultGenesisPreparationStoreStatusFailed;
+    } @finally {
+      [cleanupLock unlock];
+    }
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return PreparationStatus(recovered);
   }
   uint64_t now = 0;
   if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
@@ -1572,6 +1595,52 @@ static BOOL CopyPreparationSecrets(
                  now <= kMaximumSafeInteger
              ? AncPrivateVaultGenesisCoordinatorStatusOK
              : AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    finalizeHostedGenesisAppendLookupId:(NSData *)lookupId
+                                 receipt:(NSData *)receipt {
+  if (self.preparationStore == nil ||
+      ![lookupId isKindOfClass:NSData.class] || lookupId.length != 16 ||
+      ![receipt isKindOfClass:NSData.class] || receipt.length == 0 ||
+      receipt.length > 1024)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t lookupBytes[16] = {0};
+  [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readLookupId:lookupBytes
+                                  length:sizeof lookupBytes
+                                snapshot:&snapshot
+                             secretHandle:nil];
+  NSString *vaultId = read == AncPrivateVaultGenesisPreparationStoreStatusOK
+                          ? Hex(snapshot.vault_id)
+                          : nil;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultId);
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK || lock == nil) {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return read == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisCoordinatorStatusInvalid
+               : PreparationStatus(read);
+  }
+  [lock lock];
+  AncPrivateVaultGenesisPreparationStoreStatus cleaned;
+  @try {
+    cleaned = [self.preparationStore
+        cleanCommittedLookupId:lookupBytes
+                        length:sizeof lookupBytes
+                       receipt:receipt
+                    controlLog:self.controlLog
+                authorityStore:self.authorityStore
+             custodyRepository:self.custodyRepository];
+  } @catch (__unused NSException *exception) {
+    cleaned = AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  } @finally {
+    [lock unlock];
+  }
+  anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+  return PreparationStatus(cleaned);
 }
 
 - (AncPrivateVaultGenesisCoordinatorStatus)

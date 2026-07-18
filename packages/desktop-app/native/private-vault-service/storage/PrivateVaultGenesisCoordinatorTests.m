@@ -3,10 +3,12 @@
 #import <Security/Security.h>
 
 #import "PrivateVaultCrypto.h"
+#import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultGenesisArtifactStore.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisCoordinator.h"
 #import "PrivateVaultGenesisCoordinatorInternal.h"
+#import "PrivateVaultGenesisHostedAppend.h"
 #import "PrivateVaultGenesisLock.h"
 #import "PrivateVaultGenesisStartup.h"
 #import "PrivateVaultMnemonic.h"
@@ -189,6 +191,36 @@ static NSString *HexString(NSData *data) {
   for (NSUInteger i = 0; i < data.length; i++)
     [s appendFormat:@"%02x", p[i]];
   return s;
+}
+
+static NSData *GenesisHostedReceipt(
+    const AncPrivateVaultGenesisPreparationSnapshot *snapshot) {
+  NSData *vault = [NSData dataWithBytes:snapshot->vault_id length:16];
+  NSData *entry =
+      [NSData dataWithBytes:snapshot->log_entry_envelope_id length:16];
+  NSData *head =
+      [NSData dataWithBytes:snapshot->genesis_control_head_hash length:32];
+  NSData *wrapHash =
+      [NSData dataWithBytes:snapshot->recovery_wrap_hash length:32];
+  AncPrivateVaultCanonicalValue *root =
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue
+                 text:@"control-log-genesis-append-receipt"],
+        @4 : [AncPrivateVaultCanonicalValue text:HexString(vault)],
+        @5 : [AncPrivateVaultCanonicalValue text:HexString(entry)],
+        @6 : [AncPrivateVaultCanonicalValue integer:0],
+        @7 : [AncPrivateVaultCanonicalValue bytes:head],
+        @8 : [AncPrivateVaultCanonicalValue bytes:wrapHash],
+        @9 : [AncPrivateVaultCanonicalValue
+                 integer:(int64_t)snapshot->recovery_wrap_length],
+      }];
+  AncPrivateVaultCanonicalStatus status;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(root, &status);
+  return AncPrivateVaultGenesisHostedAppendReceiptDecode(encoded) != nil
+             ? encoded
+             : nil;
 }
 static void SetId(uint8_t out[160], size_t *length, NSString *value) {
   NSData *d = [value dataUsingEncoding:NSUTF8StringEncoding];
@@ -1867,11 +1899,16 @@ static int PreparationStartupSweepCases(void) {
     CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
   }
 
-  for (NSUInteger variant = 0; variant < 2; variant += 1) {
+  for (NSUInteger variant = 0; variant < 5; variant += 1) {
     @autoreleasepool {
-      NSString *root = NewRoot(variant == 0
-                                   ? @"genesis-preparation-startup-confirmed"
-                                   : @"genesis-preparation-startup-committing");
+      NSArray<NSString *> *labels = @[
+        @"genesis-preparation-concurrent-receipt-cleanup",
+        @"genesis-preparation-startup-receipt-persist",
+        @"genesis-preparation-startup-receipt-bind",
+        @"genesis-preparation-startup-artifact-cleanup",
+        @"genesis-preparation-startup-cleaned-marker",
+      ];
+      NSString *root = NewRoot(labels[variant]);
       CHECK(root != nil);
       gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
       FixedClock *clock = [FixedClock new];
@@ -1933,6 +1970,101 @@ static int PreparationStartupSweepCases(void) {
                 AncPrivateVaultGenesisPreparationStoreStatusOK &&
             completed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
             terminalSecrets == nil);
+      NSData *lookup = [NSData dataWithBytes:completed.preparation_lookup_id
+                                      length:16];
+      NSData *receipt = GenesisHostedReceipt(&completed);
+      CHECK(receipt != nil);
+      NSMutableData *wrongReceipt = [receipt mutableCopy];
+      ((uint8_t *)wrongReceipt.mutableBytes)[wrongReceipt.length - 1] ^= 1;
+      CHECK([coordinator finalizeHostedGenesisAppendLookupId:lookup
+                                                     receipt:wrongReceipt] !=
+            AncPrivateVaultGenesisCoordinatorStatusOK);
+      NSArray<NSNumber *> *cleanupFaults = @[
+        @(AncPrivateVaultGenesisPreparationStoreFaultAfterCleanupReceiptPersist),
+        @(AncPrivateVaultGenesisPreparationStoreFaultAfterHostedReceiptBind),
+        @(AncPrivateVaultGenesisPreparationStoreFaultAfterHostedArtifactCleanup),
+        @(AncPrivateVaultGenesisPreparationStoreFaultAfterHostedCleanedCAS),
+      ];
+      if (variant == 0) {
+        __block BOOL concurrentExact = YES;
+        NSObject *resultLock = [NSObject new];
+        dispatch_apply(16,
+                       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
+                       ^(size_t index) {
+          (void)index;
+          BOOL exact =
+              [coordinator finalizeHostedGenesisAppendLookupId:lookup
+                                                       receipt:receipt] ==
+              AncPrivateVaultGenesisCoordinatorStatusOK;
+          if (!exact)
+            @synchronized(resultLock) {
+              concurrentExact = NO;
+            }
+        });
+        CHECK(concurrentExact);
+      } else {
+        AncPrivateVaultGenesisPreparationStoreFaultPoint cleanupTarget =
+            cleanupFaults[variant - 1].integerValue;
+        AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(
+            ^BOOL(AncPrivateVaultGenesisPreparationStoreFaultPoint point) {
+              return point == cleanupTarget;
+            });
+        CHECK([coordinator finalizeHostedGenesisAppendLookupId:lookup
+                                                       receipt:receipt] ==
+              AncPrivateVaultGenesisCoordinatorStatusStorageFailed);
+        AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(nil);
+      }
+      if (variant == 4) {
+        NSString *vaultHex = HexString(
+            [NSData dataWithBytes:completed.vault_id length:16]);
+        CHECK([TestKeychain()
+                  deleteDataForService:
+                      AncPrivateVaultGenesisCleanupReceiptService
+                               vaultId:vaultHex
+                              recordId:@"genesis-cleanup-receipt"] ==
+              AncPrivateVaultKeychainStatusOK);
+        CHECK(AncPrivateVaultResumePendingGenesisState(
+                  artifacts, preparationStore, coordinator) ==
+              AncPrivateVaultGenesisStartupStatusResumeFailed);
+        NSArray<NSData *> *blockedMarkers = nil;
+        CHECK([preparationStore
+                  listPreparationLookupIds:&blockedMarkers] ==
+                  AncPrivateVaultGenesisPreparationStoreStatusOK &&
+              blockedMarkers.count == 1);
+        CHECK([TestKeychain()
+                  addData:receipt
+                  forService:AncPrivateVaultGenesisCleanupReceiptService
+                     vaultId:vaultHex
+                    recordId:@"genesis-cleanup-receipt"] ==
+              AncPrivateVaultKeychainStatusOK);
+      }
+      CHECK(AncPrivateVaultResumePendingGenesisState(
+                artifacts, preparationStore, coordinator) ==
+            AncPrivateVaultGenesisStartupStatusOK);
+      CHECK([coordinator finalizeHostedGenesisAppendLookupId:lookup
+                                                     receipt:receipt] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK);
+      anc_pv_genesis_preparation_snapshot_zero(&completed);
+      CHECK([preparationStore readHandle:handle
+                            handleLength:sizeof handle
+                               snapshot:&completed
+                            secretHandle:&terminalSecrets] ==
+                AncPrivateVaultGenesisPreparationStoreStatusOK &&
+            completed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
+            (completed.flags &
+             ANC_PV_GENESIS_PREPARATION_FLAG_HOSTED_RECEIPT_BOUND) != 0 &&
+            (completed.flags &
+             ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) != 0 &&
+            (completed.flags &
+             ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE) == 0 &&
+            terminalSecrets == nil);
+      NSArray<NSData *> *remaining = nil;
+      CHECK([preparationStore listPreparationLookupIds:&remaining] ==
+                AncPrivateVaultGenesisPreparationStoreStatusOK &&
+            remaining.count == 0);
+      CHECK(AncPrivateVaultResumePendingGenesisState(
+                artifacts, preparationStore, coordinator) ==
+            AncPrivateVaultGenesisStartupStatusOK);
       CHECK([entropy close] == AncPrivateVaultGuardedMemoryStatusOK &&
             [prepared.preparationHandle close] ==
                 AncPrivateVaultGuardedMemoryStatusOK &&
@@ -2148,6 +2280,63 @@ static int GenesisLockIdentityAndConcurrencyCases(void) {
   return 0;
 }
 
+static int GenesisHostedAppendCodecCases(void) {
+  NSMutableData *head = [NSMutableData dataWithLength:32];
+  NSMutableData *wrapHash = [NSMutableData dataWithLength:32];
+  memset(head.mutableBytes, 0xab, head.length);
+  memset(wrapHash.mutableBytes, 0xcd, wrapHash.length);
+  AncPrivateVaultCanonicalValue *root =
+      [AncPrivateVaultCanonicalValue map:@{
+        @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+        @2 : [AncPrivateVaultCanonicalValue integer:1],
+        @3 : [AncPrivateVaultCanonicalValue
+                 text:@"control-log-genesis-append-receipt"],
+        @4 : [AncPrivateVaultCanonicalValue text:@"vault:example-0001"],
+        @5 : [AncPrivateVaultCanonicalValue text:@"entry:example-0002"],
+        @6 : [AncPrivateVaultCanonicalValue integer:0],
+        @7 : [AncPrivateVaultCanonicalValue bytes:head],
+        @8 : [AncPrivateVaultCanonicalValue bytes:wrapHash],
+        @9 : [AncPrivateVaultCanonicalValue integer:4],
+      }];
+  AncPrivateVaultCanonicalStatus status;
+  NSData *encoded = AncPrivateVaultCanonicalEncode(root, &status);
+  AncPrivateVaultGenesisHostedAppendReceipt *receipt =
+      AncPrivateVaultGenesisHostedAppendReceiptDecode(encoded);
+  CHECK(receipt != nil && receipt.sequence == 0 &&
+        [receipt.vaultId isEqualToString:@"vault:example-0001"] &&
+        [receipt.entryId isEqualToString:@"entry:example-0002"] &&
+        receipt.recoveryWrapByteLength == 4);
+  static const char domain[] = "anc/v1/genesis-hosted-append-receipt";
+  uint8_t digest[32] = {0};
+  CHECK(anc_pv_blake2b_256_two_part(
+            digest, (const uint8_t *)domain, sizeof domain, encoded.bytes,
+            encoded.length) == ANC_PV_CRYPTO_OK);
+  CHECK([HexString([NSData dataWithBytes:digest length:sizeof digest])
+            isEqualToString:
+                @"8b12f022c253de5b52cf7866e2b328a74e61fa8f83914b3e51c7dde8986dd547"]);
+  anc_pv_zeroize(digest, sizeof digest);
+
+  NSMutableDictionary *wrongType = [root.mapValue mutableCopy];
+  wrongType[@3] = [AncPrivateVaultCanonicalValue
+      text:@"control-log-rotation-append-receipt"];
+  CHECK(AncPrivateVaultGenesisHostedAppendReceiptDecode(
+            AncPrivateVaultCanonicalEncode(
+                [AncPrivateVaultCanonicalValue map:wrongType], &status)) ==
+        nil);
+  NSMutableDictionary *wrongSequence = [root.mapValue mutableCopy];
+  wrongSequence[@6] = [AncPrivateVaultCanonicalValue integer:1];
+  CHECK(AncPrivateVaultGenesisHostedAppendReceiptDecode(
+            AncPrivateVaultCanonicalEncode(
+                [AncPrivateVaultCanonicalValue map:wrongSequence], &status)) ==
+        nil);
+  NSData *request = AncPrivateVaultGenesisHostedAppendRequestEncode(
+      [NSData dataWithBytes:"abc" length:3],
+      [NSData dataWithBytes:"defg" length:4]);
+  CHECK(request.length > 0 &&
+        request.length <= ANC_PV_GENESIS_HOSTED_APPEND_REQUEST_MAX_BYTES);
+  return 0;
+}
+
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
     if (argc == 4 && strcmp(argv[1], "--restart-child") == 0) {
@@ -2157,6 +2346,7 @@ int main(int argc, const char *argv[]) {
     CHECK(sodium_init() >= 0);
     CHECK(PreparationCases() == 0);
     CHECK(PreparationCancellationAndExpiryCases() == 0);
+    CHECK(GenesisHostedAppendCodecCases() == 0);
     CHECK(GenesisLockIdentityAndConcurrencyCases() == 0);
     NSDictionary *exact = Exact();
     CHECK(exact != nil);

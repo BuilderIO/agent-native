@@ -22,6 +22,8 @@ NSString *const AncPrivateVaultGenesisPreparationStageService =
     @"com.agentnative.desktop.private-vault.anc-v1.genesis-preparation-stage";
 NSString *const AncPrivateVaultRotationCleanupReceiptService =
     @"com.agentnative.desktop.private-vault.anc-v1.rotation-cleanup-receipt";
+NSString *const AncPrivateVaultGenesisCleanupReceiptService =
+    @"com.agentnative.desktop.private-vault.anc-v1.genesis-cleanup-receipt";
 NSString *const AncPrivateVaultTrustedTimeService =
     @"com.agentnative.desktop.private-vault.anc-v1.trusted-time";
 NSString *const AncPrivateVaultTrustedTimeHighWaterService =
@@ -273,6 +275,7 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
       ![service
           isEqualToString:AncPrivateVaultGenesisPreparationStageService] &&
       ![service isEqualToString:AncPrivateVaultRotationCleanupReceiptService] &&
+      ![service isEqualToString:AncPrivateVaultGenesisCleanupReceiptService] &&
       ![service isEqualToString:AncPrivateVaultTrustedTimeService] &&
       ![service
           isEqualToString:AncPrivateVaultTrustedTimeHighWaterService]) {
