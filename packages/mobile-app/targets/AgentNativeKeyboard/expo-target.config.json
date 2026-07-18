@@ -1,0 +1,11 @@
+{
+  "type": "keyboard",
+  "name": "AgentNativeKeyboard",
+  "displayName": "Agent Native Dictation",
+  "bundleIdentifier": ".keyboard",
+  "deploymentTarget": "17.0",
+  "frameworks": ["UIKit"],
+  "entitlements": {
+    "com.apple.security.application-groups": ["group.com.agentnative.mobile"]
+  }
+}

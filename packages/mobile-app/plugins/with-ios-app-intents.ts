@@ -138,7 +138,7 @@ const withIosAppIntents: ConfigPlugin = (config) =>
     await fileSystem.writeFile(sourcePath, SWIFT_SOURCE);
 
     xcodeConfig.modResults = IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
-      filepath: SWIFT_FILENAME,
+      filepath: `${projectName}/${SWIFT_FILENAME}`,
       groupName: projectName,
       project: xcodeConfig.modResults,
       targetUuid: appTarget.uuid,

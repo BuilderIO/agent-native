@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import UpcomingMeetingCard from "@/components/UpcomingMeetingCard";
 import { type CaptureJob, listCaptureJobs } from "@/lib/capture-queue";
 import {
   hasClipsSessionToken,
@@ -74,6 +75,11 @@ function jobStatus(job: CaptureJob): string {
   }
   if (job.state === "processing") return "Processing in Clips";
   if (job.state === "completed") return "Ready in Clips";
+  if (job.state === "exhausted") {
+    return job.resume.lastError
+      ? `Automatic retries stopped · ${job.resume.lastError}`
+      : "Automatic retries stopped";
+  }
   return job.resume.lastError || "Needs attention";
 }
 
@@ -141,6 +147,13 @@ export default function HomeScreen() {
     );
   }, [jobs]);
 
+  const prepareUpcomingMeeting = useCallback(() => {
+    void setMobileCaptureStateBestEffort({
+      view: "meeting",
+      phase: "ready",
+    });
+  }, []);
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
@@ -183,6 +196,8 @@ export default function HomeScreen() {
             or steer an agent running on your computer.
           </Text>
         </View>
+
+        <UpcomingMeetingCard onPrepare={prepareUpcomingMeeting} />
 
         <Text style={styles.sectionLabel}>QUICK CAPTURE</Text>
         <View style={styles.quickGrid}>
@@ -266,7 +281,9 @@ export default function HomeScreen() {
           <View style={styles.jobList}>
             {visibleJobs.map((job) => {
               const canRetry =
-                job.state === "captured" || job.state === "failed";
+                job.state === "captured" ||
+                job.state === "failed" ||
+                job.state === "exhausted";
               return (
                 <View key={job.id} style={styles.jobRow}>
                   <View
@@ -285,7 +302,8 @@ export default function HomeScreen() {
                       numberOfLines={2}
                       style={[
                         styles.jobStatus,
-                        job.state === "failed" && styles.jobStatusError,
+                        (job.state === "failed" || job.state === "exhausted") &&
+                          styles.jobStatusError,
                       ]}
                     >
                       {jobStatus(job)}

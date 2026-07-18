@@ -6,7 +6,7 @@ import {
   IconShare,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -32,6 +32,10 @@ import {
 } from "@/lib/capture-queue";
 import { syncCaptureJob } from "@/lib/clips-api";
 import { getClipsSession } from "@/lib/clips-session";
+import {
+  getPendingKeyboardDictationRequestId,
+  publishKeyboardDictation,
+} from "@/lib/ios-companion";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
 import { persistCaptureFile } from "@/lib/persist-capture";
 import {
@@ -44,6 +48,19 @@ type Phase = "capture" | "transcribing" | "review";
 
 export default function DictationCaptureScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    requestId?: string | string[];
+    source?: string | string[];
+  }>();
+  const routeKeyboardRequestId =
+    params.source === "keyboard" &&
+    typeof params.requestId === "string" &&
+    /^[a-z0-9-]{20,80}$/i.test(params.requestId)
+      ? params.requestId
+      : undefined;
+  const [keyboardRequestId] = useState(
+    () => routeKeyboardRequestId ?? getPendingKeyboardDictationRequestId(),
+  );
   const [phase, setPhase] = useState<Phase>("capture");
   const [job, setJob] = useState<CaptureJob | null>(null);
   const [media, setMedia] = useState<CapturedAudioMedia | null>(null);
@@ -95,6 +112,7 @@ export default function DictationCaptureScreen() {
         );
         if (!mountedRef.current || controller.signal.aborted) return;
         setText(transcript);
+        publishKeyboardDictation(transcript, keyboardRequestId);
         await Clipboard.setStringAsync(transcript);
         await releaseCaptureJobLocalFile(boundJob.id).catch(() => null);
         if (!mountedRef.current || controller.signal.aborted) return;
@@ -145,7 +163,7 @@ export default function DictationCaptureScreen() {
         }
       }
     },
-    [],
+    [keyboardRequestId],
   );
 
   const handleCaptured = useCallback(
@@ -153,9 +171,11 @@ export default function DictationCaptureScreen() {
       const localUri = await persistCaptureFile(
         captured.uri,
         captured.mimeType,
+        captured.captureId,
       );
       const session = await getClipsSession();
       const nextJob = await enqueueCaptureJob({
+        id: captured.captureId,
         localUri,
         ownerKey: session?.ownerKey,
         kind: "dictation",
@@ -179,6 +199,7 @@ export default function DictationCaptureScreen() {
     setSaving(true);
     try {
       await Clipboard.setStringAsync(value);
+      publishKeyboardDictation(value, keyboardRequestId);
       if (!mountedRef.current) return;
       if (dictationId) {
         try {
@@ -214,7 +235,7 @@ export default function DictationCaptureScreen() {
     } finally {
       if (mountedRef.current) setSaving(false);
     }
-  }, [dictationId, job, text]);
+  }, [dictationId, job, keyboardRequestId, text]);
 
   const needsHistoryRetry = Boolean(text && !dictationId);
 

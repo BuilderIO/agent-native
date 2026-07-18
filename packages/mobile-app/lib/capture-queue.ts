@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { createCaptureId } from "./capture-id";
+
 export const CAPTURE_QUEUE_STORAGE_KEY = "agent-native:capture-queue:v1";
 
 const CAPTURE_QUEUE_VERSION = 1;
@@ -11,7 +13,8 @@ export type CaptureJobState =
   | "uploading"
   | "processing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "exhausted";
 export type CaptureUploadMode = "buffered" | "streaming";
 
 export interface CaptureResumeMetadata {
@@ -50,6 +53,7 @@ export interface CaptureJob {
   processingStartedAt?: string;
   completedAt?: string;
   failedAt?: string;
+  exhaustedAt?: string;
   remoteRecordingUrl?: string;
 }
 
@@ -91,11 +95,18 @@ export class CaptureQueueOwnerMismatchError extends CaptureQueueError {
 }
 
 const ALLOWED_TRANSITIONS: Record<CaptureJobState, Set<CaptureJobState>> = {
-  captured: new Set(["captured", "uploading", "failed"]),
-  uploading: new Set(["uploading", "processing", "completed", "failed"]),
-  processing: new Set(["processing", "completed", "failed"]),
+  captured: new Set(["captured", "uploading", "failed", "exhausted"]),
+  uploading: new Set([
+    "uploading",
+    "processing",
+    "completed",
+    "failed",
+    "exhausted",
+  ]),
+  processing: new Set(["processing", "completed", "failed", "exhausted"]),
   completed: new Set(["completed"]),
-  failed: new Set(["failed", "uploading"]),
+  failed: new Set(["failed", "uploading", "exhausted"]),
+  exhausted: new Set(["exhausted", "uploading"]),
 };
 
 let queueMutationTail: Promise<void> = Promise.resolve();
@@ -115,7 +126,8 @@ function isCaptureJobState(value: unknown): value is CaptureJobState {
     value === "uploading" ||
     value === "processing" ||
     value === "completed" ||
-    value === "failed"
+    value === "failed" ||
+    value === "exhausted"
   );
 }
 
@@ -230,17 +242,13 @@ function decodeJob(value: unknown): CaptureJob {
     processingStartedAt: optionalString(record.processingStartedAt),
     completedAt: optionalString(record.completedAt),
     failedAt: optionalString(record.failedAt),
+    exhaustedAt: optionalString(record.exhaustedAt),
     remoteRecordingUrl: optionalString(record.remoteRecordingUrl),
   };
 }
 
 function cloneJob(job: CaptureJob): CaptureJob {
   return { ...job, resume: { ...job.resume } };
-}
-
-function generateCaptureJobId(): string {
-  const random = Math.random().toString(36).slice(2, 10);
-  return `capture_${Date.now().toString(36)}_${random}`;
 }
 
 async function readStore(): Promise<CaptureQueueStore> {
@@ -266,6 +274,18 @@ async function readStore(): Promise<CaptureQueueStore> {
     version: CAPTURE_QUEUE_VERSION,
     jobs: record.jobs.map(decodeJob),
   };
+}
+
+export async function recoverCaptureQueueStore(): Promise<boolean> {
+  await queueMutationTail;
+  try {
+    await readStore();
+    return false;
+  } catch (error) {
+    if (!(error instanceof CaptureQueueError)) throw error;
+    await AsyncStorage.removeItem(CAPTURE_QUEUE_STORAGE_KEY);
+    return true;
+  }
 }
 
 async function mutateStore<T>(
@@ -322,18 +342,25 @@ function applyTransition(
     job.remoteRecordingUrl = transition.remoteRecordingUrl;
   }
 
-  if (transition.state === "uploading" && !job.uploadStartedAt) {
-    job.uploadStartedAt = now;
+  if (transition.state === "uploading") {
+    job.uploadStartedAt ??= now;
+    job.exhaustedAt = undefined;
   } else if (transition.state === "processing") {
     job.processingStartedAt ??= now;
   } else if (transition.state === "completed") {
     job.completedAt = now;
     job.failedAt = undefined;
+    job.exhaustedAt = undefined;
     job.resume.nextAttemptAt = undefined;
     job.resume.lastError = undefined;
     job.resume.retryable = undefined;
   } else if (transition.state === "failed") {
     job.failedAt = now;
+  } else if (transition.state === "exhausted") {
+    job.failedAt = now;
+    job.exhaustedAt = now;
+    job.resume.nextAttemptAt = undefined;
+    job.resume.retryable = false;
   }
 
   return cloneJob(job);
@@ -349,11 +376,20 @@ export async function enqueueCaptureJob(
     throw new CaptureQueueError("Capture kind is invalid");
   }
   const durationMs = nonNegativeNumber(input.durationMs, "duration");
-  const id = input.id?.trim() || generateCaptureJobId();
+  const id = input.id?.trim() || createCaptureId();
   const capturedAt = input.capturedAt?.trim() || new Date().toISOString();
 
   return mutateStore((jobs) => {
-    if (jobs.some((job) => job.id === id)) {
+    const existing = jobs.find((job) => job.id === id);
+    if (
+      existing &&
+      existing.localUri === localUri &&
+      existing.kind === input.kind &&
+      existing.mimeType === mimeType
+    ) {
+      return cloneJob(existing);
+    }
+    if (existing) {
       throw new CaptureQueueError(`Capture job ${id} already exists`);
     }
     const job: CaptureJob = {
@@ -393,7 +429,10 @@ export async function listPendingCaptureJobs(): Promise<CaptureJob[]> {
   const jobs = await listCaptureJobs();
   return jobs.filter(
     (job) =>
-      job.state !== "completed" &&
+      (job.state === "captured" ||
+        job.state === "uploading" ||
+        job.state === "processing" ||
+        job.state === "failed") &&
       (job.state !== "failed" || job.resume.retryable !== false),
   );
 }
@@ -485,6 +524,20 @@ export async function markCaptureJobFailed(
       lastError: error.trim() || "Capture sync failed",
       retryable: options.retryable,
       nextAttemptAt: options.nextAttemptAt,
+    },
+  });
+}
+
+export async function markCaptureJobExhausted(
+  id: string,
+  error: string,
+): Promise<CaptureJob> {
+  return transitionCaptureJob(id, {
+    state: "exhausted",
+    resume: {
+      lastError: error.trim() || "Capture sync exhausted automatic retries",
+      retryable: false,
+      nextAttemptAt: undefined,
     },
   });
 }

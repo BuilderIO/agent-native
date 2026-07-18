@@ -11,6 +11,12 @@ import { WebView } from "react-native-webview";
 
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import {
+  clearSessionToken,
+  getSessionToken,
+  saveSessionToken,
+  SESSION_TOKEN_KEY,
+} from "@/lib/session-token-store";
+import {
   isTrustedWebViewUrl,
   parseTrustedOrigin,
 } from "@/lib/webview-security";
@@ -22,7 +28,6 @@ interface AppWebViewProps {
   sessionOwnerKey?: string;
 }
 
-const SESSION_TOKEN_KEY = "agent-native:session-token";
 const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
@@ -90,27 +95,27 @@ export default function AppWebView({
   const lastTokenRef = useRef<string | null>(null);
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
 
-  // Load stored session token on mount
+  // Load stored session token on mount.
   useEffect(() => {
-    AsyncStorage.getItem(sessionTokenKey).then((t) => {
-      lastTokenRef.current = t;
-      setSessionToken(t);
+    void getSessionToken(sessionTokenKey).then((token) => {
+      lastTokenRef.current = token;
+      setSessionToken(token);
     });
   }, [sessionTokenKey]);
 
   // When the app returns to foreground, check if the session token was updated
   // (e.g. by the oauth-complete deep link handler storing a new token in
-  // AsyncStorage). If it changed, update state — the resulting URL change
+  // SecureStore). If it changed, update state — the resulting URL change
   // causes the WebView to navigate to the new URL with ?_session automatically.
   // No explicit reload() needed; changing source.uri triggers navigation.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         setTimeout(() => {
-          AsyncStorage.getItem(sessionTokenKey).then((t) => {
-            if (t && t !== lastTokenRef.current) {
-              lastTokenRef.current = t;
-              setSessionToken(t);
+          void getSessionToken(sessionTokenKey).then((token) => {
+            if (token !== lastTokenRef.current) {
+              lastTokenRef.current = token;
+              setSessionToken(token);
             }
           });
         }, 1000);
@@ -154,32 +159,36 @@ export default function AppWebView({
           (!sessionOwnerKey ||
             (typeof msg.email === "string" && msg.email.trim().length > 0))
         ) {
-          const values: [string, string][] = [[sessionTokenKey, msg.token]];
-          if (sessionOwnerKey) {
-            values.push([
-              sessionOwnerKey,
-              clipsSessionOwnerKey(
-                msg.email,
-                typeof msg.orgId === "string" ? msg.orgId : undefined,
-              ),
-            ]);
-          }
-          void AsyncStorage.multiSet(values);
-          if (msg.token !== lastTokenRef.current) {
-            lastTokenRef.current = msg.token;
-            setSessionToken(msg.token);
-          }
+          void (async () => {
+            await saveSessionToken(msg.token, sessionTokenKey);
+            if (sessionOwnerKey) {
+              await AsyncStorage.setItem(
+                sessionOwnerKey,
+                clipsSessionOwnerKey(
+                  msg.email,
+                  typeof msg.orgId === "string" ? msg.orgId : undefined,
+                ),
+              );
+            }
+            if (msg.token !== lastTokenRef.current) {
+              lastTokenRef.current = msg.token;
+              setSessionToken(msg.token);
+            }
+          })().catch(() => {});
           return;
         }
         if (
           captureSessionToken &&
           msg.type === "agent-native-session-cleared"
         ) {
-          const keys = [sessionTokenKey];
-          if (sessionOwnerKey) keys.push(sessionOwnerKey);
-          void AsyncStorage.multiRemove(keys);
-          lastTokenRef.current = null;
-          setSessionToken(null);
+          void (async () => {
+            await clearSessionToken(sessionTokenKey);
+            if (sessionOwnerKey) {
+              await AsyncStorage.removeItem(sessionOwnerKey);
+            }
+            lastTokenRef.current = null;
+            setSessionToken(null);
+          })().catch(() => {});
           return;
         }
         if (msg.type === "openUrl" && typeof msg.url === "string") {

@@ -10,8 +10,14 @@
     "ios": {
       "bundleIdentifier": "com.agentnative.mobile",
       "supportsTablet": true,
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.agentnative.mobile"
+        ]
+      },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {
@@ -28,6 +34,14 @@
     "plugins": [
       "expo-router",
       "expo-web-browser",
+      "expo-secure-store",
+      "@bacons/apple-targets",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow Agent Native to show meetings you choose to prepare for recording."
+        }
+      ],
       [
         "expo-audio",
         {
@@ -60,6 +74,7 @@
       ],
       "./plugins/with-mobile-companion",
       "./plugins/with-ios-app-intents",
+      "./plugins/with-ios-companion",
       "./plugins/with-android-capture-tile"
     ],
     "extra": {

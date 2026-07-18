@@ -15,10 +15,13 @@
     "start": "expo start",
     "ios": "expo run:ios",
     "android": "expo run:android",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@agent-native/shared-app-config": "workspace:*",
+    "@bacons/apple-targets": "5.0.0",
     "@expo/metro-runtime": "~57.0.5",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -26,6 +29,7 @@
     "expo": "57.0.6",
     "expo-asset": "~57.0.5",
     "expo-audio": "~57.0.2",
+    "expo-calendar": "~57.0.1",
     "expo-camera": "~57.0.2",
     "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.5",
@@ -37,6 +41,7 @@
     "expo-linking": "~57.0.3",
     "expo-notifications": "~57.0.5",
     "expo-router": "~57.0.6",
+    "expo-secure-store": "~57.0.1",
     "expo-sharing": "~57.0.5",
     "expo-status-bar": "~57.0.1",
     "expo-video": "~57.0.1",
@@ -52,6 +57,7 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "babel-preset-expo": "~57.0.0",
-    "typescript": "~6.0.3"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

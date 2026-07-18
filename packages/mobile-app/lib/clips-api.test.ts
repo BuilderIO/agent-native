@@ -1,4 +1,3 @@
-// @ts-expect-error Vitest is provided by the repository test workspace.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = new Map<string, string>();
@@ -54,7 +53,94 @@ import {
   markCaptureJobFailed,
   updateCaptureJobResume,
 } from "./capture-queue";
-import { syncCaptureJob } from "./clips-api";
+import { callClipsAction, syncCaptureJob } from "./clips-api";
+
+describe("mobile Clips action client", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("keeps POST as the default action method", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ result: { ok: true } })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callClipsAction("add-comment", { content: "Nice" }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://clips.agent-native.com/_agent-native/actions/add-comment",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ content: "Nice" }),
+      }),
+    );
+  });
+
+  it("encodes GET action params without putting a token in the URL", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ result: { recordings: [] } })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callClipsAction(
+      "list-recordings",
+      {
+        view: "library",
+        tags: ["product", "demo"],
+        empty: undefined,
+      },
+      { method: "GET" },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const parsed = new URL(String(url));
+    expect(parsed.pathname).toBe("/_agent-native/actions/list-recordings");
+    expect(parsed.searchParams.get("view")).toBe("library");
+    expect(parsed.searchParams.getAll("tags[]")).toEqual(["product", "demo"]);
+    expect(parsed.searchParams.has("empty")).toBe(false);
+    expect(parsed.search).not.toContain("test-token");
+    expect(init).toEqual(
+      expect.objectContaining({
+        method: "GET",
+        body: undefined,
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+      }),
+    );
+  });
+
+  it("sends DELETE action params in an authenticated JSON body", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ result: { id: "vocab_1" } })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callClipsAction(
+      "remove-vocabulary-term",
+      { id: "vocab_1" },
+      { method: "DELETE" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://clips.agent-native.com/_agent-native/actions/remove-vocabulary-term",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ id: "vocab_1" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+  });
+});
 
 describe("mobile Clips upload recovery", () => {
   beforeEach(() => {
@@ -140,5 +226,29 @@ describe("mobile Clips upload recovery", () => {
     expect(requests[1]!.init?.body).toBe(
       JSON.stringify({ requestStreaming: true, mimeType: "video/mp4" }),
     );
+  });
+
+  it("exhausts a retryable capture after the configured attempt ceiling", async () => {
+    const job = await enqueueCaptureJob({
+      id: "exhausted-mobile-upload",
+      localUri: "file:///capture.mp4",
+      kind: "video",
+      durationMs: 1_000,
+      mimeType: "video/mp4",
+      title: "Capture",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("Offline"))),
+    );
+
+    const result = await syncCaptureJob(job.id, {
+      force: true,
+      maxAttempts: 1,
+    });
+
+    expect(result.status).toBe("exhausted");
+    expect(result.job.state).toBe("exhausted");
+    expect(result.job.resume.retryable).toBe(false);
   });
 });

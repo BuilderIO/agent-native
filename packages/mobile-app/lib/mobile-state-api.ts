@@ -1,6 +1,11 @@
 import { callClipsAction } from "./clips-api";
 
-export type MobileCaptureView = "home" | "dictate" | "meeting" | "video";
+export type MobileCaptureView =
+  | "home"
+  | "dictate"
+  | "meeting"
+  | "video"
+  | "clips";
 
 export type MobileCapturePhase =
   | "idle"
@@ -10,12 +15,15 @@ export type MobileCapturePhase =
   | "saving"
   | "processing"
   | "review"
+  | "browsing"
+  | "playing"
   | "error";
 
 export interface MobileCaptureStateInput {
   view: MobileCaptureView;
   phase: MobileCapturePhase;
   captureId?: string;
+  recordingId?: string;
 }
 
 export interface MobileCaptureState extends MobileCaptureStateInput {

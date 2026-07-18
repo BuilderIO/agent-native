@@ -10,6 +10,11 @@
  */
 import path from "path";
 
+import {
+  beginDatabaseOperation,
+  recordDatabaseRetry,
+} from "./request-telemetry.js";
+
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
@@ -735,6 +740,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
   }
@@ -790,6 +796,9 @@ export async function withDbTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
+  const finishTelemetry = beginDatabaseOperation(
+    op === "connect" ? "connect" : "query",
+  );
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -811,12 +820,14 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("success");
       complete(value);
     };
     const fail = (err: unknown) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("error");
       reject(err);
     };
 
@@ -825,6 +836,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -1171,13 +1183,7 @@ async function createDbExecInternal(
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() =>
-              withDbTimeout(
-                "http-query",
-                () => queryNeonClient(pool, sql),
-                dbOpTimeoutMs(),
-              ),
-            );
+            }>(() => queryNeonClient(pool, sql));
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];

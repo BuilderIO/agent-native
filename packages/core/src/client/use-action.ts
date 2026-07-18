@@ -27,6 +27,7 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
@@ -221,6 +222,10 @@ export interface ActionFetchOptions {
   includeRequestSource?: boolean;
 }
 
+type InternalActionFetchOptions = ActionFetchOptions & {
+  onResponse?: (response: Response) => void;
+};
+
 /**
  * Conservative per-document keepalive body budget. Browsers commonly enforce
  * an approximately 64 KiB aggregate limit across every in-flight keepalive
@@ -251,11 +256,11 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
-async function actionFetch<T>(
+async function performActionFetch<T>(
   name: string,
   method: string,
   params?: Record<string, any>,
-  options?: ActionFetchOptions,
+  options?: InternalActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
@@ -332,6 +337,7 @@ async function actionFetch<T>(
   try {
     try {
       res = await fetch(url, init);
+      options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
       // Caller-initiated cancellation — rethrow untouched so React Query
@@ -416,6 +422,143 @@ async function actionFetch<T>(
   }
 
   return (data ?? (null as unknown)) as T;
+}
+
+function actionTelemetryNow(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function parseServerTiming(
+  response: Response | undefined,
+): Map<string, number> {
+  const timings = new Map<string, number>();
+  const value = response?.headers.get("server-timing");
+  if (!value) return timings;
+
+  for (const entry of value.split(",")) {
+    const [rawName, ...params] = entry.trim().split(";");
+    const name = rawName?.trim();
+    if (!name) continue;
+    const duration = params
+      .map((param) => /^dur=(.+)$/i.exec(param.trim())?.[1])
+      .find(Boolean);
+    const parsed = duration === undefined ? NaN : Number(duration);
+    if (Number.isFinite(parsed)) timings.set(name, parsed);
+  }
+  return timings;
+}
+
+function shouldTrackActionResponse(
+  error: unknown,
+  durationMs: number,
+  response: Response | undefined,
+): boolean {
+  if (error || durationMs >= 1_000) return true;
+  if (response && response.status >= 400 && response.status < 500) return true;
+  if (
+    /\bstartup(?:-db)?\s*;/i.test(response?.headers.get("server-timing") ?? "")
+  ) {
+    return true;
+  }
+  const raw = (import.meta.env as Record<string, string | undefined>)
+    ?.VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE;
+  const parsed = raw === undefined ? 0.1 : Number(raw);
+  const rate = Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.1;
+  return Math.random() < rate;
+}
+
+async function actionFetch<T>(
+  name: string,
+  method: string,
+  params?: Record<string, any>,
+  options?: ActionFetchOptions,
+): Promise<T> {
+  const startedAt = actionTelemetryNow();
+  let response: Response | undefined;
+  let responseAt: number | undefined;
+  let error: unknown;
+
+  try {
+    return await performActionFetch<T>(name, method, params, {
+      ...options,
+      onResponse: (nextResponse) => {
+        response = nextResponse;
+        responseAt = actionTelemetryNow();
+      },
+    });
+  } catch (caught) {
+    error = caught;
+    throw caught;
+  } finally {
+    try {
+      const completedAt = actionTelemetryNow();
+      const durationMs = Math.max(0, completedAt - startedAt);
+      if (shouldTrackActionResponse(error, durationMs, response)) {
+        const ttfbMs =
+          responseAt === undefined
+            ? undefined
+            : Math.max(0, responseAt - startedAt);
+        const serverTiming = parseServerTiming(response);
+        const serverDurationMs = serverTiming.get("app");
+        const errorStatus = Number(
+          (error as { status?: unknown } | undefined)?.status,
+        );
+        const statusCode =
+          response?.status ??
+          (Number.isFinite(errorStatus) ? errorStatus : undefined);
+        const timedOut =
+          (error as { timedOut?: unknown } | undefined)?.timedOut === true;
+        const cancelled = options?.signal?.aborted === true && !timedOut;
+        const contentLength = Number(response?.headers.get("content-length"));
+
+        trackEvent("action.response", {
+          request_id:
+            response?.headers.get("x-agent-native-request-id") ?? undefined,
+          action: name,
+          method,
+          status_code: statusCode,
+          status_class:
+            statusCode === undefined
+              ? "network"
+              : `${Math.floor(statusCode / 100)}xx`,
+          success: !error,
+          outcome: !error
+            ? "success"
+            : timedOut
+              ? "timeout"
+              : cancelled
+                ? "cancelled"
+                : response
+                  ? "http-error"
+                  : "network-error",
+          duration_ms: Math.round(durationMs),
+          ttfb_ms: ttfbMs === undefined ? undefined : Math.round(ttfbMs),
+          body_ms:
+            ttfbMs === undefined ? undefined : Math.round(durationMs - ttfbMs),
+          server_duration_ms:
+            serverDurationMs === undefined
+              ? undefined
+              : Math.round(serverDurationMs),
+          network_overhead_ms:
+            ttfbMs === undefined || serverDurationMs === undefined
+              ? undefined
+              : Math.max(0, Math.round(ttfbMs - serverDurationMs)),
+          framework_ready_wait_ms: serverTiming.get("startup"),
+          db_operation_wall_ms: serverTiming.get("db"),
+          db_connect_total_ms: serverTiming.get("db-connect"),
+          db_slowest_operation_ms: serverTiming.get("db-slowest"),
+          startup_db_operation_wall_ms: serverTiming.get("startup-db"),
+          startup_db_connect_total_ms: serverTiming.get("startup-db-connect"),
+          response_bytes:
+            Number.isFinite(contentLength) && contentLength >= 0
+              ? contentLength
+              : undefined,
+        });
+      }
+    } catch {
+      // Performance telemetry must never change the action result.
+    }
+  }
 }
 
 /**

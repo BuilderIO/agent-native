@@ -9,6 +9,7 @@ import {
   getCaptureJob,
   listCaptureJobs,
   listPendingCaptureJobs,
+  markCaptureJobExhausted,
   markCaptureJobFailed,
   startCaptureUploadAttempt,
   transitionCaptureJob,
@@ -122,6 +123,7 @@ export type SyncCaptureJobStatus =
   | "completed"
   | "processing"
   | "failed"
+  | "exhausted"
   | "skipped";
 
 export interface SyncCaptureJobResult {
@@ -137,12 +139,13 @@ export interface SyncCaptureQueueResult {
   completed: number;
   processing: number;
   failed: number;
+  exhausted: number;
   skipped: number;
   results: SyncCaptureJobResult[];
 }
 
 interface ClipsRequestOptions {
-  method?: "GET" | "POST";
+  method?: "DELETE" | "GET" | "POST";
   body?: BodyInit;
   headers?: Record<string, string>;
   session?: ClipsSession;
@@ -151,11 +154,11 @@ interface ClipsRequestOptions {
 export interface SyncCaptureJobOptions {
   force?: boolean;
   chunkSizeBytes?: number;
+  maxAttempts?: number;
 }
 
 export interface SyncPendingCaptureJobsOptions extends SyncCaptureJobOptions {
   maxJobs?: number;
-  maxAttempts?: number;
 }
 
 const activeSyncs = new Map<string, Promise<SyncCaptureJobResult>>();
@@ -321,27 +324,48 @@ async function clipsRequest<T>(
 export async function callClipsAction<T>(
   actionName: string,
   params: Record<string, unknown>,
-  options: { idempotencyKey?: string; session?: ClipsSession } = {},
+  options: {
+    idempotencyKey?: string;
+    method?: "DELETE" | "GET" | "POST";
+    session?: ClipsSession;
+  } = {},
 ): Promise<T> {
   if (!/^[a-z0-9-]+$/.test(actionName)) {
     throw new ClipsApiError("Invalid Clips action name", {
       code: "invalid_response",
     });
   }
-  const payload = await clipsRequest<unknown>(
-    `/_agent-native/actions/${actionName}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.idempotencyKey
-          ? { "X-Idempotency-Key": options.idempotencyKey }
-          : {}),
-      },
-      body: JSON.stringify(params),
-      session: options.session,
+  const method = options.method ?? "POST";
+  const path = `/_agent-native/actions/${actionName}`;
+  const url = new URL(resolveClipsUrl(path));
+  if (method === "GET") {
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item !== undefined && item !== null) {
+            url.searchParams.append(`${key}[]`, String(item));
+          }
+        }
+        continue;
+      }
+      url.searchParams.set(
+        key,
+        typeof value === "object" ? JSON.stringify(value) : String(value),
+      );
+    }
+  }
+  const payload = await clipsRequest<unknown>(url.toString(), {
+    method,
+    headers: {
+      ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
+      ...(options.idempotencyKey
+        ? { "X-Idempotency-Key": options.idempotencyKey }
+        : {}),
     },
-  );
+    body: method !== "GET" ? JSON.stringify(params) : undefined,
+    session: options.session,
+  });
   return unwrapResult(payload) as T;
 }
 
@@ -642,6 +666,9 @@ async function runCaptureSync(
   if (initialJob.state === "completed") {
     return { jobId: initialJob.id, status: "skipped", job: initialJob };
   }
+  if (initialJob.state === "exhausted" && !options.force) {
+    return { jobId: initialJob.id, status: "skipped", job: initialJob };
+  }
   if (
     !options.force &&
     (initialJob.resume.retryable === false || !isDue(initialJob))
@@ -848,6 +875,23 @@ async function runCaptureSync(
     const retryable =
       normalized.retryable || normalized.code === "auth_required";
     const latest = (await getCaptureJob(workingJob.id)) ?? workingJob;
+    const maxAttempts = Math.max(
+      1,
+      options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    );
+    if (retryable && latest.attempts >= maxAttempts) {
+      const exhausted = await markCaptureJobExhausted(
+        latest.id,
+        normalized.message,
+      );
+      return {
+        jobId: latest.id,
+        status: "exhausted",
+        job: exhausted,
+        error: normalized.message,
+        retryable: false,
+      };
+    }
     if (latest.state === "processing" && retryable) {
       const processing = await transitionCaptureJob(latest.id, {
         state: "processing",
@@ -917,6 +961,28 @@ export async function syncPendingCaptureJobs(
 
   const maxJobs = Math.max(0, options.maxJobs ?? DEFAULT_MAX_SYNC_JOBS);
   const maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+  const exhaustionResults: SyncCaptureJobResult[] = [];
+  for (const job of await listCaptureJobs()) {
+    if (
+      job.state !== "failed" ||
+      job.resume.retryable === false ||
+      job.attempts < maxAttempts
+    ) {
+      continue;
+    }
+    const exhausted = await markCaptureJobExhausted(
+      job.id,
+      job.resume.lastError ?? "Capture sync exhausted automatic retries",
+    );
+    exhaustionResults.push({
+      jobId: job.id,
+      status: "exhausted",
+      job: exhausted,
+      error: exhausted.resume.lastError,
+      retryable: false,
+    });
+  }
+
   const session = await getClipsSession();
   const pending = (await listPendingCaptureJobs())
     .filter(
@@ -931,16 +997,18 @@ export async function syncPendingCaptureJobs(
     .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
     .slice(0, maxJobs);
 
-  const results: SyncCaptureJobResult[] = [];
+  const syncedResults: SyncCaptureJobResult[] = [];
   for (const job of pending) {
-    results.push(await syncCaptureJob(job.id, options));
+    syncedResults.push(await syncCaptureJob(job.id, options));
   }
+  const results = [...exhaustionResults, ...syncedResults];
   return {
-    attempted: results.length,
+    attempted: syncedResults.length,
     completed: results.filter((result) => result.status === "completed").length,
     processing: results.filter((result) => result.status === "processing")
       .length,
     failed: results.filter((result) => result.status === "failed").length,
+    exhausted: results.filter((result) => result.status === "exhausted").length,
     skipped: results.filter((result) => result.status === "skipped").length,
     results,
   };

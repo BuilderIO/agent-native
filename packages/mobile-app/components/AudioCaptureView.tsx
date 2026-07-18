@@ -16,7 +16,14 @@ import {
 } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   BackHandler,
   Linking,
@@ -27,11 +34,24 @@ import {
   View,
 } from "react-native";
 
+import { createCaptureId } from "@/lib/capture-id";
+import {
+  audioRecorderFailureMessage,
+  reconcileAudioCaptureState,
+  type AudioCaptureUiState,
+} from "@/lib/capture-lifecycle";
+import {
+  endIOSCaptureActivity,
+  startIOSCaptureActivity,
+  subscribeToIOSCaptureStop,
+  updateIOSCaptureActivity,
+} from "@/lib/ios-companion";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
 
 export type AudioCaptureKind = "dictation" | "meeting";
 
 export interface CapturedAudioMedia {
+  captureId: string;
   type: "audio";
   kind: AudioCaptureKind;
   uri: string;
@@ -46,15 +66,6 @@ interface AudioCaptureViewProps {
   onCaptured: (media: CapturedAudioMedia) => void | Promise<void>;
   onCancel: () => void;
 }
-
-type CaptureState =
-  | "checking-permission"
-  | "ready"
-  | "recording"
-  | "paused"
-  | "saving"
-  | "permission-denied"
-  | "error";
 
 function formatDuration(durationMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -78,12 +89,14 @@ function captureTitle(kind: AudioCaptureKind, startedAt: string): string {
 }
 
 function capturedAudioMedia(
+  captureId: string,
   kind: AudioCaptureKind,
   uri: string,
   durationMs: number,
   startedAt: string,
 ): CapturedAudioMedia {
   return {
+    captureId,
     type: "audio",
     kind,
     uri,
@@ -99,7 +112,7 @@ export default function AudioCaptureView({
   onCaptured,
   onCancel,
 }: AudioCaptureViewProps) {
-  const [captureState, setCaptureState] = useState<CaptureState>(
+  const [captureState, setCaptureState] = useState<AudioCaptureUiState>(
     "checking-permission",
   );
   const [error, setError] = useState<string | null>(null);
@@ -110,47 +123,90 @@ export default function AudioCaptureView({
     null,
   );
   const startedAtRef = useRef<string | null>(null);
+  const captureIdRef = useRef<string | null>(null);
   const recordedDurationMsRef = useRef(0);
+  const nativeRecordingStartedRef = useRef(false);
   const recoveredUrlRef = useRef<string | null>(null);
   const stoppingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const onCapturedRef = useRef(onCaptured);
 
-  const deliver = useCallback(
-    async (media: CapturedAudioMedia) => {
+  useEffect(() => {
+    onCapturedRef.current = onCaptured;
+  }, [onCaptured]);
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const deliver = useCallback(async (media: CapturedAudioMedia) => {
+    if (mountedRef.current) {
       setPendingMedia(media);
       setCaptureState("saving");
       setError(null);
-      try {
-        await onCaptured(media);
-        setPendingMedia(null);
-      } catch (cause) {
+    }
+    try {
+      await onCapturedRef.current(media);
+      if (mountedRef.current) setPendingMedia(null);
+    } catch (cause) {
+      if (mountedRef.current) {
         setError(
           cause instanceof Error ? cause.message : "Could not save recording.",
         );
         setCaptureState("error");
       }
-    },
-    [onCaptured],
-  );
+    }
+  }, []);
 
   const handleRecorderStatus = useCallback(
     (status: RecordingStatus) => {
-      if (!status.hasError) return;
+      const failureMessage = audioRecorderFailureMessage(status);
+      if (status.mediaServicesDidReset) {
+        const interruptedCapture = nativeRecordingStartedRef.current;
+        stoppingRef.current = false;
+        nativeRecordingStartedRef.current = false;
+        if (!interruptedCapture) return;
+        if (captureIdRef.current) {
+          void endIOSCaptureActivity(captureIdRef.current, "failed");
+        }
+        if (mountedRef.current) {
+          setError(failureMessage);
+          setCaptureState("error");
+        }
+        return;
+      }
+      if (!status.hasError && !status.isFinished) return;
       if (status.url) {
+        if (stoppingRef.current || !nativeRecordingStartedRef.current) return;
         if (recoveredUrlRef.current === status.url) return;
         recoveredUrlRef.current = status.url;
         stoppingRef.current = false;
         const startedAt = startedAtRef.current ?? new Date().toISOString();
         const media = capturedAudioMedia(
+          captureIdRef.current ?? createCaptureId(),
           kind,
           status.url,
           recordedDurationMsRef.current,
           startedAt,
         );
+        nativeRecordingStartedRef.current = false;
+        void endIOSCaptureActivity(media.captureId, "completed");
         void deliver(media);
         return;
       }
-      setError(status.error || "The recording was interrupted.");
-      setCaptureState("error");
+      if (stoppingRef.current || !nativeRecordingStartedRef.current) return;
+      stoppingRef.current = false;
+      nativeRecordingStartedRef.current = false;
+      if (captureIdRef.current) {
+        void endIOSCaptureActivity(captureIdRef.current, "failed");
+      }
+      if (mountedRef.current) {
+        setError(failureMessage ?? "The recording stopped unexpectedly.");
+        setCaptureState("error");
+      }
     },
     [deliver, kind],
   );
@@ -164,6 +220,17 @@ export default function AudioCaptureView({
     recordedDurationMsRef.current,
     recorderState.durationMillis,
   );
+
+  useEffect(() => {
+    if (recorderState.isRecording) nativeRecordingStartedRef.current = true;
+    setCaptureState((current) =>
+      reconcileAudioCaptureState(
+        current,
+        recorderState.isRecording,
+        nativeRecordingStartedRef.current,
+      ),
+    );
+  }, [recorderState.isRecording]);
 
   const prepareRecorder = useCallback(async () => {
     setCaptureState("checking-permission");
@@ -195,11 +262,12 @@ export default function AudioCaptureView({
       shouldRouteThroughEarpiece: false,
     });
     await recorder.prepareToRecordAsync();
-    setCaptureState("ready");
+    if (mountedRef.current) setCaptureState("ready");
   }, [kind, recorder]);
 
   useEffect(() => {
     void prepareRecorder().catch((cause) => {
+      if (!mountedRef.current) return;
       setError(
         cause instanceof Error ? cause.message : "Could not prepare recording.",
       );
@@ -208,22 +276,38 @@ export default function AudioCaptureView({
   }, [prepareRecorder]);
 
   const start = useCallback(() => {
-    startedAtRef.current = new Date().toISOString();
+    const startedAt = new Date();
+    const captureId = createCaptureId();
+    startedAtRef.current = startedAt.toISOString();
+    captureIdRef.current = captureId;
     recordedDurationMsRef.current = 0;
+    nativeRecordingStartedRef.current = false;
     recoveredUrlRef.current = null;
     recorder.record();
+    void startIOSCaptureActivity({
+      captureId,
+      kind,
+      startedAt: startedAt.getTime(),
+    });
     setCaptureState("recording");
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [recorder]);
+  }, [kind, recorder]);
 
   const pause = useCallback(() => {
     recorder.pause();
+    if (captureIdRef.current) {
+      void updateIOSCaptureActivity(captureIdRef.current, "paused");
+    }
     setCaptureState("paused");
     void Haptics.selectionAsync();
   }, [recorder]);
 
   const resume = useCallback(() => {
+    nativeRecordingStartedRef.current = false;
     recorder.record();
+    if (captureIdRef.current) {
+      void updateIOSCaptureActivity(captureIdRef.current, "recording");
+    }
     setCaptureState("recording");
     void Haptics.selectionAsync();
   }, [recorder]);
@@ -231,7 +315,7 @@ export default function AudioCaptureView({
   const stop = useCallback(async () => {
     if (stoppingRef.current) return;
     stoppingRef.current = true;
-    setCaptureState("saving");
+    if (mountedRef.current) setCaptureState("saving");
     const durationMs = Math.max(
       recordedDurationMsRef.current,
       recorderState.durationMillis,
@@ -242,17 +326,37 @@ export default function AudioCaptureView({
       const uri = recorder.uri ?? recorder.getStatus().url;
       if (!uri) throw new Error("The recording file could not be recovered.");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const media = capturedAudioMedia(kind, uri, durationMs, startedAt);
+      const media = capturedAudioMedia(
+        captureIdRef.current ?? createCaptureId(),
+        kind,
+        uri,
+        durationMs,
+        startedAt,
+      );
+      void endIOSCaptureActivity(media.captureId, "completed");
       await deliver(media);
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Could not save recording.",
-      );
-      setCaptureState("error");
+      if (mountedRef.current) {
+        setError(
+          cause instanceof Error ? cause.message : "Could not save recording.",
+        );
+        setCaptureState("error");
+      }
+      if (captureIdRef.current) {
+        void endIOSCaptureActivity(captureIdRef.current, "failed");
+      }
     } finally {
       stoppingRef.current = false;
     }
   }, [deliver, kind, recorder, recorderState.durationMillis]);
+
+  useEffect(
+    () =>
+      subscribeToIOSCaptureStop((captureId) => {
+        if (captureId === captureIdRef.current) void stop();
+      }),
+    [stop],
+  );
 
   const level = useMemo(() => {
     const metering = recorderState.metering ?? -56;

@@ -384,12 +384,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           ) : (
             <>
               <div className="px-3 py-3">
-                <Button
-                  className="w-full gap-1.5"
-                  variant="outline"
-                  size="sm"
-                  asChild
-                >
+                <Button className="w-full gap-1.5" size="sm" asChild>
                   <NavLink to="/record">
                     <IconPlayerRecord className="h-4 w-4" />
                     {t("navigation.newRecording")}
