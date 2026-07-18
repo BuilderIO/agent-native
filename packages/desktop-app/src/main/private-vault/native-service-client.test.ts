@@ -147,6 +147,45 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("maps one encrypted broker job through the argument-free authority boundary", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const endpointId = "11112222333344445555666677778888";
+    const jobId = "ffeeddccbbaa99887766554433221100";
+    const envelope = new Uint8Array([0xa1, 0x01, 0x01]);
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "open_job",
+      jobHash: "ab".repeat(32),
+      jobPayload: Buffer.from("scoped action"),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.openHostedJob({
+        version: 1,
+        suite: "anc/v1",
+        operation: "openHostedJob",
+        vaultId,
+        endpointId,
+        jobId,
+        jobEnvelope: envelope,
+      }),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "openHostedJob",
+      jobHash: "ab".repeat(32),
+      jobPayload: Buffer.from("scoped action"),
+    });
+    expect(request).toHaveBeenCalledWith(
+      "open_job",
+      vaultId,
+      jobId,
+      expect.any(Buffer),
+    );
+  });
+
   it("copies and bounds bootstrap frames without claiming cryptographic acceptance", async () => {
     const vaultId = "10".repeat(16);
     const headHash = "20".repeat(32);

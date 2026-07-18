@@ -538,9 +538,13 @@ one active unattended broker, resolves the grant's requester only from active
 membership, proves local broker custody and box-key continuity, verifies and
 opens the signed job, parses its semantic scope, and completes the atomic claim
 before returning only the action body. Replaying the exact signed ciphertext is
-denied. The remaining broker gate is to expose this processor through the
-packaged XPC/addon operation, seal results from the retained requester context,
-and retain retryable encrypted result frames until the hosted receipt is
-durable.
+denied. This path is now reachable through one bounded `open_job` operation in
+the code-signature-pinned XPC protocol and universal N-API addon; the trusted
+main-process client maps it to the reusable broker contract while ignoring the
+caller's endpoint assertion for authority. The service resolves the actual
+broker and requester from signed native state. The remaining broker gate is to
+seal results from the retained requester context, retain retryable encrypted
+result frames until the hosted receipt is durable, and connect the Content
+action executor and supervisor lifecycle.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

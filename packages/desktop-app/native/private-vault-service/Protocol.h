@@ -16,6 +16,7 @@
 #define PV_GENESIS_CHALLENGE_MAXIMUM_BYTES 2048
 #define PV_GENESIS_RECEIPT_MAXIMUM_BYTES 2048
 #define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
+#define PV_JOB_ENVELOPE_MAXIMUM_BYTES (16 * 1024 * 1024 + 64 * 1024)
 
 typedef enum {
     PVRequestValid = 0,
@@ -29,6 +30,7 @@ typedef struct {
     const char *requestID;
     const char *vaultID;
     const char *lookupID;
+    const char *jobID;
     const void *recoveryConfirmation;
     size_t recoveryConfirmationLength;
     const void *bootstrapTranscript;
@@ -43,6 +45,8 @@ typedef struct {
     size_t receiptLength;
     const void *bootstrapFrame;
     size_t bootstrapFrameLength;
+    const void *jobEnvelope;
+    size_t jobEnvelopeLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);

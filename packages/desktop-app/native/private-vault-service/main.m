@@ -36,6 +36,8 @@
 #import "PrivateVaultMnemonic.h"
 #import "PrivateVaultRecoveryCoordinator.h"
 #import "PrivateVaultRecoveryPreparationStore.h"
+#import "PrivateVaultGrantIndex.h"
+#import "PrivateVaultJobProcessor.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -51,6 +53,8 @@ static AncPrivateVaultRecoveryCoordinator *gRecoveryCoordinator = nil;
 static NSMutableDictionary<NSString *, NSString *> *gRecoveryStatuses = nil;
 static NSLock *gRecoveryStatusLock = nil;
 static bool gStartupComplete = false;
+static AncPrivateVaultGrantIndex *gGrantIndex = nil;
+static AncPrivateVaultJobProcessor *gJobProcessor = nil;
 
 static const char *PVRotationAckState(void);
 
@@ -220,7 +224,8 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
         }
         bool available = gGenesisCoordinator != nil && gSession != nil &&
                          gRotationCoordinator != nil &&
-                         gHostedAppendRetry != nil;
+                         gHostedAppendRetry != nil && gGrantIndex != nil &&
+                         gJobProcessor != nil;
         const char *state = !available
                                 ? "unavailable"
                             : gSession.isUnlocked ? "unlocked"
@@ -265,6 +270,40 @@ static void PVLock(xpc_connection_t peer, xpc_object_t message,
     if (reply == NULL) return;
     xpc_dictionary_set_string(reply, "state", "locked");
     xpc_connection_send_message(peer, reply);
+}
+
+static void PVOpenJob(xpc_connection_t peer, xpc_object_t message,
+                      const PVRequest *request) {
+    @autoreleasepool {
+        if (gJobProcessor == nil || request->vaultID == NULL ||
+            request->jobID == NULL || request->jobEnvelope == NULL) {
+            PVSendError(peer, message, "job_denied");
+            return;
+        }
+        NSString *vaultID = [NSString stringWithUTF8String:request->vaultID];
+        NSData *jobID = PVLookupIDData(request->jobID);
+        NSData *envelope = [NSData dataWithBytes:request->jobEnvelope
+                                          length:request->jobEnvelopeLength];
+        AncPrivateVaultAuthorizedJob *opened = nil;
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        AncPrivateVaultJobProcessorStatus status =
+            [gJobProcessor openJobEnvelope:envelope vaultId:vaultID
+                                     jobId:jobID nowSeconds:now result:&opened];
+        NSString *jobHash = PVHex(opened.jobHash);
+        if (status != AncPrivateVaultJobProcessorStatusOK || opened == nil ||
+            jobHash.length != 64 || opened.body.length > 16 * 1024 * 1024) {
+            PVSendError(peer, message,
+                        status == AncPrivateVaultJobProcessorStatusReplay
+                            ? "job_replay" : "job_denied");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "jobHash", jobHash.UTF8String);
+        xpc_dictionary_set_data(reply, "jobPayload", opened.body.bytes,
+                                opened.body.length);
+        xpc_connection_send_message(peer, reply);
+    }
 }
 
 static void PVCommitGenesis(xpc_connection_t peer, xpc_object_t message,
@@ -961,6 +1000,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVRecoverStatus(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "open_job") == 0) {
+                PVOpenJob(peer, message, &request);
+                return;
+            }
             PVSendSuccess(peer, message, &request);
             return;
         case PVRequestUnsupportedVersion:
@@ -1024,6 +1067,11 @@ int main(void) {
             [[AncPrivateVaultAuthorityStore alloc]
                 initWithStateRootURL:stateRoot
                    custodyRepository:gCustodyRepository];
+        gGrantIndex = [[AncPrivateVaultGrantIndex alloc]
+            initWithStateRootURL:stateRoot session:gSession keychain:keychain];
+        gJobProcessor = [[AncPrivateVaultJobProcessor alloc]
+            initWithSession:gSession authorityStore:authority
+                 grantIndex:gGrantIndex];
         AncPrivateVaultControlLog *controlLog =
             [[AncPrivateVaultControlLog alloc] init];
         AncPrivateVaultGenesisArtifactStore *genesisArtifacts =
@@ -1105,6 +1153,7 @@ int main(void) {
         if (stateRoot == nil || recoveryStateRoot == nil || keychain == nil ||
             gCustodyRepository == nil || gSession == nil ||
             spool == nil || preparation == nil || authority == nil ||
+            gGrantIndex == nil || gJobProcessor == nil ||
             controlLog == nil || genesisArtifacts == nil ||
             genesisPreparationArtifacts == nil ||
             genesisPreparationStore == nil ||

@@ -1,10 +1,15 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES } from "@agent-native/core/e2ee";
+import {
+  ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES,
+  E2EE_SIZE_LIMITS,
+} from "@agent-native/core/e2ee";
 import type {
   NativeHealthResult,
   NativeLockResult,
+  NativeOpenHostedJobRequest,
+  NativeOpenHostedJobResult,
   NativeUnlockResult,
 } from "@agent-native/private-vault-broker";
 
@@ -45,7 +50,8 @@ type NativeOperation =
   | "accept_bootstrap"
   | "recover_begin"
   | "recover_page"
-  | "recover_status";
+  | "recover_status"
+  | "open_job";
 
 interface NativeAddon {
   request(
@@ -63,6 +69,9 @@ export interface PrivateVaultNativeServiceClient
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
   unlock(vaultId: string): Promise<NativeUnlockResult>;
+  openHostedJob(
+    request: NativeOpenHostedJobRequest,
+  ): Promise<NativeOpenHostedJobResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
   commitGenesis(
     input: NativeCommitGenesisInput,
@@ -572,6 +581,28 @@ function parseFinalizeGenesis(value: unknown, lookupId: string): void {
   }
 }
 
+function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "jobHash", "jobPayload"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "open_job" ||
+    typeof value.jobHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.jobHash) ||
+    !(value.jobPayload instanceof Uint8Array) ||
+    value.jobPayload.byteLength > E2EE_SIZE_LIMITS.jobPayloadBytes
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return {
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "openHostedJob",
+    jobHash: value.jobHash,
+    jobPayload: value.jobPayload.slice(),
+  };
+}
+
 function copyCommitGenesisInput(
   input: unknown,
 ): readonly [Buffer, Buffer, Buffer] {
@@ -698,6 +729,42 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         return parseUnlock(await addon.request("unlock", vaultId));
       } catch {
         throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  openHostedJob(
+    request: NativeOpenHostedJobRequest,
+  ): Promise<NativeOpenHostedJobResult> {
+    if (
+      request.version !== SERVICE_VERSION ||
+      request.suite !== SERVICE_SUITE ||
+      request.operation !== "openHostedJob" ||
+      !isLowerHex(request.vaultId, 32) ||
+      !isLowerHex(request.endpointId, 32) ||
+      !isLowerHex(request.jobId, 32) ||
+      !(request.jobEnvelope instanceof Uint8Array) ||
+      request.jobEnvelope.byteLength === 0 ||
+      request.jobEnvelope.byteLength > E2EE_SIZE_LIMITS.jobEnvelopeBytes
+    ) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    const envelope = Buffer.from(request.jobEnvelope);
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseOpenJob(
+          await addon.request(
+            "open_job",
+            request.vaultId,
+            request.jobId,
+            envelope,
+          ),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        envelope.fill(0);
       }
     });
   }

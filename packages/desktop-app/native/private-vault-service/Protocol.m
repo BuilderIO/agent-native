@@ -48,6 +48,10 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
             strcmp(key, "recoveryMnemonic") != 0 &&
             strcmp(key, "challenge") != 0 && strcmp(key, "receipt") != 0 &&
             strcmp(key, "bootstrapFrame") != 0) {
+            if (strcmp(key, "jobId") == 0 ||
+                strcmp(key, "jobEnvelope") == 0) {
+                return true;
+            }
             allowed = false;
             return false;
         }
@@ -145,17 +149,34 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool recoverBegin = strcmp(operation, "recover_begin") == 0;
     bool recoverPage = strcmp(operation, "recover_page") == 0;
     bool recoverStatus = strcmp(operation, "recover_status") == 0;
+    bool openJob = strcmp(operation, "open_job") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
-        !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus) {
+        !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
+        !openJob) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (unlock || resumeRotation || recoverStatus) {
+    if (openJob) {
+        xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
+        if (fieldCount != 6 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            jobIDValue == NULL ||
+            xpc_get_type(jobIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "jobId")) ||
+            !PVReadBoundedData(message, "jobEnvelope",
+                               PV_JOB_ENVELOPE_MAXIMUM_BYTES,
+                               &request->jobEnvelope,
+                               &request->jobEnvelopeLength)) {
+            return PVRequestInvalid;
+        }
+        request->jobID = xpc_dictionary_get_string(message, "jobId");
+    } else if (unlock || resumeRotation || recoverStatus) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
@@ -255,7 +276,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->operation = operation;
     request->requestID = requestID;
     request->vaultID =
-        unlock || resumeRotation || recoverStatus
+        unlock || resumeRotation || recoverStatus || openJob
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =

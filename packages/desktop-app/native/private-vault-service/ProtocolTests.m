@@ -68,6 +68,31 @@ int main(void) {
   assert(strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
   xpc_release(unlock);
 
+  const uint8_t jobBytes[] = {0xa1, 0x01, 0x01};
+  xpc_object_t openJob =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "open_job", "request-open-job");
+  xpc_dictionary_set_string(openJob, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(openJob, "jobId",
+                            "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_data(openJob, "jobEnvelope", jobBytes,
+                          sizeof jobBytes);
+  assert(PVParseRequest(openJob, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  assert(strcmp(parsed.jobID, "ffeeddccbbaa99887766554433221100") == 0);
+  assert(parsed.jobEnvelopeLength == sizeof jobBytes);
+  assert(!PVRequestCanRun(&parsed, false) && PVRequestCanRun(&parsed, true));
+  xpc_release(openJob);
+
+  xpc_object_t openJobMissing =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "open_job", "request-open-missing");
+  xpc_dictionary_set_string(openJobMissing, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(openJobMissing, "jobId",
+                            "ffeeddccbbaa99887766554433221100");
+  assert(PVParseRequest(openJobMissing, &parsed) == PVRequestInvalid);
+  xpc_release(openJobMissing);
+
   xpc_object_t unlockWithoutVault =
       PVMakeRequest(PV_PROTOCOL_VERSION, "unlock", "request-unlock-missing");
   assert(PVParseRequest(unlockWithoutVault, &parsed) == PVRequestInvalid);
