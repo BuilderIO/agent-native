@@ -115,7 +115,7 @@ describe("scanDeprecatedImports", () => {
           : null,
       ).toMatchObject({
         to: "@agent-native/core/blocks",
-        status: "planned",
+        status: "active",
       });
     }
     const testingMove = manifest?.moves["@agent-native/core/testing"];

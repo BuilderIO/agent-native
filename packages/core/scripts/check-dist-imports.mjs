@@ -39,9 +39,7 @@ function findTiptapImports(dir) {
       findTiptapImports(full);
     } else if (
       entry.name.endsWith(".js") &&
-      /["'](?:@tiptap\/|tiptap-markdown["'/])/.test(
-        readFileSync(full, "utf8"),
-      )
+      /["'](?:@tiptap\/|tiptap-markdown["'/])/.test(readFileSync(full, "utf8"))
     ) {
       tiptapImports.push(full);
     }
