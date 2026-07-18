@@ -304,9 +304,17 @@ the final-source x86_64 coordinator rerun is still required because Rosetta
 wedged before entering the runner.
 
 This proves crash-safe commit and restart reconciliation, not complete
-first-device enrollment. Native PREPARE must still own entropy, recovery-code
-derivation, canonical artifact construction and signing, pending-g1 creation,
-the actual recoverable epoch wrap, expiry/cancellation, and a trusted desktop
-confirmation surface without exposing keys or recovery material to hosted JS.
+first-device enrollment. Native entropy, checksum-valid 24-word English BIP39
+round trip, full-phrase constant-time confirmation, frozen Argon2id root, and
+generation-separated recovery-authority derivation now match Core on arm64 and
+have an independent implementation-review GO. The bounded decoder keeps phrase
+handling out of immutable Foundation objects, checks the complete vendored word
+order against the pinned oracle, rejects confusables and malformed UTF-8, and
+is compiled into production without any XPC/addon/preload operation. Native
+PREPARE must still own canonical artifact construction and signing, pending-g1
+creation, the actual recoverable epoch wrap, expiry/cancellation, and a trusted
+desktop confirmation surface without exposing keys or recovery material to
+hosted JS. Current-source x86_64 parity remains a machine-level proof gap while
+Rosetta is wedged before test entry.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

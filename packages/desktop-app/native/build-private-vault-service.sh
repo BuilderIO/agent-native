@@ -14,6 +14,8 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
+  "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m"
+  "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m"
@@ -44,6 +46,12 @@ RESOURCES="$CONTENTS/Resources"
 EXECUTABLE="$MACOS/AgentNativePrivateVaultService"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 PRIVATE_VAULT_HOSTED_ORIGIN="${PRIVATE_VAULT_HOSTED_ORIGIN:-https://content.agent-native.com}"
+PRIVATE_VAULT_BUILD_ARCHITECTURES="${PRIVATE_VAULT_BUILD_ARCHITECTURES:-universal}"
+if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" != "universal" &&
+      "$PRIVATE_VAULT_BUILD_ARCHITECTURES" != "arm64" ]]; then
+  echo "Private Vault build architectures must be universal or arm64" >&2
+  exit 1
+fi
 if [[ ! "$PRIVATE_VAULT_HOSTED_ORIGIN" =~ ^https://[A-Za-z0-9.-]+$ ]]; then
   echo "Private Vault hosted origin must be one exact HTTPS origin" >&2
   exit 1
@@ -132,7 +140,10 @@ build_libsodium_slice() {
 }
 
 ARM64_SODIUM="$(build_libsodium_slice arm64 aarch64-apple-darwin)"
-X86_64_SODIUM="$(build_libsodium_slice x86_64 x86_64-apple-darwin)"
+X86_64_SODIUM=""
+if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+  X86_64_SODIUM="$(build_libsodium_slice x86_64 x86_64-apple-darwin)"
+fi
 
 mkdir -p "$(dirname "$THIRD_PARTY_NOTICES")"
 NOTICE_CANDIDATE="$INTERMEDIATES/THIRD_PARTY_NOTICES.md"
@@ -141,6 +152,10 @@ NOTICE_CANDIDATE="$INTERMEDIATES/THIRD_PARTY_NOTICES.md"
   cat "$SOURCE_ROOT/third-party/libsodium/NOTICE.md"
   printf '\n## License text\n\n```text\n'
   cat "$SOURCE_ROOT/third-party/libsodium/LICENSE"
+  printf '```\n\n'
+  cat "$SOURCE_ROOT/recovery/third-party/bip39/NOTICE.md"
+  printf '\n## BIP39 word list license text\n\n```text\n'
+  cat "$SOURCE_ROOT/recovery/third-party/bip39/LICENSE"
   printf '```\n'
 } > "$NOTICE_CANDIDATE"
 if [[ ! -f "$THIRD_PARTY_NOTICES" || -L "$THIRD_PARTY_NOTICES" ]] ||
@@ -154,6 +169,8 @@ if [[ ! -f "$THIRD_PARTY_NOTICES" || -L "$THIRD_PARTY_NOTICES" ]] ||
   NOTICE_REPLACEMENT=""
 fi
 [[ -f "$THIRD_PARTY_NOTICES" && ! -L "$THIRD_PARTY_NOTICES" ]]
+[[ "$(shasum -a 256 "$SOURCE_ROOT/recovery/third-party/bip39/english.inc" | awk '{print $1}')" == \
+  "4dd7af699f430f200ae6511aa12f9ec6513c650bb063fe1662545fa5fbb8432d" ]]
 
 compile_slice() {
   local architecture="$1"
@@ -167,6 +184,7 @@ compile_slice() {
     -I"$SOURCE_ROOT/crypto" \
     -I"$SOURCE_ROOT/control" \
     -I"$SOURCE_ROOT/storage" \
+    -I"$SOURCE_ROOT/recovery" \
     -I"$SOURCE_ROOT/transport" \
     -I"$SOURCE_ROOT" \
     -I"$sodium_root/include" \
@@ -179,7 +197,9 @@ compile_slice() {
 }
 
 compile_slice arm64 "$INTERMEDIATES/service-arm64" "$ARM64_SODIUM"
-compile_slice x86_64 "$INTERMEDIATES/service-x86_64" "$X86_64_SODIUM"
+if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+  compile_slice x86_64 "$INTERMEDIATES/service-x86_64" "$X86_64_SODIUM"
+fi
 
 case "${PRIVATE_VAULT_BUILD_CRYPTO_TESTS:-}" in
   "") ;;
@@ -210,6 +230,38 @@ case "${PRIVATE_VAULT_BUILD_CRYPTO_TESTS:-}" in
     echo "Invalid Private Vault crypto-test build mode" >&2
     exit 1
     ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_RECOVERY_TESTS:-}" in
+  "") ;;
+  1)
+  RECOVERY_TEST_OUTPUT="$OUTPUT_ROOT/.recovery-tests"
+  rm -rf "$RECOVERY_TEST_OUTPUT"
+  mkdir -p "$RECOVERY_TEST_OUTPUT"
+  compile_recovery_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$RECOVERY_TEST_OUTPUT/private-vault-recovery-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/storage" \
+      -I"$SOURCE_ROOT/recovery" -I"$sodium_root/include" \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_recovery_test_slice arm64 "$ARM64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_recovery_test_slice x86_64 "$X86_64_SODIUM"
+  fi
+  ;;
+  *) echo "Invalid Private Vault recovery-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_CANONICAL_TESTS:-}" in
@@ -785,14 +837,22 @@ rm -rf "$BUNDLE"
 mkdir -p "$MACOS" "$RESOURCES"
 cp "$INFO_PLIST" "$CONTENTS/Info.plist"
 cp "$THIRD_PARTY_NOTICES" "$RESOURCES/THIRD_PARTY_NOTICES.md"
-lipo -create \
-  "$INTERMEDIATES/service-arm64" \
-  "$INTERMEDIATES/service-x86_64" \
-  -output "$EXECUTABLE"
+if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+  lipo -create \
+    "$INTERMEDIATES/service-arm64" \
+    "$INTERMEDIATES/service-x86_64" \
+    -output "$EXECUTABLE"
+else
+  cp "$INTERMEDIATES/service-arm64" "$EXECUTABLE"
+fi
 chmod 0755 "$EXECUTABLE"
 
 plutil -lint "$CONTENTS/Info.plist" >/dev/null
-lipo "$EXECUTABLE" -verify_arch arm64 x86_64
+if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+  lipo "$EXECUTABLE" -verify_arch arm64 x86_64
+else
+  lipo "$EXECUTABLE" -verify_arch arm64
+fi
 if otool -L "$EXECUTABLE" | grep -i 'libsodium'; then
   echo "Private Vault service unexpectedly links a libsodium dynamic library" >&2
   exit 1

@@ -372,6 +372,7 @@
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
     "@react-router/dev": "^8.1.0",
     "@react-router/fs-routes": "^8.1.0",
+    "@scure/bip39": "2.2.0",
     "@supabase/supabase-js": "^2.49.0",
     "@tabler/icons-react": "^3.40.0",
     "@tailwindcss/typography": "^0.5.20",

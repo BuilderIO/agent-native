@@ -494,11 +494,26 @@ typecheck pass; the final-source x86_64 coordinator rerun remains pending after
 a Rosetta loader process wedged before test execution. Earlier dual-architecture
 corpus passes remain supporting history, not a substitute for that rerun.
 
-This still does not close PR 5: native entropy and recovery-code generation,
-the trusted confirmation UI, durable PREPARE/cancel/expiry, persistence of the
-actual recoverable epoch wrap, complete enrollment and recovery product flows,
-malicious-directory and stolen-session transcripts, and the independently
-packageable broker exit gate remain.
+The trust anchor now also generates guarded 32-byte recovery entropy, encodes
+and validates its exact checksum-bearing 24-word English BIP39 form, and derives
+the generation-separated recovery authority from the frozen Argon2id root. The
+decoder uses bounded byte-level UTF-8 parsing, an explicit Unicode-whitespace
+set, ASCII-only BIP39 words, constant-time entropy confirmation, fixed-capacity
+caller snapshots, and explicit secret-buffer cleanup; it leaves no immutable
+Foundation copies of the phrase. The full vendored 2,048-word order is checked
+at runtime against pinned `@scure/bip39@2.2.0`, and the production service
+contains the primitive without adding an XPC, addon, preload, or hosted-webview
+operation. Current-source arm64 production and recovery-test builds, the native
+negative runner, Core parity, typecheck, and independent security review pass.
+Current-source x86_64 execution remains pending because both the coordinator
+runner and a libsodium configure probe wedged in Rosetta before entering their
+tests; no translated result is being inferred from the arm64 pass.
+
+This still does not close PR 5: the trusted confirmation UI, durable
+PREPARE/cancel/expiry, persistence of the actual recoverable epoch wrap,
+complete enrollment and recovery product flows, malicious-directory and
+stolen-session transcripts, and the independently packageable broker exit gate
+remain.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
@@ -506,8 +521,9 @@ decoded bytes rather than mnemonic text to Argon2id, and use the exact
 native-generated 16-byte vault ID as the salt for genesis and every later
 recovery generation. This preserves the frozen `anc/v1` wire format while
 removing an otherwise fatal recovery interoperability ambiguity. Core/native
-derivation parity and actual recovery-wrap persistence remain implementation
-gates before the first real vault is created.
+derivation parity is now closed on arm64 and independently reviewed; the
+current-source x86_64 rerun and actual recovery-wrap persistence remain
+implementation gates before the first real vault is created.
 
 The public lifecycle `AncV1RecoveryEnvelope` codec retains an arbitrary salt
 only to decode its frozen synthetic compatibility vector. It is a parallel

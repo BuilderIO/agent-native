@@ -488,6 +488,9 @@ importers:
       '@excalidraw/mermaid-to-excalidraw':
         specifier: 2.2.2
         version: 2.2.2
+      '@scure/bip39':
+        specifier: 2.2.0
+        version: 2.2.0
       '@supabase/supabase-js':
         specifier: ^2.49.0
         version: 2.108.2
@@ -10577,6 +10580,12 @@ packages:
 
   '@rrweb/utils@2.1.0':
     resolution: {integrity: sha512-hU7MT3TSdD+Do7FmMoHrBfPevFCheN5vo2mn97Y4vbXuwemopAmo8dqo5KJeMaA6oQQt7FinHJ0Xqb7k68Ci6Q==}
+
+  '@scure/base@2.2.0':
+    resolution: {integrity: sha512-b8XEupJibegiXV+tDUseI8oLQc8ei3d/4Jkb2RpbHh3MfE054ov3uIz2dhFkB3FI8iwYkEh0gGCApkrYggkPNg==}
+
+  '@scure/bip39@2.2.0':
+    resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
 
   '@sentry/browser-utils@10.60.0':
     resolution: {integrity: sha512-YhdPeMJnMaKVi5NQ2tD9RJ2AxU7cav5khmiMHFppmbP3I3Os2EHVaQjAVb6/ePAINr/d5mj5SxpnWmFX17iXsg==}
@@ -24754,6 +24763,13 @@ snapshots:
   '@rrweb/types@2.1.0': {}
 
   '@rrweb/utils@2.1.0': {}
+
+  '@scure/base@2.2.0': {}
+
+  '@scure/bip39@2.2.0':
+    dependencies:
+      '@noble/hashes': 2.2.0
+      '@scure/base': 2.2.0
 
   '@sentry/browser-utils@10.60.0':
     dependencies:

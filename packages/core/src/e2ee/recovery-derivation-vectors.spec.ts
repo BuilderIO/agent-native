@@ -1,3 +1,5 @@
+import { entropyToMnemonic, mnemonicToEntropy } from "@scure/bip39";
+import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -44,6 +46,20 @@ function expectVectorAuthority(authority: AncV1RecoveryAuthority): void {
 }
 
 describe("anc/v1 canonical recovery derivation", () => {
+  it("round-trips the ephemeral English BIP39 confirmation encoding", async () => {
+    const entropy = syntheticCounterBytes(32);
+    const mnemonic = entropyToMnemonic(entropy, wordlist);
+    const mnemonicBytes = new TextEncoder().encode(mnemonic);
+    const decoded = mnemonicToEntropy(mnemonic, wordlist);
+    expect(decoded).toEqual(entropy);
+    expect(hex(await ancV1Hash("recovery", mnemonicBytes))).toBe(
+      VECTOR.mnemonicCommitmentHex,
+    );
+    mnemonicBytes.fill(0);
+    decoded.fill(0);
+    entropy.fill(0);
+  });
+
   it("matches the source-anchored one-way commitments", async () => {
     const rawEntropy = syntheticCounterBytes(32);
     const rawVaultId = syntheticCounterBytes(16);

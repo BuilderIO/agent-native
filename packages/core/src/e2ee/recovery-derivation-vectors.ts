@@ -11,6 +11,9 @@ export const ANC_V1_RECOVERY_DERIVATION_VECTOR = Object.freeze({
   recoveryEntropyRecipe: "byte[i] = i for i in 0..31",
   recoveryEntropyCommitmentHex:
     "adfb669ca3e6a8b5fc796bb326a27cf3e86c5bf2f733a9d85679f0e375e2652b",
+  mnemonicEncoding: "bip39-english-24-word-nfkd",
+  mnemonicCommitmentHex:
+    "6354f858df85c21f2e28cef88a3c0c47ef386a9f216613240938d056ca9a1a83",
   vaultIdHex: "000102030405060708090a0b0c0d0e0f",
   recoveryGeneration: 1,
   recoveryRootCommitmentHex:
