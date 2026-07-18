@@ -243,6 +243,20 @@ describe("Private Vault signed control-log persistence", () => {
     await expect(restarted.loadVerifiedState(scope(vaultId))).resolves.toEqual(
       appended.state,
     );
+    const snapshot = await restarted.loadVerifiedSnapshot(scope(vaultId));
+    expect(snapshot.state).toEqual(appended.state);
+    expect(snapshot.entries).toEqual([
+      {
+        sequence: 0,
+        entryHash: initialized.state.headHash,
+        entryBytes: encodeSignedControlLogEntry(initialized.genesis),
+      },
+      {
+        sequence: 1,
+        entryHash: appended.state.headHash,
+        entryBytes: encodeSignedControlLogEntry(addBroker),
+      },
+    ]);
     await expect(
       restarted.resolveBrokerAuthorization(
         scope(vaultId),

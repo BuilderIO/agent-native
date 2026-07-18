@@ -19,3 +19,4 @@ export * from "./recovery-ceremony-codecs.js";
 export * from "./recovery-derivation-vectors.js";
 export * from "./privacy-manifest.js";
 export * from "./suite.js";
+export * from "./vault-bootstrap-protocol.js";

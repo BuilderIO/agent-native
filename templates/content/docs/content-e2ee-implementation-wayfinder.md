@@ -682,11 +682,25 @@ the claim against the returned ciphertext frame, binds the native-authenticated
 job hash into the result, zeroizes every transferred plaintext/result buffer,
 serializes work, and moves failures to bounded encrypted retry instead of a
 hosted fallback. Core vectors, route/auth unit tests, a real temporary-SQLite
-signed-control-head authentication and replay-denial test, all 47 broker tests,
+signed-control-head authentication and replay-denial test, all 48 broker tests,
 Core and broker typechecks, Content typecheck, and Core build pass. The worker
 still needs a packaged process, concrete encrypted state/index, app action
 executor, enrollment/recovery, and lifecycle supervision before the broker exit
 gate closes.
+
+Recovery and later enrollment now have a hosted bootstrap read boundary. A
+same-origin, session-authenticated client asks for the beta account's one vault
+without supplying a vault identifier; the server resolves stable account and
+workspace coordinates from current membership, fully replays the signed
+control log, and returns bounded contiguous pages pinned to one exact head.
+Only the final page carries the exact encrypted recovery wrap whose immutable
+binding matches that replayed head. A concurrent append, stale pin, log gap,
+binding mismatch, noncanonical request, wrong media type, or cross-site request
+fails closed. The response contains public control entries and ciphertext
+only—never recovery entropy, endpoint secrets, or a server recovery key. Core
+protocol vectors, route/service tests, and a real SQLite canonical-snapshot
+test pass. Trusted native replay, mnemonic import, replacement recovery
+authority, and recovered-endpoint admission remain the next product gate.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

@@ -103,6 +103,43 @@ export async function resolveAuthenticatedPrivateVaultScope(
   });
 }
 
+/** Resolve the beta's one personal vault without accepting a caller vault ID. */
+export async function resolveAuthenticatedPrivateVaultBootstrapScope(
+  event: H3Event,
+): Promise<{ ownerEmail: string; orgId: string; vaultId: string } | null> {
+  const session = await getCurrentBetterAuthSession(event).catch(() => null);
+  if (!session?.email || !session.userId) return null;
+  const org = await getOrgContext(event).catch(() => null);
+  if (
+    !org?.orgId ||
+    org.email.trim().toLowerCase() !== session.email.trim().toLowerCase()
+  ) {
+    return null;
+  }
+  const logical = await resolvePrivateVaultGenesisAccountScope({
+    userId: session.userId,
+    email: session.email,
+    orgId: org.orgId,
+  });
+  if (!logical) return null;
+  const [vault] = await getDb()
+    .select({
+      ownerEmail: schema.contentEncryptedVaults.ownerEmail,
+      orgId: schema.contentEncryptedVaults.orgId,
+      vaultId: schema.contentEncryptedVaults.vaultId,
+    })
+    .from(schema.contentEncryptedVaults)
+    .where(
+      and(
+        eq(schema.contentEncryptedVaults.accountId, logical.accountId),
+        eq(schema.contentEncryptedVaults.workspaceId, logical.workspaceId),
+        eq(schema.contentEncryptedVaults.vaultState, "active"),
+      ),
+    )
+    .limit(1);
+  return vault ?? null;
+}
+
 export async function resolvePrivateVaultScopeForStableIdentity(input: {
   userId: string;
   email: string;

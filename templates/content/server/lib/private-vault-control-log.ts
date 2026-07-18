@@ -330,9 +330,16 @@ export function createPrivateVaultControlLogService(
     return state;
   }
 
-  async function loadVerifiedState(
+  async function loadVerifiedSnapshot(
     scopeInput: PrivateVaultControlLogScope,
-  ): Promise<ControlLogState | null> {
+  ): Promise<{
+    state: ControlLogState | null;
+    entries: Array<{
+      sequence: number;
+      entryHash: string;
+      entryBytes: Uint8Array;
+    }>;
+  }> {
     const scope = normalizeScope(scopeInput);
     const rows = (await getDb()
       .select()
@@ -353,7 +360,20 @@ export function createPrivateVaultControlLogService(
     ) {
       throw new PrivateVaultControlLogError("persisted_state_tampered");
     }
-    return state;
+    return {
+      state,
+      entries: rows.map((row) => ({
+        sequence: row.sequence,
+        entryHash: row.entryHash,
+        entryBytes: decodeStoredBytes(row.entryBytesBase64url),
+      })),
+    };
+  }
+
+  async function loadVerifiedState(
+    scopeInput: PrivateVaultControlLogScope,
+  ): Promise<ControlLogState | null> {
+    return (await loadVerifiedSnapshot(scopeInput)).state;
   }
 
   async function loadVerifiedEntry(
@@ -627,6 +647,7 @@ export function createPrivateVaultControlLogService(
     },
 
     loadVerifiedState,
+    loadVerifiedSnapshot,
     loadVerifiedEntry,
 
     async resolveBrokerAuthorization(
