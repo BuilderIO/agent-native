@@ -38,8 +38,9 @@ static NSData *Hex(NSString *hex) {
   uint8_t *bytes = data.mutableBytes;
   for (NSUInteger index = 0; index < data.length; index += 1) {
     unsigned value = 0;
-    assert(sscanf([[hex substringWithRange:NSMakeRange(index * 2, 2)] UTF8String],
-                  "%2x", &value) == 1);
+    assert(
+        sscanf([[hex substringWithRange:NSMakeRange(index * 2, 2)] UTF8String],
+               "%2x", &value) == 1);
     bytes[index] = (uint8_t)value;
   }
   return data;
@@ -64,8 +65,9 @@ static NSData *Offer(void) {
         @161 : [AncPrivateVaultCanonicalValue bytes:Repeated(0x0c, 16)],
         @162 : [AncPrivateVaultCanonicalValue text:@"endpoint"],
         @163 : [AncPrivateVaultCanonicalValue boolean:NO],
-        @164 : [AncPrivateVaultCanonicalValue bytes:Hex(
-                    @"204040e364c10f2bec9c1fe500a1cd4c247c89d650a01ed7e82caba867877c21")],
+        @164 : [AncPrivateVaultCanonicalValue
+            bytes:Hex(@"204040e364c10f2bec9c1fe500a1cd4c247c89d650a01ed7e82caba"
+                      @"867877c21")],
         @165 : [AncPrivateVaultCanonicalValue bytes:Repeated(0x33, 32)],
         @166 : [AncPrivateVaultCanonicalValue bytes:Repeated(0xa5, 32)],
         @168 : [AncPrivateVaultCanonicalValue integer:1721111711],
@@ -81,17 +83,17 @@ static AncPrivateVaultControlLogState *State(void) {
                                      startingAtIndex:0];
   member.role = @"endpoint";
   member.unattended = NO;
-  member.signingPublicKey = Hex(
-      @"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737");
+  member.signingPublicKey =
+      Hex(@"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737");
   member.keyAgreementPublicKey = Repeated(0x22, 32);
   member.enrollmentRef = [@"10" stringByPaddingToLength:32
-                                               withString:@"10"
-                                          startingAtIndex:0];
+                                             withString:@"10"
+                                        startingAtIndex:0];
   AncPrivateVaultControlLogState *state =
       [[AncPrivateVaultControlLogState alloc] init];
   state.vaultId = [@"01" stringByPaddingToLength:32
-                                        withString:@"01"
-                                   startingAtIndex:0];
+                                      withString:@"01"
+                                 startingAtIndex:0];
   state.sequence = 9;
   state.headHash = Repeated(0x71, 32);
   state.membershipHash = Repeated(0x72, 32);
@@ -101,8 +103,8 @@ static AncPrivateVaultControlLogState *State(void) {
   state.epoch = 7;
   state.recoveryGeneration = 1;
   state.recoveryId = [@"73" stringByPaddingToLength:32
-                                           withString:@"73"
-                                      startingAtIndex:0];
+                                         withString:@"73"
+                                    startingAtIndex:0];
   state.recoverySigningPublicKey = Repeated(0x74, 32);
   state.recoveryKeyAgreementPublicKey = Repeated(0x75, 32);
   state.recoveryWrapHash = Repeated(0x76, 32);
@@ -114,35 +116,66 @@ int main(void) {
   @autoreleasepool {
     assert(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
     NSData *challenge = Hex(
-        @"b20166616e632f76310250010101010101010101010101010101010374656e726f6c6c6d656e742d6368616c6c656e6765041a6696125005500f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f18aa58204f4737a03a92baf7a57d46e2bc5c6a29b817daeb163c28841969d012a436f53518ab5840e26ba35d10a11dcccc1b9a36fa9fd4e191e9bdc727f7f0f5427ad2bdc447a66456c00cbdf93e22e403ef9ec2aeba492b5ec6822185f26b071dd2dc98798cd10218ac500202020202020202020202020202020218ad5820d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c977873718ae5820222222222222222222222222222222222222222222222222222222222222222218af0918b05820717171717171717171717171717171717171717171717171717171717171717118b15820727272727272727272727272727272727272727272727272727272727272727218b268656e64706f696e7418b358203efd1f28bab187e425633368ef8f649f5d6b4ab07df6aa5f23a42493f9e3ba1b18b45820a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a718b51a669614a818b65840b6690aa7a62dc3041f88c597586a9943d165f62b511567a630e5309d9494bdd22e84bbd3b296748b98083e5080ea08dd1dbef3ae00508099b6306b783a9a3500");
+        @"b20166616e632f76310250010101010101010101010101010101010374656e726f6c6"
+        @"c6d656e742d6368616c6c656e6765041a6696125005500f0f0f0f0f0f0f0f0f0f0f0f"
+        @"0f0f0f0f18aa58204f4737a03a92baf7a57d46e2bc5c6a29b817daeb163c28841969d"
+        @"012a436f53518ab5840e26ba35d10a11dcccc1b9a36fa9fd4e191e9bdc727f7f0f542"
+        @"7ad2bdc447a66456c00cbdf93e22e403ef9ec2aeba492b5ec6822185f26b071dd2dc9"
+        @"8798cd10218ac500202020202020202020202020202020218ad5820d04ab232742bb4"
+        @"ab3a1368bd4615e4e6d0224ab71a016baf8520a332c977873718ae582022222222222"
+        @"2222222222222222222222222222222222222222222222222222218af0918b0582071"
+        @"7171717171717171717171717171717171717171717171717171717171717118b1582"
+        @"0727272727272727272727272727272727272727272727272727272727272727218b2"
+        @"68656e64706f696e7418b358203efd1f28bab187e425633368ef8f649f5d6b4ab07df"
+        @"6aa5f23a42493f9e3ba1b18b45820a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7"
+        @"a7a7a7a7a7a7a7a7a7a7a7a718b51a669614a818b65840b6690aa7a62dc3041f88c59"
+        @"7586a9943d165f62b511567a630e5309d9494bdd22e84bbd3b296748b98083e5080ea"
+        @"08dd1dbef3ae00508099b6306b783a9a3500");
     AncPrivateVaultEnrollmentChallengeStatus status;
     AncPrivateVaultEnrollmentChallengeResult *result =
-        AncPrivateVaultEnrollmentChallengeVerify(Offer(), challenge, State(),
-                                                 1721111100, 1721111121,
-                                                 &status);
+        AncPrivateVaultEnrollmentChallengeVerify(
+            Offer(), challenge, State(), 1721111100, 1721111121, &status);
     assert(status == AncPrivateVaultEnrollmentChallengeStatusOK &&
            result != nil && [result.sasCode isEqualToString:@"056-775-976"] &&
-           [result.challengeHash isEqualToData:Hex(
-               @"18c08a5bb9ce83b936ae78290dcaeb8dbb70101aa2a62fa6f7ca525ec8f300b6")] &&
-           [result.sasTranscriptHash isEqualToData:Hex(
-               @"3efd1f28bab187e425633368ef8f649f5d6b4ab07df6aa5f23a42493f9e3ba1b")] &&
+           [result.challengeHash
+               isEqualToData:Hex(@"18c08a5bb9ce83b936ae78290dcaeb8dbb70101aa2a6"
+                                 @"2fa6f7ca525ec8f300b6")] &&
+           [result.sasTranscriptHash
+               isEqualToData:Hex(@"3efd1f28bab187e425633368ef8f649f5d6b4ab07df6"
+                                 @"aa5f23a42493f9e3ba1b")] &&
            [result.targetMembershipRole isEqualToString:@"endpoint"] &&
            result.controlSequence == 9);
-    assert([result.sasTranscript isEqualToData:Hex(
-        @"b40166616e632f7631025001010101010101010101010101010101036e656e726f6c6c6d656e742d736173190140500c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c19014158204f4737a03a92baf7a57d46e2bc5c6a29b817daeb163c28841969d012a436f53519014250030303030303030303030303030303031901435820204040e364c10f2bec9c1fe500a1cd4c247c89d650a01ed7e82caba867877c21190144582033333333333333333333333333333333333333333333333333333333333333331901455840e26ba35d10a11dcccc1b9a36fa9fd4e191e9bdc727f7f0f5427ad2bdc447a66456c00cbdf93e22e403ef9ec2aeba492b5ec6822185f26b071dd2dc98798cd10219014650020202020202020202020202020202021901475820d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737190148582022222222222222222222222222222222222222222222222222222222222222221901490919014a5820717171717171717171717171717171717171717171717171717171717171717119014b5820727272727272727272727272727272727272727272727272727272727272727219014c68656e64706f696e7419014d5820a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a719014e500f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f19014f1a669612501901501a669614a8")]);
+    assert([result.sasTranscript
+        isEqualToData:
+            Hex(@"b40166616e632f7631025001010101010101010101010101010101036e656"
+                @"e726f6c6c6d656e742d736173190140500c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+                @"0c0c19014158204f4737a03a92baf7a57d46e2bc5c6a29b817daeb163c288"
+                @"41969d012a436f53519014250030303030303030303030303030303031901"
+                @"435820204040e364c10f2bec9c1fe500a1cd4c247c89d650a01ed7e82caba"
+                @"867877c211901445820333333333333333333333333333333333333333333"
+                @"33333333333333333333331901455840e26ba35d10a11dcccc1b9a36fa9fd"
+                @"4e191e9bdc727f7f0f5427ad2bdc447a66456c00cbdf93e22e403ef9ec2ae"
+                @"ba492b5ec6822185f26b071dd2dc98798cd10219014650020202020202020"
+                @"202020202020202021901475820d04ab232742bb4ab3a1368bd4615e4e6d0"
+                @"224ab71a016baf8520a332c97787371901485820222222222222222222222"
+                @"22222222222222222222222222222222222222222221901490919014a5820"
+                @"7171717171717171717171717171717171717171717171717171717171717"
+                @"17119014b5820727272727272727272727272727272727272727272727272"
+                @"727272727272727219014c68656e64706f696e7419014d5820a7a7a7a7a7a"
+                @"7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a719014e50"
+                @"0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f19014f1a669612501901501a66961"
+                @"4a8")]);
 
     NSMutableData *badSignature = [challenge mutableCopy];
     ((uint8_t *)badSignature.mutableBytes)[badSignature.length - 1] ^= 1;
     assert(AncPrivateVaultEnrollmentChallengeVerify(
                Offer(), badSignature, State(), 1721111100, 1721111121,
                &status) == nil &&
-           status ==
-               AncPrivateVaultEnrollmentChallengeStatusInvalidSignature);
-    assert(AncPrivateVaultEnrollmentChallengeVerify(
-               Offer(), challenge, State(), 1721111100, 1721112000,
-               &status) == nil &&
-           status ==
-               AncPrivateVaultEnrollmentChallengeStatusStaleAuthority);
+           status == AncPrivateVaultEnrollmentChallengeStatusInvalidSignature);
+    assert(AncPrivateVaultEnrollmentChallengeVerify(Offer(), challenge, State(),
+                                                    1721111100, 1721112000,
+                                                    &status) == nil &&
+           status == AncPrivateVaultEnrollmentChallengeStatusStaleAuthority);
     AncPrivateVaultControlLogState *wrongHead = State();
     wrongHead.headHash = Repeated(0x70, 32);
     assert(AncPrivateVaultEnrollmentChallengeVerify(
@@ -150,7 +183,7 @@ int main(void) {
                &status) == nil &&
            status == AncPrivateVaultEnrollmentChallengeStatusConflict);
     AncPrivateVaultControlLogState *hostileState = State();
-    hostileState.activeMembers = (id)@[ NSNull.null ];
+    hostileState.activeMembers = (id) @[ NSNull.null ];
     assert(AncPrivateVaultEnrollmentChallengeVerify(
                Offer(), challenge, hostileState, 1721111100, 1721111121,
                &status) == nil &&
@@ -163,15 +196,15 @@ int main(void) {
     AncPrivateVaultControlLogMember *candidate =
         [[AncPrivateVaultControlLogMember alloc] init];
     candidate.endpointId = [@"03" stringByPaddingToLength:32
-                                                 withString:@"03"
-                                            startingAtIndex:0];
+                                               withString:@"03"
+                                          startingAtIndex:0];
     candidate.role = @"endpoint";
     candidate.unattended = NO;
     candidate.signingPublicKey = Repeated(0x44, 32);
     candidate.keyAgreementPublicKey = Repeated(0x45, 32);
     candidate.enrollmentRef = [@"46" stringByPaddingToLength:32
-                                                    withString:@"46"
-                                               startingAtIndex:0];
+                                                  withString:@"46"
+                                             startingAtIndex:0];
     activeCandidate.activeMembers =
         [activeCandidate.activeMembers arrayByAddingObject:candidate];
     assert(AncPrivateVaultEnrollmentChallengeVerify(

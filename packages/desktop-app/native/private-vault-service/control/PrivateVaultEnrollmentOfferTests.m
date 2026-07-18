@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 
-#import "PrivateVaultEnrollmentOffer.h"
 #import "PrivateVaultCrypto.h"
+#import "PrivateVaultEnrollmentOffer.h"
 
 #include <assert.h>
 
@@ -10,8 +10,9 @@ static NSData *Hex(NSString *hex) {
   uint8_t *bytes = data.mutableBytes;
   for (NSUInteger index = 0; index < data.length; index += 1) {
     unsigned value = 0;
-    assert(sscanf([[hex substringWithRange:NSMakeRange(index * 2, 2)] UTF8String],
-                  "%2x", &value) == 1);
+    assert(
+        sscanf([[hex substringWithRange:NSMakeRange(index * 2, 2)] UTF8String],
+               "%2x", &value) == 1);
     bytes[index] = (uint8_t)value;
   }
   return data;
@@ -24,13 +25,14 @@ int main(void) {
     NSData *endpoint = Hex(@"101112131415161718191a1b1c1d1e1f");
     NSData *ceremony = Hex(@"202122232425262728292a2b2c2d2e2f");
     NSData *envelope = Hex(@"303132333435363738393a3b3c3d3e3f");
-    NSData *nonce = Hex(@"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f");
-    NSMutableData *signingSeed =
-        [Hex(@"606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f")
-            mutableCopy];
-    NSMutableData *boxSeed =
-        [Hex(@"808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
-            mutableCopy];
+    NSData *nonce = Hex(
+        @"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f");
+    NSMutableData *signingSeed = [Hex(
+        @"606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f")
+        mutableCopy];
+    NSMutableData *boxSeed = [Hex(
+        @"808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+        mutableCopy];
     AncPrivateVaultEnrollmentOfferStatus status;
     AncPrivateVaultEnrollmentOfferResult *result =
         AncPrivateVaultEnrollmentOfferBuild(
@@ -38,15 +40,28 @@ int main(void) {
             1721117511, 1721118111, signingSeed.bytes, boxSeed.bytes, &status);
     assert(status == AncPrivateVaultEnrollmentOfferStatusOK && result != nil);
     assert([result.signingPublicKey
-        isEqualToData:Hex(@"174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a63482993fd5")]);
+        isEqualToData:Hex(@"174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d4"
+                          @"3a63482993fd5")]);
     assert([result.keyAgreementPublicKey
-        isEqualToData:Hex(@"3de70cb2b9bb0bda3873d13e8a7cf4ea870dabeb296caa1dfce0a5f411c8d234")]);
+        isEqualToData:Hex(@"3de70cb2b9bb0bda3873d13e8a7cf4ea870dabeb296caa1dfce"
+                          @"0a5f411c8d234")]);
     assert([result.encodedOffer
-        isEqualToData:Hex(@"ad0166616e632f76310250000102030405060708090a0b0c0d0e0f0370656e726f6c6c6d656e742d6f66666572041a66962b470550303132333435363738393a3b3c3d3e3f18a050101112131415161718191a1b1c1d1e1f18a150202122232425262728292a2b2c2d2e2f18a26662726f6b657218a3f518a45820174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a63482993fd518a558203de70cb2b9bb0bda3873d13e8a7cf4ea870dabeb296caa1dfce0a5f411c8d23418a65820404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f18a81a66962d9f")]);
+        isEqualToData:
+            Hex(@"ad0166616e632f76310250000102030405060708090a0b0c0d0e0f0370656"
+                @"e726f6c6c6d656e742d6f66666572041a66962b4705503031323334353637"
+                @"38393a3b3c3d3e3f18a050101112131415161718191a1b1c1d1e1f18a1502"
+                @"02122232425262728292a2b2c2d2e2f18a26662726f6b657218a3f518a458"
+                @"20174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a634829"
+                @"93fd518a558203de70cb2b9bb0bda3873d13e8a7cf4ea870dabeb296caa1d"
+                @"fce0a5f411c8d23418a65820404142434445464748494a4b4c4d4e4f50515"
+                @"2535455565758595a5b5c5d5e5f18a81a66962d9f")]);
     assert([result.offerHash
-        isEqualToData:Hex(@"b44220e10afb6f46407104bc873bca0a6b245af6433165c41413fd56f2a6a5ed")]);
+        isEqualToData:Hex(@"b44220e10afb6f46407104bc873bca0a6b245af6433165c4141"
+                          @"3fd56f2a6a5ed")]);
     assert([result.candidateKeyProof
-        isEqualToData:Hex(@"9a7393a4e510dd83bfc8bc8078fdb1495b56c0d289127c40f46f6a558e54ffdf861e21c40543bfd51fe1904ab2b0b2fd76ba32d6455788f4bc1190d818ba7a09")]);
+        isEqualToData:Hex(@"9a7393a4e510dd83bfc8bc8078fdb1495b56c0d289127c40f46"
+                          @"f6a558e54ffdf861e21c40543bfd51fe1904ab2b0b2fd76ba32"
+                          @"d6455788f4bc1190d818ba7a09")]);
     AncPrivateVaultEnrollmentOfferResult *verified =
         AncPrivateVaultEnrollmentOfferVerify(
             result.encodedOffer, result.candidateKeyProof, vault, &status);
@@ -58,8 +73,8 @@ int main(void) {
            verified.expiresAt == 1721118111);
     NSMutableData *badProof = [result.candidateKeyProof mutableCopy];
     ((uint8_t *)badProof.mutableBytes)[0] ^= 1;
-    assert(AncPrivateVaultEnrollmentOfferVerify(
-               result.encodedOffer, badProof, vault, &status) == nil &&
+    assert(AncPrivateVaultEnrollmentOfferVerify(result.encodedOffer, badProof,
+                                                vault, &status) == nil &&
            status == AncPrivateVaultEnrollmentOfferStatusCryptoFailed);
     NSMutableData *badOffer = [result.encodedOffer mutableCopy];
     ((uint8_t *)badOffer.mutableBytes)[badOffer.length - 1] ^= 1;

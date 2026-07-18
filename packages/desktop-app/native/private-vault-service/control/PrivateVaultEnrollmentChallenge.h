@@ -42,11 +42,11 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultEnrollmentChallengeStatus) {
 /* Verifies the complete offer/challenge/SAS bundle against one authenticated
  * control state. authenticatedHeadSignedAtSeconds must come from the same
  * authority checkpoint used to construct controlState. */
-FOUNDATION_EXPORT AncPrivateVaultEnrollmentChallengeResult *_Nullable
-AncPrivateVaultEnrollmentChallengeVerify(
-    NSData *encodedOffer, NSData *encodedChallenge,
-    AncPrivateVaultControlLogState *controlState,
-    uint64_t authenticatedHeadSignedAtSeconds, uint64_t nowSeconds,
-    AncPrivateVaultEnrollmentChallengeStatus *_Nullable status);
+FOUNDATION_EXPORT AncPrivateVaultEnrollmentChallengeResult
+    *_Nullable AncPrivateVaultEnrollmentChallengeVerify(
+        NSData *encodedOffer, NSData *encodedChallenge,
+        AncPrivateVaultControlLogState *controlState,
+        uint64_t authenticatedHeadSignedAtSeconds, uint64_t nowSeconds,
+        AncPrivateVaultEnrollmentChallengeStatus *_Nullable status);
 
 NS_ASSUME_NONNULL_END

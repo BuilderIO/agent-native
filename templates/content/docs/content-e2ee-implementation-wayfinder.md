@@ -828,6 +828,21 @@ challenge and authorization transcript, confirm SAS through trusted UI, open the
 EEK wrap, replay the membership edge, and mint the production enrollment
 activation evidence.
 
+The first half of that verifier is now native and Core-exact. It accepts an
+offer and signed challenge only alongside the immutable control state and
+signed-at time derived from the same authenticated authority checkpoint. It
+rejects stale or future authority, expired ceremony material, noncanonical or
+unsafe integers, an active or tombstoned candidate, a second broker, an
+unattended authorizer, mismatched authorizer keys, stale control coordinates,
+and substituted offer, proof, role, signature, or SAS bytes. On success it
+reconstructs the frozen SAS transcript, verifies its domain hash, derives the
+unbiased nine-digit comparison code, and returns the exact challenge digest as
+public evidence. Core-pinned challenge, SAS-transcript, SAS-code, and digest
+vectors pass on Apple Silicon and Intel, hostile Objective-C projections fail
+closed, and the production arm64 XPC service builds. The result is not yet an
+activation capability: authorization, trusted SAS confirmation, EEK opening,
+and membership replay still form the remaining gate.
+
 The candidate can now verify the authorizer's challenge without trusting the
 hosted rendezvous or renderer. Native code canonically decodes the exact offer
 and challenge, re-verifies candidate key possession, requires an active

@@ -31,20 +31,20 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultEnrollmentOfferStatus) {
 /* Builds the exact Core anc/v1 public offer and the candidate's proof of key
  * possession. Seeds are borrowed only for this call; no private key or seed is
  * retained in the result. IDs are exact 16-byte lifecycle identifiers. */
-FOUNDATION_EXPORT AncPrivateVaultEnrollmentOfferResult *_Nullable
-AncPrivateVaultEnrollmentOfferBuild(
-    NSData *vaultId, NSData *endpointId, NSData *ceremonyId,
-    NSData *envelopeId, NSData *enrollmentNonce, NSString *membershipRole,
-    BOOL unattended, uint64_t createdAt, uint64_t expiresAt,
-    const uint8_t *_Nonnull signingSeed,
-    const uint8_t *_Nonnull boxSeed,
-    AncPrivateVaultEnrollmentOfferStatus *_Nullable status);
+FOUNDATION_EXPORT AncPrivateVaultEnrollmentOfferResult
+    *_Nullable AncPrivateVaultEnrollmentOfferBuild(
+        NSData *vaultId, NSData *endpointId, NSData *ceremonyId,
+        NSData *envelopeId, NSData *enrollmentNonce, NSString *membershipRole,
+        BOOL unattended, uint64_t createdAt, uint64_t expiresAt,
+        const uint8_t *_Nonnull signingSeed, const uint8_t *_Nonnull boxSeed,
+        AncPrivateVaultEnrollmentOfferStatus *_Nullable status);
 
 /* Canonically decodes and re-hashes an exact offer, checks its frozen role and
  * lifetime rules, and verifies the supplied candidate key-possession proof. */
-FOUNDATION_EXPORT AncPrivateVaultEnrollmentOfferResult *_Nullable
-AncPrivateVaultEnrollmentOfferVerify(
-    NSData *encodedOffer, NSData *candidateKeyProof, NSData *expectedVaultId,
-    AncPrivateVaultEnrollmentOfferStatus *_Nullable status);
+FOUNDATION_EXPORT AncPrivateVaultEnrollmentOfferResult
+    *_Nullable AncPrivateVaultEnrollmentOfferVerify(
+        NSData *encodedOffer, NSData *candidateKeyProof,
+        NSData *expectedVaultId,
+        AncPrivateVaultEnrollmentOfferStatus *_Nullable status);
 
 NS_ASSUME_NONNULL_END

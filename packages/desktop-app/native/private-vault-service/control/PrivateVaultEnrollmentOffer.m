@@ -38,12 +38,12 @@ static BOOL Exact(NSData *value, NSUInteger length) {
   return [value isKindOfClass:NSData.class] && value.length == length;
 }
 
-static AncPrivateVaultEnrollmentOfferResult *Result(
-    NSData *encodedOffer, NSData *offerHash, NSData *candidateKeyProof,
-    NSData *signingPublicKey, NSData *keyAgreementPublicKey, NSData *vaultId,
-    NSData *endpointId, NSData *ceremonyId, NSData *envelopeId,
-    NSData *enrollmentNonce, NSString *membershipRole, BOOL unattended,
-    uint64_t createdAt, uint64_t expiresAt) {
+static AncPrivateVaultEnrollmentOfferResult *
+Result(NSData *encodedOffer, NSData *offerHash, NSData *candidateKeyProof,
+       NSData *signingPublicKey, NSData *keyAgreementPublicKey, NSData *vaultId,
+       NSData *endpointId, NSData *ceremonyId, NSData *envelopeId,
+       NSData *enrollmentNonce, NSString *membershipRole, BOOL unattended,
+       uint64_t createdAt, uint64_t expiresAt) {
   AncPrivateVaultEnrollmentOfferResult *result =
       class_createInstance(AncPrivateVaultEnrollmentOfferResult.class, 0);
   result.encodedOffer = [encodedOffer copy];
@@ -64,16 +64,14 @@ static AncPrivateVaultEnrollmentOfferResult *Result(
 }
 
 AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferBuild(
-    NSData *vaultId, NSData *endpointId, NSData *ceremonyId,
-    NSData *envelopeId, NSData *enrollmentNonce, NSString *membershipRole,
-    BOOL unattended, uint64_t createdAt, uint64_t expiresAt,
-    const uint8_t *signingSeed, const uint8_t *boxSeed,
-    AncPrivateVaultEnrollmentOfferStatus *status) {
+    NSData *vaultId, NSData *endpointId, NSData *ceremonyId, NSData *envelopeId,
+    NSData *enrollmentNonce, NSString *membershipRole, BOOL unattended,
+    uint64_t createdAt, uint64_t expiresAt, const uint8_t *signingSeed,
+    const uint8_t *boxSeed, AncPrivateVaultEnrollmentOfferStatus *status) {
   SetStatus(status, AncPrivateVaultEnrollmentOfferStatusInvalid);
   BOOL broker = [membershipRole isEqualToString:@"broker"];
-  if (!Exact(vaultId, 16) || !Exact(endpointId, 16) ||
-      !Exact(ceremonyId, 16) || !Exact(envelopeId, 16) ||
-      !Exact(enrollmentNonce, 32) ||
+  if (!Exact(vaultId, 16) || !Exact(endpointId, 16) || !Exact(ceremonyId, 16) ||
+      !Exact(envelopeId, 16) || !Exact(enrollmentNonce, 32) ||
       (!broker && ![membershipRole isEqualToString:@"endpoint"]) ||
       unattended != broker || createdAt == 0 || expiresAt <= createdAt ||
       expiresAt - createdAt > 600 || createdAt > kMaxSafeInteger ||
@@ -81,8 +79,8 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferBuild(
     return nil;
   uint8_t signingPublic[32] = {0}, signingPrivate[64] = {0};
   uint8_t agreementPublic[32] = {0}, agreementPrivate[32] = {0};
-  if (anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
-                                   signingSeed) != ANC_PV_CRYPTO_OK ||
+  if (anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate, signingSeed) !=
+          ANC_PV_CRYPTO_OK ||
       anc_pv_box_seed_keypair(agreementPublic, agreementPrivate, boxSeed) !=
           ANC_PV_CRYPTO_OK) {
     anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
@@ -90,10 +88,10 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferBuild(
     SetStatus(status, AncPrivateVaultEnrollmentOfferStatusCryptoFailed);
     return nil;
   }
-  NSData *signingPublicData =
-      [NSData dataWithBytes:signingPublic length:sizeof signingPublic];
-  NSData *agreementPublicData =
-      [NSData dataWithBytes:agreementPublic length:sizeof agreementPublic];
+  NSData *signingPublicData = [NSData dataWithBytes:signingPublic
+                                             length:sizeof signingPublic];
+  NSData *agreementPublicData = [NSData dataWithBytes:agreementPublic
+                                               length:sizeof agreementPublic];
   NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *fields = @{
     @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
     @2 : [AncPrivateVaultCanonicalValue bytes:vaultId],
@@ -112,14 +110,13 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferBuild(
   AncPrivateVaultCanonicalStatus canonicalStatus;
   AncPrivateVaultCanonicalValue *map =
       [AncPrivateVaultCanonicalValue map:fields];
-  NSData *offer = map == nil
-                      ? nil
-                      : AncPrivateVaultCanonicalEncode(map, &canonicalStatus);
+  NSData *offer =
+      map == nil ? nil : AncPrivateVaultCanonicalEncode(map, &canonicalStatus);
   uint8_t offerHash[32] = {0}, proof[64] = {0};
   BOOL hashed = offer != nil &&
-                anc_pv_blake2b_256_two_part(
-                    offerHash, kOfferDomain, sizeof kOfferDomain, offer.bytes,
-                    offer.length) == ANC_PV_CRYPTO_OK;
+                anc_pv_blake2b_256_two_part(offerHash, kOfferDomain,
+                                            sizeof kOfferDomain, offer.bytes,
+                                            offer.length) == ANC_PV_CRYPTO_OK;
   uint8_t proofMessage[sizeof kProofDomain + 32] = {0};
   memcpy(proofMessage, kProofDomain, sizeof kProofDomain);
   if (hashed)
@@ -151,9 +148,9 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferBuild(
   return result;
 }
 
-static AncPrivateVaultCanonicalValue *Field(
-    NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map,
-    NSNumber *key, AncPrivateVaultCanonicalType type) {
+static AncPrivateVaultCanonicalValue *
+Field(NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map,
+      NSNumber *key, AncPrivateVaultCanonicalType type) {
   AncPrivateVaultCanonicalValue *value = map[key];
   return value.type == type ? value : nil;
 }
@@ -166,8 +163,8 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferVerify(
       candidateKeyProof.length != 64 || !Exact(expectedVaultId, 16))
     return nil;
   AncPrivateVaultCanonicalStatus canonicalStatus;
-  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
-      encodedOffer, 64 * 1024, &canonicalStatus);
+  AncPrivateVaultCanonicalValue *root =
+      AncPrivateVaultCanonicalDecode(encodedOffer, 64 * 1024, &canonicalStatus);
   NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map =
       root.type == AncPrivateVaultCanonicalTypeMap ? root.mapValue : nil;
   NSSet<NSNumber *> *keys = [NSSet setWithArray:@[
@@ -203,40 +200,38 @@ AncPrivateVaultEnrollmentOfferResult *AncPrivateVaultEnrollmentOfferVerify(
   AncPrivateVaultCanonicalValue *expires =
       Field(map, @168, AncPrivateVaultCanonicalTypeInteger);
   BOOL broker = [role.textValue isEqualToString:@"broker"];
-  BOOL valid = suite != nil && [suite.textValue isEqualToString:@"anc/v1"] &&
-               vault != nil && Exact(vault.bytesValue, 16) &&
-               [vault.bytesValue isEqualToData:expectedVaultId] && type != nil &&
-               [type.textValue isEqualToString:@"enrollment-offer"] &&
-               created != nil && created.integerValue > 0 &&
-               (uint64_t)created.integerValue <= kMaxSafeInteger &&
-               envelope != nil &&
-               Exact(envelope.bytesValue, 16) && endpoint != nil &&
-               Exact(endpoint.bytesValue, 16) && ceremony != nil &&
-               Exact(ceremony.bytesValue, 16) && role != nil &&
-               (broker || [role.textValue isEqualToString:@"endpoint"]) &&
-               unattended != nil && unattended.booleanValue == broker &&
-               signing != nil && Exact(signing.bytesValue, 32) &&
-               agreement != nil && Exact(agreement.bytesValue, 32) &&
-               nonce != nil && Exact(nonce.bytesValue, 32) && expires != nil &&
-               expires.integerValue > created.integerValue &&
-               (uint64_t)expires.integerValue <= kMaxSafeInteger &&
-               expires.integerValue - created.integerValue <= 600;
+  BOOL valid =
+      suite != nil && [suite.textValue isEqualToString:@"anc/v1"] &&
+      vault != nil && Exact(vault.bytesValue, 16) &&
+      [vault.bytesValue isEqualToData:expectedVaultId] && type != nil &&
+      [type.textValue isEqualToString:@"enrollment-offer"] && created != nil &&
+      created.integerValue > 0 &&
+      (uint64_t)created.integerValue <= kMaxSafeInteger && envelope != nil &&
+      Exact(envelope.bytesValue, 16) && endpoint != nil &&
+      Exact(endpoint.bytesValue, 16) && ceremony != nil &&
+      Exact(ceremony.bytesValue, 16) && role != nil &&
+      (broker || [role.textValue isEqualToString:@"endpoint"]) &&
+      unattended != nil && unattended.booleanValue == broker &&
+      signing != nil && Exact(signing.bytesValue, 32) && agreement != nil &&
+      Exact(agreement.bytesValue, 32) && nonce != nil &&
+      Exact(nonce.bytesValue, 32) && expires != nil &&
+      expires.integerValue > created.integerValue &&
+      (uint64_t)expires.integerValue <= kMaxSafeInteger &&
+      expires.integerValue - created.integerValue <= 600;
   if (!valid)
     return nil;
   uint8_t hash[32] = {0};
   BOOL hashed = anc_pv_blake2b_256_two_part(
-                    hash, kOfferDomain, sizeof kOfferDomain,
-                    encodedOffer.bytes, encodedOffer.length) ==
-                ANC_PV_CRYPTO_OK;
+                    hash, kOfferDomain, sizeof kOfferDomain, encodedOffer.bytes,
+                    encodedOffer.length) == ANC_PV_CRYPTO_OK;
   uint8_t proofMessage[sizeof kProofDomain + 32] = {0};
   memcpy(proofMessage, kProofDomain, sizeof kProofDomain);
   if (hashed)
     memcpy(proofMessage + sizeof kProofDomain, hash, 32);
   BOOL verified =
       hashed && anc_pv_ed25519_verify(
-                    candidateKeyProof.bytes, proofMessage,
-                    sizeof proofMessage, signing.bytesValue.bytes) ==
-                    ANC_PV_CRYPTO_OK;
+                    candidateKeyProof.bytes, proofMessage, sizeof proofMessage,
+                    signing.bytesValue.bytes) == ANC_PV_CRYPTO_OK;
   anc_pv_zeroize(proofMessage, sizeof proofMessage);
   if (!verified) {
     anc_pv_zeroize(hash, sizeof hash);
