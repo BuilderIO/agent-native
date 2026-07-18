@@ -7,6 +7,7 @@
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisCoordinator.h"
 #import "PrivateVaultGenesisCoordinatorInternal.h"
+#import "PrivateVaultGenesisLock.h"
 #import "PrivateVaultGenesisStartup.h"
 
 #import <sodium.h>
@@ -1135,6 +1136,78 @@ static int Child(NSString *root) {
   return 0;
 }
 
+static int GenesisLockIdentityAndConcurrencyCases(void) {
+  NSString *vaultA = @"00000000000000000000000000000001";
+  NSString *vaultACopy = [[NSString alloc] initWithString:vaultA];
+  NSString *vaultB = @"00000000000000000000000000000002";
+  NSRecursiveLock *lockA = AncPrivateVaultGenesisLockForVaultId(vaultA);
+  NSRecursiveLock *lockACopy =
+      AncPrivateVaultGenesisLockForVaultId(vaultACopy);
+  NSRecursiveLock *lockB = AncPrivateVaultGenesisLockForVaultId(vaultB);
+  CHECK(lockA != nil && lockA == lockACopy && lockB != nil && lockA != lockB);
+  CHECK(AncPrivateVaultGenesisLockForVaultId(nil) == nil);
+  CHECK(AncPrivateVaultGenesisLockForVaultId(@"00") == nil);
+  CHECK(AncPrivateVaultGenesisLockForVaultId(
+            @"0000000000000000000000000000000A") == nil);
+  CHECK(AncPrivateVaultGenesisLockForVaultId(
+            @"0000000000000000000000000000000g") == nil);
+
+  [lockA lock];
+  [lockA lock];
+  [lockA unlock];
+  [lockA unlock];
+
+  NSMutableArray<NSValue *> *concurrentLocks = [NSMutableArray array];
+  dispatch_apply(64, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
+                 ^(size_t index) {
+                   (void)index;
+                   NSRecursiveLock *lock =
+                       AncPrivateVaultGenesisLockForVaultId(vaultA);
+                   @synchronized(concurrentLocks) {
+                     [concurrentLocks
+                         addObject:[NSValue
+                                       valueWithPointer:
+                                           (__bridge const void *)lock]];
+                   }
+                 });
+  CHECK(concurrentLocks.count == 64);
+  for (NSValue *value in concurrentLocks)
+    CHECK(value.pointerValue == (__bridge const void *)lockA);
+
+  dispatch_semaphore_t attempted = dispatch_semaphore_create(0);
+  dispatch_semaphore_t acquired = dispatch_semaphore_create(0);
+  [lockA lock];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    dispatch_semaphore_signal(attempted);
+    [AncPrivateVaultGenesisLockForVaultId(vaultACopy) lock];
+    dispatch_semaphore_signal(acquired);
+    [AncPrivateVaultGenesisLockForVaultId(vaultACopy) unlock];
+  });
+  CHECK(dispatch_semaphore_wait(attempted,
+                                dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) ==
+        0);
+  CHECK(dispatch_semaphore_wait(
+            acquired, dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC)) !=
+        0);
+  [lockA unlock];
+  CHECK(dispatch_semaphore_wait(acquired,
+                                dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) ==
+        0);
+
+  dispatch_semaphore_t otherAcquired = dispatch_semaphore_create(0);
+  [lockA lock];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    [lockB lock];
+    dispatch_semaphore_signal(otherAcquired);
+    [lockB unlock];
+  });
+  CHECK(dispatch_semaphore_wait(
+            otherAcquired,
+            dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+  [lockA unlock];
+  return 0;
+}
+
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
     if (argc == 4 && strcmp(argv[1], "--restart-child") == 0) {
@@ -1142,6 +1215,7 @@ int main(int argc, const char *argv[]) {
       return Child(@(argv[2]));
     }
     CHECK(sodium_init() >= 0);
+    CHECK(GenesisLockIdentityAndConcurrencyCases() == 0);
     NSDictionary *exact = Exact();
     CHECK(exact != nil);
     CHECK(ArtifactFaultAndFilesystemCases(exact) == 0);

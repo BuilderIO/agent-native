@@ -6,6 +6,7 @@
 #import "PrivateVaultGenesisAuthorizationInternal.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisCoordinatorInternal.h"
+#import "PrivateVaultGenesisLock.h"
 
 #import <math.h>
 #import <objc/runtime.h>
@@ -110,27 +111,6 @@ static BOOL CoordinatorFault(NSInteger point) {
 }
 #endif
 
-static NSArray<NSRecursiveLock *> *CoordinatorLocks(void) {
-  static NSArray *locks;
-  static dispatch_once_t once;
-  dispatch_once(&once, ^{
-    NSMutableArray *values = [NSMutableArray arrayWithCapacity:64];
-    for (NSUInteger i = 0; i < 64; i++)
-      [values addObject:[NSRecursiveLock new]];
-    locks = [values copy];
-  });
-  return locks;
-}
-static NSRecursiveLock *CoordinatorLock(NSString *vaultId) {
-  NSData *data = [vaultId dataUsingEncoding:NSASCIIStringEncoding];
-  const uint8_t *p = data.bytes;
-  uint64_t hash = UINT64_C(1469598103934665603);
-  for (NSUInteger i = 0; i < data.length; i++) {
-    hash ^= p[i];
-    hash *= UINT64_C(1099511628211);
-  }
-  return CoordinatorLocks()[hash % 64];
-}
 static NSString *Hex(const uint8_t *bytes) {
   if (bytes == NULL)
     return nil;
@@ -289,7 +269,9 @@ ArtifactStatus(AncPrivateVaultGenesisArtifactStoreStatus status) {
   if (vaultHex == nil || ![self.trustedClock readNowMilliseconds:&now] ||
       now == 0 || now > kMaximumSafeInteger)
     return AncPrivateVaultGenesisCoordinatorStatusInvalid;
-  NSRecursiveLock *lock = CoordinatorLock(vaultHex);
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultHex);
+  if (lock == nil)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
   [lock lock];
   @try {
     NSData *expectedVault = [NSData dataWithBytes:vaultId length:16];
@@ -423,7 +405,9 @@ ArtifactStatus(AncPrivateVaultGenesisArtifactStoreStatus status) {
   NSString *vaultHex = Hex(vaultId);
   if (vaultHex == nil)
     return AncPrivateVaultGenesisCoordinatorStatusInvalid;
-  NSRecursiveLock *lock = CoordinatorLock(vaultHex);
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultHex);
+  if (lock == nil)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
   [lock lock];
   @try {
     AncPrivateVaultGenesisArtifacts *artifacts = nil;

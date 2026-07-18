@@ -27,7 +27,7 @@ if [[ -n "$generic_custody_calls" ]]; then
   exit 1
 fi
 
-exact_selector_body="$(sed -n '/consumeCustodyRecordForService:/,/addData:(NSData \*)data/p' "$KEYCHAIN")"
+exact_selector_body="$(sed -n '/consumeCustodyRecordForService:/,/consumeGenesisPreparationRecordForService:/p' "$KEYCHAIN")"
 if rg -n '\[self (consumeBytesForService|addBytes:|updateBytes:|deleteDataForService:)' \
   <<<"$exact_selector_body"; then
   echo "exact custody selectors must call private core helpers" >&2

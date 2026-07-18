@@ -1,4 +1,7 @@
 #import "PrivateVaultCustodyRepository.h"
+#import "PrivateVaultCustodyRepositoryGenesisInternal.h"
+
+#import <objc/runtime.h>
 
 #include <stdlib.h>
 
@@ -27,6 +30,454 @@ typedef BOOL (^AncCustodyRecordBorrowBlock)(uint8_t *record);
 - (AncPrivateVaultCustodyRepositoryStatus)borrow:
     (AncCustodyRecordBorrowBlock)block;
 - (AncPrivateVaultCustodyRepositoryStatus)close;
+@end
+
+static NSData *_Nullable AncCustodyDigest(AncCustodyRecordBuffer *record);
+static BOOL AncPublicSnapshotsEqual(
+    const AncPrivateVaultCustodySnapshot *left,
+    const AncPrivateVaultCustodySnapshot *right);
+
+@interface AncPrivateVaultCustodyRepository (GenesisPrivate)
+@property(nonatomic, strong) dispatch_queue_t queue;
+- (AncPrivateVaultCustodyRepositoryStatus)
+    reconcileVaultId:(NSString *)vaultId
+           liveRecord:(AncCustodyRecordBuffer *_Nullable *_Nonnull)liveRecord
+         liveSnapshot:(AncPrivateVaultCustodySnapshot *)liveSnapshot;
+@end
+
+@interface AncPrivateVaultPendingGenesisCustodyCheckpoint ()
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) uint64_t custodyGeneration;
+@property(nonatomic, readwrite) NSData *recordDigest;
+- (instancetype)initPrivateWithVaultId:(NSString *)vaultId
+                             generation:(uint64_t)generation
+                           recordDigest:(NSData *)recordDigest;
+@end
+
+@interface AncImmutablePendingGenesisCustodyCheckpoint
+    : AncPrivateVaultPendingGenesisCustodyCheckpoint
+@end
+
+static void AncRaiseImmutablePendingGenesisCheckpoint(void) {
+  [NSException raise:NSInternalInconsistencyException
+              format:@"pending genesis custody checkpoints are immutable"];
+}
+
+@implementation AncImmutablePendingGenesisCustodyCheckpoint
+- (void)setVaultId:(NSString *)value {
+  (void)value;
+  AncRaiseImmutablePendingGenesisCheckpoint();
+}
+- (void)setCustodyGeneration:(uint64_t)value {
+  (void)value;
+  AncRaiseImmutablePendingGenesisCheckpoint();
+}
+- (void)setRecordDigest:(NSData *)value {
+  (void)value;
+  AncRaiseImmutablePendingGenesisCheckpoint();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  AncRaiseImmutablePendingGenesisCheckpoint();
+}
+@end
+
+@implementation AncPrivateVaultPendingGenesisCustodyCheckpoint
++ (BOOL)accessInstanceVariablesDirectly { return NO; }
+- (instancetype)initPrivateWithVaultId:(NSString *)vaultId
+                             generation:(uint64_t)generation
+                           recordDigest:(NSData *)recordDigest {
+  self = [super init];
+  if (self != nil) {
+    _vaultId = [vaultId copy];
+    _custodyGeneration = generation;
+    _recordDigest = [recordDigest copy];
+  }
+  return self;
+}
+@end
+
+static BOOL AncGenesisHexIdentifier(NSString *value, uint8_t output[160],
+                                    size_t *outputLength) {
+  @try {
+    if (![value isKindOfClass:NSString.class] || value.length != 32 ||
+        output == NULL || outputLength == NULL)
+      return NO;
+    NSData *encoded = [value dataUsingEncoding:NSASCIIStringEncoding
+                          allowLossyConversion:NO];
+    if (encoded.length != 32 || value.length != 32)
+      return NO;
+    const uint8_t *bytes = encoded.bytes;
+    for (NSUInteger index = 0; index < encoded.length; index++) {
+      if (!((bytes[index] >= '0' && bytes[index] <= '9') ||
+            (bytes[index] >= 'a' && bytes[index] <= 'f')))
+        return NO;
+    }
+    memset(output, 0, 160);
+    memcpy(output, bytes, encoded.length);
+    *outputLength = encoded.length;
+    return YES;
+  } @catch (__unused NSException *exception) {
+    if (output != NULL)
+      anc_pv_zeroize(output, 160);
+    if (outputLength != NULL)
+      *outputLength = 0;
+    return NO;
+  }
+}
+
+static BOOL AncGenesisExactPublicBytes(NSData *value, uint8_t output[32]) {
+  @try {
+    if (![value isKindOfClass:NSData.class] || value.length != 32)
+      return NO;
+    [value getBytes:output length:32];
+    return value.length == 32;
+  } @catch (__unused NSException *exception) {
+    anc_pv_zeroize(output, 32);
+    return NO;
+  }
+}
+
+static NSString *AncGenesisIdentifierString(const uint8_t *bytes,
+                                             size_t length) {
+  if (bytes == NULL || length != 32)
+    return nil;
+  return [[NSString alloc] initWithBytes:bytes
+                                  length:length
+                                encoding:NSASCIIStringEncoding];
+}
+
+static NSData *AncGenesisPublicData(const uint8_t bytes[32]) {
+  if (bytes == NULL)
+    return nil;
+  NSMutableData *value = [NSMutableData dataWithLength:32];
+  if (value == nil)
+    return nil;
+  memcpy(value.mutableBytes, bytes, 32);
+  return [NSData dataWithData:value];
+}
+
+static BOOL AncGenesisRangesOverlap(const void *left, size_t leftLength,
+                                    const void *right, size_t rightLength) {
+  if (left == NULL || right == NULL || leftLength == 0 || rightLength == 0)
+    return NO;
+  uintptr_t leftStart = (uintptr_t)left;
+  uintptr_t rightStart = (uintptr_t)right;
+  if (leftStart > UINTPTR_MAX - leftLength ||
+      rightStart > UINTPTR_MAX - rightLength)
+    return YES;
+  return leftStart < rightStart + rightLength &&
+         rightStart < leftStart + leftLength;
+}
+
+static BOOL AncGenesisSecretInputPointersValid(
+    const AncPrivateVaultCustodySecretInputs *secrets) {
+  if (secrets == NULL || secrets->signing_seed == NULL ||
+      secrets->box_seed == NULL || secrets->local_state_key == NULL ||
+      secrets->active_epoch_key == NULL || secrets->pending_epoch_key == NULL)
+    return NO;
+  const uint8_t *fields[] = {
+      secrets->signing_seed, secrets->box_seed, secrets->local_state_key,
+      secrets->active_epoch_key, secrets->pending_epoch_key,
+  };
+  for (size_t left = 0; left < 5; left++) {
+    if (AncGenesisRangesOverlap(secrets, sizeof *secrets, fields[left], 32))
+      return NO;
+    for (size_t right = left + 1; right < 5; right++) {
+      if (AncGenesisRangesOverlap(fields[left], 32, fields[right], 32))
+        return NO;
+    }
+  }
+  return YES;
+}
+
+static AncPrivateVaultCustodyRepositoryStatus AncGenesisValidateSecretInputs(
+    const AncPrivateVaultCustodySecretInputs *secrets,
+    const uint8_t expectedSigningPublic[32],
+    const uint8_t expectedBoxPublic[32]) {
+  if (secrets == NULL || secrets->signing_seed == NULL ||
+      secrets->box_seed == NULL || secrets->local_state_key == NULL ||
+      secrets->active_epoch_key == NULL || secrets->pending_epoch_key == NULL)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  uint8_t activeAggregate = 0;
+  uint8_t requiredAggregate[4] = {0};
+  const uint8_t *required[] = {secrets->signing_seed, secrets->box_seed,
+                               secrets->local_state_key,
+                               secrets->pending_epoch_key};
+  for (size_t index = 0; index < 32; index++) {
+    activeAggregate |= secrets->active_epoch_key[index];
+    for (size_t field = 0; field < 4; field++)
+      requiredAggregate[field] |= required[field][index];
+  }
+  if (activeAggregate != 0 || requiredAggregate[0] == 0 ||
+      requiredAggregate[1] == 0 || requiredAggregate[2] == 0 ||
+      requiredAggregate[3] == 0)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  uint8_t derivedSigningPublic[32] = {0};
+  uint8_t derivedBoxPublic[32] = {0};
+  uint8_t *derivedSigningPointer = derivedSigningPublic;
+  uint8_t *derivedBoxPointer = derivedBoxPublic;
+  AncPrivateVaultGuardedMemoryStatus memoryStatus;
+  AncPrivateVaultGuardedMemory *signingPrivate =
+      [AncPrivateVaultGuardedMemory memoryWithLength:64 status:&memoryStatus];
+  AncPrivateVaultGuardedMemory *boxPrivate =
+      signingPrivate == nil
+          ? nil
+          : [AncPrivateVaultGuardedMemory memoryWithLength:32
+                                                    status:&memoryStatus];
+  if (signingPrivate == nil || boxPrivate == nil) {
+    AncPrivateVaultGuardedMemoryStatus signingClose =
+        signingPrivate == nil ? AncPrivateVaultGuardedMemoryStatusOK
+                              : [signingPrivate close];
+    AncPrivateVaultGuardedMemoryStatus boxClose =
+        boxPrivate == nil ? AncPrivateVaultGuardedMemoryStatusOK
+                          : [boxPrivate close];
+    anc_pv_zeroize(derivedSigningPublic, sizeof derivedSigningPublic);
+    anc_pv_zeroize(derivedBoxPublic, sizeof derivedBoxPublic);
+    (void)signingClose;
+    (void)boxClose;
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  }
+  __block BOOL signingDerived = NO;
+  __block BOOL boxDerived = NO;
+  AncPrivateVaultGuardedMemoryStatus signingBorrow =
+      [signingPrivate borrow:^BOOL(uint8_t *privateBytes, size_t length) {
+        signingDerived =
+            length == 64 &&
+            anc_pv_ed25519_seed_keypair(derivedSigningPointer, privateBytes,
+                                        secrets->signing_seed) ==
+                ANC_PV_CRYPTO_OK;
+        return signingDerived;
+      }];
+  AncPrivateVaultGuardedMemoryStatus boxBorrow =
+      [boxPrivate borrow:^BOOL(uint8_t *privateBytes, size_t length) {
+        boxDerived = length == 32 &&
+                     anc_pv_box_seed_keypair(derivedBoxPointer, privateBytes,
+                                             secrets->box_seed) ==
+                         ANC_PV_CRYPTO_OK;
+        return boxDerived;
+      }];
+  BOOL valid = signingBorrow == AncPrivateVaultGuardedMemoryStatusOK &&
+               boxBorrow == AncPrivateVaultGuardedMemoryStatusOK &&
+               signingDerived && boxDerived &&
+      anc_pv_memcmp(derivedSigningPublic, expectedSigningPublic, 32) ==
+          ANC_PV_CRYPTO_OK &&
+      anc_pv_memcmp(derivedBoxPublic, expectedBoxPublic, 32) ==
+          ANC_PV_CRYPTO_OK;
+  AncPrivateVaultGuardedMemoryStatus signingClose = [signingPrivate close];
+  AncPrivateVaultGuardedMemoryStatus boxClose = [boxPrivate close];
+  anc_pv_zeroize(derivedSigningPublic, sizeof derivedSigningPublic);
+  anc_pv_zeroize(derivedBoxPublic, sizeof derivedBoxPublic);
+  if (signingClose != AncPrivateVaultGuardedMemoryStatusOK ||
+      boxClose != AncPrivateVaultGuardedMemoryStatusOK)
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  return valid ? AncPrivateVaultCustodyRepositoryStatusOK
+               : AncPrivateVaultCustodyRepositoryStatusInvalid;
+}
+
+static BOOL AncBuildPendingGenesisSnapshot(
+    NSString *vaultId, NSString *endpointId, NSString *ceremonyId,
+    NSData *signingPublicKey, NSData *boxPublicKey,
+    NSData *bootstrapTranscriptDigest,
+    AncPrivateVaultCustodySnapshot *snapshot) {
+  if (snapshot == NULL)
+    return NO;
+  anc_pv_custody_snapshot_zero(snapshot);
+  snapshot->record_version = ANC_PV_CUSTODY_VERSION;
+  snapshot->expected_edge_present = 1;
+  snapshot->lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  snapshot->role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
+  snapshot->pending_kind = ANC_PV_CUSTODY_PENDING_GENESIS;
+  snapshot->rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  snapshot->enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
+  snapshot->custody_generation = 1;
+  snapshot->pending_epoch = 1;
+  if (!AncGenesisHexIdentifier(vaultId, snapshot->vault_id,
+                               &snapshot->vault_id_length) ||
+      !AncGenesisHexIdentifier(endpointId, snapshot->endpoint_id,
+                               &snapshot->endpoint_id_length) ||
+      !AncGenesisHexIdentifier(ceremonyId, snapshot->ceremony_id,
+                               &snapshot->ceremony_id_length) ||
+      !AncGenesisExactPublicBytes(signingPublicKey,
+                                  snapshot->signing_public_key) ||
+      !AncGenesisExactPublicBytes(boxPublicKey, snapshot->box_public_key) ||
+      !AncGenesisExactPublicBytes(bootstrapTranscriptDigest,
+                                  snapshot->pending_transcript_digest)) {
+    anc_pv_custody_snapshot_zero(snapshot);
+    return NO;
+  }
+  return YES;
+}
+
+@implementation AncPrivateVaultCustodyRepository (GenesisInternal)
+
+- (AncPrivateVaultCustodyRepositoryStatus)
+    pendingGenesisCheckpointVaultId:(NSString *)vaultId
+                           endpointId:(NSString *)endpointId
+                           ceremonyId:(NSString *)ceremonyId
+                      signingPublicKey:(NSData *)signingPublicKey
+                           boxPublicKey:(NSData *)boxPublicKey
+              bootstrapTranscriptDigest:(NSData *)bootstrapTranscriptDigest
+                            checkpoint:
+                                (AncPrivateVaultPendingGenesisCustodyCheckpoint
+                                     **)checkpoint {
+  if (checkpoint != NULL)
+    *checkpoint = nil;
+  if ([NSThread.currentThread.threadDictionary[kAncCustodyBorrowScopeThreadKey]
+          boolValue])
+    return AncPrivateVaultCustodyRepositoryStatusConflict;
+  AncPrivateVaultCustodySnapshot expected;
+  if (!AncBuildPendingGenesisSnapshot(
+          vaultId, endpointId, ceremonyId, signingPublicKey, boxPublicKey,
+          bootstrapTranscriptDigest, &expected)) {
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  }
+  NSString *canonicalVaultId =
+      AncGenesisIdentifierString(expected.vault_id, expected.vault_id_length);
+  if (canonicalVaultId == nil) {
+    anc_pv_custody_snapshot_zero(&expected);
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  }
+  __block AncPrivateVaultCustodyRepositoryStatus status;
+  __block AncPrivateVaultPendingGenesisCustodyCheckpoint *result = nil;
+  dispatch_sync(self.queue, ^{
+    AncCustodyRecordBuffer *live = nil;
+    AncPrivateVaultCustodySnapshot observed;
+    status = [self reconcileVaultId:canonicalVaultId
+                         liveRecord:&live
+                       liveSnapshot:&observed];
+    BOOL exact = status == AncPrivateVaultCustodyRepositoryStatusOK &&
+                 AncPublicSnapshotsEqual(&observed, &expected);
+    NSData *digest = exact ? AncCustodyDigest(live) : nil;
+    AncPrivateVaultCustodyRepositoryStatus closed =
+        live == nil ? AncPrivateVaultCustodyRepositoryStatusOK : [live close];
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      status = closed;
+    else if (status == AncPrivateVaultCustodyRepositoryStatusOK &&
+             (!exact || digest.length != 32))
+      status = AncPrivateVaultCustodyRepositoryStatusConflict;
+    else if (status == AncPrivateVaultCustodyRepositoryStatusOK) {
+      NSString *observedVaultId =
+          AncGenesisIdentifierString(observed.vault_id,
+                                     observed.vault_id_length);
+      if (observedVaultId == nil)
+        status = AncPrivateVaultCustodyRepositoryStatusCorrupt;
+      else
+        result = [[AncPrivateVaultPendingGenesisCustodyCheckpoint alloc]
+            initPrivateWithVaultId:observedVaultId
+                        generation:observed.custody_generation
+                      recordDigest:digest];
+      if (status == AncPrivateVaultCustodyRepositoryStatusOK && result == nil)
+        status = AncPrivateVaultCustodyRepositoryStatusFailed;
+    }
+    if (result != nil)
+      object_setClass(result,
+                      AncImmutablePendingGenesisCustodyCheckpoint.class);
+    anc_pv_custody_snapshot_zero(&observed);
+  });
+  anc_pv_custody_snapshot_zero(&expected);
+  if (status == AncPrivateVaultCustodyRepositoryStatusOK && checkpoint != NULL)
+    *checkpoint = result;
+  return status;
+}
+
+- (AncPrivateVaultCustodyRepositoryStatus)
+    installPendingGenesisVaultId:(NSString *)vaultId
+                       endpointId:(NSString *)endpointId
+                       ceremonyId:(NSString *)ceremonyId
+                  signingPublicKey:(NSData *)signingPublicKey
+                       boxPublicKey:(NSData *)boxPublicKey
+            bootstrapTranscriptDigest:(NSData *)bootstrapTranscriptDigest
+                          secrets:
+                              (const AncPrivateVaultCustodySecretInputs *)secrets
+                       checkpoint:
+                           (AncPrivateVaultPendingGenesisCustodyCheckpoint
+                                **)checkpoint {
+  if (checkpoint != NULL)
+    *checkpoint = nil;
+  AncPrivateVaultCustodySnapshot snapshot;
+  if (!AncBuildPendingGenesisSnapshot(
+          vaultId, endpointId, ceremonyId, signingPublicKey, boxPublicKey,
+          bootstrapTranscriptDigest, &snapshot)) {
+    anc_pv_custody_snapshot_zero(&snapshot);
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  }
+  NSString *canonicalVaultId =
+      AncGenesisIdentifierString(snapshot.vault_id, snapshot.vault_id_length);
+  NSString *canonicalEndpointId = AncGenesisIdentifierString(
+      snapshot.endpoint_id, snapshot.endpoint_id_length);
+  NSString *canonicalCeremonyId = AncGenesisIdentifierString(
+      snapshot.ceremony_id, snapshot.ceremony_id_length);
+  NSData *canonicalSigningPublicKey =
+      AncGenesisPublicData(snapshot.signing_public_key);
+  NSData *canonicalBoxPublicKey =
+      AncGenesisPublicData(snapshot.box_public_key);
+  NSData *canonicalBootstrapTranscriptDigest =
+      AncGenesisPublicData(snapshot.pending_transcript_digest);
+  if (canonicalVaultId == nil || canonicalEndpointId == nil ||
+      canonicalCeremonyId == nil || canonicalSigningPublicKey == nil ||
+      canonicalBoxPublicKey == nil ||
+      canonicalBootstrapTranscriptDigest == nil) {
+    anc_pv_custody_snapshot_zero(&snapshot);
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  }
+  if (!AncGenesisSecretInputPointersValid(secrets)) {
+    anc_pv_custody_snapshot_zero(&snapshot);
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  }
+  AncPrivateVaultGuardedMemoryStatus memoryStatus;
+  AncPrivateVaultGuardedMemory *ownedSecrets =
+      [AncPrivateVaultGuardedMemory memoryWithLength:160 status:&memoryStatus];
+  if (ownedSecrets == nil || memoryStatus != AncPrivateVaultGuardedMemoryStatusOK) {
+    anc_pv_custody_snapshot_zero(&snapshot);
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  }
+  __block AncPrivateVaultCustodyRepositoryStatus status =
+      AncPrivateVaultCustodyRepositoryStatusFailed;
+  AncPrivateVaultGuardedMemoryStatus borrowed =
+      [ownedSecrets borrow:^BOOL(uint8_t *bytes, size_t length) {
+        if (length != 160)
+          return NO;
+        memcpy(bytes, secrets->signing_seed, 32);
+        memcpy(bytes + 32, secrets->box_seed, 32);
+        memcpy(bytes + 64, secrets->local_state_key, 32);
+        memcpy(bytes + 96, secrets->active_epoch_key, 32);
+        memcpy(bytes + 128, secrets->pending_epoch_key, 32);
+        AncPrivateVaultCustodySecretInputs owned = {
+            .signing_seed = bytes,
+            .box_seed = bytes + 32,
+            .local_state_key = bytes + 64,
+            .active_epoch_key = bytes + 96,
+            .pending_epoch_key = bytes + 128,
+        };
+        status = AncGenesisValidateSecretInputs(
+            &owned, snapshot.signing_public_key, snapshot.box_public_key);
+        if (status == AncPrivateVaultCustodyRepositoryStatusOK)
+          status = [self storeSnapshot:&snapshot
+                               secrets:&owned
+                               vaultId:canonicalVaultId];
+        return status == AncPrivateVaultCustodyRepositoryStatusOK;
+      }];
+  AncPrivateVaultGuardedMemoryStatus secretClose = [ownedSecrets close];
+  anc_pv_custody_snapshot_zero(&snapshot);
+  if (secretClose != AncPrivateVaultGuardedMemoryStatusOK)
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  if (borrowed != AncPrivateVaultGuardedMemoryStatusOK &&
+      status == AncPrivateVaultCustodyRepositoryStatusOK)
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  if (status != AncPrivateVaultCustodyRepositoryStatusOK)
+    return status;
+  return [self pendingGenesisCheckpointVaultId:canonicalVaultId
+                                     endpointId:canonicalEndpointId
+                                     ceremonyId:canonicalCeremonyId
+                               signingPublicKey:canonicalSigningPublicKey
+                                    boxPublicKey:canonicalBoxPublicKey
+                        bootstrapTranscriptDigest:
+                            canonicalBootstrapTranscriptDigest
+                                      checkpoint:checkpoint];
+}
+
 @end
 
 @implementation AncCustodyRecordBuffer

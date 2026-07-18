@@ -342,6 +342,20 @@ pending-fence recovery, cleanup failure, and 300-ceremony marker reuse; the
 Record, ArtifactStore, Store, Keychain, and generation-fence suites pass with an
 independent storage-slice GO.
 
+Genesis authority operations now share one exact, recursive per-vault lock
+identity across legacy commit/resume and the preparation path; equal vault IDs
+serialize while distinct vaults do not share a stripe, and idle attacker-chosen
+IDs do not remain pinned in an unbounded registry. Custody also has a dedicated
+confirmed-genesis g1 installer instead of requiring a caller-authored snapshot.
+It canonicalizes and owns every identity and public commitment, copies all five
+pairwise-disjoint secret inputs into a guarded 160-byte snapshot, derives and
+checks the endpoint public keys, durably reconciles the exact pending g1 shape,
+and returns an immutable checkpoint containing the full wire-record fence
+digest. Mutation, alias, substitution, ambiguous-write, KVC, concurrency, and
+readback tests pass with an independent GO. No custody row is created while a
+ceremony is merely PREPARED: only explicit confirmation may enter COMMITTING
+and install g1 with the authenticated bootstrap digest.
+
 This is still not a usable PREPARE ceremony. The phase-specific coordinator,
 pending-g1 custody installation, proof-bound confirmation, expiry and
 cancellation policy, terminal receipt cleanup, startup orchestration, and the

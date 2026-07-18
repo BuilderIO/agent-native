@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 #import "PrivateVaultCustodyRepository.h"
+#import "PrivateVaultCustodyRepositoryGenesisInternal.h"
 
 #include <assert.h>
 
@@ -877,6 +878,244 @@ static void TestGenesisTombstonesFailClosed(void) {
   }
 }
 
+static void TestPendingGenesisInstallCheckpoint(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  NSString *vault = @"00112233445566778899aabbccddeeff";
+  NSString *endpoint = @"102132435465768798a9bacbdcedfe0f";
+  NSString *ceremony = @"ffeeddccbbaa99887766554433221100";
+  TestSecrets secrets = {0};
+  Fill(secrets.signingSeed, 32, 0x11);
+  Fill(secrets.boxSeed, 32, 0x31);
+  Fill(secrets.localKey, 32, 0x51);
+  Fill(secrets.pendingKey, 32, 0x71);
+  uint8_t signingPublic[32] = {0};
+  uint8_t signingPrivate[64] = {0};
+  uint8_t boxPublic[32] = {0};
+  uint8_t boxPrivate[32] = {0};
+  assert(anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                     secrets.signingSeed) ==
+         ANC_PV_CRYPTO_OK);
+  assert(anc_pv_box_seed_keypair(boxPublic, boxPrivate, secrets.boxSeed) ==
+         ANC_PV_CRYPTO_OK);
+  NSData *signing = [NSData dataWithBytes:signingPublic length:32];
+  NSData *box = [NSData dataWithBytes:boxPublic length:32];
+  uint8_t bootstrapBytes[32];
+  Fill(bootstrapBytes, sizeof bootstrapBytes, 0x91);
+  NSData *bootstrap = [NSData dataWithBytes:bootstrapBytes length:32];
+  AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
+  AncPrivateVaultPendingGenesisCustodyCheckpoint *first = nil;
+  assert([repository installPendingGenesisVaultId:vault
+                                        endpointId:endpoint
+                                        ceremonyId:ceremony
+                                   signingPublicKey:signing
+                                        boxPublicKey:box
+                             bootstrapTranscriptDigest:bootstrap
+                                           secrets:&inputs
+                                        checkpoint:&first] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(first != nil && [first.vaultId isEqualToString:vault] &&
+         first.custodyGeneration == 1 && first.recordDigest.length == 32);
+  NSData *firstDigest = [first.recordDigest copy];
+  BOOL immutable = NO;
+  @try {
+    [first setValue:[NSMutableData dataWithLength:32] forKey:@"recordDigest"];
+  } @catch (__unused NSException *exception) {
+    immutable = YES;
+  }
+  assert(immutable && [first.recordDigest isEqualToData:firstDigest]);
+  AncPrivateVaultPendingGenesisCustodyCheckpoint *second = nil;
+  assert([repository installPendingGenesisVaultId:vault
+                                        endpointId:endpoint
+                                        ceremonyId:ceremony
+                                   signingPublicKey:signing
+                                        boxPublicKey:box
+                             bootstrapTranscriptDigest:bootstrap
+                                           secrets:&inputs
+                                        checkpoint:&second] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([first.recordDigest isEqualToData:second.recordDigest]);
+  AncPrivateVaultPendingGenesisCustodyCheckpoint *reread = nil;
+  assert([repository pendingGenesisCheckpointVaultId:vault
+                                           endpointId:endpoint
+                                           ceremonyId:ceremony
+                                      signingPublicKey:signing
+                                           boxPublicKey:box
+                              bootstrapTranscriptDigest:bootstrap
+                                         checkpoint:&reread] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([reread.recordDigest isEqualToData:first.recordDigest]);
+  NSMutableData *wrongKey = [signing mutableCopy];
+  ((uint8_t *)wrongKey.mutableBytes)[0] ^= 1;
+  assert([repository pendingGenesisCheckpointVaultId:vault
+                                           endpointId:endpoint
+                                           ceremonyId:ceremony
+                                      signingPublicKey:wrongKey
+                                           boxPublicKey:box
+                              bootstrapTranscriptDigest:bootstrap
+                                         checkpoint:&reread] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  assert([repository installPendingGenesisVaultId:vault
+                                        endpointId:endpoint
+                                        ceremonyId:ceremony
+                                   signingPublicKey:wrongKey
+                                        boxPublicKey:box
+                             bootstrapTranscriptDigest:bootstrap
+                                           secrets:&inputs
+                                        checkpoint:&reread] ==
+         AncPrivateVaultCustodyRepositoryStatusInvalid);
+  AncPrivateVaultCustodySecretInputs aliasedInputs = inputs;
+  aliasedInputs.box_seed = aliasedInputs.signing_seed;
+  assert([repository installPendingGenesisVaultId:vault
+                                        endpointId:endpoint
+                                        ceremonyId:ceremony
+                                   signingPublicKey:signing
+                                        boxPublicKey:box
+                             bootstrapTranscriptDigest:bootstrap
+                                           secrets:&aliasedInputs
+                                        checkpoint:&reread] ==
+         AncPrivateVaultCustodyRepositoryStatusInvalid);
+  secrets.activeKey[0] = 1;
+  inputs = Inputs(&secrets);
+  assert([repository installPendingGenesisVaultId:vault
+                                        endpointId:endpoint
+                                        ceremonyId:ceremony
+                                   signingPublicKey:signing
+                                        boxPublicKey:box
+                             bootstrapTranscriptDigest:bootstrap
+                                           secrets:&inputs
+                                        checkpoint:&reread] ==
+         AncPrivateVaultCustodyRepositoryStatusInvalid);
+  AncPrivateVaultCustodySnapshot observed;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:vault snapshot:&observed handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(observed.custody_generation == 1 &&
+         observed.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
+         observed.pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS &&
+         observed.active_epoch == 0 && observed.pending_epoch == 1 &&
+         handle != nil);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  anc_pv_custody_snapshot_zero(&observed);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  anc_pv_zeroize(signingPublic, sizeof signingPublic);
+  anc_pv_zeroize(boxPublic, sizeof boxPublic);
+  anc_pv_zeroize(bootstrapBytes, sizeof bootstrapBytes);
+}
+
+static void TestPendingGenesisOwnsMutableInputs(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  NSMutableString *vault =
+      [@"0123456789abcdef0123456789abcdef" mutableCopy];
+  NSMutableString *endpoint =
+      [@"11111111111111111111111111111111" mutableCopy];
+  NSMutableString *ceremony =
+      [@"22222222222222222222222222222222" mutableCopy];
+  NSString *expectedVault = [vault copy];
+  NSString *expectedEndpoint = [endpoint copy];
+  NSString *expectedCeremony = [ceremony copy];
+  TestSecrets secrets = {0};
+  Fill(secrets.signingSeed, 32, 0x12);
+  Fill(secrets.boxSeed, 32, 0x32);
+  Fill(secrets.localKey, 32, 0x52);
+  Fill(secrets.pendingKey, 32, 0x72);
+  TestSecrets expectedSecrets = secrets;
+  uint8_t signingPublic[32] = {0};
+  uint8_t signingPrivate[64] = {0};
+  uint8_t boxPublic[32] = {0};
+  uint8_t boxPrivate[32] = {0};
+  assert(anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                     secrets.signingSeed) ==
+         ANC_PV_CRYPTO_OK);
+  assert(anc_pv_box_seed_keypair(boxPublic, boxPrivate, secrets.boxSeed) ==
+         ANC_PV_CRYPTO_OK);
+  NSMutableData *signing =
+      [NSMutableData dataWithBytes:signingPublic length:32];
+  NSMutableData *box = [NSMutableData dataWithBytes:boxPublic length:32];
+  uint8_t bootstrapBytes[32];
+  Fill(bootstrapBytes, sizeof bootstrapBytes, 0x92);
+  NSData *expectedBootstrap =
+      [NSData dataWithBytes:bootstrapBytes length:32];
+  NSMutableData *bootstrap = [expectedBootstrap mutableCopy];
+  AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
+  gBlockNextLiveCopy = YES;
+  gLiveCopyEntered = dispatch_semaphore_create(0);
+  gReleaseLiveCopy = dispatch_semaphore_create(0);
+  __block AncPrivateVaultCustodyRepositoryStatus status =
+      AncPrivateVaultCustodyRepositoryStatusFailed;
+  __block AncPrivateVaultPendingGenesisCustodyCheckpoint *checkpoint = nil;
+  dispatch_group_t group = dispatch_group_create();
+  dispatch_group_async(group,
+                       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    status = [repository installPendingGenesisVaultId:vault
+                                            endpointId:endpoint
+                                            ceremonyId:ceremony
+                                       signingPublicKey:signing
+                                            boxPublicKey:box
+                                 bootstrapTranscriptDigest:bootstrap
+                                               secrets:&inputs
+                                            checkpoint:&checkpoint];
+  });
+  assert(dispatch_semaphore_wait(
+             gLiveCopyEntered,
+             dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+  [vault setString:@"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"];
+  [endpoint setString:@"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"];
+  [ceremony setString:@"cccccccccccccccccccccccccccccccc"];
+  memset(signing.mutableBytes, 0xdd, signing.length);
+  memset(box.mutableBytes, 0xee, box.length);
+  memset(bootstrap.mutableBytes, 0xff, bootstrap.length);
+  memset(&secrets, 0xa5, sizeof secrets);
+  dispatch_semaphore_signal(gReleaseLiveCopy);
+  assert(dispatch_group_wait(
+             group, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+  assert(status == AncPrivateVaultCustodyRepositoryStatusOK &&
+         checkpoint != nil &&
+         [checkpoint.vaultId isEqualToString:expectedVault]);
+  AncPrivateVaultCustodySnapshot observed;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:expectedVault
+                         snapshot:&observed
+                           handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  NSData *observedEndpoint =
+      [NSData dataWithBytes:observed.endpoint_id
+                     length:observed.endpoint_id_length];
+  NSData *observedCeremony =
+      [NSData dataWithBytes:observed.ceremony_id
+                     length:observed.ceremony_id_length];
+  assert([[[NSString alloc] initWithData:observedEndpoint
+                                encoding:NSASCIIStringEncoding]
+             isEqualToString:expectedEndpoint] &&
+         [[[NSString alloc] initWithData:observedCeremony
+                                encoding:NSASCIIStringEncoding]
+             isEqualToString:expectedCeremony] &&
+         memcmp(observed.pending_transcript_digest, expectedBootstrap.bytes,
+                32) == 0);
+  assert([handle borrow:^BOOL(
+                     const AncPrivateVaultCustodySecretInputs *stored) {
+           return memcmp(stored->signing_seed, expectedSecrets.signingSeed,
+                         32) == 0 &&
+                  memcmp(stored->box_seed, expectedSecrets.boxSeed, 32) == 0 &&
+                  memcmp(stored->local_state_key, expectedSecrets.localKey,
+                         32) == 0 &&
+                  memcmp(stored->pending_epoch_key, expectedSecrets.pendingKey,
+                         32) == 0;
+         }] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  anc_pv_custody_snapshot_zero(&observed);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  anc_pv_zeroize(&expectedSecrets, sizeof expectedSecrets);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  anc_pv_zeroize(signingPublic, sizeof signingPublic);
+  anc_pv_zeroize(boxPublic, sizeof boxPublic);
+  anc_pv_zeroize(bootstrapBytes, sizeof bootstrapBytes);
+}
+
 static void TestSubstitutionAndPendingSourceSwap(void) {
   Reset();
   AncPrivateVaultCustodyRepository *repository = Repository();
@@ -1678,6 +1917,8 @@ int main(void) {
     TestCorruptionSwapAndMissing();
     TestPendingMissingMismatchAndFutureStage();
     TestGenesisTombstonesFailClosed();
+    TestPendingGenesisInstallCheckpoint();
+    TestPendingGenesisOwnsMutableInputs();
     TestSubstitutionAndPendingSourceSwap();
     TestHandleRevocationAndReadStoreSerialization();
     TestSixtyFourConcurrentWriters();

@@ -23,6 +23,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m"
   "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisArtifactStore.m"
+  "$SOURCE_ROOT/storage/PrivateVaultGenesisLock.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisStartup.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
@@ -695,6 +696,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
       "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisArtifactStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisLock.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinator.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisStartup.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinatorTests.m" \
@@ -702,7 +704,9 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
     lipo "$output" -verify_arch "$architecture"
   }
   build_genesis_coordinator_tests arm64
-  build_genesis_coordinator_tests x86_64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_genesis_coordinator_tests x86_64
+  fi
   ;;
 esac
 
@@ -778,7 +782,9 @@ case "${PRIVATE_VAULT_BUILD_REPOSITORY_TESTS:-}" in
     lipo "$output" -verify_arch "$architecture"
   }
   compile_repository_test_slice arm64 "$ARM64_SODIUM"
-  compile_repository_test_slice x86_64 "$X86_64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_repository_test_slice x86_64 "$X86_64_SODIUM"
+  fi
   ;;
   *)
     echo "Invalid Private Vault repository-test build mode" >&2
