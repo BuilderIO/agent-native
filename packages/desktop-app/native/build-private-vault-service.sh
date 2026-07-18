@@ -11,6 +11,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultControlLog.m"
   "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m"
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
+  "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m"
@@ -329,6 +330,33 @@ case "${PRIVATE_VAULT_BUILD_CANONICAL_TESTS:-}" in
   compile_canonical_test_slice x86_64
   ;;
   *) echo "Invalid Private Vault canonical-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_JOB_CODEC_TESTS:-}" in
+  "") ;;
+  1)
+  JOB_CODEC_TEST_OUTPUT="$OUTPUT_ROOT/.job-codec-tests"
+  rm -rf "$JOB_CODEC_TEST_OUTPUT"
+  mkdir -p "$JOB_CODEC_TEST_OUTPUT"
+  compile_job_codec_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$JOB_CODEC_TEST_OUTPUT/private-vault-job-codec-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultJobCodec.m" \
+      "$SOURCE_ROOT/control/PrivateVaultJobCodecTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_job_codec_test_slice arm64 "$ARM64_SODIUM"
+  compile_job_codec_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *) echo "Invalid Private Vault job-codec-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_ENDPOINT_REQUEST_TESTS:-}" in

@@ -252,7 +252,6 @@ static void PVUnlock(xpc_connection_t peer, xpc_object_t message,
     if (reply == NULL) return;
     xpc_dictionary_set_string(reply, "state", "unlocked");
     xpc_connection_send_message(peer, reply);
-    xpc_release(reply);
 }
 
 static void PVLock(xpc_connection_t peer, xpc_object_t message,
@@ -266,7 +265,6 @@ static void PVLock(xpc_connection_t peer, xpc_object_t message,
     if (reply == NULL) return;
     xpc_dictionary_set_string(reply, "state", "locked");
     xpc_connection_send_message(peer, reply);
-    xpc_release(reply);
 }
 
 static void PVCommitGenesis(xpc_connection_t peer, xpc_object_t message,

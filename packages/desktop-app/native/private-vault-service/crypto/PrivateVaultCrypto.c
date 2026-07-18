@@ -224,7 +224,7 @@ AncPrivateVaultCryptoStatus anc_pv_box_wrap(
   if (ciphertext_length == NULL || nonce == NULL ||
       recipient_public_key == NULL || sender_private_key == NULL ||
       !anc_pv_valid_bytes(plaintext, plaintext_length,
-                          ANC_PV_MAX_MESSAGE_BYTES) ||
+                          ANC_PV_MAX_BOX_MESSAGE_BYTES) ||
       plaintext_length > SIZE_MAX - ANC_PV_AUTH_BYTES ||
       !anc_pv_valid_output(ciphertext, ciphertext_capacity, required) ||
       anc_pv_ranges_overlap(ciphertext, required, plaintext,
@@ -260,7 +260,7 @@ AncPrivateVaultCryptoStatus anc_pv_box_open(
   if (plaintext_length == NULL || nonce == NULL || sender_public_key == NULL ||
       recipient_private_key == NULL || ciphertext_length < ANC_PV_AUTH_BYTES ||
       !anc_pv_valid_bytes(ciphertext, ciphertext_length,
-                          ANC_PV_MAX_MESSAGE_BYTES + ANC_PV_AUTH_BYTES) ||
+                          ANC_PV_MAX_BOX_MESSAGE_BYTES + ANC_PV_AUTH_BYTES) ||
       !anc_pv_valid_output(plaintext, plaintext_capacity, required) ||
       anc_pv_ranges_overlap(plaintext, required, ciphertext,
                             ciphertext_length) ||

@@ -704,10 +704,15 @@ the grant-authorized sender signature before plaintext release, hashes the
 exact signed job bytes, and authenticates the result terminal state alongside
 job, hash, and recipient coordinates. Core vectors, route/auth unit tests, a
 real temporary-SQLite signed-control-head authentication and replay-denial
-test, all 54 broker tests, Core and broker typechecks, Content typecheck, and
-Core build pass. The worker still needs a packaged process, concrete encrypted
-state/index, app action executor, and lifecycle wiring before the broker exit
-gate closes.
+test, all 46 broker tests, Core and broker typechecks, Content typecheck, and
+Core build pass. The earlier prototype that transferred a raw vault key through
+Electron `safeStorage`, JavaScript callbacks, and a main-process encrypted-state
+adapter has been removed; the package now has no raw-key custody surface.
+Native Core-parity job vectors prove the exact X25519 open/result-seal bytes on
+arm64 and x86_64 while keeping signing and box private material in native call
+scope. The worker still needs the grant/replay index, packaged semantic XPC
+wiring, app action executor, and lifecycle wiring before the broker exit gate
+closes.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault

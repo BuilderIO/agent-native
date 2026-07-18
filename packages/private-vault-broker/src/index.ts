@@ -3,15 +3,7 @@ export {
   SodiumNativeAncV1CryptoProvider,
   sodiumNativeAncV1,
 } from "./crypto/sodium-native.js";
-export type { KeyCustodyAdapter } from "./key-custody.js";
 export * from "./native-service.js";
-export {
-  PrivateVaultBrokerLifecycleError,
-  PrivateVaultBrokerRuntime,
-  type PrivateVaultBrokerHealth,
-  type PrivateVaultBrokerRuntimeOptions,
-  type PrivateVaultBrokerState,
-} from "./runtime.js";
 export type { BrokerStateStore } from "./state-store.js";
 export * from "./supervisor.js";
 export {
