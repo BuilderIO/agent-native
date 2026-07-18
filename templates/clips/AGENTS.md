@@ -51,6 +51,16 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   `previewTruncated` is true, it may end mid-sentence and does not show where
   transcription ended. Call `get-recording-player-data` before judging
   completeness or quoting the full transcript.
+- Mobile captures originate in the Agent Native iOS/Android app. The phone
+  persists each audio/video file before network work, creates the recording
+  with `sourceAppName: "Agent Native Mobile"`, and resumes bounded chunk
+  uploads from its durable queue. Do not ask users to keep a capture screen
+  open or re-record after a transient upload failure; reconnect Clips and retry
+  the saved job from mobile Home.
+- Mobile meeting capture is microphone-only. It can record an in-person room or
+  audio playing from another device, but iOS and Android do not expose another
+  phone app's Zoom/Meet/Teams call audio to this flow. Do not claim mobile
+  attendee attribution has the desktop mic-plus-system-audio fidelity.
 - Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are

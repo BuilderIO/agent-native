@@ -89,6 +89,28 @@ describe("DiagramBlock expand affordance", () => {
     expect(styleButton()?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("keeps design-mode html diagrams clean without a style toggle", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-design"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{
+            html: "<div class='diagram-card'>Service</div>",
+            renderMode: "design",
+          }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+    expect(frame?.getAttribute("data-style")).toBe("clean");
+    expect(frame?.hasAttribute("data-rough-ready")).toBe(false);
+    expect(styleButton()).toBeNull();
+    expect(expandButton()).toBeTruthy();
+    expect(container.querySelector(".plan-rough-overlay")).toBeNull();
+  });
+
   it("renders html diagrams with the dark theme marker when the document is dark", () => {
     document.documentElement.classList.add("dark");
 

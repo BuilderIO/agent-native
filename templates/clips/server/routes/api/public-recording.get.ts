@@ -42,6 +42,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
@@ -398,6 +399,11 @@ export default defineEventHandler(async (event) => {
   // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
+  const verificationPending = await isMediaVerificationPending({
+    ownerEmail: rec.ownerEmail,
+    recordingId,
+    recordingStatus: rec.status,
+  });
 
   return {
     recording: {
@@ -416,6 +422,7 @@ export default defineEventHandler(async (event) => {
       hasAudio: Boolean(rec.hasAudio),
       hasCamera: Boolean(rec.hasCamera),
       status: rec.status,
+      verificationPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
       // Don't leak the password to clients; just indicate whether one was set.

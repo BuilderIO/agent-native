@@ -356,8 +356,20 @@ describe("finalize-recording media serve verification", () => {
       retryAttempt: 1,
       requireAccepted: true,
     });
+    const markerWriteIndex = mockWriteAppState.mock.calls.findIndex(
+      ([key]) => key === "recording-media-verification-rec_1",
+    );
+    expect(markerWriteIndex).toBeGreaterThanOrEqual(0);
+    const markerWriteOrder =
+      mockWriteAppState.mock.invocationCallOrder[markerWriteIndex];
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).toHaveBeenCalledWith(key);
+      const deleteIndex = mockDeleteAppState.mock.calls.findIndex(
+        ([deletedKey]) => deletedKey === key,
+      );
+      expect(markerWriteOrder).toBeLessThan(
+        mockDeleteAppState.mock.invocationCallOrder[deleteIndex],
+      );
     }
   });
 
@@ -415,16 +427,9 @@ describe("finalize-recording media serve verification", () => {
     );
   });
 
-  it("retries an unverifiable byte count before marking media ready", async () => {
+  it("accepts readable media when storage omits a determinate byte count", async () => {
     const chunkKeys = seedBufferedRecording();
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response("ok", { status: 206 }))
-      .mockResolvedValueOnce(
-        new Response("ok", {
-          status: 206,
-          headers: { "content-range": "bytes 0-1/11" },
-        }),
-      );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok", { status: 206 }));
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -434,7 +439,7 @@ describe("finalize-recording media serve verification", () => {
     expect(result).toEqual(
       expect.objectContaining({ id: "rec_1", status: "ready" }),
     );
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).toHaveBeenCalledWith(key);
     }
