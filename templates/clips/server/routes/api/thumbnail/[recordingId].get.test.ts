@@ -185,6 +185,73 @@ describe("/api/thumbnail/:recordingId route", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("rejects active image formats from data URLs", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl:
+            "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3C%2Fsvg%3E",
+        }),
+      ),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(415);
+    expect((result as Response).headers.get("content-type")).toBe(
+      "text/plain; charset=utf-8",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects active content returned by the provider", async () => {
+    mockGetDb.mockReturnValue(createDbWithRow(makeRow()));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("<svg></svg>", {
+        status: 200,
+        headers: { "content-type": "image/svg+xml" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(415);
+    expect((result as Response).headers.get("content-type")).toBe(
+      "text/plain; charset=utf-8",
+    );
+  });
+
+  it("cancels redirect bodies before following the next URL", async () => {
+    mockGetDb.mockReturnValue(createDbWithRow(makeRow()));
+    const cancel = vi.fn();
+    const redirectBody = new ReadableStream({ cancel });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(redirectBody, {
+          status: 302,
+          headers: { location: "https://cdn.example.com/final.jpg" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("thumbnail", {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://cdn.example.com/final.jpg",
+      expect.objectContaining({ redirect: "manual" }),
+    );
+  });
+
   it("rejects private thumbnails without a share grant", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(makeRow({ visibility: "private" })),

@@ -38,6 +38,15 @@ import { verifySharePassword } from "../../../lib/share-password.js";
 const FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
+const SAFE_RASTER_IMAGE_TYPES = new Set([
+  "image/avif",
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/x-icon",
+]);
 
 type ThumbnailRecording = {
   id: string;
@@ -102,7 +111,9 @@ function dataUrlResponse(sourceUrl: string): Response | null {
   const match = sourceUrl.match(/^data:(image\/[\w.+-]+)(;base64)?,(.*)$/s);
   if (!match) return null;
 
-  const [, mimeType, encoding, payload] = match;
+  const [, rawMimeType, encoding, payload] = match;
+  const mimeType = rawMimeType.toLowerCase();
+  if (!SAFE_RASTER_IMAGE_TYPES.has(mimeType)) return null;
   try {
     const bytes = encoding
       ? decodeBase64(payload)
@@ -161,11 +172,24 @@ async function fetchThumbnail(sourceUrl: string): Promise<Response> {
 
     if (upstream.status < 300 || upstream.status >= 400) {
       const contentType =
-        upstream.headers.get("content-type")?.split(";", 1)[0] || "image/jpeg";
+        upstream.headers
+          .get("content-type")
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase() ?? "";
+      if (!SAFE_RASTER_IMAGE_TYPES.has(contentType)) {
+        await upstream.body?.cancel().catch(() => {});
+        return imageResponse(
+          null,
+          "text/plain; charset=utf-8",
+          upstream.ok ? 415 : upstream.status,
+        );
+      }
       return imageResponse(upstream.body, contentType, upstream.status);
     }
 
     const location = upstream.headers.get("location");
+    await upstream.body?.cancel().catch(() => {});
     if (!location) return imageResponse(null, "text/plain", upstream.status);
     currentUrl = new URL(location, currentUrl).href;
   }
@@ -269,8 +293,12 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Thumbnail not found" };
       }
 
-      const inline = dataUrlResponse(sourceUrl);
-      if (inline) return inline;
+      if (sourceUrl.startsWith("data:")) {
+        return (
+          dataUrlResponse(sourceUrl) ??
+          imageResponse(null, "text/plain; charset=utf-8", 415)
+        );
+      }
       if (isRecursiveThumbnailUrl(sourceUrl, recordingId)) {
         setResponseStatus(event, 404);
         return { error: "Thumbnail not found" };
