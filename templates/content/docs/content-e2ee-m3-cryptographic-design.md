@@ -506,4 +506,21 @@ vaults, expiry, altered signatures, and mismatched revocation references fail
 closed. The codec is pure verification and does not yet claim durable replay
 or revocation enforcement until the encrypted index owns it.
 
+The native endpoint now owns that first durable grant/revocation boundary. Its
+owner-only index stores only authenticated ciphertext derived from the guarded
+local-state key, binds the vault and generation as associated data, and fences
+every staged promotion with an authenticated Keychain generation record. A
+missing, stale, corrupt, or restored live frame fails as rollback; pending
+crashes recover only the exact staged or promoted digest, and uncommitted stage
+and bounded temporary artifacts are removed without being trusted. Grant
+insertion re-verifies issuer, signature, lifetime, and canonical scope;
+authorization re-verifies the exact subject and requested resource, operation,
+and provider at the current time. Revocation replay is accepted only from the
+same authenticated control endpoint and signing key as the original grant, and
+the control-log verifier cannot advance its head until this durable insertion
+succeeds. Encryption, persistence, restart, stale-stage cleanup, tamper and
+rollback detection, authorization, and revocation pass on arm64 and x86_64.
+The index does not yet claim job replay protection or result custody; those are
+the next records to join this same encrypted generation fence.
+
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.
