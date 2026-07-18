@@ -32,22 +32,26 @@ describe("scanDeprecatedImports", () => {
     expect(isMigrationManifestActive(manifest, "0.112.0")).toBe(true);
   });
 
-  it("keeps the prepublished composer move planned", () => {
+  it("keeps the framework-wired composer on its focused Core entry", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest).not.toBeNull();
-    expect(manifest?.moves["@agent-native/core/client/composer"]?.status).toBe(
-      "planned",
-    );
+    expect(manifest?.sinceVersion).toBe("0.110.0");
+    expect(
+      manifest?.moves["@agent-native/core/client/composer"],
+    ).toBeUndefined();
     const clientMove = manifest?.moves["@agent-native/core/client"];
     expect(clientMove).toBeDefined();
     expect(
       clientMove
-        ? resolveMigrationSymbolMove(clientMove, "PromptComposer")?.status
+        ? resolveMigrationSymbolMove(clientMove, "PromptComposer")
         : null,
-    ).toBe("planned");
+    ).toMatchObject({
+      to: "@agent-native/core/client/composer",
+      status: "planned",
+    });
   });
 
-  it("keeps editor adapters planned until Toolkit exports them", () => {
+  it("prepublishes the split editor adapter destinations as planned", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     const clientMove = manifest?.moves["@agent-native/core/client"];
     const adapterSymbols = [
@@ -79,6 +83,31 @@ describe("scanDeprecatedImports", () => {
           : null,
       ).toBe("planned");
     }
+    for (const specifier of [
+      "@agent-native/core/client/editor",
+      "@agent-native/core/client/rich-markdown-editor",
+    ]) {
+      const move = manifest?.moves[specifier];
+      expect(move).toBeDefined();
+      expect(
+        move ? resolveMigrationSymbolMove(move, "RichMarkdownEditor") : null,
+      ).toMatchObject({
+        to: "@agent-native/toolkit/editor",
+        status: "planned",
+      });
+      expect(
+        move ? resolveMigrationSymbolMove(move, "uploadEditorImage") : null,
+      ).toMatchObject({
+        to: "@agent-native/core/client/uploads",
+        status: "planned",
+      });
+    }
+    expect(
+      manifest?.moves["@agent-native/core/testing"]?.symbols?.DragHandle,
+    ).toMatchObject({
+      to: "@agent-native/toolkit/editor",
+      status: "planned",
+    });
   });
 
   it("reports only symbols covered by the manifest", () => {
