@@ -19,6 +19,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
   AncPrivateVaultControlLogStatusCeremonyAbortAuthorizationRequired = 13,
   AncPrivateVaultControlLogStatusGrantRevocationAuthorizationRequired = 14,
   AncPrivateVaultControlLogStatusFailed = 15,
+  AncPrivateVaultControlLogStatusEnrollmentAuthorizationRequired = 16,
 };
 
 @interface AncPrivateVaultControlLogMember : NSObject
@@ -107,6 +108,17 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
 - (BOOL)verifyRecoveryWrapRotationCommit:(AncPrivateVaultControlLogMembershipCommit *)commit
                               signedEntry:(AncPrivateVaultControlLogSignedEntry *)entry
                              currentState:(AncPrivateVaultControlLogState *)state
+                         signedEntryBytes:(NSData *)signedEntryBytes
+                       innerEnvelopeBytes:(NSData *)innerEnvelopeBytes;
+/// Optional exact enrollment seam. Generic authenticated replay remains able
+/// to ingest historical add-device/add-broker edges without ceremony bundles;
+/// an enrollment activator supplies this callback and requires it to succeed.
+- (BOOL)verifyEnrollmentMembershipCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                              signedEntry:
+                                  (AncPrivateVaultControlLogSignedEntry *)entry
+                             currentState:
+                                 (AncPrivateVaultControlLogState *)state
                          signedEntryBytes:(NSData *)signedEntryBytes
                        innerEnvelopeBytes:(NSData *)innerEnvelopeBytes;
 - (BOOL)verifyCeremonyAbortSignedEntry:(NSData *)signedEntry

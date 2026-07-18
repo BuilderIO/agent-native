@@ -868,6 +868,25 @@ seed, signature, and ciphertext fail closed. This primitive still cannot
 activate custody by itself: the complete enrollment authorization and trusted
 SAS decision must bind the exact wrap before the coordinator may consume it.
 
+The complete public authorization bundle now has a native verifier as well. It
+re-runs offer and challenge verification from the original canonical bytes,
+then verifies the authorizer-signed authorization, candidate endpoint
+certificate, and exact EEK wrap against the same authenticated predecessor.
+The embedded membership edge is not accepted merely because its outer
+signature is valid: a scoped control-log callback equality-binds the ceremony,
+authorizer, sequence and head, prior membership, candidate identity, role,
+unattended bit, signing and agreement keys, authorization enrollment reference,
+unchanged epoch and recovery authority, and the exact signed-entry bytes before
+native replay can succeed. The successful result retains public evidence and a
+scoped EEK-opening method whose key still exists only inside the synchronous
+native consumer. The synthetic broker path passes end-to-end on Apple Silicon
+and Intel, existing Core control-log vectors remain green, and substituted
+challenge hashes, endpoint certificates, EEK recipients, membership references,
+candidate seeds, expired bundles, and corrupt signatures fail closed. The
+production arm64 XPC service builds. This result remains
+deliberately insufficient to activate custody until it is joined to a durable
+trusted-SAS confirmation receipt and the candidate's exact pending custody.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

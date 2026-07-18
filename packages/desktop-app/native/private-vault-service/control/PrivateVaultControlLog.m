@@ -1440,6 +1440,40 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
           ![AncHash(signedSnapshot) isEqualToData:entryHash])
         return AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired;
     }
+    if ([inner.ceremonyKind isEqualToString:@"add_device"] ||
+        [inner.ceremonyKind isEqualToString:@"add_broker"]) {
+      SEL selector = @selector(verifyEnrollmentMembershipCommit:signedEntry:currentState:signedEntryBytes:innerEnvelopeBytes:);
+      if ([verifier respondsToSelector:selector]) {
+        AncPrivateVaultControlLogMembershipCommit *commitSnapshot =
+            AncCopyCommit(inner);
+        AncPrivateVaultControlLogSignedEntry *entrySnapshot =
+            AncCopySignedEntry(entry);
+        AncPrivateVaultControlLogState *stateSnapshot = AncCopyState(current);
+        NSData *signedSnapshot = AncImmutableCallbackData(authenticatedSignedEntry);
+        NSData *innerSnapshot = AncImmutableCallbackData(entry.innerBytes);
+        BOOL authorized = NO;
+        @try {
+          authorized = [verifier
+              verifyEnrollmentMembershipCommit:commitSnapshot
+                                        signedEntry:entrySnapshot
+                                       currentState:stateSnapshot
+                                   signedEntryBytes:signedSnapshot
+                                 innerEnvelopeBytes:innerSnapshot];
+        } @catch (__unused NSException *exception) {
+          authorized = NO;
+        }
+        if (!authorized || AncCommitMutationAttempted(commitSnapshot) ||
+            AncImmutableMutationAttempted(entrySnapshot) ||
+            AncImmutableMutationAttempted(signedSnapshot) ||
+            AncImmutableMutationAttempted(innerSnapshot) ||
+            !AncCommitSnapshotEqual(commitSnapshot, inner) ||
+            !AncSignedEntrySnapshotEqual(entrySnapshot, entry) ||
+            !AncStateSnapshotEqual(stateSnapshot, current) ||
+            ![signedSnapshot isEqualToData:authenticatedSignedEntry] ||
+            ![innerSnapshot isEqualToData:entry.innerBytes])
+          return AncPrivateVaultControlLogStatusEnrollmentAuthorizationRequired;
+      }
+    }
     if (![inner.ceremonyKind isEqualToString:@"recovery"] &&
         inner.epoch == current.epoch + 1) {
       SEL selector = @selector(verifyRecoveryWrapRotationCommit:signedEntry:currentState:signedEntryBytes:innerEnvelopeBytes:);
