@@ -788,6 +788,19 @@ remaining coordinator work must produce the verified activation evidence that
 is allowed to invoke these two CAS operations; it may not write custody records
 directly.
 
+The authority store now has a separate enrollment bootstrap path for that
+evidence. Unlike genesis it does not create epoch 1, and unlike recovery it does
+not promote a prepared epoch: it carries the already-opened current EEK. Before
+writing an encrypted local authority frame it matches the authorization digest,
+candidate role and unattended bit, candidate signing and agreement keys,
+ceremony, prior membership digest, prior control head, prior epoch and recovery
+generation, and exact expected next sequence to pending custody. Promotion then
+atomically installs authority generation 3 and clears the enrollment edge. The
+production constructor intentionally remains absent until the native transcript
+verifier can mint this capability; only the test build can synthesize one. The
+authority corpus exercises a broker candidate from offer through authorization,
+encrypted authority-frame creation, custody activation, and reread.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

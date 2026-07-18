@@ -3,6 +3,7 @@
 #import "PrivateVaultAuthoritySnapshot.h"
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultAuthorityStoreInternal.h"
+#import "PrivateVaultAncCanonical.h"
 
 #import <objc/runtime.h>
 
@@ -122,17 +123,19 @@ static OSStatus AuthorityDelete(CFDictionaryRef raw) {
   [gAuthorityKeychain removeObjectForKey:key];
   return errSecSuccess;
 }
-static AncPrivateVaultCustodyRepository *AuthorityRepository(void) {
+static AncPrivateVaultKeychain *AuthorityKeychain(void) {
   AncPrivateVaultSecItemFunctions functions = {.copyMatching = AuthorityCopy,
                                                .add = AuthorityAdd,
                                                .update = AuthorityUpdate,
                                                .deleteItem = AuthorityDelete};
-  AncPrivateVaultKeychain *keychain =
-      [[AncPrivateVaultKeychain alloc] initWithFunctions:functions
-                                          contextFactory:^LAContext * {
-                                            return [[LAContext alloc] init];
-                                          }];
-  return [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  return [[AncPrivateVaultKeychain alloc] initWithFunctions:functions
+                                              contextFactory:^LAContext * {
+                                                return [[LAContext alloc] init];
+                                              }];
+}
+static AncPrivateVaultCustodyRepository *AuthorityRepository(void) {
+  return [[AncPrivateVaultCustodyRepository alloc]
+      initWithKeychain:AuthorityKeychain()];
 }
 static void AuthoritySetId(uint8_t output[160], size_t *length,
                            NSString *value) {
@@ -366,6 +369,171 @@ static NSMutableData *DeriveSynthetic(NSString *label) {
   return result;
 }
 
+static AncPrivateVaultAuthoritySnapshot *AuthorityEnrollmentSnapshot(
+    NSData *descendantCanonical, NSString *candidateId, NSData *signingKey,
+    NSData *agreementKey) {
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      descendantCanonical, ANC_PV_AUTHORITY_SNAPSHOT_MAX_BYTES,
+      &canonicalStatus);
+  if (root.type != AncPrivateVaultCanonicalTypeMap)
+    return nil;
+  NSMutableDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map =
+      [root.mapValue mutableCopy];
+  NSArray<AncPrivateVaultCanonicalValue *> *members =
+      map[@514].arrayValue;
+  if (members.count != 2)
+    return nil;
+  AncPrivateVaultCanonicalValue *broker = [AncPrivateVaultCanonicalValue
+      array:@[
+        [AncPrivateVaultCanonicalValue text:candidateId],
+        [AncPrivateVaultCanonicalValue text:@"broker"],
+        [AncPrivateVaultCanonicalValue boolean:YES],
+        [AncPrivateVaultCanonicalValue bytes:signingKey],
+        [AncPrivateVaultCanonicalValue bytes:agreementKey],
+        [AncPrivateVaultCanonicalValue text:@"enrollment:broker:test"]
+      ]];
+  map[@514] = [AncPrivateVaultCanonicalValue
+      array:@[ members[0], broker ]];
+  AncPrivateVaultCanonicalValue *changed =
+      [AncPrivateVaultCanonicalValue map:map];
+  NSData *encoded = AncPrivateVaultCanonicalEncode(changed, &canonicalStatus);
+  AncPrivateVaultAuthoritySnapshotStatus snapshotStatus;
+  return encoded == nil
+             ? nil
+             : AncPrivateVaultAuthoritySnapshotDecode(encoded,
+                                                       &snapshotStatus);
+}
+
+static int RunEnrollmentBootstrapCase(
+    AncPrivateVaultAuthoritySnapshot *genesis,
+    AncPrivateVaultAuthoritySnapshot *descendant,
+    NSData *descendantCanonical, NSData *localKey) {
+  gAuthorityKeychain = [NSMutableDictionary dictionary];
+  AncPrivateVaultCustodyRepository *repository =
+      [[AncPrivateVaultCustodyRepository alloc]
+          initWithKeychain:AuthorityKeychain()
+                recordId:AncPrivateVaultBrokerCustodyRecordId];
+  AuthorityTestSecrets secrets = {0};
+  AuthorityFill(secrets.signing, 32, 0x19);
+  AuthorityFill(secrets.box, 32, 0x39);
+  memcpy(secrets.local, localKey.bytes, 32);
+  uint8_t signingPrivate[64] = {0}, boxPrivate[32] = {0};
+  uint8_t signingPublic[32] = {0}, boxPublic[32] = {0};
+  CHECK(anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                    secrets.signing) == ANC_PV_CRYPTO_OK);
+  CHECK(anc_pv_box_seed_keypair(boxPublic, boxPrivate, secrets.box) ==
+        ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  NSData *signingKey = [NSData dataWithBytes:signingPublic length:32];
+  NSData *agreementKey = [NSData dataWithBytes:boxPublic length:32];
+  NSString *candidateId = @"endpoint:zz-broker-authority-test";
+  AncPrivateVaultAuthoritySnapshot *activation =
+      AuthorityEnrollmentSnapshot(descendantCanonical, candidateId,
+                                  signingKey, agreementKey);
+  CHECK(activation != nil && activation.sequence == descendant.sequence &&
+        activation.targetCustodyGeneration == 3);
+
+  AncPrivateVaultCustodySnapshot offer = {0};
+  offer.record_version = ANC_PV_CUSTODY_VERSION;
+  offer.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  offer.role = ANC_PV_CUSTODY_ROLE_BROKER;
+  offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
+  offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  offer.custody_generation = 1;
+  AuthoritySetId(offer.vault_id, &offer.vault_id_length, genesis.vaultId);
+  AuthoritySetId(offer.endpoint_id, &offer.endpoint_id_length, candidateId);
+  AuthoritySetId(offer.ceremony_id, &offer.ceremony_id_length,
+                 @"ceremony:broker-authority-test");
+  memcpy(offer.signing_public_key, signingPublic, 32);
+  memcpy(offer.box_public_key, boxPublic, 32);
+  AncPrivateVaultCustodySecretInputs inputs = {
+      .signing_seed = secrets.signing,
+      .box_seed = secrets.box,
+      .local_state_key = secrets.local,
+      .active_epoch_key = secrets.active,
+      .pending_epoch_key = secrets.pending};
+  CHECK([repository storeSnapshot:&offer secrets:&inputs
+                          vaultId:genesis.vaultId] ==
+        AncPrivateVaultCustodyRepositoryStatusOK);
+  AncPrivateVaultCustodySnapshot authorized = offer;
+  authorized.authority_anchor_present = 1;
+  authorized.expected_edge_present = 1;
+  authorized.enrollment_phase =
+      ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED;
+  authorized.custody_generation = 2;
+  authorized.active_epoch = genesis.epoch;
+  authorized.recovery_generation = genesis.recoveryGeneration;
+  authorized.anchored_sequence = genesis.sequence;
+  memcpy(authorized.anchored_head, genesis.headHash.bytes, 32);
+  memcpy(authorized.membership_digest, genesis.membershipHash.bytes, 32);
+  authorized.signed_at_ms = genesis.signedAtMs;
+  AuthorityFill(authorized.snapshot_digest, 32, 0x71);
+  authorized.freshness_ms = genesis.verifiedAtMs;
+  authorized.expected_next_sequence = genesis.sequence + 1;
+  memcpy(authorized.expected_previous_head, genesis.headHash.bytes, 32);
+  AuthorityFill(authorized.pending_transcript_digest, 32, 0x91);
+  AuthorityFill(secrets.active, 32, 0xb1);
+  CHECK([repository
+             acceptEnrollmentAuthorizationVaultId:genesis.vaultId
+                                expectedGeneration:1
+                                nextPublicSnapshot:&authorized
+                                    activeEpochKey:secrets.active] ==
+        AncPrivateVaultCustodyRepositoryStatusOK);
+
+  NSData *authorizationDigest = [NSData
+      dataWithBytes:authorized.pending_transcript_digest
+             length:32];
+  AncPrivateVaultVerifiedReplayResult *capability =
+      [AncPrivateVaultVerifiedReplayResult
+          testEnrollmentResultWithSnapshot:activation
+                         authorizationDigest:authorizationDigest
+                                  ceremonyId:@"ceremony:broker-authority-test"
+                         candidateEndpointId:candidateId
+                   candidateSigningPublicKey:signingKey
+                 candidateAgreementPublicKey:agreementKey
+                       priorMembershipHash:genesis.membershipHash];
+  CHECK(capability != nil);
+  NSString *root = [NSTemporaryDirectory()
+      stringByAppendingPathComponent:[NSString
+          stringWithFormat:@"authority-enrollment-%@",
+                           NSUUID.UUID.UUIDString]];
+  CHECK([NSFileManager.defaultManager createDirectoryAtPath:root
+                                withIntermediateDirectories:YES
+                                                 attributes:@{
+                                                   NSFilePosixPermissions : @0700
+                                                 }
+                                                      error:nil]);
+  AncPrivateVaultAuthorityStore *store = [[AncPrivateVaultAuthorityStore alloc]
+      initWithStateRootURL:[NSURL fileURLWithPath:root isDirectory:YES]
+         custodyRepository:repository];
+  AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+  CHECK([store commitVerifiedReplayResult:capability
+                                  vaultId:genesis.vaultId
+                             verifiedAtMs:activation.verifiedAtMs
+                               checkpoint:&checkpoint
+                                    error:nil] ==
+        AncPrivateVaultAuthorityStoreStatusOK);
+  CHECK(checkpoint.custodyGeneration == 3 &&
+        checkpoint.snapshot.sequence == genesis.sequence + 1 &&
+        checkpoint.snapshot.epoch == genesis.epoch);
+  AncPrivateVaultCustodySnapshot active;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  CHECK([repository readVaultId:genesis.vaultId snapshot:&active
+                          handle:&handle] ==
+        AncPrivateVaultCustodyRepositoryStatusOK);
+  CHECK(active.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+        active.role == ANC_PV_CUSTODY_ROLE_BROKER &&
+        active.custody_generation == 3 &&
+        active.active_epoch == genesis.epoch &&
+        active.anchored_sequence == genesis.sequence + 1);
+  CHECK([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  return 0;
+}
+
 static int
 RunAuthorityCrashCase(AncPrivateVaultAuthoritySnapshot *genesis,
                       AncPrivateVaultAuthoritySnapshot *descendant,
@@ -560,6 +728,9 @@ int main(void) {
         AncPrivateVaultAuthoritySnapshotDecode(
             DataFromHex(descendantCase[@"canonicalHex"]), &snapshotStatus);
     CHECK(genesis != nil && descendant != nil);
+    CHECK(RunEnrollmentBootstrapCase(
+              genesis, descendant,
+              DataFromHex(descendantCase[@"canonicalHex"]), key) == 0);
     NSData *immutableGenesis =
         AncPrivateVaultAuthoritySnapshotEncode(genesis, &snapshotStatus);
     BOOL activeMembersMutated = NO;

@@ -57,6 +57,15 @@ AncPrivateVaultVerifiedRecoveryBootstrapResultCreate(
                             endpointSigningKey:(NSData *)endpointSigningKey
                           endpointAgreementKey:(NSData *)endpointAgreementKey
                      bootstrapTranscriptDigest:(NSData *)bootstrapTranscriptDigest;
++ (instancetype)
+    testEnrollmentResultWithSnapshot:
+        (AncPrivateVaultAuthoritySnapshot *)snapshot
+                   authorizationDigest:(NSData *)authorizationDigest
+                            ceremonyId:(NSString *)ceremonyId
+                   candidateEndpointId:(NSString *)candidateEndpointId
+             candidateSigningPublicKey:(NSData *)candidateSigningPublicKey
+           candidateAgreementPublicKey:(NSData *)candidateAgreementPublicKey
+                 priorMembershipHash:(NSData *)priorMembershipHash;
 @end
 #endif
 

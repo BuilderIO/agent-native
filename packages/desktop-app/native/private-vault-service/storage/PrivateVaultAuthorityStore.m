@@ -347,6 +347,7 @@ static void AuthorityRaiseImmutableMutation(void) {
 @property(nonatomic) BOOL testOnly;
 @property(nonatomic) BOOL genesis;
 @property(nonatomic) BOOL recoveryBootstrap;
+@property(nonatomic) BOOL enrollmentBootstrap;
 @property(nonatomic, nullable) NSData *authorizationDigest;
 @property(nonatomic, nullable) NSString *genesisCeremonyId;
 @property(nonatomic, nullable) NSString *genesisEndpointId;
@@ -361,6 +362,17 @@ static void AuthorityRaiseImmutableMutation(void) {
 @property(nonatomic, nullable) NSString *recoveryCandidateEndpointId;
 @property(nonatomic, nullable) NSData *recoveryCandidateSigningPublicKey;
 @property(nonatomic, nullable) NSData *recoveryCandidateAgreementPublicKey;
+@property(nonatomic) uint64_t enrollmentPriorSequence;
+@property(nonatomic) uint64_t enrollmentPriorEpoch;
+@property(nonatomic) uint64_t enrollmentPriorRecoveryGeneration;
+@property(nonatomic, nullable) NSData *enrollmentPriorHead;
+@property(nonatomic, nullable) NSData *enrollmentPriorMembershipHash;
+@property(nonatomic, nullable) NSString *enrollmentCeremonyId;
+@property(nonatomic, nullable) NSString *enrollmentCandidateEndpointId;
+@property(nonatomic, nullable) NSString *enrollmentCandidateRole;
+@property(nonatomic) BOOL enrollmentCandidateUnattended;
+@property(nonatomic, nullable) NSData *enrollmentCandidateSigningPublicKey;
+@property(nonatomic, nullable) NSData *enrollmentCandidateAgreementPublicKey;
 @end
 @implementation AncPrivateVaultVerifiedEvidence
 @end
@@ -425,6 +437,63 @@ static BOOL AuthorityRecoveryEvidenceMatchesPendingCustody(
                        ANC_PV_HASH_BYTES) == ANC_PV_CRYPTO_OK;
 }
 
+static BOOL AuthorityEnrollmentEvidenceMatchesPendingCustody(
+    AncPrivateVaultVerifiedEvidence *evidence,
+    const AncPrivateVaultCustodySnapshot *custody) {
+  return evidence.enrollmentBootstrap &&
+         evidence.authorizationDigest.length == ANC_PV_HASH_BYTES &&
+         evidence.enrollmentPriorHead.length == ANC_PV_HASH_BYTES &&
+         evidence.enrollmentPriorMembershipHash.length == ANC_PV_HASH_BYTES &&
+         evidence.enrollmentCeremonyId.length > 0 &&
+         evidence.enrollmentCandidateEndpointId.length > 0 &&
+         ([evidence.enrollmentCandidateRole isEqualToString:@"endpoint"] ||
+          [evidence.enrollmentCandidateRole isEqualToString:@"broker"]) &&
+         custody->role ==
+             ([evidence.enrollmentCandidateRole isEqualToString:@"broker"]
+                  ? ANC_PV_CUSTODY_ROLE_BROKER
+                  : ANC_PV_CUSTODY_ROLE_ENDPOINT) &&
+         custody->pending_kind ==
+             ([evidence.enrollmentCandidateRole isEqualToString:@"broker"]
+                  ? ANC_PV_CUSTODY_PENDING_ADD_BROKER
+                  : ANC_PV_CUSTODY_PENDING_ADD_DEVICE) &&
+         evidence.enrollmentCandidateUnattended ==
+             [evidence.enrollmentCandidateRole isEqualToString:@"broker"] &&
+         evidence.enrollmentCandidateSigningPublicKey.length ==
+             ANC_PV_SIGN_PUBLIC_KEY_BYTES &&
+         evidence.enrollmentCandidateAgreementPublicKey.length ==
+             ANC_PV_BOX_PUBLIC_KEY_BYTES &&
+         custody->anchored_sequence == evidence.enrollmentPriorSequence &&
+         custody->expected_next_sequence ==
+             evidence.enrollmentPriorSequence + 1 &&
+         custody->active_epoch == evidence.enrollmentPriorEpoch &&
+         custody->recovery_generation ==
+             evidence.enrollmentPriorRecoveryGeneration &&
+         CustodyOpaqueIdMatches(evidence.enrollmentCeremonyId,
+                               custody->ceremony_id,
+                               custody->ceremony_id_length) &&
+         CustodyOpaqueIdMatches(evidence.enrollmentCandidateEndpointId,
+                               custody->endpoint_id,
+                               custody->endpoint_id_length) &&
+         anc_pv_memcmp(evidence.enrollmentCandidateSigningPublicKey.bytes,
+                       custody->signing_public_key,
+                       ANC_PV_SIGN_PUBLIC_KEY_BYTES) == ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.enrollmentCandidateAgreementPublicKey.bytes,
+                       custody->box_public_key,
+                       ANC_PV_BOX_PUBLIC_KEY_BYTES) == ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.enrollmentPriorHead.bytes,
+                       custody->anchored_head, ANC_PV_HASH_BYTES) ==
+             ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.enrollmentPriorHead.bytes,
+                       custody->expected_previous_head, ANC_PV_HASH_BYTES) ==
+             ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.enrollmentPriorMembershipHash.bytes,
+                       custody->membership_digest, ANC_PV_HASH_BYTES) ==
+             ANC_PV_CRYPTO_OK &&
+         anc_pv_memcmp(evidence.authorizationDigest.bytes,
+                       custody->pending_transcript_digest,
+                       ANC_PV_HASH_BYTES) == ANC_PV_CRYPTO_OK;
+}
+
 static BOOL AuthorityRegisterVerifiedEvidence(
     AncPrivateVaultVerifiedReplayResult *result,
     AncPrivateVaultAuthorityCheckpoint *checkpoint,
@@ -434,6 +503,9 @@ static BOOL AuthorityRegisterVerifiedEvidence(
 static NSMapTable<AncPrivateVaultVerifiedReplayResult *,
                   AncPrivateVaultVerifiedEvidence *> *AuthorityVerifiedRegistry(void);
 static NSLock *AuthorityVerifiedRegistryLock(void);
+static AncPrivateVaultAuthorityMember *AuthorityMemberWithId(
+    NSArray<AncPrivateVaultAuthorityMember *> *members,
+    NSString *endpointId);
 @implementation AncPrivateVaultImmutableVerifiedReplayResult
 - (void)setExpectedCheckpoint:(AncPrivateVaultAuthorityCheckpoint *)value { (void)value; AuthorityRaiseImmutableMutation(); }
 - (void)setNextSnapshot:(AncPrivateVaultAuthoritySnapshot *)value { (void)value; AuthorityRaiseImmutableMutation(); }
@@ -511,6 +583,80 @@ static NSLock *AuthorityVerifiedRegistryLock(void);
   e.genesisEndpointSigningPublicKey = [endpointSigningKey copy];
   e.genesisEndpointAgreementPublicKey = [endpointAgreementKey copy];
   e.genesisBootstrapTranscriptDigest = [bootstrapTranscriptDigest copy];
+  NSLock *lock = AuthorityVerifiedRegistryLock();
+  [lock lock];
+  @try {
+    if (AuthorityVerifiedRegistry().count >= 1024)
+      return nil;
+    [AuthorityVerifiedRegistry() setObject:e forKey:result];
+  } @finally {
+    [lock unlock];
+  }
+  return result;
+}
++ (instancetype)
+    testEnrollmentResultWithSnapshot:
+        (AncPrivateVaultAuthoritySnapshot *)snapshot
+                   authorizationDigest:(NSData *)authorizationDigest
+                            ceremonyId:(NSString *)ceremonyId
+                   candidateEndpointId:(NSString *)candidateEndpointId
+             candidateSigningPublicKey:(NSData *)candidateSigningPublicKey
+           candidateAgreementPublicKey:(NSData *)candidateAgreementPublicKey
+                 priorMembershipHash:(NSData *)priorMembershipHash {
+  AncPrivateVaultAuthoritySnapshotStatus status;
+  NSData *canonical = AncPrivateVaultAuthoritySnapshotEncode(snapshot, &status);
+  AncPrivateVaultAuthoritySnapshot *frozen =
+      canonical == nil
+          ? nil
+          : AncPrivateVaultAuthoritySnapshotDecode(canonical, &status);
+  if (frozen == nil || frozen.targetCustodyGeneration != 3 ||
+      frozen.previousCustodyGeneration != 2 ||
+      frozen.previousSequence == nil || frozen.previousHead.length != 32 ||
+      frozen.sequence != frozen.previousSequence.unsignedLongLongValue + 1 ||
+      frozen.epoch == 0 || frozen.recoveryGeneration == 0 ||
+      authorizationDigest.length != 32 || ceremonyId.length == 0 ||
+      candidateEndpointId.length == 0 ||
+      candidateSigningPublicKey.length != 32 ||
+      candidateAgreementPublicKey.length != 32 ||
+      priorMembershipHash.length != 32)
+    return nil;
+  AncPrivateVaultAuthorityMember *candidate =
+      AuthorityMemberWithId(frozen.activeMembers, candidateEndpointId);
+  if (candidate == nil ||
+      (!([candidate.role isEqualToString:@"endpoint"] &&
+         !candidate.unattended) &&
+       !([candidate.role isEqualToString:@"broker"] &&
+         candidate.unattended)) ||
+      ![candidate.signingPublicKey isEqualToData:candidateSigningPublicKey] ||
+      ![candidate.keyAgreementPublicKey
+          isEqualToData:candidateAgreementPublicKey])
+    return nil;
+  AncPrivateVaultVerifiedReplayResult *result = [super new];
+  result.expectedCheckpoint = nil;
+  result.nextSnapshot = frozen;
+  result.epochTransition = AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch;
+  AncPrivateVaultVerifiedEvidence *e = [AncPrivateVaultVerifiedEvidence new];
+  e.nextCanonical = [canonical copy];
+  e.vaultId = [frozen.vaultId copy];
+  e.expectedGeneration = 2;
+  e.verifiedAtMs = frozen.verifiedAtMs;
+  e.transition = AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch;
+  e.replayEntryHash = [frozen.headHash copy];
+  e.authorizationDigest = [authorizationDigest copy];
+  e.enrollmentBootstrap = YES;
+  e.testOnly = YES;
+  e.enrollmentPriorSequence = frozen.previousSequence.unsignedLongLongValue;
+  e.enrollmentPriorEpoch = frozen.epoch;
+  e.enrollmentPriorRecoveryGeneration = frozen.recoveryGeneration;
+  e.enrollmentPriorHead = [frozen.previousHead copy];
+  e.enrollmentPriorMembershipHash = [priorMembershipHash copy];
+  e.enrollmentCeremonyId = [ceremonyId copy];
+  e.enrollmentCandidateEndpointId = [candidateEndpointId copy];
+  e.enrollmentCandidateRole = [candidate.role copy];
+  e.enrollmentCandidateUnattended = candidate.unattended;
+  e.enrollmentCandidateSigningPublicKey = [candidateSigningPublicKey copy];
+  e.enrollmentCandidateAgreementPublicKey =
+      [candidateAgreementPublicKey copy];
   NSLock *lock = AuthorityVerifiedRegistryLock();
   [lock lock];
   @try {
@@ -746,7 +892,8 @@ static AncPrivateVaultVerifiedEvidence *AuthorityCopyVerifiedEvidence(
   if (registered == nil)
     return nil;
   @try {
-    BOOL bootstrap = registered.genesis || registered.recoveryBootstrap;
+    BOOL bootstrap = registered.genesis || registered.recoveryBootstrap ||
+                     registered.enrollmentBootstrap;
     AncPrivateVaultAuthoritySnapshotStatus status;
     NSData *presentedExpected =
         bootstrap
@@ -785,6 +932,7 @@ static AncPrivateVaultVerifiedEvidence *AuthorityCopyVerifiedEvidence(
   copy.testOnly = registered.testOnly;
   copy.genesis = registered.genesis;
   copy.recoveryBootstrap = registered.recoveryBootstrap;
+  copy.enrollmentBootstrap = registered.enrollmentBootstrap;
   copy.authorizationDigest = [registered.authorizationDigest copy];
   copy.genesisCeremonyId = [registered.genesisCeremonyId copy];
   copy.genesisEndpointId = [registered.genesisEndpointId copy];
@@ -805,6 +953,23 @@ static AncPrivateVaultVerifiedEvidence *AuthorityCopyVerifiedEvidence(
       [registered.recoveryCandidateSigningPublicKey copy];
   copy.recoveryCandidateAgreementPublicKey =
       [registered.recoveryCandidateAgreementPublicKey copy];
+  copy.enrollmentPriorSequence = registered.enrollmentPriorSequence;
+  copy.enrollmentPriorEpoch = registered.enrollmentPriorEpoch;
+  copy.enrollmentPriorRecoveryGeneration =
+      registered.enrollmentPriorRecoveryGeneration;
+  copy.enrollmentPriorHead = [registered.enrollmentPriorHead copy];
+  copy.enrollmentPriorMembershipHash =
+      [registered.enrollmentPriorMembershipHash copy];
+  copy.enrollmentCeremonyId = [registered.enrollmentCeremonyId copy];
+  copy.enrollmentCandidateEndpointId =
+      [registered.enrollmentCandidateEndpointId copy];
+  copy.enrollmentCandidateRole = [registered.enrollmentCandidateRole copy];
+  copy.enrollmentCandidateUnattended =
+      registered.enrollmentCandidateUnattended;
+  copy.enrollmentCandidateSigningPublicKey =
+      [registered.enrollmentCandidateSigningPublicKey copy];
+  copy.enrollmentCandidateAgreementPublicKey =
+      [registered.enrollmentCandidateAgreementPublicKey copy];
   return copy;
 }
 
@@ -815,7 +980,8 @@ static void AuthorityConsumeBootstrapEvidence(
   @try {
     AncPrivateVaultVerifiedEvidence *registered =
         [AuthorityVerifiedRegistry() objectForKey:result];
-    if (registered.genesis || registered.recoveryBootstrap)
+    if (registered.genesis || registered.recoveryBootstrap ||
+        registered.enrollmentBootstrap)
       [AuthorityVerifiedRegistry() removeObjectForKey:result];
   } @finally {
     [lock unlock];
@@ -1775,7 +1941,8 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
     *checkpoint = nil;
   AncPrivateVaultVerifiedEvidence *evidence =
       AuthorityCopyVerifiedEvidence(result);
-  BOOL bootstrap = evidence.genesis || evidence.recoveryBootstrap;
+  BOOL bootstrap = evidence.genesis || evidence.recoveryBootstrap ||
+                   evidence.enrollmentBootstrap;
   AncPrivateVaultAuthoritySnapshotStatus evidenceStatus;
   AncPrivateVaultAuthoritySnapshot *expectedSnapshot =
       evidence == nil || bootstrap
@@ -1787,7 +1954,10 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
           ? nil
           : AncPrivateVaultAuthoritySnapshotDecode(evidence.nextCanonical,
                                                     &evidenceStatus);
-  if (evidence == nil || (evidence.genesis && evidence.recoveryBootstrap) ||
+  if (evidence == nil ||
+      ((unsigned)evidence.genesis + (unsigned)evidence.recoveryBootstrap +
+           (unsigned)evidence.enrollmentBootstrap >
+       1) ||
       (!bootstrap && expectedSnapshot == nil) ||
       nextSnapshot == nil ||
       vaultId.length == 0 || evidence.verifiedAtMs != verifiedAtMs ||
@@ -1817,6 +1987,20 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
         nextSnapshot.recoveryGeneration !=
             evidence.recoveryPriorGeneration + 1 ||
         ![nextSnapshot.headHash isEqualToData:evidence.replayEntryHash])) ||
+      (evidence.enrollmentBootstrap &&
+       (evidence.expectedGeneration != 2 ||
+        nextSnapshot.targetCustodyGeneration != 3 ||
+        nextSnapshot.previousCustodyGeneration != 2 ||
+        nextSnapshot.previousSequence == nil ||
+        nextSnapshot.previousSequence.unsignedLongLongValue !=
+            evidence.enrollmentPriorSequence ||
+        ![nextSnapshot.previousHead
+            isEqualToData:evidence.enrollmentPriorHead] ||
+        nextSnapshot.sequence != evidence.enrollmentPriorSequence + 1 ||
+        nextSnapshot.epoch != evidence.enrollmentPriorEpoch ||
+        nextSnapshot.recoveryGeneration !=
+            evidence.enrollmentPriorRecoveryGeneration ||
+        ![nextSnapshot.headHash isEqualToData:evidence.replayEntryHash])) ||
       (!bootstrap && !evidence.testOnly &&
        !AuthoritySnapshotTransitionValid(
            expectedSnapshot, nextSnapshot, evidence.replayEntryHash,
@@ -1839,7 +2023,10 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
           AncPrivateVaultAuthoritySnapshotEncode(official.snapshot, &ss);
       NSData *wantedCanonical =
           AncPrivateVaultAuthoritySnapshotEncode(nextSnapshot, &ss);
-      if (official.custodyGeneration == 2 && officialCanonical != nil &&
+      uint64_t expectedBootstrapGeneration =
+          evidence.enrollmentBootstrap ? 3 : 2;
+      if (official.custodyGeneration == expectedBootstrapGeneration &&
+          officialCanonical != nil &&
           [officialCanonical isEqualToData:wantedCanonical]) {
         if (checkpoint)
           *checkpoint = official;
@@ -1905,6 +2092,16 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
             !current.expected_edge_present || current.active_epoch != 0 ||
             !AuthorityRecoveryEvidenceMatchesPendingCustody(evidence,
                                                             &current))) ||
+          (evidence.enrollmentBootstrap &&
+           (current.custody_generation != 2 ||
+            current.lifecycle != ANC_PV_CUSTODY_LIFECYCLE_PENDING ||
+            current.enrollment_phase !=
+                ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED ||
+            !current.authority_anchor_present ||
+            !current.expected_edge_present || current.active_epoch == 0 ||
+            current.pending_epoch != 0 ||
+            !AuthorityEnrollmentEvidenceMatchesPendingCustody(evidence,
+                                                              &current))) ||
           nextSnapshot.previousCustodyGeneration !=
               current.custody_generation ||
           nextSnapshot.targetCustodyGeneration !=
@@ -1964,14 +2161,15 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
       next.expected_next_sequence = 0;
       memset(next.expected_previous_head, 0, 32);
       memset(next.pending_transcript_digest, 0, 32);
-      if (promotes) {
+      if (promotes || evidence.enrollmentBootstrap) {
         next.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
         next.pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
         next.rotation_phase = ANC_PV_CUSTODY_ROTATION_NONE;
         next.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
         memset(next.ceremony_id, 0, sizeof next.ceremony_id);
         next.ceremony_id_length = 0;
-        next.active_epoch = current.pending_epoch;
+        if (promotes)
+          next.active_epoch = current.pending_epoch;
         next.pending_epoch = 0;
       }
       if (!AuthoritySnapshotMatchesCustody(nextSnapshot, vaultId, &next,
@@ -2051,6 +2249,10 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
       } else if (evidence.recoveryBootstrap) {
         cs = AncPrivateVaultCustodyPromoteRecoveryAuthorityAnchor(
             self.custodyRepository, vaultId, &next);
+      } else if (evidence.enrollmentBootstrap) {
+        cs = [self.custodyRepository
+            promoteEnrollmentAuthorityAnchorVaultId:vaultId
+                                  nextPublicSnapshot:&next];
       } else {
         cs = [self.custodyRepository
             advanceAuthorityAnchorVaultId:vaultId
