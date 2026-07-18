@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 
-import { agentNativePath } from "../api-path.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem } from "./types.js";
 
-export function useMentionSearch(query: string, enabled: boolean) {
+export function useMentionSearch(
+  query: string,
+  enabled: boolean,
+  resolvePathOverride?: (path: string) => string,
+) {
+  const { resolvePath = (path) => path } = useComposerRuntimeAdapters();
+  const resolveRequestPath = resolvePathOverride ?? resolvePath;
   const [items, setItems] = useState<MentionItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -30,7 +36,7 @@ export function useMentionSearch(query: string, enabled: boolean) {
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          agentNativePath(
+          resolveRequestPath(
             `/_agent-native/agent-chat/mentions?q=${encodeURIComponent(query)}`,
           ),
           { signal: abort.signal },
@@ -78,7 +84,7 @@ export function useMentionSearch(query: string, enabled: boolean) {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [query, enabled]);
+  }, [query, enabled, resolveRequestPath]);
 
   return { items, isLoading };
 }

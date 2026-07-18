@@ -4,7 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TooltipProvider } from "../components/ui/tooltip.js";
+import { TooltipProvider } from "../ui/tooltip.js";
 import { createRealtimeVoiceAudioLevelStore } from "./realtime-voice-audio-level.js";
 import {
   RealtimeVoiceModeDock,

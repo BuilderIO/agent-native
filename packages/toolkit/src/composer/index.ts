@@ -40,6 +40,7 @@ export {
   executeRealtimeVoiceTool,
   extractRealtimeVoiceFunctionCalls,
   readRealtimeVoiceContext,
+  readRealtimeVoiceContextWith,
   RealtimeVoiceModeBoundary,
   RealtimeVoiceModeProvider,
   useRealtimeVoiceMode,
@@ -62,6 +63,12 @@ export {
 } from "./prompt-attachments.js";
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";
+export {
+  ComposerRuntimeAdaptersProvider,
+  useComposerRuntimeAdapters,
+  type ComposerRuntimeAdapters,
+  type ComposerTranslate,
+} from "./runtime-adapters.js";
 export type {
   AgentComposerLayoutVariant,
   FileResult,

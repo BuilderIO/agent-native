@@ -31,12 +31,8 @@ import {
   PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
+} from "../ui/popover.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import {
   createRealtimeVoiceAudioLevelStore,

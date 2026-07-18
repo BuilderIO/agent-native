@@ -28,39 +28,8 @@ import React, {
   useMemo,
 } from "react";
 
-import {
-  DEFAULT_REASONING_EFFORT,
-  getReasoningEffortOptionsForModel,
-  reasoningEffortLabel,
-  resolveReasoningEffortSelection,
-  type ReasoningEffort,
-} from "../../shared/reasoning-effort.js";
-import type { VoiceContextPack } from "../../voice/index.js";
-import {
-  AgentComposerReference,
-  formatAgentChatContextItemsForPrompt,
-  normalizeAgentComposerReference,
-  sendToAgentChat,
-  type AgentChatContextItem,
-  AgentComposerReferenceInsertPayload,
-  AGENT_CHAT_INSERT_REFERENCE_EVENT,
-  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
-} from "../agent-chat.js";
-import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
-import { isTrustedBuilderMessage } from "../builder-frame.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import { isTrustedFrameMessage } from "../frame.js";
-import { useT } from "../i18n.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
@@ -72,6 +41,21 @@ import {
   readClipboardPaste,
   shouldConvertClipboardToAttachment,
 } from "./pasted-text.js";
+import {
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  DEFAULT_REASONING_EFFORT,
+  formatPromptContextItems,
+  getReasoningEffortOptionsForModel,
+  reasoningEffortLabel,
+  resolveReasoningEffortSelection,
+  type AgentChatContextItem,
+  type AgentComposerReference,
+  type AgentComposerReferenceInsertPayload,
+  type ReasoningEffort,
+  type VoiceContextPack,
+  useComposerRuntimeAdapters,
+} from "./runtime-adapters.js";
 import type {
   MentionItem,
   SkillResult,
@@ -980,7 +964,7 @@ export function getComposerReasoningEffortOptions(
 
 function ModelSelector({
   model,
-  effort = DEFAULT_REASONING_EFFORT,
+  effort,
   engines,
   modelListLoading = false,
   onChange,
@@ -1006,7 +990,10 @@ function ModelSelector({
   onConnectLocalRuntime?: (engine: string) => void;
   imageModel?: ComposerImageModelMenu;
 }) {
-  const t = useT();
+  const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
+  const reasoning = adapters.models?.reasoning;
+  const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
   const [open, setOpen] = useState(false);
   const autoModelGroup = engines.find((group) => group.models.includes("auto"));
   const providerGroups = useMemo(
@@ -1019,8 +1006,13 @@ function ModelSelector({
         .filter((group) => group.models.length > 0),
     [engines],
   );
-  const effortOptions = getComposerReasoningEffortOptions(model);
-  const selectedEffort = resolveReasoningEffortSelection(model, effort);
+  const effortOptions =
+    reasoning?.getOptionsForModel?.(model) ??
+    getComposerReasoningEffortOptions(model);
+  const selectedEffort =
+    reasoning?.resolve?.(model, effort) ??
+    resolveReasoningEffortSelection(model, effort ?? defaultEffort);
+  const effortLabel = reasoning?.label ?? reasoningEffortLabel;
 
   // Collapse non-selected families by default. The family containing the
   // currently-selected model stays expanded so the user sees their pick at
@@ -1076,7 +1068,7 @@ function ModelSelector({
   // When Builder.io isn't connected, surface a one-click connect path —
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
   // user having to paste individual API keys.
-  const builderFlow = useBuilderConnectFlow({
+  const builderFlow = adapters.builder!.useConnectFlow!({
     enabled: providerConnectStatusEnabled,
     trackingSource: "composer_builder_cta",
   });
@@ -1112,7 +1104,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`Model: ${friendlyModelName(model)}${
             effortOptions.length > 0
-              ? `. Reasoning: ${reasoningEffortLabel(selectedEffort)}`
+              ? `. Reasoning: ${effortLabel(selectedEffort)}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1322,7 +1314,7 @@ function ModelSelector({
                         nextOptions.length > 0 &&
                         !nextOptions.includes(selectedEffort)
                       ) {
-                        onEffortChange?.(DEFAULT_REASONING_EFFORT);
+                        onEffortChange?.(defaultEffort);
                       }
                       setOpen(false);
                     }}
@@ -1363,7 +1355,7 @@ function ModelSelector({
                 </span>
                 {!reasoningExpanded && (
                   <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {reasoningEffortLabel(selectedEffort)}
+                    {effortLabel(selectedEffort)}
                   </span>
                 )}
               </button>
@@ -1377,7 +1369,7 @@ function ModelSelector({
                   className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
                 >
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {reasoningEffortLabel(option)}
+                    {effortLabel(option)}
                   </span>
                   {option === selectedEffort && (
                     <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
@@ -1460,6 +1452,8 @@ export function TiptapComposer({
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
 }: TiptapComposerProps) {
+  const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
@@ -1930,7 +1924,7 @@ export function TiptapComposer({
 
   const insertReference = useCallback(
     (ref: AgentComposerReference) => {
-      const normalized = normalizeAgentComposerReference(ref);
+      const normalized = adapters.agentChat!.normalizeReference!(ref) as any;
       const ed = editor;
       if (!normalized || !isComposerEditorUsable(ed)) return;
       if (normalized.slotKey) {
@@ -1940,7 +1934,11 @@ export function TiptapComposer({
         ed.commands.focus("end");
         return;
       }
-      if (normalized.relatedReferences?.some((item) => item.slotKey)) {
+      if (
+        normalized.relatedReferences?.some(
+          (item: AgentComposerReference) => item.slotKey,
+        )
+      ) {
         setSlotReferences((current) =>
           applySlotReferenceChanges(
             current,
@@ -1974,7 +1972,9 @@ export function TiptapComposer({
       const ed = editor;
       if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
         return;
-      const normalized = normalizeAgentComposerReference(payload);
+      const normalized = adapters.agentChat!.normalizeReference!(
+        payload,
+      ) as any;
       if (normalized?.slotKey) {
         insertReference(normalized);
         return;
@@ -1990,7 +1990,9 @@ export function TiptapComposer({
     if (typeof window === "undefined") return;
     const handleEvent = (event: Event) => {
       const payload = (event as CustomEvent).detail;
-      const normalized = normalizeAgentComposerReference(payload);
+      const normalized = adapters.agentChat!.normalizeReference!(
+        payload,
+      ) as any;
       if (!normalized) return;
       insertReferenceIfEmpty({
         ...normalized,
@@ -2001,14 +2003,19 @@ export function TiptapComposer({
       });
     };
     const handleMessage = (event: MessageEvent) => {
-      if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
+      if (
+        !adapters.builder!.isTrustedFrameMessage!(event) &&
+        !adapters.builder!.isTrustedBuilderMessage!(event)
+      ) {
         return;
       }
       if (event.data?.type !== AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE) {
         return;
       }
       const payload = event.data.data;
-      const normalized = normalizeAgentComposerReference(payload);
+      const normalized = adapters.agentChat!.normalizeReference!(
+        payload,
+      ) as any;
       if (!normalized) return;
       insertReferenceIfEmpty({
         ...normalized,
@@ -2027,7 +2034,7 @@ export function TiptapComposer({
       );
       window.removeEventListener("message", handleMessage);
     };
-  }, [insertReferenceIfEmpty]);
+  }, [adapters, insertReferenceIfEmpty]);
 
   useImperativeHandle(focusRef, () => ({
     focus() {
@@ -2142,7 +2149,8 @@ export function TiptapComposer({
     const snippets: Array<{ label: string; value: string }> = [];
 
     const activeContext = trimVoiceContextValue(
-      formatAgentChatContextItemsForPrompt(contextItems),
+      adapters.agentChat!.formatContextItems!(contextItems) ||
+        formatPromptContextItems(contextItems),
       3200,
     );
     if (activeContext) {
@@ -2181,7 +2189,7 @@ export function TiptapComposer({
       mode: "dictation",
       snippets,
     };
-  }, [contextItems, editor, slotReferences]);
+  }, [adapters, contextItems, editor, slotReferences]);
 
   const voice = useVoiceDictation({
     onTranscript: insertTranscript,
@@ -2443,7 +2451,7 @@ export function TiptapComposer({
       if (
         !composerMode &&
         interceptBuildRequestsForBuilder &&
-        tryDelegateBuildRequestToBuilder(trimmed)
+        adapters.builder!.tryDelegateBuildRequest!(trimmed)
       ) {
         cancelActiveVoice();
         clearEditorAfterSubmit();
@@ -2479,7 +2487,7 @@ export function TiptapComposer({
           );
           composerRuntime.send();
         } else {
-          sendToAgentChat({
+          adapters.agentChat!.sendToAgentChat!({
             message,
             context: config.getContext(modePrompt),
             mode:

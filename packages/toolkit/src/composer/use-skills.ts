@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 
-import { agentNativePath } from "../api-path.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { SkillResult } from "./types.js";
 
 export function useSkills(enabled: boolean) {
+  const { resolvePath = (path) => path } = useComposerRuntimeAdapters();
   const [skills, setSkills] = useState<SkillResult[]>([]);
   const [hint, setHint] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
@@ -17,7 +18,7 @@ export function useSkills(enabled: boolean) {
     setIsLoading(true);
     const id = ++requestIdRef.current;
 
-    fetch(agentNativePath("/_agent-native/agent-chat/skills"))
+    fetch(resolvePath("/_agent-native/agent-chat/skills"))
       .then((res) => {
         if (!res.ok) throw new Error();
         return res.json();
@@ -38,7 +39,7 @@ export function useSkills(enabled: boolean) {
           setIsLoading(false);
         }
       });
-  }, [enabled]);
+  }, [enabled, resolvePath]);
 
   return { skills, hint, isLoading };
 }
