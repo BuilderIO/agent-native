@@ -4,7 +4,7 @@
  * itself via `scripts/guard-*.mjs` (see
  * `advisor-plans/reports/005-doctor-design.md` for the full design and
  * `advisor-plans/015-doctor-v1-implementation.md` for the implementation
- * plan). v1 ships 7 of those guards, ported to work against a single
+ * plan). v1 ships 8 of those guards, ported to work against a single
  * generated app root instead of this monorepo's multi-template layout —
  * see `../guards/index.ts`.
  *
@@ -33,6 +33,11 @@ import {
   scanUnscopedQueries,
 } from "../guards/index.js";
 import type { GuardResult } from "../guards/index.js";
+import {
+  AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  scanDeprecatedImports,
+  type MigrationManifest,
+} from "../package-lifecycle/index.js";
 
 export type GuardName =
   | "no-drizzle-push"
@@ -41,7 +46,8 @@ export type GuardName =
   | "no-env-credentials"
   | "db-tool-scoping"
   | "no-env-mutation"
-  | "no-localhost-fallback";
+  | "no-localhost-fallback"
+  | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
   "no-drizzle-push",
@@ -51,6 +57,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "db-tool-scoping",
   "no-env-mutation",
   "no-localhost-fallback",
+  "migration-manifest",
 ];
 
 export interface DoctorConfig {
@@ -118,6 +125,7 @@ function runGuard(
   name: GuardName,
   root: string,
   config: DoctorConfig,
+  migrationManifests?: MigrationManifest[],
 ): GuardResult {
   switch (name) {
     case "no-drizzle-push":
@@ -137,6 +145,18 @@ function runGuard(
       return scanEnvMutation({ root });
     case "no-localhost-fallback":
       return scanLocalhostFallback({ root, extraExemptPaths: [] });
+    case "migration-manifest":
+      return {
+        name,
+        findings: scanDeprecatedImports({
+          root,
+          manifests: migrationManifests,
+        }).map((finding) => ({
+          file: path.relative(root, finding.file),
+          line: finding.line,
+          message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+        })),
+      };
   }
 }
 
@@ -147,6 +167,7 @@ export interface RunDoctorScanOptions {
    * are silently ignored here — the CLI layer (`runDoctor`) validates
    * `--only` and reports a usage error before calling this. */
   only?: string[];
+  migrationManifests?: MigrationManifest[];
 }
 
 /** Pure scan orchestrator: runs the selected guards against `root` and
@@ -168,7 +189,7 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
 
   const findings: DoctorFinding[] = [];
   for (const name of names) {
-    const result = runGuard(name, root, config);
+    const result = runGuard(name, root, config, options.migrationManifests);
     for (const f of result.findings) {
       findings.push({
         guard: name,
@@ -281,6 +302,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
       "",
       "For dependency-pin health (framework overrides/patches, stale",
       "@agent-native/* pins), run `agent-native upgrade check` instead.",
+      `For import migrations, run \`${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}\`.`,
     ].join("\n"),
   );
 }
