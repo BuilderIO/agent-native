@@ -52,19 +52,31 @@ export {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 
-export { uploadEditorImage } from "./uploadEditorImage.js";
 export {
   createRegistryBlockNode,
+  LegacyJsonEditSurface,
   RegistryBlockNodeView,
-  RegistryBlockDataProvider,
   useRegistryBlockData,
   type CreateRegistryBlockNodeOptions,
+  type RegistryBlockDataChangeMeta,
   type RegistryBlockDataValue,
+  type RegistryBlockEditSurfaceOptions,
+  type RegistryBlockNestedBlock,
+  type RegistryBlockRenderOptions,
+  type RegistryBlockRenderResult,
   type RegistryBlockSideMapBlock,
-} from "./RegistryBlockNode.js";
+} from "@agent-native/toolkit/editor";
+export { RegistryBlockDataProvider } from "../blocks/RegistryBlockDataProvider.js";
+export {
+  uploadEditorImage,
+  type EditorImageUploadFn,
+  type EditorImageUploadResult,
+} from "../uploads/upload-editor-image.js";
 export {
   buildRegistryBlockSlashItems,
   getRegistryBlockSlashDescription,
   getRegistryBlockSlashSearchText,
   type BuildRegistryBlockSlashItemsOptions,
-} from "./registrySlashCommands.js";
+  type RegistrySlashBlockRegistry,
+  type RegistrySlashBlockSpec,
+} from "@agent-native/toolkit/editor";

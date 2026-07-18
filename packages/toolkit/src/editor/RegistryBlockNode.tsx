@@ -13,9 +13,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import {
-  createContext,
   useEffect,
-  useContext,
   useMemo,
   useState,
   type ReactNode,
@@ -23,15 +21,31 @@ import {
 } from "react";
 
 import {
-  blockEditSurface,
-  useOptionalBlockRegistry,
-  type BlockDataChangeMeta,
-  type BlockRenderContext,
-} from "../blocks/index.js";
-import { SchemaBlockEditor } from "../blocks/SchemaBlockEditor.js";
+  RegistryBlockDataProvider,
+  useRegistryBlockData,
+  type RegistryBlockDataChangeMeta,
+  type RegistryBlockDataValue,
+  type RegistryBlockEditSurfaceOptions,
+  type RegistryBlockNestedBlock,
+  type RegistryBlockRenderOptions,
+  type RegistryBlockRenderResult,
+  type RegistryBlockSideMapBlock,
+} from "./RegistryBlockContext.js";
+
+export {
+  RegistryBlockDataProvider,
+  useRegistryBlockData,
+  type RegistryBlockDataChangeMeta,
+  type RegistryBlockDataValue,
+  type RegistryBlockEditSurfaceOptions,
+  type RegistryBlockNestedBlock,
+  type RegistryBlockRenderOptions,
+  type RegistryBlockRenderResult,
+  type RegistryBlockSideMapBlock,
+} from "./RegistryBlockContext.js";
 
 /* -------------------------------------------------------------------------- */
-/* The generic registry-block side-map + Tiptap NodeView, lifted into core.    */
+/* The generic registry-block side-map + Tiptap NodeView.                      */
 /*                                                                            */
 /* This is the app-agnostic NodeView that renders registered block specs       */
 /* inside a `SharedRichEditor` document. Hosts mount the node produced by      */
@@ -44,108 +58,6 @@ import { SchemaBlockEditor } from "../blocks/SchemaBlockEditor.js";
 /* context, keeping the doc small and the block data the single source of      */
 /* truth.                                                                     */
 /* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
-/* C. Block-data side-map context                                             */
-/* -------------------------------------------------------------------------- */
-
-/** The minimal block shape the NodeView renders through `<BlockView>`. */
-export interface RegistryBlockSideMapBlock {
-  id: string;
-  title?: string;
-  summary?: string;
-  data: unknown;
-}
-
-/**
- * The side-map an editor host supplies so the registry NodeView can resolve a
- * block's full typed `data` (and commit edits) by its stable id, without ever
- * storing that data in the ProseMirror doc.
- */
-export interface RegistryBlockDataValue<
-  TBlock extends RegistryBlockSideMapBlock = RegistryBlockSideMapBlock,
-> {
-  /** Resolve a block's full record (incl. `data`) by its stable id. */
-  getBlock: (blockId: string) => TBlock | undefined;
-  /** Commit a new `data` value for a block (edit-mode only). */
-  onBlockDataChange: (
-    blockId: string,
-    nextData: unknown,
-    meta?: BlockDataChangeMeta,
-  ) => void;
-  /** Whether the document (and thus its blocks) is editable. */
-  editable: boolean;
-  /**
-   * When true, blocks whose type has no Notion (NFM) analog are badged so the
-   * author knows they won't sync. The host decides which types are incompatible
-   * via {@link isNotionIncompatibleType}; this flag just toggles the badge on.
-   */
-  notionSync?: boolean;
-  /**
-   * Decide whether a block type is Notion-incompatible (no NFM analog). Only
-   * consulted when {@link notionSync} is true. Injected by the host so the
-   * single registry-level allowlist (plan's `isNotionCompatibleBlockType`, or
-   * content's registry-derived gate) drives the badge — core stays policy-free.
-   */
-  isNotionIncompatibleType?: (blockType: string) => boolean;
-  /**
-   * Render a block whose type is NOT in the registry through the host's own
-   * dispatcher (plan: `PlanBlockView` for decision / legacy visual-questions /
-   * image; omitted in hosts with no legacy types), so every block type renders
-   * in the document instead of a bare fallback.
-   */
-  renderLegacyBlock?: (
-    block: TBlock,
-    options: { editing: boolean },
-  ) => ReactNode;
-  /**
-   * Optional: render a schema-driven (or otherwise custom) editor for a legacy
-   * block in place of the raw-JSON fallback. Receives an `onChange` that commits
-   * the block's new `data`. Return `null`/`undefined` to keep the JSON editor for
-   * that block type. The returned editor is expected to autosave through
-   * `onChange` (no Save button is shown), matching registered panel blocks.
-   */
-  renderLegacyBlockEditor?: (
-    block: TBlock,
-    args: { onChange: (nextData: unknown) => void },
-  ) => ReactNode;
-  /**
-   * Return `true` for legacy block types that render their OWN edit affordance
-   * inside `renderLegacyBlock` (e.g. an image block with its own hover toolbar).
-   * For those types the node view renders the legacy block in edit mode and adds
-   * NO separate corner edit surface (no pencil / JSON / form popover), so the
-   * block owns a single, self-contained control overlay.
-   */
-  legacyBlockSelfEdits?: (blockType: string) => boolean;
-}
-
-const RegistryBlockDataContext =
-  createContext<RegistryBlockDataValue<any> | null>(null);
-
-export function RegistryBlockDataProvider<
-  TBlock extends RegistryBlockSideMapBlock = RegistryBlockSideMapBlock,
->({
-  value,
-  children,
-}: {
-  value: RegistryBlockDataValue<TBlock>;
-  children: ReactNode;
-}) {
-  return (
-    <RegistryBlockDataContext.Provider value={value}>
-      {children}
-    </RegistryBlockDataContext.Provider>
-  );
-}
-
-/** Read the registry block side-map. Returns `null` outside a provider. */
-export function useRegistryBlockData<
-  TBlock extends RegistryBlockSideMapBlock = RegistryBlockSideMapBlock,
->(): RegistryBlockDataValue<TBlock> | null {
-  return useContext(
-    RegistryBlockDataContext,
-  ) as RegistryBlockDataValue<TBlock> | null;
-}
 
 function clickedInteractiveChild(target: HTMLElement) {
   if (target.closest("button,input,textarea,select,a,[role='textbox']")) {
@@ -191,7 +103,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [shellHovered, setShellHovered] = useState(false);
 
-  const registryValue = useOptionalBlockRegistry();
   const sideMap = useRegistryBlockData();
 
   // Optimistic edit override. `onBlockDataChange` commits into the host's own
@@ -218,7 +129,10 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     liveBlock && pendingEdit && Object.is(liveData, pendingEdit.base)
       ? { ...liveBlock, data: pendingEdit.data }
       : liveBlock;
-  const commitBlockData = (nextData: unknown, meta?: BlockDataChangeMeta) => {
+  const commitBlockData = (
+    nextData: unknown,
+    meta?: RegistryBlockDataChangeMeta,
+  ) => {
     setPendingEdit({ data: nextData, base: liveData });
     sideMap?.onBlockDataChange(blockId, nextData, meta);
   };
@@ -246,7 +160,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     );
   }
 
-  const spec = registryValue?.registry.get(blockType);
   const selectNode = (event: ReactMouseEvent<HTMLElement>) => {
     if (!editable) return;
     const target = event.target;
@@ -275,11 +188,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   };
 
   // Choose how to render the block body:
-  //  1. Registered spec → read view by default; direct-manipulation specs
-  //     (`editSurface: "inline" | "container"`) render their editor in place,
-  //     read-only-in-edit-mode specs (`"none"`) keep their read view, while
-  //     artifact/config specs (`"panel"`) keep the read view plus a corner edit
-  //     button.
+  //  1. A host registry adapter renders a registered block.
   //  2. No spec, but the side-map provides `renderLegacyBlock` → delegate to the
   //     host's dispatcher (decision, legacy visual-questions, image, and any
   //     other type rendered by a bespoke component rather than the registry), so
@@ -288,78 +197,18 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   //  3. Neither → a small non-crashing fallback.
   let body: ReactNode;
   let editSurface: ReactNode = null;
-  if (registryValue && spec) {
-    const blockData = (block as { data: unknown }).data;
-    const Read = spec.Read;
-    const readNode = (
-      <Read
-        data={blockData}
-        blockId={block.id}
-        title={block.title}
-        summary={block.summary}
-        ctx={registryValue.ctx}
-      />
-    );
-    body = readNode;
-    const canEditBlock =
-      editable &&
-      spec.placement.includes("block") &&
-      !!sideMap?.onBlockDataChange;
-    if (canEditBlock) {
-      const Edit = spec.Edit;
-      const editorNode = Edit ? (
-        <Edit
-          data={blockData}
-          onChange={commitBlockData}
-          editable
-          blockId={block.id}
-          title={block.title}
-          summary={block.summary}
-          ctx={registryValue.ctx}
-        />
-      ) : (
-        <SchemaBlockEditor
-          data={blockData}
-          onChange={(nextData) => commitBlockData(nextData)}
-          schema={spec.schema}
-          editable
-          blockId={block.id}
-          ctx={registryValue.ctx}
-        />
-      );
-      const surface = blockEditSurface(spec);
-      if (surface === "panel" && registryValue.ctx.renderEditSurface) {
-        editSurface = registryValue.ctx.renderEditSurface({
-          title: spec.label,
-          open: panelOpen,
-          onOpenChange: setPanelOpen,
-          blockId: block.id,
-          blockType,
-          blockTitle: block.title,
-          blockSummary: block.summary,
-          blockData,
-          trigger: (
-            <button
-              type="button"
-              data-plan-interactive
-              aria-label={`Edit ${spec.label}`}
-              onClick={() => setPanelOpen(true)}
-              className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
-              data-visible={panelOpen || shellHovered}
-            >
-              <IconPencil className="size-4" />
-            </button>
-          ),
-          children: editorNode,
-        });
-      } else if (surface === "panel") {
-        editSurface = props.selected ? (
-          <div className="mt-3">{editorNode}</div>
-        ) : null;
-      } else if (surface !== "none") {
-        body = editorNode;
-      }
-    }
+  const registered = sideMap?.renderRegisteredBlock?.(block, {
+    blockType,
+    editable,
+    selected: props.selected,
+    shellHovered,
+    panelOpen,
+    setPanelOpen,
+    onChange: commitBlockData,
+  });
+  if (registered) {
+    body = registered.body;
+    editSurface = registered.editSurface ?? null;
   } else if (sideMap?.renderLegacyBlock) {
     // Self-editing legacy blocks (e.g. image) render their own edit affordance
     // inside their overlay, so render them in edit mode and add NO separate
@@ -376,9 +225,10 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
       editSurface = (
         <LegacyJsonEditSurface
           block={block}
+          blockType={blockType}
           open={panelOpen}
           onOpenChange={setPanelOpen}
-          renderEditSurface={registryValue?.ctx.renderEditSurface}
+          renderEditSurface={sideMap.renderEditSurface}
           onChange={(nextBlock) => commitBlockData(nextBlock)}
           selected={shellHovered}
           customEditor={customEditor}
@@ -434,6 +284,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
 
 export function LegacyJsonEditSurface({
   block,
+  blockType,
   open,
   onOpenChange,
   renderEditSurface,
@@ -442,13 +293,14 @@ export function LegacyJsonEditSurface({
   customEditor,
 }: {
   block: RegistryBlockSideMapBlock;
+  blockType?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  renderEditSurface?: BlockRenderContext["renderEditSurface"];
+  renderEditSurface?: (options: RegistryBlockEditSurfaceOptions) => ReactNode;
   onChange: (nextData: unknown) => void;
   selected: boolean;
   /**
-   * A host-provided form editor (e.g. {@link SchemaBlockEditor}). When present it
+   * A host-provided form editor. When present it
    * replaces the raw-JSON textarea + Save button; the form autosaves through its
    * own `onChange`.
    */
@@ -528,9 +380,10 @@ export function LegacyJsonEditSurface({
     onOpenChange,
     blockId: block.id,
     blockType:
-      typeof (block as { type?: unknown }).type === "string"
+      blockType ||
+      (typeof (block as { type?: unknown }).type === "string"
         ? ((block as unknown as { type: string }).type ?? "")
-        : "legacy",
+        : "legacy"),
     blockTitle: block.title,
     blockSummary: block.summary,
     blockData: block.data,

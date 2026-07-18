@@ -3,7 +3,7 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
-import { uploadEditorImage } from "@agent-native/core/client/rich-markdown-editor";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,

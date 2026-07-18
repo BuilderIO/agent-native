@@ -1,6 +1,13 @@
-import type { ImageUploadFn } from "@agent-native/toolkit/editor";
-
 import { callAction } from "../use-action.js";
+
+export interface EditorImageUploadResult {
+  src: string;
+  alt?: string;
+}
+
+export type EditorImageUploadFn = (
+  file: File,
+) => Promise<EditorImageUploadResult>;
 
 /**
  * Read a {@link File} as a base64 data URL (`data:image/...;base64,...`).
@@ -37,7 +44,7 @@ interface UploadImageActionResult {
  * dropped image File through the framework `upload-image` action and return the
  * hosted CDN URL.
  *
- * This is the {@link ImageUploadFn} embedders pass to the shared image block so
+ * This is the upload function embedders pass to the shared image block so
  * any app gets a real uploading image block with zero per-app upload code. The
  * action re-hosts the bytes on the configured provider (Builder.io by default),
  * is session-scoped, and returns a stable `![alt](url)` source — so a plan's
@@ -47,7 +54,7 @@ interface UploadImageActionResult {
  * @throws when the file cannot be read, the action returns no URL, or upload is
  *   not configured (with the action's "connect Builder.io" guidance).
  */
-export const uploadEditorImage: ImageUploadFn = async (file: File) => {
+export const uploadEditorImage: EditorImageUploadFn = async (file: File) => {
   if (!file.type.startsWith("image/")) {
     throw new Error("Only image files can be uploaded.");
   }
