@@ -11,6 +11,7 @@
 use super::*;
 use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
+use std::io::{Seek, SeekFrom, Write};
 
 /// `AVAssetWriter.status` raw value for `.completed`.
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
@@ -38,6 +39,13 @@ const CAPTURE_VIDEO_BPP: f64 = 0.15;
 const CAPTURE_STALL_TIMEOUT: Duration = Duration::from_secs(4);
 // Watchdog poll cadence.
 const CAPTURE_WATCHDOG_POLL: Duration = Duration::from_millis(1000);
+/// A stream is not healthy merely because `start_capture` returned. Rewind's
+/// fragmented writer must receive a usable video frame and emit real media.
+const CAPTURE_FIRST_SAMPLE_TIMEOUT: Duration = Duration::from_secs(4);
+const CAPTURE_FIRST_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(3);
+/// Keep a small PCM tail unwritten so a fence can still divide callbacks that
+/// arrived ahead of the corresponding encoded video fragment report.
+const AUDIO_FENCE_LOOKBEHIND_SECONDS: f64 = 2.0;
 // Consecutive failed restarts (rebuild or start error, or an immediate
 // re-stall) before giving up and finalizing whatever was captured. A single
 // successful stretch of frames resets the counter.
@@ -62,6 +70,10 @@ pub(crate) struct CaptureWatch {
     /// the watchdog must not read the silence as a stall and rebuild — resume
     /// brings a fresh stream back and clears this.
     paused: AtomicBool,
+    screen_samples: AtomicU64,
+    usable_screen_samples: AtomicU64,
+    system_audio_samples: AtomicU64,
+    microphone_samples: AtomicU64,
 }
 
 impl CaptureWatch {
@@ -71,6 +83,10 @@ impl CaptureWatch {
             stream_stopped: Mutex::new(None),
             user_stopped: AtomicBool::new(false),
             paused: AtomicBool::new(false),
+            screen_samples: AtomicU64::new(0),
+            usable_screen_samples: AtomicU64::new(0),
+            system_audio_samples: AtomicU64::new(0),
+            microphone_samples: AtomicU64::new(0),
         }
     }
 
@@ -78,6 +94,33 @@ impl CaptureWatch {
         if let Ok(mut guard) = self.last_activity.lock() {
             *guard = Instant::now();
         }
+    }
+
+    fn note_sample(&self, of_type: SCStreamOutputType, usable_screen: bool) {
+        let (counter, label) = match of_type {
+            SCStreamOutputType::Screen => (&self.screen_samples, "screen"),
+            SCStreamOutputType::Audio => (&self.system_audio_samples, "system-audio"),
+            SCStreamOutputType::Microphone => (&self.microphone_samples, "microphone"),
+        };
+        let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if count == 1 {
+            crate::logfile::diagnostic(&format!("[capture-health] first {label} sample callback"));
+        }
+        if usable_screen {
+            let usable = self.usable_screen_samples.fetch_add(1, Ordering::Relaxed) + 1;
+            if usable == 1 {
+                crate::logfile::diagnostic("[capture-health] first usable screen sample");
+            }
+        }
+    }
+
+    fn sample_counts(&self) -> (u64, u64, u64, u64) {
+        (
+            self.screen_samples.load(Ordering::Relaxed),
+            self.usable_screen_samples.load(Ordering::Relaxed),
+            self.system_audio_samples.load(Ordering::Relaxed),
+            self.microphone_samples.load(Ordering::Relaxed),
+        )
     }
 
     fn since_activity(&self) -> Duration {
@@ -130,15 +173,443 @@ impl CaptureWatch {
 // can safely tail it forever.
 // ---------------------------------------------------------------------------
 
-/// Owns the local recording file in segmented mode. The ObjC delegate appends
-/// every segment it receives; append order matches delivery order (delegate
-/// callbacks are serial, and the file mutex serializes any stragglers).
+/// Apple's `AVAssetWriterSegmentType` values. Apple documents initialization
+/// data as `1` and separable media data as `2`; keeping this distinction is
+/// what lets each logical output remain a standalone fMP4.
+const AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION: isize = 1;
+const AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE: isize = 2;
+
+fn segmented_output_enabled(force_segmented_output: bool, live_upload_enabled: bool) -> bool {
+    force_segmented_output || live_upload_enabled
+}
+
+fn live_audio_mixing_enabled(
+    force_segmented_output: bool,
+    include_audio: bool,
+    capture_system_audio: bool,
+) -> bool {
+    include_audio && capture_system_audio && !force_segmented_output
+}
+
+pub(crate) fn audio_sidecar_path(video_path: &Path, source: &str) -> PathBuf {
+    let stem = video_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("segment");
+    video_path.with_file_name(format!("{stem}.{source}.wav"))
+}
+
+struct FloatWavWriter {
+    file: std::fs::File,
+    data_bytes: u32,
+    sample_rate: u32,
+}
+
+impl FloatWavWriter {
+    fn create(path: &Path, sample_rate: u32) -> Result<Self, String> {
+        let mut file = std::fs::File::create(path)
+            .map_err(|error| format!("audio sidecar create failed: {error}"))?;
+        file.write_all(&[0u8; 44])
+            .map_err(|error| format!("audio sidecar header reserve failed: {error}"))?;
+        Ok(Self {
+            file,
+            data_bytes: 0,
+            sample_rate,
+        })
+    }
+
+    fn append_at(&mut self, samples: &[f32], start_seconds: f64) -> Result<(), String> {
+        let target = (start_seconds.max(0.0) * self.sample_rate as f64).round() as usize;
+        let current = self.data_bytes as usize / 4;
+        if target > current {
+            for _ in 0..target.saturating_sub(current) {
+                self.file
+                    .write_all(&0.0f32.to_le_bytes())
+                    .map_err(|error| format!("audio sidecar silence write failed: {error}"))?;
+            }
+            self.data_bytes = self
+                .data_bytes
+                .saturating_add((target.saturating_sub(current) as u32).saturating_mul(4));
+        }
+        let current = self.data_bytes as usize / 4;
+        let skip = current.saturating_sub(target).min(samples.len());
+        for sample in &samples[skip..] {
+            self.file
+                .write_all(&sample.to_le_bytes())
+                .map_err(|error| format!("audio sidecar write failed: {error}"))?;
+        }
+        self.data_bytes = self
+            .data_bytes
+            .saturating_add(((samples.len() - skip) as u32).saturating_mul(4));
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<(), String> {
+        let riff_size = 36u32.saturating_add(self.data_bytes);
+        let byte_rate = self.sample_rate.saturating_mul(4);
+        let mut header = Vec::with_capacity(44);
+        header.extend_from_slice(b"RIFF");
+        header.extend_from_slice(&riff_size.to_le_bytes());
+        header.extend_from_slice(b"WAVEfmt ");
+        header.extend_from_slice(&16u32.to_le_bytes());
+        header.extend_from_slice(&3u16.to_le_bytes());
+        header.extend_from_slice(&1u16.to_le_bytes());
+        header.extend_from_slice(&self.sample_rate.to_le_bytes());
+        header.extend_from_slice(&byte_rate.to_le_bytes());
+        header.extend_from_slice(&4u16.to_le_bytes());
+        header.extend_from_slice(&32u16.to_le_bytes());
+        header.extend_from_slice(b"data");
+        header.extend_from_slice(&self.data_bytes.to_le_bytes());
+        self.file
+            .seek(SeekFrom::Start(0))
+            .and_then(|_| self.file.write_all(&header))
+            .and_then(|_| self.file.flush())
+            .and_then(|_| self.file.sync_all())
+            .map_err(|error| format!("audio sidecar finalize failed: {error}"))
+    }
+}
+
+struct AudioSidecarState {
+    system: Option<FloatWavWriter>,
+    microphone: Option<FloatWavWriter>,
+    failed: Option<String>,
+    segment_base_pts: Option<f64>,
+    latest_end_pts: Option<f64>,
+    session_start_pts: Option<f64>,
+    fence_pending: bool,
+    queued: std::collections::VecDeque<QueuedAudio>,
+}
+
+struct QueuedAudio {
+    microphone: bool,
+    samples: Vec<f32>,
+    sample_rate: f64,
+    pts_seconds: f64,
+}
+
+struct AudioSidecarManager {
+    state: Mutex<AudioSidecarState>,
+    sources: crate::capture_audio_bus::AudioSources,
+}
+
+impl AudioSidecarManager {
+    fn create(
+        video_path: &Path,
+        sources: crate::capture_audio_bus::AudioSources,
+    ) -> Result<Arc<Self>, String> {
+        let system = sources
+            .system
+            .then(|| FloatWavWriter::create(&audio_sidecar_path(video_path, "system"), 48_000))
+            .transpose()?;
+        let microphone = sources
+            .microphone
+            .then(|| FloatWavWriter::create(&audio_sidecar_path(video_path, "microphone"), 48_000))
+            .transpose()?;
+        Ok(Arc::new(Self {
+            state: Mutex::new(AudioSidecarState {
+                system,
+                microphone,
+                failed: None,
+                segment_base_pts: None,
+                latest_end_pts: None,
+                session_start_pts: None,
+                fence_pending: false,
+                queued: std::collections::VecDeque::new(),
+            }),
+            sources,
+        }))
+    }
+
+    fn append(
+        &self,
+        microphone: bool,
+        samples: &[f32],
+        sample_rate: f64,
+        pts_seconds: f64,
+        session_start_seconds: f64,
+    ) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.failed.is_some() {
+            return;
+        }
+        if (sample_rate - 48_000.0).abs() > 1.0 {
+            state.failed = Some(format!(
+                "audio sidecar received unsupported sample rate {sample_rate}"
+            ));
+            return;
+        }
+        state.session_start_pts.get_or_insert(session_start_seconds);
+        state.queued.push_back(QueuedAudio {
+            microphone,
+            samples: samples.to_vec(),
+            sample_rate,
+            pts_seconds,
+        });
+        if !state.fence_pending {
+            let cutoff = pts_seconds - AUDIO_FENCE_LOOKBEHIND_SECONDS;
+            Self::flush_complete_buffers_before(&mut state, cutoff, session_start_seconds);
+        }
+    }
+
+    fn flush_complete_buffers_before(
+        state: &mut AudioSidecarState,
+        cutoff_pts: f64,
+        session_start_seconds: f64,
+    ) {
+        while state.queued.front().is_some_and(|buffer| {
+            buffer.pts_seconds + buffer.samples.len() as f64 / buffer.sample_rate <= cutoff_pts
+        }) {
+            let buffer = state.queued.pop_front().expect("front checked above");
+            Self::append_locked(
+                state,
+                buffer.microphone,
+                &buffer.samples,
+                buffer.sample_rate,
+                buffer.pts_seconds,
+                session_start_seconds,
+            );
+        }
+    }
+
+    fn flush_all(state: &mut AudioSidecarState, session_start_seconds: f64) {
+        let queued = std::mem::take(&mut state.queued);
+        for buffer in queued {
+            Self::append_locked(
+                state,
+                buffer.microphone,
+                &buffer.samples,
+                buffer.sample_rate,
+                buffer.pts_seconds,
+                session_start_seconds,
+            );
+        }
+    }
+
+    fn append_locked(
+        state: &mut AudioSidecarState,
+        microphone: bool,
+        samples: &[f32],
+        sample_rate: f64,
+        pts_seconds: f64,
+        session_start_seconds: f64,
+    ) {
+        let base = *state.segment_base_pts.get_or_insert(session_start_seconds);
+        // ScreenCaptureKit callbacks from different output queues can arrive
+        // after a fragment fence even when their PTS belongs to the preceding
+        // fragment. Discard only the portion before this segment's video
+        // boundary instead of incorrectly prepending it to the new sidecar.
+        let skip = (((base - pts_seconds) * sample_rate).ceil() as isize)
+            .clamp(0, samples.len() as isize) as usize;
+        let samples = &samples[skip..];
+        if samples.is_empty() {
+            return;
+        }
+        let pts_seconds = pts_seconds + skip as f64 / sample_rate;
+        let start_seconds = (pts_seconds - base).max(0.0);
+        state.latest_end_pts = Some(
+            state
+                .latest_end_pts
+                .unwrap_or(pts_seconds)
+                .max(pts_seconds + samples.len() as f64 / sample_rate),
+        );
+        let writer = if microphone {
+            state.microphone.as_mut()
+        } else {
+            state.system.as_mut()
+        };
+        if let Some(writer) = writer {
+            if let Err(error) = writer.append_at(samples, start_seconds) {
+                state.failed = Some(error);
+            }
+        }
+    }
+
+    fn begin_fence(&self) -> Result<(), String> {
+        let mut state = self.state.lock().map_err(|error| error.to_string())?;
+        if let Some(error) = state.failed.clone() {
+            return Err(error);
+        }
+        if state.fence_pending {
+            return Err("an audio sidecar fence is already pending".into());
+        }
+        state.fence_pending = true;
+        Ok(())
+    }
+
+    fn complete_fence(&self, next_video_path: &Path, boundary_seconds: f64) -> Result<(), String> {
+        let mut state = self.state.lock().map_err(|error| error.to_string())?;
+        if let Some(error) = state.failed.clone() {
+            return Err(error);
+        }
+        if !state.fence_pending {
+            return Err("audio sidecar fence completed without a pending fence".into());
+        }
+        let session_start = state.session_start_pts.unwrap_or(0.0);
+        let boundary_pts = session_start + boundary_seconds;
+        let queued = std::mem::take(&mut state.queued);
+        for buffer in &queued {
+            let before = (((boundary_pts - buffer.pts_seconds) * buffer.sample_rate).round()
+                as isize)
+                .clamp(0, buffer.samples.len() as isize) as usize;
+            if before > 0 {
+                Self::append_locked(
+                    &mut state,
+                    buffer.microphone,
+                    &buffer.samples[..before],
+                    buffer.sample_rate,
+                    buffer.pts_seconds,
+                    session_start,
+                );
+            }
+        }
+        if let Some(writer) = state.system.take() {
+            writer.finish()?;
+        }
+        if let Some(writer) = state.microphone.take() {
+            writer.finish()?;
+        }
+        state.system = self
+            .sources
+            .system
+            .then(|| FloatWavWriter::create(&audio_sidecar_path(next_video_path, "system"), 48_000))
+            .transpose()?;
+        state.microphone = self
+            .sources
+            .microphone
+            .then(|| {
+                FloatWavWriter::create(&audio_sidecar_path(next_video_path, "microphone"), 48_000)
+            })
+            .transpose()?;
+        state.segment_base_pts = Some(boundary_pts);
+        state.fence_pending = false;
+        for buffer in queued {
+            let after = (((boundary_pts - buffer.pts_seconds) * buffer.sample_rate).round()
+                as isize)
+                .clamp(0, buffer.samples.len() as isize) as usize;
+            if after < buffer.samples.len() {
+                Self::append_locked(
+                    &mut state,
+                    buffer.microphone,
+                    &buffer.samples[after..],
+                    buffer.sample_rate,
+                    buffer.pts_seconds + after as f64 / buffer.sample_rate,
+                    boundary_pts,
+                );
+            }
+        }
+        crate::logfile::diagnostic(&format!(
+            "[capture-health] audio sidecars fenced at writer PTS {boundary_seconds:.6}s"
+        ));
+        Ok(())
+    }
+
+    fn cancel_fence(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if !state.fence_pending {
+            return;
+        }
+        let session_start = state.session_start_pts.unwrap_or(0.0);
+        state.fence_pending = false;
+        Self::flush_all(&mut state, session_start);
+    }
+
+    fn finish(&self) -> Result<(), String> {
+        self.cancel_fence();
+        let mut state = self.state.lock().map_err(|error| error.to_string())?;
+        let session_start = state.session_start_pts.unwrap_or(0.0);
+        Self::flush_all(&mut state, session_start);
+        if let Some(writer) = state.system.take() {
+            writer.finish()?;
+        }
+        if let Some(writer) = state.microphone.take() {
+            writer.finish()?;
+        }
+        state.failed.clone().map_or(Ok(()), Err)
+    }
+}
+
+/// Metadata for a logical fMP4 closed at a media-fragment boundary.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ClosedSegmentFile {
+    pub path: PathBuf,
+    pub sequence: u64,
+    pub media_fragments: u64,
+    pub bytes_written: u64,
+    pub boundary_seconds: Option<f64>,
+}
+
+/// A non-blocking fence request. Await it off AVFoundation's delegate queue.
+pub(crate) struct SegmentFence {
+    result: std::sync::mpsc::Receiver<Result<ClosedSegmentFile, String>>,
+    audio_sidecars: Option<(Arc<AudioSidecarManager>, PathBuf)>,
+}
+
+impl SegmentFence {
+    pub(crate) fn wait(self, timeout: Duration) -> Result<ClosedSegmentFile, String> {
+        match self.result.recv_timeout(timeout) {
+            Ok(Ok(closed)) => {
+                if let Some((sidecars, next_path)) = self.audio_sidecars {
+                    let boundary = closed.boundary_seconds.ok_or_else(|| {
+                        sidecars.cancel_fence();
+                        "AVAssetWriter did not report the video fragment boundary".to_string()
+                    })?;
+                    sidecars.complete_fence(&next_path, boundary)?;
+                }
+                Ok(closed)
+            }
+            Ok(Err(error)) => {
+                if let Some((sidecars, _)) = self.audio_sidecars {
+                    sidecars.cancel_fence();
+                }
+                Err(error)
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if let Some((sidecars, _)) = self.audio_sidecars {
+                    sidecars.cancel_fence();
+                }
+                Err("fragment fence timed out".into())
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if let Some((sidecars, _)) = self.audio_sidecars {
+                    sidecars.cancel_fence();
+                }
+                Err("fragment fence was cancelled before completion".into())
+            }
+        }
+    }
+}
+
+struct PendingFence {
+    next_path: PathBuf,
+    completion: std::sync::mpsc::Sender<Result<ClosedSegmentFile, String>>,
+}
+
+struct SegmentSinkState {
+    file: std::fs::File,
+    path: PathBuf,
+    sequence: u64,
+    bytes_written: u64,
+    media_fragments: u64,
+    init_segment: Option<Vec<u8>>,
+    pending_fences: std::collections::VecDeque<PendingFence>,
+    failed: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct SegmentProgress {
+    bytes_written: u64,
+    media_fragments: u64,
+    has_initialization: bool,
+}
+
+/// Delegate callbacks and fence requests share one mutex, making every media
+/// fragment an indivisible routing unit. No fragment can cross two files.
 pub(super) struct SegmentSink {
-    file: Mutex<std::fs::File>,
-    /// First write error, if any; surfaced by `finish()` so a failing disk
-    /// turns into a reported error instead of a silently truncated file.
-    failed: Mutex<Option<String>>,
-    segments: AtomicU64,
+    state: Mutex<SegmentSinkState>,
 }
 
 impl SegmentSink {
@@ -146,37 +617,182 @@ impl SegmentSink {
         let file = std::fs::File::create(path)
             .map_err(|e| format!("could not create recording file {}: {e}", path.display()))?;
         Ok(Arc::new(Self {
-            file: Mutex::new(file),
-            failed: Mutex::new(None),
-            segments: AtomicU64::new(0),
+            state: Mutex::new(SegmentSinkState {
+                file,
+                path: path.to_path_buf(),
+                sequence: 0,
+                bytes_written: 0,
+                media_fragments: 0,
+                init_segment: None,
+                pending_fences: std::collections::VecDeque::new(),
+                failed: None,
+            }),
         }))
     }
 
-    fn append(&self, bytes: &[u8]) {
-        use std::io::Write;
-        let Ok(mut file) = self.file.lock() else {
-            return;
-        };
-        if let Err(err) = file.write_all(bytes) {
-            if let Ok(mut failed) = self.failed.lock() {
-                if failed.is_none() {
-                    eprintln!("[mixer] segment write failed: {err}");
-                    *failed = Some(format!("segment write failed: {err}"));
-                }
-            }
-            return;
+    fn fail(state: &mut SegmentSinkState, error: String) {
+        if state.failed.is_none() {
+            state.failed = Some(error.clone());
         }
-        let n = self.segments.fetch_add(1, Ordering::Relaxed) + 1;
-        if n == 1 {
-            eprintln!(
-                "[mixer] first output segment written ({} bytes)",
-                bytes.len()
-            );
+        while let Some(fence) = state.pending_fences.pop_front() {
+            let _ = fence.completion.send(Err(error.clone()));
         }
     }
 
+    fn write_current(state: &mut SegmentSinkState, bytes: &[u8]) -> Result<(), String> {
+        use std::io::Write;
+        state
+            .file
+            .write_all(bytes)
+            .map_err(|err| format!("segment write failed: {err}"))?;
+        state.bytes_written = state.bytes_written.saturating_add(bytes.len() as u64);
+        Ok(())
+    }
+
     fn failure(&self) -> Option<String> {
-        self.failed.lock().ok().and_then(|guard| guard.clone())
+        self.state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.failed.clone())
+    }
+
+    fn progress(&self) -> SegmentProgress {
+        self.state
+            .lock()
+            .map(|state| SegmentProgress {
+                bytes_written: state.bytes_written,
+                media_fragments: state.media_fragments,
+                has_initialization: state.init_segment.is_some(),
+            })
+            .unwrap_or_default()
+    }
+
+    fn cancel_pending(&self, error: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            while let Some(fence) = state.pending_fences.pop_front() {
+                let _ = fence.completion.send(Err(error.to_owned()));
+            }
+        }
+    }
+
+    pub(crate) fn fence(&self, next_path: PathBuf) -> Result<SegmentFence, String> {
+        let mut state = self.state.lock().map_err(|e| e.to_string())?;
+        if let Some(error) = state.failed.clone() {
+            return Err(error);
+        }
+        if next_path == state.path
+            || state
+                .pending_fences
+                .iter()
+                .any(|f| f.next_path == next_path)
+        {
+            return Err("fragment fence path is already active or pending".into());
+        }
+        let (completion, result) = std::sync::mpsc::channel();
+        state.pending_fences.push_back(PendingFence {
+            next_path,
+            completion,
+        });
+        Ok(SegmentFence {
+            result,
+            audio_sidecars: None,
+        })
+    }
+
+    fn append(&self, bytes: &[u8], segment_type: isize, boundary_seconds: Option<f64>) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.failed.is_some() {
+            return;
+        }
+        match segment_type {
+            AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION => {
+                state.init_segment = Some(bytes.to_vec());
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] writer initialization segment: {} bytes",
+                    bytes.len()
+                ));
+                if state.media_fragments == 0 && state.bytes_written == 0 {
+                    if let Err(error) = Self::write_current(&mut state, bytes) {
+                        Self::fail(&mut state, error);
+                    }
+                }
+            }
+            AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE => {
+                let Some(init) = state.init_segment.clone() else {
+                    Self::fail(
+                        &mut state,
+                        "media fragment arrived before initialization segment".into(),
+                    );
+                    return;
+                };
+                // Do not close an init-only file. Once the current logical
+                // file has media, service exactly one request at each later
+                // boundary; repeated fences then make consecutive non-empty
+                // files without splitting a fragment.
+                if state.media_fragments > 0 && !state.pending_fences.is_empty() {
+                    let fence = state.pending_fences.pop_front().expect("checked above");
+                    use std::io::Write;
+                    let closed = ClosedSegmentFile {
+                        path: state.path.clone(),
+                        sequence: state.sequence,
+                        media_fragments: state.media_fragments,
+                        bytes_written: state.bytes_written,
+                        boundary_seconds,
+                    };
+                    let rotate = (|| -> Result<(), String> {
+                        state
+                            .file
+                            .flush()
+                            .map_err(|e| format!("segment flush failed: {e}"))?;
+                        state
+                            .file
+                            .sync_all()
+                            .map_err(|e| format!("segment sync failed: {e}"))?;
+                        let mut next = std::fs::File::create(&fence.next_path).map_err(|e| {
+                            format!(
+                                "could not create fenced recording file {}: {e}",
+                                fence.next_path.display()
+                            )
+                        })?;
+                        next.write_all(&init)
+                            .map_err(|e| format!("segment init write failed: {e}"))?;
+                        state.file = next;
+                        state.path = fence.next_path.clone();
+                        state.sequence = state.sequence.saturating_add(1);
+                        state.bytes_written = init.len() as u64;
+                        state.media_fragments = 0;
+                        Self::write_current(&mut state, bytes)?;
+                        state.media_fragments = 1;
+                        Ok(())
+                    })();
+                    match rotate {
+                        Ok(()) => {
+                            let _ = fence.completion.send(Ok(closed));
+                        }
+                        Err(error) => {
+                            let _ = fence.completion.send(Err(error.clone()));
+                            Self::fail(&mut state, error);
+                        }
+                    }
+                } else if let Err(error) = Self::write_current(&mut state, bytes) {
+                    Self::fail(&mut state, error);
+                } else {
+                    state.media_fragments = state.media_fragments.saturating_add(1);
+                    if state.media_fragments == 1 {
+                        crate::logfile::diagnostic(&format!(
+                            "[capture-health] first writer media fragment: {} bytes",
+                            bytes.len()
+                        ));
+                    }
+                }
+            }
+            _ => Self::fail(
+                &mut state,
+                format!("unsupported AVAssetWriter segment type {segment_type}"),
+            ),
+        }
     }
 }
 
@@ -196,12 +812,13 @@ objc2::define_class!(
     impl SegmentWriterDelegate {
         /// `AVAssetWriterDelegate` — receives each fMP4 segment (type 1 =
         /// initialization, 2 = separable media) as it is produced.
-        #[unsafe(method(assetWriter:didOutputSegmentData:segmentType:))]
+        #[unsafe(method(assetWriter:didOutputSegmentData:segmentType:segmentReport:))]
         fn did_output_segment(
             &self,
             _writer: *mut objc2::runtime::AnyObject,
             data: *mut objc2::runtime::AnyObject,
-            _segment_type: isize,
+            segment_type: isize,
+            segment_report: *mut objc2::runtime::AnyObject,
         ) {
             // Crossing the ObjC boundary: a Rust panic here would abort the
             // whole process, so contain it.
@@ -219,8 +836,24 @@ objc2::define_class!(
                     return;
                 }
                 let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len) };
+                let boundary_seconds = if segment_report.is_null() {
+                    None
+                } else {
+                    let reports: *mut objc2::runtime::AnyObject = unsafe {
+                        objc2::msg_send![&*segment_report, trackReports]
+                    };
+                    let count: usize = if reports.is_null() { 0 } else { unsafe { objc2::msg_send![&*reports, count] } };
+                    if count == 0 {
+                        None
+                    } else {
+                        let track: *mut objc2::runtime::AnyObject = unsafe { objc2::msg_send![&*reports, objectAtIndex: 0usize] };
+                        let earliest: ObjcCMTime = unsafe { objc2::msg_send![&*track, earliestPresentationTimeStamp] };
+                        ((earliest.flags & 1) != 0 && earliest.timescale > 0)
+                            .then_some(earliest.value as f64 / earliest.timescale as f64)
+                    }
+                };
                 use objc2::DefinedClass;
-                self.ivars().sink.append(bytes);
+                self.ivars().sink.append(bytes, segment_type, boundary_seconds);
             }));
         }
     }
@@ -265,6 +898,15 @@ pub(crate) struct CustomScreenCaptureWriter {
     /// append-only file. Zero until the first resume. Read by the video
     /// retime path and the live audio mixer.
     pause_offset_bits: Arc<AtomicU64>,
+    /// Present for Rewind's one physical ScreenCaptureKit producer. Clones
+    /// share one registration across watchdog rebuilds; `finish` deactivates
+    /// it before capture teardown so new consumers cannot attach to a dying
+    /// stream.
+    audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
+    /// Rewind persists independently selectable microphone and system PCM
+    /// beside the video-only fMP4 because AVAssetWriter's segmented profiles
+    /// reject a writer graph containing two AAC inputs.
+    audio_sidecars: Option<Arc<AudioSidecarManager>>,
 }
 
 /// The lock-guarded half of the writer: the retained AVFoundation objects
@@ -335,6 +977,8 @@ impl Clone for CustomScreenCaptureWriter {
             appends_closed: Arc::clone(&self.appends_closed),
             dropped_samples: Arc::clone(&self.dropped_samples),
             pause_offset_bits: Arc::clone(&self.pause_offset_bits),
+            audio_producer: self.audio_producer.clone(),
+            audio_sidecars: self.audio_sidecars.clone(),
         }
     }
 }
@@ -350,6 +994,22 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
                 mic_ready.store(true, Ordering::Relaxed);
             }
         }
+        // Rewind may already own both physical audio inputs before a meeting
+        // begins. Publish decoded PCM even while recording output is deferred;
+        // the bus is about source ownership, not writer attachment.
+        if matches!(
+            of_type,
+            SCStreamOutputType::Audio | SCStreamOutputType::Microphone
+        ) {
+            let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                    self.writer.publish_audio_sample(&sample_buffer, of_type);
+                }));
+            }));
+            if panic_result.is_err() {
+                eprintln!("[mixer] panic while publishing shared {of_type:?} PCM");
+            }
+        }
         if !self.recording_enabled.load(Ordering::SeqCst) {
             return;
         }
@@ -357,6 +1017,10 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
         // is still alive; record it so the watchdog can tell a genuinely stalled
         // stream apart from a quiet one.
         self.watch.note_activity();
+        self.watch.note_sample(
+            of_type,
+            matches!(of_type, SCStreamOutputType::Screen) && sample_buffer.image_buffer().is_some(),
+        );
         if self.writer.appends_closed.load(Ordering::SeqCst) {
             return;
         }
@@ -430,6 +1094,8 @@ impl CustomScreenCaptureWriter {
         capture_system_audio: bool,
         include_audio: bool,
         mix_live: bool,
+        force_segmented_output: bool,
+        audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     ) -> Result<Self, String> {
         use objc2::msg_send;
         use objc2::runtime::AnyObject;
@@ -439,13 +1105,19 @@ impl CustomScreenCaptureWriter {
             static AVFileTypeMPEG4: *const AnyObject;
             static AVMediaTypeVideo: *const AnyObject;
             static AVFileTypeProfileMPEG4AppleHLS: *const AnyObject;
+            static AVFileTypeProfileMPEG4CMAFCompliant: *const AnyObject;
         }
         // Force-load UniformTypeIdentifiers so the runtime UTType lookup in
         // segmented mode resolves.
         #[link(name = "UniformTypeIdentifiers", kind = "framework")]
         extern "C" {}
 
-        let segmented = crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled;
+        // Rewind's local rolling buffer always needs append-only fMP4 output,
+        // independent of whether the remote live uploader is enabled.
+        let segmented = segmented_output_enabled(
+            force_segmented_output,
+            crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled,
+        );
         unsafe {
             let writer_cls = av_class_named("AVAssetWriter")
                 .ok_or_else(|| "AVAssetWriter missing".to_string())?;
@@ -482,8 +1154,21 @@ impl CustomScreenCaptureWriter {
                     epoch: 0,
                 };
                 let _: () = msg_send![&*writer, setPreferredOutputSegmentInterval: interval];
-                let _: () =
-                    msg_send![&*writer, setOutputFileTypeProfile: AVFileTypeProfileMPEG4AppleHLS];
+                // Rewind's video-only rolling artifact uses CMAF, with its
+                // independent audio persisted in adjacent PCM sidecars below.
+                // Ordinary uploaded Clips must retain Apple HLS: those files
+                // contain a live-mixed AAC track, and applying Rewind's CMAF
+                // profile to that writer graph makes AVAssetWriter reject
+                // startWriting before the first byte reaches disk.
+                let output_profile = if force_segmented_output {
+                    AVFileTypeProfileMPEG4CMAFCompliant
+                } else {
+                    AVFileTypeProfileMPEG4AppleHLS
+                };
+                let _: () = msg_send![
+                    &*writer,
+                    setOutputFileTypeProfile: output_profile
+                ];
 
                 let sink = SegmentSink::create(output_path)?;
                 let delegate = SegmentWriterDelegate::new(Arc::clone(&sink));
@@ -537,9 +1222,17 @@ impl CustomScreenCaptureWriter {
             }
             let _: () = msg_send![&*writer, addInput: &*video_input];
 
-            // Live-mixing mode writes one combined audio track; otherwise each
-            // captured source gets its own track (mixed later by ffmpeg, or
-            // left as the single captured source).
+            let sidecar_sources = crate::capture_audio_bus::AudioSources::new(
+                include_audio && force_segmented_output,
+                capture_system_audio && force_segmented_output,
+            );
+            let audio_sidecars = (sidecar_sources.microphone || sidecar_sources.system)
+                .then(|| AudioSidecarManager::create(output_path, sidecar_sources))
+                .transpose()?;
+
+            // AVAssetWriter's fragmented profiles reject two independent AAC
+            // inputs. Rewind therefore writes video-only fMP4 plus local PCM
+            // sidecars; ordinary recordings retain their existing inputs.
             let (system_audio_input, mic_audio_input, mixed_audio_input, mixer) = if mix_live {
                 let mixed = av_make_audio_writer_input(input_cls, &writer)?;
                 (
@@ -549,12 +1242,12 @@ impl CustomScreenCaptureWriter {
                     Some(LiveAudioMixer::new(segmented)?),
                 )
             } else {
-                let system_audio_input = if capture_system_audio {
+                let system_audio_input = if capture_system_audio && !force_segmented_output {
                     Some(av_make_audio_writer_input(input_cls, &writer)?)
                 } else {
                     None
                 };
-                let mic_audio_input = if include_audio {
+                let mic_audio_input = if include_audio && !force_segmented_output {
                     Some(av_make_audio_writer_input(input_cls, &writer)?)
                 } else {
                     None
@@ -582,7 +1275,56 @@ impl CustomScreenCaptureWriter {
                 appends_closed: Arc::new(AtomicBool::new(false)),
                 dropped_samples: Arc::new(AtomicU64::new(0)),
                 pause_offset_bits: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
+                audio_producer,
+                audio_sidecars,
             })
+        }
+    }
+
+    fn publish_audio_sample(
+        &self,
+        sample: &screencapturekit::cm::CMSampleBuffer,
+        of_type: SCStreamOutputType,
+    ) {
+        if self.audio_producer.is_none() && self.audio_sidecars.is_none() {
+            return;
+        }
+        let label = match of_type {
+            SCStreamOutputType::Audio => "shared-system",
+            SCStreamOutputType::Microphone => "shared-mic",
+            _ => return,
+        };
+        let Some((interleaved, pts_seconds)) = extract_interleaved_stereo(sample, label) else {
+            return;
+        };
+        let mono: Vec<f32> = interleaved
+            .chunks_exact(2)
+            .map(|channels| (channels[0] + channels[1]) * 0.5)
+            .collect();
+        if let Some(sidecars) = self.audio_sidecars.as_ref() {
+            let session_start_seconds =
+                f64::from_bits(self.session_start_bits.load(Ordering::SeqCst));
+            if !session_start_seconds.is_nan() {
+                sidecars.append(
+                    matches!(of_type, SCStreamOutputType::Microphone),
+                    &mono,
+                    AUDIO_OUTPUT_SAMPLE_RATE as f64,
+                    pts_seconds,
+                    session_start_seconds,
+                );
+            }
+        }
+        let Some(producer) = self.audio_producer.as_ref() else {
+            return;
+        };
+        match of_type {
+            SCStreamOutputType::Audio => {
+                producer.publish_system(&mono, AUDIO_OUTPUT_SAMPLE_RATE as f64)
+            }
+            SCStreamOutputType::Microphone => {
+                producer.publish_microphone(&mono, AUDIO_OUTPUT_SAMPLE_RATE as f64)
+            }
+            _ => {}
         }
     }
 
@@ -593,9 +1335,54 @@ impl CustomScreenCaptureWriter {
         self.inner.lock().map(|g| g.segmented).unwrap_or(false)
     }
 
+    pub(crate) fn request_fragment_fence(
+        &self,
+        next_path: PathBuf,
+    ) -> Result<SegmentFence, String> {
+        let guard = self.inner.lock().map_err(|e| e.to_string())?;
+        if guard.finished || guard.failed.is_some() {
+            return Err("fragment fences require an active custom capture writer".into());
+        }
+        let sink = guard
+            .segment_sink
+            .clone()
+            .ok_or_else(|| "fragment fences require segmented custom capture".to_string())?;
+        if let Some(sidecars) = self.audio_sidecars.as_ref() {
+            sidecars.begin_fence()?;
+        }
+        let mut fence = match sink.fence(next_path.clone()) {
+            Ok(fence) => fence,
+            Err(error) => {
+                if let Some(sidecars) = self.audio_sidecars.as_ref() {
+                    sidecars.cancel_fence();
+                }
+                return Err(error);
+            }
+        };
+        if let Some(sidecars) = self.audio_sidecars.as_ref() {
+            fence.audio_sidecars = Some((Arc::clone(sidecars), next_path));
+        }
+        Ok(fence)
+    }
+
     /// Whether the writer session has begun (first video frame appended).
     pub(super) fn is_started(&self) -> bool {
         self.started.load(Ordering::SeqCst)
+    }
+
+    fn segment_progress(&self) -> SegmentProgress {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|guard| guard.segment_sink.as_ref().map(|sink| sink.progress()))
+            .unwrap_or_default()
+    }
+
+    fn failure(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|guard| guard.failed.clone())
     }
 
     /// Accumulated pause offset in seconds. Every appended sample skips this
@@ -821,21 +1608,30 @@ impl CustomScreenCaptureWriter {
                         .store(secs.to_bits(), Ordering::SeqCst);
                 }
                 self.started.store(true, Ordering::SeqCst);
+                crate::logfile::diagnostic("[capture-health] AVAssetWriter session started");
                 true
             }
             Ok(false) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
-                guard.failed = Some(format!(
+                let error = format!(
                     "AVAssetWriter startWriting failed{}",
                     av_writer_error_suffix(&guard.writer)
+                );
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] {error} (segmented={segmented})"
                 ));
+                guard.failed = Some(error);
                 false
             }
             Err(exc) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
                 let detail = describe_objc_exception(exc);
                 eprintln!("[mixer] startWriting raised Objective-C exception: {detail}");
-                guard.failed = Some(format!("AVAssetWriter startWriting raised: {detail}"));
+                let error = format!("AVAssetWriter startWriting raised: {detail}");
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] {error} (segmented={segmented})"
+                ));
+                guard.failed = Some(error);
                 false
             }
         }
@@ -895,6 +1691,15 @@ impl CustomScreenCaptureWriter {
     /// writer status; without it, finalization completes in the background
     /// (the fragmented file is already playable up to the last fragment).
     pub(super) fn finish(&self, wait_for_finalize: bool) -> Result<(), String> {
+        // Close shared subscriptions before stopping SCK. A meeting start that
+        // races teardown will now see no producer and may safely use the legacy
+        // physical path, instead of attaching to a stream that is going away.
+        if let Some(producer) = self.audio_producer.as_ref() {
+            producer.deactivate();
+        }
+        if let Some(sidecars) = self.audio_sidecars.as_ref() {
+            sidecars.finish()?;
+        }
         self.appends_closed.store(true, Ordering::SeqCst);
         let dropped = self.dropped_samples.load(Ordering::Relaxed);
         eprintln!(
@@ -961,6 +1766,9 @@ impl CustomScreenCaptureWriter {
             )
         };
         if let Some(err) = failed {
+            if let Some(sink) = segment_sink.as_ref() {
+                sink.cancel_pending("fragment fence cancelled because writer finalization failed");
+            }
             return Err(err);
         }
         unsafe {
@@ -971,6 +1779,11 @@ impl CustomScreenCaptureWriter {
 
             if !started {
                 let _: () = msg_send![&*writer, cancelWriting];
+                if let Some(sink) = segment_sink.as_ref() {
+                    sink.cancel_pending(
+                        "fragment fence cancelled because writer received no samples",
+                    );
+                }
                 return Err("AVAssetWriter received no samples".into());
             }
             let _: () = msg_send![&*video_input, markAsFinished];
@@ -991,11 +1804,21 @@ impl CustomScreenCaptureWriter {
             let _: () = msg_send![&*writer, finishWritingWithCompletionHandler: &*block];
             if wait_for_finalize && rx.recv_timeout(StdDuration::from_secs(15)).is_err() {
                 let _: () = msg_send![&*writer, cancelWriting];
+                if let Some(sink) = segment_sink.as_ref() {
+                    sink.cancel_pending(
+                        "fragment fence cancelled because writer finalization timed out",
+                    );
+                }
                 return Err("AVAssetWriter finalize timed out".into());
             }
             if wait_for_finalize {
                 let status: i64 = msg_send![&*writer, status];
                 if status != AV_WRITER_STATUS_COMPLETED {
+                    if let Some(sink) = segment_sink.as_ref() {
+                        sink.cancel_pending(
+                            "fragment fence cancelled because writer finalization failed",
+                        );
+                    }
                     return Err(format!(
                         "AVAssetWriter finalize failed (status={status}{})",
                         av_writer_error_suffix(&writer)
@@ -1008,8 +1831,12 @@ impl CustomScreenCaptureWriter {
         // unless a disk write failed along the way.
         if let Some(sink) = segment_sink.as_ref() {
             if let Some(err) = sink.failure() {
+                sink.cancel_pending("fragment fence cancelled because segment output failed");
                 return Err(err);
             }
+            sink.cancel_pending(
+                "fragment fence reached writer finalization before a media boundary",
+            );
         }
         eprintln!("[mixer] writer finish completed (wait={wait_for_finalize})");
         Ok(())
@@ -1615,7 +2442,50 @@ fn extract_interleaved_stereo(
     // Normalize every source to the mixer's output rate so contiguous placement
     // on the timeline matches real time (otherwise the mic is pitch-shifted).
     out = resample_interleaved_stereo(&out, src_rate, AUDIO_OUTPUT_SAMPLE_RATE as f64);
+    log_decoded_audio_signal_once(label, &out);
     Some((out, pts_seconds))
+}
+
+/// Record whether decoded source PCM contains a real signal before it reaches
+/// the timeline mixer. This distinguishes capture/format failures from mixer
+/// or writer failures without persisting any audio content.
+fn log_decoded_audio_signal_once(label: &str, samples: &[f32]) {
+    use std::sync::atomic::AtomicBool;
+    static SYS_SIGNAL_LOGGED: AtomicBool = AtomicBool::new(false);
+    static MIC_SIGNAL_LOGGED: AtomicBool = AtomicBool::new(false);
+    let peak = samples
+        .iter()
+        .copied()
+        .map(f32::abs)
+        .fold(0.0_f32, f32::max);
+    // Initial SCK audio callbacks are normally zero-filled while the device
+    // warms. Wait for the first real signal so this diagnostic proves source
+    // health instead of permanently recording that uninteresting pre-roll.
+    if peak <= 0.000_01 {
+        return;
+    }
+    let flag = if label.contains("mic") {
+        &MIC_SIGNAL_LOGGED
+    } else {
+        &SYS_SIGNAL_LOGGED
+    };
+    if flag.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let rms = if samples.is_empty() {
+        0.0
+    } else {
+        (samples
+            .iter()
+            .map(|sample| (*sample as f64) * (*sample as f64))
+            .sum::<f64>()
+            / samples.len() as f64)
+            .sqrt()
+    };
+    crate::logfile::diagnostic(&format!(
+        "[capture-health] decoded {label} PCM: samples={} peak={peak:.6} rms={rms:.6}",
+        samples.len()
+    ));
 }
 
 /// Logs the decoded audio format the first time each source is seen, so format
@@ -2297,6 +3167,10 @@ fn build_custom_scstream(
         config.set_source_rect(rect);
     }
     if let Some(device) = selected_mic.as_ref() {
+        crate::logfile::diagnostic(&format!(
+            "[capture-health] microphone selected: {} ({})",
+            device.name, device.id
+        ));
         config.set_microphone_capture_device_id(&device.id);
     }
     config.set_stream_name(Some("Clips custom full-screen recording"));
@@ -2313,6 +3187,75 @@ fn build_custom_scstream(
         stream.add_output_handler(handler.clone(), SCStreamOutputType::Microphone);
     }
     Ok(stream)
+}
+
+fn await_segmented_capture_readiness(
+    stream: &SCStream,
+    writer: &CustomScreenCaptureWriter,
+    watch: &CaptureWatch,
+    requested_system_audio: bool,
+    requested_microphone: bool,
+) -> Result<(), String> {
+    let sample_deadline = Instant::now() + CAPTURE_FIRST_SAMPLE_TIMEOUT;
+    while Instant::now() < sample_deadline {
+        if let Some(error) = watch.take_stream_stopped() {
+            return Err(error);
+        }
+        if let Some(error) = writer.failure() {
+            return Err(error);
+        }
+        let (_, usable_screen, _, _) = watch.sample_counts();
+        if usable_screen > 0 && writer.is_started() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    let (screen, usable_screen, system, mic) = watch.sample_counts();
+    if usable_screen == 0 || !writer.is_started() {
+        let _ = stream.stop_capture();
+        let finish_error = writer.finish(true).err();
+        return Err(format!(
+            "capture startup timed out before the first usable video sample/writer session (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}){}",
+            finish_error
+                .map(|error| format!("; writer: {error}"))
+                .unwrap_or_default()
+        ));
+    }
+
+    let fragment_deadline = Instant::now() + CAPTURE_FIRST_FRAGMENT_TIMEOUT;
+    while Instant::now() < fragment_deadline {
+        if let Some(error) = watch.take_stream_stopped() {
+            return Err(error);
+        }
+        if let Some(error) = writer.failure() {
+            return Err(error);
+        }
+        let progress = writer.segment_progress();
+        if progress.has_initialization && progress.media_fragments > 0 && progress.bytes_written > 0
+        {
+            crate::logfile::diagnostic(&format!(
+                "[capture-health] segmented capture ready: {} bytes, {} media fragment(s)",
+                progress.bytes_written, progress.media_fragments
+            ));
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    let (screen, usable_screen, system, mic) = watch.sample_counts();
+    let progress = writer.segment_progress();
+    let _ = stream.stop_capture();
+    let finish_error = writer.finish(true).err();
+    Err(format!(
+        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}){}",
+        progress.has_initialization,
+        progress.media_fragments,
+        progress.bytes_written,
+        finish_error
+            .map(|error| format!("; writer: {error}"))
+            .unwrap_or_default()
+    ))
 }
 
 /// Supervise a running custom capture and rebuild the SCStream when it stops or
@@ -2355,6 +3298,12 @@ fn spawn_capture_watchdog(
                 eprintln!(
                     "[mixer] appends closed without a stop request; treating as fatal capture failure and finalizing partial recording"
                 );
+                let writer_error = writer
+                    .failure()
+                    .unwrap_or_else(|| "unknown writer failure".to_string());
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] writer closed unexpectedly; finalizing partial recording: {writer_error}"
+                ));
                 if let Ok(guard) = stream.lock() {
                     let _ = guard.stop_capture();
                 }
@@ -2483,7 +3432,7 @@ fn spawn_capture_watchdog(
 /// build + start the SCStream from rebuildable params, and spawn the
 /// capture watchdog that supervises it. Returns the backend handle plus
 /// the output dimensions.
-pub(super) fn start_custom_screencapturekit_backend_at(
+pub(crate) fn start_custom_screencapturekit_backend_at(
     app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
@@ -2493,6 +3442,7 @@ pub(super) fn start_custom_screencapturekit_backend_at(
     target_display_id: Option<u32>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
+    force_segmented_output: bool,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     eprintln!("[clips-tray] starting custom screen capture backend");
     let content =
@@ -2526,9 +3476,22 @@ pub(super) fn start_custom_screencapturekit_backend_at(
         height,
     };
 
-    // Live-mix only when both audio sources are present; a single source needs
-    // no mixing and goes straight to its own track.
-    let mix_live = include_audio && capture_system_audio;
+    // Rewind keeps microphone and system audio on separate writer tracks for
+    // later local transcription. The ordinary recorder retains its existing
+    // live-mix behavior (needed for its remote upload path).
+    let mix_live =
+        live_audio_mixing_enabled(force_segmented_output, include_audio, capture_system_audio);
+    // The active custom capture is the single physical owner of mic/system
+    // audio for both Rewind and ordinary Clips. Live transcription subscribes
+    // to this producer instead of opening a competing SCK/AVAudioEngine input,
+    // which can make every microphone consumer receive digital silence.
+    let audio_producer = (include_audio || capture_system_audio)
+        .then(|| {
+            crate::capture_audio_bus::AudioProducer::register(
+                crate::capture_audio_bus::AudioSources::new(include_audio, capture_system_audio),
+            )
+        })
+        .transpose()?;
     let writer = CustomScreenCaptureWriter::new(
         output_path,
         width,
@@ -2536,6 +3499,8 @@ pub(super) fn start_custom_screencapturekit_backend_at(
         capture_system_audio,
         include_audio,
         mix_live,
+        force_segmented_output,
+        audio_producer,
     )?;
     let recording_enabled = Arc::new(AtomicBool::new(!defer_recording_output));
     let mic_ready = include_audio.then(|| Arc::new(AtomicBool::new(false)));
@@ -2551,6 +3516,26 @@ pub(super) fn start_custom_screencapturekit_backend_at(
     if let Err(err) = stream.start_capture() {
         let _ = std::fs::remove_file(output_path);
         return Err(format!("custom capture start failed: {err:?}"));
+    }
+    crate::logfile::diagnostic(&format!(
+        "[capture-health] ScreenCaptureKit start_capture returned success: system_audio={capture_system_audio} microphone={include_audio} segmented={force_segmented_output} deferred={defer_recording_output}"
+    ));
+    if force_segmented_output && !defer_recording_output {
+        if let Err(error) = await_segmented_capture_readiness(
+            &stream,
+            &writer,
+            &watch,
+            capture_system_audio,
+            include_audio,
+        ) {
+            let _ = std::fs::remove_file(output_path);
+            let _ = std::fs::remove_file(audio_sidecar_path(output_path, "system"));
+            let _ = std::fs::remove_file(audio_sidecar_path(output_path, "microphone"));
+            crate::logfile::diagnostic(&format!(
+                "[capture-health] segmented capture readiness failed: {error}"
+            ));
+            return Err(error);
+        }
     }
     eprintln!(
         "[clips-tray] custom ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic={include_audio} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
@@ -2590,4 +3575,150 @@ pub(super) fn start_custom_screencapturekit_backend_at(
         Some(width),
         Some(height),
     ))
+}
+
+#[cfg(test)]
+mod fragment_fence_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn path(label: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "clips-fragment-fence-{label}-{}-{}.mp4",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    fn remove(paths: &[&Path]) {
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn caches_init_and_replays_it_for_each_fenced_file() {
+        let first = path("init-first");
+        let second = path("init-second");
+        let sink = SegmentSink::create(&first).unwrap();
+        sink.append(b"INIT", AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION, None);
+        sink.append(b"M0", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        let fence = sink.fence(second.clone()).unwrap();
+        sink.append(b"M1", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(1.0));
+        let closed = fence.wait(Duration::from_secs(1)).unwrap();
+        assert_eq!(closed.path, first);
+        sink.append(b"M2", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(2.0));
+        assert_eq!(std::fs::read(&first).unwrap(), b"INITM0");
+        assert_eq!(std::fs::read(&second).unwrap(), b"INITM1M2");
+        remove(&[&first, &second]);
+    }
+
+    #[test]
+    fn routes_each_media_fragment_exactly_once() {
+        let first = path("once-first");
+        let second = path("once-second");
+        let sink = SegmentSink::create(&first).unwrap();
+        sink.append(b"I", AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION, None);
+        sink.append(b"A", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        let fence = sink.fence(second.clone()).unwrap();
+        sink.append(b"B", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(1.0));
+        sink.append(b"C", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(2.0));
+        assert_eq!(
+            fence.wait(Duration::from_secs(1)).unwrap().media_fragments,
+            1
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), b"IA");
+        assert_eq!(std::fs::read(&second).unwrap(), b"IBC");
+        remove(&[&first, &second]);
+    }
+
+    #[test]
+    fn repeated_fences_complete_in_fragment_order() {
+        let first = path("order-first");
+        let second = path("order-second");
+        let third = path("order-third");
+        let sink = SegmentSink::create(&first).unwrap();
+        sink.append(b"I", AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION, None);
+        sink.append(b"Z", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        let one = sink.fence(second.clone()).unwrap();
+        let two = sink.fence(third.clone()).unwrap();
+        sink.append(b"A", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(1.0));
+        assert_eq!(one.wait(Duration::from_secs(1)).unwrap().sequence, 0);
+        sink.append(b"B", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(2.0));
+        assert_eq!(two.wait(Duration::from_secs(1)).unwrap().sequence, 1);
+        assert_eq!(std::fs::read(&first).unwrap(), b"IZ");
+        assert_eq!(std::fs::read(&second).unwrap(), b"IA");
+        assert_eq!(std::fs::read(&third).unwrap(), b"IB");
+        remove(&[&first, &second, &third]);
+    }
+
+    #[test]
+    fn fence_creation_failure_fails_closed() {
+        let first = path("error-first");
+        let directory = std::env::temp_dir();
+        let sink = SegmentSink::create(&first).unwrap();
+        sink.append(b"I", AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION, None);
+        sink.append(b"Z", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        let fence = sink.fence(directory).unwrap();
+        sink.append(b"A", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(1.0));
+        assert!(fence.wait(Duration::from_secs(1)).is_err());
+        assert!(sink.failure().is_some());
+        remove(&[&first]);
+    }
+
+    #[test]
+    fn forced_segmented_rewind_disables_live_mix_for_selectable_sidecars() {
+        assert!(segmented_output_enabled(true, false));
+        assert!(!live_audio_mixing_enabled(true, true, true));
+        assert!(live_audio_mixing_enabled(false, true, true));
+    }
+
+    #[test]
+    fn audio_sidecars_preserve_sources_and_rotate_as_valid_float_wav() {
+        let first = path("audio-first");
+        let second = path("audio-second");
+        let sidecars = AudioSidecarManager::create(
+            &first,
+            crate::capture_audio_bus::AudioSources::new(true, true),
+        )
+        .unwrap();
+        sidecars.append(false, &[0.25; 480], 48_000.0, 10.010, 10.0);
+        sidecars.append(true, &[0.5; 480], 48_000.0, 10.020, 10.0);
+        sidecars.begin_fence().unwrap();
+        // These two buffers cross the exact 30 ms video-fragment boundary.
+        sidecars.append(false, &[0.1; 960], 48_000.0, 10.025, 10.0);
+        sidecars.append(true, &[0.2; 960], 48_000.0, 10.025, 10.0);
+        sidecars.complete_fence(&second, 0.030).unwrap();
+        sidecars.append(false, &[0.1; 480], 48_000.0, 10.040, 10.0);
+        sidecars.append(true, &[0.2; 480], 48_000.0, 10.040, 10.0);
+        sidecars.finish().unwrap();
+
+        let first_system = audio_sidecar_path(&first, "system");
+        let first_microphone = audio_sidecar_path(&first, "microphone");
+        let second_system = audio_sidecar_path(&second, "system");
+        let second_microphone = audio_sidecar_path(&second, "microphone");
+        for wav in [
+            &first_system,
+            &first_microphone,
+            &second_system,
+            &second_microphone,
+        ] {
+            let bytes = std::fs::read(wav).unwrap();
+            assert_eq!(&bytes[..4], b"RIFF");
+            assert_eq!(&bytes[8..12], b"WAVE");
+            assert!(bytes.len() > 44);
+        }
+        let wav_samples = |path: &Path| (std::fs::metadata(path).unwrap().len() - 44) / 4;
+        assert_eq!(wav_samples(&first_system), 1_440);
+        assert_eq!(wav_samples(&first_microphone), 1_440);
+        assert_eq!(wav_samples(&second_system), 960);
+        assert_eq!(wav_samples(&second_microphone), 960);
+        remove(&[
+            &first_system,
+            &first_microphone,
+            &second_system,
+            &second_microphone,
+        ]);
+    }
 }

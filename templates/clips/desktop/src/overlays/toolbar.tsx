@@ -7,6 +7,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { LogicalSize } from "@tauri-apps/api/dpi";
+import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
@@ -325,7 +326,16 @@ export function Toolbar() {
             <span className="toolbar-v-stop-square" />
           )}
         </button>
-        <div className="toolbar-v-time">{formatTime(elapsed)}</div>
+        <button
+          type="button"
+          className="toolbar-v-time"
+          onClick={() => invoke("show_popover").catch(() => {})}
+          aria-label="Open Clips"
+          title="Open Clips"
+          data-no-drag
+        >
+          {formatTime(elapsed)}
+        </button>
         {diskSpaceLevel !== "ok" && (
           <div
             className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}

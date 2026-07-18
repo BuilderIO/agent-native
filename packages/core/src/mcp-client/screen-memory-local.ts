@@ -5,6 +5,11 @@ export interface ScreenMemoryConfig {
   maxBytes: number;
   segmentSeconds: number;
   sampleIntervalSeconds: number;
+  captureMode: "visuals" | "visuals-audio";
+  reviewBeforeSending: boolean;
+  agentClipRetention: "forever" | "24-hours" | "7-days" | "30-days";
+  excludedBundleIds: string[];
+  excludePrivateWindows: boolean;
 }
 
 export interface ScreenMemoryStatus {
@@ -37,6 +42,73 @@ export interface ScreenMemoryContextItem {
   sourceFile: string;
 }
 
+export type ScreenMemoryEvidenceSourceType =
+  | "app-context"
+  | "transcript"
+  | "ocr";
+
+export interface ScreenMemoryTimeRange {
+  startedAt: string | null;
+  endedAt: string;
+}
+
+export interface ScreenMemoryCoverageGap {
+  startedAt: string | null;
+  endedAt: string | null;
+  reason:
+    | "no-context-files"
+    | "no-evidence-in-requested-range"
+    | "missing-before-first-evidence"
+    | "capture-stale"
+    | "timestamps-unavailable"
+    | "index-pending"
+    | "index-failed"
+    | "index-skipped";
+}
+
+export interface ScreenMemorySegmentReference {
+  id: string;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface ScreenMemoryEvidenceItem {
+  id: string;
+  momentId: string;
+  capturedAt: string | null;
+  sourceType: ScreenMemoryEvidenceSourceType;
+  excerpt: string;
+  excerptTruncated: boolean;
+  appName: string | null;
+  windowTitle: string | null;
+  bundleId: string | null;
+  url: string | null;
+  title: string | null;
+  segmentRefs: ScreenMemorySegmentReference[];
+  jumpTarget: {
+    kind: "screen-memory-moment";
+    momentId: string;
+    capturedAt: string | null;
+    segmentId: string | null;
+  };
+}
+
+export interface ScreenMemoryRetrievalCoverage {
+  requestedRange: ScreenMemoryTimeRange;
+  coveredRange: { startedAt: string | null; endedAt: string | null };
+  gaps: ScreenMemoryCoverageGap[];
+}
+
+export interface ScreenMemoryTruncation {
+  itemLimit: number;
+  returnedItems: number;
+  omittedItems: number;
+  maxExcerptChars: number;
+  excerptsTruncated: number;
+  sourceRowsReadLimit: number;
+  sourceRowsReadTruncated: boolean;
+}
+
 export interface ScreenMemoryQueryResult {
   feature: "screen-memory";
   localOnly: true;
@@ -46,6 +118,10 @@ export interface ScreenMemoryQueryResult {
   sinceMinutes: number | null;
   count: number;
   items: ScreenMemoryContextItem[];
+  /** Stable, bounded local retrieval contract. `items` remains for legacy callers. */
+  evidence: ScreenMemoryEvidenceItem[];
+  coverage: ScreenMemoryRetrievalCoverage;
+  truncation: ScreenMemoryTruncation;
   contextFiles: string[];
   note: string;
 }
@@ -54,15 +130,45 @@ export interface ScreenMemoryLocalOptions {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   homeDir?: string;
+  /** Test-only clock injection; retrieval never reads network time. */
+  now?: () => Date;
+}
+
+export interface ScreenMemoryAgentQueryResult extends ScreenMemoryQueryResult {
+  egress: {
+    requestId: string;
+    packet: {
+      question: string;
+      evidence: Array<{
+        id: string;
+        momentId: string;
+        sourceType: ScreenMemoryEvidenceSourceType;
+        capturedAt: string | null;
+        excerpt: string;
+      }>;
+    };
+    note: string;
+  };
 }
 
 const DEFAULT_CONFIG: ScreenMemoryConfig = {
   enabled: false,
   paused: false,
-  retentionHours: 24,
+  retentionHours: 8,
   maxBytes: 20 * 1024 * 1024 * 1024,
   segmentSeconds: 5 * 60,
   sampleIntervalSeconds: 10,
+  captureMode: "visuals",
+  reviewBeforeSending: true,
+  agentClipRetention: "forever",
+  excludedBundleIds: [
+    "com.1password.1password",
+    "com.agilebits.onepassword7",
+    "com.bitwarden.desktop",
+    "com.dashlane.dashlane",
+    "com.lastpass.lastpass",
+  ],
+  excludePrivateWindows: false,
 };
 
 const JSONL_NAMES = [
@@ -71,6 +177,14 @@ const JSONL_NAMES = [
   "snapshots.jsonl",
   "screen-memory.jsonl",
 ];
+const MAX_SOURCE_ROWS = 10_000;
+const MAX_EXCERPT_CHARS = 1_200;
+type ScreenMemoryOcrIndexState =
+  | "pending"
+  | "indexing"
+  | "ready"
+  | "failed"
+  | "skipped";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -87,14 +201,36 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function enumValue<const T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return typeof value === "string" && allowed.includes(value as T)
+    ? (value as T)
+    : fallback;
+}
+
+function bundleIds(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+  return [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
 function normalizeConfig(value: unknown): ScreenMemoryConfig {
   const raw = asRecord(value) ?? {};
   return {
     enabled: booleanValue(raw.enabled, DEFAULT_CONFIG.enabled),
     paused: booleanValue(raw.paused, DEFAULT_CONFIG.paused),
-    retentionHours: positiveNumber(
-      raw.retentionHours,
-      DEFAULT_CONFIG.retentionHours,
+    retentionHours: Math.min(
+      positiveNumber(raw.retentionHours, DEFAULT_CONFIG.retentionHours),
+      24,
     ),
     maxBytes: positiveNumber(raw.maxBytes, DEFAULT_CONFIG.maxBytes),
     segmentSeconds: positiveNumber(
@@ -105,6 +241,27 @@ function normalizeConfig(value: unknown): ScreenMemoryConfig {
       raw.sampleIntervalSeconds,
       DEFAULT_CONFIG.sampleIntervalSeconds,
     ),
+    captureMode: enumValue(
+      raw.captureMode,
+      ["visuals", "visuals-audio"],
+      DEFAULT_CONFIG.captureMode,
+    ),
+    reviewBeforeSending:
+      typeof raw.reviewBeforeSending === "boolean"
+        ? raw.reviewBeforeSending
+        : DEFAULT_CONFIG.reviewBeforeSending,
+    agentClipRetention: enumValue(
+      raw.agentClipRetention,
+      ["forever", "24-hours", "7-days", "30-days"],
+      DEFAULT_CONFIG.agentClipRetention,
+    ),
+    excludedBundleIds: bundleIds(
+      raw.excludedBundleIds,
+      DEFAULT_CONFIG.excludedBundleIds,
+    ),
+    // Retained for compatibility with older config files. Application
+    // exclusions are now the only Rewind privacy exclusion model.
+    excludePrivateWindows: false,
   };
 }
 
@@ -287,6 +444,22 @@ async function contextFilesFor(
         // ignore missing candidate files
       }
     }
+    try {
+      const names = await fs.readdir(dir);
+      for (const name of names.filter(
+        (entry) =>
+          entry.endsWith(".ocr.jsonl") || entry.endsWith(".transcript.jsonl"),
+      )) {
+        const candidate = path.join(dir, name);
+        const stat = await fs.stat(candidate);
+        if (stat.isFile()) {
+          files.push(candidate);
+          storageBytes += stat.size;
+        }
+      }
+    } catch {
+      // ignore unavailable local directories
+    }
   }
 
   return { files, storageBytes };
@@ -342,9 +515,162 @@ function itemTime(item: ScreenMemoryContextItem): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function readItems(files: string[]): Promise<ScreenMemoryContextItem[]> {
+interface LocalContextRow {
+  item: ScreenMemoryContextItem;
+  raw: Record<string, unknown>;
+}
+
+interface LocalSegment {
+  id: string;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+function stableId(prefix: string, value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${prefix}-${(hash >>> 0).toString(36)}`;
+}
+
+function boundedExcerpt(value: string): {
+  excerpt: string;
+  excerptTruncated: boolean;
+} {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_EXCERPT_CHARS) {
+    return { excerpt: normalized, excerptTruncated: false };
+  }
+  return {
+    excerpt: `${normalized.slice(0, MAX_EXCERPT_CHARS - 1)}…`,
+    excerptTruncated: true,
+  };
+}
+
+function redactCredentialText(value: string): string {
+  return value
+    .replace(
+      /\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})\b/g,
+      "[REDACTED CREDENTIAL]",
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}/gi, "Bearer [REDACTED]")
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*([^\s,;]{4,})/gi,
+      "$1=[REDACTED]",
+    );
+}
+
+function sourceTexts(
+  raw: Record<string, unknown>,
+  fallback: string,
+): Array<{ sourceType: ScreenMemoryEvidenceSourceType; text: string }> {
+  const localTranscriptText =
+    firstString(raw, ["text"]) &&
+    firstString(raw, ["segmentId", "segment_id"]) &&
+    (typeof raw.startMs === "number" || typeof raw.start_ms === "number")
+      ? firstString(raw, ["text"])
+      : null;
+  const values: Array<{
+    sourceType: ScreenMemoryEvidenceSourceType;
+    keys: string[];
+  }> = [
+    { sourceType: "transcript", keys: ["transcript", "transcriptText"] },
+    { sourceType: "ocr", keys: ["ocrText", "visibleText", "ocr"] },
+  ];
+  const evidence = values.flatMap(({ sourceType, keys }) => {
+    const text = firstString(raw, keys);
+    return text ? [{ sourceType, text }] : [];
+  });
+  if (localTranscriptText) {
+    evidence.unshift({
+      sourceType: "transcript",
+      text: localTranscriptText,
+    });
+  }
+  return evidence.length > 0
+    ? evidence
+    : fallback
+      ? [{ sourceType: "app-context", text: fallback }]
+      : [];
+}
+
+function segmentReferences(
+  raw: Record<string, unknown>,
+  capturedAt: string | null,
+  segments: LocalSegment[],
+): ScreenMemorySegmentReference[] {
+  const directId = firstString(raw, ["segmentId", "segment_id"]);
+  const matched = directId
+    ? segments.filter((segment) => segment.id === directId)
+    : capturedAt
+      ? segments.filter((segment) => {
+          const moment = Date.parse(capturedAt);
+          const started = segment.startedAt
+            ? Date.parse(segment.startedAt)
+            : NaN;
+          const ended = segment.endedAt ? Date.parse(segment.endedAt) : NaN;
+          return moment >= started && moment <= ended;
+        })
+      : [];
+  return matched.slice(0, 3).map((segment) => ({ ...segment }));
+}
+
+function normalizeEvidence(
+  row: LocalContextRow,
+  segments: LocalSegment[],
+): ScreenMemoryEvidenceItem[] {
+  const refs = segmentReferences(row.raw, row.item.capturedAt, segments);
+  const base = [
+    row.item.sourceFile,
+    row.item.capturedAt ?? "unknown-time",
+    row.item.appName ?? "",
+    row.item.windowTitle ?? "",
+  ].join("|");
+  const momentId =
+    firstString(row.raw, ["momentId", "moment_id", "eventId", "captureId"]) ??
+    stableId("moment", base);
+  const appContext =
+    row.item.text ||
+    [row.item.appName, row.item.windowTitle, row.item.title, row.item.url]
+      .filter((value): value is string => Boolean(value))
+      .join(" — ");
+  return sourceTexts(row.raw, appContext).map(({ sourceType, text }) => {
+    const { excerpt, excerptTruncated } = boundedExcerpt(text);
+    const id =
+      firstString(row.raw, ["evidenceId", "evidence_id"]) ??
+      stableId("evidence", `${momentId}|${sourceType}|${text}`);
+    return {
+      id,
+      momentId,
+      capturedAt: row.item.capturedAt,
+      sourceType,
+      excerpt,
+      excerptTruncated,
+      appName: row.item.appName,
+      windowTitle: row.item.windowTitle,
+      bundleId: row.item.bundleId,
+      url: row.item.url,
+      title: row.item.title,
+      segmentRefs: refs,
+      jumpTarget: {
+        kind: "screen-memory-moment",
+        momentId,
+        capturedAt: row.item.capturedAt,
+        segmentId: refs[0]?.id ?? null,
+      },
+    };
+  });
+}
+
+async function readRows(files: string[]): Promise<{
+  rows: LocalContextRow[];
+  sourceRowsReadTruncated: boolean;
+}> {
   const { fs } = await nodeModules();
-  const items: ScreenMemoryContextItem[] = [];
+  const rows: LocalContextRow[] = [];
+  let sourceRowsReadTruncated = false;
 
   for (const file of files) {
     let text = "";
@@ -353,18 +679,92 @@ async function readItems(files: string[]): Promise<ScreenMemoryContextItem[]> {
     } catch {
       continue;
     }
-    const lines = text.split(/\r?\n/).filter(Boolean).slice(-10_000);
+    const allLines = text.split(/\r?\n/).filter(Boolean);
+    if (allLines.length > MAX_SOURCE_ROWS) sourceRowsReadTruncated = true;
+    const lines = allLines.slice(-MAX_SOURCE_ROWS);
     for (const line of lines) {
       try {
-        const item = normalizeContextItem(JSON.parse(line), file);
-        if (item) items.push(item);
+        const raw = asRecord(JSON.parse(line));
+        const item = raw ? normalizeContextItem(raw, file) : null;
+        if (item && raw) rows.push({ item, raw });
       } catch {
         // Keep one malformed row from hiding the rest of the local context.
       }
     }
   }
 
-  return items.sort((a, b) => itemTime(b) - itemTime(a));
+  return {
+    rows: rows.sort((a, b) => itemTime(b.item) - itemTime(a.item)),
+    sourceRowsReadTruncated,
+  };
+}
+
+async function readItems(files: string[]): Promise<ScreenMemoryContextItem[]> {
+  const { rows } = await readRows(files);
+  return rows.map(({ item }) => item);
+}
+
+async function readSegments(dataDirs: string[]): Promise<LocalSegment[]> {
+  const { fs, path } = await nodeModules();
+  const segments: LocalSegment[] = [];
+  for (const dir of dataDirs) {
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names.filter((candidate) =>
+      candidate.endsWith(".json"),
+    )) {
+      const raw = asRecord(await readJson(path.join(dir, name)));
+      const id = raw && firstString(raw, ["id"]);
+      if (!raw || !id) continue;
+      segments.push({
+        id,
+        startedAt: firstString(raw, ["startedAt"]),
+        endedAt: firstString(raw, ["endedAt"]),
+      });
+    }
+  }
+  return segments;
+}
+
+async function readOcrIndexStates(
+  dataDirs: string[],
+): Promise<Array<{ segmentId: string; state: ScreenMemoryOcrIndexState }>> {
+  const { fs, path } = await nodeModules();
+  const states: Array<{ segmentId: string; state: ScreenMemoryOcrIndexState }> =
+    [];
+  for (const dir of dataDirs) {
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names.filter(
+      (entry) =>
+        entry.endsWith(".ocr-status.json") ||
+        entry.endsWith(".transcript-status.json"),
+    )) {
+      const raw = asRecord(await readJson(path.join(dir, name)));
+      const rawState = String(raw?.state);
+      const state = rawState === "transcribing" ? "indexing" : rawState;
+      const suffix = name.endsWith(".ocr-status.json")
+        ? ".ocr-status.json"
+        : ".transcript-status.json";
+      const segmentId = name.slice(0, -suffix.length);
+      if (
+        ["pending", "indexing", "ready", "failed", "skipped"].includes(
+          String(state),
+        )
+      ) {
+        states.push({ segmentId, state: state as ScreenMemoryOcrIndexState });
+      }
+    }
+  }
+  return states;
 }
 
 export async function queryScreenMemoryContext(
@@ -384,18 +784,97 @@ export async function queryScreenMemoryContext(
     typeof args.sinceMinutes === "number" && Number.isFinite(args.sinceMinutes)
       ? Math.max(args.sinceMinutes, 0)
       : null;
+  const now = options.now?.() ?? new Date();
   const cutoff =
-    sinceMinutes === null ? null : Date.now() - sinceMinutes * 60 * 1000;
+    sinceMinutes === null ? null : now.getTime() - sinceMinutes * 60 * 1000;
 
   const needle = query?.toLowerCase() ?? null;
-  const items = (await readItems(files)).filter((item) => {
+  const source = await readRows(files);
+  const rows = source.rows.filter((row) => {
+    const { item } = row;
     if (cutoff !== null) {
       const time = itemTime(item);
       if (!time || time < cutoff) return false;
     }
     if (!needle) return true;
-    return JSON.stringify(item).toLowerCase().includes(needle);
+    return JSON.stringify({ item, raw: row.raw })
+      .toLowerCase()
+      .includes(needle);
   });
+  const items = rows.map(({ item }) => item);
+  const segments = await readSegments(paths.dataDirs);
+  const ocrIndexStates = await readOcrIndexStates(paths.dataDirs);
+  const evidence = rows.flatMap((row) => normalizeEvidence(row, segments));
+  const returnedEvidence = evidence.slice(0, limit);
+  const evidenceTimes = evidence
+    .map((item) => (item.capturedAt ? Date.parse(item.capturedAt) : NaN))
+    .filter(Number.isFinite);
+  const coveredRange = evidenceTimes.length
+    ? {
+        startedAt: new Date(Math.min(...evidenceTimes)).toISOString(),
+        endedAt: new Date(Math.max(...evidenceTimes)).toISOString(),
+      }
+    : { startedAt: null, endedAt: null };
+  const requestedRange = {
+    startedAt: cutoff === null ? null : new Date(cutoff).toISOString(),
+    endedAt: now.toISOString(),
+  };
+  const gaps: ScreenMemoryCoverageGap[] = [];
+  for (const index of ocrIndexStates) {
+    if (index.state === "ready") continue;
+    const segment = segments.find(
+      (candidate) => candidate.id === index.segmentId,
+    );
+    const reason =
+      index.state === "failed"
+        ? "index-failed"
+        : index.state === "skipped"
+          ? "index-skipped"
+          : "index-pending";
+    gaps.push({
+      startedAt: segment?.startedAt ?? null,
+      endedAt: segment?.endedAt ?? null,
+      reason,
+    });
+  }
+  if (files.length === 0) {
+    gaps.push({ ...requestedRange, reason: "no-context-files" });
+  } else if (evidence.length === 0) {
+    gaps.push({ ...requestedRange, reason: "no-evidence-in-requested-range" });
+  } else {
+    if (evidence.some((item) => !item.capturedAt)) {
+      gaps.push({
+        startedAt: null,
+        endedAt: null,
+        reason: "timestamps-unavailable",
+      });
+    }
+    if (
+      requestedRange.startedAt &&
+      coveredRange.startedAt &&
+      coveredRange.startedAt > requestedRange.startedAt
+    ) {
+      gaps.push({
+        startedAt: requestedRange.startedAt,
+        endedAt: coveredRange.startedAt,
+        reason: "missing-before-first-evidence",
+      });
+    }
+    const staleAfterMs = Math.max(
+      info.config.sampleIntervalSeconds * 3 * 1000,
+      2 * 60 * 1000,
+    );
+    if (
+      coveredRange.endedAt &&
+      Date.parse(coveredRange.endedAt) < now.getTime() - staleAfterMs
+    ) {
+      gaps.push({
+        startedAt: coveredRange.endedAt,
+        endedAt: requestedRange.endedAt,
+        reason: "capture-stale",
+      });
+    }
+  }
 
   return {
     feature: "screen-memory",
@@ -406,11 +885,102 @@ export async function queryScreenMemoryContext(
     sinceMinutes,
     count: items.length,
     items: items.slice(0, limit),
+    evidence: returnedEvidence,
+    coverage: { requestedRange, coveredRange, gaps },
+    truncation: {
+      itemLimit: limit,
+      returnedItems: returnedEvidence.length,
+      omittedItems: Math.max(evidence.length - returnedEvidence.length, 0),
+      maxExcerptChars: MAX_EXCERPT_CHARS,
+      excerptsTruncated: returnedEvidence.filter(
+        (item) => item.excerptTruncated,
+      ).length,
+      sourceRowsReadLimit: MAX_SOURCE_ROWS,
+      sourceRowsReadTruncated: source.sourceRowsReadTruncated,
+    },
     contextFiles: files,
     note:
       files.length === 0
         ? "No local Screen Memory context files were found. Enable Screen Memory in Clips desktop and keep the local MCP capability connected."
         : "Local Screen Memory context only. Do not treat this as shared, hosted, or exhaustive.",
+  };
+}
+
+/**
+ * Agent-facing retrieval boundary. Asking an agent to search Rewind is the
+ * authorization. This removes filesystem paths, redacts obvious
+ * credential-shaped text, and durably logs the exact bounded packet before it
+ * is returned to an action caller.
+ */
+export async function queryScreenMemoryForAgent(
+  args: {
+    query?: string | null;
+    limit?: number | null;
+    sinceMinutes?: number | null;
+  } = {},
+  options: ScreenMemoryLocalOptions = {},
+): Promise<ScreenMemoryAgentQueryResult> {
+  const result = await queryScreenMemoryContext(args, options);
+  const items = result.items.map((item) => ({
+    ...item,
+    text: redactCredentialText(item.text),
+    sourceFile: "local-screen-memory",
+  }));
+  const evidence = result.evidence.map((item) => ({
+    ...item,
+    excerpt: redactCredentialText(item.excerpt),
+  }));
+  const packet = {
+    question: redactCredentialText(
+      args.query?.trim().slice(0, 4_000) || "Recent Screen Memory context",
+    ),
+    evidence: evidence.slice(0, 20).map((item) => ({
+      id: item.id,
+      momentId: item.momentId,
+      sourceType: item.sourceType,
+      capturedAt: item.capturedAt,
+      excerpt: item.excerpt.slice(0, MAX_EXCERPT_CHARS),
+    })),
+  };
+  const paths = await resolvePaths(options);
+  const { fs, path } = await nodeModules();
+  const storeDir = paths.dataDirs[0];
+  await fs.mkdir(storeDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(storeDir, 0o700);
+  const logPath = path.join(storeDir, "egress.jsonl");
+  const requestId = `egress-action-${Date.now()}-${process.pid}`;
+  const packetBytes = Buffer.byteLength(JSON.stringify(packet), "utf8");
+  const prepared = {
+    requestId,
+    occurredAt: new Date().toISOString(),
+    state: "prepared",
+    packet,
+    evidenceCount: packet.evidence.length,
+    packetBytes,
+    error: null,
+  };
+  const completed = {
+    ...prepared,
+    occurredAt: new Date().toISOString(),
+    state: "completed",
+    packet: null,
+  };
+  await fs.appendFile(
+    logPath,
+    `${JSON.stringify(prepared)}\n${JSON.stringify(completed)}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  await fs.chmod(logPath, 0o600);
+  return {
+    ...result,
+    items,
+    evidence,
+    contextFiles: [],
+    egress: {
+      requestId,
+      packet,
+      note: "This exact bounded text packet was logged locally before it was returned.",
+    },
   };
 }
 

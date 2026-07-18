@@ -1,3 +1,4 @@
+use serde::Serialize;
 #[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
@@ -1128,21 +1129,21 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let url = match pane.as_str() {
-            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "camera" => "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Camera",
             "microphone" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone"
             }
             "screen" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"
             }
             "speech" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_SpeechRecognition"
             }
             "accessibility" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
             }
             "input-monitoring" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ListenEvent"
             }
             _ => return Err(format!("Unknown macOS privacy pane: {pane}")),
         };
@@ -1151,6 +1152,157 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
             .status()
             .map_err(|e| format!("failed to open System Settings: {e}"))?;
         Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewindExcludedApplication {
+    bundle_id: String,
+    name: String,
+    path: Option<String>,
+    installed: bool,
+}
+
+#[cfg(target_os = "macos")]
+fn app_bundle_id(path: &str) -> Option<String> {
+    let output = Command::new("/usr/bin/mdls")
+        .args(["-name", "kMDItemCFBundleIdentifier", "-raw", path])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let bundle_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!bundle_id.is_empty() && bundle_id != "(null)").then_some(bundle_id)
+}
+
+#[cfg(target_os = "macos")]
+fn app_name_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Application")
+        .to_string()
+}
+
+fn fallback_app_name(bundle_id: &str) -> String {
+    match bundle_id {
+        "com.1password.1password" | "com.agilebits.onepassword7" => "1Password".to_string(),
+        "com.bitwarden.desktop" => "Bitwarden".to_string(),
+        "com.dashlane.dashlane" => "Dashlane".to_string(),
+        "com.lastpass.lastpass" => "LastPass".to_string(),
+        _ => bundle_id
+            .rsplit('.')
+            .next()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("Application")
+            .to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn find_installed_app(bundle_id: &str) -> Option<String> {
+    let query = format!("kMDItemCFBundleIdentifier == '{bundle_id}'");
+    let output = Command::new("/usr/bin/mdfind").arg(query).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find(|path| path.ends_with(".app"))
+        .map(str::to_string)
+}
+
+#[tauri::command]
+pub fn resolve_rewind_excluded_apps(
+    bundle_ids: Vec<String>,
+) -> Result<Vec<RewindExcludedApplication>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(bundle_ids
+            .into_iter()
+            .map(|bundle_id| {
+                let path = find_installed_app(&bundle_id);
+                let name = path
+                    .as_deref()
+                    .map(app_name_from_path)
+                    .unwrap_or_else(|| fallback_app_name(&bundle_id));
+                RewindExcludedApplication {
+                    bundle_id,
+                    name,
+                    installed: path.is_some(),
+                    path,
+                }
+            })
+            .collect());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(bundle_ids
+            .into_iter()
+            .map(|bundle_id| RewindExcludedApplication {
+                name: fallback_app_name(&bundle_id),
+                bundle_id,
+                path: None,
+                installed: false,
+            })
+            .collect())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn choose_rewind_excluded_apps_blocking() -> Result<Vec<RewindExcludedApplication>, String> {
+    let script = r#"
+set chosenApps to choose application with prompt "Choose apps Rewind should never remember" with multiple selections allowed
+set chosenPaths to {}
+repeat with chosenApp in chosenApps
+    set end of chosenPaths to POSIX path of (chosenApp as alias)
+end repeat
+set AppleScript's text item delimiters to linefeed
+return chosenPaths as text
+"#;
+    let output = Command::new("/usr/bin/osascript")
+        .args(["-e", script])
+        .output()
+        .map_err(|error| format!("Could not open the application picker: {error}"))?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        if error.contains("-128") || error.to_ascii_lowercase().contains("canceled") {
+            return Ok(Vec::new());
+        }
+        return Err(format!("Could not choose applications: {}", error.trim()));
+    }
+    let mut apps = Vec::new();
+    for path in String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        let Some(bundle_id) = app_bundle_id(path) else {
+            continue;
+        };
+        apps.push(RewindExcludedApplication {
+            bundle_id,
+            name: app_name_from_path(path),
+            path: Some(path.to_string()),
+            installed: true,
+        });
+    }
+    Ok(apps)
+}
+
+#[tauri::command]
+pub async fn choose_rewind_excluded_apps() -> Result<Vec<RewindExcludedApplication>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return tauri::async_runtime::spawn_blocking(choose_rewind_excluded_apps_blocking)
+            .await
+            .map_err(|error| format!("The application picker stopped unexpectedly: {error}"))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Choosing excluded applications is currently available on macOS only.".to_string())
     }
 }
 
@@ -1902,9 +2054,9 @@ fn type_text_unicode(text: &str, target_bundle_id: Option<String>) {
 #[cfg(not(target_os = "macos"))]
 fn type_text_unicode(_text: &str) {}
 
-/// Record the popover's current recording state. When active, clicking the
-/// tray icon emits a stop event instead of toggling the popover — so the
-/// user can stop a recording from anywhere with one click.
+/// Record the popover's current recording state. While active, ordinary app
+/// and tray opens restore the parked popover; stopping remains an explicit
+/// action in the popover, toolbar, or tray menu.
 #[tauri::command]
 pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
     dlog!("[clips-tray] set_recording_state active={}", active);
@@ -2254,7 +2406,10 @@ fn is_pinhole_popover(window: &WebviewWindow) -> bool {
 
 fn present_popover(app: &AppHandle, window: &WebviewWindow) {
     clear_voice_wake_state(app);
-    set_capture_included(window);
+    // Reopening Clips must not silently override the user's capture-visibility
+    // preference. `set_capture_excluded` keeps the window private by default
+    // and includes it only when "Show Clips in screen captures" is enabled.
+    set_capture_excluded(window);
     // Re-apply Space behavior — `orderOut:` resets it, so without this the
     // popover sticks to whichever Space it was first shown on.
     configure_overlay_behavior(window);

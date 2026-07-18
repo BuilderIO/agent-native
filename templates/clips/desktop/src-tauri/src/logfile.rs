@@ -118,6 +118,15 @@ fn append_line(path: &Path, line: &str) {
     }
 }
 
+/// Write one native diagnostic directly to the persistent log. Unlike
+/// `eprintln!`, this also works in debug-signed Alpha builds where stdout and
+/// stderr intentionally remain attached to the launching terminal.
+pub(crate) fn diagnostic(line: &str) {
+    if let Some(path) = log_path() {
+        append_line(&path, line);
+    }
+}
+
 /// Drain the redirected stdout/stderr pipe, prefixing every line with a
 /// timestamp before appending it to the log file. Runs for the life of the
 /// process on its own thread (release only).

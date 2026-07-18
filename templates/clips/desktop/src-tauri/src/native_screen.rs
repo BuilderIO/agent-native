@@ -105,6 +105,20 @@ fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String
     filters.push(AUDIO_LOUDNESS_FILTER);
     filters.join(",")
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod fragment_fence_backend_tests {
+    use super::*;
+
+    #[test]
+    fn fragment_fence_rejects_unsupported_backend() {
+        let child = Command::new("/usr/bin/true").spawn().unwrap();
+        let backend = NativeFullscreenBackend::Screencapture { child };
+        assert!(backend
+            .request_fragment_fence(PathBuf::from("/tmp/next.mp4"))
+            .is_err());
+    }
+}
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 
@@ -115,7 +129,8 @@ const NATIVE_CAPTURE_FPS: u32 = 24;
 mod custom_capture;
 #[cfg(target_os = "macos")]
 use custom_capture::{
-    start_custom_screencapturekit_backend_at, CustomCaptureResume, CustomScreenCaptureWriter,
+    start_custom_screencapturekit_backend_at, ClosedSegmentFile, CustomCaptureResume,
+    CustomScreenCaptureWriter, SegmentFence,
 };
 // Live chunk uploader: tails the fragmented MP4 and streams it during
 // recording; attached/finalized/abandoned from the session logic here.
@@ -151,13 +166,13 @@ const DISK_MONITOR_CRITICAL_BYTES: u64 = 250 * 1024 * 1024;
 const DISK_MONITOR_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativeUploadMode {
+pub(crate) enum NativeUploadMode {
     Buffered,
     Streaming,
 }
 
 impl NativeUploadMode {
-    fn from_option(value: Option<String>) -> Self {
+    pub(crate) fn from_option(value: Option<String>) -> Self {
         match value.as_deref() {
             Some("streaming") => Self::Streaming,
             _ => Self::Buffered,
@@ -324,6 +339,62 @@ pub(crate) enum NativeFullscreenBackend {
         /// never interrupted.
         resume: CustomCaptureResume,
     },
+}
+
+#[cfg(target_os = "macos")]
+impl NativeFullscreenBackend {
+    /// Queue a local fMP4 fence without stopping the stream or recreating its
+    /// writer. Only the custom segmented backend supports this; callers must
+    /// treat unsupported capture backends as a hard local-buffer failure.
+    pub(crate) fn request_fragment_fence(
+        &self,
+        next_path: PathBuf,
+    ) -> Result<SegmentFence, String> {
+        match self {
+            Self::CustomScreenCaptureKit { writer, .. } => writer.request_fragment_fence(next_path),
+            _ => Err("fragment fences are unsupported by this capture backend".into()),
+        }
+    }
+
+    /// Await a queued fence from a worker thread, never from an AVFoundation
+    /// delegate callback. A timeout fails closed: callers must not consume the
+    /// next path as if a file had been finalized.
+    pub(crate) fn await_fragment_fence(
+        fence: SegmentFence,
+        timeout: Duration,
+    ) -> Result<ClosedSegmentFile, String> {
+        fence.wait(timeout)
+    }
+}
+
+/// Start the custom ScreenCaptureKit path in local rolling-buffer mode.
+/// Unlike the ordinary recorder, this always selects delegate-fed fMP4 output
+/// and preserves microphone/system audio as separate tracks, regardless of
+/// the remote live-upload feature flag.
+#[cfg(target_os = "macos")]
+pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
+    app: &AppHandle,
+    output_path: &Path,
+    include_audio: bool,
+    capture_system_audio: bool,
+    mic_device_id: Option<&str>,
+    mic_device_label: Option<&str>,
+    target_display_id: Option<u32>,
+    capture_region: Option<NativeCaptureRegion>,
+    defer_recording_output: bool,
+) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
+    start_custom_screencapturekit_backend_at(
+        app,
+        output_path,
+        include_audio,
+        capture_system_audio,
+        mic_device_id,
+        mic_device_label,
+        target_display_id,
+        capture_region,
+        defer_recording_output,
+        true,
+    )
 }
 
 /// Safety net for the `screencapture` fallback: if a session carrying a live
@@ -724,6 +795,120 @@ pub struct NativeFullscreenSaveResult {
     recording_id: String,
     folder_path: String,
     file: NativeLocalRecordingFile,
+}
+
+/// One exact, source-local interval from a finalized native MP4. `start_ms`
+/// and `end_ms` are half-open (`[start_ms, end_ms)`) and are never expanded to
+/// an enclosing rolling-buffer segment by this layer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NativeMediaSlice {
+    pub path: PathBuf,
+    pub system_audio_path: Option<PathBuf>,
+    pub microphone_path: Option<PathBuf>,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeAudioSelection {
+    None,
+    System,
+    Microphone,
+    MixBoth,
+}
+
+/// Final media facts after capture/segment consolidation. This is deliberately
+/// independent from a live session so Rewind can hand a materialized artifact
+/// to the same local-save/upload continuations later.
+#[derive(Clone, Debug)]
+pub(crate) struct FinalizedNativeArtifact {
+    pub path: PathBuf,
+    pub mime_type: &'static str,
+    pub duration_ms: u128,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub mic_captured: bool,
+    pub system_audio_captured: bool,
+    pub has_camera: bool,
+    pub custom_pipeline: bool,
+}
+
+impl FinalizedNativeArtifact {
+    fn from_session(session: &NativeFullscreenSession, duration_ms: u128) -> Self {
+        Self {
+            path: session.path.clone(),
+            mime_type: session.mime_type,
+            duration_ms,
+            width: session.width,
+            height: session.height,
+            mic_captured: session.restart.mic_captured_in_file,
+            system_audio_captured: session.restart.capture_system_audio,
+            has_camera: false,
+            custom_pipeline: session.custom_pipeline,
+        }
+    }
+
+    pub(crate) fn rewind_mp4(
+        path: PathBuf,
+        duration_ms: u128,
+        width: Option<u32>,
+        height: Option<u32>,
+        mic_captured: bool,
+        system_audio_captured: bool,
+    ) -> Self {
+        Self {
+            path,
+            mime_type: MP4_RECORDING_MIME_TYPE,
+            duration_ms,
+            width,
+            height,
+            mic_captured,
+            system_audio_captured,
+            has_camera: false,
+            custom_pipeline: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlannedNativeSlice {
+    path: PathBuf,
+    start_ms: u64,
+    end_ms: u64,
+}
+
+/// Validate exact source-local ranges against independently inspected asset
+/// durations. A gap is rejected rather than silently bridging it: materialized
+/// Rewind output must not imply continuous coverage it does not have.
+pub(crate) fn plan_native_media_slices(
+    slices: &[NativeMediaSlice],
+    source_durations_ms: &[u64],
+) -> Result<Vec<PlannedNativeSlice>, String> {
+    if slices.is_empty() || slices.len() != source_durations_ms.len() {
+        return Err("media slice plan requires one non-empty duration per slice".into());
+    }
+    let mut planned = Vec::with_capacity(slices.len());
+    let mut expected_start = None;
+    for (slice, duration_ms) in slices.iter().zip(source_durations_ms) {
+        if slice.path.as_os_str().is_empty() || *duration_ms == 0 {
+            return Err("media slice has a missing or empty source".into());
+        }
+        if slice.start_ms >= slice.end_ms || slice.end_ms > *duration_ms {
+            return Err("media slice range is invalid or exceeds its source".into());
+        }
+        if let Some(expected) = expected_start {
+            if slice.start_ms != expected {
+                return Err("media slice plan contains a coverage gap or overlap".into());
+            }
+        }
+        expected_start = Some(slice.end_ms);
+        planned.push(PlannedNativeSlice {
+            path: slice.path.clone(),
+            start_ms: slice.start_ms,
+            end_ms: slice.end_ms,
+        });
+    }
+    Ok(planned)
 }
 
 impl From<&SavedNativeRecording> for PendingNativeRecording {
@@ -1469,15 +1654,15 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         }
     }
 
-    let result = upload_recording_file(
+    let artifact = FinalizedNativeArtifact::from_session(&session, duration_ms);
+    let result = upload_finalized_native_artifact(
         &app,
-        &session,
+        &artifact,
         server_url.clone(),
         recording_id.clone(),
         auth_token,
         cookie,
         upload_mode,
-        duration_ms,
         has_audio,
         has_camera,
     )
@@ -1582,7 +1767,8 @@ pub async fn native_fullscreen_recording_stop_and_save(
         );
     }
 
-    save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
+    let artifact = FinalizedNativeArtifact::from_session(&session, duration_ms);
+    save_finalized_native_artifact_to_local_export(&app, &artifact, &folder_name, &file_role)
 }
 
 #[tauri::command]
@@ -2179,6 +2365,7 @@ fn start_segment_backend(
                 mic_device_label,
                 target_display_id,
                 capture_region,
+                false,
                 false,
             )
         } else {
@@ -2877,37 +3064,6 @@ fn names_match(a: &str, b: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn is_built_in_input_name(value: &str) -> bool {
-    let value = normalize_audio_device_name(value);
-    value.contains("macbook")
-        || value.contains("built in")
-        || value.contains("builtin")
-        || value.contains("internal microphone")
-}
-
-#[cfg(target_os = "macos")]
-fn is_phone_input_name(value: &str) -> bool {
-    let value = normalize_audio_device_name(value);
-    value.contains("iphone")
-        || value.contains("ipad")
-        || value.contains("continuity")
-        || value.contains("phone microphone")
-}
-
-#[cfg(target_os = "macos")]
-fn preferred_default_microphone_device(devices: &[AudioInputDevice]) -> Option<AudioInputDevice> {
-    devices
-        .iter()
-        .find(|device| is_built_in_input_name(&device.name))
-        .or_else(|| {
-            devices
-                .iter()
-                .find(|device| !is_phone_input_name(&device.name))
-        })
-        .cloned()
-}
-
-#[cfg(target_os = "macos")]
 pub(crate) fn resolve_microphone_capture_device(
     device_id: Option<&str>,
     device_label: Option<&str>,
@@ -2926,15 +3082,13 @@ pub(crate) fn resolve_microphone_capture_device(
     });
 
     if device_id.is_none() && device_label.is_none() {
-        let resolved = preferred_default_microphone_device(&devices);
+        // "Default mic" must remain the actual macOS default. Do not pin a
+        // convenient-looking built-in device: studio/USB users may be speaking
+        // into the system-selected input while that laptop mic records silence.
         eprintln!(
-            "[clips-tray] mic resolve: no explicit input provided -> {}",
-            match &resolved {
-                Some(device) => format!("using {} ({})", device.name, device.id),
-                None => "using macOS default input".to_string(),
-            }
+            "[clips-tray] mic resolve: no explicit input provided -> using macOS default input"
         );
-        return Ok(resolved);
+        return Ok(None);
     }
 
     let resolved = device_id
@@ -2988,12 +3142,11 @@ fn move_or_copy_file(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn save_native_recording_to_local_export(
+pub(crate) fn save_finalized_native_artifact_to_local_export(
     app: &AppHandle,
-    session: &NativeFullscreenSession,
+    artifact: &FinalizedNativeArtifact,
     folder_name: &str,
     file_role: &str,
-    duration_ms: u128,
 ) -> Result<NativeFullscreenSaveResult, String> {
     let safe_folder_name = sanitize_path_component(folder_name, "clip");
     let safe_role = match file_role {
@@ -3009,11 +3162,11 @@ fn save_native_recording_to_local_export(
     std::fs::create_dir_all(&folder)
         .map_err(|e| format!("local recording folder unavailable: {e}"))?;
 
-    let extension = native_extension_for_mime_type(session.mime_type);
+    let extension = native_extension_for_mime_type(artifact.mime_type);
     let file_name = format!("{}.{}", local_role_file_stem(safe_role), extension);
     let destination = folder.join(&file_name);
     let _ = std::fs::remove_file(&destination);
-    move_or_copy_file(&session.path, &destination)?;
+    move_or_copy_file(&artifact.path, &destination)?;
 
     let bytes = std::fs::metadata(&destination)
         .map_err(|e| format!("local recording metadata unavailable: {e}"))?
@@ -3030,11 +3183,11 @@ fn save_native_recording_to_local_export(
             role: safe_role.to_string(),
             path: destination.to_string_lossy().to_string(),
             file_name,
-            mime_type: session.mime_type.to_string(),
+            mime_type: artifact.mime_type.to_string(),
             bytes,
-            duration_ms,
-            width: session.width,
-            height: session.height,
+            duration_ms: artifact.duration_ms,
+            width: artifact.width,
+            height: artifact.height,
         },
     })
 }
@@ -3433,6 +3586,7 @@ fn start_screencapturekit_recording(
             target_display_id,
             capture_region,
             defer_recording_output,
+            false,
         )?
     } else {
         start_screencapturekit_backend_at(
@@ -3654,6 +3808,66 @@ fn region_source_rect(
 #[cfg(target_os = "macos")]
 const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// `SCStream::stop_capture()` occasionally stops the underlying capture but
+/// never returns from ScreenCaptureKit's synchronous completion wait. Keep
+/// teardown bounded so the writer can still close its inputs, flush the final
+/// fragment, and let the upload path validate the playable file on disk.
+#[cfg(target_os = "macos")]
+const CUSTOM_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[cfg(target_os = "macos")]
+fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String> + Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let _ = tx.send(stop());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
+            "custom ScreenCaptureKit stop timed out after {}s; continuing finalization",
+            timeout.as_secs()
+        )),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("custom ScreenCaptureKit stop worker disconnected".into())
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod bounded_capture_stop_tests {
+    use super::run_bounded_capture_stop;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn returns_the_capture_stop_result() {
+        assert_eq!(
+            run_bounded_capture_stop(|| Ok(()), Duration::from_millis(50)),
+            Ok(())
+        );
+        assert_eq!(
+            run_bounded_capture_stop(|| Err("stop failed".to_string()), Duration::from_millis(50)),
+            Err("stop failed".to_string())
+        );
+    }
+
+    #[test]
+    fn releases_the_caller_when_capture_stop_hangs() {
+        let started = Instant::now();
+        let result = run_bounded_capture_stop(
+            || {
+                std::thread::sleep(Duration::from_secs(1));
+                Ok(())
+            },
+            Duration::from_millis(20),
+        );
+        assert!(result.unwrap_err().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_millis(250));
+    }
+}
+
 /// Stop the active recording. When `wait_for_finalize` is set (save/upload
 /// paths — the file is about to be moved) this blocks until ScreenCaptureKit
 /// signals the recording finished, so the caller never moves a half-written
@@ -3678,14 +3892,20 @@ pub(crate) fn stop_native_recording(
             // Stop the watchdog first so it can't rebuild the stream out from
             // under us mid-teardown.
             watchdog_shutdown.store(true, Ordering::SeqCst);
-            let stop_result = stream
-                .lock()
-                .map_err(|e| format!("custom ScreenCaptureKit stop lock poisoned: {e}"))
-                .and_then(|guard| {
-                    guard
-                        .stop_capture()
-                        .map_err(|e| format!("custom ScreenCaptureKit stop failed: {e:?}"))
-                });
+            let stream_for_stop = Arc::clone(stream);
+            let stop_result = run_bounded_capture_stop(
+                move || {
+                    stream_for_stop
+                        .lock()
+                        .map_err(|e| format!("custom ScreenCaptureKit stop lock poisoned: {e}"))
+                        .and_then(|guard| {
+                            guard
+                                .stop_capture()
+                                .map_err(|e| format!("custom ScreenCaptureKit stop failed: {e:?}"))
+                        })
+                },
+                CUSTOM_SCK_STOP_TIMEOUT,
+            );
             if let Err(err) = &stop_result {
                 eprintln!("[clips-tray] custom capture stop_capture error: {err}");
             }
@@ -3796,29 +4016,31 @@ fn stop_screencapture(child: &mut Child) -> Result<(), String> {
     }
 }
 
-async fn upload_recording_file(
+/// Upload a finalized local artifact through the ordinary native preparation
+/// and response path. Rewind materializers can call this after they have
+/// produced a bounded local MP4; it owns no capture session or live uploader.
+pub(crate) async fn upload_finalized_native_artifact(
     app: &AppHandle,
-    session: &NativeFullscreenSession,
+    artifact: &FinalizedNativeArtifact,
     server_url: String,
     recording_id: String,
     auth_token: String,
     cookie: String,
     upload_mode: NativeUploadMode,
-    duration_ms: u128,
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     let prepared = prepare_recording_file(
         app,
-        &session.path,
-        session.mime_type,
-        session.width,
-        session.height,
-        Some(duration_ms),
+        &artifact.path,
+        artifact.mime_type,
+        artifact.width,
+        artifact.height,
+        Some(artifact.duration_ms),
         has_audio,
-        session.restart.mic_captured_in_file,
-        session.restart.capture_system_audio,
-        session.custom_pipeline,
+        artifact.mic_captured,
+        artifact.system_audio_captured,
+        artifact.custom_pipeline,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -3828,9 +4050,9 @@ async fn upload_recording_file(
         auth_token,
         cookie,
         upload_mode,
-        duration_ms,
-        session.width,
-        session.height,
+        artifact.duration_ms,
+        artifact.width,
+        artifact.height,
         has_audio,
         has_camera,
     )
@@ -5646,8 +5868,216 @@ fn validate_recording_segment_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Compose exact source-local MP4 ranges. Passthrough exports can begin video
+/// on the preceding sync sample; callers requiring byte/sample-exact exclusion
+/// at a trimmed first boundary must request a transcode materialization rather
+/// than treating this passthrough composition as an isolation boundary.
+#[cfg(target_os = "macos")]
+pub(crate) fn compose_mp4_slices(slices: &[NativeMediaSlice], output: &Path) -> Result<(), String> {
+    compose_mp4_slices_impl(slices, output, false)
+}
+
+/// Materialize bounded Rewind media through a fresh encode. Unlike the
+/// passthrough compositor, this is the required path when no pre-start frame
+/// may survive a trimmed boundary. It is intentionally separate from ordinary
+/// recorder segment concat, which remains fast passthrough.
+#[cfg(target_os = "macos")]
+pub(crate) fn materialize_mp4_slices_exact(
+    slices: &[NativeMediaSlice],
+    output: &Path,
+    audio: NativeAudioSelection,
+) -> Result<(), String> {
+    let temporary = output.with_extension("bounded-compose.mp4");
+    let _ = std::fs::remove_file(&temporary);
+    compose_mp4_slices(slices, &temporary)?;
+    let ffmpeg = resolve_ffmpeg_path().ok_or_else(|| {
+        "exact bounded materialization requires ffmpeg; passthrough composition is not private enough for this range".to_string()
+    })?;
+    let mut command = Command::new(ffmpeg);
+    command
+        .arg("-y")
+        .arg("-i")
+        .arg(&temporary)
+        .arg("-map")
+        .arg("0:v:0?")
+        .arg("-c:v")
+        .arg("libx264")
+        // Exact Rewind exports must be freshly encoded to guarantee that no
+        // pre-boundary keyframe survives, but the default x264 preset makes
+        // Stop look hung for roughly the full duration of the Clip. This path
+        // favors interactive finalization speed; the ordinary upload
+        // transcode still owns the product's size/quality policy.
+        .arg("-preset")
+        .arg("ultrafast");
+    match audio {
+        NativeAudioSelection::None => {
+            command.arg("-an");
+        }
+        NativeAudioSelection::System => {
+            command.args(["-map", "0:a:0", "-c:a", "aac"]);
+        }
+        NativeAudioSelection::Microphone => {
+            command.args(["-map", "0:a:1", "-c:a", "aac"]);
+        }
+        NativeAudioSelection::MixBoth => {
+            command.args([
+                "-filter_complex",
+                "[0:a:0][0:a:1]amix=inputs=2:normalize=0[a]",
+                "-map",
+                "[a]",
+                "-c:a",
+                "aac",
+            ]);
+        }
+    }
+    let child = command
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg(output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("exact bounded ffmpeg spawn failed: {e}"))?;
+    let result = wait_for_transcode_child(
+        child,
+        FFMPEG_TIMEOUT,
+        "ffmpeg exact bounded materialization",
+    );
+    let _ = std::fs::remove_file(&temporary);
+    result
+}
+
 #[cfg(target_os = "macos")]
 fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
+    let slices = segments
+        .iter()
+        .cloned()
+        .map(|path| NativeMediaSlice {
+            path,
+            system_audio_path: None,
+            microphone_path: None,
+            start_ms: 0,
+            end_ms: u64::MAX,
+        })
+        .collect::<Vec<_>>();
+    compose_mp4_slices_impl(&slices, output, true)
+}
+
+#[cfg(target_os = "macos")]
+struct PreparedSliceFiles(Vec<PathBuf>);
+
+#[cfg(target_os = "macos")]
+impl Drop for PreparedSliceFiles {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_audio_sidecar_slices(
+    slices: &[NativeMediaSlice],
+    output: &Path,
+) -> Result<(Vec<NativeMediaSlice>, PreparedSliceFiles), String> {
+    let ffmpeg = resolve_ffmpeg_path()
+        .ok_or_else(|| "Rewind audio materialization requires ffmpeg".to_string())?;
+    let mut prepared = Vec::with_capacity(slices.len());
+    let mut temporary = Vec::new();
+    for (index, slice) in slices.iter().enumerate() {
+        if slice.system_audio_path.is_none() && slice.microphone_path.is_none() {
+            prepared.push(slice.clone());
+            continue;
+        }
+        let system = slice
+            .system_audio_path
+            .as_ref()
+            .ok_or_else(|| "Rewind system-audio sidecar is missing".to_string())?;
+        let microphone = slice
+            .microphone_path
+            .as_ref()
+            .ok_or_else(|| "Rewind microphone sidecar is missing".to_string())?;
+        for path in [&slice.path, system, microphone] {
+            if !path.exists() {
+                return Err(format!(
+                    "Rewind media unit is incomplete: {}",
+                    path.display()
+                ));
+            }
+        }
+        let muxed = output.with_extension(format!("sidecar-{index}.mp4"));
+        let _ = std::fs::remove_file(&muxed);
+        let child = Command::new(&ffmpeg)
+            .args(["-y", "-v", "error", "-nostdin", "-i"])
+            .arg(&slice.path)
+            .arg("-i")
+            .arg(system)
+            .arg("-i")
+            .arg(microphone)
+            .args([
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-map",
+                "2:a:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-af",
+                "apad",
+                "-shortest",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&muxed)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("Rewind sidecar mux spawn failed: {error}"))?;
+        wait_for_transcode_child(child, FFMPEG_TIMEOUT, "Rewind sidecar mux")?;
+        let mut prepared_slice = slice.clone();
+        prepared_slice.path = muxed.clone();
+        prepared_slice.system_audio_path = None;
+        prepared_slice.microphone_path = None;
+        prepared.push(prepared_slice);
+        temporary.push(muxed);
+    }
+    Ok((prepared, PreparedSliceFiles(temporary)))
+}
+
+const MAX_PREPARED_SLICE_DURATION_DRIFT_MS: u64 = 1_000;
+
+fn bounded_slice_range_ms(
+    start_ms: u64,
+    end_ms: u64,
+    asset_duration_ms: u64,
+) -> Result<(u64, u64), String> {
+    if start_ms >= end_ms || start_ms >= asset_duration_ms {
+        return Err("media slice range is invalid or exceeds source".to_string());
+    }
+    if end_ms <= asset_duration_ms {
+        return Ok((start_ms, end_ms));
+    }
+    let drift_ms = end_ms.saturating_sub(asset_duration_ms);
+    if drift_ms > MAX_PREPARED_SLICE_DURATION_DRIFT_MS {
+        return Err("media slice range is invalid or exceeds source".to_string());
+    }
+    // Muxing the local PCM sidecars to AAC can shorten the container, while
+    // graph-clock segment boundaries can also lead the encoded media PTS by a
+    // fraction of a second during writer startup/finalization. Clamp only that
+    // bounded trailing drift; larger mismatches still fail closed so a
+    // genuinely wrong source/range cannot be materialized.
+    Ok((start_ms, asset_duration_ms))
+}
+
+#[cfg(target_os = "macos")]
+fn compose_mp4_slices_impl(
+    slices: &[NativeMediaSlice],
+    output: &Path,
+    allow_full_source_wrapper: bool,
+) -> Result<(), String> {
     use std::ffi::CString;
     use std::sync::mpsc;
     use std::time::Duration as StdDuration;
@@ -5765,6 +6195,23 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         }
     }
 
+    unsafe fn track_at(
+        asset: &AnyObject,
+        media_type: *const AnyObject,
+        index: usize,
+    ) -> Option<*mut AnyObject> {
+        let tracks: *mut AnyObject = msg_send![asset, tracksWithMediaType: media_type];
+        if tracks.is_null() {
+            return None;
+        }
+        let count: usize = msg_send![tracks, count];
+        if index >= count {
+            return None;
+        }
+        let track: *mut AnyObject = msg_send![tracks, objectAtIndex: index];
+        (!track.is_null()).then_some(track)
+    }
+
     unsafe fn cmtime_add(a: CMTime, b: CMTime) -> CMTime {
         #[link(name = "CoreMedia", kind = "framework")]
         extern "C" {
@@ -5773,9 +6220,11 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         CMTimeAdd(a, b)
     }
 
-    if segments.is_empty() {
-        return Err("concat called with no segments".into());
+    if slices.is_empty() {
+        return Err("compose called with no media slices".into());
     }
+
+    let (slices, _prepared_slice_files) = prepare_audio_sidecar_slices(slices, output)?;
 
     unsafe {
         let composition_cls = class_named("AVMutableComposition")
@@ -5797,6 +6246,11 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
             addMutableTrackWithMediaType: AVMediaTypeAudio,
             preferredTrackID: KCM_PERSISTENT_TRACK_ID_INVALID
         ];
+        let audio_track_2: *mut AnyObject = msg_send![
+            &*composition,
+            addMutableTrackWithMediaType: AVMediaTypeAudio,
+            preferredTrackID: KCM_PERSISTENT_TRACK_ID_INVALID
+        ];
         if video_track.is_null() && audio_track.is_null() {
             return Err("composition has no tracks to write into".into());
         }
@@ -5805,8 +6259,10 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         let asset_cls =
             class_named("AVURLAsset").ok_or_else(|| "AVURLAsset missing".to_string())?;
         let mut appended_any = false;
+        let mut expected_track_shape: Option<(bool, bool, bool)> = None;
 
-        for path in segments {
+        for slice in &slices {
+            let path = &slice.path;
             validate_recording_segment_file(path)?;
             let url = file_url(path)
                 .ok_or_else(|| format!("could not build NSURL for {}", path.display()))?;
@@ -5824,13 +6280,71 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
                     path.display()
                 ));
             }
-            let range = CMTimeRange {
-                start: CM_TIME_ZERO,
-                duration,
+            let range = if allow_full_source_wrapper && slice.end_ms == u64::MAX {
+                CMTimeRange {
+                    start: CM_TIME_ZERO,
+                    duration,
+                }
+            } else {
+                let asset_duration_ms = (duration.value as i128)
+                    .saturating_mul(1000)
+                    .checked_div(duration.timescale as i128)
+                    .unwrap_or(0)
+                    .max(0) as u64;
+                let (start_ms, end_ms) =
+                    bounded_slice_range_ms(slice.start_ms, slice.end_ms, asset_duration_ms)
+                        .map_err(|message| {
+                            format!(
+                                "{message}: {} (requested={}..{}ms source={}ms)",
+                                path.display(),
+                                slice.start_ms,
+                                slice.end_ms,
+                                asset_duration_ms
+                            )
+                        })?;
+                CMTimeRange {
+                    start: CMTime {
+                        value: start_ms as i64,
+                        timescale: 1000,
+                        flags: 1,
+                        epoch: 0,
+                    },
+                    duration: CMTime {
+                        value: end_ms.saturating_sub(start_ms) as i64,
+                        timescale: 1000,
+                        flags: 1,
+                        epoch: 0,
+                    },
+                }
             };
 
+            let seg_video = first_track(&*asset, AVMediaTypeVideo);
+            let seg_audio = first_track(&*asset, AVMediaTypeAudio);
+            let seg_audio_2 = track_at(&*asset, AVMediaTypeAudio, 1);
+            let shape = (
+                seg_video.is_some(),
+                seg_audio.is_some(),
+                seg_audio_2.is_some(),
+            );
+            if shape == (false, false, false) {
+                return Err(format!(
+                    "media slice has no compatible tracks: {}",
+                    path.display()
+                ));
+            }
+            if let Some(expected) = expected_track_shape {
+                if shape != expected {
+                    return Err(format!(
+                        "media slices have incompatible audio/video tracks: {}",
+                        path.display()
+                    ));
+                }
+            } else {
+                expected_track_shape = Some(shape);
+            }
+
             if !video_track.is_null() {
-                if let Some(seg_video) = first_track(&*asset, AVMediaTypeVideo) {
+                if let Some(seg_video) = seg_video {
                     let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
                     let ok: bool = msg_send![
                         video_track,
@@ -5848,7 +6362,7 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
                 }
             }
             if !audio_track.is_null() {
-                if let Some(seg_audio) = first_track(&*asset, AVMediaTypeAudio) {
+                if let Some(seg_audio) = seg_audio {
                     let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
                     let ok: bool = msg_send![
                         audio_track,
@@ -5865,7 +6379,16 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
                     }
                 }
             }
-            cursor = cmtime_add(cursor, duration);
+            if !audio_track_2.is_null() {
+                if let Some(seg_audio) = seg_audio_2 {
+                    let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
+                    let ok: bool = msg_send![audio_track_2, insertTimeRange: range, ofTrack: seg_audio, atTime: cursor, error: &mut err_ptr];
+                    if !ok {
+                        return Err(format!("AVMutableCompositionTrack insertTimeRange (second audio) failed for {}", path.display()));
+                    }
+                }
+            }
+            cursor = cmtime_add(cursor, range.duration);
             appended_any = true;
         }
 
@@ -5929,6 +6452,64 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 }
 
 #[cfg(test)]
+mod native_media_slice_tests {
+    use super::*;
+
+    fn slice(path: &str, start_ms: u64, end_ms: u64) -> NativeMediaSlice {
+        NativeMediaSlice {
+            path: PathBuf::from(path),
+            system_audio_path: None,
+            microphone_path: None,
+            start_ms,
+            end_ms,
+        }
+    }
+
+    #[test]
+    fn plans_adjacent_exact_ranges_and_duration() {
+        let plan = plan_native_media_slices(
+            &[slice("one.mp4", 0, 125), slice("two.mp4", 125, 300)],
+            &[125, 300],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.iter()
+                .map(|slice| slice.end_ms - slice.start_ms)
+                .sum::<u64>(),
+            300
+        );
+    }
+
+    #[test]
+    fn clamps_only_small_trailing_mux_duration_drift() {
+        assert_eq!(bounded_slice_range_ms(100, 900, 900).unwrap(), (100, 900));
+        assert_eq!(bounded_slice_range_ms(100, 900, 867).unwrap(), (100, 867));
+        assert_eq!(
+            bounded_slice_range_ms(100, 1_172, 1_000).unwrap(),
+            (100, 1_000)
+        );
+        assert!(bounded_slice_range_ms(100, 1_200, 199).is_err());
+        assert!(bounded_slice_range_ms(900, 950, 900).is_err());
+    }
+
+    #[test]
+    fn rejects_gap_overlap_missing_and_out_of_bounds_ranges() {
+        assert!(plan_native_media_slices(
+            &[slice("one.mp4", 0, 100), slice("two.mp4", 125, 200)],
+            &[100, 200]
+        )
+        .is_err());
+        assert!(plan_native_media_slices(
+            &[slice("one.mp4", 0, 100), slice("two.mp4", 90, 200)],
+            &[100, 200]
+        )
+        .is_err());
+        assert!(plan_native_media_slices(&[slice("", 0, 10)], &[10]).is_err());
+        assert!(plan_native_media_slices(&[slice("one.mp4", 0, 11)], &[10]).is_err());
+    }
+}
+
+#[cfg(test)]
 mod audio_track_probe_tests {
     use super::{
         audio_filter_chain, decide_prepared_audio_signal, mp4_has_audio_track,
@@ -5959,14 +6540,16 @@ mod audio_track_probe_tests {
     }
 
     fn write_temp_mp4(bytes: &[u8]) -> std::path::PathBuf {
+        static TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let mut path = std::env::temp_dir();
         path.push(format!(
-            "clips-audio-probe-test-{}-{}.mp4",
+            "clips-audio-probe-test-{}-{}-{}.mp4",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();

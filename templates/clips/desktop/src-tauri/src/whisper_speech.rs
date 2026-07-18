@@ -16,6 +16,36 @@
 //!
 use tauri::AppHandle;
 
+/// One timestamped segment produced by bounded, offline-file transcription.
+/// Timestamps are relative to the supplied audio, never to wall-clock time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OfflineTranscriptSegment {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+}
+
+/// Transcribe already-decoded 16 kHz mono samples with the process-wide
+/// Whisper context. This is the reusable file-transcription entry point: the
+/// caller owns container decoding and the samples are never persisted here.
+///
+/// Blocking work -- call from a dedicated worker thread, not the async runtime.
+pub(crate) fn transcribe_offline_file_samples(
+    app: &AppHandle,
+    samples: &[f32],
+    language: Option<&str>,
+) -> Result<Vec<OfflineTranscriptSegment>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::transcribe_offline_file_samples(app, samples, language)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, samples, language);
+        Err("local Whisper file transcription is supported on macOS only".to_owned())
+    }
+}
+
 #[tauri::command]
 pub async fn whisper_transcription_start(
     app: AppHandle,
@@ -112,6 +142,9 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+    use crate::capture_audio_bus::{
+        try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
+    };
     use crate::native_speech::macos::{
         start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
     };
@@ -120,6 +153,8 @@ mod macos {
         RawSckAudioCapture,
     };
     use crate::whisper_model::{ensure_model, model_file};
+
+    const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
 
     /// One transcript segment with real timestamps from whisper, already
     /// offset onto the meeting timeline (ms since capture start).
@@ -183,6 +218,31 @@ mod macos {
         ctx.create_state()
             .map_err(|e| format!("whisper state init failed: {e}"))?;
         Ok(())
+    }
+
+    pub(super) fn transcribe_offline_file_samples(
+        app: &AppHandle,
+        samples: &[f32],
+        language: Option<&str>,
+    ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
+        const CHUNK_SAMPLES: usize = 25 * 16_000;
+
+        let ctx = context(app)?;
+        let mut state = ctx
+            .create_state()
+            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        let mut segments = Vec::new();
+        for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
+            let chunk_offset_ms = chunk_index as i64 * 25_000;
+            segments.extend(infer(&mut state, chunk, language).into_iter().map(
+                |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
+                    start_ms: chunk_offset_ms.saturating_add(start_ms),
+                    end_ms: chunk_offset_ms.saturating_add(end_ms),
+                    text,
+                },
+            ));
+        }
+        Ok(segments)
     }
 
     // ---- resampling -------------------------------------------------------
@@ -383,6 +443,12 @@ mod macos {
         /// deliberately deferred to the worker so we never allocate/compute on
         /// the realtime audio thread.
         fn push(&self, frames: &[f32]) {
+            // A bus publish may already have cloned this callback when the
+            // subscription is dropped. Refuse that final in-flight delivery
+            // once teardown has signalled the worker to stop.
+            if !self.running.load(Ordering::SeqCst) {
+                return;
+            }
             if let Ok(mut buf) = self.buf.lock() {
                 buf.extend_from_slice(frames);
             }
@@ -826,16 +892,29 @@ mod macos {
     }
 
     struct Session {
+        app: AppHandle,
         // macOS 15+ meetings use a combined SCK capture, so there is no
         // competing AVAudioEngine / VoiceProcessingIO mic input to stop.
         mic_cap: Option<RawMicCapture>,
         // System capture is optional — skipped when the user turns system
         // audio off, so neither the recording nor the transcript include it.
         sys_cap: Option<RawSckAudioCapture>,
+        // When Rewind already owns the requested SCK audio sources, meeting
+        // Whisper receives fan-out PCM through this subscription and opens no
+        // physical mic/system recorder of its own.
+        _shared_audio: Option<AudioSubscription>,
+        temporary_audio: Option<crate::screen_memory::TemporaryAudioLease>,
         mic: Arc<WhisperStream>,
         sys: Option<Arc<WhisperStream>>,
         /// Who started this session — see `SessionOwner`.
         owner: SessionOwner,
+    }
+
+    impl Drop for Session {
+        fn drop(&mut self) {
+            drop(self._shared_audio.take());
+            release_temporary_audio(&self.app, self.temporary_audio.take());
+        }
     }
 
     // SAFETY: the capture handles hold refcounted ObjC objects (already
@@ -936,10 +1015,80 @@ mod macos {
                     as Arc<dyn Fn(&[f32]) + Send + Sync>
             });
 
-        let combined_cap = if should_use_combined_sck_capture(
-            owner,
-            supports_sck_microphone_capture(),
-        ) {
+        // If Rewind is running visuals-only, upgrade that one physical
+        // producer before touching the bus. Off/paused Rewind returns no lease
+        // and preserves the legacy meeting capture path.
+        let temporary_audio = if owner == SessionOwner::Meeting {
+            match crate::screen_memory::acquire_temporary_audio_consumer(
+                &app,
+                MEETING_AUDIO_OWNER,
+                crate::capture_graph::CaptureConsumer::Meeting,
+                true,
+                capture_system,
+            ) {
+                Ok(lease) => lease,
+                Err(error) => {
+                    mic_stream.stop();
+                    if let Some(sys_stream) = &sys_stream {
+                        sys_stream.stop();
+                    }
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
+        // Make the shared-vs-physical choice atomically inside the bus. If a
+        // Rewind producer exists but lacks a requested source, `try_subscribe`
+        // returns a typed error and we fail closed: no combined SCK fallback,
+        // RawMicCapture, or raw system capture is opened.
+        let shared_audio = if owner == SessionOwner::Meeting {
+            let mic_for_shared = mic_stream.clone();
+            let shared_mic = Arc::new(move |samples: &[f32], sample_rate: f64| {
+                mic_for_shared.set_src_rate(sample_rate);
+                mic_for_shared.push(samples);
+            });
+            let shared_system = sys_stream.as_ref().map(|stream| {
+                let stream = stream.clone();
+                Arc::new(move |samples: &[f32], sample_rate: f64| {
+                    stream.set_src_rate(sample_rate);
+                    stream.push(samples);
+                }) as crate::capture_audio_bus::AudioCallback
+            });
+            match try_subscribe(
+                AudioSources::new(true, capture_system),
+                Some(shared_mic),
+                shared_system,
+            ) {
+                Ok(SubscriptionAttempt::Subscribed(subscription)) => Some(subscription),
+                Ok(SubscriptionAttempt::NoProducer) => {
+                    if temporary_audio.is_some() {
+                        release_temporary_audio(&app, temporary_audio);
+                        mic_stream.stop();
+                        if let Some(sys_stream) = &sys_stream {
+                            sys_stream.stop();
+                        }
+                        return Err("shared-audio-producer-unavailable-after-upgrade".into());
+                    }
+                    None
+                }
+                Err(error) => {
+                    release_temporary_audio(&app, temporary_audio);
+                    mic_stream.stop();
+                    if let Some(sys_stream) = &sys_stream {
+                        sys_stream.stop();
+                    }
+                    return Err(error.to_string());
+                }
+            }
+        } else {
+            None
+        };
+
+        let combined_cap = if shared_audio.is_none()
+            && should_use_combined_sck_capture(owner, supports_sck_microphone_capture())
+        {
             match start_raw_meeting_capture(
                 app.clone(),
                 mic_device_id.clone(),
@@ -963,7 +1112,10 @@ mod macos {
             None
         };
 
-        let (mic_cap, sys_cap) = if let Some(combined_cap) = combined_cap {
+        let (mic_cap, sys_cap) = if shared_audio.is_some() {
+            eprintln!("[whisper] using shared Rewind microphone/system PCM producer");
+            (None, None)
+        } else if let Some(combined_cap) = combined_cap {
             // Both SCK outputs are configured at 48 kHz.
             mic_stream.set_src_rate(48000.0);
             (None, Some(combined_cap))
@@ -1004,10 +1156,30 @@ mod macos {
             (Some(mic_cap), sys_cap)
         };
 
-        let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+        let mut slot = match session_slot().lock() {
+            Ok(slot) => slot,
+            Err(error) => {
+                drop(shared_audio);
+                release_temporary_audio(&app, temporary_audio);
+                mic_stream.stop();
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.stop();
+                }
+                if let Some(mic_cap) = mic_cap {
+                    mic_cap.stop();
+                }
+                if let Some(sys_cap) = sys_cap {
+                    sys_cap.stop();
+                }
+                return Err(error.to_string());
+            }
+        };
         *slot = Some(Session {
+            app: app.clone(),
             mic_cap,
             sys_cap,
+            _shared_audio: shared_audio,
+            temporary_audio,
             mic: mic_stream,
             sys: sys_stream,
             owner,
@@ -1039,12 +1211,23 @@ mod macos {
         eprintln!("[whisper] transcription timeline reset");
     }
 
-    pub fn stop(_app: &AppHandle) {
+    fn release_temporary_audio(
+        app: &AppHandle,
+        lease: Option<crate::screen_memory::TemporaryAudioLease>,
+    ) {
+        if let Some(lease) = lease {
+            if let Err(error) = crate::screen_memory::release_temporary_audio_consumer(app, lease) {
+                eprintln!("[whisper] Rewind audio lease release failed: {error}");
+            }
+        }
+    }
+
+    pub fn stop(app: &AppHandle) {
         let session = match session_slot().lock() {
             Ok(mut slot) => slot.take(),
-            Err(_) => return,
+            Err(poisoned) => poisoned.into_inner().take(),
         };
-        let Some(session) = session else {
+        let Some(mut session) = session else {
             return;
         };
         // Signal workers to stop. They flush a final transcript after the loop.
@@ -1053,12 +1236,16 @@ mod macos {
             sys.stop();
         }
         // Stop captures so no more samples arrive while workers flush.
-        if let Some(mic_cap) = session.mic_cap {
+        if let Some(mic_cap) = session.mic_cap.take() {
             mic_cap.stop();
         }
-        if let Some(sys_cap) = session.sys_cap {
+        if let Some(sys_cap) = session.sys_cap.take() {
             sys_cap.stop();
         }
+        // Unsubscribe before a last-consumer release rotates the Rewind
+        // producer back to its persisted visuals-only mode.
+        drop(session._shared_audio.take());
+        release_temporary_audio(app, session.temporary_audio.take());
         // Wait up to 4 s for both workers to finish their final flush so
         // trailing speech is not lost when the frontend unregisters listeners.
         let deadline = Instant::now() + Duration::from_secs(4);

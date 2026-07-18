@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-use crate::clips::{remember_voice_target, toggle_popover};
+use crate::clips::{force_show_popover, remember_voice_target, toggle_popover};
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{
@@ -509,12 +509,11 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             return;
         }
         if is_cmd || is_ctrl || is_custom_popover {
-            // Loom-style: if a recording is already active, the
-            // global shortcut stops it rather than re-opening the
-            // popover. Keeps parity with the tray-icon click
-            // behaviour in `on_tray_icon_event`.
+            // The dedicated record shortcut remains the fast start/stop
+            // gesture. The separate Open Clips shortcut follows the app-icon
+            // behavior: it opens the popover and never stops capture.
             if is_recording_active(app) && !is_meeting_active(app) {
-                let _ = app.emit("clips:recorder-stop", ());
+                force_show_popover(app);
             } else {
                 toggle_popover(app);
             }

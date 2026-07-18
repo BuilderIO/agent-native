@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   configureScreenMemory,
+  queryScreenMemoryForAgent,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
 } from "./screen-memory-local.js";
@@ -48,6 +49,22 @@ describe("local Screen Memory helpers", () => {
     expect(status.enabled).toBe(false);
     expect(status.state).toBe("disabled");
     expect(status.captureCount).toBe(0);
+    expect(status.config).toMatchObject({
+      retentionHours: 8,
+      captureMode: "visuals",
+      reviewBeforeSending: true,
+      agentClipRetention: "forever",
+      excludePrivateWindows: false,
+    });
+    expect(status.config.excludedBundleIds).toContain(
+      "com.1password.1password",
+    );
+
+    const result = await queryScreenMemoryContext({}, options);
+    expect(result.evidence).toEqual([]);
+    expect(result.coverage.gaps).toEqual([
+      expect.objectContaining({ reason: "no-context-files" }),
+    ]);
   });
 
   it("updates local config and queries bounded context records", async () => {
@@ -63,7 +80,18 @@ describe("local Screen Memory helpers", () => {
       "utf8",
     );
 
-    const status = await configureScreenMemory({ enabled: true }, options);
+    const status = await configureScreenMemory(
+      {
+        enabled: true,
+        retentionHours: 72,
+        captureMode: "visuals-audio",
+        reviewBeforeSending: false,
+        agentClipRetention: "7-days",
+        excludedBundleIds: [" COM.Example.Secret ", "com.example.secret"],
+        excludePrivateWindows: false,
+      },
+      options,
+    );
     const result = await queryScreenMemoryContext(
       { query: "enabled", limit: 5 },
       options,
@@ -71,12 +99,58 @@ describe("local Screen Memory helpers", () => {
 
     expect(status.enabled).toBe(true);
     expect(status.state).toBe("ready");
+    expect(status.config).toMatchObject({
+      retentionHours: 24,
+      captureMode: "visuals-audio",
+      reviewBeforeSending: false,
+      agentClipRetention: "7-days",
+      excludedBundleIds: ["com.example.secret"],
+      excludePrivateWindows: false,
+    });
     expect(result.count).toBe(1);
     expect(result.items[0]).toMatchObject({
       appName: "Clips",
       windowTitle: "Settings",
       text: "Screen Memory is enabled",
     });
+    expect(result.evidence[0]).toMatchObject({
+      sourceType: "app-context",
+      excerpt: "Screen Memory is enabled",
+      jumpTarget: { kind: "screen-memory-moment" },
+    });
+  });
+
+  it("redacts paths and credentials and logs the exact bounded packet", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "context.jsonl"),
+      `${JSON.stringify({
+        capturedAt: "2026-06-29T12:00:00.000Z",
+        text: "api_key=super-secret-value",
+      })}\n`,
+      "utf8",
+    );
+    const result = await queryScreenMemoryForAgent(
+      { query: "api_key=super-secret-value", limit: 5 },
+      options,
+    );
+
+    expect(result.contextFiles).toEqual([]);
+    expect(result.items[0]?.sourceFile).toBe("local-screen-memory");
+    expect(result.evidence[0]?.excerpt).toBe("api_key=[REDACTED]");
+    expect(result.egress.packet.question).toBe("api_key=[REDACTED]");
+    const log = await readFile(join(root, "egress.jsonl"), "utf8");
+    const events = log
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(events.map((event) => event.state)).toEqual([
+      "prepared",
+      "completed",
+    ]);
+    expect(events[0].packet).toEqual(result.egress.packet);
+    expect(log).not.toContain("super-secret");
+    expect(log).not.toContain(options.env.AGENT_NATIVE_SCREEN_MEMORY_DIR);
   });
 
   it("reads linux screen memory data from the app-data directory", async () => {
@@ -116,5 +190,190 @@ describe("local Screen Memory helpers", () => {
       windowTitle: "Linux",
       text: "Screen Memory is visible on Linux",
     });
+  });
+
+  it("reports stale coverage and bounds excerpts and item output", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    const now = new Date("2026-06-29T12:10:00.000Z");
+    await writeFile(
+      join(root, "context.jsonl"),
+      [
+        {
+          capturedAt: "2026-06-29T12:00:00.000Z",
+          text: "x".repeat(1_300),
+        },
+        {
+          capturedAt: "2026-06-29T11:59:00.000Z",
+          text: "second evidence",
+        },
+        {
+          capturedAt: "2026-06-29T11:58:00.000Z",
+          text: "third evidence",
+        },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n") + "\n",
+      "utf8",
+    );
+
+    const result = await queryScreenMemoryContext(
+      { sinceMinutes: 15, limit: 2 },
+      { ...options, now: () => now },
+    );
+
+    expect(result.items).toHaveLength(2); // Legacy context remains bounded too.
+    expect(result.evidence).toHaveLength(2);
+    expect(result.evidence[0]?.excerpt).toHaveLength(1_200);
+    expect(result.evidence[0]?.excerptTruncated).toBe(true);
+    expect(result.truncation).toMatchObject({
+      itemLimit: 2,
+      returnedItems: 2,
+      omittedItems: 1,
+      excerptsTruncated: 1,
+    });
+    expect(result.coverage.gaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reason: "missing-before-first-evidence" }),
+        expect.objectContaining({ reason: "capture-stale" }),
+      ]),
+    );
+  });
+
+  it("normalizes local OCR and transcript fields without inventing either", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "context.jsonl"),
+      `${JSON.stringify({
+        capturedAt: "2026-06-29T12:00:00.000Z",
+        appName: "Clips",
+        text: "legacy app context",
+        ocrText: "Visible settings label",
+        transcript: "Spoken local words",
+        segmentId: "segment-1",
+      })}\n${JSON.stringify({
+        capturedAt: "2026-06-29T12:01:00.000Z",
+        text: "only legacy context",
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-1.json"),
+      `${JSON.stringify({
+        id: "segment-1",
+        startedAt: "2026-06-29T11:59:00.000Z",
+        endedAt: "2026-06-29T12:02:00.000Z",
+        path: "/private/local/segment.mp4",
+        bytes: 123,
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await queryScreenMemoryContext({ limit: 10 }, options);
+
+    expect(result.evidence.map((item) => item.sourceType)).toEqual([
+      "app-context",
+      "transcript",
+      "ocr",
+    ]);
+    expect(result.evidence[1]?.segmentRefs).toEqual([
+      {
+        id: "segment-1",
+        startedAt: "2026-06-29T11:59:00.000Z",
+        endedAt: "2026-06-29T12:02:00.000Z",
+      },
+    ]);
+    expect(JSON.stringify(result.evidence)).not.toContain("segment.mp4");
+    expect(JSON.stringify(result.evidence)).not.toContain('"bytes"');
+  });
+
+  it("reads OCR sidecars and exposes incomplete local indexing as coverage gaps", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "segment-1.ocr.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        segmentId: "segment-1",
+        capturedAt: "2026-06-29T12:00:00.000Z",
+        offsetMs: 1000,
+        source: "ocr",
+        ocrText: "Local visible text",
+        confidence: 0.9,
+        frameWidth: 1920,
+        frameHeight: 1080,
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-1.json"),
+      `${JSON.stringify({ id: "segment-1", startedAt: "2026-06-29T11:59:00.000Z", endedAt: "2026-06-29T12:02:00.000Z" })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-1.ocr-status.json"),
+      `${JSON.stringify({ state: "failed" })}\n`,
+      "utf8",
+    );
+
+    const result = await queryScreenMemoryContext(
+      { query: "visible" },
+      options,
+    );
+    expect(result.evidence).toEqual([
+      expect.objectContaining({
+        sourceType: "ocr",
+        excerpt: "Local visible text",
+      }),
+    ]);
+    expect(result.coverage.gaps).toContainEqual(
+      expect.objectContaining({
+        reason: "index-failed",
+        startedAt: "2026-06-29T11:59:00.000Z",
+      }),
+    );
+  });
+
+  it("reads local transcript sidecars as transcript evidence", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "segment-2.transcript.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        segmentId: "segment-2",
+        capturedAt: "2026-06-29T12:03:02.000Z",
+        source: "mixed-audio",
+        startMs: 2000,
+        endMs: 3200,
+        text: "A locally transcribed sentence",
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-2.json"),
+      `${JSON.stringify({ id: "segment-2", startedAt: "2026-06-29T12:03:00.000Z", endedAt: "2026-06-29T12:04:00.000Z" })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-2.transcript-status.json"),
+      `${JSON.stringify({ state: "transcribing" })}\n`,
+      "utf8",
+    );
+
+    const result = await queryScreenMemoryContext(
+      { query: "transcribed" },
+      options,
+    );
+    expect(result.evidence).toEqual([
+      expect.objectContaining({
+        sourceType: "transcript",
+        excerpt: "A locally transcribed sentence",
+        segmentRefs: [expect.objectContaining({ id: "segment-2" })],
+      }),
+    ]);
+    expect(result.coverage.gaps).toContainEqual(
+      expect.objectContaining({
+        reason: "index-pending",
+        startedAt: "2026-06-29T12:03:00.000Z",
+      }),
+    );
   });
 });
