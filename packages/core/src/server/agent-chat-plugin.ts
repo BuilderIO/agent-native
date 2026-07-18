@@ -23,7 +23,10 @@ import {
   isLoopbackAddress,
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
-import { sanitizeA2ACorrelationMetadata } from "../a2a/correlation.js";
+import {
+  sanitizeA2ACorrelationId,
+  sanitizeA2ACorrelationMetadata,
+} from "../a2a/correlation.js";
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import {
   createA2AApproval,
@@ -1630,7 +1633,9 @@ export function createAgentChatPlugin(
           const controller = new AbortController();
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
-            context.contextId ?? correlation.callerThreadId ?? context.taskId;
+            sanitizeA2ACorrelationId(context.contextId) ??
+            correlation.callerThreadId ??
+            context.taskId;
 
           console.log(
             `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
