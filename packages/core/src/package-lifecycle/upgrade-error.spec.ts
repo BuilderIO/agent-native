@@ -23,7 +23,14 @@ describe("AgentNativeUpgradeError", () => {
   it("renders runtime and message-carrying type tombstones", () => {
     const source = renderTombstoneModule({
       from: "@agent-native/core/client/old",
-      to: "@agent-native/toolkit/new",
+      manifest: {
+        sinceVersion: "0.111.0",
+        moves: {
+          "@agent-native/core/client/old": {
+            to: "@agent-native/toolkit/new",
+          },
+        },
+      },
       helperImport: "../../package-lifecycle/upgrade-error.js",
       valueExports: ["OldWidget"],
       typeExports: ["OldWidgetProps"],
@@ -34,6 +41,16 @@ describe("AgentNativeUpgradeError", () => {
     expect(source).toContain(
       `DeprecatedExport<"@agent-native/core/client/old moved to @agent-native/toolkit/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}">`,
     );
+  });
+
+  it("requires an exact manifest move before generating a tombstone", () => {
+    expect(() =>
+      renderTombstoneModule({
+        from: "@agent-native/core/client/unknown",
+        manifest: { sinceVersion: "0.111.0", moves: {} },
+        helperImport: "../../package-lifecycle/upgrade-error.js",
+      }),
+    ).toThrow(/without an exact migration manifest move/);
   });
 
   it("gives agents the exact one-command migration", () => {
