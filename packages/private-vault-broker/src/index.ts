@@ -13,6 +13,7 @@ export {
   type PrivateVaultBrokerState,
 } from "./runtime.js";
 export type { BrokerStateStore } from "./state-store.js";
+export * from "./supervisor.js";
 export {
   ANC_ENDPOINT_PROOF_HEADER,
   BROKER_CONTROL_RESPONSE_MAX_BYTES,

@@ -33,3 +33,12 @@ opens it through the semantic native-service boundary, acknowledges the exact
 attempt, runs an injected local action executor, seals the result natively, and
 submits the encrypted result. Failed work moves to a bounded retry schedule;
 it never falls back to hosted plaintext execution.
+
+`PrivateVaultBrokerSupervisor` supplies the relocatable process lifecycle around
+that loop. It verifies native health and current membership before unlock and
+before every job, serializes work, persists only an encrypted content-free
+checkpoint, backs off while the relay is offline, locks immediately on
+revocation, and waits for in-flight plaintext work before shutdown. The package
+owns no Electron import, development command, absolute path, browser session, or
+hosted credential; any signed native service, encrypted `BrokerStateStore`, and
+action executor that satisfy the narrow contracts can host it.
