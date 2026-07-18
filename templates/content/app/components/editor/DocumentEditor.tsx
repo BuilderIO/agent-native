@@ -344,6 +344,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const isLocalFileDocument = document.source?.mode === "local-files";
   const canDelete =
     !isLocalFileDocument &&
+    !document.database?.systemRole &&
     (document.canManage === true ||
       document.accessRole === "owner" ||
       document.accessRole === "admin");
