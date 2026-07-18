@@ -6,8 +6,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
-import { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
-import { isReconcileLeadClient } from "../../collab/client.js";
+import { AGENT_CLIENT_ID, isReconcileLeadClient } from "../collab-ui/index.js";
 import {
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   applyDocSurgically,

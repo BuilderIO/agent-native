@@ -67,7 +67,7 @@ export function PlanVisualSurface({
     ? `${selectedDesignElement.frameId ?? ""}::${selectedDesignElement.blockId ?? ""}::${selectedDesignElement.elementId}`
     : null;
   const [tabValue, setTabValue] = useState<"prototype" | "wireframes">(
-    designCanvas ? "wireframes" : prototype ? "prototype" : "wireframes",
+    "wireframes",
   );
   const requestedTabValue =
     requestedVisualMode === "prototype" || requestedVisualMode === "wireframes"

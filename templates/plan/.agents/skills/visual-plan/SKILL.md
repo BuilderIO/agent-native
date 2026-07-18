@@ -290,6 +290,8 @@ folding framework chrome into the product UI.
   needs to operate the behavior. Keep the static wireframes in
   `content.canvas`, add the aligned functional prototype in
   `content.prototype`, and rely on the top visual tabs to switch between them.
+  When both surfaces are present, open the Wireframes tab by default; the
+  prototype remains available as the interactive follow-up view.
 - **Prototype-first** when the user asks to operate the UI or when interaction is
   the main question. Use `create-prototype-plan`, which still preserves static
   mocks where useful.

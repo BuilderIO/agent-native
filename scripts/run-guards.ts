@@ -14,6 +14,7 @@ const guards = [
   "guard:netlify-private-env",
   "guard:workspace-skills",
   "guard:public-packages",
+  "guard:shared-ui-singletons",
   "guard:no-generated-artifacts",
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",

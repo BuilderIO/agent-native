@@ -1,6 +1,4 @@
 import {
-  createSharedEditorExtensions,
-  useCollabReconcile,
   usePresence,
   useRecentEdits,
   RecentEditHighlights,
@@ -8,8 +6,12 @@ import {
   useT,
   type AttributedRecentEdit,
   type RegistryBlockSideMapBlock,
-  type UseCollabReconcileResult,
 } from "@agent-native/core/client";
+import {
+  createSharedEditorExtensions,
+  useCollabReconcile,
+  type UseCollabReconcileResult,
+} from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,

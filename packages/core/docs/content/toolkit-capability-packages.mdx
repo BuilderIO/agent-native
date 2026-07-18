@@ -1,0 +1,48 @@
+---
+title: "Capability Packages"
+description: "Use separate capability packages for domain features and manage their manifest-driven lifecycle without folding them into Toolkit."
+---
+
+# Capability packages
+
+Capability packages add reusable domain behavior. They are distinct from
+Toolkit: Toolkit supplies cross-app product foundations, while capability
+packages bring a bounded domain model, actions, skills, and lifecycle metadata.
+
+## Current package boundary
+
+| Package                          | Position                                              | Lifecycle                                                                                               |
+| -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `@agent-native/scheduling`       | Separate scheduling and booking capability package    | Supports the generic manifest lifecycle pilot; package-local docs live under `docs/`.                   |
+| `@agent-native/creative-context` | Separate governed creative-library capability package | Publishes its own `agent-native.package.json` and package-local `docs/llms.txt` / `docs/llms-full.txt`. |
+| Core and Toolkit                 | Runtime and reusable presentation layers              | Do not absorb capability-package domain models into either layer.                                       |
+
+Scheduling and Creative Context are not Toolkit feature kits. Use each
+published package's README and `docs/` bundle with its
+`agent-native.package.json` lifecycle manifest as the source of truth for
+setup, contribution points, and ownership.
+
+- [Scheduling package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+## Lifecycle manifests
+
+Each manifest describes static contributions such as actions, schema entry
+points, skills, required secret names, and peer providers. Inspect before
+writing, then use the explicit apply step:
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+See [Package Lifecycle](/docs/package-lifecycle) for the safety, dry-run, and
+eject rules. See [Scheduling](/docs/template-calendar) for a product-level
+example; it is not a substitute for the package-local contract.
+
+## Related docs
+
+- [Toolkit overview](/docs/agent-native-toolkit) — what belongs in Toolkit instead.
+- [Package Lifecycle](/docs/package-lifecycle) — manifest inspection, add, and eject.
+- [Recurring jobs](/docs/recurring-jobs) — runtime scheduling is different from the Scheduling package.

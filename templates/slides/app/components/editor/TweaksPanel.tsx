@@ -1,9 +1,9 @@
+import { useT } from "@agent-native/core/client";
 import {
-  useT,
   VisualInspectorPanel,
   VisualInspectorSection,
   VisualTweakControl,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/design-tweaks";
 import { IconAdjustmentsHorizontal, IconX } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";

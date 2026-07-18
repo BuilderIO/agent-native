@@ -1,5 +1,6 @@
+import type { ImageUploadFn } from "@agent-native/toolkit/editor";
+
 import { callAction } from "../use-action.js";
-import type { ImageUploadFn } from "./ImageExtension.js";
 
 /**
  * Read a {@link File} as a base64 data URL (`data:image/...;base64,...`).

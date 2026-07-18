@@ -75,6 +75,7 @@ export type RichMarkdownEditorProps = SharedRichEditorProps;
  * Historical name for {@link SharedRichEditor}. Kept so existing imports
  * (`import { RichMarkdownEditor } from "@agent-native/core/client"`) and the
  * plan editor tests (which assert the source mentions `RichMarkdownEditor`)
- * keep working. New code should import `SharedRichEditor`.
+ * keep working through the Core compatibility re-export. New code should import
+ * `SharedRichEditor` from `@agent-native/toolkit/editor`.
  */
 export const RichMarkdownEditor = SharedRichEditor;

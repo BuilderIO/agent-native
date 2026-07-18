@@ -19,3 +19,5 @@
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
 @source "./**/*.{js,ts,tsx}";
+
+@import "./editor.css";
