@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.109.2
+
+### Patch Changes
+
+- 915c940: Allow HTML diagrams to opt into clean design rendering without the rough.js overlay.
+- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
+
 ## 0.109.1
 
 ### Patch Changes
