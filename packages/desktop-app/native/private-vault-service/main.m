@@ -10,7 +10,11 @@
 #import "PrivateVaultCustodyRepository.h"
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultControlLog.h"
+#import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultKeychain.h"
+#import "PrivateVaultGenesisArtifactStore.h"
+#import "PrivateVaultGenesisCoordinator.h"
+#import "PrivateVaultGenesisStartup.h"
 #import "PrivateVaultRotationCoordinator.h"
 #import "PrivateVaultRotationPreparationSpool.h"
 #import "PrivateVaultRotationPreparationStore.h"
@@ -22,10 +26,12 @@
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
+static AncPrivateVaultGenesisCoordinator *gGenesisCoordinator = nil;
 static AncPrivateVaultRotationCoordinator *gRotationCoordinator = nil;
 static AncPrivateVaultHostedAppendTransport *gHostedAppendTransport = nil;
 static AncPrivateVaultHostedAppendCandidateIndex *gHostedAppendCandidates = nil;
 static AncPrivateVaultHostedAppendRetryCoordinator *gHostedAppendRetry = nil;
+static bool gStartupComplete = false;
 
 static const char *PVRotationAckState(void);
 
@@ -69,6 +75,18 @@ static NSString *PVHex(NSData *data) {
         return nil;
     }
     NSMutableString *value = [NSMutableString stringWithCapacity:64];
+    const uint8_t *bytes = data.bytes;
+    for (NSUInteger index = 0; index < data.length; index += 1) {
+        [value appendFormat:@"%02x", bytes[index]];
+    }
+    return value;
+}
+
+static NSString *PVVaultIDHex(NSData *data) {
+    if (data.length != 16) {
+        return nil;
+    }
+    NSMutableString *value = [NSMutableString stringWithCapacity:32];
     const uint8_t *bytes = data.bytes;
     for (NSUInteger index = 0; index < data.length; index += 1) {
         [value appendFormat:@"%02x", bytes[index]];
@@ -123,7 +141,8 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
         if (gHostedAppendRetry != nil) {
             [gHostedAppendRetry wake];
         }
-        bool available = gRotationCoordinator != nil &&
+        bool available = gGenesisCoordinator != nil &&
+                         gRotationCoordinator != nil &&
                          gHostedAppendRetry != nil;
         xpc_dictionary_set_string(reply, "state",
                                   available ? "locked" : "unavailable");
@@ -135,6 +154,87 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
     }
 
     xpc_connection_send_message(peer, reply);
+}
+
+static void PVCommitGenesis(xpc_connection_t peer, xpc_object_t message,
+                            const PVRequest *request) {
+    @autoreleasepool {
+        if (gGenesisCoordinator == nil ||
+            request->recoveryConfirmation == NULL ||
+            request->bootstrapTranscript == NULL ||
+            request->authorization == NULL) {
+            PVSendError(peer, message, "genesis_unavailable");
+            return;
+        }
+        NSData *recoveryConfirmation =
+            [NSData dataWithBytes:request->recoveryConfirmation
+                           length:request->recoveryConfirmationLength];
+        NSData *bootstrapTranscript =
+            [NSData dataWithBytes:request->bootstrapTranscript
+                           length:request->bootstrapTranscriptLength];
+        NSData *authorization =
+            [NSData dataWithBytes:request->authorization
+                           length:request->authorizationLength];
+        AncPrivateVaultGenesisBootstrapStatus decodeStatus =
+            AncPrivateVaultGenesisBootstrapStatusInvalidCanonical;
+        AncPrivateVaultGenesisBootstrapTranscript *decoded =
+            AncPrivateVaultGenesisBootstrapDecode(bootstrapTranscript, nil,
+                                                   &decodeStatus);
+        if (decoded == nil || decoded.vaultId.length != 16) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        uint8_t vaultID[16] = {0};
+        [decoded.vaultId getBytes:vaultID length:sizeof vaultID];
+        NSString *expectedVaultID = PVVaultIDHex(decoded.vaultId);
+        AncPrivateVaultGenesisCoordinatorResult *result = nil;
+        AncPrivateVaultGenesisCoordinatorStatus status =
+            [gGenesisCoordinator
+                     commitVaultId:vaultID
+                bootstrapTranscript:bootstrapTranscript
+                recoveryConfirmation:recoveryConfirmation
+                      authorization:authorization
+                             result:&result];
+        memset(vaultID, 0, sizeof vaultID);
+        if (status != AncPrivateVaultGenesisCoordinatorStatusOK ||
+            result == nil) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        NSString *headHash = PVHex(result.headHash);
+        NSString *membershipHash = PVHex(result.membershipHash);
+        NSString *recoveryWrapHash = PVHex(result.recoveryWrapHash);
+        if (expectedVaultID.length != 32 ||
+            ![result.vaultId isEqualToString:expectedVaultID] ||
+            headHash.length != 64 ||
+            membershipHash.length != 64 || recoveryWrapHash.length != 64 ||
+            result.custodyGeneration != 2 || result.activeEpoch != 1 ||
+            result.sequence != 0 || result.recoveryGeneration != 1) {
+            PVSendError(peer, message, "genesis_failed");
+            return;
+        }
+        xpc_object_t reply = xpc_dictionary_create_reply(message);
+        if (reply == NULL) {
+            return;
+        }
+        xpc_dictionary_set_int64(reply, "version", PV_PROTOCOL_VERSION);
+        xpc_dictionary_set_bool(reply, "ok", true);
+        xpc_dictionary_set_string(reply, "requestId", request->requestID);
+        xpc_dictionary_set_string(reply, "state", "committed");
+        xpc_dictionary_set_string(reply, "vaultId", result.vaultId.UTF8String);
+        xpc_dictionary_set_uint64(reply, "custodyGeneration",
+                                  result.custodyGeneration);
+        xpc_dictionary_set_uint64(reply, "activeEpoch", result.activeEpoch);
+        xpc_dictionary_set_uint64(reply, "sequence", result.sequence);
+        xpc_dictionary_set_string(reply, "headHash", headHash.UTF8String);
+        xpc_dictionary_set_string(reply, "membershipHash",
+                                  membershipHash.UTF8String);
+        xpc_dictionary_set_uint64(reply, "recoveryGeneration",
+                                  result.recoveryGeneration);
+        xpc_dictionary_set_string(reply, "recoveryWrapHash",
+                                  recoveryWrapHash.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
 }
 
 static const char *PVRotationAckState(void) {
@@ -227,6 +327,14 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
     PVRequest request = {0};
     switch (PVParseRequest(message, &request)) {
         case PVRequestValid:
+            if (!PVRequestCanRun(&request, gStartupComplete)) {
+                PVSendError(peer, message, "startup_incomplete");
+                return;
+            }
+            if (strcmp(request.operation, "commit_genesis") == 0) {
+                PVCommitGenesis(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "resume_rotation") == 0) {
                 PVResumeRotation(peer, message, &request);
                 return;
@@ -287,6 +395,14 @@ int main(void) {
                    custodyRepository:gCustodyRepository];
         AncPrivateVaultControlLog *controlLog =
             [[AncPrivateVaultControlLog alloc] init];
+        AncPrivateVaultGenesisArtifactStore *genesisArtifacts =
+            [[AncPrivateVaultGenesisArtifactStore alloc]
+                initWithStateRootURL:stateRoot];
+        gGenesisCoordinator = [[AncPrivateVaultGenesisCoordinator alloc]
+            initWithArtifactStore:genesisArtifacts
+                  authorityStore:authority
+               custodyRepository:gCustodyRepository
+                      controlLog:controlLog];
         gRotationCoordinator = [[AncPrivateVaultRotationCoordinator alloc]
             initWithPreparationStore:preparation
                       authorityStore:authority
@@ -319,7 +435,8 @@ int main(void) {
                               scheduler:retryScheduler];
         if (stateRoot == nil || keychain == nil || gCustodyRepository == nil ||
             spool == nil || preparation == nil || authority == nil ||
-            controlLog == nil || gRotationCoordinator == nil ||
+            controlLog == nil || genesisArtifacts == nil ||
+            gGenesisCoordinator == nil || gRotationCoordinator == nil ||
             gHostedAppendTransport == nil || retryStore == nil ||
             gHostedAppendCandidates == nil || retryScheduler == nil ||
             gHostedAppendRetry == nil) {
@@ -332,7 +449,14 @@ int main(void) {
             return EXIT_FAILURE;
         }
 
+        if (AncPrivateVaultResumePendingGenesisArtifacts(
+                genesisArtifacts, gGenesisCoordinator) !=
+            AncPrivateVaultGenesisStartupStatusOK) {
+            return EXIT_FAILURE;
+        }
+
         [gHostedAppendRetry start];
+        gStartupComplete = true;
 
         xpc_main(PVConnectionHandler);
     }

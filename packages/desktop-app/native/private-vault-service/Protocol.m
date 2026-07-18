@@ -40,7 +40,10 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
         }
 
         if (strcmp(key, "version") != 0 && strcmp(key, "operation") != 0 &&
-            strcmp(key, "requestId") != 0 && strcmp(key, "vaultId") != 0) {
+            strcmp(key, "requestId") != 0 && strcmp(key, "vaultId") != 0 &&
+            strcmp(key, "recoveryConfirmation") != 0 &&
+            strcmp(key, "bootstrapTranscript") != 0 &&
+            strcmp(key, "authorization") != 0) {
             allowed = false;
             return false;
         }
@@ -68,12 +71,31 @@ static bool PVIsVaultID(const char *value) {
     return true;
 }
 
+static bool PVReadBoundedData(xpc_object_t message, const char *key,
+                              size_t maximumLength, const void **bytes,
+                              size_t *length) {
+    xpc_object_t value = xpc_dictionary_get_value(message, key);
+    if (value == NULL || xpc_get_type(value) != XPC_TYPE_DATA) {
+        return false;
+    }
+    size_t actualLength = xpc_data_get_length(value);
+    const void *actualBytes = xpc_data_get_bytes_ptr(value);
+    if (actualBytes == NULL || actualLength == 0 ||
+        actualLength > maximumLength) {
+        return false;
+    }
+    *bytes = actualBytes;
+    *length = actualLength;
+    return true;
+}
+
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     size_t fieldCount = 0;
     if (xpc_get_type(message) != XPC_TYPE_DICTIONARY || request == NULL ||
         !PVHasOnlyProtocolKeys(message, &fieldCount)) {
         return PVRequestInvalid;
     }
+    memset(request, 0, sizeof(*request));
 
     xpc_object_t versionValue = xpc_dictionary_get_value(message, "version");
     xpc_object_t operationValue =
@@ -106,8 +128,9 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     }
 
     bool resumeRotation = strcmp(operation, "resume_rotation") == 0;
+    bool commitGenesis = strcmp(operation, "commit_genesis") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
-        !resumeRotation) {
+        !resumeRotation && !commitGenesis) {
         return PVRequestUnsupportedOperation;
     }
 
@@ -116,6 +139,22 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
+            return PVRequestInvalid;
+        }
+    } else if (commitGenesis) {
+        if (fieldCount != 6 || vaultIDValue != NULL ||
+            !PVReadBoundedData(message, "recoveryConfirmation",
+                               PV_GENESIS_CONFIRMATION_MAXIMUM_BYTES,
+                               &request->recoveryConfirmation,
+                               &request->recoveryConfirmationLength) ||
+            !PVReadBoundedData(message, "bootstrapTranscript",
+                               PV_GENESIS_TRANSCRIPT_MAXIMUM_BYTES,
+                               &request->bootstrapTranscript,
+                               &request->bootstrapTranscriptLength) ||
+            !PVReadBoundedData(message, "authorization",
+                               PV_GENESIS_AUTHORIZATION_MAXIMUM_BYTES,
+                               &request->authorization,
+                               &request->authorizationLength)) {
             return PVRequestInvalid;
         }
     } else if (fieldCount != 3 || vaultIDValue != NULL) {
@@ -127,4 +166,9 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->vaultID =
         resumeRotation ? xpc_dictionary_get_string(message, "vaultId") : NULL;
     return PVRequestValid;
+}
+
+bool PVRequestCanRun(const PVRequest *request, bool startupComplete) {
+    return startupComplete && request != NULL && request->operation != NULL &&
+           request->requestID != NULL;
 }

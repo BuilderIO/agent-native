@@ -192,6 +192,13 @@ static void CheckPositive(NSDictionary *corpus) {
       confirmation, vaultId, &status));
   CHECK(AncPrivateVaultGenesisAuthorizationDecode(authorization, vaultId,
                                                   &status));
+  CHECK([AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+      authorization, vaultId, &status) isEqualToData:signedCommit]);
+  NSMutableData *wrongVault = [vaultId mutableCopy];
+  ((uint8_t *)wrongVault.mutableBytes)[0] ^= 1;
+  CHECK(AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+            authorization, wrongVault, &status) == nil &&
+        status == AncPrivateVaultGenesisAuthorizationStatusVaultBinding);
   AncPrivateVaultGenesisAuthorizationVerifier *verifier =
       [[AncPrivateVaultGenesisAuthorizationVerifier alloc]
           initWithAuthorization:authorization

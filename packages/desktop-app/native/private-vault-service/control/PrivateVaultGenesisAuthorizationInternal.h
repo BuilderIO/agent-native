@@ -20,4 +20,12 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
     NSData *_Nullable *_Nonnull signedGenesisCommit,
     NSData *_Nullable *_Nonnull bootstrapTranscriptDigest);
 
+/* Narrow public-artifact accessor used by the durable genesis coordinator.
+ * The copy succeeds only after strict structural decoding and vault binding.
+ * It does not mint or consult verifier capability state. */
+FOUNDATION_EXPORT NSData *_Nullable
+AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+    NSData *authorization, NSData *expectedVaultId,
+    AncPrivateVaultGenesisAuthorizationStatus *_Nullable status);
+
 NS_ASSUME_NONNULL_END

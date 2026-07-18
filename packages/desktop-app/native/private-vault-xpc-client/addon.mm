@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <uuid/uuid.h>
+#include <vector>
 
 #include "RequestGate.h"
 
@@ -16,15 +17,18 @@
   "anchor apple generic and identifier \"" PV_SERVICE_IDENTIFIER               \
   "\" and certificate leaf[subject.OU] = \"" PV_SERVICE_TEAM_IDENTIFIER "\""
 #define PV_PROTOCOL_VERSION 2
-#define PV_MAXIMUM_REPLY_FIELDS 9
+#define PV_MAXIMUM_REPLY_FIELDS 12
 #define PV_MAXIMUM_REPLY_STRING_BYTES 64
+#define PV_GENESIS_CONFIRMATION_MAXIMUM_BYTES (64 * 1024)
+#define PV_GENESIS_TRANSCRIPT_MAXIMUM_BYTES (4 * 1024)
+#define PV_GENESIS_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
 #define PV_REQUEST_TIMEOUT_NANOSECONDS (2LL * NSEC_PER_SEC)
 
 namespace {
 
 PVRequestGate gRequestGate;
 
-enum class PVOperation { Health, Lock, ResumeRotation };
+enum class PVOperation { Health, Lock, ResumeRotation, CommitGenesis };
 enum class PVFailure {
   None,
   UnsupportedOperation,
@@ -34,6 +38,12 @@ enum class PVFailure {
   ServiceError,
 };
 
+void PVClearBytes(std::vector<uint8_t> &value) {
+  volatile uint8_t *bytes = value.data();
+  for (size_t index = 0; index < value.size(); index += 1)
+    bytes[index] = 0;
+}
+
 struct PVParsedReply {
   PVFailure failure = PVFailure::Connection;
   bool available = false;
@@ -41,9 +51,12 @@ struct PVParsedReply {
   char rotationAckState[16] = {0};
   char vaultID[33] = {0};
   char headHash[65] = {0};
+  char membershipHash[65] = {0};
+  char recoveryWrapHash[65] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
+  uint64_t recoveryGeneration = 0;
 };
 
 class PVReplyState {
@@ -93,9 +106,24 @@ struct PVAsyncRequest {
   char rotationAckState[16] = {0};
   char vaultID[33] = {0};
   char headHash[65] = {0};
+  char membershipHash[65] = {0};
+  char recoveryWrapHash[65] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
+  uint64_t recoveryGeneration = 0;
+  std::vector<uint8_t> recoveryConfirmation;
+  std::vector<uint8_t> bootstrapTranscript;
+  std::vector<uint8_t> authorization;
+
+  ~PVAsyncRequest() {
+    if (!recoveryConfirmation.empty())
+      PVClearBytes(recoveryConfirmation);
+    if (!bootstrapTranscript.empty())
+      PVClearBytes(bootstrapTranscript);
+    if (!authorization.empty())
+      PVClearBytes(authorization);
+  }
 };
 
 bool PVStringIsBounded(const char *value, size_t maximumBytes) {
@@ -199,11 +227,19 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       "state",             "vaultId",  "custodyGeneration",
       "activeEpoch",       "sequence", "headHash",
   };
+  const char *const genesisKeys[] = {
+      "version",        "ok",                 "requestId",
+      "state",          "vaultId",            "custodyGeneration",
+      "activeEpoch",    "sequence",           "headHash",
+      "membershipHash", "recoveryGeneration", "recoveryWrapHash",
+  };
   const bool validKeys =
       operation == PVOperation::Health
           ? PVHasExactKeys(reply, healthKeys, 6)
       : operation == PVOperation::Lock
           ? PVHasExactKeys(reply, lockKeys, 4)
+      : operation == PVOperation::CommitGenesis
+          ? PVHasExactKeys(reply, genesisKeys, 12)
           : PVHasExactKeys(reply, rotationKeys, 9);
   xpc_object_t stateValue = xpc_dictionary_get_value(reply, "state");
   if (!validKeys || !PVRequestIDMatches(reply, requestID) ||
@@ -256,7 +292,7 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
-  } else {
+  } else if (operation == PVOperation::ResumeRotation) {
     xpc_object_t vault = xpc_dictionary_get_value(reply, "vaultId");
     xpc_object_t custody =
         xpc_dictionary_get_value(reply, "custodyGeneration");
@@ -288,6 +324,60 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
         xpc_dictionary_get_uint64(reply, "custodyGeneration");
     parsed.activeEpoch = xpc_dictionary_get_uint64(reply, "activeEpoch");
     parsed.sequence = xpc_dictionary_get_uint64(reply, "sequence");
+  } else {
+    xpc_object_t vault = xpc_dictionary_get_value(reply, "vaultId");
+    xpc_object_t custody =
+        xpc_dictionary_get_value(reply, "custodyGeneration");
+    xpc_object_t epoch = xpc_dictionary_get_value(reply, "activeEpoch");
+    xpc_object_t sequence = xpc_dictionary_get_value(reply, "sequence");
+    xpc_object_t head = xpc_dictionary_get_value(reply, "headHash");
+    xpc_object_t membership =
+        xpc_dictionary_get_value(reply, "membershipHash");
+    xpc_object_t recoveryGeneration =
+        xpc_dictionary_get_value(reply, "recoveryGeneration");
+    xpc_object_t recoveryWrap =
+        xpc_dictionary_get_value(reply, "recoveryWrapHash");
+    const char *vaultID =
+        vault != nullptr && xpc_get_type(vault) == XPC_TYPE_STRING
+            ? xpc_dictionary_get_string(reply, "vaultId")
+            : nullptr;
+    const char *headHash =
+        head != nullptr && xpc_get_type(head) == XPC_TYPE_STRING
+            ? xpc_dictionary_get_string(reply, "headHash")
+            : nullptr;
+    const char *membershipHash =
+        membership != nullptr && xpc_get_type(membership) == XPC_TYPE_STRING
+            ? xpc_dictionary_get_string(reply, "membershipHash")
+            : nullptr;
+    const char *recoveryWrapHash =
+        recoveryWrap != nullptr && xpc_get_type(recoveryWrap) == XPC_TYPE_STRING
+            ? xpc_dictionary_get_string(reply, "recoveryWrapHash")
+            : nullptr;
+    if (strcmp(state, "committed") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        !PVIsLowerHex(headHash, 64) || !PVIsLowerHex(membershipHash, 64) ||
+        !PVIsLowerHex(recoveryWrapHash, 64) || custody == nullptr ||
+        xpc_get_type(custody) != XPC_TYPE_UINT64 || epoch == nullptr ||
+        xpc_get_type(epoch) != XPC_TYPE_UINT64 || sequence == nullptr ||
+        xpc_get_type(sequence) != XPC_TYPE_UINT64 ||
+        recoveryGeneration == nullptr ||
+        xpc_get_type(recoveryGeneration) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "custodyGeneration") != 2 ||
+        xpc_dictionary_get_uint64(reply, "activeEpoch") != 1 ||
+        xpc_dictionary_get_uint64(reply, "sequence") != 0 ||
+        xpc_dictionary_get_uint64(reply, "recoveryGeneration") != 1) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.headHash, headHash, 65);
+    memcpy(parsed.membershipHash, membershipHash, 65);
+    memcpy(parsed.recoveryWrapHash, recoveryWrapHash, 65);
+    parsed.custodyGeneration =
+        xpc_dictionary_get_uint64(reply, "custodyGeneration");
+    parsed.activeEpoch = xpc_dictionary_get_uint64(reply, "activeEpoch");
+    parsed.sequence = xpc_dictionary_get_uint64(reply, "sequence");
+    parsed.recoveryGeneration =
+        xpc_dictionary_get_uint64(reply, "recoveryGeneration");
   }
 
   memcpy(parsed.state, state, strlen(state) + 1);
@@ -302,7 +392,9 @@ void PVExecute(napi_env env, void *data) {
                               ? "health"
                           : request->operation == PVOperation::Lock
                               ? "lock"
-                              : "resume_rotation";
+                          : request->operation == PVOperation::ResumeRotation
+                              ? "resume_rotation"
+                              : "commit_genesis";
 
   uuid_t requestUUID;
   char requestID[37] = {0};
@@ -344,6 +436,17 @@ void PVExecute(napi_env env, void *data) {
   xpc_dictionary_set_string(message, "requestId", requestID);
   if (request->operation == PVOperation::ResumeRotation)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
+  if (request->operation == PVOperation::CommitGenesis) {
+    xpc_dictionary_set_data(message, "recoveryConfirmation",
+                            request->recoveryConfirmation.data(),
+                            request->recoveryConfirmation.size());
+    xpc_dictionary_set_data(message, "bootstrapTranscript",
+                            request->bootstrapTranscript.data(),
+                            request->bootstrapTranscript.size());
+    xpc_dictionary_set_data(message, "authorization",
+                            request->authorization.data(),
+                            request->authorization.size());
+  }
   xpc_connection_send_message_with_reply(connection, message, queue,
                                          ^(xpc_object_t reply) {
                                            state->complete(reply);
@@ -371,9 +474,14 @@ void PVExecute(napi_env env, void *data) {
            sizeof(request->rotationAckState));
     memcpy(request->vaultID, parsed.vaultID, sizeof(request->vaultID));
     memcpy(request->headHash, parsed.headHash, sizeof(request->headHash));
+    memcpy(request->membershipHash, parsed.membershipHash,
+           sizeof(request->membershipHash));
+    memcpy(request->recoveryWrapHash, parsed.recoveryWrapHash,
+           sizeof(request->recoveryWrapHash));
     request->custodyGeneration = parsed.custodyGeneration;
     request->activeEpoch = parsed.activeEpoch;
     request->sequence = parsed.sequence;
+    request->recoveryGeneration = parsed.recoveryGeneration;
   }
 
   xpc_connection_cancel(connection);
@@ -424,7 +532,9 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "health"
                 : request->operation == PVOperation::Lock
                     ? "lock"
-                    : "resume_rotation");
+                : request->operation == PVOperation::ResumeRotation
+                    ? "resume_rotation"
+                    : "commit_genesis");
     PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
       napi_value available;
@@ -439,6 +549,17 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                        request->custodyGeneration);
       PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
       PVSetSafeInteger(env, result, "sequence", request->sequence);
+    } else if (request->operation == PVOperation::CommitGenesis) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "headHash", request->headHash);
+      PVSetString(env, result, "membershipHash", request->membershipHash);
+      PVSetString(env, result, "recoveryWrapHash", request->recoveryWrapHash);
+      PVSetSafeInteger(env, result, "custodyGeneration",
+                       request->custodyGeneration);
+      PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
+      PVSetSafeInteger(env, result, "sequence", request->sequence);
+      PVSetSafeInteger(env, result, "recoveryGeneration",
+                       request->recoveryGeneration);
     }
     napi_resolve_deferred(env, request->deferred, result);
   }
@@ -447,13 +568,15 @@ void PVComplete(napi_env env, napi_status status, void *data) {
 }
 
 napi_value PVRequest(napi_env env, napi_callback_info info) {
-  size_t argc = 3;
-  napi_value argv[3];
+  size_t argc = 4;
+  napi_value argv[4];
   napi_value promise;
   auto *request = new PVAsyncRequest();
+  const uint8_t *genesisInputs[3] = {nullptr, nullptr, nullptr};
+  size_t genesisInputLengths[3] = {0, 0, 0};
 
   if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok ||
-      argc < 1 || argc > 2) {
+      argc < 1 || argc > 4) {
     delete request;
     napi_throw_type_error(env, nullptr,
                           "Private Vault native service request failed");
@@ -487,13 +610,20 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::Lock;
   } else if (strcmp(operation, "resume_rotation") == 0) {
     request->operation = PVOperation::ResumeRotation;
+  } else if (strcmp(operation, "commit_genesis") == 0) {
+    request->operation = PVOperation::CommitGenesis;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
                           "Private Vault native service request failed");
     return nullptr;
   }
-  if ((request->operation == PVOperation::ResumeRotation) != (argc == 2)) {
+  const size_t expectedArgumentCount =
+      request->operation == PVOperation::ResumeRotation
+          ? 2
+      : request->operation == PVOperation::CommitGenesis ? 4
+                                                         : 1;
+  if (argc != expectedArgumentCount) {
     delete request;
     napi_throw_type_error(env, nullptr,
                           "Private Vault native service request failed");
@@ -511,6 +641,31 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       napi_throw_type_error(env, nullptr,
                             "Private Vault native service request failed");
       return nullptr;
+    }
+  }
+  if (request->operation == PVOperation::CommitGenesis) {
+    const size_t maximumLengths[] = {
+        PV_GENESIS_CONFIRMATION_MAXIMUM_BYTES,
+        PV_GENESIS_TRANSCRIPT_MAXIMUM_BYTES,
+        PV_GENESIS_AUTHORIZATION_MAXIMUM_BYTES,
+    };
+    for (size_t index = 0; index < 3; index += 1) {
+      void *bytes = nullptr;
+      size_t byteLength = 0;
+      bool isBuffer = false;
+      if (napi_is_buffer(env, argv[index + 1], &isBuffer) != napi_ok ||
+          !isBuffer ||
+          napi_get_buffer_info(env, argv[index + 1], &bytes, &byteLength) !=
+              napi_ok ||
+          bytes == nullptr || byteLength == 0 ||
+          byteLength > maximumLengths[index]) {
+        delete request;
+        napi_throw_type_error(env, nullptr,
+                              "Private Vault native service request failed");
+        return nullptr;
+      }
+      genesisInputs[index] = static_cast<const uint8_t *>(bytes);
+      genesisInputLengths[index] = byteLength;
     }
   }
 
@@ -531,6 +686,27 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     napi_reject_deferred(env, deferred, error);
     delete request;
     return promise;
+  }
+
+  if (request->operation == PVOperation::CommitGenesis) {
+    std::vector<uint8_t> *outputs[] = {
+        &request->recoveryConfirmation,
+        &request->bootstrapTranscript,
+        &request->authorization,
+    };
+    try {
+      for (size_t index = 0; index < 3; index += 1) {
+        outputs[index]->assign(genesisInputs[index],
+                               genesisInputs[index] +
+                                   genesisInputLengths[index]);
+      }
+    } catch (...) {
+      gRequestGate.release();
+      delete request;
+      napi_throw_error(env, nullptr,
+                       "Private Vault native service request failed");
+      return nullptr;
+    }
   }
 
   if (napi_create_promise(env, &request->deferred, &promise) != napi_ok) {

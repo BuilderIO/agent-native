@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "PrivateVaultServiceIdentity.h"
@@ -14,6 +15,23 @@ static xpc_object_t PVMakeRequest(int64_t version, const char *operation,
   xpc_dictionary_set_int64(request, "version", version);
   xpc_dictionary_set_string(request, "operation", operation);
   xpc_dictionary_set_string(request, "requestId", requestID);
+  return request;
+}
+
+static xpc_object_t PVMakeGenesisRequest(const void *confirmation,
+                                         size_t confirmationLength,
+                                         const void *transcript,
+                                         size_t transcriptLength,
+                                         const void *authorization,
+                                         size_t authorizationLength) {
+  xpc_object_t request =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "commit_genesis", "request-boundary");
+  xpc_dictionary_set_data(request, "recoveryConfirmation", confirmation,
+                          confirmationLength);
+  xpc_dictionary_set_data(request, "bootstrapTranscript", transcript,
+                          transcriptLength);
+  xpc_dictionary_set_data(request, "authorization", authorization,
+                          authorizationLength);
   return request;
 }
 
@@ -31,10 +49,14 @@ int main(void) {
       PVMakeRequest(PV_PROTOCOL_VERSION, "health", "request_1");
   assert(PVParseRequest(health, &parsed) == PVRequestValid);
   assert(strcmp(parsed.operation, "health") == 0);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
   xpc_release(health);
 
   xpc_object_t lock = PVMakeRequest(PV_PROTOCOL_VERSION, "lock", "request-2");
   assert(PVParseRequest(lock, &parsed) == PVRequestValid);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
   xpc_release(lock);
 
   xpc_object_t resume =
@@ -44,7 +66,111 @@ int main(void) {
   assert(PVParseRequest(resume, &parsed) == PVRequestValid);
   assert(strcmp(parsed.operation, "resume_rotation") == 0);
   assert(strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
   xpc_release(resume);
+
+  const uint8_t confirmationBytes[] = {0x01};
+  const uint8_t transcriptBytes[] = {0x02};
+  const uint8_t authorizationBytes[] = {0x03};
+  xpc_object_t genesis =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "commit_genesis", "request-genesis");
+  xpc_dictionary_set_data(genesis, "recoveryConfirmation", confirmationBytes,
+                          sizeof confirmationBytes);
+  xpc_dictionary_set_data(genesis, "bootstrapTranscript", transcriptBytes,
+                          sizeof transcriptBytes);
+  xpc_dictionary_set_data(genesis, "authorization", authorizationBytes,
+                          sizeof authorizationBytes);
+  assert(PVParseRequest(genesis, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "commit_genesis") == 0);
+  assert(parsed.recoveryConfirmationLength == 1);
+  assert(parsed.bootstrapTranscriptLength == 1);
+  assert(parsed.authorizationLength == 1);
+  assert(memcmp(parsed.recoveryConfirmation, confirmationBytes, 1) == 0);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
+  xpc_release(genesis);
+
+  xpc_object_t missingGenesisBlob =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "commit_genesis", "request-missing");
+  xpc_dictionary_set_data(missingGenesisBlob, "recoveryConfirmation",
+                          confirmationBytes, sizeof confirmationBytes);
+  xpc_dictionary_set_data(missingGenesisBlob, "bootstrapTranscript",
+                          transcriptBytes, sizeof transcriptBytes);
+  assert(PVParseRequest(missingGenesisBlob, &parsed) == PVRequestInvalid);
+  xpc_release(missingGenesisBlob);
+
+  xpc_object_t wrongGenesisType =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "commit_genesis", "request-type");
+  xpc_dictionary_set_string(wrongGenesisType, "recoveryConfirmation", "x");
+  xpc_dictionary_set_data(wrongGenesisType, "bootstrapTranscript",
+                          transcriptBytes, sizeof transcriptBytes);
+  xpc_dictionary_set_data(wrongGenesisType, "authorization",
+                          authorizationBytes, sizeof authorizationBytes);
+  assert(PVParseRequest(wrongGenesisType, &parsed) == PVRequestInvalid);
+  xpc_release(wrongGenesisType);
+
+  struct {
+    const char *field;
+    size_t maximumLength;
+  } genesisBoundaries[] = {
+      {"recoveryConfirmation", PV_GENESIS_CONFIRMATION_MAXIMUM_BYTES},
+      {"bootstrapTranscript", PV_GENESIS_TRANSCRIPT_MAXIMUM_BYTES},
+      {"authorization", PV_GENESIS_AUTHORIZATION_MAXIMUM_BYTES},
+  };
+  for (size_t index = 0;
+       index < sizeof genesisBoundaries / sizeof genesisBoundaries[0];
+       index += 1) {
+    const size_t maximum = genesisBoundaries[index].maximumLength;
+    uint8_t *boundaryBytes = calloc(maximum + 1, sizeof(uint8_t));
+    assert(boundaryBytes != NULL);
+
+    const void *fields[] = {confirmationBytes, transcriptBytes,
+                            authorizationBytes};
+    size_t lengths[] = {sizeof confirmationBytes, sizeof transcriptBytes,
+                        sizeof authorizationBytes};
+    fields[index] = boundaryBytes;
+    lengths[index] = 0;
+    xpc_object_t zero = PVMakeGenesisRequest(
+        fields[0], lengths[0], fields[1], lengths[1], fields[2], lengths[2]);
+    assert(PVParseRequest(zero, &parsed) == PVRequestInvalid);
+    xpc_release(zero);
+
+    lengths[index] = 1;
+    xpc_object_t wrongType = PVMakeGenesisRequest(
+        fields[0], lengths[0], fields[1], lengths[1], fields[2], lengths[2]);
+    xpc_dictionary_set_string(wrongType, genesisBoundaries[index].field,
+                              "wrong-type");
+    assert(PVParseRequest(wrongType, &parsed) == PVRequestInvalid);
+    xpc_release(wrongType);
+
+    lengths[index] = maximum;
+    xpc_object_t exactMaximum = PVMakeGenesisRequest(
+        fields[0], lengths[0], fields[1], lengths[1], fields[2], lengths[2]);
+    assert(PVParseRequest(exactMaximum, &parsed) == PVRequestValid);
+    xpc_release(exactMaximum);
+
+    lengths[index] = maximum + 1;
+    xpc_object_t oversized = PVMakeGenesisRequest(
+        fields[0], lengths[0], fields[1], lengths[1], fields[2], lengths[2]);
+    assert(PVParseRequest(oversized, &parsed) == PVRequestInvalid);
+    xpc_release(oversized);
+
+    free(boundaryBytes);
+  }
+
+  xpc_object_t genesisWithVault =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "commit_genesis", "request-vault");
+  xpc_dictionary_set_data(genesisWithVault, "recoveryConfirmation",
+                          confirmationBytes, sizeof confirmationBytes);
+  xpc_dictionary_set_data(genesisWithVault, "bootstrapTranscript",
+                          transcriptBytes, sizeof transcriptBytes);
+  xpc_dictionary_set_data(genesisWithVault, "authorization",
+                          authorizationBytes, sizeof authorizationBytes);
+  xpc_dictionary_set_string(genesisWithVault, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(genesisWithVault, &parsed) == PVRequestInvalid);
+  xpc_release(genesisWithVault);
 
   xpc_object_t missingVault = PVMakeRequest(
       PV_PROTOCOL_VERSION, "resume_rotation", "request-missing-vault");
@@ -118,6 +244,7 @@ int main(void) {
   xpc_object_t nullTarget =
       PVMakeRequest(PV_PROTOCOL_VERSION, "health", "request_8");
   assert(PVParseRequest(nullTarget, NULL) == PVRequestInvalid);
+  assert(!PVRequestCanRun(NULL, true));
   xpc_release(nullTarget);
 
   puts("private-vault-service protocol tests passed");

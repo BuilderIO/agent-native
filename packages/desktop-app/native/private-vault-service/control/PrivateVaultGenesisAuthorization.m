@@ -160,6 +160,7 @@ BOOL AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
   return YES;
 }
 
+
 @implementation AncPrivateVaultGenesisAuthorizationResult
 @synthesize vaultId = _vaultId;
 @synthesize ceremonyId = _ceremonyId;
@@ -585,6 +586,23 @@ static AncGenesisAuthorizationEnvelope *DecodeAuthorization(
   result.signature = signature;
   result.unsignedBytes = unsignedBytes;
   return result;
+}
+
+NSData *AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+    NSData *authorization, NSData *expectedVaultId,
+    AncPrivateVaultGenesisAuthorizationStatus *status) {
+  NSData *authorizationSnapshot = OwningSnapshot(authorization);
+  NSData *vaultSnapshot = OwningSnapshot(expectedVaultId);
+  if (authorizationSnapshot == nil || vaultSnapshot.length != 16) {
+    SetStatus(status, AncPrivateVaultGenesisAuthorizationStatusWrongLength);
+    return nil;
+  }
+  AncGenesisAuthorizationEnvelope *decoded =
+      DecodeAuthorization(authorizationSnapshot, vaultSnapshot, status);
+  if (decoded == nil)
+    return nil;
+  SetStatus(status, AncPrivateVaultGenesisAuthorizationStatusOK);
+  return [decoded.signedGenesisCommit copy];
 }
 
 BOOL AncPrivateVaultGenesisAuthorizationDecode(

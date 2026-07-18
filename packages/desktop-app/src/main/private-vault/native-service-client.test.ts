@@ -127,6 +127,154 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("copies and bounds the content-free genesis commit contract before queueing", async () => {
+    const publicProof = {
+      vaultId: "01".repeat(16),
+      custodyGeneration: 2,
+      activeEpoch: 1,
+      sequence: 0,
+      headHash: "02".repeat(32),
+      membershipHash: "03".repeat(32),
+      recoveryGeneration: 1,
+      recoveryWrapHash: "04".repeat(32),
+    } as const;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const request = vi.fn(async () => {
+      await gate;
+      return {
+        version: 2,
+        operation: "commit_genesis",
+        state: "committed",
+        ...publicProof,
+      };
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    const recoveryConfirmation = Uint8Array.from([1, 2]);
+    const bootstrapTranscript = Uint8Array.from([3, 4]);
+    const authorization = Uint8Array.from([5, 6]);
+    const pending = client.commitGenesis({
+      operation: "commit_genesis",
+      recoveryConfirmation,
+      bootstrapTranscript,
+      authorization,
+    });
+    let secondInputRead = false;
+    const secondInput = new Proxy({} as never, {
+      ownKeys() {
+        secondInputRead = true;
+        throw new Error("must not inspect a second pending payload");
+      },
+    });
+    await expect(client.commitGenesis(secondInput)).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    expect(secondInputRead).toBe(false);
+    recoveryConfirmation.fill(9);
+    bootstrapTranscript.fill(9);
+    authorization.fill(9);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    expect(request).toHaveBeenCalledWith(
+      "commit_genesis",
+      Buffer.from([1, 2]),
+      Buffer.from([3, 4]),
+      Buffer.from([5, 6]),
+    );
+    const ownedBuffers = request.mock.calls[0]!.slice(1) as Buffer[];
+    expect(ownedBuffers.map((field) => [...field])).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
+    release();
+    await expect(pending).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "commit_genesis",
+      state: "committed",
+      ...publicProof,
+    });
+    expect(
+      ownedBuffers.every((field) => field.every((byte) => byte === 0)),
+    ).toBe(true);
+
+    const baseInput = {
+      operation: "commit_genesis" as const,
+      recoveryConfirmation: Uint8Array.of(1),
+      bootstrapTranscript: Uint8Array.of(1),
+      authorization: Uint8Array.of(1),
+    };
+    const invalidInputs: unknown[] = [null, { ...baseInput, extra: true }];
+    for (const [field, maximum] of [
+      ["recoveryConfirmation", 64 * 1024],
+      ["bootstrapTranscript", 4 * 1024],
+      ["authorization", 256 * 1024],
+    ] as const) {
+      invalidInputs.push(
+        { ...baseInput, [field]: new Uint8Array() },
+        { ...baseInput, [field]: new Uint8Array(maximum + 1) },
+        { ...baseInput, [field]: "wrong type" },
+      );
+    }
+    for (const input of invalidInputs) {
+      await expect(client.commitGenesis(input as never)).rejects.toEqual(
+        new PrivateVaultNativeServiceClientError(),
+      );
+    }
+    expect(request).toHaveBeenCalledTimes(1);
+
+    for (const mutation of [
+      { custodyGeneration: 3 },
+      { sequence: 1 },
+      { membershipHash: "AB".repeat(32) },
+      { recoveryGeneration: 2 },
+      { extra: true },
+    ]) {
+      const hostileReply = clientFor({
+        version: 2,
+        operation: "commit_genesis",
+        state: "committed",
+        ...publicProof,
+        ...mutation,
+      });
+      await expect(
+        hostileReply.commitGenesis({
+          operation: "commit_genesis",
+          recoveryConfirmation: Uint8Array.of(1),
+          bootstrapTranscript: Uint8Array.of(1),
+          authorization: Uint8Array.of(1),
+        }),
+      ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    }
+
+    const exactMaximumRequest = vi.fn(async () => ({
+      version: 2,
+      operation: "commit_genesis",
+      state: "committed",
+      ...publicProof,
+    }));
+    const exactMaximumClient = createPrivateVaultNativeServiceClientForTest(
+      async () => ({ request: exactMaximumRequest }),
+    );
+    for (const [field, maximum] of [
+      ["recoveryConfirmation", 64 * 1024],
+      ["bootstrapTranscript", 4 * 1024],
+      ["authorization", 256 * 1024],
+    ] as const) {
+      await expect(
+        exactMaximumClient.commitGenesis({
+          ...baseInput,
+          [field]: new Uint8Array(maximum),
+        }),
+      ).resolves.toMatchObject({ state: "committed", ...publicProof });
+    }
+    expect(exactMaximumRequest).toHaveBeenCalledTimes(3);
+  });
+
   it("fails closed for unavailable, malformed, oversized, or unknown replies", async () => {
     const hostileValues = [
       null,
@@ -249,6 +397,18 @@ describe("Private Vault native service client", () => {
     );
     expect(serviceSource).toContain("SecCodeCreateWithXPCMessage");
     expect(serviceSource).toContain("SecCodeCheckValidity");
+    expect(serviceSource).toContain(
+      "AncPrivateVaultResumePendingGenesisArtifacts",
+    );
+    expect(serviceSource).toContain("PVRequestCanRun(&request, gStartupComplete)");
+    expect(
+      serviceSource.indexOf("AncPrivateVaultResumePendingGenesisArtifacts"),
+    ).toBeLessThan(serviceSource.indexOf("gStartupComplete = true"));
+    expect(serviceSource.indexOf("gStartupComplete = true")).toBeLessThan(
+      serviceSource.indexOf("xpc_main(PVConnectionHandler)"),
+    );
+    expect(nativeSource).not.toContain("listVaultIds");
+    expect(wrapperSource).not.toContain("resume_pending_genesis");
   });
 
   it("keeps Electron as the XPC peer and never trusts caller metadata", () => {
@@ -257,6 +417,15 @@ describe("Private Vault native service client", () => {
     expect(nativeSource).toContain("if (!gRequestGate.tryAcquire())");
     expect(nativeSource.indexOf("gRequestGate.tryAcquire()")).toBeLessThan(
       nativeSource.indexOf("napi_queue_async_work"),
+    );
+    expect(nativeSource.indexOf("gRequestGate.tryAcquire()")).toBeLessThan(
+      nativeSource.indexOf("outputs[index]->assign"),
+    );
+    expect(wrapperSource.indexOf("if (this.#genesisPending)")).toBeLessThan(
+      wrapperSource.indexOf("fields = copyCommitGenesisInput(input)"),
+    );
+    expect(wrapperSource).toContain(
+      "for (const field of fields) field.fill(0)",
     );
     expect(nativeSource).toContain("dispatch_semaphore_wait");
     expect(nativeSource).toContain("PV_REQUEST_TIMEOUT_NANOSECONDS");
@@ -295,7 +464,10 @@ describe("Private Vault native service client", () => {
 
     const require = createRequire(import.meta.url);
     const addon = require(addonPath) as {
-      request(operation: string, vaultId?: string): Promise<unknown>;
+      request(
+        operation: string,
+        ...arguments_: Array<string | Buffer>
+      ): Promise<unknown>;
     };
     expect(Object.keys(addon)).toEqual(["request"]);
     await expect(addon.request("health")).rejects.toThrow(
@@ -316,5 +488,48 @@ describe("Private Vault native service client", () => {
     await expect(
       addon.request("resume_rotation", "00112233445566778899aabbccddeeff"),
     ).rejects.toThrow("Private Vault native service request failed");
+    expect(() => addon.request("commit_genesis")).toThrow(
+      "Private Vault native service request failed",
+    );
+    expect(() =>
+      addon.request(
+        "commit_genesis",
+        Buffer.alloc(1),
+        Buffer.alloc(4 * 1024 + 1),
+        Buffer.alloc(1),
+      ),
+    ).toThrow("Private Vault native service request failed");
+    await expect(
+      addon.request(
+        "commit_genesis",
+        Buffer.alloc(1),
+        Buffer.alloc(1),
+        Buffer.alloc(1),
+      ),
+    ).rejects.toThrow("Private Vault native service request failed");
+    const genesisMaximums = [64 * 1024, 4 * 1024, 256 * 1024] as const;
+    for (let index = 0; index < genesisMaximums.length; index += 1) {
+      const exact = genesisMaximums.map((maximum, fieldIndex) =>
+        Buffer.alloc(fieldIndex === index ? maximum : 1),
+      );
+      await expect(addon.request("commit_genesis", ...exact)).rejects.toThrow(
+        "Private Vault native service request failed",
+      );
+      for (const invalid of [
+        Buffer.alloc(0),
+        Buffer.alloc(genesisMaximums[index]! + 1),
+        "wrong type",
+      ]) {
+        const fields: Array<string | Buffer> = [
+          Buffer.alloc(1),
+          Buffer.alloc(1),
+          Buffer.alloc(1),
+        ];
+        fields[index] = invalid;
+        expect(() => addon.request("commit_genesis", ...fields)).toThrow(
+          "Private Vault native service request failed",
+        );
+      }
+    }
   });
 });

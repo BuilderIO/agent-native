@@ -2,12 +2,16 @@
 #define AGENT_NATIVE_PRIVATE_VAULT_SERVICE_PROTOCOL_H
 
 #include <xpc/xpc.h>
+#include <stdbool.h>
 
 #define PV_PROTOCOL_VERSION 2
-#define PV_MAXIMUM_REQUEST_FIELDS 4
+#define PV_MAXIMUM_REQUEST_FIELDS 6
 #define PV_MAXIMUM_OPERATION_BYTES 16
 #define PV_MAXIMUM_REQUEST_ID_BYTES 64
 #define PV_VAULT_ID_BYTES 32
+#define PV_GENESIS_CONFIRMATION_MAXIMUM_BYTES (64 * 1024)
+#define PV_GENESIS_TRANSCRIPT_MAXIMUM_BYTES (4 * 1024)
+#define PV_GENESIS_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
 
 typedef enum {
     PVRequestValid = 0,
@@ -20,8 +24,17 @@ typedef struct {
     const char *operation;
     const char *requestID;
     const char *vaultID;
+    const void *recoveryConfirmation;
+    size_t recoveryConfirmationLength;
+    const void *bootstrapTranscript;
+    size_t bootstrapTranscriptLength;
+    const void *authorization;
+    size_t authorizationLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);
+/* Every parsed operation remains closed until private startup recovery has
+ * reached a proven fixed point. */
+bool PVRequestCanRun(const PVRequest *request, bool startupComplete);
 
 #endif

@@ -18,10 +18,13 @@ type RotationAckState =
   | "retrying"
   | "attention";
 
-type NativeOperation = "health" | "lock" | "resume_rotation";
+type NativeOperation = "health" | "lock" | "resume_rotation" | "commit_genesis";
 
 interface NativeAddon {
-  request(operation: NativeOperation, vaultId?: string): Promise<unknown>;
+  request(
+    operation: NativeOperation,
+    ...arguments_: Array<string | Buffer>
+  ): Promise<unknown>;
 }
 
 type NativeAddonLoader = () => Promise<NativeAddon>;
@@ -30,6 +33,31 @@ export interface PrivateVaultNativeServiceClient {
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
+  commitGenesis(
+    input: NativeCommitGenesisInput,
+  ): Promise<NativeCommitGenesisResult>;
+}
+
+export interface NativeCommitGenesisInput {
+  readonly operation: "commit_genesis";
+  readonly recoveryConfirmation: Uint8Array;
+  readonly bootstrapTranscript: Uint8Array;
+  readonly authorization: Uint8Array;
+}
+
+export interface NativeCommitGenesisResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "commit_genesis";
+  readonly state: "committed";
+  readonly vaultId: string;
+  readonly custodyGeneration: 2;
+  readonly activeEpoch: 1;
+  readonly sequence: 0;
+  readonly headHash: string;
+  readonly membershipHash: string;
+  readonly recoveryGeneration: 1;
+  readonly recoveryWrapHash: string;
 }
 
 export interface NativeResumeRotationResult {
@@ -193,6 +221,85 @@ function parseResumeRotation(
   });
 }
 
+function parseCommitGenesis(value: unknown): NativeCommitGenesisResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "custodyGeneration",
+      "activeEpoch",
+      "sequence",
+      "headHash",
+      "membershipHash",
+      "recoveryGeneration",
+      "recoveryWrapHash",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "commit_genesis" ||
+    value.state !== "committed" ||
+    !isLowerHex(value.vaultId, 32) ||
+    value.custodyGeneration !== 2 ||
+    value.activeEpoch !== 1 ||
+    value.sequence !== 0 ||
+    !isLowerHex(value.headHash, 64) ||
+    !isLowerHex(value.membershipHash, 64) ||
+    value.recoveryGeneration !== 1 ||
+    !isLowerHex(value.recoveryWrapHash, 64)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "commit_genesis",
+    state: "committed",
+    vaultId: value.vaultId,
+    custodyGeneration: 2,
+    activeEpoch: 1,
+    sequence: 0,
+    headHash: value.headHash,
+    membershipHash: value.membershipHash,
+    recoveryGeneration: 1,
+    recoveryWrapHash: value.recoveryWrapHash,
+  });
+}
+
+function copyCommitGenesisInput(
+  input: unknown,
+): readonly [Buffer, Buffer, Buffer] {
+  if (
+    !isRecord(input) ||
+    !hasExactKeys(input, [
+      "operation",
+      "recoveryConfirmation",
+      "bootstrapTranscript",
+      "authorization",
+    ]) ||
+    input.operation !== "commit_genesis"
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  const fields = [
+    [input.recoveryConfirmation, 64 * 1024],
+    [input.bootstrapTranscript, 4 * 1024],
+    [input.authorization, 256 * 1024],
+  ] as const;
+  const copies = fields.map(([value, maximum]) => {
+    if (
+      !(value instanceof Uint8Array) ||
+      value.byteLength === 0 ||
+      value.byteLength > maximum
+    ) {
+      throw new PrivateVaultNativeServiceClientError();
+    }
+    return Buffer.from(value);
+  });
+  return copies as unknown as readonly [Buffer, Buffer, Buffer];
+}
+
 function validateAddon(value: unknown): NativeAddon {
   if (
     !isRecord(value) ||
@@ -231,6 +338,7 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
   #tail: Promise<void> = Promise.resolve();
   #healthFlight: Promise<NativeHealthResult> | null = null;
   #lockFlight: Promise<NativeLockResult> | null = null;
+  #genesisPending = false;
 
   constructor(loader: NativeAddonLoader) {
     this.#addon = loader();
@@ -285,6 +393,35 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  commitGenesis(
+    input: NativeCommitGenesisInput,
+  ): Promise<NativeCommitGenesisResult> {
+    if (this.#genesisPending) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    this.#genesisPending = true;
+    let fields: readonly [Buffer, Buffer, Buffer];
+    try {
+      fields = copyCommitGenesisInput(input);
+    } catch {
+      this.#genesisPending = false;
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseCommitGenesis(
+          await addon.request("commit_genesis", ...fields),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        for (const field of fields) field.fill(0);
+        this.#genesisPending = false;
       }
     });
   }
