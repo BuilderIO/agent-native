@@ -12,6 +12,7 @@ export {
 } from "./registry.js";
 export {
   PROTECTED_CIPHERTEXT_MAX_BYTES,
+  PROTECTED_CIPHERTEXT_CONTROL_EVIDENCE_MAX_BYTES,
   PROTECTED_CIPHERTEXT_RECOVERY_WRAP_MAX_BYTES,
   PROTECTED_CIPHERTEXT_VERSION,
   ProtectedCiphertextCollisionError,
@@ -23,6 +24,7 @@ export {
   protectedCiphertextLocatorSchema,
   protectedCiphertextMaximumBytes,
   protectedCiphertextPrefixSchema,
+  controlEvidenceHashSchema,
   recoveryWrapHashSchema,
   type ProtectedCiphertextCoordinate,
   type ProtectedCiphertextDeleteResult,

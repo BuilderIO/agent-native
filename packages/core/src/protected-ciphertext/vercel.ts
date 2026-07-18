@@ -72,6 +72,9 @@ function coordinatePath(input: ProtectedCiphertextCoordinate): string {
   if (coordinate.kind === "recovery-wrap") {
     return `${vaultPrefix}/recovery-wraps/${coordinate.recoveryWrapHash}.bin`;
   }
+  if (coordinate.kind === "control-evidence") {
+    return `${vaultPrefix}/control-evidence/${coordinate.evidenceKind}/${coordinate.evidenceHash}.bin`;
+  }
   return `${vaultPrefix}/grants/${coordinate.grantId}.bin`;
 }
 

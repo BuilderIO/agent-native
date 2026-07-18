@@ -5,6 +5,7 @@ const loadVerifiedSnapshot = vi.hoisted(() => vi.fn());
 const loadVerifiedState = vi.hoisted(() => vi.fn());
 const readProtectedCiphertextAt = vi.hoisted(() => vi.fn());
 const bindingRows = vi.hoisted(() => [] as unknown[]);
+const evidenceRows = vi.hoisted(() => [] as unknown[]);
 
 vi.mock("./private-vault-control-log-runtime.js", () => ({
   privateVaultControlLogService: {
@@ -17,19 +18,27 @@ vi.mock("@agent-native/core/protected-ciphertext", () => ({
   readProtectedCiphertextAt,
 }));
 
-vi.mock("../db/index.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../db/index.js")>()),
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () =>
-          Object.assign(Promise.resolve(bindingRows), {
-            limit: async () => bindingRows,
-          }),
+vi.mock("../db/index.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../db/index.js")>();
+  return {
+    ...original,
+    getDb: () => ({
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => {
+            const rows =
+              table === original.schema.contentEncryptedVaultControlEvidence
+                ? evidenceRows
+                : bindingRows;
+            return Object.assign(Promise.resolve(rows), {
+              limit: async () => rows,
+            });
+          },
+        }),
       }),
     }),
-  }),
-}));
+  };
+});
 
 import {
   PrivateVaultBootstrapError,
@@ -67,6 +76,7 @@ describe("Private Vault bootstrap page", () => {
     loadVerifiedState.mockReset();
     readProtectedCiphertextAt.mockReset();
     bindingRows.splice(0);
+    evidenceRows.splice(0);
     loadVerifiedSnapshot.mockResolvedValue({ state, entries });
     loadVerifiedState.mockResolvedValue(state);
   });
@@ -89,9 +99,18 @@ describe("Private Vault bootstrap page", () => {
       recoveryWrapHash: "de".repeat(32),
       ciphertextByteLength: 2,
     });
-    readProtectedCiphertextAt.mockResolvedValue({
-      ciphertext: Uint8Array.of(4, 5),
+    evidenceRows.push({
+      controlEntryId: manyEntries[0]!.entryId,
+      evidenceKind: "genesis",
+      evidenceHash: "ef".repeat(32),
+      evidenceByteLength: 3,
     });
+    readProtectedCiphertextAt.mockImplementation(async (coordinate) => ({
+      ciphertext:
+        coordinate.kind === "control-evidence"
+          ? Uint8Array.of(6, 7, 8)
+          : Uint8Array.of(4, 5),
+    }));
     const encoded = await readPrivateVaultBootstrapPage({
       scope,
       request: {
@@ -116,11 +135,25 @@ describe("Private Vault bootstrap page", () => {
       Uint8Array.of(4, 5),
       ...Array(7).fill(null),
     ]);
+    expect(decoded.metadata.entryEvidenceKinds).toEqual([
+      "genesis",
+      ...Array(7).fill(null),
+    ]);
+    expect(decoded.entryEvidence).toEqual([
+      Uint8Array.of(6, 7, 8),
+      ...Array(7).fill(null),
+    ]);
     expect(decoded.recoveryWrap).toBeNull();
     expect(readProtectedCiphertextAt).toHaveBeenCalledWith({
       kind: "recovery-wrap",
       vaultId: scope.vaultId,
       recoveryWrapHash: "de".repeat(32),
+    });
+    expect(readProtectedCiphertextAt).toHaveBeenCalledWith({
+      kind: "control-evidence",
+      vaultId: scope.vaultId,
+      evidenceKind: "genesis",
+      evidenceHash: "ef".repeat(32),
     });
   });
 

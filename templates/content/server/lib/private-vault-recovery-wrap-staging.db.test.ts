@@ -114,6 +114,54 @@ describe("Private Vault recovery-wrap staging with real SQLite", () => {
     expect(await stagingStore.isMetadataCommitted(stage!)).toBe(true);
   });
 
+  it("stages control evidence without confusing it for a recovery wrap", async () => {
+    const coordinate = {
+      kind: "control-evidence" as const,
+      vaultId: VAULT,
+      evidenceKind: "recovery" as const,
+      evidenceHash: "e".repeat(64),
+    };
+    const service = createStagingService({
+      store: stagingStore,
+      now: () => new Date(START),
+    });
+    const stage = await service.stage(scope, coordinate);
+    const [stored] = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultCiphertextStaging)
+      .where(
+        eq(
+          schema.contentEncryptedVaultCiphertextStaging.stageId,
+          stage.stageId,
+        ),
+      );
+    expect(stored).toMatchObject({
+      coordinateKind: "control-evidence",
+      recoveryWrapHash: null,
+      evidenceKind: "recovery",
+      evidenceHash: coordinate.evidenceHash,
+      part: "control-evidence",
+      phase: "active",
+    });
+    await getDb()
+      .insert(schema.contentEncryptedVaultControlEvidence)
+      .values({
+        bindingId: `${VAULT}:evidence`,
+        ownerEmail: OWNER,
+        orgId: ORG,
+        vaultId: VAULT,
+        controlEntryId: "entry:recovery-evidence",
+        evidenceKind: "recovery",
+        evidenceHash: coordinate.evidenceHash,
+        evidenceByteLength: 512,
+        serverReceivedAt: START,
+      });
+    await expect(
+      service.clearAfterMetadataCommit(stage),
+    ).resolves.toBeUndefined();
+    expect(await stagingStore.isMetadataCommitted(stage)).toBe(true);
+  });
+
   it("deletes only an orphan's exact recovery-wrap coordinate and retains its tombstone", async () => {
     const stage = await createStagingService({
       store: stagingStore,

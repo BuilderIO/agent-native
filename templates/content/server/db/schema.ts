@@ -804,6 +804,41 @@ export const contentEncryptedVaultRecoveryWraps = table(
   ],
 );
 
+/**
+ * Immutable binding from a control entry to the exact public evidence required
+ * to verify that trust transition independently. Evidence bytes live only in
+ * protected-ciphertext storage; SQL retains content-free commitments.
+ */
+export const contentEncryptedVaultControlEvidence = table(
+  "content_encrypted_vault_control_evidence",
+  {
+    bindingId: text("binding_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    controlEntryId: text("control_entry_id").notNull(),
+    evidenceKind: text("evidence_kind").notNull(),
+    evidenceHash: text("evidence_hash").notNull(),
+    evidenceByteLength: integer("evidence_byte_length").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (binding) => [
+    uniqueIndex("content_encrypted_vault_control_evidence_entry_unique").on(
+      binding.vaultId,
+      binding.controlEntryId,
+    ),
+    uniqueIndex("content_encrypted_vault_control_evidence_hash_unique").on(
+      binding.vaultId,
+      binding.evidenceHash,
+    ),
+    index("content_encrypted_vault_control_evidence_scope_idx").on(
+      binding.ownerEmail,
+      binding.orgId,
+      binding.vaultId,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultGrants = table(
   "content_encrypted_vault_grants",
   {
@@ -1121,6 +1156,8 @@ export const contentEncryptedVaultCiphertextStaging = table(
     revisionId: text("revision_id"),
     jobId: text("job_id"),
     recoveryWrapHash: text("recovery_wrap_hash"),
+    evidenceKind: text("evidence_kind"),
+    evidenceHash: text("evidence_hash"),
     part: text("part").notNull(),
     stagedAt: text("staged_at").notNull(),
     expiresAt: text("expires_at").notNull(),

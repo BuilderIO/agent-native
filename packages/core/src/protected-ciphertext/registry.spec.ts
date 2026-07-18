@@ -15,6 +15,12 @@ const recoveryWrapCoordinate = {
   vaultId: "vault:test-0001",
   recoveryWrapHash: "a".repeat(64),
 } as const;
+const controlEvidenceCoordinate = {
+  kind: "control-evidence",
+  vaultId: "vault:test-0001",
+  evidenceKind: "genesis",
+  evidenceHash: "b".repeat(64),
+} as const;
 
 async function freshRegistry() {
   vi.resetModules();
@@ -148,6 +154,37 @@ describe("protected ciphertext registry", () => {
         }),
       ).rejects.toThrow();
     }
+    expect(provider.put).not.toHaveBeenCalled();
+  });
+
+  it("bounds immutable control evidence and rejects malformed commitments", async () => {
+    const registry = await freshRegistry();
+    const provider: ProtectedCiphertextProvider = {
+      id: "memory-protected-v1",
+      name: "Memory",
+      isConfigured: () => true,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    };
+    registry.registerProtectedCiphertextProvider(provider);
+    await expect(
+      registry.putProtectedCiphertext({
+        coordinate: controlEvidenceCoordinate,
+        ciphertext: new Uint8Array(2 * 1024 * 1024 + 1),
+        expectedByteLength: 2 * 1024 * 1024 + 1,
+      }),
+    ).rejects.toMatchObject({ name: "ProtectedCiphertextLengthMismatchError" });
+    await expect(
+      registry.putProtectedCiphertext({
+        coordinate: {
+          ...controlEvidenceCoordinate,
+          evidenceHash: "B".repeat(64),
+        },
+        ciphertext: new Uint8Array([1]),
+        expectedByteLength: 1,
+      }),
+    ).rejects.toThrow();
     expect(provider.put).not.toHaveBeenCalled();
   });
 

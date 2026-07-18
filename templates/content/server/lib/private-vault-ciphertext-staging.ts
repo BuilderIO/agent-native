@@ -15,6 +15,7 @@ import { getDb, schema } from "../db/index.js";
 export const PRIVATE_VAULT_CIPHERTEXT_STAGE_TTL_MS = 24 * 60 * 60 * 1000;
 export const PRIVATE_VAULT_CIPHERTEXT_CLAIM_MS = 5 * 60 * 1000;
 export const PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART = "recovery-wrap";
+export const PRIVATE_VAULT_CONTROL_EVIDENCE_STAGE_PART = "control-evidence";
 
 export type PrivateVaultCiphertextStagePhase =
   | "active"
@@ -40,13 +41,14 @@ const stageCoordinateSchema = protectedCiphertextCoordinateSchema.refine(
   (coordinate) =>
     (coordinate.kind === "object" && coordinate.part === "header") ||
     coordinate.kind === "job" ||
-    coordinate.kind === "recovery-wrap",
-  "Only object revision headers, job request/results, and recovery wraps may be staged",
+    coordinate.kind === "recovery-wrap" ||
+    coordinate.kind === "control-evidence",
+  "Only object revision headers, job request/results, recovery wraps, and control evidence may be staged",
 );
 
 export type PrivateVaultStageCoordinate = Extract<
   ProtectedCiphertextCoordinate,
-  { kind: "object" | "job" | "recovery-wrap" }
+  { kind: "object" | "job" | "recovery-wrap" | "control-evidence" }
 >;
 
 export interface PrivateVaultCiphertextStage {
@@ -166,10 +168,20 @@ function stageValues(entry: PrivateVaultCiphertextStage) {
       entry.coordinate.kind === "recovery-wrap"
         ? entry.coordinate.recoveryWrapHash
         : null,
+    evidenceKind:
+      entry.coordinate.kind === "control-evidence"
+        ? entry.coordinate.evidenceKind
+        : null,
+    evidenceHash:
+      entry.coordinate.kind === "control-evidence"
+        ? entry.coordinate.evidenceHash
+        : null,
     part:
       entry.coordinate.kind === "recovery-wrap"
         ? PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART
-        : entry.coordinate.part,
+        : entry.coordinate.kind === "control-evidence"
+          ? PRIVATE_VAULT_CONTROL_EVIDENCE_STAGE_PART
+          : entry.coordinate.part,
     stagedAt: entry.stagedAt,
     expiresAt: entry.expiresAt,
     phase: entry.phase,
@@ -188,7 +200,9 @@ function parseRow(
     row.objectId !== null &&
     row.revisionId !== null &&
     row.jobId === null &&
-    row.recoveryWrapHash === null
+    row.recoveryWrapHash === null &&
+    row.evidenceKind === null &&
+    row.evidenceHash === null
   ) {
     physicalCoordinate = {
       kind: "object",
@@ -202,7 +216,9 @@ function parseRow(
     row.objectId === null &&
     row.revisionId === null &&
     row.jobId !== null &&
-    row.recoveryWrapHash === null
+    row.recoveryWrapHash === null &&
+    row.evidenceKind === null &&
+    row.evidenceHash === null
   ) {
     physicalCoordinate = {
       kind: "job",
@@ -216,12 +232,30 @@ function parseRow(
     row.revisionId === null &&
     row.jobId === null &&
     row.recoveryWrapHash !== null &&
+    row.evidenceKind === null &&
+    row.evidenceHash === null &&
     row.part === PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART
   ) {
     physicalCoordinate = {
       kind: "recovery-wrap",
       vaultId: row.vaultId,
       recoveryWrapHash: row.recoveryWrapHash,
+    };
+  } else if (
+    row.coordinateKind === "control-evidence" &&
+    row.objectId === null &&
+    row.revisionId === null &&
+    row.jobId === null &&
+    row.recoveryWrapHash === null &&
+    (row.evidenceKind === "genesis" || row.evidenceKind === "recovery") &&
+    row.evidenceHash !== null &&
+    row.part === PRIVATE_VAULT_CONTROL_EVIDENCE_STAGE_PART
+  ) {
+    physicalCoordinate = {
+      kind: "control-evidence",
+      vaultId: row.vaultId,
+      evidenceKind: row.evidenceKind,
+      evidenceHash: row.evidenceHash,
     };
   } else {
     throw new Error(
@@ -354,7 +388,9 @@ export const sqlPrivateVaultCiphertextStagingStore: PrivateVaultCiphertextStagin
             ? entry.coordinate.objectId
             : entry.coordinate.kind === "job"
               ? entry.coordinate.jobId
-              : entry.coordinate.recoveryWrapHash;
+              : entry.coordinate.kind === "recovery-wrap"
+                ? entry.coordinate.recoveryWrapHash
+                : entry.coordinate.evidenceHash;
         const [parentTombstone] = await tx
           .select({ id: schema.contentEncryptedVaultRetentionQueue.id })
           .from(schema.contentEncryptedVaultRetentionQueue)
@@ -583,6 +619,41 @@ export const sqlPrivateVaultCiphertextStagingStore: PrivateVaultCiphertextStagin
                 entry.ownerEmail,
               ),
               eq(schema.contentEncryptedVaultRecoveryWraps.orgId, entry.orgId),
+            ),
+          )
+          .limit(1);
+        return Boolean(binding);
+      }
+
+      if (entry.coordinate.kind === "control-evidence") {
+        const [binding] = await getDb()
+          .select({
+            evidenceHash:
+              schema.contentEncryptedVaultControlEvidence.evidenceHash,
+          })
+          .from(schema.contentEncryptedVaultControlEvidence)
+          .where(
+            and(
+              eq(
+                schema.contentEncryptedVaultControlEvidence.evidenceHash,
+                entry.coordinate.evidenceHash,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.evidenceKind,
+                entry.coordinate.evidenceKind,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.vaultId,
+                entry.vaultId,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.ownerEmail,
+                entry.ownerEmail,
+              ),
+              eq(
+                schema.contentEncryptedVaultControlEvidence.orgId,
+                entry.orgId,
+              ),
             ),
           )
           .limit(1);

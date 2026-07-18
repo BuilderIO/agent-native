@@ -37,11 +37,15 @@ function encodedPage(options: {
       throughSequence: responseHead.sequence,
       head: responseHead,
       complete: true,
+      entryEvidenceKinds:
+        afterSequence < responseHead.sequence ? ["genesis"] : [],
       recoveryWrapHash: "cd".repeat(32),
     },
     entries: afterSequence < responseHead.sequence ? [Uint8Array.of(1, 2)] : [],
     entryRecoveryWraps:
       afterSequence < responseHead.sequence ? [Uint8Array.of(7)] : [],
+    entryEvidence:
+      afterSequence < responseHead.sequence ? [Uint8Array.of(8)] : [],
     recoveryWrap: Uint8Array.of(3, 4),
   });
 }
@@ -122,10 +126,12 @@ describe("PrivateVaultContentBootstrapTransport", () => {
         throughSequence: 7,
         head: pinned,
         complete: false,
+        entryEvidenceKinds: Array.from({ length: 8 }, () => null),
         recoveryWrapHash: null,
       },
       entries: Array.from({ length: 8 }, () => Uint8Array.of(1)),
       entryRecoveryWraps: Array.from({ length: 8 }, () => null),
+      entryEvidence: Array.from({ length: 8 }, () => null),
       recoveryWrap: null,
     });
     const final = encodeAncV1VaultBootstrapResponse({
@@ -138,10 +144,12 @@ describe("PrivateVaultContentBootstrapTransport", () => {
         throughSequence: 8,
         head: pinned,
         complete: true,
+        entryEvidenceKinds: ["recovery"],
         recoveryWrapHash: "cd".repeat(32),
       },
       entries: [Uint8Array.of(2)],
       entryRecoveryWraps: [Uint8Array.of(4)],
+      entryEvidence: [Uint8Array.of(5)],
       recoveryWrap: Uint8Array.of(3),
     });
     const fetch = vi
@@ -193,10 +201,12 @@ describe("PrivateVaultContentBootstrapTransport", () => {
         throughSequence: 7,
         head: pinned,
         complete: false,
+        entryEvidenceKinds: Array.from({ length: 8 }, () => null),
         recoveryWrapHash: null,
       },
       entries: Array.from({ length: 8 }, () => Uint8Array.of(1)),
       entryRecoveryWraps: Array.from({ length: 8 }, () => null),
+      entryEvidence: Array.from({ length: 8 }, () => null),
       recoveryWrap: null,
     });
     const fetch = vi.fn<PrivateVaultContentSession["fetch"]>();

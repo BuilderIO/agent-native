@@ -8,10 +8,15 @@ import {
 export const PROTECTED_CIPHERTEXT_VERSION = 1 as const;
 export const PROTECTED_CIPHERTEXT_MAX_BYTES = 256 * 1024 * 1024;
 export const PROTECTED_CIPHERTEXT_RECOVERY_WRAP_MAX_BYTES = 1024 * 1024;
+export const PROTECTED_CIPHERTEXT_CONTROL_EVIDENCE_MAX_BYTES = 2 * 1024 * 1024;
 
 export const recoveryWrapHashSchema = z
   .string()
   .regex(/^[0-9a-f]{64}$/, "Recovery-wrap hashes must be lowercase hex");
+
+export const controlEvidenceHashSchema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/, "Control-evidence hashes must be lowercase hex");
 
 /**
  * Logical coordinates for one immutable ciphertext part.
@@ -51,6 +56,14 @@ export const protectedCiphertextCoordinateSchema = z
         kind: z.literal("recovery-wrap"),
         vaultId: opaqueIdSchema,
         recoveryWrapHash: recoveryWrapHashSchema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("control-evidence"),
+        vaultId: opaqueIdSchema,
+        evidenceKind: z.enum(["genesis", "recovery"]),
+        evidenceHash: controlEvidenceHashSchema,
       })
       .strict(),
     z
@@ -125,9 +138,13 @@ export type ProtectedCiphertextLocator = z.infer<
 export function protectedCiphertextMaximumBytes(
   coordinate: ProtectedCiphertextCoordinate,
 ): number {
-  return coordinate.kind === "recovery-wrap"
-    ? PROTECTED_CIPHERTEXT_RECOVERY_WRAP_MAX_BYTES
-    : PROTECTED_CIPHERTEXT_MAX_BYTES;
+  if (coordinate.kind === "recovery-wrap") {
+    return PROTECTED_CIPHERTEXT_RECOVERY_WRAP_MAX_BYTES;
+  }
+  if (coordinate.kind === "control-evidence") {
+    return PROTECTED_CIPHERTEXT_CONTROL_EVIDENCE_MAX_BYTES;
+  }
+  return PROTECTED_CIPHERTEXT_MAX_BYTES;
 }
 
 export interface ProtectedCiphertextPutInput {

@@ -201,7 +201,7 @@ describe("content database migrations", () => {
     expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
     expect(
       source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
-    ).toHaveLength(12);
+    ).toHaveLength(13);
     expect(source).toContain(
       "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
     );

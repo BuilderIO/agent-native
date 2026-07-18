@@ -6,12 +6,15 @@ import { E2EE_SIZE_LIMITS, E2EE_SUITE_ID } from "./suite.js";
 export const ANC_V1_VAULT_BOOTSTRAP_CONTROL_MAX_BYTES = 8 * 1024;
 export const ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES = 8;
 export const ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES = 1024 * 1024;
+export const ANC_V1_VAULT_BOOTSTRAP_CONTROL_EVIDENCE_MAX_BYTES =
+  2 * 1024 * 1024;
 export const ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES =
   4 +
   ANC_V1_VAULT_BOOTSTRAP_CONTROL_MAX_BYTES +
   ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES *
     (E2EE_SIZE_LIMITS.vaultLogEntryBytes +
-      ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES) +
+      ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES +
+      ANC_V1_VAULT_BOOTSTRAP_CONTROL_EVIDENCE_MAX_BYTES) +
   ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES;
 
 const sequence = z.number().int().min(-1).max(Number.MAX_SAFE_INTEGER);
@@ -31,6 +34,11 @@ const recoveryWrapByteLength = z
   .int()
   .nonnegative()
   .max(ANC_V1_VAULT_BOOTSTRAP_RECOVERY_WRAP_MAX_BYTES);
+const controlEvidenceByteLength = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(ANC_V1_VAULT_BOOTSTRAP_CONTROL_EVIDENCE_MAX_BYTES);
 
 export const ancV1VaultBootstrapHeadSchema = z
   .object({ sequence: committedSequence, hash })
@@ -79,6 +87,12 @@ export const ancV1VaultBootstrapResponseMetadataSchema = z
     entryRecoveryWrapByteLengths: z
       .array(recoveryWrapByteLength)
       .max(ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES),
+    entryEvidenceKinds: z
+      .array(z.enum(["genesis", "recovery"]).nullable())
+      .max(ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES),
+    entryEvidenceByteLengths: z
+      .array(controlEvidenceByteLength)
+      .max(ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES),
     recoveryWrapHash: hash.nullable(),
     recoveryWrapByteLength: z
       .number()
@@ -91,12 +105,22 @@ export const ancV1VaultBootstrapResponseMetadataSchema = z
     const expectedThrough = value.afterSequence + value.entryByteLengths.length;
     if (
       value.entryRecoveryWrapByteLengths.length !==
-      value.entryByteLengths.length
+        value.entryByteLengths.length ||
+      value.entryEvidenceKinds.length !== value.entryByteLengths.length ||
+      value.entryEvidenceByteLengths.length !== value.entryByteLengths.length
     ) {
       context.addIssue({
         code: "custom",
         message: "Bootstrap entry and recovery-wrap vectors differ",
       });
+    }
+    for (const [index, kind] of value.entryEvidenceKinds.entries()) {
+      if ((kind === null) !== (value.entryEvidenceByteLengths[index] === 0)) {
+        context.addIssue({
+          code: "custom",
+          message: "Bootstrap evidence placement is invalid",
+        });
+      }
     }
     if (value.throughSequence !== expectedThrough) {
       context.addIssue({
@@ -138,6 +162,7 @@ export interface AncV1VaultBootstrapResponse {
   readonly metadata: AncV1VaultBootstrapResponseMetadata;
   readonly entries: readonly Uint8Array[];
   readonly entryRecoveryWraps: readonly (Uint8Array | null)[];
+  readonly entryEvidence: readonly (Uint8Array | null)[];
   readonly recoveryWrap: Uint8Array | null;
 }
 
@@ -223,17 +248,21 @@ export function encodeAncV1VaultBootstrapResponse(input: {
     AncV1VaultBootstrapResponseMetadata,
     | "entryByteLengths"
     | "entryRecoveryWrapByteLengths"
+    | "entryEvidenceByteLengths"
     | "recoveryWrapByteLength"
   >;
   entries: readonly Uint8Array[];
   entryRecoveryWraps: readonly (Uint8Array | null)[];
+  entryEvidence: readonly (Uint8Array | null)[];
   recoveryWrap: Uint8Array | null;
 }): Uint8Array {
   if (
     !Array.isArray(input.entries) ||
     input.entries.length > ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES ||
     !Array.isArray(input.entryRecoveryWraps) ||
-    input.entryRecoveryWraps.length !== input.entries.length
+    input.entryRecoveryWraps.length !== input.entries.length ||
+    !Array.isArray(input.entryEvidence) ||
+    input.entryEvidence.length !== input.entries.length
   ) {
     fail();
   }
@@ -267,12 +296,27 @@ export function encodeAncV1VaultBootstrapResponse(input: {
     }
     return Uint8Array.from(wrap);
   });
+  const entryEvidence = input.entryEvidence.map((evidence) => {
+    if (evidence === null) return null;
+    if (
+      !(evidence instanceof Uint8Array) ||
+      evidence.byteLength === 0 ||
+      evidence.byteLength > ANC_V1_VAULT_BOOTSTRAP_CONTROL_EVIDENCE_MAX_BYTES
+    ) {
+      fail();
+    }
+    return Uint8Array.from(evidence);
+  });
   try {
     const metadata = ancV1VaultBootstrapResponseMetadataSchema.parse({
       ...input.metadata,
       entryByteLengths: entries.map((entry) => entry.byteLength),
       entryRecoveryWrapByteLengths: entryRecoveryWraps.map(
         (wrap) => wrap?.byteLength ?? 0,
+      ),
+      entryEvidenceKinds: input.metadata.entryEvidenceKinds,
+      entryEvidenceByteLengths: entryEvidence.map(
+        (evidence) => evidence?.byteLength ?? 0,
       ),
       recoveryWrapByteLength: recoveryWrap?.byteLength ?? 0,
     });
@@ -286,6 +330,10 @@ export function encodeAncV1VaultBootstrapResponse(input: {
       entries.reduce((sum, entry) => sum + entry.byteLength, 0) +
       entryRecoveryWraps.reduce(
         (sum, wrap) => sum + (wrap?.byteLength ?? 0),
+        0,
+      ) +
+      entryEvidence.reduce(
+        (sum, evidence) => sum + (evidence?.byteLength ?? 0),
         0,
       ) +
       (recoveryWrap?.byteLength ?? 0);
@@ -302,6 +350,11 @@ export function encodeAncV1VaultBootstrapResponse(input: {
         output.set(entryRecoveryWrap, offset);
         offset += entryRecoveryWrap.byteLength;
       }
+      const evidence = entryEvidence[index];
+      if (evidence) {
+        output.set(evidence, offset);
+        offset += evidence.byteLength;
+      }
     }
     if (recoveryWrap) output.set(recoveryWrap, offset);
     return output;
@@ -311,6 +364,7 @@ export function encodeAncV1VaultBootstrapResponse(input: {
   } finally {
     for (const entry of entries) entry.fill(0);
     for (const wrap of entryRecoveryWraps) wrap?.fill(0);
+    for (const evidence of entryEvidence) evidence?.fill(0);
     recoveryWrap?.fill(0);
   }
 }
@@ -344,6 +398,7 @@ export function decodeAncV1VaultBootstrapResponse(
   let offset = 4 + controlLength;
   const entries: Uint8Array[] = [];
   const entryRecoveryWraps: Array<Uint8Array | null> = [];
+  const entryEvidence: Array<Uint8Array | null> = [];
   for (const [index, length] of metadata.entryByteLengths.entries()) {
     const end = offset + length;
     if (!Number.isSafeInteger(end) || end > encoded.byteLength) fail();
@@ -357,6 +412,18 @@ export function decodeAncV1VaultBootstrapResponse(
       wrapLength === 0 ? null : encoded.slice(offset, wrapEnd),
     );
     offset = wrapEnd;
+    const evidenceLength = metadata.entryEvidenceByteLengths[index]!;
+    const evidenceEnd = offset + evidenceLength;
+    if (
+      !Number.isSafeInteger(evidenceEnd) ||
+      evidenceEnd > encoded.byteLength
+    ) {
+      fail();
+    }
+    entryEvidence.push(
+      evidenceLength === 0 ? null : encoded.slice(offset, evidenceEnd),
+    );
+    offset = evidenceEnd;
   }
   const expectedEnd = offset + metadata.recoveryWrapByteLength;
   if (expectedEnd !== encoded.byteLength) fail();
@@ -364,6 +431,7 @@ export function decodeAncV1VaultBootstrapResponse(
     metadata,
     entries,
     entryRecoveryWraps,
+    entryEvidence,
     recoveryWrap:
       metadata.recoveryWrapByteLength === 0
         ? null

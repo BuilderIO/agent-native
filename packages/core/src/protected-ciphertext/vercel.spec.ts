@@ -146,6 +146,16 @@ describe("Vercel protected ciphertext provider", () => {
     );
     expect(
       _vercelProtectedCiphertextForTests.coordinatePath({
+        kind: "control-evidence",
+        vaultId: coordinate.vaultId,
+        evidenceKind: "recovery",
+        evidenceHash: "b".repeat(64),
+      }),
+    ).toBe(
+      `agent-native/protected-ciphertext/v1/vault:test-0001/control-evidence/recovery/${"b".repeat(64)}.bin`,
+    );
+    expect(
+      _vercelProtectedCiphertextForTests.coordinatePath({
         kind: "grant",
         vaultId: coordinate.vaultId,
         grantId: "grant:test-0001",

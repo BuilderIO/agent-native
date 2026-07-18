@@ -30,6 +30,7 @@ import {
   type EndpointRequestProof,
 } from "@agent-native/core/e2ee";
 import { orgMembers } from "@agent-native/core/org";
+import { putProtectedCiphertext } from "@agent-native/core/protected-ciphertext";
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -375,6 +376,22 @@ export async function admitPrivateVaultGenesis(input: {
     candidateHash: candidate.candidateHash,
     bootstrapTranscriptHash: candidate.bootstrapTranscriptHash,
   } as const;
+  const evidenceCoordinate = {
+    kind: "control-evidence" as const,
+    vaultId: candidate.vaultId,
+    evidenceKind: "genesis" as const,
+    evidenceHash: candidate.candidateHash,
+  };
+
+  try {
+    await putProtectedCiphertext({
+      coordinate: evidenceCoordinate,
+      ciphertext: request.candidate,
+      expectedByteLength: request.candidate.byteLength,
+    });
+  } catch {
+    throw new PrivateVaultGenesisAdmissionError("unavailable");
+  }
 
   try {
     await getDb().transaction(async (tx) => {
@@ -487,6 +504,51 @@ export async function admitPrivateVaultGenesis(input: {
         )
         .limit(1);
       if (!admission || !exactAdmissionRow(admission, admissionValues)) {
+        throw new PrivateVaultGenesisAdmissionError("conflict");
+      }
+
+      const evidenceValues = {
+        bindingId: createHash("sha256")
+          .update(
+            `${candidate.vaultId}\0${candidate.controlEntryId}\0genesis\0${candidate.candidateHash}`,
+          )
+          .digest("hex"),
+        ownerEmail: vault.ownerEmail,
+        orgId: vault.orgId,
+        vaultId: candidate.vaultId,
+        controlEntryId: candidate.controlEntryId,
+        evidenceKind: "genesis",
+        evidenceHash: candidate.candidateHash,
+        evidenceByteLength: request.candidate.byteLength,
+      } as const;
+      await tx
+        .insert(schema.contentEncryptedVaultControlEvidence)
+        .values(evidenceValues)
+        .onConflictDoNothing();
+      const [evidence] = await tx
+        .select()
+        .from(schema.contentEncryptedVaultControlEvidence)
+        .where(
+          and(
+            eq(
+              schema.contentEncryptedVaultControlEvidence.vaultId,
+              candidate.vaultId,
+            ),
+            eq(
+              schema.contentEncryptedVaultControlEvidence.controlEntryId,
+              candidate.controlEntryId,
+            ),
+          ),
+        )
+        .limit(1);
+      if (
+        !evidence ||
+        evidence.ownerEmail !== evidenceValues.ownerEmail ||
+        evidence.orgId !== evidenceValues.orgId ||
+        evidence.evidenceKind !== evidenceValues.evidenceKind ||
+        evidence.evidenceHash !== evidenceValues.evidenceHash ||
+        evidence.evidenceByteLength !== evidenceValues.evidenceByteLength
+      ) {
         throw new PrivateVaultGenesisAdmissionError("conflict");
       }
     });

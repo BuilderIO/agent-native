@@ -702,10 +702,16 @@ request fails closed. The response contains public control entries and
 ciphertext only—never recovery entropy, endpoint secrets, or a server recovery
 key. The desktop transport streams pages into an injected signed-native replay
 consumer under one pinned head rather than aggregating them in the renderer.
-Core protocol vectors, route/service tests, a real SQLite canonical-snapshot
-test, and desktop transport tests pass. Durable genesis/recovery evidence for
-independent native authorization replay, mnemonic import, replacement recovery
-authority, and recovered-endpoint admission remain the next product gate.
+The server also stores the exact canonical genesis admission candidate in
+immutable private blob storage under its candidate commitment and binds it to
+the admitted control entry without putting evidence bytes or provider locators
+in SQL. Bootstrap frames carry per-entry typed evidence alongside wraps, with a
+strict 8-entry and approximately 25 MiB worst-case frame bound. Core protocol
+vectors, route/service tests, a real SQLite genesis ceremony and canonical-log
+snapshot tests, and desktop transport tests pass. Durable recovery-transition
+evidence, full independent native authorization replay, mnemonic import,
+replacement recovery authority, and recovered-endpoint admission remain the
+next product gate.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

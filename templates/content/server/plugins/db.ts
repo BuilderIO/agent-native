@@ -1239,6 +1239,34 @@ const runContentMigrations = runMigrations(
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vaults_logical_scope_unique
         ON content_encrypted_vaults (account_id, workspace_id)`,
     },
+    {
+      version: 87,
+      name: "content-private-vault-control-evidence",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_control_evidence (
+        binding_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        control_entry_id TEXT NOT NULL,
+        evidence_kind TEXT NOT NULL,
+        evidence_hash TEXT NOT NULL,
+        evidence_byte_length INTEGER NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_control_evidence_entry_unique
+        ON content_encrypted_vault_control_evidence (vault_id, control_entry_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_control_evidence_hash_unique
+        ON content_encrypted_vault_control_evidence (vault_id, evidence_hash);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_control_evidence_scope_idx
+        ON content_encrypted_vault_control_evidence (owner_email, org_id, vault_id);
+
+      ALTER TABLE content_encrypted_vault_ciphertext_staging
+        ADD COLUMN IF NOT EXISTS evidence_kind TEXT;
+      ALTER TABLE content_encrypted_vault_ciphertext_staging
+        ADD COLUMN IF NOT EXISTS evidence_hash TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

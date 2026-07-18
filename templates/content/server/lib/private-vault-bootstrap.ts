@@ -57,6 +57,8 @@ export async function readPrivateVaultBootstrapPage(input: {
     const complete = throughSequence === state.sequence;
     let recoveryWrap: Uint8Array | null = null;
     const entryRecoveryWraps: Array<Uint8Array | null> = [];
+    const entryEvidence: Array<Uint8Array | null> = [];
+    const entryEvidenceKinds: Array<"genesis" | "recovery" | null> = [];
     try {
       const pageEntryIds = page.map((entry) => entry.entryId);
       const pageBindings =
@@ -102,6 +104,54 @@ export async function readPrivateVaultBootstrapPage(input: {
       ) {
         throw new PrivateVaultBootstrapError("unavailable");
       }
+      const pageEvidenceBindings =
+        pageEntryIds.length === 0
+          ? []
+          : await getDb()
+              .select({
+                controlEntryId:
+                  schema.contentEncryptedVaultControlEvidence.controlEntryId,
+                evidenceKind:
+                  schema.contentEncryptedVaultControlEvidence.evidenceKind,
+                evidenceHash:
+                  schema.contentEncryptedVaultControlEvidence.evidenceHash,
+                evidenceByteLength:
+                  schema.contentEncryptedVaultControlEvidence
+                    .evidenceByteLength,
+              })
+              .from(schema.contentEncryptedVaultControlEvidence)
+              .where(
+                and(
+                  eq(
+                    schema.contentEncryptedVaultControlEvidence.ownerEmail,
+                    input.scope.ownerEmail,
+                  ),
+                  eq(
+                    schema.contentEncryptedVaultControlEvidence.orgId,
+                    input.scope.orgId,
+                  ),
+                  eq(
+                    schema.contentEncryptedVaultControlEvidence.vaultId,
+                    input.scope.vaultId,
+                  ),
+                  inArray(
+                    schema.contentEncryptedVaultControlEvidence.controlEntryId,
+                    pageEntryIds,
+                  ),
+                ),
+              );
+      if (
+        pageEvidenceBindings.some(
+          (binding) =>
+            !pageEntryIds.includes(binding.controlEntryId) ||
+            (binding.evidenceKind !== "genesis" &&
+              binding.evidenceKind !== "recovery"),
+        ) ||
+        new Set(pageEvidenceBindings.map((binding) => binding.controlEntryId))
+          .size !== pageEvidenceBindings.length
+      ) {
+        throw new PrivateVaultBootstrapError("unavailable");
+      }
       for (const entry of page) {
         const binding = pageBindings.find(
           (candidate) => candidate.controlEntryId === entry.entryId,
@@ -121,6 +171,30 @@ export async function readPrivateVaultBootstrapPage(input: {
           throw new PrivateVaultBootstrapError("unavailable");
         }
         entryRecoveryWraps.push(wrap);
+      }
+      for (const entry of page) {
+        const binding = pageEvidenceBindings.find(
+          (candidate) => candidate.controlEntryId === entry.entryId,
+        );
+        if (!binding) {
+          entryEvidenceKinds.push(null);
+          entryEvidence.push(null);
+          continue;
+        }
+        const evidenceKind = binding.evidenceKind as "genesis" | "recovery";
+        const stored = await readProtectedCiphertextAt({
+          kind: "control-evidence",
+          vaultId: input.scope.vaultId,
+          evidenceKind,
+          evidenceHash: binding.evidenceHash,
+        });
+        const evidence = Uint8Array.from(stored.ciphertext);
+        if (binding.evidenceByteLength !== evidence.byteLength) {
+          evidence.fill(0);
+          throw new PrivateVaultBootstrapError("unavailable");
+        }
+        entryEvidenceKinds.push(evidenceKind);
+        entryEvidence.push(evidence);
       }
 
       if (complete) {
@@ -184,14 +258,17 @@ export async function readPrivateVaultBootstrapPage(input: {
           throughSequence,
           head: { sequence: state.sequence, hash: state.headHash },
           complete,
+          entryEvidenceKinds,
           recoveryWrapHash: complete ? state.recoveryWrapHash : null,
         },
         entries: page.map((entry) => entry.entryBytes),
         entryRecoveryWraps,
+        entryEvidence,
         recoveryWrap,
       });
     } finally {
       for (const wrap of entryRecoveryWraps) wrap?.fill(0);
+      for (const evidence of entryEvidence) evidence?.fill(0);
       recoveryWrap?.fill(0);
     }
   } catch (error) {

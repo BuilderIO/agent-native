@@ -19,6 +19,11 @@ import {
   encodeAncV1GenesisAccountAdmissionRequest,
   encodeAncV1GenesisBootstrapTranscript,
 } from "@agent-native/core/e2ee";
+import {
+  registerProtectedCiphertextProvider,
+  unregisterProtectedCiphertextProvider,
+  type ProtectedCiphertextProvider,
+} from "@agent-native/core/protected-ciphertext";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -46,6 +51,42 @@ let admitGenesis: (typeof import("./private-vault-genesis-admission.js"))["admit
 let deleteExpiredChallenges: (typeof import("./private-vault-genesis-admission.js"))["deleteExpiredPrivateVaultGenesisChallenges"];
 let resolveGenesisScope: (typeof import("./private-vault-genesis-account-scope.js"))["resolvePrivateVaultGenesisAccountScope"];
 let resolveStableVaultScope: (typeof import("./private-vault-genesis-account-scope.js"))["resolvePrivateVaultScopeForStableIdentity"];
+const evidenceBytes = new Map<string, Uint8Array>();
+const evidenceProvider: ProtectedCiphertextProvider = {
+  id: "genesis-evidence-memory-v1",
+  name: "Genesis evidence memory",
+  isConfigured: () => true,
+  storageGeneration: () => "genesis-evidence-test-store",
+  put: async (input) => {
+    const key = JSON.stringify(input.coordinate);
+    const existing = evidenceBytes.get(key);
+    if (
+      existing &&
+      !Buffer.from(existing).equals(Buffer.from(input.ciphertext))
+    ) {
+      throw new Error("immutable collision");
+    }
+    evidenceBytes.set(key, input.ciphertext.slice());
+    return {
+      locator: {
+        kind: "agent-native.protected-ciphertext",
+        version: 1,
+        provider: "genesis-evidence-memory-v1",
+        opaque: true,
+        coordinate: input.coordinate,
+      },
+      byteLength: input.ciphertext.byteLength,
+      created: !existing,
+    };
+  },
+  read: async () => {
+    throw new Error("not used");
+  },
+  delete: async () => ({
+    deleted: false,
+    provider: "genesis-evidence-memory-v1",
+  }),
+};
 
 async function seedAuthority(scope: PrivateVaultGenesisAccountScope) {
   await dbExec.execute({
@@ -139,6 +180,7 @@ async function admissionRequest(input: {
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
   process.env.CONTENT_PRIVATE_VAULT_GENESIS_CHALLENGE_SECRET = "c0".repeat(32);
+  registerProtectedCiphertextProvider(evidenceProvider);
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -170,15 +212,18 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  await getDb().delete(schema.contentEncryptedVaultControlEvidence);
   await getDb().delete(schema.contentEncryptedVaultGenesisAdmissions);
   await getDb().delete(schema.contentEncryptedVaultGenesisChallenges);
   await getDb().delete(schema.contentEncryptedVaults);
   await dbExec.execute({ sql: `DELETE FROM org_members` });
   await dbExec.execute({ sql: `DELETE FROM "user"` });
   await seedAuthority(OWNER_SCOPE);
+  evidenceBytes.clear();
 });
 
 afterAll(() => {
+  unregisterProtectedCiphertextProvider(evidenceProvider.id);
   for (const suffix of ["", "-shm", "-wal"]) {
     rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
   }
@@ -218,6 +263,25 @@ describe("Private Vault account-authorized genesis admission", () => {
       candidateHash: decoded.candidateHash,
       bootstrapTranscriptHash: decoded.bootstrapTranscriptHash,
     });
+    const [evidence] = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultControlEvidence);
+    expect(evidence).toMatchObject({
+      controlEntryId: decoded.controlEntryId,
+      evidenceKind: "genesis",
+      evidenceHash: decoded.candidateHash,
+      evidenceByteLength: request.candidate.byteLength,
+    });
+    expect(
+      evidenceBytes.get(
+        JSON.stringify({
+          kind: "control-evidence",
+          vaultId: decoded.vaultId,
+          evidenceKind: "genesis",
+          evidenceHash: decoded.candidateHash,
+        }),
+      ),
+    ).toEqual(request.candidate);
   });
 
   it("rejects attacker-first public-artifact claims without consuming the candidate", async () => {

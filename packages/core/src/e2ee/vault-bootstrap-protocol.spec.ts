@@ -49,10 +49,12 @@ describe("anc/v1 vault bootstrap protocol", () => {
         throughSequence: 0,
         head,
         complete: false,
+        entryEvidenceKinds: ["genesis"],
         recoveryWrapHash: null,
       },
       entries: [Uint8Array.of(1, 2, 3)],
       entryRecoveryWraps: [Uint8Array.of(9)],
+      entryEvidence: [Uint8Array.of(7, 7)],
       recoveryWrap: null,
     });
     expect(decodeAncV1VaultBootstrapResponse(first)).toEqual({
@@ -67,11 +69,14 @@ describe("anc/v1 vault bootstrap protocol", () => {
         complete: false,
         entryByteLengths: [3],
         entryRecoveryWrapByteLengths: [1],
+        entryEvidenceKinds: ["genesis"],
+        entryEvidenceByteLengths: [2],
         recoveryWrapHash: null,
         recoveryWrapByteLength: 0,
       },
       entries: [Uint8Array.of(1, 2, 3)],
       entryRecoveryWraps: [Uint8Array.of(9)],
+      entryEvidence: [Uint8Array.of(7, 7)],
       recoveryWrap: null,
     });
 
@@ -85,10 +90,12 @@ describe("anc/v1 vault bootstrap protocol", () => {
         throughSequence: 1,
         head,
         complete: true,
+        entryEvidenceKinds: [null],
         recoveryWrapHash: "cd".repeat(32),
       },
       entries: [Uint8Array.of(4, 5)],
       entryRecoveryWraps: [null],
+      entryEvidence: [null],
       recoveryWrap: Uint8Array.of(6, 7, 8),
     });
     expect(decodeAncV1VaultBootstrapResponse(final)).toMatchObject({
@@ -97,10 +104,13 @@ describe("anc/v1 vault bootstrap protocol", () => {
         complete: true,
         entryByteLengths: [2],
         entryRecoveryWrapByteLengths: [0],
+        entryEvidenceKinds: [null],
+        entryEvidenceByteLengths: [0],
         recoveryWrapByteLength: 3,
       },
       entries: [Uint8Array.of(4, 5)],
       entryRecoveryWraps: [null],
+      entryEvidence: [null],
       recoveryWrap: Uint8Array.of(6, 7, 8),
     });
   });
@@ -144,10 +154,12 @@ describe("anc/v1 vault bootstrap protocol", () => {
           throughSequence: 1,
           head,
           complete: true,
+          entryEvidenceKinds: [null],
           recoveryWrapHash: "cd".repeat(32),
         },
         entries: [Uint8Array.of(1)],
         entryRecoveryWraps: [null],
+        entryEvidence: [null],
         recoveryWrap: Uint8Array.of(2),
       }),
     ).toThrow(AncV1VaultBootstrapProtocolError);
@@ -164,10 +176,12 @@ describe("anc/v1 vault bootstrap protocol", () => {
         throughSequence: 1,
         head,
         complete: true,
+        entryEvidenceKinds: [null, "recovery"],
         recoveryWrapHash: "cd".repeat(32),
       },
       entries: [Uint8Array.of(1), Uint8Array.of(2)],
       entryRecoveryWraps: [null, Uint8Array.of(8, 9)],
+      entryEvidence: [null, Uint8Array.of(7)],
       recoveryWrap: Uint8Array.of(3),
     });
     expect(() => decodeAncV1VaultBootstrapResponse(frame.slice(0, -1))).toThrow(
@@ -192,6 +206,10 @@ describe("anc/v1 vault bootstrap protocol", () => {
             hash: "ab".repeat(32),
           },
           complete: true,
+          entryEvidenceKinds: Array.from(
+            { length: ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES + 1 },
+            () => null,
+          ),
           recoveryWrapHash: "cd".repeat(32),
         },
         entries: Array.from(
@@ -199,6 +217,10 @@ describe("anc/v1 vault bootstrap protocol", () => {
           () => Uint8Array.of(1),
         ),
         entryRecoveryWraps: Array.from(
+          { length: ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES + 1 },
+          () => null,
+        ),
+        entryEvidence: Array.from(
           { length: ANC_V1_VAULT_BOOTSTRAP_PAGE_MAX_ENTRIES + 1 },
           () => null,
         ),
