@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  checkCoreHasNoTiptapDependencies,
   checkSharedDependencyCatalogUsage,
   checkSharedUiSingletonResolutions,
-  parsePnpmLockImporterResolutions,
 } from "./guard-shared-ui-singletons";
 
 function lockfile({
@@ -12,11 +12,13 @@ function lockfile({
   toolkitYjs = coreYjs,
   coreDialog = "1.1.18(react@19.2.7)",
   toolkitDialog = coreDialog,
+  coreTiptap = false,
 }: {
   coreYjs?: string;
   toolkitYjs?: string;
   coreDialog?: string;
   toolkitDialog?: string;
+  coreTiptap?: boolean;
 } = {}): string {
   return `lockfileVersion: '9.0'
 
@@ -27,13 +29,17 @@ importers:
       '@radix-ui/react-dialog':
         specifier: ^1.1.0
         version: ${coreDialog}
-      '@tiptap/core':
+${
+  coreTiptap
+    ? `      '@tiptap/core':
         specifier: ^3.0.0
         version: 3.28.0(@tiptap/pm@3.28.0)
       '@tiptap/pm':
         specifier: ^3.0.0
         version: 3.28.0
-      y-protocols:
+`
+    : ""
+}      y-protocols:
         specifier: ^1.0.0
         version: 1.0.7(yjs@${coreYjs})
       yjs:
@@ -111,27 +117,28 @@ describe("shared UI singleton guard", () => {
     );
   });
 
-  it("requires every editor singleton in both package importers", () => {
-    const parsed = parsePnpmLockImporterResolutions(lockfile());
-    parsed.get("packages/toolkit")?.delete("@tiptap/pm");
-    const withoutTiptapPm = [...parsed]
-      .map(([name, dependencies]) => {
-        const lines = [...dependencies]
-          .map(
-            ([dependency, version]) =>
-              `      '${dependency}':\n        version: ${version}`,
-          )
-          .join("\n");
-        return `  ${name}:\n    dependencies:\n${lines}`;
-      })
-      .join("\n");
-    const result = checkSharedUiSingletonResolutions(
-      `importers:\n${withoutTiptapPm}\n`,
+  it("forbids Core from owning any Tiptap dependency", () => {
+    assert.deepEqual(
+      checkCoreHasNoTiptapDependencies({
+        dependencies: { yjs: "catalog:" },
+      }),
+      [],
+    );
+    assert.match(
+      checkCoreHasNoTiptapDependencies({
+        dependencies: {
+          "@tiptap/core": "catalog:",
+          "tiptap-markdown": "catalog:",
+        },
+      })[0] ?? "",
+      /must not declare @tiptap\/core/,
     );
 
-    assert.match(
-      result.errors[0] ?? "",
-      /@tiptap\/pm must be a direct dependency/,
+    const result = checkSharedUiSingletonResolutions(
+      lockfile({ coreTiptap: true }),
     );
+    assert.equal(result.errors.length, 2);
+    assert.match(result.errors[0] ?? "", /must not resolve @tiptap\/core/);
+    assert.match(result.errors[1] ?? "", /must not resolve @tiptap\/pm/);
   });
 });

@@ -5,17 +5,28 @@ import { pathToFileURL } from "node:url";
 const CORE_IMPORTER = "packages/core";
 const TOOLKIT_IMPORTER = "packages/toolkit";
 
-export const REQUIRED_SINGLETON_DEPENDENCIES = [
-  "yjs",
-  "y-protocols",
-  "@tiptap/core",
-  "@tiptap/pm",
-] as const;
+export const REQUIRED_SINGLETON_DEPENDENCIES = ["yjs", "y-protocols"] as const;
 
 type ImporterResolutions = Map<string, string>;
 type PackageManifest = {
   dependencies?: Record<string, string>;
 };
+
+function isTiptapDependency(dependency: string): boolean {
+  return dependency.startsWith("@tiptap/") || dependency === "tiptap-markdown";
+}
+
+export function checkCoreHasNoTiptapDependencies(
+  coreManifest: PackageManifest,
+): string[] {
+  return Object.keys(coreManifest.dependencies ?? {})
+    .filter(isTiptapDependency)
+    .sort()
+    .map(
+      (dependency) =>
+        `${CORE_IMPORTER} must not declare ${dependency}; Toolkit is the single owner of the Tiptap editor stack.`,
+    );
+}
 
 export type SharedUiSingletonCheck = {
   dependencies: string[];
@@ -164,6 +175,12 @@ export function checkSharedUiSingletonResolutions(
     return { dependencies: [], errors, resolutions: {} };
   }
 
+  for (const dependency of [...core.keys()].filter(isTiptapDependency).sort()) {
+    errors.push(
+      `${CORE_IMPORTER} lockfile importer must not resolve ${dependency}; remove the stale direct dependency because Toolkit owns the Tiptap editor stack.`,
+    );
+  }
+
   const sharedContextDependencies = [...core.keys()].filter(
     (dependency) =>
       toolkit.has(dependency) && isSharedContextSingleton(dependency),
@@ -217,7 +234,10 @@ function main(): void {
     toolkitManifest,
   );
   const result = checkSharedUiSingletonResolutions(lockfile);
-  result.errors.unshift(...catalogResult.errors);
+  result.errors.unshift(
+    ...catalogResult.errors,
+    ...checkCoreHasNoTiptapDependencies(coreManifest),
+  );
 
   if (result.errors.length > 0) {
     console.error(

@@ -186,7 +186,7 @@
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
-    "@assistant-ui/react": "^0.12.19",
+    "@assistant-ui/react": "catalog:",
     "@radix-ui/react-accordion": "^1.2.15",
     "@radix-ui/react-alert-dialog": "^1.1.18",
     "@radix-ui/react-aspect-ratio": "^1.1.11",
