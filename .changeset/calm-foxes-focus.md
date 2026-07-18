@@ -8,4 +8,3 @@
 ---
 
 Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-
