@@ -887,6 +887,20 @@ production arm64 XPC service builds. This result remains
 deliberately insufficient to activate custody until it is joined to a durable
 trusted-SAS confirmation receipt and the candidate's exact pending custody.
 
+Trusted SAS decisions now have that durable native shape. The signed client
+builds a canonical `enrollment-sas-decision` receipt only from verified
+challenge evidence and the candidate signing seed held in native custody. It
+binds the vault, offer, challenge, SAS transcript, candidate, ceremony,
+decision, and attended decision time; both confirmation and explicit mismatch
+are candidate-signed. A ceremony-scoped Keychain store independently verifies
+the receipt on every read, makes exact crash retries idempotent, rejects a
+changed decision, preserves mismatch as terminal for that ceremony, and still
+allows a later replacement ceremony its own slot. Corrupt storage, substituted
+transcripts, wrong candidate seeds, invalid signatures, and decisions outside
+the challenge lifetime fail closed on Apple Silicon. Universal proof and the
+native UI-to-XPC orchestration remain the next boundary before this receipt may
+authorize custody activation.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

@@ -14,6 +14,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorization.m"
+  "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceipt.m"
   "$SOURCE_ROOT/control/PrivateVaultEekWrap.m"
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
@@ -45,6 +46,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultEnrollmentOfferArtifactStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultEnrollmentCoordinator.m"
+  "$SOURCE_ROOT/storage/PrivateVaultEnrollmentSasReceiptStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultResultSpool.m"
@@ -794,6 +796,76 @@ case "${PRIVATE_VAULT_BUILD_ENROLLMENT_AUTHORIZATION_TESTS:-}" in
   build_enrollment_authorization_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_enrollment_authorization_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_ENROLLMENT_SAS_RECEIPT_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  ENROLLMENT_SAS_RECEIPT_TEST_OUTPUT="$OUTPUT_ROOT/.enrollment-sas-receipt-tests"
+  rm -rf "$ENROLLMENT_SAS_RECEIPT_TEST_OUTPUT"
+  mkdir -p "$ENROLLMENT_SAS_RECEIPT_TEST_OUTPUT"
+  build_enrollment_sas_receipt_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$ENROLLMENT_SAS_RECEIPT_TEST_OUTPUT/private-vault-enrollment-sas-receipt-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -framework Foundation -framework Security -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceipt.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultEnrollmentSasReceiptStore.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceiptTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_enrollment_sas_receipt_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_enrollment_sas_receipt_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_ENROLLMENT_SAS_RECEIPT_STORE_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  ENROLLMENT_SAS_RECEIPT_STORE_TEST_OUTPUT="$OUTPUT_ROOT/.enrollment-sas-receipt-store-tests"
+  rm -rf "$ENROLLMENT_SAS_RECEIPT_STORE_TEST_OUTPUT"
+  mkdir -p "$ENROLLMENT_SAS_RECEIPT_STORE_TEST_OUTPUT"
+  build_enrollment_sas_receipt_store_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$ENROLLMENT_SAS_RECEIPT_STORE_TEST_OUTPUT/private-vault-enrollment-sas-receipt-store-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" -I"$SOURCE_ROOT/storage" \
+      -I"$sodium_root/include" -framework Foundation -framework Security \
+      -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceipt.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultEnrollmentSasReceiptStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultEnrollmentSasReceiptStoreTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_enrollment_sas_receipt_store_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_enrollment_sas_receipt_store_tests x86_64
   fi
   ;;
 esac
