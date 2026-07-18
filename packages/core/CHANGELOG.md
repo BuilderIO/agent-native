@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.110.0
+
+### Minor Changes
+
+- 079e19a: Add focused client entrypoints, lazy built-in chat widgets, explicit route-chunk recovery initialization, and manifest-driven `upgrade --codemods` and doctor preflight infrastructure for upcoming package moves.
+
+### Patch Changes
+
+- Updated dependencies [079e19a]
+  - @agent-native/toolkit@0.5.1
+
 ## 0.109.4
 
 ### Patch Changes
