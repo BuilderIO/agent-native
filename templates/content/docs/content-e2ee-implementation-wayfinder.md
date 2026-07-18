@@ -901,6 +901,22 @@ the challenge lifetime fail closed on Apple Silicon. Universal proof and the
 native UI-to-XPC orchestration remain the next boundary before this receipt may
 authorize custody activation.
 
+The production enrollment activation capability is now minted only by joining
+three independently sealed facts: a registry-backed authorization result, a
+candidate-signed confirmed SAS receipt reverified directly against the sealed
+challenge fields, and the registry-backed authenticated membership replay. It
+requires exactly one new matching member, preserves every prior member and
+tombstone, keeps epoch and recovery authority unchanged, binds the enrollment
+reference to the authorization envelope, and reconstructs the generation-3
+authority snapshot from the exact generation-2 predecessor. Forged result
+objects, mutable challenge substitution, mismatch receipts, changed membership
+edges, and altered signed-entry bytes cannot mint the capability. The focused
+constructor path and the complete authority corpus pass on Apple Silicon and
+Intel. This closes the previous test-only constructor gap; the remaining native
+boundary is the coordinator that opens the EEK from pending custody, performs
+the generation-1-to-2 authorization CAS, commits this capability, and proves
+the resulting generation-3 custody and authority reread.
+
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
 without supplying a vault identifier; the server resolves stable account and

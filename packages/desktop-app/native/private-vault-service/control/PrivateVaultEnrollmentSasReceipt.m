@@ -1,4 +1,5 @@
 #import "PrivateVaultEnrollmentSasReceipt.h"
+#import "PrivateVaultEnrollmentSasReceiptInternal.h"
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
@@ -108,12 +109,25 @@ Receipt(NSData *encoded, NSDictionary *map,
   return result;
 }
 
-AncPrivateVaultEnrollmentSasReceipt *AncPrivateVaultEnrollmentSasReceiptVerify(
-    NSData *encoded, AncPrivateVaultEnrollmentChallengeResult *challenge,
+AncPrivateVaultEnrollmentSasReceipt *
+AncPrivateVaultEnrollmentSasReceiptVerifyBound(
+    NSData *encoded, NSData *expectedVault, NSData *expectedOfferHash,
+    NSData *expectedChallengeHash, NSData *expectedSasTranscriptHash,
+    NSData *expectedCandidateEndpointId, NSData *expectedCeremonyId,
+    NSData *candidateSigningPublicKey, uint64_t challengeCreatedAt,
+    uint64_t challengeExpiresAt,
     AncPrivateVaultEnrollmentSasReceiptStatus *status) {
   SetStatus(status, AncPrivateVaultEnrollmentSasReceiptStatusInvalid);
   @try {
-    if (encoded.length == 0 || encoded.length > 2048 || challenge == nil)
+    if (encoded.length == 0 || encoded.length > 2048 ||
+        !Exact(expectedVault, 16) || !Exact(expectedOfferHash, 32) ||
+        !Exact(expectedChallengeHash, 32) ||
+        !Exact(expectedSasTranscriptHash, 32) ||
+        !Exact(expectedCandidateEndpointId, 16) ||
+        !Exact(expectedCeremonyId, 16) ||
+        !Exact(candidateSigningPublicKey, 32) ||
+        challengeCreatedAt > challengeExpiresAt ||
+        challengeExpiresAt > kMaximumSafeInteger)
       return nil;
     AncPrivateVaultCanonicalStatus canonicalStatus;
     AncPrivateVaultCanonicalValue *root =
@@ -160,21 +174,20 @@ AncPrivateVaultEnrollmentSasReceipt *AncPrivateVaultEnrollmentSasReceiptVerify(
               64);
     if (!valid)
       return nil;
-    NSData *expectedVault = VaultId(challenge);
     BOOL bound =
         Same(vault, expectedVault) &&
         Same(Field(map, @620, AncPrivateVaultCanonicalTypeBytes).bytesValue,
-             challenge.offerHash) &&
+             expectedOfferHash) &&
         Same(Field(map, @621, AncPrivateVaultCanonicalTypeBytes).bytesValue,
-             challenge.challengeHash) &&
+             expectedChallengeHash) &&
         Same(Field(map, @622, AncPrivateVaultCanonicalTypeBytes).bytesValue,
-             challenge.sasTranscriptHash) &&
+             expectedSasTranscriptHash) &&
         Same(Field(map, @623, AncPrivateVaultCanonicalTypeBytes).bytesValue,
-             challenge.candidateEndpointId) &&
+             expectedCandidateEndpointId) &&
         Same(Field(map, @624, AncPrivateVaultCanonicalTypeBytes).bytesValue,
-             challenge.ceremonyId) &&
-        (uint64_t)decided.integerValue >= challenge.createdAt &&
-        (uint64_t)decided.integerValue <= challenge.expiresAt;
+             expectedCeremonyId) &&
+        (uint64_t)decided.integerValue >= challengeCreatedAt &&
+        (uint64_t)decided.integerValue <= challengeExpiresAt;
     if (!bound) {
       SetStatus(status,
                 AncPrivateVaultEnrollmentSasReceiptStatusBindingMismatch);
@@ -193,7 +206,7 @@ AncPrivateVaultEnrollmentSasReceipt *AncPrivateVaultEnrollmentSasReceiptVerify(
     BOOL verified =
         unsignedBytes != nil &&
         anc_pv_ed25519_verify(signature.bytes, message.bytes, message.length,
-                              challenge.candidateSigningPublicKey.bytes) ==
+                              candidateSigningPublicKey.bytes) ==
             ANC_PV_CRYPTO_OK;
     anc_pv_zeroize(message.mutableBytes, message.length);
     if (!verified) {
@@ -212,6 +225,20 @@ AncPrivateVaultEnrollmentSasReceipt *AncPrivateVaultEnrollmentSasReceiptVerify(
     SetStatus(status, AncPrivateVaultEnrollmentSasReceiptStatusInvalid);
     return nil;
   }
+}
+
+AncPrivateVaultEnrollmentSasReceipt *AncPrivateVaultEnrollmentSasReceiptVerify(
+    NSData *encoded, AncPrivateVaultEnrollmentChallengeResult *challenge,
+    AncPrivateVaultEnrollmentSasReceiptStatus *status) {
+  if (challenge == nil) {
+    SetStatus(status, AncPrivateVaultEnrollmentSasReceiptStatusInvalid);
+    return nil;
+  }
+  return AncPrivateVaultEnrollmentSasReceiptVerifyBound(
+      encoded, VaultId(challenge), challenge.offerHash, challenge.challengeHash,
+      challenge.sasTranscriptHash, challenge.candidateEndpointId,
+      challenge.ceremonyId, challenge.candidateSigningPublicKey,
+      challenge.createdAt, challenge.expiresAt, status);
 }
 
 AncPrivateVaultEnrollmentSasReceipt *AncPrivateVaultEnrollmentSasReceiptBuild(

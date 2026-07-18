@@ -1,9 +1,14 @@
 #import <Foundation/Foundation.h>
 
 #import "PrivateVaultAncCanonical.h"
+#import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultEnrollmentAuthorization.h"
+#import "PrivateVaultEnrollmentAuthorizationInternal.h"
 #import "PrivateVaultEnrollmentOffer.h"
+#import "PrivateVaultEnrollmentSasReceipt.h"
+
+#import <objc/runtime.h>
 
 #include <assert.h>
 
@@ -41,15 +46,14 @@ static NSData *Repeated(uint8_t byte, NSUInteger length) {
 
 static NSString *Hex(NSData *data) {
   const uint8_t *bytes = data.bytes;
-  NSMutableString *value =
-      [NSMutableString stringWithCapacity:data.length * 2];
+  NSMutableString *value = [NSMutableString stringWithCapacity:data.length * 2];
   for (NSUInteger index = 0; index < data.length; index += 1)
     [value appendFormat:@"%02x", bytes[index]];
   return value;
 }
 
-static NSData *Encode(
-    NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map) {
+static NSData *
+Encode(NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *map) {
   AncPrivateVaultCanonicalStatus status;
   NSData *encoded = AncPrivateVaultCanonicalEncode(
       [AncPrivateVaultCanonicalValue map:map], &status);
@@ -59,25 +63,25 @@ static NSData *Encode(
 
 static NSData *Hash(const char *domain, NSData *payload) {
   uint8_t digest[32] = {0};
-  assert(anc_pv_blake2b_256_two_part(
-             digest, (const uint8_t *)domain, strlen(domain) + 1,
-             payload.bytes, payload.length) == ANC_PV_CRYPTO_OK);
+  assert(anc_pv_blake2b_256_two_part(digest, (const uint8_t *)domain,
+                                     strlen(domain) + 1, payload.bytes,
+                                     payload.length) == ANC_PV_CRYPTO_OK);
   NSData *result = [NSData dataWithBytes:digest length:sizeof digest];
   anc_pv_zeroize(digest, sizeof digest);
   return result;
 }
 
-static NSData *Sign(
-    NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *unsignedMap,
-    NSNumber *signatureKey, const char *domain,
-    const uint8_t signingPrivateKey[64]) {
+static NSData *
+Sign(NSDictionary<NSNumber *, AncPrivateVaultCanonicalValue *> *unsignedMap,
+     NSNumber *signatureKey, const char *domain,
+     const uint8_t signingPrivateKey[64]) {
   NSData *unsignedBytes = Encode(unsignedMap);
-  NSMutableData *message =
-      [NSMutableData dataWithBytes:domain length:strlen(domain) + 1];
+  NSMutableData *message = [NSMutableData dataWithBytes:domain
+                                                 length:strlen(domain) + 1];
   [message appendData:unsignedBytes];
   uint8_t signature[64] = {0};
   assert(anc_pv_ed25519_sign(signature, message.bytes, message.length,
-                            signingPrivateKey) == ANC_PV_CRYPTO_OK);
+                             signingPrivateKey) == ANC_PV_CRYPTO_OK);
   NSMutableDictionary *signedMap = [unsignedMap mutableCopy];
   signedMap[signatureKey] = [AncPrivateVaultCanonicalValue
       bytes:[NSData dataWithBytes:signature length:sizeof signature]];
@@ -86,9 +90,9 @@ static NSData *Sign(
   return Encode(signedMap);
 }
 
-static AncPrivateVaultCanonicalValue *Member(
-    NSData *endpointId, NSString *role, BOOL unattended, NSData *signingKey,
-    NSData *agreementKey, NSData *enrollmentRef) {
+static AncPrivateVaultCanonicalValue *
+Member(NSData *endpointId, NSString *role, BOOL unattended, NSData *signingKey,
+       NSData *agreementKey, NSData *enrollmentRef) {
   return [AncPrivateVaultCanonicalValue array:@[
     [AncPrivateVaultCanonicalValue text:Hex(endpointId)],
     [AncPrivateVaultCanonicalValue text:role],
@@ -99,8 +103,8 @@ static AncPrivateVaultCanonicalValue *Member(
   ]];
 }
 
-static AncPrivateVaultControlLogState *State(
-    NSData *authorizerSigning, NSData *authorizerAgreement) {
+static AncPrivateVaultControlLogState *State(NSData *authorizerSigning,
+                                             NSData *authorizerAgreement) {
   AncPrivateVaultControlLogMember *member =
       [[AncPrivateVaultControlLogMember alloc] init];
   member.endpointId = Hex(Repeated(0x02, 16));
@@ -148,18 +152,17 @@ int main(void) {
     uint8_t authorizerBoxPrivate[32] = {0};
     uint8_t candidateBoxPublic[32] = {0};
     uint8_t candidateBoxPrivate[32] = {0};
-    assert(anc_pv_ed25519_seed_keypair(authorizerSigningPublic,
-                                      authorizerSigningPrivate,
-                                      authorizerSigningSeed) ==
-           ANC_PV_CRYPTO_OK);
+    assert(anc_pv_ed25519_seed_keypair(
+               authorizerSigningPublic, authorizerSigningPrivate,
+               authorizerSigningSeed) == ANC_PV_CRYPTO_OK);
     assert(anc_pv_box_seed_keypair(authorizerBoxPublic, authorizerBoxPrivate,
-                                  authorizerBoxSeed) == ANC_PV_CRYPTO_OK);
+                                   authorizerBoxSeed) == ANC_PV_CRYPTO_OK);
     assert(anc_pv_box_seed_keypair(candidateBoxPublic, candidateBoxPrivate,
-                                  candidateBoxSeed) == ANC_PV_CRYPTO_OK);
-    NSData *authorizerSigning =
-        [NSData dataWithBytes:authorizerSigningPublic length:32];
-    NSData *authorizerAgreement =
-        [NSData dataWithBytes:authorizerBoxPublic length:32];
+                                   candidateBoxSeed) == ANC_PV_CRYPTO_OK);
+    NSData *authorizerSigning = [NSData dataWithBytes:authorizerSigningPublic
+                                               length:32];
+    NSData *authorizerAgreement = [NSData dataWithBytes:authorizerBoxPublic
+                                                 length:32];
 
     AncPrivateVaultEnrollmentOfferStatus offerStatus;
     AncPrivateVaultEnrollmentOfferResult *offer =
@@ -212,9 +215,9 @@ int main(void) {
       @180 : [AncPrivateVaultCanonicalValue bytes:Repeated(0xa7, 32)],
       @181 : [AncPrivateVaultCanonicalValue integer:1721111720],
     };
-    NSData *challenge = Sign(challengeUnsigned, @182,
-                             "anc/v1/enrollment-challenge",
-                             authorizerSigningPrivate);
+    NSData *challenge =
+        Sign(challengeUnsigned, @182, "anc/v1/enrollment-challenge",
+             authorizerSigningPrivate);
     NSData *challengeHash = Hash("anc/v1/enrollment-challenge", challenge);
 
     NSDictionary *endpointUnsigned = @{
@@ -240,11 +243,10 @@ int main(void) {
     uint8_t eekCiphertext[64] = {0};
     size_t eekCiphertextLength = 0;
     NSData *wrapNonce = Repeated(0x91, 24);
-    assert(anc_pv_box_wrap(eekCiphertext, sizeof eekCiphertext,
-                           &eekCiphertextLength, eekPlaintext,
-                           sizeof eekPlaintext, wrapNonce.bytes,
-                           candidateBoxPublic, authorizerBoxPrivate) ==
-               ANC_PV_CRYPTO_OK &&
+    assert(anc_pv_box_wrap(
+               eekCiphertext, sizeof eekCiphertext, &eekCiphertextLength,
+               eekPlaintext, sizeof eekPlaintext, wrapNonce.bytes,
+               candidateBoxPublic, authorizerBoxPrivate) == ANC_PV_CRYPTO_OK &&
            eekCiphertextLength == sizeof eekCiphertext);
     NSDictionary *wrapUnsigned = @{
       @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
@@ -259,17 +261,17 @@ int main(void) {
       @34 : [AncPrivateVaultCanonicalValue
           bytes:[NSData dataWithBytes:eekCiphertext length:64]],
     };
-    NSData *eekWrap = Sign(wrapUnsigned, @35, "anc/v1/eek-wrap",
-                           authorizerSigningPrivate);
+    NSData *eekWrap =
+        Sign(wrapUnsigned, @35, "anc/v1/eek-wrap", authorizerSigningPrivate);
     anc_pv_zeroize(eekPlaintext, sizeof eekPlaintext);
     anc_pv_zeroize(eekCiphertext, sizeof eekCiphertext);
 
-    AncPrivateVaultCanonicalValue *authorizerMember = Member(
-        authorizerId, @"endpoint", NO, authorizerSigning, authorizerAgreement,
-        Repeated(0x10, 16));
-    AncPrivateVaultCanonicalValue *candidateMember = Member(
-        candidateId, @"broker", YES, offer.signingPublicKey,
-        offer.keyAgreementPublicKey, authorizationId);
+    AncPrivateVaultCanonicalValue *authorizerMember =
+        Member(authorizerId, @"endpoint", NO, authorizerSigning,
+               authorizerAgreement, Repeated(0x10, 16));
+    AncPrivateVaultCanonicalValue *candidateMember =
+        Member(candidateId, @"broker", YES, offer.signingPublicKey,
+               offer.keyAgreementPublicKey, authorizationId);
     NSDictionary *commitMap = @{
       @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
       @2 : [AncPrivateVaultCanonicalValue text:Hex(vault)],
@@ -303,8 +305,8 @@ int main(void) {
       @112 : [AncPrivateVaultCanonicalValue bytes:commitBytes],
       @113 : [AncPrivateVaultCanonicalValue text:Hex(authorizerId)],
     };
-    NSData *signedCommit = Sign(entryUnsigned, @114, "anc/v1/log-entry",
-                                authorizerSigningPrivate);
+    NSData *signedCommit =
+        Sign(entryUnsigned, @114, "anc/v1/log-entry", authorizerSigningPrivate);
     NSDictionary *authorizationUnsigned = @{
       @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
       @2 : [AncPrivateVaultCanonicalValue bytes:vault],
@@ -323,9 +325,9 @@ int main(void) {
       @309 : [AncPrivateVaultCanonicalValue bytes:signedCommit],
       @310 : [AncPrivateVaultCanonicalValue integer:1721111750],
     };
-    NSData *authorization = Sign(authorizationUnsigned, @311,
-                                 "anc/v1/enrollment-authorization",
-                                 authorizerSigningPrivate);
+    NSData *authorization =
+        Sign(authorizationUnsigned, @311, "anc/v1/enrollment-authorization",
+             authorizerSigningPrivate);
     AncPrivateVaultEnrollmentAuthorizationStatus status;
     AncPrivateVaultEnrollmentAuthorizationResult *verified =
         AncPrivateVaultEnrollmentAuthorizationVerify(
@@ -338,14 +340,76 @@ int main(void) {
            [verified.authorizationDigest
                isEqualToData:Hash("anc/v1/enrollment-authorization",
                                   authorization)]);
+    NSData *copiedVault = nil, *copiedDigest = nil, *copiedEnvelope = nil,
+           *copiedCeremony = nil, *copiedCandidate = nil, *copiedSigning = nil,
+           *copiedAgreement = nil, *copiedOfferHash = nil,
+           *copiedChallengeHash = nil, *copiedSasHash = nil,
+           *copiedMembership = nil, *copiedCommit = nil;
+    NSString *copiedRole = nil;
+    BOOL copiedUnattended = NO;
+    uint64_t copiedCreatedAt = 0, copiedExpiresAt = 0;
+    AncPrivateVaultControlLogReplayResult *copiedReplay = nil;
+    assert(AncPrivateVaultEnrollmentAuthorizationCopyEvidence(
+               verified, &copiedVault, &copiedDigest, &copiedEnvelope,
+               &copiedCeremony, &copiedCandidate, &copiedRole,
+               &copiedUnattended, &copiedSigning, &copiedAgreement,
+               &copiedOfferHash, &copiedChallengeHash, &copiedSasHash,
+               &copiedCreatedAt, &copiedExpiresAt, &copiedMembership,
+               &copiedCommit, &copiedReplay) &&
+           [copiedVault isEqualToData:vault] &&
+           [copiedDigest isEqualToData:verified.authorizationDigest] &&
+           [copiedRole isEqualToString:@"broker"] && copiedUnattended &&
+           copiedReplay == verified.replay);
+    BOOL mutationRejected = NO;
+    @try {
+      [verified setValue:Repeated(0x99, 32) forKey:@"authorizationDigest"];
+    } @catch (__unused NSException *exception) {
+      mutationRejected = YES;
+    }
+    assert(mutationRejected);
+    AncPrivateVaultEnrollmentAuthorizationResult *forged = class_createInstance(
+        AncPrivateVaultEnrollmentAuthorizationResult.class, 0);
+    assert(!AncPrivateVaultEnrollmentAuthorizationCopyEvidence(
+        forged, &copiedVault, &copiedDigest, &copiedEnvelope, &copiedCeremony,
+        &copiedCandidate, &copiedRole, &copiedUnattended, &copiedSigning,
+        &copiedAgreement, &copiedOfferHash, &copiedChallengeHash,
+        &copiedSasHash, &copiedCreatedAt, &copiedExpiresAt, &copiedMembership,
+        &copiedCommit, &copiedReplay));
+    AncPrivateVaultEnrollmentSasReceiptStatus sasReceiptStatus;
+    AncPrivateVaultEnrollmentSasReceipt *confirmedReceipt =
+        AncPrivateVaultEnrollmentSasReceiptBuild(
+            verified.challenge, Repeated(0x5b, 16), 1721111162,
+            AncPrivateVaultEnrollmentSasDecisionConfirmed, candidateSigningSeed,
+            &sasReceiptStatus);
+    AncPrivateVaultVerifiedReplayResult *activation =
+        AncPrivateVaultVerifiedEnrollmentBootstrapResultCreate(
+            verified, confirmedReceipt, UINT64_C(1721111162000));
+    assert(sasReceiptStatus == AncPrivateVaultEnrollmentSasReceiptStatusOK &&
+           activation != nil && activation.expectedCheckpoint == nil &&
+           activation.nextSnapshot.targetCustodyGeneration == 3 &&
+           activation.nextSnapshot.previousCustodyGeneration == 2 &&
+           activation.nextSnapshot.sequence == verified.replay.state.sequence);
+    AncPrivateVaultEnrollmentSasReceipt *mismatchReceipt =
+        AncPrivateVaultEnrollmentSasReceiptBuild(
+            verified.challenge, Repeated(0x5c, 16), 1721111163,
+            AncPrivateVaultEnrollmentSasDecisionMismatch, candidateSigningSeed,
+            &sasReceiptStatus);
+    assert(mismatchReceipt != nil &&
+           AncPrivateVaultVerifiedEnrollmentBootstrapResultCreate(
+               verified, mismatchReceipt, UINT64_C(1721111163000)) == nil);
+    Ivar exposedWrap = class_getInstanceVariable(
+        AncPrivateVaultEnrollmentAuthorizationResult.class,
+        "_eekWrapEnvelope");
+    assert(exposedWrap != NULL);
+    object_setIvar(verified, exposedWrap, Repeated(0x9d, 96));
     __block BOOL opened = NO;
     assert([verified
                openEEKWithRecipientBoxSeed:candidateBoxSeed
                                   consumer:^BOOL(const uint8_t *epochKey) {
-                                    opened = anc_pv_memcmp(
-                                                 epochKey,
-                                                 Repeated(0x44, 32).bytes,
-                                                 32) == ANC_PV_CRYPTO_OK;
+                                    opened =
+                                        anc_pv_memcmp(epochKey,
+                                                      Repeated(0x44, 32).bytes,
+                                                      32) == ANC_PV_CRYPTO_OK;
                                     return opened;
                                   }] == AncPrivateVaultEekWrapStatusOK &&
            opened);
@@ -364,9 +428,9 @@ int main(void) {
         [authorizationUnsigned mutableCopy];
     wrongChallengeHash[@301] =
         [AncPrivateVaultCanonicalValue bytes:Repeated(0x99, 32)];
-    NSData *wrongChallengeAuthorization = Sign(
-        wrongChallengeHash, @311, "anc/v1/enrollment-authorization",
-        authorizerSigningPrivate);
+    NSData *wrongChallengeAuthorization =
+        Sign(wrongChallengeHash, @311, "anc/v1/enrollment-authorization",
+             authorizerSigningPrivate);
     assert(AncPrivateVaultEnrollmentAuthorizationVerify(
                offer.encodedOffer, challenge, wrongChallengeAuthorization,
                State(authorizerSigning, authorizerAgreement), 1721111100,
@@ -375,20 +439,18 @@ int main(void) {
            status ==
                AncPrivateVaultEnrollmentAuthorizationStatusBindingMismatch);
 
-    NSMutableDictionary *wrongEndpointUnsigned =
-        [endpointUnsigned mutableCopy];
+    NSMutableDictionary *wrongEndpointUnsigned = [endpointUnsigned mutableCopy];
     wrongEndpointUnsigned[@16] =
         [AncPrivateVaultCanonicalValue bytes:Repeated(0x98, 32)];
-    NSData *wrongEndpoint = Sign(wrongEndpointUnsigned, @17,
-                                 "anc/v1/endpoint",
+    NSData *wrongEndpoint = Sign(wrongEndpointUnsigned, @17, "anc/v1/endpoint",
                                  authorizerSigningPrivate);
     NSMutableDictionary *wrongEndpointAuthorizationMap =
         [authorizationUnsigned mutableCopy];
     wrongEndpointAuthorizationMap[@307] =
         [AncPrivateVaultCanonicalValue bytes:wrongEndpoint];
-    NSData *wrongEndpointAuthorization = Sign(
-        wrongEndpointAuthorizationMap, @311,
-        "anc/v1/enrollment-authorization", authorizerSigningPrivate);
+    NSData *wrongEndpointAuthorization =
+        Sign(wrongEndpointAuthorizationMap, @311,
+             "anc/v1/enrollment-authorization", authorizerSigningPrivate);
     assert(AncPrivateVaultEnrollmentAuthorizationVerify(
                offer.encodedOffer, challenge, wrongEndpointAuthorization,
                State(authorizerSigning, authorizerAgreement), 1721111100,
@@ -406,9 +468,9 @@ int main(void) {
         [authorizationUnsigned mutableCopy];
     wrongWrapAuthorizationMap[@308] =
         [AncPrivateVaultCanonicalValue bytes:wrongWrap];
-    NSData *wrongWrapAuthorization = Sign(
-        wrongWrapAuthorizationMap, @311,
-        "anc/v1/enrollment-authorization", authorizerSigningPrivate);
+    NSData *wrongWrapAuthorization =
+        Sign(wrongWrapAuthorizationMap, @311, "anc/v1/enrollment-authorization",
+             authorizerSigningPrivate);
     assert(AncPrivateVaultEnrollmentAuthorizationVerify(
                offer.encodedOffer, challenge, wrongWrapAuthorization,
                State(authorizerSigning, authorizerAgreement), 1721111100,
@@ -417,25 +479,24 @@ int main(void) {
            status ==
                AncPrivateVaultEnrollmentAuthorizationStatusBindingMismatch);
 
-    AncPrivateVaultCanonicalValue *wrongCandidateMember = Member(
-        candidateId, @"broker", YES, offer.signingPublicKey,
-        offer.keyAgreementPublicKey, Repeated(0x96, 16));
+    AncPrivateVaultCanonicalValue *wrongCandidateMember =
+        Member(candidateId, @"broker", YES, offer.signingPublicKey,
+               offer.keyAgreementPublicKey, Repeated(0x96, 16));
     NSMutableDictionary *wrongCommitMap = [commitMap mutableCopy];
     wrongCommitMap[@144] = [AncPrivateVaultCanonicalValue
         array:@[ authorizerMember, wrongCandidateMember ]];
     NSMutableDictionary *wrongEntryUnsigned = [entryUnsigned mutableCopy];
     wrongEntryUnsigned[@112] =
         [AncPrivateVaultCanonicalValue bytes:Encode(wrongCommitMap)];
-    NSData *wrongCommit = Sign(wrongEntryUnsigned, @114,
-                               "anc/v1/log-entry",
+    NSData *wrongCommit = Sign(wrongEntryUnsigned, @114, "anc/v1/log-entry",
                                authorizerSigningPrivate);
     NSMutableDictionary *wrongCommitAuthorizationMap =
         [authorizationUnsigned mutableCopy];
     wrongCommitAuthorizationMap[@309] =
         [AncPrivateVaultCanonicalValue bytes:wrongCommit];
-    NSData *wrongCommitAuthorization = Sign(
-        wrongCommitAuthorizationMap, @311,
-        "anc/v1/enrollment-authorization", authorizerSigningPrivate);
+    NSData *wrongCommitAuthorization =
+        Sign(wrongCommitAuthorizationMap, @311,
+             "anc/v1/enrollment-authorization", authorizerSigningPrivate);
     assert(AncPrivateVaultEnrollmentAuthorizationVerify(
                offer.encodedOffer, challenge, wrongCommitAuthorization,
                State(authorizerSigning, authorizerAgreement), 1721111100,
@@ -452,12 +513,11 @@ int main(void) {
            status == AncPrivateVaultEnrollmentAuthorizationStatusExpired);
     uint8_t wrongCandidateBoxSeed[32];
     memset(wrongCandidateBoxSeed, 0x34, sizeof wrongCandidateBoxSeed);
-    assert([verified
-               openEEKWithRecipientBoxSeed:wrongCandidateBoxSeed
-                                  consumer:^BOOL(
-                                      __unused const uint8_t *epochKey) {
-                                    return YES;
-                                  }] ==
+    assert([verified openEEKWithRecipientBoxSeed:wrongCandidateBoxSeed
+                                        consumer:^BOOL(
+                                            __unused const uint8_t *epochKey) {
+                                          return YES;
+                                        }] ==
            AncPrivateVaultEekWrapStatusBindingMismatch);
     anc_pv_zeroize(wrongCandidateBoxSeed, sizeof wrongCandidateBoxSeed);
 
@@ -465,8 +525,7 @@ int main(void) {
     anc_pv_zeroize(candidateBoxSeed, sizeof candidateBoxSeed);
     anc_pv_zeroize(authorizerSigningSeed, sizeof authorizerSigningSeed);
     anc_pv_zeroize(authorizerBoxSeed, sizeof authorizerBoxSeed);
-    anc_pv_zeroize(authorizerSigningPrivate,
-                   sizeof authorizerSigningPrivate);
+    anc_pv_zeroize(authorizerSigningPrivate, sizeof authorizerSigningPrivate);
     anc_pv_zeroize(authorizerBoxPrivate, sizeof authorizerBoxPrivate);
     anc_pv_zeroize(candidateBoxPrivate, sizeof candidateBoxPrivate);
     puts("private-vault enrollment authorization passed");
