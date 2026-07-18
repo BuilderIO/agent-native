@@ -2810,6 +2810,25 @@ static BOOL AncEnrollmentOfficialPublicStateValid(
       next.expected_edge_present = 1;
       next.expected_next_sequence = 0;
       memset(next.expected_previous_head, 0, ANC_PV_HASH_BYTES);
+    } else if (current.enrollment_phase ==
+               ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING) {
+      next.expected_edge_present = 0;
+      next.expected_next_sequence = 0;
+      memset(next.expected_previous_head, 0, ANC_PV_HASH_BYTES);
+      /* Legacy offer records predate the durable offer artifact. Bind the
+       * migrated pending state to the exact predecessor record so it cannot
+       * become an uncommitted current-format offer. It still cannot resume as
+       * a modern ceremony without the separately verified offer artifact. */
+      NSData *legacyRecordDigest = AncCustodyDigest(live);
+      if (legacyRecordDigest.length != ANC_PV_HASH_BYTES) {
+        AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+        status = closed == AncPrivateVaultCustodyRepositoryStatusOK
+                     ? AncPrivateVaultCustodyRepositoryStatusCorrupt
+                     : closed;
+        return;
+      }
+      memcpy(next.pending_transcript_digest, legacyRecordDigest.bytes,
+             ANC_PV_HASH_BYTES);
     } else {
       next.expected_edge_present = 0;
       next.expected_next_sequence = 0;

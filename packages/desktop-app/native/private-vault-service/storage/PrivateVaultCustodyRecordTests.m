@@ -343,6 +343,7 @@ static int test_state_matrices_and_boundaries(void) {
   snapshot.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
   snapshot.rotation_phase = ANC_PV_CUSTODY_ROTATION_NONE;
   snapshot.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  memset(snapshot.pending_transcript_digest, 0xa4, 32);
   set_id(snapshot.ceremony_id, &snapshot.ceremony_id_length, "ceremony-1");
   snapshot.active_epoch = 0;
   anc_pv_zeroize(secrets.active_epoch_key, 32);

@@ -441,6 +441,7 @@ static int RunEnrollmentBootstrapCase(
   offer.role = ANC_PV_CUSTODY_ROLE_BROKER;
   offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
   offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  AuthorityFill(offer.pending_transcript_digest, 32, 0x90);
   offer.custody_generation = 1;
   AuthoritySetId(offer.vault_id, &offer.vault_id_length, genesis.vaultId);
   AuthoritySetId(offer.endpoint_id, &offer.endpoint_id_length, candidateId);

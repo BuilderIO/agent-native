@@ -226,11 +226,20 @@ anc_pv_valid_public_state(const AncPrivateVaultCustodySnapshot *snapshot) {
     return 0;
   }
   if (!snapshot->expected_edge_present) {
+    const int boundEnrollmentOffer =
+        snapshot->record_version == ANC_PV_CUSTODY_VERSION &&
+        (snapshot->pending_kind == ANC_PV_CUSTODY_PENDING_ADD_DEVICE ||
+         snapshot->pending_kind == ANC_PV_CUSTODY_PENDING_ADD_BROKER) &&
+        snapshot->enrollment_phase ==
+            ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
     return snapshot->expected_next_sequence == 0 &&
            anc_pv_is_zero(snapshot->expected_previous_head,
                           ANC_PV_HASH_BYTES) &&
-           anc_pv_is_zero(snapshot->pending_transcript_digest,
-                          ANC_PV_HASH_BYTES);
+           (boundEnrollmentOffer
+                ? anc_pv_is_nonzero(snapshot->pending_transcript_digest,
+                                    ANC_PV_HASH_BYTES)
+                : anc_pv_is_zero(snapshot->pending_transcript_digest,
+                                 ANC_PV_HASH_BYTES));
   }
   if (anc_pv_is_zero(snapshot->pending_transcript_digest, ANC_PV_HASH_BYTES)) {
     return 0;

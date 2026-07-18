@@ -40,6 +40,8 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultSession.m"
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m"
+  "$SOURCE_ROOT/storage/PrivateVaultEnrollmentOfferArtifactStore.m"
+  "$SOURCE_ROOT/storage/PrivateVaultEnrollmentCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultResultSpool.m"
@@ -699,6 +701,43 @@ case "${PRIVATE_VAULT_BUILD_ENROLLMENT_OFFER_TESTS:-}" in
   build_enrollment_offer_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_enrollment_offer_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_ENROLLMENT_COORDINATOR_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  ENROLLMENT_COORDINATOR_TEST_OUTPUT="$OUTPUT_ROOT/.enrollment-coordinator-tests"
+  rm -rf "$ENROLLMENT_COORDINATOR_TEST_OUTPUT"
+  mkdir -p "$ENROLLMENT_COORDINATOR_TEST_OUTPUT"
+  build_enrollment_coordinator_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$ENROLLMENT_COORDINATOR_TEST_OUTPUT/private-vault-enrollment-coordinator-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -framework Foundation -framework Security -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultEnrollmentOfferArtifactStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultEnrollmentCoordinator.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultEnrollmentCoordinatorTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_enrollment_coordinator_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_enrollment_coordinator_tests x86_64
   fi
   ;;
 esac

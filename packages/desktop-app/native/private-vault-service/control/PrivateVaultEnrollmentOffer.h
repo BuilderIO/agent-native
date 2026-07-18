@@ -15,6 +15,15 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultEnrollmentOfferStatus) {
 @property(nonatomic, readonly) NSData *candidateKeyProof;
 @property(nonatomic, readonly) NSData *signingPublicKey;
 @property(nonatomic, readonly) NSData *keyAgreementPublicKey;
+@property(nonatomic, readonly) NSData *vaultId;
+@property(nonatomic, readonly) NSData *endpointId;
+@property(nonatomic, readonly) NSData *ceremonyId;
+@property(nonatomic, readonly) NSData *envelopeId;
+@property(nonatomic, readonly) NSData *enrollmentNonce;
+@property(nonatomic, readonly) NSString *membershipRole;
+@property(nonatomic, readonly) BOOL unattended;
+@property(nonatomic, readonly) uint64_t createdAt;
+@property(nonatomic, readonly) uint64_t expiresAt;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 @end
@@ -29,6 +38,13 @@ AncPrivateVaultEnrollmentOfferBuild(
     BOOL unattended, uint64_t createdAt, uint64_t expiresAt,
     const uint8_t *_Nonnull signingSeed,
     const uint8_t *_Nonnull boxSeed,
+    AncPrivateVaultEnrollmentOfferStatus *_Nullable status);
+
+/* Canonically decodes and re-hashes an exact offer, checks its frozen role and
+ * lifetime rules, and verifies the supplied candidate key-possession proof. */
+FOUNDATION_EXPORT AncPrivateVaultEnrollmentOfferResult *_Nullable
+AncPrivateVaultEnrollmentOfferVerify(
+    NSData *encodedOffer, NSData *candidateKeyProof, NSData *expectedVaultId,
     AncPrivateVaultEnrollmentOfferStatus *_Nullable status);
 
 NS_ASSUME_NONNULL_END

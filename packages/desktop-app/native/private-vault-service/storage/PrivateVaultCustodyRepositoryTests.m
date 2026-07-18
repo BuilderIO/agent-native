@@ -451,6 +451,9 @@ static NSData *LegacyRecord(NSData *v2Record) {
     /* Legacy genesis inferred its expected edge from sequence one. */
     memset(bytes + 872, 0, 8);
     bytes[879] = 1;
+  } else if (bytes[10] == ANC_PV_CUSTODY_PENDING_ADD_DEVICE ||
+             bytes[10] == ANC_PV_CUSTODY_PENDING_ADD_BROKER) {
+    memset(bytes + 912, 0, 32);
   }
   static const uint8_t domain[] =
       "agent-native/private-vault/custody-record/checksum/anc-v1";
@@ -2093,6 +2096,7 @@ static void TestEnrollmentAuthorizationAndPromotionCAS(void) {
   offer.role = ANC_PV_CUSTODY_ROLE_BROKER;
   offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
   offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  Fill(offer.pending_transcript_digest, 32, 0x91);
   SetId(offer.ceremony_id, &offer.ceremony_id_length,
         @"ceremony:broker-enrollment");
   offer.active_epoch = 0;
@@ -2214,6 +2218,7 @@ static void TestLegacyCodecMigrations(void) {
   offer.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
   offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_DEVICE;
   offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  Fill(offer.pending_transcript_digest, 32, 0x92);
   SetId(offer.ceremony_id, &offer.ceremony_id_length, @"ceremony-legacy");
   offer.active_epoch = 0;
   memset(secrets.activeKey, 0, 32);
@@ -2226,6 +2231,7 @@ static void TestLegacyCodecMigrations(void) {
   memset(offer.snapshot_digest, 0, 32);
   offer.freshness_ms = 0;
   NSData *legacyOffer = LegacyRecord(Encode(&offer, &secrets));
+  NSData *legacyOfferDigest = CustodyDigest(legacyOffer);
   SeedLegacy(keychain, legacyOffer, @"vault");
   AncPrivateVaultCustodyRepositoryStatus offerMigration =
       [repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1];
@@ -2236,7 +2242,9 @@ static void TestLegacyCodecMigrations(void) {
          AncPrivateVaultCustodyRepositoryStatusOK);
   assert(migrated.record_version == ANC_PV_CUSTODY_VERSION &&
          migrated.custody_generation == 2 &&
-         !migrated.authority_anchor_present && !migrated.expected_edge_present);
+         !migrated.authority_anchor_present && !migrated.expected_edge_present &&
+         memcmp(migrated.pending_transcript_digest, legacyOfferDigest.bytes,
+                32) == 0);
   assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
   assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1] ==
          AncPrivateVaultCustodyRepositoryStatusConflict);

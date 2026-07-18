@@ -47,6 +47,24 @@ int main(void) {
         isEqualToData:Hex(@"b44220e10afb6f46407104bc873bca0a6b245af6433165c41413fd56f2a6a5ed")]);
     assert([result.candidateKeyProof
         isEqualToData:Hex(@"9a7393a4e510dd83bfc8bc8078fdb1495b56c0d289127c40f46f6a558e54ffdf861e21c40543bfd51fe1904ab2b0b2fd76ba32d6455788f4bc1190d818ba7a09")]);
+    AncPrivateVaultEnrollmentOfferResult *verified =
+        AncPrivateVaultEnrollmentOfferVerify(
+            result.encodedOffer, result.candidateKeyProof, vault, &status);
+    assert(status == AncPrivateVaultEnrollmentOfferStatusOK &&
+           [verified.endpointId isEqualToData:endpoint] &&
+           [verified.ceremonyId isEqualToData:ceremony] &&
+           [verified.membershipRole isEqualToString:@"broker"] &&
+           verified.unattended && verified.createdAt == 1721117511 &&
+           verified.expiresAt == 1721118111);
+    NSMutableData *badProof = [result.candidateKeyProof mutableCopy];
+    ((uint8_t *)badProof.mutableBytes)[0] ^= 1;
+    assert(AncPrivateVaultEnrollmentOfferVerify(
+               result.encodedOffer, badProof, vault, &status) == nil &&
+           status == AncPrivateVaultEnrollmentOfferStatusCryptoFailed);
+    NSMutableData *badOffer = [result.encodedOffer mutableCopy];
+    ((uint8_t *)badOffer.mutableBytes)[badOffer.length - 1] ^= 1;
+    assert(AncPrivateVaultEnrollmentOfferVerify(
+               badOffer, result.candidateKeyProof, vault, &status) == nil);
     assert(AncPrivateVaultEnrollmentOfferBuild(
                vault, endpoint, ceremony, envelope, nonce, @"broker", NO,
                1721117511, 1721118111, signingSeed.bytes, boxSeed.bytes,
