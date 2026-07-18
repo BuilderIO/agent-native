@@ -1,8 +1,27 @@
 #import <Foundation/Foundation.h>
 
+#import "PrivateVaultControlLog.h"
+#import "PrivateVaultCustodyRepositoryGenesisInternal.h"
+#import "PrivateVaultGenesisBootstrap.h"
+#import "PrivateVaultGenesisBuilder.h"
+#import "PrivateVaultGenesisPreparationStoreInternal.h"
+#import "PrivateVaultRecoveryWrap.h"
 #import "PrivateVaultGenesisPreparationStore.h"
 
+#import <objc/runtime.h>
+
 #include <assert.h>
+
+@interface AncTestControlLogSubclass : AncPrivateVaultControlLog
+@end
+@implementation AncTestControlLogSubclass
+@end
+
+@interface AncTestCustodyRepositorySubclass
+    : AncPrivateVaultCustodyRepository
+@end
+@implementation AncTestCustodyRepositorySubclass
+@end
 
 static NSMutableDictionary<NSString *, NSData *> *gStore;
 
@@ -177,6 +196,71 @@ static AncPrivateVaultGenesisPreparationSnapshot ExpiredSnapshot(
   prepared.generation = 2;
   prepared.terminal_at_ms = prepared.expires_at_ms + 1;
   return prepared;
+}
+
+static AncPrivateVaultGuardedMemory *GuardedBytes(const uint8_t *bytes) {
+  AncPrivateVaultGuardedMemoryStatus status;
+  AncPrivateVaultGuardedMemory *memory =
+      [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&status];
+  assert(memory != nil && status == AncPrivateVaultGuardedMemoryStatusOK);
+  assert([memory borrow:^BOOL(uint8_t *destination, size_t length) {
+    assert(length == 32);
+    memcpy(destination, bytes, 32);
+    return YES;
+  }] == AncPrivateVaultGuardedMemoryStatusOK);
+  return memory;
+}
+
+static AncPrivateVaultPreparedGenesisArtifacts *PhaseFixture(
+    const uint8_t handle[48], uint8_t discriminator,
+    AncPrivateVaultGenesisPreparationSnapshot *snapshot,
+    uint8_t secrets[160]) {
+  *snapshot = PreparedSnapshot(handle, discriminator);
+  Fill(secrets, 160, (uint8_t)(0x11 + discriminator));
+  snapshot->prepared_at_ms = 100000;
+  snapshot->expires_at_ms = 400000;
+  AncPrivateVaultGuardedMemory *recovery = GuardedBytes(secrets);
+  AncPrivateVaultGuardedMemory *signing = GuardedBytes(secrets + 32);
+  AncPrivateVaultGuardedMemory *agreement = GuardedBytes(secrets + 64);
+  AncPrivateVaultGuardedMemory *eek = GuardedBytes(secrets + 128);
+  NSData *vault = [NSData dataWithBytes:snapshot->vault_id length:16];
+  NSData *ceremony = [NSData dataWithBytes:snapshot->ceremony_id length:16];
+  NSData *endpoint = [NSData dataWithBytes:snapshot->endpoint_id length:16];
+  AncPrivateVaultGenesisBuilderStatus builderStatus;
+  AncPrivateVaultPreparedGenesisArtifacts *artifacts =
+      AncPrivateVaultBuildGenesisArtifacts(
+          recovery, signing, agreement, eek, vault, ceremony, endpoint,
+          [NSData dataWithBytes:snapshot->recovery_wrap_envelope_id length:16],
+          [NSData dataWithBytes:snapshot->authorization_envelope_id length:16],
+          [NSData dataWithBytes:snapshot->endpoint_envelope_id length:16],
+          [NSData dataWithBytes:snapshot->log_entry_envelope_id length:16],
+          [NSData dataWithBytes:snapshot->recovery_wrap_nonce length:24], 150,
+          150, 150, 150, 150, &builderStatus);
+  assert(artifacts != nil &&
+         builderStatus == AncPrivateVaultGenesisBuilderStatusOK);
+  AncPrivateVaultGenesisBootstrapStatus bootstrapStatus;
+  AncPrivateVaultGenesisBootstrapResult *bootstrap =
+      AncPrivateVaultGenesisBootstrapVerify(
+          artifacts.bootstrapTranscript, artifacts.recoveryConfirmation, vault,
+          &bootstrapStatus);
+  AncPrivateVaultGenesisRecoveryConfirmation *confirmation =
+      AncPrivateVaultGenesisRecoveryConfirmationDecode(
+          artifacts.recoveryConfirmation, vault, &bootstrapStatus);
+  assert(bootstrap != nil && confirmation != nil);
+  memcpy(snapshot->endpoint_signing_public_key,
+         bootstrap.transcript.endpointSigningPublicKey.bytes, 32);
+  memcpy(snapshot->endpoint_agreement_public_key,
+         bootstrap.transcript.endpointKeyAgreementPublicKey.bytes, 32);
+  memcpy(snapshot->recovery_id, confirmation.recoveryId.bytes, 16);
+  memcpy(snapshot->recovery_signing_public_key,
+         confirmation.recoverySigningPublicKey.bytes, 32);
+  memcpy(snapshot->recovery_agreement_public_key,
+         confirmation.recoveryKeyAgreementPublicKey.bytes, 32);
+  assert([recovery close] == AncPrivateVaultGuardedMemoryStatusOK);
+  assert([signing close] == AncPrivateVaultGuardedMemoryStatusOK);
+  assert([agreement close] == AncPrivateVaultGuardedMemoryStatusOK);
+  assert([eek close] == AncPrivateVaultGuardedMemoryStatusOK);
+  return artifacts;
 }
 
 int main(void) {
@@ -557,6 +641,265 @@ int main(void) {
     anc_pv_zeroize(retirementSecretBytes, sizeof retirementSecretBytes);
     anc_pv_genesis_preparation_snapshot_zero(&retirementPrepared);
     anc_pv_genesis_preparation_snapshot_zero(&retirementExpired);
+
+    uint8_t phaseHandle[48];
+    Fill(phaseHandle, sizeof phaseHandle, 0x57);
+    uint8_t phaseSecretBytes[160];
+    AncPrivateVaultGenesisPreparationSnapshot phasePrepared;
+    AncPrivateVaultPreparedGenesisArtifacts *phaseArtifacts = PhaseFixture(
+        phaseHandle, 0x21, &phasePrepared, phaseSecretBytes);
+    AncPrivateVaultGenesisPreparationSecretInputs phaseSecrets = {
+        phaseSecretBytes, phaseSecretBytes + 32, phaseSecretBytes + 64,
+        phaseSecretBytes + 96, phaseSecretBytes + 128};
+    assert([first createSnapshot:&phasePrepared
+                         secrets:&phaseSecrets
+                          handle:phaseHandle
+                    handleLength:sizeof phaseHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    AncPrivateVaultControlLog *controlLog = [AncPrivateVaultControlLog new];
+    assert([first bindConfirmedHandle:phaseHandle
+                         handleLength:sizeof phaseHandle
+                            artifacts:phaseArtifacts
+                        confirmedAtMs:150001
+                           controlLog:controlLog] ==
+           AncPrivateVaultGenesisPreparationStoreStatusInvalid);
+    assert([first bindConfirmedHandle:phaseHandle
+                         handleLength:sizeof phaseHandle
+                            artifacts:phaseArtifacts
+                        confirmedAtMs:150000
+                           controlLog:[AncTestControlLogSubclass new]] ==
+           AncPrivateVaultGenesisPreparationStoreStatusInvalid);
+    uint8_t substituteHandle[48];
+    Fill(substituteHandle, sizeof substituteHandle, 0x69);
+    uint8_t substituteSecretBytes[160];
+    AncPrivateVaultGenesisPreparationSnapshot substituteSnapshot;
+    AncPrivateVaultPreparedGenesisArtifacts *substituteArtifacts = PhaseFixture(
+        substituteHandle, 0x31, &substituteSnapshot, substituteSecretBytes);
+    assert([first bindConfirmedHandle:phaseHandle
+                         handleLength:sizeof phaseHandle
+                            artifacts:substituteArtifacts
+                        confirmedAtMs:150000
+                           controlLog:controlLog] ==
+           AncPrivateVaultGenesisPreparationStoreStatusInvalid);
+    uint8_t mutationHandle[48];
+    Fill(mutationHandle, sizeof mutationHandle, 0x73);
+    uint8_t mutationSecretBytes[160];
+    AncPrivateVaultGenesisPreparationSnapshot mutationPrepared;
+    AncPrivateVaultPreparedGenesisArtifacts *mutationArtifacts = PhaseFixture(
+        mutationHandle, 0x37, &mutationPrepared, mutationSecretBytes);
+    AncPrivateVaultGenesisPreparationSecretInputs mutationSecrets = {
+        mutationSecretBytes, mutationSecretBytes + 32,
+        mutationSecretBytes + 64, mutationSecretBytes + 96,
+        mutationSecretBytes + 128};
+    assert([first createSnapshot:&mutationPrepared
+                         secrets:&mutationSecrets
+                          handle:mutationHandle
+                    handleLength:sizeof mutationHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    NSMutableData *mutatedWrap = [mutationArtifacts.recoveryWrap mutableCopy];
+    ((uint8_t *)mutatedWrap.mutableBytes)[mutatedWrap.length - 1] ^= 1;
+    __block BOOL artifactMutated = NO;
+    AncPrivateVaultGenesisPreparationArtifactSetFaultHookForTesting(
+        ^BOOL(AncPrivateVaultGenesisPreparationArtifactFaultPoint point) {
+          if (!artifactMutated &&
+              point ==
+                  AncPrivateVaultGenesisPreparationArtifactFaultBeforeReadback) {
+            Ivar wrapIvar = class_getInstanceVariable(
+                AncPrivateVaultPreparedGenesisArtifacts.class,
+                "_recoveryWrap");
+            assert(wrapIvar != NULL);
+            object_setIvar(mutationArtifacts, wrapIvar, mutatedWrap);
+            artifactMutated = YES;
+          }
+          return NO;
+        });
+    assert([first bindConfirmedHandle:mutationHandle
+                         handleLength:sizeof mutationHandle
+                            artifacts:mutationArtifacts
+                        confirmedAtMs:150000
+                           controlLog:controlLog] ==
+           AncPrivateVaultGenesisPreparationStoreStatusConflict);
+    AncPrivateVaultGenesisPreparationArtifactSetFaultHookForTesting(nil);
+    assert(artifactMutated);
+    assert([first bindConfirmedHandle:phaseHandle
+                         handleLength:sizeof phaseHandle
+                            artifacts:phaseArtifacts
+                        confirmedAtMs:150000
+                           controlLog:controlLog] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    AncPrivateVaultGenesisPreparationSnapshot phaseObserved;
+    assert([first readHandle:phaseHandle
+                    handleLength:sizeof phaseHandle
+                       snapshot:&phaseObserved
+                    secretHandle:nil] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           phaseObserved.phase ==
+               ANC_PV_GENESIS_PREPARATION_PHASE_CONFIRMED &&
+           phaseObserved.flags ==
+               (ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND |
+                ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE) &&
+           phaseObserved.generation == 3 &&
+           phaseObserved.confirmed_at_ms == 150000);
+    uint64_t confirmedGeneration = phaseObserved.generation;
+    assert([first bindConfirmedHandle:phaseHandle
+                         handleLength:sizeof phaseHandle
+                            artifacts:phaseArtifacts
+                        confirmedAtMs:150000
+                           controlLog:controlLog] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    assert([first readHandle:phaseHandle
+                    handleLength:sizeof phaseHandle
+                       snapshot:&phaseObserved
+                    secretHandle:nil] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           phaseObserved.generation == confirmedGeneration);
+    uint8_t wrongPhaseHandle[48];
+    memcpy(wrongPhaseHandle, phaseHandle, sizeof wrongPhaseHandle);
+    wrongPhaseHandle[47] ^= 1;
+    assert([first beginCommittingHandle:wrongPhaseHandle
+                            handleLength:sizeof wrongPhaseHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusNotFound);
+    assert([first beginCommittingHandle:phaseHandle
+                            handleLength:sizeof phaseHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    assert([first readHandle:phaseHandle
+                    handleLength:sizeof phaseHandle
+                       snapshot:&phaseObserved
+                    secretHandle:nil] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           phaseObserved.phase ==
+               ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTING &&
+           phaseObserved.generation == 4);
+    assert([first beginCommittingHandle:phaseHandle
+                            handleLength:sizeof phaseHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+
+    AncPrivateVaultCustodyRepository *custodyRepository =
+        [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+    uint8_t zeroActiveKey[32] = {0};
+    AncPrivateVaultCustodySecretInputs custodySecrets = {
+        .signing_seed = phaseSecretBytes + 32,
+        .box_seed = phaseSecretBytes + 64,
+        .local_state_key = phaseSecretBytes + 96,
+        .active_epoch_key = zeroActiveKey,
+        .pending_epoch_key = phaseSecretBytes + 128,
+    };
+    AncPrivateVaultPendingGenesisCustodyCheckpoint *installedCheckpoint = nil;
+    assert([custodyRepository
+               installPendingGenesisVaultId:LookupKey(phasePrepared.vault_id)
+                                  endpointId:LookupKey(phasePrepared.endpoint_id)
+                                  ceremonyId:LookupKey(phasePrepared.ceremony_id)
+                             signingPublicKey:
+                                 [NSData dataWithBytes:
+                                             phasePrepared
+                                                 .endpoint_signing_public_key
+                                                   length:32]
+                                  boxPublicKey:
+                                      [NSData dataWithBytes:
+                                                  phasePrepared
+                                                      .endpoint_agreement_public_key
+                                                    length:32]
+                       bootstrapTranscriptDigest:
+                           [NSData dataWithBytes:
+                                       phaseObserved.bootstrap_transcript_digest
+                                             length:32]
+                                     secrets:&custodySecrets
+                                  checkpoint:&installedCheckpoint] ==
+               AncPrivateVaultCustodyRepositoryStatusOK &&
+           installedCheckpoint.recordDigest.length == 32);
+    AncTestCustodyRepositorySubclass *custodySubclass =
+        [[AncTestCustodyRepositorySubclass alloc] initWithKeychain:keychain];
+    assert([first bindPendingGenesisCustodyHandle:phaseHandle
+                                     handleLength:sizeof phaseHandle
+                                custodyRepository:custodySubclass] ==
+           AncPrivateVaultGenesisPreparationStoreStatusInvalid);
+    assert([first bindPendingGenesisCustodyHandle:wrongPhaseHandle
+                                     handleLength:sizeof wrongPhaseHandle
+                                custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusNotFound);
+    assert([first bindPendingGenesisCustodyHandle:phaseHandle
+                                     handleLength:sizeof phaseHandle
+                                custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    assert([first readHandle:phaseHandle
+                    handleLength:sizeof phaseHandle
+                       snapshot:&phaseObserved
+                    secretHandle:nil] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           phaseObserved.generation == 5 &&
+           (phaseObserved.flags &
+            ANC_PV_GENESIS_PREPARATION_FLAG_CUSTODY_RECORD_BOUND) != 0 &&
+           memcmp(phaseObserved.custody_record_digest,
+                  installedCheckpoint.recordDigest.bytes, 32) == 0);
+    assert([first bindPendingGenesisCustodyHandle:phaseHandle
+                                     handleLength:sizeof phaseHandle
+                                custodyRepository:custodyRepository] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+
+    uint8_t crashHandle[48];
+    Fill(crashHandle, sizeof crashHandle, 0x7b);
+    uint8_t crashSecretBytes[160];
+    AncPrivateVaultGenesisPreparationSnapshot crashPrepared;
+    AncPrivateVaultPreparedGenesisArtifacts *crashArtifacts = PhaseFixture(
+        crashHandle, 0x41, &crashPrepared, crashSecretBytes);
+    AncPrivateVaultGenesisPreparationSecretInputs crashSecrets = {
+        crashSecretBytes, crashSecretBytes + 32, crashSecretBytes + 64,
+        crashSecretBytes + 96, crashSecretBytes + 128};
+    assert([first createSnapshot:&crashPrepared
+                         secrets:&crashSecrets
+                          handle:crashHandle
+                    handleLength:sizeof crashHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(
+        ^BOOL(AncPrivateVaultGenesisPreparationStoreFaultPoint point) {
+          return point ==
+                 AncPrivateVaultGenesisPreparationStoreFaultBeforeArtifactPromote;
+        });
+    assert([first bindConfirmedHandle:crashHandle
+                         handleLength:sizeof crashHandle
+                            artifacts:crashArtifacts
+                        confirmedAtMs:150000
+                           controlLog:controlLog] ==
+           AncPrivateVaultGenesisPreparationStoreStatusFailed);
+    AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(nil);
+    assert([second reconcileHandle:crashHandle
+                      handleLength:sizeof crashHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(
+        ^BOOL(AncPrivateVaultGenesisPreparationStoreFaultPoint point) {
+          return point ==
+                 AncPrivateVaultGenesisPreparationStoreFaultAfterLiveWrite;
+        });
+    assert([first beginCommittingHandle:crashHandle
+                            handleLength:sizeof crashHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusFailed);
+    AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(nil);
+    assert([second reconcileHandle:crashHandle
+                      handleLength:sizeof crashHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+    AncPrivateVaultGenesisPreparationSnapshot crashObserved;
+    assert([second readHandle:crashHandle
+                     handleLength:sizeof crashHandle
+                        snapshot:&crashObserved
+                     secretHandle:nil] ==
+               AncPrivateVaultGenesisPreparationStoreStatusOK &&
+           crashObserved.phase ==
+               ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTING);
+    assert([second beginCommittingHandle:crashHandle
+                             handleLength:sizeof crashHandle] ==
+           AncPrivateVaultGenesisPreparationStoreStatusOK);
+
+    anc_pv_zeroize(crashSecretBytes, sizeof crashSecretBytes);
+    anc_pv_zeroize(mutationSecretBytes, sizeof mutationSecretBytes);
+    anc_pv_zeroize(substituteSecretBytes, sizeof substituteSecretBytes);
+    anc_pv_zeroize(phaseSecretBytes, sizeof phaseSecretBytes);
+    anc_pv_zeroize(zeroActiveKey, sizeof zeroActiveKey);
+    anc_pv_genesis_preparation_snapshot_zero(&crashPrepared);
+    anc_pv_genesis_preparation_snapshot_zero(&crashObserved);
+    anc_pv_genesis_preparation_snapshot_zero(&mutationPrepared);
+    anc_pv_genesis_preparation_snapshot_zero(&substituteSnapshot);
+    anc_pv_genesis_preparation_snapshot_zero(&phasePrepared);
+    anc_pv_genesis_preparation_snapshot_zero(&phaseObserved);
 
     NSArray<NSData *> *lookupIds = nil;
     assert([first listPreparationLookupIds:&lookupIds] ==

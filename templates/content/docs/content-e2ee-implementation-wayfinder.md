@@ -509,6 +509,19 @@ Current-source x86_64 execution remains pending because both the coordinator
 runner and a libsodium configure probe wedged in Rosetta before entering their
 tests; no translated result is being inferred from the arm64 pass.
 
+The durable preparation store now has proof-specific production transitions
+for the first-device path. Confirmation re-snapshots and freshly authenticates
+all five public artifact properties, replays the signed genesis entry, enforces
+one exact confirmed second across the frozen signed timestamp tuple, stages and
+promotes the digest-bound artifact frame, and constructs the CONFIRMED record
+internally. COMMITTING is reachable only from live CONFIRMED artifacts, and the
+custody-binding step independently rereads the exact pending-genesis g1 before
+persisting its full wire-record fence digest. Exact retries are no-ops; wrong
+tokens, timestamp truncation, identity substitution, mutable caller artifacts,
+and custody substitution fail closed. The arm64 production build, focused
+preparation storage suite, and custody repository suite pass. This is a
+store-level checkpoint, not yet a user-visible first-device ceremony.
+
 This still does not close PR 5: the trusted confirmation UI, durable
 PREPARE/cancel/expiry, persistence of the actual recoverable epoch wrap,
 complete enrollment and recovery product flows, malicious-directory and

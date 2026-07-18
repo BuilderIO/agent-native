@@ -805,7 +805,8 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror
       -DANC_PRIVATE_VAULT_TESTING=1
       -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture"
-      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/storage"
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control"
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery"
       -I"$sodium_root/include"
       -framework Foundation -framework Security -framework LocalAuthentication
     )
@@ -823,9 +824,20 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
       -o "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-artifact-tests-$architecture"
     xcrun clang "${common[@]}" \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m" \

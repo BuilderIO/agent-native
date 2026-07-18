@@ -356,6 +356,23 @@ readback tests pass with an independent GO. No custody row is created while a
 ceremony is merely PREPARED: only explicit confirmation may enter COMMITTING
 and install g1 with the authenticated bootstrap digest.
 
+The preparation store now owns the first proof-bearing production transitions.
+It freshly verifies the recovery wrap, complete recovery confirmation,
+bootstrap transcript, authorization, and signed control-log replay before it
+may bind `CONFIRMED`; a caller cannot supply the next record or its
+commitments. PREPARE retains a zero confirmation-time tuple. Confirmation
+requires an exact millisecond-to-second boundary and binds every signed
+created-at value to that one confirmed second, avoiding truncation and
+caller-selected timestamp drift. The store then promotes the exact staged
+artifact frame, enters `COMMITTING`, independently rereads the exact pending-g1
+custody tuple, and binds its full generation-fence record digest. Every step is
+exactly idempotent across ambiguity. Wrong handles disclose no state,
+substitution and caller mutation conflict, and production still has no generic
+lifecycle transition or live-delete surface. This closes the store-level
+confirmation and pending-custody seam; the coordinator must still generate and
+compare the confirmed recovery entropy, install g1 from guarded secrets, commit
+official g2, and bind terminal proof.
+
 This is still not a usable PREPARE ceremony. The phase-specific coordinator,
 pending-g1 custody installation, proof-bound confirmation, expiry and
 cancellation policy, terminal receipt cleanup, startup orchestration, and the
