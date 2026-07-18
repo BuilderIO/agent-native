@@ -95,6 +95,32 @@ describe("migration manifest guard", () => {
     );
   });
 
+  it("accepts conditional declaration and runtime tombstone targets", () => {
+    assert.deepEqual(
+      checkMigrationManifest(
+        {
+          ...manifest,
+          exports: {
+            ".": "./dist/index.js",
+            "./legacy": {
+              types: "./dist/legacy.tombstone.d.ts",
+              import: "./dist/legacy.tombstone.js",
+              default: "./dist/legacy.tombstone.js",
+            },
+          },
+          sideEffects: ["./dist/legacy.tombstone.js"],
+        },
+        snapshot,
+        {
+          moves: {
+            "@agent-native/core/legacy": { to: "@agent-native/core/new" },
+          },
+        },
+      ),
+      [],
+    );
+  });
+
   it("rejects changed targets unless the new target is a tombstone", () => {
     const violations = checkMigrationManifest(
       {

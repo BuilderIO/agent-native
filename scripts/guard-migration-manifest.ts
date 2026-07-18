@@ -36,11 +36,16 @@ function packageSpecifier(packageName: string, exportKey: string): string {
     : `${packageName}${exportKey.slice(1)}`;
 }
 
+function tombstonePath(target: string): boolean {
+  return /(?:^|[/.\\-])tombstone(?:[/.\\-]|$)/.test(target);
+}
+
+function runtimeTombstoneTarget(target: string): boolean {
+  return tombstonePath(target) && /\.(?:[cm]?js)$/.test(target);
+}
+
 function tombstoneTarget(target: string): boolean {
-  return (
-    /(?:^|[/.\\-])tombstone(?:[/.\\-]|$)/.test(target) &&
-    /\.(?:[cm]?js)$/.test(target)
-  );
+  return tombstonePath(target) && /(?:\.d\.ts|\.(?:[cm]?js))$/.test(target);
 }
 
 function collectExportTargets(value: ExportValue): string[] {
@@ -116,7 +121,8 @@ export function checkMigrationManifest(
     );
     if (
       addedTargets.length === 0 ||
-      addedTargets.some((target) => !tombstoneTarget(target))
+      addedTargets.some((target) => !tombstoneTarget(target)) ||
+      !addedTargets.some(runtimeTombstoneTarget)
     ) {
       violations.push({
         packageName,
@@ -130,7 +136,7 @@ export function checkMigrationManifest(
         message: `${specifier} changed to a tombstone target but has no exact migration manifest move.`,
       });
     }
-    for (const target of addedTargets) {
+    for (const target of addedTargets.filter(runtimeTombstoneTarget)) {
       if (isSideEffectPinned(packageManifest, target)) continue;
       violations.push({
         packageName,
@@ -140,7 +146,9 @@ export function checkMigrationManifest(
   }
 
   for (const [exportKey, exportValue] of Object.entries(exports)) {
-    const targets = normalizedTargets(exportValue).filter(tombstoneTarget);
+    const targets = normalizedTargets(exportValue).filter(
+      runtimeTombstoneTarget,
+    );
     if (targets.length === 0) continue;
     const specifier = packageSpecifier(packageName, exportKey);
     if (!hasExactMove(moves, specifier)) {
