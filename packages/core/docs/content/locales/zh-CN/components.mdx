@@ -173,8 +173,9 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## 聊天字段和作曲家 {#composer}
 
-当您需要进行相同的聊天时，请使用`@agent-native/core/client/composer`
-自定义UI内的侧边栏使用的字段。
+当您需要在自定义 UI 中使用与侧边栏相同的聊天字段时，请使用 `@agent-native/core/client/composer`。
+`@agent-native/toolkit/composer` 提供可移植的纯 Tiptap 和 UI 实现；要使用框架服务，
+请用 `ComposerRuntimeAdaptersProvider` 包裹它并提供这些服务。Core 是已连接附件、提及、技能、语音和模型选择的包装器。
 
 | API                               | 何时使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
