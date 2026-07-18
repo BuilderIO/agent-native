@@ -78,6 +78,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGenesisPreparationStoreFaultPoint) {
   AncPrivateVaultGenesisPreparationStoreFaultBeforeStageDelete,
   AncPrivateVaultGenesisPreparationStoreFaultBeforeArtifactPromote,
   AncPrivateVaultGenesisPreparationStoreFaultAfterMarkerBeforeStageWrite,
+  AncPrivateVaultGenesisPreparationStoreFaultAfterArtifactStageBeforePreparationCAS,
+  AncPrivateVaultGenesisPreparationStoreFaultAfterCancelledCustodyBeforePreparationCAS,
 };
 #if ANC_PRIVATE_VAULT_TESTING
 typedef BOOL (^AncPrivateVaultGenesisPreparationStoreFaultHook)(

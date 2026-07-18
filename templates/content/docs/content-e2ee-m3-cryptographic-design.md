@@ -387,14 +387,35 @@ The arm64 production build and full synthetic coordinator ceremony pass. This
 native API remains internal and is not yet a trusted user-facing ceremony or a
 restart-without-handle startup path.
 
+Cancellation and expiry now have proof-specific native production paths too.
+Cancellation never deletes custody as if it had not existed: pending g1 becomes
+a local, unanchored cancelled-genesis g2 tombstone that retains only public
+identity keys, binds the exact predecessor wire-record digest, and contains no
+custody secrets. The preparation record binds the tombstone digest before its
+own secrets are terminalized. A hardened authority-absence proof checks both
+live and staged authority paths without misclassifying valid pending custody as
+official state. PREPARED and CONFIRMED ceremonies with no custody prove custody
+absence instead. Bound live artifacts, fully ceremony-bound orphan stages, and
+the coordinator's separate vault-bound genesis spool are each deleted through
+narrow authenticated methods before cancellation reports success. The
+predecessor g1 digest is the idempotency key, and a retry reuses the tombstone's
+original cancellation time rather than the later wall clock. Expiry is narrower: only PREPARED may expire,
+only strictly after its durable deadline, and only with custody and authority
+absent. The affected codec, repository, authority, storage, and end-to-end
+coordinator suites pass on current-source arm64, including every custody fence
+fault, ambiguous writes, concurrency, substitution, orphan-stage cleanup,
+cancellation before confirmation, and cancellation after pending custody but
+before official authority.
+
 This is still not a usable PREPARE ceremony. The phase-specific coordinator,
-pending-g1 custody installation, proof-bound confirmation, expiry and
-cancellation policy, terminal receipt cleanup, startup orchestration, and the
-trusted desktop confirmation surface remain required before any vault can be
-created. The future coordinator must add a narrow live-artifact cleanup
-capability that independently verifies terminal and hosted-receipt proof; it
-must not restore a raw live-delete or caller-authored transition API. No builder
-or preparation operation is exposed through XPC, addon, preload, UI, or hosted
+pending-g1 custody installation, proof-bound confirmation, and local
+cancel/expiry policy are implemented, but startup orchestration without the
+bearer, persisted trusted-time rollback defense, committed receipt cleanup, and
+the trusted desktop confirmation surface remain required before any vault can
+be created. Committed cleanup must independently verify terminal and
+hosted-receipt proof; it must not turn the cancellation-only digest-bound delete
+into a raw live-delete or caller-authored transition API. No builder or
+preparation operation is exposed through XPC, addon, preload, UI, or hosted
 JavaScript. Current-source x86_64 parity remains a machine-level proof gap while
 Rosetta is wedged before test entry.
 

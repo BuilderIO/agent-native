@@ -471,6 +471,57 @@ static int test_state_matrices_and_boundaries(void) {
       ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
 
+  snapshot.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS;
+  snapshot.pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
+  snapshot.rotation_phase = ANC_PV_CUSTODY_ROTATION_NONE;
+  snapshot.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
+  snapshot.custody_generation = 2;
+  snapshot.expected_edge_present = 0;
+  snapshot.pending_epoch = 0;
+  snapshot.ceremony_id_length = 0;
+  anc_pv_zeroize(snapshot.ceremony_id, sizeof snapshot.ceremony_id);
+  snapshot.expected_next_sequence = 0;
+  anc_pv_zeroize(snapshot.expected_previous_head, 32);
+  anc_pv_zeroize(snapshot.pending_transcript_digest, 32);
+  fill(snapshot.removal_head, 32, 0xa1);
+  fill(snapshot.removal_authorization_digest, 32, 0xc1);
+  snapshot.removal_time_ms = 1700000001777ULL;
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  source = inputs(&secrets);
+  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
+                                     sizeof record) == ANC_PV_CUSTODY_OK);
+  AncPrivateVaultCustodySnapshot cancelled;
+  TestSecrets cancelled_secrets;
+  memset(&cancelled_secrets, 0xa5, sizeof cancelled_secrets);
+  AncPrivateVaultCustodySecretOutputs cancelled_outputs =
+      outputs(&cancelled_secrets);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &cancelled,
+                                     &cancelled_outputs) == ANC_PV_CUSTODY_OK);
+  CHECK(cancelled.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
+        cancelled.custody_generation == 2 &&
+        memcmp(cancelled.removal_head, snapshot.removal_head, 32) == 0 &&
+        all_zero(&cancelled_secrets, sizeof cancelled_secrets));
+  snapshot.removal_head[0] = 0;
+  anc_pv_zeroize(snapshot.removal_head, 32);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  fill(snapshot.removal_head, 32, 0xa1);
+  secrets.local_state_key[0] = 1;
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  secrets.local_state_key[0] = 0;
+  snapshot.pending_epoch = 1;
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  snapshot.pending_epoch = 0;
+  snapshot.authority_anchor_present = 1;
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
+
   CHECK(make_active(&snapshot, &secrets) == 0);
   source = inputs(&secrets);
   snapshot.custody_generation = 9007199254740992ULL;

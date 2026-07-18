@@ -531,14 +531,33 @@ official reread, and preparation-secret erasure. A second confirmation is an
 exact no-op backed by the same official state. Current-source arm64 production,
 coordinator, preparation-storage, and custody-repository suites pass. The
 ceremony remains native-internal: startup resumption without the bearer handle,
-cancel/expiry tombstones, persisted trusted-time floors, and the trusted
-desktop UI are still open gates.
+persisted trusted-time floors, and the trusted desktop UI are still open gates.
+
+The native lifecycle now also closes cancellation and expiry without inventing
+authority. User-authorized cancellation works from PREPARED, CONFIRMED, and
+COMMITTING; it first proves that both hardened authority paths are absent. If a
+pending g1 custody record exists—even across an interrupted bind—it is bound,
+replaced by a secret-free cancelled-genesis g2 tombstone, and linked to its
+exact predecessor wire digest. The preparation record then terminalizes all
+five secrets, replaces its g1 custody digest with the tombstone digest, deletes
+the exact bound public spool or a fully ceremony-bound unbound stage, deletes
+the coordinator's separate vault-bound genesis spool, and retires its
+preparation marker. The predecessor g1 digest—not a caller's retry clock—is the
+cancellation identity, so a retry preserves the tombstone's original terminal
+time after a crash. PREPARED expiry is permitted only strictly after its durable deadline
+and only while authority and custody remain absent. Both operations are
+restart-idempotent. Codec, custody repository, authority, preparation storage,
+and complete coordinator tests cover substitution, generic tombstone writes,
+all custody fence failures and ambiguous writes, concurrent cancellation,
+deadline boundaries, orphan-stage cleanup, cancellation before confirmation,
+and cancellation after pending custody but before official authority. Arm64-only runners are now
+explicit for the affected custody and authority suites.
 
 This still does not close PR 5: the trusted confirmation UI, durable
-PREPARE/cancel/expiry, persistence of the actual recoverable epoch wrap,
-complete enrollment and recovery product flows, malicious-directory and
-stolen-session transcripts, and the independently packageable broker exit gate
-remain.
+startup reconciliation and expiry without a bearer handle, persistence of a
+trusted-time floor, persistence of the actual recoverable epoch wrap, complete
+enrollment and recovery product flows, malicious-directory and stolen-session
+transcripts, and the independently packageable broker exit gate remain.
 
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the

@@ -877,6 +877,94 @@ static AncPrivateVaultGenesisPreparationArtifactStatus ReconcileArtifact(
 }
 
 - (AncPrivateVaultGenesisPreparationArtifactStatus)
+    deleteUnboundStagedLookupId:(const uint8_t *)lookupId
+                        vaultId:(const uint8_t *)vaultId
+                     ceremonyId:(const uint8_t *)ceremonyId
+                     generation:(uint64_t)generation {
+  if (lookupId == NULL || vaultId == NULL || ceremonyId == NULL ||
+      generation == 0) {
+    return AncPrivateVaultGenesisPreparationArtifactStatusInvalid;
+  }
+  __block AncPrivateVaultGenesisPreparationArtifactStatus status =
+      AncPrivateVaultGenesisPreparationArtifactStatusOK;
+  dispatch_sync(self.queue, ^{
+    NSString *name =
+        [LookupHex(lookupId) stringByAppendingString:@".stage"];
+    NSData *frame = nil;
+    const AncFileReadStatus readStatus = ReadExactFile(
+        self->_directoryDescriptor, name,
+        ANC_PV_GENESIS_PREPARATION_ARTIFACT_HEADER_BYTES,
+        kMaximumArtifactFrameBytes, &frame);
+    if (readStatus == AncFileReadStatusNotFound) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusNotFound;
+      return;
+    }
+    if (readStatus == AncFileReadStatusUnsafe) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusCorrupt;
+      return;
+    }
+    if (readStatus != AncFileReadStatusOK) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusStorageFailed;
+      return;
+    }
+    if (!ValidateArtifactFrame(frame, lookupId, vaultId, ceremonyId,
+                               generation, NULL, nil)) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusBindingMismatch;
+      return;
+    }
+    if (ShouldFault(
+            AncPrivateVaultGenesisPreparationArtifactFaultBeforeUnlink) ||
+        unlinkat(self->_directoryDescriptor, name.UTF8String, 0) != 0 ||
+        fsync(self->_directoryDescriptor) != 0) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusStorageFailed;
+    }
+  });
+  return status;
+}
+
+- (AncPrivateVaultGenesisPreparationArtifactStatus)
+    deleteLiveLookupId:(const uint8_t *)lookupId
+        expectedDigest:(const uint8_t *)digest {
+  if (lookupId == NULL || digest == NULL) {
+    return AncPrivateVaultGenesisPreparationArtifactStatusInvalid;
+  }
+  __block AncPrivateVaultGenesisPreparationArtifactStatus status =
+      AncPrivateVaultGenesisPreparationArtifactStatusOK;
+  dispatch_sync(self.queue, ^{
+    NSString *name =
+        [LookupHex(lookupId) stringByAppendingString:@".live"];
+    NSData *frame = nil;
+    const AncFileReadStatus readStatus = ReadExactFile(
+        self->_directoryDescriptor, name,
+        ANC_PV_GENESIS_PREPARATION_ARTIFACT_HEADER_BYTES,
+        kMaximumArtifactFrameBytes, &frame);
+    if (readStatus == AncFileReadStatusNotFound) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusNotFound;
+      return;
+    }
+    if (readStatus == AncFileReadStatusUnsafe) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusCorrupt;
+      return;
+    }
+    if (readStatus != AncFileReadStatusOK) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusStorageFailed;
+      return;
+    }
+    if (!ValidateArtifactFrame(frame, lookupId, nil, nil, 0, digest, nil)) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusBindingMismatch;
+      return;
+    }
+    if (ShouldFault(
+            AncPrivateVaultGenesisPreparationArtifactFaultBeforeUnlink) ||
+        unlinkat(self->_directoryDescriptor, name.UTF8String, 0) != 0 ||
+        fsync(self->_directoryDescriptor) != 0) {
+      status = AncPrivateVaultGenesisPreparationArtifactStatusStorageFailed;
+    }
+  });
+  return status;
+}
+
+- (AncPrivateVaultGenesisPreparationArtifactStatus)
     createPreparationIndexLookupId:(const uint8_t *)lookupId
                        preparedAtMs:(uint64_t)preparedAtMs
                         expiresAtMs:(uint64_t)expiresAtMs {

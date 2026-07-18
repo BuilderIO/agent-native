@@ -3,6 +3,7 @@
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultAuthorityStore.h"
+#import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultControlLog.h"
 #import "PrivateVaultCustodyRepositoryGenesisInternal.h"
 #import "PrivateVaultGenesisAuthorization.h"
@@ -1699,6 +1700,12 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
     anc_pv_genesis_preparation_snapshot_zero(&observed);
     return AncPrivateVaultGenesisPreparationStoreStatusConflict;
   }
+  if (AncGenesisFault(
+          AncPrivateVaultGenesisPreparationStoreFaultAfterArtifactStageBeforePreparationCAS)) {
+    anc_pv_zeroize(artifactDigest, sizeof artifactDigest);
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  }
   AncPrivateVaultGenesisPreparationSnapshot expected = observed;
   anc_pv_genesis_preparation_snapshot_zero(&observed);
   NSData *stagedDigest = AncGenesisPublicBytes(artifactDigest, 32);
@@ -1756,8 +1763,36 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
     return AncPrivateVaultGenesisPreparationStoreStatusOK;
   }];
   anc_pv_genesis_preparation_snapshot_zero(&expected);
-  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    if (status == AncPrivateVaultGenesisPreparationStoreStatusConflict) {
+      AncPrivateVaultGenesisPreparationSnapshot afterConflict;
+      AncPrivateVaultGenesisPreparationStoreStatus reread =
+          [self readHandle:handle
+               handleLength:handleLength
+                  snapshot:&afterConflict
+               secretHandle:nil];
+      BOOL unbound =
+          reread == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          (afterConflict.flags &
+           ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND) == 0 &&
+          (afterConflict.phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED ||
+           afterConflict.phase ==
+               ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED ||
+           afterConflict.phase == ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED);
+      anc_pv_genesis_preparation_snapshot_zero(&afterConflict);
+      if (unbound) {
+        AncPrivateVaultGenesisPreparationArtifactStatus cleaned =
+            [self.artifactStore
+                deleteStagedLookupId:handle
+                      expectedDigest:stagedDigest.bytes];
+        if (cleaned != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+            cleaned !=
+                AncPrivateVaultGenesisPreparationArtifactStatusNotFound)
+          return AncGenesisArtifactStatus(cleaned);
+      }
+    }
     return status;
+  }
   AncPrivateVaultGenesisPreparationArtifactStatus reconciledArtifacts =
       [self.artifactStore reconcileLookupId:handle
                               expectedDigest:stagedDigest.bytes];
@@ -2055,6 +2090,364 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
     return AncPrivateVaultGenesisPreparationStoreStatusOK;
   }];
   anc_pv_genesis_preparation_snapshot_zero(&expected);
+  return status;
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    cancelHandle:(const uint8_t *)handle
+     handleLength:(size_t)handleLength
+    cancelledAtMs:(uint64_t)cancelledAtMs
+    authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+    custodyRepository:(AncPrivateVaultCustodyRepository *)custodyRepository {
+  if (handle == NULL ||
+      handleLength != ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES ||
+      cancelledAtMs == 0 || cancelledAtMs > kAncGenesisMaximumSafeInteger ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+
+  AncPrivateVaultGenesisPreparationSnapshot observed;
+  AncPrivateVaultGenesisPreparationStoreStatus status =
+      [self readHandle:handle
+          handleLength:handleLength
+             snapshot:&observed
+          secretHandle:nil];
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return status;
+  if (observed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED ||
+      observed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+  NSString *vaultId = AncGenesisHex(observed.vault_id, 16);
+  AncPrivateVaultAuthorityStoreStatus authorityStatus =
+      [authorityStore proveAuthorityAbsentVaultId:vaultId];
+  if (authorityStatus != AncPrivateVaultAuthorityStoreStatusNotFound) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return authorityStatus == AncPrivateVaultAuthorityStoreStatusOK ||
+                   authorityStatus == AncPrivateVaultAuthorityStoreStatusRemoved
+               ? AncPrivateVaultGenesisPreparationStoreStatusConflict
+               : AncGenesisAuthorityStatus(authorityStatus);
+  }
+
+  if (observed.phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED &&
+      observed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTING &&
+      (observed.flags &
+       ANC_PV_GENESIS_PREPARATION_FLAG_CUSTODY_RECORD_BOUND) == 0) {
+    AncPrivateVaultGenesisPreparationStoreStatus bound =
+        [self bindPendingGenesisCustodyHandle:handle
+                                 handleLength:handleLength
+                            custodyRepository:custodyRepository];
+    if (bound != AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        bound != AncPrivateVaultGenesisPreparationStoreStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return bound;
+    }
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    status = [self readHandle:handle
+                 handleLength:handleLength
+                    snapshot:&observed
+                 secretHandle:nil];
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+      return status;
+  }
+
+  NSData *cancelledCustodyDigest = nil;
+  __block uint64_t effectiveCancelledAtMs = cancelledAtMs;
+  if (observed.phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED &&
+      (observed.flags &
+       ANC_PV_GENESIS_PREPARATION_FLAG_CUSTODY_RECORD_BOUND) != 0) {
+    NSData *pendingDigest =
+        AncGenesisPublicBytes(observed.custody_record_digest, 32);
+    AncPrivateVaultCancelledGenesisCustodyCheckpoint *checkpoint = nil;
+    AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+        [custodyRepository cancelPendingGenesisVaultId:vaultId
+                                  expectedRecordDigest:pendingDigest
+                                         cancelledAtMs:cancelledAtMs
+                                            checkpoint:&checkpoint];
+    if (custodyStatus != AncPrivateVaultCustodyRepositoryStatusOK ||
+        checkpoint == nil || checkpoint.custodyGeneration != 2 ||
+        checkpoint.recordDigest.length != 32 ||
+        checkpoint.cancelledAtMs == 0 ||
+        checkpoint.cancelledAtMs > kAncGenesisMaximumSafeInteger ||
+        ![checkpoint.vaultId isEqualToString:vaultId]) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK
+                 ? AncPrivateVaultGenesisPreparationStoreStatusCorrupt
+                 : AncGenesisCustodyStatus(custodyStatus);
+    }
+    cancelledCustodyDigest = [checkpoint.recordDigest copy];
+    effectiveCancelledAtMs = checkpoint.cancelledAtMs;
+    if (AncGenesisFault(
+            AncPrivateVaultGenesisPreparationStoreFaultAfterCancelledCustodyBeforePreparationCAS)) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncPrivateVaultGenesisPreparationStoreStatusFailed;
+    }
+  } else if (observed.phase !=
+             ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED) {
+    AncPrivateVaultCustodySnapshot custody = {0};
+    AncPrivateVaultCustodyHandle *custodyHandle = nil;
+    AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+        [custodyRepository readVaultId:vaultId
+                              snapshot:&custody
+                                handle:&custodyHandle];
+    AncPrivateVaultCustodyRepositoryStatus closeStatus =
+        custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                             : [custodyHandle close];
+    anc_pv_custody_snapshot_zero(&custody);
+    if (closeStatus != AncPrivateVaultCustodyRepositoryStatusOK ||
+        custodyStatus != AncPrivateVaultCustodyRepositoryStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return closeStatus != AncPrivateVaultCustodyRepositoryStatusOK
+                 ? AncGenesisCustodyStatus(closeStatus)
+                 : (custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK
+                        ? AncPrivateVaultGenesisPreparationStoreStatusConflict
+                        : AncGenesisCustodyStatus(custodyStatus));
+    }
+  }
+
+  if (observed.phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED) {
+    if (observed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+        cancelledAtMs > observed.expires_at_ms) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+    }
+    if (observed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED) {
+      AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+          [self.artifactStore
+              deleteUnboundStagedLookupId:observed.preparation_lookup_id
+                                  vaultId:observed.vault_id
+                               ceremonyId:observed.ceremony_id
+                               generation:2];
+      if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+          deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+        anc_pv_genesis_preparation_snapshot_zero(&observed);
+        return AncGenesisArtifactStatus(deleted);
+      }
+    }
+    AncPrivateVaultGenesisPreparationSnapshot expected = observed;
+    status = [self
+        guardedCASTransitionHandle:handle
+                      handleLength:handleLength
+                         construct:^AncPrivateVaultGenesisPreparationStoreStatus(
+                             const AncPrivateVaultGenesisPreparationSnapshot *current,
+                             AncPrivateVaultGenesisPreparationSnapshot *next,
+                             BOOL *shouldCommit, BOOL *terminalizeSecrets) {
+      if (!AncGenesisSnapshotPublicEqual(current, &expected))
+        return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      *next = *current;
+      next->phase = ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED;
+      next->generation++;
+      next->terminal_at_ms = effectiveCancelledAtMs;
+      if (current->phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED)
+        next->flags = ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED;
+      if ((current->flags &
+           ANC_PV_GENESIS_PREPARATION_FLAG_CUSTODY_RECORD_BOUND) != 0)
+        memcpy(next->custody_record_digest, cancelledCustodyDigest.bytes, 32);
+      *terminalizeSecrets = YES;
+      *shouldCommit = YES;
+      return AncPrivateVaultGenesisPreparationStoreStatusOK;
+    }];
+    anc_pv_genesis_preparation_snapshot_zero(&expected);
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+      return status;
+    status = [self readHandle:handle
+                 handleLength:handleLength
+                    snapshot:&observed
+                 secretHandle:nil];
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+      return status;
+  }
+
+  if ((observed.flags & ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) ==
+      0) {
+    AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+        AncPrivateVaultGenesisPreparationArtifactStatusNotFound;
+    if ((observed.flags &
+         ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND) != 0) {
+      AncPrivateVaultGenesisPreparationArtifactStatus promoted =
+          [self.artifactStore
+              reconcileLookupId:observed.preparation_lookup_id
+                  expectedDigest:observed.artifact_spool_digest];
+      if (promoted != AncPrivateVaultGenesisPreparationArtifactStatusOK) {
+        anc_pv_genesis_preparation_snapshot_zero(&observed);
+        return AncGenesisArtifactStatus(promoted);
+      }
+      deleted = [self.artifactStore
+          deleteLiveLookupId:observed.preparation_lookup_id
+              expectedDigest:observed.artifact_spool_digest];
+    } else {
+      deleted = [self.artifactStore
+          deleteUnboundStagedLookupId:observed.preparation_lookup_id
+                              vaultId:observed.vault_id
+                           ceremonyId:observed.ceremony_id
+                           generation:2];
+    }
+    if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+        deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncGenesisArtifactStatus(deleted);
+    }
+    AncPrivateVaultGenesisPreparationSnapshot expected = observed;
+    status = [self
+        guardedCASTransitionHandle:handle
+                      handleLength:handleLength
+                         construct:^AncPrivateVaultGenesisPreparationStoreStatus(
+                             const AncPrivateVaultGenesisPreparationSnapshot *current,
+                             AncPrivateVaultGenesisPreparationSnapshot *next,
+                             BOOL *shouldCommit, BOOL *terminalizeSecrets) {
+      if (!AncGenesisSnapshotPublicEqual(current, &expected) ||
+          current->phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED)
+        return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      *next = *current;
+      next->flags &=
+          (uint8_t)~ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE;
+      next->flags |= ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED;
+      next->generation++;
+      *terminalizeSecrets = YES;
+      *shouldCommit = YES;
+      return AncPrivateVaultGenesisPreparationStoreStatusOK;
+    }];
+    anc_pv_genesis_preparation_snapshot_zero(&expected);
+  } else if ((observed.flags &
+              ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND) == 0) {
+    AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+        [self.artifactStore
+            deleteUnboundStagedLookupId:observed.preparation_lookup_id
+                                vaultId:observed.vault_id
+                             ceremonyId:observed.ceremony_id
+                             generation:2];
+    if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+        deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncGenesisArtifactStatus(deleted);
+    }
+  }
+  uint8_t lookupId[ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES] = {0};
+  memcpy(lookupId, observed.preparation_lookup_id, sizeof lookupId);
+  anc_pv_genesis_preparation_snapshot_zero(&observed);
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    anc_pv_zeroize(lookupId, sizeof lookupId);
+    return status;
+  }
+  AncPrivateVaultGenesisPreparationStoreStatus reconciled =
+      [self reconcileLookupId:lookupId length:sizeof lookupId];
+  anc_pv_zeroize(lookupId, sizeof lookupId);
+  return reconciled;
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    expireHandle:(const uint8_t *)handle
+     handleLength:(size_t)handleLength
+     expiredAtMs:(uint64_t)expiredAtMs
+    authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+    custodyRepository:(AncPrivateVaultCustodyRepository *)custodyRepository {
+  if (handle == NULL ||
+      handleLength != ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES ||
+      expiredAtMs == 0 || expiredAtMs > kAncGenesisMaximumSafeInteger ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+  AncPrivateVaultGenesisPreparationSnapshot observed;
+  AncPrivateVaultGenesisPreparationStoreStatus status =
+      [self readHandle:handle
+          handleLength:handleLength
+             snapshot:&observed
+          secretHandle:nil];
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return status;
+  if (observed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED) {
+    uint8_t lookupId[ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES] = {0};
+    memcpy(lookupId, observed.preparation_lookup_id, sizeof lookupId);
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    AncPrivateVaultGenesisPreparationStoreStatus reconciled =
+        [self reconcileLookupId:lookupId length:sizeof lookupId];
+    anc_pv_zeroize(lookupId, sizeof lookupId);
+    return reconciled;
+  }
+  if (observed.phase != ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED ||
+      expiredAtMs <= observed.expires_at_ms) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+  NSString *vaultId = AncGenesisHex(observed.vault_id, 16);
+  AncPrivateVaultAuthorityStoreStatus authorityStatus =
+      [authorityStore proveAuthorityAbsentVaultId:vaultId];
+  AncPrivateVaultCustodySnapshot custody = {0};
+  AncPrivateVaultCustodyHandle *custodyHandle = nil;
+  AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+      [custodyRepository readVaultId:vaultId
+                            snapshot:&custody
+                              handle:&custodyHandle];
+  AncPrivateVaultCustodyRepositoryStatus closeStatus =
+      custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                           : [custodyHandle close];
+  anc_pv_custody_snapshot_zero(&custody);
+  if (authorityStatus != AncPrivateVaultAuthorityStoreStatusNotFound ||
+      custodyStatus != AncPrivateVaultCustodyRepositoryStatusNotFound ||
+      closeStatus != AncPrivateVaultCustodyRepositoryStatusOK) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    if (authorityStatus == AncPrivateVaultAuthorityStoreStatusOK ||
+        authorityStatus == AncPrivateVaultAuthorityStoreStatusRemoved ||
+        custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK)
+      return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+    if (authorityStatus != AncPrivateVaultAuthorityStoreStatusNotFound)
+      return AncGenesisAuthorityStatus(authorityStatus);
+    return AncGenesisCustodyStatus(
+        closeStatus != AncPrivateVaultCustodyRepositoryStatusOK
+            ? closeStatus
+            : custodyStatus);
+  }
+  AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+      [self.artifactStore
+          deleteUnboundStagedLookupId:observed.preparation_lookup_id
+                              vaultId:observed.vault_id
+                           ceremonyId:observed.ceremony_id
+                           generation:2];
+  if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+      deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncGenesisArtifactStatus(deleted);
+  }
+  AncPrivateVaultGenesisPreparationSnapshot expected = observed;
+  uint8_t lookupId[ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES] = {0};
+  memcpy(lookupId, observed.preparation_lookup_id, sizeof lookupId);
+  anc_pv_genesis_preparation_snapshot_zero(&observed);
+  status = [self
+      guardedCASTransitionHandle:handle
+                    handleLength:handleLength
+                       construct:^AncPrivateVaultGenesisPreparationStoreStatus(
+                           const AncPrivateVaultGenesisPreparationSnapshot *current,
+                           AncPrivateVaultGenesisPreparationSnapshot *next,
+                           BOOL *shouldCommit, BOOL *terminalizeSecrets) {
+    if (!AncGenesisSnapshotPublicEqual(current, &expected))
+      return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+    *next = *current;
+    next->phase = ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED;
+    next->flags = ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED;
+    next->generation++;
+    next->terminal_at_ms = expiredAtMs;
+    *terminalizeSecrets = YES;
+    *shouldCommit = YES;
+    return AncPrivateVaultGenesisPreparationStoreStatusOK;
+  }];
+  if (status == AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    deleted = [self.artifactStore
+        deleteUnboundStagedLookupId:lookupId
+                            vaultId:expected.vault_id
+                         ceremonyId:expected.ceremony_id
+                         generation:2];
+    if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+        deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound)
+      status = AncGenesisArtifactStatus(deleted);
+  }
+  anc_pv_genesis_preparation_snapshot_zero(&expected);
+  if (status == AncPrivateVaultGenesisPreparationStoreStatusOK)
+    status = [self reconcileLookupId:lookupId length:sizeof lookupId];
+  anc_pv_zeroize(lookupId, sizeof lookupId);
   return status;
 }
 

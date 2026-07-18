@@ -1116,6 +1116,214 @@ static void TestPendingGenesisOwnsMutableInputs(void) {
   anc_pv_zeroize(bootstrapBytes, sizeof bootstrapBytes);
 }
 
+static NSData *InstallCancellationFixture(
+    AncPrivateVaultCustodyRepository *repository, NSString *vault,
+    uint8_t seed) {
+  TestSecrets secrets = {0};
+  Fill(secrets.signingSeed, 32, seed);
+  Fill(secrets.boxSeed, 32, (uint8_t)(seed + 32));
+  Fill(secrets.localKey, 32, (uint8_t)(seed + 64));
+  Fill(secrets.pendingKey, 32, (uint8_t)(seed + 96));
+  uint8_t signingPublic[32] = {0};
+  uint8_t signingPrivate[64] = {0};
+  uint8_t boxPublic[32] = {0};
+  uint8_t boxPrivate[32] = {0};
+  assert(anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                     secrets.signingSeed) ==
+         ANC_PV_CRYPTO_OK);
+  assert(anc_pv_box_seed_keypair(boxPublic, boxPrivate, secrets.boxSeed) ==
+         ANC_PV_CRYPTO_OK);
+  NSData *signing = [NSData dataWithBytes:signingPublic length:32];
+  NSData *box = [NSData dataWithBytes:boxPublic length:32];
+  uint8_t bootstrapBytes[32];
+  Fill(bootstrapBytes, sizeof bootstrapBytes, 0x95);
+  NSData *bootstrap = [NSData dataWithBytes:bootstrapBytes length:32];
+  AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
+  AncPrivateVaultPendingGenesisCustodyCheckpoint *pending = nil;
+  assert([repository installPendingGenesisVaultId:vault
+                                        endpointId:@"11112222333344445555666677778888"
+                                        ceremonyId:@"88887777666655554444333322221111"
+                                   signingPublicKey:signing
+                                        boxPublicKey:box
+                             bootstrapTranscriptDigest:bootstrap
+                                           secrets:&inputs
+                                        checkpoint:&pending] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  NSData *pendingDigest = [pending.recordDigest copy];
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+  anc_pv_zeroize(signingPublic, sizeof signingPublic);
+  anc_pv_zeroize(boxPublic, sizeof boxPublic);
+  anc_pv_zeroize(bootstrapBytes, sizeof bootstrapBytes);
+  return pendingDigest;
+}
+
+static void TestPendingGenesisCancellation(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  NSString *vault = @"abcdef0123456789abcdef0123456789";
+  NSData *pendingDigest = InstallCancellationFixture(repository, vault, 0x15);
+  NSMutableData *wrongDigest = [pendingDigest mutableCopy];
+  ((uint8_t *)wrongDigest.mutableBytes)[0] ^= 1;
+  AncPrivateVaultCancelledGenesisCustodyCheckpoint *cancelled = nil;
+  const uint64_t cancelledAtMs = 1700000000555ULL;
+  assert([repository cancelPendingGenesisVaultId:vault
+                            expectedRecordDigest:wrongDigest
+                                   cancelledAtMs:cancelledAtMs
+                                      checkpoint:&cancelled] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  assert(cancelled == nil);
+  assert([repository cancelPendingGenesisVaultId:vault
+                            expectedRecordDigest:pendingDigest
+                                   cancelledAtMs:cancelledAtMs
+                                      checkpoint:&cancelled] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(cancelled != nil && [cancelled.vaultId isEqualToString:vault] &&
+         cancelled.custodyGeneration == 2 &&
+         cancelled.recordDigest.length == 32 &&
+         cancelled.cancellationCommitment.length == 32 &&
+         cancelled.cancelledAtMs == cancelledAtMs);
+  NSData *terminalDigest = [cancelled.recordDigest copy];
+  NSData *commitment = [cancelled.cancellationCommitment copy];
+  BOOL immutable = NO;
+  @try {
+    [cancelled setValue:[NSMutableData dataWithLength:32]
+                 forKey:@"recordDigest"];
+  } @catch (__unused NSException *exception) {
+    immutable = YES;
+  }
+  assert(immutable && [cancelled.recordDigest isEqualToData:terminalDigest]);
+  AncPrivateVaultCustodySnapshot observed;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:vault snapshot:&observed handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(observed.lifecycle ==
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
+         observed.custody_generation == 2 &&
+         observed.removal_time_ms == cancelledAtMs && handle == nil &&
+         memcmp(observed.removal_head, pendingDigest.bytes, 32) == 0 &&
+         memcmp(observed.removal_authorization_digest, commitment.bytes, 32) ==
+             0);
+  AncPrivateVaultCustodySecretInputs zero = {0};
+  assert([repository storeSnapshot:&observed secrets:&zero vaultId:vault] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  anc_pv_custody_snapshot_zero(&observed);
+  AncPrivateVaultCancelledGenesisCustodyCheckpoint *retry = nil;
+  assert([repository cancelPendingGenesisVaultId:vault
+                            expectedRecordDigest:pendingDigest
+                                   cancelledAtMs:cancelledAtMs
+                                      checkpoint:&retry] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([retry.recordDigest isEqualToData:terminalDigest] &&
+         [retry.cancellationCommitment isEqualToData:commitment] &&
+         retry.cancelledAtMs == cancelledAtMs);
+  assert([repository cancelPendingGenesisVaultId:vault
+                            expectedRecordDigest:wrongDigest
+                                   cancelledAtMs:cancelledAtMs
+                                      checkpoint:&retry] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  assert([repository cancelPendingGenesisVaultId:vault
+                            expectedRecordDigest:pendingDigest
+                                   cancelledAtMs:cancelledAtMs + 1
+                                      checkpoint:&retry] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([retry.recordDigest isEqualToData:terminalDigest] &&
+         [retry.cancellationCommitment isEqualToData:commitment] &&
+         retry.cancelledAtMs == cancelledAtMs);
+}
+
+static void TestPendingGenesisCancellationCrashAndConcurrency(void) {
+  NSString *vault = @"abcdef0123456789abcdef0123456789";
+  const uint64_t cancelledAtMs = 1700000000666ULL;
+  for (NSUInteger failure = 1; failure <= 7; failure += 1) {
+    Reset();
+    AncPrivateVaultCustodyRepository *repository = Repository();
+    NSData *pendingDigest =
+        InstallCancellationFixture(repository, vault, (uint8_t)(0x16 + failure));
+    gMutationCount = 0;
+    gFailBefore = failure;
+    (void)[repository cancelPendingGenesisVaultId:vault
+                             expectedRecordDigest:pendingDigest
+                                    cancelledAtMs:cancelledAtMs
+                                       checkpoint:NULL];
+    gFailBefore = 0;
+    AncPrivateVaultCustodyRepository *restarted = Repository();
+    AncPrivateVaultCustodySnapshot observed;
+    AncPrivateVaultCustodyHandle *handle = nil;
+    assert([restarted readVaultId:vault snapshot:&observed handle:&handle] ==
+           AncPrivateVaultCustodyRepositoryStatusOK);
+    assert((observed.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
+            observed.custody_generation == 1 && handle != nil) ||
+           (observed.lifecycle ==
+                ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
+            observed.custody_generation == 2 && handle == nil));
+    if (handle != nil)
+      assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+    anc_pv_custody_snapshot_zero(&observed);
+    AncPrivateVaultCancelledGenesisCustodyCheckpoint *checkpoint = nil;
+    assert([restarted cancelPendingGenesisVaultId:vault
+                              expectedRecordDigest:pendingDigest
+                                     cancelledAtMs:cancelledAtMs
+                                        checkpoint:&checkpoint] ==
+           AncPrivateVaultCustodyRepositoryStatusOK);
+    assert(checkpoint.custodyGeneration == 2);
+    assert(gStore[KeyForService(AncPrivateVaultCustodyStageService)] == nil);
+  }
+  for (NSUInteger ambiguous = 1; ambiguous <= 7; ambiguous += 1) {
+    Reset();
+    AncPrivateVaultCustodyRepository *repository = Repository();
+    NSData *pendingDigest = InstallCancellationFixture(
+        repository, vault, (uint8_t)(0x26 + ambiguous));
+    gMutationCount = 0;
+    gCommitThenError = ambiguous;
+    AncPrivateVaultCancelledGenesisCustodyCheckpoint *checkpoint = nil;
+    assert([repository cancelPendingGenesisVaultId:vault
+                              expectedRecordDigest:pendingDigest
+                                     cancelledAtMs:cancelledAtMs
+                                        checkpoint:&checkpoint] ==
+           AncPrivateVaultCustodyRepositoryStatusOK);
+    gCommitThenError = 0;
+    assert(checkpoint.custodyGeneration == 2);
+  }
+
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  NSData *pendingDigest = InstallCancellationFixture(repository, vault, 0x45);
+  const size_t count = 32;
+  AncPrivateVaultCustodyRepositoryStatus *statuses =
+      calloc(count, sizeof *statuses);
+  assert(statuses != NULL);
+  dispatch_group_t group = dispatch_group_create();
+  for (size_t index = 0; index < count; index += 1) {
+    dispatch_group_async(
+        group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+          statuses[index] =
+              [Repository() cancelPendingGenesisVaultId:vault
+                                    expectedRecordDigest:pendingDigest
+                                           cancelledAtMs:cancelledAtMs + index
+                                              checkpoint:NULL];
+        });
+  }
+  dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+  size_t winners = 0;
+  for (size_t index = 0; index < count; index += 1)
+    if (statuses[index] == AncPrivateVaultCustodyRepositoryStatusOK)
+      winners += 1;
+  assert(winners == count);
+  free(statuses);
+  AncPrivateVaultCustodySnapshot observed;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([Repository() readVaultId:vault snapshot:&observed handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(observed.lifecycle ==
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
+         observed.custody_generation == 2 && handle == nil &&
+         observed.removal_time_ms >= cancelledAtMs &&
+         observed.removal_time_ms < cancelledAtMs + count);
+  anc_pv_custody_snapshot_zero(&observed);
+}
+
 static void TestSubstitutionAndPendingSourceSwap(void) {
   Reset();
   AncPrivateVaultCustodyRepository *repository = Repository();
@@ -1919,6 +2127,8 @@ int main(void) {
     TestGenesisTombstonesFailClosed();
     TestPendingGenesisInstallCheckpoint();
     TestPendingGenesisOwnsMutableInputs();
+    TestPendingGenesisCancellation();
+    TestPendingGenesisCancellationCrashAndConcurrency();
     TestSubstitutionAndPendingSourceSwap();
     TestHandleRevocationAndReadStoreSerialization();
     TestSixtyFourConcurrentWriters();

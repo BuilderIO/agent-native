@@ -13,6 +13,16 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)new NS_UNAVAILABLE;
 @end
 
+@interface AncPrivateVaultCancelledGenesisCustodyCheckpoint : NSObject
+@property(nonatomic, readonly) NSString *vaultId;
+@property(nonatomic, readonly) uint64_t custodyGeneration;
+@property(nonatomic, readonly) NSData *recordDigest;
+@property(nonatomic, readonly) NSData *cancellationCommitment;
+@property(nonatomic, readonly) uint64_t cancelledAtMs;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+@end
+
 @interface AncPrivateVaultCustodyRepository (GenesisInternal)
 
 /* Creates the one allowed pending-genesis g1 shape from confirmed, authenticated
@@ -44,6 +54,18 @@ NS_ASSUME_NONNULL_BEGIN
                             checkpoint:
                                 (AncPrivateVaultPendingGenesisCustodyCheckpoint
                                      *_Nullable *_Nullable)checkpoint;
+
+/* Exact pending-genesis g1 -> terminal cancelled-genesis g2 CAS. The expected
+ * digest is the full g1 wire-record fence digest previously bound by the
+ * preparation store. No authority anchor is invented and all custody secrets
+ * are erased. */
+- (AncPrivateVaultCustodyRepositoryStatus)
+    cancelPendingGenesisVaultId:(NSString *)vaultId
+            expectedRecordDigest:(NSData *)expectedRecordDigest
+                   cancelledAtMs:(uint64_t)cancelledAtMs
+                      checkpoint:
+                          (AncPrivateVaultCancelledGenesisCustodyCheckpoint
+                               *_Nullable *_Nullable)checkpoint;
 
 @end
 

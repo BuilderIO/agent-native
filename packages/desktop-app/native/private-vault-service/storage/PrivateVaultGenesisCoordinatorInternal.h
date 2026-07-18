@@ -51,6 +51,17 @@ NS_ASSUME_NONNULL_BEGIN
                          result:
                              (AncPrivateVaultGenesisCoordinatorResult *_Nullable
                                   *_Nullable)result;
+
+/* User-authorized cancellation. The handle stays native-only; cancellation
+ * proves that no official authority exists and durably erases preparation and
+ * custody secrets before returning success. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    cancelPreparationHandle:(AncPrivateVaultGuardedMemory *)handle;
+
+/* Trusted lifecycle expiry. Only a still-PREPARED ceremony strictly beyond
+ * its durable deadline can expire. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    expirePreparationHandle:(AncPrivateVaultGuardedMemory *)handle;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

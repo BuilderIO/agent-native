@@ -339,6 +339,22 @@ int main(void) {
               [[NSFileManager defaultManager]
                   fileExistsAtPath:stageDeleteLive],
           "scoped stage deletion cannot remove live artifacts");
+    CHECK([stageDeleteStore deleteLiveLookupId:stageDeleteLookup
+                                expectedDigest:wrongDigest] ==
+                  AncPrivateVaultGenesisPreparationArtifactStatusBindingMismatch &&
+              [[NSFileManager defaultManager]
+                  fileExistsAtPath:stageDeleteLive],
+          "live deletion requires exact digest");
+    CHECK([stageDeleteStore deleteLiveLookupId:stageDeleteLookup
+                                expectedDigest:stageDeleteDigest] ==
+                  AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+              ![[NSFileManager defaultManager]
+                  fileExistsAtPath:stageDeleteLive],
+          "exact live deletion removes only the bound spool");
+    CHECK([stageDeleteStore deleteLiveLookupId:stageDeleteLookup
+                                expectedDigest:stageDeleteDigest] ==
+              AncPrivateVaultGenesisPreparationArtifactStatusNotFound,
+          "live deletion reports an already absent spool");
 
     [[NSFileManager defaultManager] removeItemAtURL:root error:nil];
     [[NSFileManager defaultManager] removeItemAtURL:linkRoot error:nil];

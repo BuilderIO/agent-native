@@ -22,6 +22,15 @@ AncPrivateVaultVerifiedGenesisReplayResultCreate(
     AncPrivateVaultGenesisAuthorizationResult *authorizationResult,
     uint64_t verifiedAtMs);
 
+@interface AncPrivateVaultAuthorityStore (GenesisAbsenceInternal)
+/* Returns NotFound only when both exact live and staged authority paths are
+ * absent under the same hardened directory and per-vault operation lock.
+ * It intentionally does not consult custody, whose pending g1 is valid during
+ * an uncommitted genesis cancellation. */
+- (AncPrivateVaultAuthorityStoreStatus)
+    proveAuthorityAbsentVaultId:(NSString *)vaultId;
+@end
+
 #if ANC_PRIVATE_VAULT_TESTING
 @interface AncPrivateVaultVerifiedReplayResult (TestingInternal)
 + (instancetype)

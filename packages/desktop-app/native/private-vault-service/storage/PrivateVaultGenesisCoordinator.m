@@ -1209,6 +1209,161 @@ static BOOL CopyPreparationSecrets(
 }
 
 - (AncPrivateVaultGenesisCoordinatorStatus)
+    cancelPreparationHandle:(AncPrivateVaultGuardedMemory *)handleMemory {
+  if (self.preparationStore == nil || handleMemory == nil ||
+      object_getClass(handleMemory) != AncPrivateVaultGuardedMemory.class ||
+      handleMemory.length != ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES ||
+      handleMemory.isClosed)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t handle[ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES] = {0};
+  uint8_t *handlePointer = handle;
+  __block BOOL copied = NO;
+  AncPrivateVaultGuardedMemoryStatus borrowed =
+      [handleMemory borrow:^BOOL(uint8_t *bytes, size_t length) {
+        if (length != sizeof handle)
+          return NO;
+        memcpy(handlePointer, bytes, length);
+        copied = YES;
+        return YES;
+      }];
+  if (borrowed != AncPrivateVaultGuardedMemoryStatusOK || !copied) {
+    anc_pv_zeroize(handle, sizeof handle);
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  }
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readHandle:handle
+                           handleLength:sizeof handle
+                              snapshot:&snapshot
+                           secretHandle:nil];
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    anc_pv_zeroize(handle, sizeof handle);
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    return PreparationStatus(read);
+  }
+  NSString *vaultId = Hex(snapshot.vault_id);
+  uint8_t vaultBytes[16] = {0};
+  memcpy(vaultBytes, snapshot.vault_id, sizeof vaultBytes);
+  uint64_t expiresAtMs = snapshot.expires_at_ms;
+  AncPrivateVaultGenesisPreparationPhase phase = snapshot.phase;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  uint64_t now = 0;
+  if (vaultId == nil ||
+      ![self.trustedClock readNowMilliseconds:&now] || now == 0 ||
+      now > kMaximumSafeInteger) {
+    anc_pv_zeroize(handle, sizeof handle);
+    anc_pv_zeroize(vaultBytes, sizeof vaultBytes);
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  }
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultId);
+  if (lock == nil) {
+    anc_pv_zeroize(handle, sizeof handle);
+    anc_pv_zeroize(vaultBytes, sizeof vaultBytes);
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  }
+  [lock lock];
+  AncPrivateVaultGenesisPreparationStoreStatus cancelled =
+      AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  @try {
+    if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+        now > expiresAtMs) {
+      cancelled = [self.preparationStore
+          expireHandle:handle
+           handleLength:sizeof handle
+           expiredAtMs:now
+          authorityStore:self.authorityStore
+          custodyRepository:self.custodyRepository];
+    } else {
+      cancelled = [self.preparationStore
+          cancelHandle:handle
+           handleLength:sizeof handle
+          cancelledAtMs:now
+          authorityStore:self.authorityStore
+          custodyRepository:self.custodyRepository];
+    }
+  } @catch (__unused NSException *exception) {
+    cancelled = AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  } @finally {
+    [lock unlock];
+    anc_pv_zeroize(handle, sizeof handle);
+  }
+  AncPrivateVaultGenesisCoordinatorStatus result = PreparationStatus(cancelled);
+  if (result == AncPrivateVaultGenesisCoordinatorStatusOK) {
+    AncPrivateVaultGenesisArtifactStoreStatus deleted =
+        [self.artifactStore deleteVaultId:vaultBytes];
+    result = ArtifactStatus(deleted);
+  }
+  anc_pv_zeroize(vaultBytes, sizeof vaultBytes);
+  return result;
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    expirePreparationHandle:(AncPrivateVaultGuardedMemory *)handleMemory {
+  if (self.preparationStore == nil || handleMemory == nil ||
+      object_getClass(handleMemory) != AncPrivateVaultGuardedMemory.class ||
+      handleMemory.length != ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES ||
+      handleMemory.isClosed)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t handle[ANC_PV_GENESIS_PREPARATION_HANDLE_BYTES] = {0};
+  uint8_t *handlePointer = handle;
+  __block BOOL copied = NO;
+  AncPrivateVaultGuardedMemoryStatus borrowed =
+      [handleMemory borrow:^BOOL(uint8_t *bytes, size_t length) {
+        if (length != sizeof handle)
+          return NO;
+        memcpy(handlePointer, bytes, length);
+        copied = YES;
+        return YES;
+      }];
+  if (borrowed != AncPrivateVaultGuardedMemoryStatusOK || !copied) {
+    anc_pv_zeroize(handle, sizeof handle);
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  }
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readHandle:handle
+                           handleLength:sizeof handle
+                              snapshot:&snapshot
+                           secretHandle:nil];
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    anc_pv_zeroize(handle, sizeof handle);
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    return PreparationStatus(read);
+  }
+  NSString *vaultId = Hex(snapshot.vault_id);
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  uint64_t now = 0;
+  if (vaultId == nil ||
+      ![self.trustedClock readNowMilliseconds:&now] || now == 0 ||
+      now > kMaximumSafeInteger) {
+    anc_pv_zeroize(handle, sizeof handle);
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  }
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultId);
+  if (lock == nil) {
+    anc_pv_zeroize(handle, sizeof handle);
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  }
+  [lock lock];
+  AncPrivateVaultGenesisPreparationStoreStatus expired =
+      AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  @try {
+    expired = [self.preparationStore
+        expireHandle:handle
+         handleLength:sizeof handle
+         expiredAtMs:now
+        authorityStore:self.authorityStore
+        custodyRepository:self.custodyRepository];
+  } @catch (__unused NSException *exception) {
+    expired = AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  } @finally {
+    [lock unlock];
+    anc_pv_zeroize(handle, sizeof handle);
+  }
+  return PreparationStatus(expired);
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
            commitVaultId:(const uint8_t *)vaultId
      bootstrapTranscript:(NSData *)bootstrap
     recoveryConfirmation:(NSData *)confirmation

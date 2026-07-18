@@ -40,6 +40,25 @@ NS_ASSUME_NONNULL_BEGIN
              custodyRepository:
                  (AncPrivateVaultCustodyRepository *)custodyRepository;
 
+/* Terminalizes an uncommitted ceremony only after proving official authority
+ * is absent. If a pending g1 custody record exists, it is first bound and then
+ * atomically replaced by its exact cancelled-genesis g2 tombstone. */
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    cancelHandle:(const uint8_t *)handle
+     handleLength:(size_t)handleLength
+    cancelledAtMs:(uint64_t)cancelledAtMs
+    authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+    custodyRepository:(AncPrivateVaultCustodyRepository *)custodyRepository;
+
+/* Expiry is valid only from PREPARED and strictly after its durable deadline.
+ * It proves that neither authority nor custody was created. */
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    expireHandle:(const uint8_t *)handle
+     handleLength:(size_t)handleLength
+     expiredAtMs:(uint64_t)expiredAtMs
+    authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+    custodyRepository:(AncPrivateVaultCustodyRepository *)custodyRepository;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -450,7 +450,9 @@ case "${PRIVATE_VAULT_BUILD_CUSTODY_TESTS:-}" in
     lipo "$output" -verify_arch "$architecture"
   }
   compile_custody_test_slice arm64 "$ARM64_SODIUM"
-  compile_custody_test_slice x86_64 "$X86_64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_custody_test_slice x86_64 "$X86_64_SODIUM"
+  fi
   ;;
   *)
     echo "Invalid Private Vault custody-test build mode" >&2
@@ -494,7 +496,9 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
     lipo "$output" -verify_arch "$architecture"
   }
   build_authority_tests arm64
-  build_authority_tests x86_64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_authority_tests x86_64
+  fi
   ;;
 esac
 

@@ -51,6 +51,19 @@ typedef BOOL (^AncPrivateVaultGenesisPreparationArtifactsConsumer)(
 - (AncPrivateVaultGenesisPreparationArtifactStatus)
     deleteStagedLookupId:(const uint8_t *)lookupId
           expectedDigest:(const uint8_t *)digest;
+/* Deletes an unbound staged confirmation only after its complete authenticated
+ * frame matches the durable PREPARED ceremony. This is the crash cleanup path
+ * for a stage write that preceded a failed preparation-record CAS. */
+- (AncPrivateVaultGenesisPreparationArtifactStatus)
+    deleteUnboundStagedLookupId:(const uint8_t *)lookupId
+                        vaultId:(const uint8_t *)vaultId
+                     ceremonyId:(const uint8_t *)ceremonyId
+                     generation:(uint64_t)generation;
+/* Deletes only an exactly digest-bound live spool. A mismatched or unsafe
+ * path fails closed and is never unlinked. */
+- (AncPrivateVaultGenesisPreparationArtifactStatus)
+    deleteLiveLookupId:(const uint8_t *)lookupId
+        expectedDigest:(const uint8_t *)digest;
 - (AncPrivateVaultGenesisPreparationArtifactStatus)
     createPreparationIndexLookupId:(const uint8_t *)lookupId
                        preparedAtMs:(uint64_t)preparedAtMs

@@ -1413,6 +1413,28 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
                      : AncPrivateVaultAuthorityStoreStatusProtectionFailed;
         return;
       }
+      if (custody.lifecycle ==
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS) {
+        if (!CloseCustodyHandle(handle) || ![self prepareDirectory]) {
+          result = AncPrivateVaultAuthorityStoreStatusProtectionFailed;
+          return;
+        }
+        BOOL liveMissing = NO;
+        BOOL stageMissing = NO;
+        NSData *live = [self readFileName:[self nameForVaultId:vaultId
+                                                        suffix:@".authority"]
+                                  missing:&liveMissing];
+        NSData *stage = [self
+            readFileName:[self nameForVaultId:vaultId suffix:@".authority.stage"]
+                 missing:&stageMissing];
+        if (liveMissing && stageMissing && live == nil && stage == nil)
+          result = AncPrivateVaultAuthorityStoreStatusNotFound;
+        else if (live != nil || stage != nil)
+          result = AncPrivateVaultAuthorityStoreStatusConflict;
+        else
+          result = AncPrivateVaultAuthorityStoreStatusCorrupt;
+        return;
+      }
       if (custody.record_version != ANC_PV_CUSTODY_VERSION ||
           !custody.authority_anchor_present || handle == nil) {
         result = CloseCustodyHandle(handle)
@@ -1528,6 +1550,43 @@ static NSRecursiveLock *AuthorityNamedLock(NSString *key) {
     });
     if (checkpoint)
       *checkpoint = loadedCheckpoint;
+    return result;
+  } @finally {
+    [operationLock unlock];
+  }
+}
+
+- (AncPrivateVaultAuthorityStoreStatus)
+    proveAuthorityAbsentVaultId:(NSString *)vaultId {
+  if (vaultId.length == 0)
+    return AncPrivateVaultAuthorityStoreStatusInvalid;
+  NSRecursiveLock *operationLock = [self operationLockForVaultId:vaultId];
+  if (operationLock == nil)
+    return AncPrivateVaultAuthorityStoreStatusStorageFailed;
+  [operationLock lock];
+  @try {
+    __block AncPrivateVaultAuthorityStoreStatus result =
+        AncPrivateVaultAuthorityStoreStatusStorageFailed;
+    dispatch_sync(self.queue, ^{
+      if (![self prepareDirectory]) {
+        result = AncPrivateVaultAuthorityStoreStatusStorageFailed;
+        return;
+      }
+      BOOL liveMissing = NO;
+      BOOL stageMissing = NO;
+      NSData *live = [self readFileName:[self nameForVaultId:vaultId
+                                                      suffix:@".authority"]
+                                missing:&liveMissing];
+      NSData *stage = [self
+          readFileName:[self nameForVaultId:vaultId suffix:@".authority.stage"]
+               missing:&stageMissing];
+      if (liveMissing && stageMissing && live == nil && stage == nil)
+        result = AncPrivateVaultAuthorityStoreStatusNotFound;
+      else if (live != nil || stage != nil)
+        result = AncPrivateVaultAuthorityStoreStatusConflict;
+      else
+        result = AncPrivateVaultAuthorityStoreStatusCorrupt;
+    });
     return result;
   } @finally {
     [operationLock unlock];

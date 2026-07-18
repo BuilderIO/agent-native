@@ -165,7 +165,8 @@ static int anc_pv_decode_id(const uint8_t *field, uint8_t *output,
 
 static int anc_pv_valid_enums(const AncPrivateVaultCustodySnapshot *snapshot) {
   return snapshot->lifecycle >= ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
-         snapshot->lifecycle <= ANC_PV_CUSTODY_LIFECYCLE_REMOVED &&
+         snapshot->lifecycle <=
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
          snapshot->role >= ANC_PV_CUSTODY_ROLE_ENDPOINT &&
          snapshot->role <= ANC_PV_CUSTODY_ROLE_BROKER &&
          snapshot->pending_kind >= ANC_PV_CUSTODY_PENDING_NONE &&
@@ -273,6 +274,23 @@ anc_pv_valid_state_matrix(const AncPrivateVaultCustodySnapshot *snapshot,
       anc_pv_is_zero(snapshot->removal_authorization_digest,
                      ANC_PV_HASH_BYTES) &&
       snapshot->removal_time_ms == 0;
+
+  if (snapshot->lifecycle ==
+      ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS) {
+    return snapshot->record_version == ANC_PV_CUSTODY_VERSION && !pending &&
+           snapshot->rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
+           snapshot->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+           snapshot->ceremony_id_length == 0 && !has_signing_seed &&
+           !has_box_seed && !has_local_key && !has_active_key &&
+           !has_pending_key && snapshot->active_epoch == 0 &&
+           snapshot->pending_epoch == 0 && snapshot->recovery_generation == 0 &&
+           has_public_keys && !snapshot->authority_anchor_present &&
+           !snapshot->expected_edge_present && snapshot->removal_sequence == 0 &&
+           anc_pv_is_nonzero(snapshot->removal_head, ANC_PV_HASH_BYTES) &&
+           anc_pv_is_nonzero(snapshot->removal_authorization_digest,
+                             ANC_PV_HASH_BYTES) &&
+           snapshot->removal_time_ms > 0;
+  }
 
   if (snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING ||
       snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED) {
@@ -435,7 +453,9 @@ static AncPrivateVaultCustodyRecordStatus anc_pv_validate_derived_keys(
   uint8_t box_private[32] = {0};
   AncPrivateVaultCustodyRecordStatus result = ANC_PV_CUSTODY_CRYPTO_FAILED;
   if (snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING ||
-      snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED) {
+      snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED ||
+      snapshot->lifecycle ==
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS) {
     return ANC_PV_CUSTODY_OK;
   }
   if (anc_pv_ed25519_seed_keypair(signing_public, signing_private,

@@ -33,6 +33,11 @@ typedef enum AncPrivateVaultCustodyLifecycle {
   ANC_PV_CUSTODY_LIFECYCLE_ACTIVE = 2,
   ANC_PV_CUSTODY_LIFECYCLE_REMOVING = 3,
   ANC_PV_CUSTODY_LIFECYCLE_REMOVED = 4,
+  /* Local-only terminal proof for an unanchored first-device ceremony that
+   * was cancelled after pending g1 existed. It can never become active. In
+   * this lifecycle only, removal_head is the exact predecessor pending-g1
+   * wire-record digest, not an authority-log head. */
+  ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS = 5,
 } AncPrivateVaultCustodyLifecycle;
 
 typedef enum AncPrivateVaultCustodyRole {
