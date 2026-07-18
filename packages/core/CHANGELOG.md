@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.109.1
+
+### Patch Changes
+
+- d74a5a4: Return retryable responses for transient agent-chat database failures and back off active-run polling while the database recovers.
+- d74a5a4: Add bounded per-tool generation telemetry, delegated trace linkage, direct-read telemetry, and idempotent A2A submissions.
+
 ## 0.109.0
 
 ### Minor Changes
