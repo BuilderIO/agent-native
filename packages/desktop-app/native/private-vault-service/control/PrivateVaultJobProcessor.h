@@ -48,6 +48,12 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
                  jobHash:(NSData *)jobHash
               nowSeconds:(uint64_t)nowSeconds
                   result:(NSData *_Nullable *_Nullable)result;
+
+- (AncPrivateVaultJobProcessorStatus)
+    acknowledgeHostedResultForVaultId:(NSString *)vaultId
+                                  jobId:(NSData *)jobId
+                                 jobHash:(NSData *)jobHash
+                                    state:(NSString *)state;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

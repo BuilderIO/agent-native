@@ -150,6 +150,19 @@ export type NativeSealHostedResultResult = ServiceHeader<"sealHostedResult"> & {
   readonly resultEnvelope: Uint8Array;
 };
 
+export type NativeAcknowledgeHostedResultRequest =
+  ServiceHeader<"acknowledgeHostedResult"> & {
+    readonly vaultId: string;
+    readonly endpointId: string;
+    readonly jobId: string;
+    readonly jobHash: string;
+    readonly state: "completed" | "failed";
+  };
+export type NativeAcknowledgeHostedResultResult =
+  ServiceHeader<"acknowledgeHostedResult"> & {
+    readonly delivered: true;
+  };
+
 export type NativeSignEndpointRequestRequest =
   ServiceHeader<"signEndpointRequest"> & {
     /**
@@ -186,6 +199,7 @@ export type PrivateVaultNativeServiceRequest =
   | NativeOpenContentObjectRequest
   | NativeOpenHostedJobRequest
   | NativeSealHostedResultRequest
+  | NativeAcknowledgeHostedResultRequest
   | NativeSignEndpointRequestRequest
   | NativeExportRecoveryEnvelopeRequest;
 
@@ -200,6 +214,7 @@ export type PrivateVaultNativeServiceResult =
   | NativeOpenContentObjectResult
   | NativeOpenHostedJobResult
   | NativeSealHostedResultResult
+  | NativeAcknowledgeHostedResultResult
   | NativeSignEndpointRequestResult
   | NativeExportRecoveryEnvelopeResult;
 
@@ -232,6 +247,9 @@ export interface PrivateVaultNativeService {
   sealHostedResult(
     request: NativeSealHostedResultRequest,
   ): Promise<NativeSealHostedResultResult>;
+  acknowledgeHostedResult(
+    request: NativeAcknowledgeHostedResultRequest,
+  ): Promise<NativeAcknowledgeHostedResultResult>;
   signEndpointRequest(
     request: NativeSignEndpointRequestRequest,
   ): Promise<NativeSignEndpointRequestResult>;
@@ -595,6 +613,29 @@ function parseRequestUnchecked(
         ),
       };
     }
+    case "acknowledgeHostedResult": {
+      const record = header(value, operation, [
+        "vaultId",
+        "endpointId",
+        "jobId",
+        "jobHash",
+        "state",
+      ]);
+      if (
+        typeof record.jobHash !== "string" ||
+        !LOWERCASE_HEX_32.test(record.jobHash) ||
+        (record.state !== "completed" && record.state !== "failed")
+      )
+        fail("invalid_request");
+      return {
+        ...base(operation),
+        vaultId: id(record.vaultId),
+        endpointId: id(record.endpointId),
+        jobId: id(record.jobId),
+        jobHash: record.jobHash,
+        state: record.state,
+      };
+    }
     case "signEndpointRequest": {
       const record = header(value, operation, ["unsignedProof"]);
       const unsignedProof = bytes(
@@ -757,6 +798,11 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
           PRIVATE_VAULT_NATIVE_SERVICE_LIMITS.hostedResultEnvelopeBytes,
         ),
       };
+    }
+    case "acknowledgeHostedResult": {
+      const record = resultHeader(value, operation, ["delivered"]);
+      if (record.delivered !== true) fail("invalid_result");
+      return { ...base(operation), delivered: true };
     }
     case "signEndpointRequest": {
       const record = resultHeader(value, operation, ["signature"]);

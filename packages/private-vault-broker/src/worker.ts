@@ -106,6 +106,7 @@ export class PrivateVaultBrokerWorker {
     if (this.#active) throw new PrivateVaultBrokerWorkerError();
     this.#active = true;
     let claimed: ClaimedJob | null = null;
+    let hostedResultAccepted = false;
     try {
       const claim = decodeAncV1BrokerClaimResponse(
         await this.#transport.claim(
@@ -211,6 +212,19 @@ export class PrivateVaultBrokerWorker {
         ) {
           throw new PrivateVaultBrokerWorkerError();
         }
+        hostedResultAccepted = true;
+        const delivered = await this.#native.acknowledgeHostedResult({
+          ...base,
+          operation: "acknowledgeHostedResult",
+          vaultId: this.#vaultId,
+          endpointId: this.#endpointId,
+          jobId: claimed.jobId,
+          jobHash: opened.jobHash,
+          state: execution.state,
+        });
+        if (delivered.delivered !== true) {
+          throw new PrivateVaultBrokerWorkerError();
+        }
         return { state: execution.state, jobId: claimed.jobId };
       } finally {
         this.#crypto.zeroize(payload);
@@ -219,6 +233,10 @@ export class PrivateVaultBrokerWorker {
       }
     } catch {
       if (!claimed) throw new PrivateVaultBrokerWorkerError();
+      // The hosted relay is already terminal. Preserve the native encrypted
+      // spool for startup reconciliation; never mutate that hosted job back to
+      // retry_wait after its durable result receipt was returned.
+      if (hostedResultAccepted) throw new PrivateVaultBrokerWorkerError();
       const nextRetryCount = claimed.retryCount + 1;
       const retryAt = new Date(
         this.#now().getTime() +

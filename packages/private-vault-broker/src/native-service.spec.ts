@@ -161,6 +161,15 @@ describe("private-vault native service contract", () => {
       },
       {
         ...BASE,
+        operation: "acknowledgeHostedResult",
+        vaultId,
+        endpointId,
+        jobId,
+        jobHash: "33".repeat(32),
+        state: "completed",
+      },
+      {
+        ...BASE,
         operation: "signEndpointRequest",
         unsignedProof: unsignedEndpointProof(),
       },
@@ -256,6 +265,11 @@ describe("private-vault native service contract", () => {
       },
       {
         ...BASE,
+        operation: "acknowledgeHostedResult",
+        delivered: true,
+      },
+      {
+        ...BASE,
         operation: "signEndpointRequest",
         signature: new Uint8Array(64),
       },
@@ -311,6 +325,15 @@ describe("private-vault native service contract", () => {
         jobHash: "AA".repeat(32),
         state: "completed",
         resultPayload: new Uint8Array(),
+      },
+      {
+        ...BASE,
+        operation: "acknowledgeHostedResult",
+        vaultId,
+        endpointId,
+        jobId,
+        jobHash: "33".repeat(32),
+        state: "pending",
       },
     ];
     for (const value of invalid) {

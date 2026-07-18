@@ -226,6 +226,61 @@ static NSData *ResultEnvelopeHash(NSData *envelope) {
   return status;
 }
 
+- (AncPrivateVaultJobProcessorStatus)
+    acknowledgeHostedResultForVaultId:(NSString *)vaultId
+                                  jobId:(NSData *)jobId
+                                 jobHash:(NSData *)jobHash
+                                    state:(NSString *)state {
+  if (vaultId.length != 32 || jobId.length != 16 || jobHash.length != 32 ||
+      !([state isEqualToString:@"completed"] ||
+        [state isEqualToString:@"failed"]))
+    return AncPrivateVaultJobProcessorStatusInvalid;
+  __block AncPrivateVaultJobProcessorStatus status =
+      AncPrivateVaultJobProcessorStatusUnauthorized;
+  dispatch_sync(_queue, ^{
+    AncPrivateVaultJobContext *job = nil;
+    AncPrivateVaultGrantIndexStatus indexStatus =
+        [_grantIndex resolveJobId:jobId jobHash:jobHash vaultId:vaultId
+                          context:&job];
+    if (indexStatus != AncPrivateVaultGrantIndexStatusOK || job == nil ||
+        !job.resultRecorded || ![job.resultState isEqualToString:state] ||
+        job.resultHash.length != 32)
+      return;
+    NSData *vaultBytes = HexBytes(vaultId);
+    NSData *envelope = nil;
+    AncPrivateVaultResultSpoolStatus spoolStatus = vaultBytes == nil
+        ? AncPrivateVaultResultSpoolStatusInvalid
+        : [_resultSpool loadEnvelopeForVaultId:vaultBytes jobId:jobId
+                                        result:&envelope];
+    if (job.receiptAcknowledged &&
+        spoolStatus == AncPrivateVaultResultSpoolStatusNotFound) {
+      status = AncPrivateVaultJobProcessorStatusOK;
+      return;
+    }
+    NSData *resultHash = envelope == nil ? nil : ResultEnvelopeHash(envelope);
+    if (spoolStatus != AncPrivateVaultResultSpoolStatusOK ||
+        resultHash == nil || ![resultHash isEqualToData:job.resultHash]) {
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
+      return;
+    }
+    if (!job.receiptAcknowledged) {
+      indexStatus = [_grantIndex acknowledgeResultHash:resultHash state:state
+                                                 jobId:jobId jobHash:jobHash
+                                                vaultId:vaultId];
+      if (indexStatus != AncPrivateVaultGrantIndexStatusOK) {
+        status = AncPrivateVaultJobProcessorStatusStorageFailed;
+        return;
+      }
+    }
+    spoolStatus = [_resultSpool deleteEnvelope:envelope vaultId:vaultBytes
+                                          jobId:jobId];
+    status = spoolStatus == AncPrivateVaultResultSpoolStatusOK
+        ? AncPrivateVaultJobProcessorStatusOK
+        : AncPrivateVaultJobProcessorStatusStorageFailed;
+  });
+  return status;
+}
+
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
                   authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
                       grantIndex:(AncPrivateVaultGrantIndex *)grantIndex

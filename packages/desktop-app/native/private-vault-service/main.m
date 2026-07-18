@@ -331,9 +331,8 @@ static void PVSealResult(xpc_connection_t peer, xpc_object_t message,
         NSData *jobHash = PVHashData(request->jobHash);
         NSString *state = request->resultState == NULL ? nil :
             [NSString stringWithUTF8String:request->resultState];
-        NSData *payload = request->resultPayload == NULL ? nil :
-            [NSData dataWithBytes:request->resultPayload
-                          length:request->resultPayloadLength];
+        NSData *payload = [NSData dataWithBytes:request->resultPayload
+                                         length:request->resultPayloadLength];
         NSData *sealed = nil;
         AncPrivateVaultJobProcessorStatus status = [gJobProcessor
             sealResultPayload:payload state:state vaultId:vaultID jobId:jobID
@@ -348,6 +347,29 @@ static void PVSealResult(xpc_connection_t peer, xpc_object_t message,
         if (reply == NULL) return;
         xpc_dictionary_set_data(reply, "resultEnvelope", sealed.bytes,
                                 sealed.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVCompleteResult(xpc_connection_t peer, xpc_object_t message,
+                             const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultID = request->vaultID == NULL ? nil :
+            [NSString stringWithUTF8String:request->vaultID];
+        NSData *jobID = PVLookupIDData(request->jobID);
+        NSData *jobHash = PVHashData(request->jobHash);
+        NSString *state = request->resultState == NULL ? nil :
+            [NSString stringWithUTF8String:request->resultState];
+        AncPrivateVaultJobProcessorStatus status = [gJobProcessor
+            acknowledgeHostedResultForVaultId:vaultID jobId:jobID
+                                       jobHash:jobHash state:state];
+        if (status != AncPrivateVaultJobProcessorStatusOK) {
+            PVSendError(peer, message, "result_receipt_denied");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "delivered");
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -1052,6 +1074,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "seal_result") == 0) {
                 PVSealResult(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "complete_result") == 0) {
+                PVCompleteResult(peer, message, &request);
                 return;
             }
             PVSendSuccess(peer, message, &request);

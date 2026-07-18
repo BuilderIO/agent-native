@@ -411,6 +411,34 @@ int main(void) {
            jobContext.resultRecorded &&
            [jobContext.resultState isEqualToString:@"completed"] &&
            jobContext.resultHash.length == 32);
+    assert([processor acknowledgeHostedResultForVaultId:kVaultId
+                                                   jobId:Pattern(0x06, 16)
+                                                  jobHash:authorizedJobHash
+                                                     state:@"failed"] ==
+           AncPrivateVaultJobProcessorStatusUnauthorized);
+    assert([resultSpool loadEnvelopeForVaultId:Pattern(0x01, 16)
+                                          jobId:Pattern(0x06, 16)
+                                         result:&retriedResultEnvelope] ==
+           AncPrivateVaultResultSpoolStatusOK);
+    assert([processor acknowledgeHostedResultForVaultId:kVaultId
+                                                   jobId:Pattern(0x06, 16)
+                                                  jobHash:authorizedJobHash
+                                                     state:@"completed"] ==
+           AncPrivateVaultJobProcessorStatusOK);
+    assert([index resolveJobId:Pattern(0x06, 16)
+                          jobHash:authorizedJobHash vaultId:kVaultId
+                          context:&jobContext] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           jobContext.resultRecorded && jobContext.receiptAcknowledged);
+    assert([resultSpool loadEnvelopeForVaultId:Pattern(0x01, 16)
+                                          jobId:Pattern(0x06, 16)
+                                         result:&retriedResultEnvelope] ==
+           AncPrivateVaultResultSpoolStatusNotFound);
+    assert([processor acknowledgeHostedResultForVaultId:kVaultId
+                                                   jobId:Pattern(0x06, 16)
+                                                  jobHash:authorizedJobHash
+                                                     state:@"completed"] ==
+           AncPrivateVaultJobProcessorStatusOK);
     assert([index applyRevocationEnvelope:revocation vaultId:kVaultId
                   signerControlEndpointId:@"endpoint:index-owner"
                    signerSigningPublicKey:publicKey] ==
@@ -429,7 +457,7 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 8 && snapshot.grantCount == 2 &&
+    assert(snapshot.generation == 9 && snapshot.grantCount == 2 &&
            snapshot.revocationCount == 1 && snapshot.jobCount == 2);
     AncPrivateVaultJobProcessor *restartedProcessor =
         [[AncPrivateVaultJobProcessor alloc]
@@ -447,8 +475,8 @@ int main(void) {
                                         jobHash:authorizedJobHash
                                      nowSeconds:1721111204
                                          result:&restartResultEnvelope] ==
-               AncPrivateVaultJobProcessorStatusOK &&
-           [restartResultEnvelope isEqualToData:resultEnvelope]);
+               AncPrivateVaultJobProcessorStatusStorageFailed &&
+           restartResultEnvelope == nil);
     NSString *livePath = [temporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"grant-index/%@.live", kVaultId]];
     NSData *frame = [NSData dataWithContentsOfFile:livePath];

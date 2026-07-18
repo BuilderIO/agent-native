@@ -82,6 +82,7 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) NSData *subjectEndpointId;
 @property(nonatomic) NSData *requesterBoxPublicKey;
 @property(nonatomic) BOOL resultRecorded;
+@property(nonatomic) BOOL receiptAcknowledged;
 @property(nonatomic, nullable) NSString *resultState;
 @property(nonatomic, nullable) NSData *resultHash;
 @end
@@ -370,9 +371,10 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
         !ValidScopeText(fields[11].textValue) ||
         fields[12].type != AncPrivateVaultCanonicalTypeText ||
         !([fields[12].textValue isEqualToString:@"claimed"] ||
-          [fields[12].textValue isEqualToString:@"result"]) ||
+          [fields[12].textValue isEqualToString:@"result"] ||
+          [fields[12].textValue isEqualToString:@"delivered"]) ||
         ([fields[12].textValue isEqualToString:@"claimed"] && !resultEmpty) ||
-        ([fields[12].textValue isEqualToString:@"result"] && !resultPresent))
+        (![fields[12].textValue isEqualToString:@"claimed"] && !resultPresent))
       return nil;
     AncStoredJob *job = [AncStoredJob new];
     job.jobId = [fields[0].bytesValue copy];
@@ -1096,7 +1098,8 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           if (job == nil) return AncPrivateVaultGrantIndexStatusNotFound;
           if (![job.jobHash isEqualToData:jobHash])
             return AncPrivateVaultGrantIndexStatusConflict;
-          if ([job.status isEqualToString:@"result"])
+          if ([job.status isEqualToString:@"result"] ||
+              [job.status isEqualToString:@"delivered"])
             return [job.resultState isEqualToString:state] &&
                     [job.resultHash isEqualToData:resultHash]
                 ? AncPrivateVaultGrantIndexStatusOK
@@ -1107,6 +1110,44 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           job.status = @"result";
           job.resultState = [state copy];
           job.resultHash = [resultHash copy];
+          record.generation += 1;
+          return [self commitLockedRecord:record vaultId:vaultId
+                             localStateKey:key];
+        }];
+  });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    acknowledgeResultHash:(NSData *)resultHash
+                    state:(NSString *)state
+                    jobId:(NSData *)jobId
+                   jobHash:(NSData *)jobHash
+                    vaultId:(NSString *)vaultId {
+  if (resultHash.length != 32 || jobId.length != 16 || jobHash.length != 32 ||
+      !([state isEqualToString:@"completed"] ||
+        [state isEqualToString:@"failed"]))
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          AncStoredJob *job = nil;
+          for (AncStoredJob *candidate in record.jobs)
+            if ([candidate.jobId isEqualToData:jobId]) job = candidate;
+          if (job == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          if (![job.jobHash isEqualToData:jobHash] ||
+              ![job.resultState isEqualToString:state] ||
+              ![job.resultHash isEqualToData:resultHash])
+            return AncPrivateVaultGrantIndexStatusConflict;
+          if ([job.status isEqualToString:@"delivered"])
+            return AncPrivateVaultGrantIndexStatusOK;
+          if (![job.status isEqualToString:@"result"] ||
+              record.generation >= INT64_MAX)
+            return AncPrivateVaultGrantIndexStatusConflict;
+          job.status = @"delivered";
           record.generation += 1;
           return [self commitLockedRecord:record vaultId:vaultId
                              localStateKey:key];
@@ -1140,7 +1181,11 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           resolved = [AncPrivateVaultJobContext new];
           resolved.subjectEndpointId = [job.subjectEndpointId copy];
           resolved.requesterBoxPublicKey = [job.requesterBoxPublicKey copy];
-          resolved.resultRecorded = [job.status isEqualToString:@"result"];
+          resolved.resultRecorded =
+              [job.status isEqualToString:@"result"] ||
+              [job.status isEqualToString:@"delivered"];
+          resolved.receiptAcknowledged =
+              [job.status isEqualToString:@"delivered"];
           resolved.resultState = [job.resultState copy];
           resolved.resultHash = [job.resultHash copy];
           return AncPrivateVaultGrantIndexStatusOK;

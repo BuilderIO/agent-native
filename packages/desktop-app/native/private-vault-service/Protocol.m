@@ -84,22 +84,29 @@ static bool PVIsVaultID(const char *value) {
     return PVIsLowerHex(value, PV_VAULT_ID_BYTES);
 }
 
-static bool PVReadBoundedData(xpc_object_t message, const char *key,
-                              size_t maximumLength, const void **bytes,
-                              size_t *length) {
+static bool PVReadBoundedDataRange(xpc_object_t message, const char *key,
+                                   size_t minimumLength, size_t maximumLength,
+                                   const void **bytes, size_t *length) {
     xpc_object_t value = xpc_dictionary_get_value(message, key);
     if (value == NULL || xpc_get_type(value) != XPC_TYPE_DATA) {
         return false;
     }
     size_t actualLength = xpc_data_get_length(value);
     const void *actualBytes = xpc_data_get_bytes_ptr(value);
-    if (actualBytes == NULL || actualLength == 0 ||
-        actualLength > maximumLength) {
+    if (actualLength < minimumLength || actualLength > maximumLength ||
+        (actualLength > 0 && actualBytes == NULL)) {
         return false;
     }
     *bytes = actualBytes;
     *length = actualLength;
     return true;
+}
+
+static bool PVReadBoundedData(xpc_object_t message, const char *key,
+                              size_t maximumLength, const void **bytes,
+                              size_t *length) {
+    return PVReadBoundedDataRange(message, key, 1, maximumLength, bytes,
+                                  length);
 }
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
@@ -156,18 +163,19 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool recoverStatus = strcmp(operation, "recover_status") == 0;
     bool openJob = strcmp(operation, "open_job") == 0;
     bool sealResult = strcmp(operation, "seal_result") == 0;
+    bool completeResult = strcmp(operation, "complete_result") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
-        !openJob && !sealResult) {
+        !openJob && !sealResult && !completeResult) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (sealResult) {
+    if (sealResult || completeResult) {
         xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
         xpc_object_t jobHashValue = xpc_dictionary_get_value(message, "jobHash");
         xpc_object_t stateValue = xpc_dictionary_get_value(message, "state");
@@ -179,16 +187,19 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                                    xpc_get_type(stateValue) == XPC_TYPE_STRING
                                ? xpc_dictionary_get_string(message, "state")
                                : NULL;
-        if (fieldCount != 8 || vaultIDValue == NULL ||
+        size_t expectedFields = completeResult ? 7 : 8;
+        if (fieldCount != expectedFields || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
             jobIDValue == NULL || xpc_get_type(jobIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "jobId")) ||
             !PVIsLowerHex(hash, 64) || state == NULL ||
             (strcmp(state, "completed") != 0 && strcmp(state, "failed") != 0) ||
-            !PVReadBoundedData(message, "resultPayload", 16 * 1024 * 1024,
-                               &request->resultPayload,
-                               &request->resultPayloadLength))
+            (!completeResult &&
+             !PVReadBoundedDataRange(message, "resultPayload", 0,
+                                     16 * 1024 * 1024,
+                                     &request->resultPayload,
+                                     &request->resultPayloadLength)))
             return PVRequestInvalid;
         request->jobID = xpc_dictionary_get_string(message, "jobId");
         request->jobHash = hash;
@@ -308,7 +319,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->operation = operation;
     request->requestID = requestID;
     request->vaultID =
-        unlock || resumeRotation || recoverStatus || openJob || sealResult
+        unlock || resumeRotation || recoverStatus || openJob || sealResult ||
+                completeResult
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =

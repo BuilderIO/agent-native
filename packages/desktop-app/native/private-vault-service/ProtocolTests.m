@@ -100,6 +100,38 @@ int main(void) {
          parsed.resultPayloadLength == sizeof jobBytes);
   xpc_release(sealResult);
 
+  xpc_object_t emptyResult =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_result", "request-empty-result");
+  xpc_dictionary_set_string(emptyResult, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(emptyResult, "jobId",
+                            "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_string(emptyResult, "jobHash",
+                            "abababababababababababababababababababababababababababababababab");
+  xpc_dictionary_set_string(emptyResult, "state", "completed");
+  xpc_dictionary_set_data(emptyResult, "resultPayload", jobBytes, 0);
+  assert(PVParseRequest(emptyResult, &parsed) == PVRequestValid &&
+         parsed.resultPayloadLength == 0);
+  xpc_release(emptyResult);
+
+  xpc_object_t completeResult = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "complete_result", "request-complete-result");
+  xpc_dictionary_set_string(completeResult, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(completeResult, "jobId",
+                            "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_string(completeResult, "jobHash",
+                            "abababababababababababababababababababababababababababababababab");
+  xpc_dictionary_set_string(completeResult, "state", "completed");
+  assert(PVParseRequest(completeResult, &parsed) == PVRequestValid);
+  assert(strcmp(parsed.operation, "complete_result") == 0 &&
+         strcmp(parsed.resultState, "completed") == 0 &&
+         parsed.resultPayload == NULL && parsed.resultPayloadLength == 0);
+  xpc_dictionary_set_data(completeResult, "resultPayload", jobBytes,
+                          sizeof jobBytes);
+  assert(PVParseRequest(completeResult, &parsed) == PVRequestInvalid);
+  xpc_release(completeResult);
+
   xpc_object_t openJobMissing =
       PVMakeRequest(PV_PROTOCOL_VERSION, "open_job", "request-open-missing");
   xpc_dictionary_set_string(openJobMissing, "vaultId",

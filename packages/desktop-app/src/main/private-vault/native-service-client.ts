@@ -6,6 +6,8 @@ import {
   E2EE_SIZE_LIMITS,
 } from "@agent-native/core/e2ee";
 import type {
+  NativeAcknowledgeHostedResultRequest,
+  NativeAcknowledgeHostedResultResult,
   NativeHealthResult,
   NativeLockResult,
   NativeOpenHostedJobRequest,
@@ -54,7 +56,8 @@ type NativeOperation =
   | "recover_page"
   | "recover_status"
   | "open_job"
-  | "seal_result";
+  | "seal_result"
+  | "complete_result";
 
 interface NativeAddon {
   request(
@@ -78,6 +81,9 @@ export interface PrivateVaultNativeServiceClient
   sealHostedResult(
     request: NativeSealHostedResultRequest,
   ): Promise<NativeSealHostedResultResult>;
+  acknowledgeHostedResult(
+    request: NativeAcknowledgeHostedResultRequest,
+  ): Promise<NativeAcknowledgeHostedResultResult>;
   resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
   commitGenesis(
     input: NativeCommitGenesisInput,
@@ -628,6 +634,25 @@ function parseSealedResult(value: unknown): NativeSealHostedResultResult {
   };
 }
 
+function parseCompletedResult(
+  value: unknown,
+): NativeAcknowledgeHostedResultResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "complete_result" ||
+    value.state !== "delivered"
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return {
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "acknowledgeHostedResult",
+    delivered: true,
+  };
+}
+
 function copyCommitGenesisInput(
   input: unknown,
 ): readonly [Buffer, Buffer, Buffer] {
@@ -807,7 +832,6 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       !/^[0-9a-f]{64}$/.test(request.jobHash) ||
       (request.state !== "completed" && request.state !== "failed") ||
       !(request.resultPayload instanceof Uint8Array) ||
-      request.resultPayload.byteLength === 0 ||
       request.resultPayload.byteLength > E2EE_SIZE_LIMITS.resultPayloadBytes
     )
       return Promise.reject(new PrivateVaultNativeServiceClientError());
@@ -829,6 +853,38 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
         payload.fill(0);
+      }
+    });
+  }
+
+  acknowledgeHostedResult(
+    request: NativeAcknowledgeHostedResultRequest,
+  ): Promise<NativeAcknowledgeHostedResultResult> {
+    if (
+      request.version !== SERVICE_VERSION ||
+      request.suite !== SERVICE_SUITE ||
+      request.operation !== "acknowledgeHostedResult" ||
+      !isLowerHex(request.vaultId, 32) ||
+      !isLowerHex(request.endpointId, 32) ||
+      !isLowerHex(request.jobId, 32) ||
+      !/^[0-9a-f]{64}$/.test(request.jobHash) ||
+      (request.state !== "completed" && request.state !== "failed")
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseCompletedResult(
+          await addon.request(
+            "complete_result",
+            request.vaultId,
+            request.jobId,
+            request.jobHash,
+            request.state,
+          ),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
       }
     });
   }

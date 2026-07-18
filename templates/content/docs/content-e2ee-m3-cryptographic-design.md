@@ -560,8 +560,16 @@ existing hash instead of invoking or encrypting the action again. Once the
 index has recorded a result, a missing, substituted, malformed, or mismatched
 spool frame fails closed. Dual-architecture tests cover interrupted commit,
 restart, identical retry, conflicting bytes, unsafe modes, and symlink
-substitution. The remaining broker gate is an exact hosted-receipt
-acknowledgment that terminalizes the job and deletes this spool frame, followed
-by the Content action executor and supervisor lifecycle.
+substitution. The exact hosted-receipt acknowledgment now exists across the
+reusable worker, trusted main-process contract, universal
+addon, XPC protocol, and encrypted native index. Only a decoded hosted result
+receipt with the claimed job, hash, and terminal state can advance the index
+from `result` to `delivered`; the service commits that rollback-fenced state
+before deleting the exact matching spool bytes, and the operation is
+idempotent across a crash between those two steps. A local acknowledgment
+failure after the hosted receipt preserves the spool and cannot move the
+already-terminal hosted job back to retry. The remaining lifecycle gate is
+startup reconciliation for that narrow post-receipt crash window, plus the
+Content action executor and supervisor composition.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

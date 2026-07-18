@@ -37,6 +37,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly) NSData *subjectEndpointId;
 @property(nonatomic, readonly) NSData *requesterBoxPublicKey;
 @property(nonatomic, readonly) BOOL resultRecorded;
+@property(nonatomic, readonly) BOOL receiptAcknowledged;
 @property(nonatomic, readonly, nullable) NSString *resultState;
 @property(nonatomic, readonly, nullable) NSData *resultHash;
 @end
@@ -108,6 +109,14 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
                jobId:(NSData *)jobId
               jobHash:(NSData *)jobHash
                vaultId:(NSString *)vaultId;
+
+/** Marks the exact hosted result receipt durable before spool deletion. */
+- (AncPrivateVaultGrantIndexStatus)
+    acknowledgeResultHash:(NSData *)resultHash
+                    state:(NSString *)state
+                    jobId:(NSData *)jobId
+                   jobHash:(NSData *)jobHash
+                    vaultId:(NSString *)vaultId;
 
 - (AncPrivateVaultGrantIndexStatus)
     resolveJobId:(NSData *)jobId

@@ -55,6 +55,7 @@ enum class PVOperation {
   RecoverStatus,
   OpenJob,
   SealResult,
+  CompleteResult,
 };
 enum class PVFailure {
   None,
@@ -545,6 +546,19 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     parsed.failure = PVFailure::None;
     return parsed;
   }
+  if (operation == PVOperation::CompleteResult) {
+    const char *const keys[] = {"version", "ok", "requestId", "state"};
+    const char *state = PVGetString(reply, "state");
+    if (!PVHasExactKeys(reply, keys, 4) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "delivered") != 0) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
 
   if (operation == PVOperation::CreateGenesis) {
     const char *const keys[] = {"version",  "ok",      "requestId",
@@ -950,6 +964,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "open_job"
                           : request->operation == PVOperation::SealResult
                               ? "seal_result"
+                          : request->operation == PVOperation::CompleteResult
+                              ? "complete_result"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -994,7 +1010,8 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::RecoverStatus ||
       request->operation == PVOperation::Unlock ||
       request->operation == PVOperation::OpenJob ||
-      request->operation == PVOperation::SealResult)
+      request->operation == PVOperation::SealResult ||
+      request->operation == PVOperation::CompleteResult)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   if (request->operation == PVOperation::OpenJob) {
     xpc_dictionary_set_string(message, "jobId", request->jobID);
@@ -1003,12 +1020,20 @@ void PVExecute(napi_env env, void *data) {
                             request->jobEnvelope.size());
   }
   if (request->operation == PVOperation::SealResult) {
+    static const uint8_t emptyPayload = 0;
     xpc_dictionary_set_string(message, "jobId", request->jobID);
     xpc_dictionary_set_string(message, "jobHash", request->jobHash);
     xpc_dictionary_set_string(message, "state", request->resultState);
     xpc_dictionary_set_data(message, "resultPayload",
-                            request->resultPayload.data(),
+                            request->resultPayload.empty()
+                                ? &emptyPayload
+                                : request->resultPayload.data(),
                             request->resultPayload.size());
+  }
+  if (request->operation == PVOperation::CompleteResult) {
+    xpc_dictionary_set_string(message, "jobId", request->jobID);
+    xpc_dictionary_set_string(message, "jobHash", request->jobHash);
+    xpc_dictionary_set_string(message, "state", request->resultState);
   }
   if (request->operation == PVOperation::CommitGenesis) {
     xpc_dictionary_set_data(message, "recoveryConfirmation",
@@ -1195,6 +1220,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "open_job"
                 : request->operation == PVOperation::SealResult
                     ? "seal_result"
+                : request->operation == PVOperation::CompleteResult
+                    ? "complete_result"
                     : "finalize_genesis");
     PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
@@ -1399,6 +1426,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::OpenJob;
   } else if (strcmp(operation, "seal_result") == 0) {
     request->operation = PVOperation::SealResult;
+  } else if (strcmp(operation, "complete_result") == 0) {
+    request->operation = PVOperation::CompleteResult;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1421,6 +1450,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
           ? 2
       : request->operation == PVOperation::OpenJob ? 4
       : request->operation == PVOperation::SealResult ? 6
+      : request->operation == PVOperation::CompleteResult ? 5
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -1432,7 +1462,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::ResumeRotation ||
       request->operation == PVOperation::RecoverStatus ||
       request->operation == PVOperation::OpenJob ||
-      request->operation == PVOperation::SealResult) {
+      request->operation == PVOperation::SealResult ||
+      request->operation == PVOperation::CompleteResult) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||
@@ -1492,7 +1523,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
          strcmp(request->resultState, "failed") != 0) ||
         napi_is_buffer(env, argv[5], &isBuffer) != napi_ok || !isBuffer ||
         napi_get_buffer_info(env, argv[5], &bytes, &resultPayloadLength) != napi_ok ||
-        bytes == nullptr || resultPayloadLength == 0 ||
+        (resultPayloadLength > 0 && bytes == nullptr) ||
         resultPayloadLength > PV_JOB_PAYLOAD_MAXIMUM_BYTES) {
       delete request;
       napi_throw_type_error(env, nullptr,
@@ -1500,6 +1531,30 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       return nullptr;
     }
     resultPayload = static_cast<const uint8_t *>(bytes);
+  }
+  if (request->operation == PVOperation::CompleteResult) {
+    size_t jobLength = 0, hashLength = 0, stateLength = 0;
+    if (napi_typeof(env, argv[2], &argumentType) != napi_ok ||
+        argumentType != napi_string ||
+        napi_get_value_string_utf8(env, argv[2], request->jobID,
+                                   sizeof(request->jobID), &jobLength) != napi_ok ||
+        jobLength != 32 || !PVIsLowerHex(request->jobID, 32) ||
+        napi_typeof(env, argv[3], &argumentType) != napi_ok ||
+        argumentType != napi_string ||
+        napi_get_value_string_utf8(env, argv[3], request->jobHash,
+                                   sizeof(request->jobHash), &hashLength) != napi_ok ||
+        hashLength != 64 || !PVIsLowerHex(request->jobHash, 64) ||
+        napi_typeof(env, argv[4], &argumentType) != napi_ok ||
+        argumentType != napi_string ||
+        napi_get_value_string_utf8(env, argv[4], request->resultState,
+                                   sizeof(request->resultState), &stateLength) != napi_ok ||
+        (strcmp(request->resultState, "completed") != 0 &&
+         strcmp(request->resultState, "failed") != 0)) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
   }
   if (request->operation == PVOperation::CommitGenesis) {
     const size_t maximumLengths[] = {
@@ -1559,8 +1614,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   }
   if (request->operation == PVOperation::SealResult) {
     try {
-      request->resultPayload.assign(resultPayload,
-                                    resultPayload + resultPayloadLength);
+      if (resultPayloadLength > 0)
+        request->resultPayload.assign(resultPayload,
+                                      resultPayload + resultPayloadLength);
     } catch (...) {
       gRequestGate.release();
       delete request;

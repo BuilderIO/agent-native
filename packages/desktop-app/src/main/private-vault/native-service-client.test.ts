@@ -147,7 +147,7 @@ describe("Private Vault native service client", () => {
     }
   });
 
-  it("maps one encrypted broker job through the argument-free authority boundary", async () => {
+  it("maps one encrypted broker job through the caller-independent authority boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const endpointId = "11112222333344445555666677778888";
     const jobId = "ffeeddccbbaa99887766554433221100";
@@ -220,6 +220,54 @@ describe("Private Vault native service client", () => {
       "ab".repeat(32),
       "completed",
       expect.any(Buffer),
+    );
+    await expect(
+      client.sealHostedResult({
+        version: 1,
+        suite: "anc/v1",
+        operation: "sealHostedResult",
+        vaultId: "00112233445566778899aabbccddeeff",
+        endpointId: "11112222333344445555666677778888",
+        jobId: "ffeeddccbbaa99887766554433221100",
+        jobHash: "ab".repeat(32),
+        state: "completed",
+        resultPayload: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({ operation: "sealHostedResult" });
+  });
+
+  it("releases a sealed result only after an exact hosted receipt", async () => {
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "complete_result",
+      state: "delivered",
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.acknowledgeHostedResult({
+        version: 1,
+        suite: "anc/v1",
+        operation: "acknowledgeHostedResult",
+        vaultId: "00112233445566778899aabbccddeeff",
+        endpointId: "11112222333344445555666677778888",
+        jobId: "ffeeddccbbaa99887766554433221100",
+        jobHash: "ab".repeat(32),
+        state: "completed",
+      }),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "acknowledgeHostedResult",
+      delivered: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "complete_result",
+      "00112233445566778899aabbccddeeff",
+      "ffeeddccbbaa99887766554433221100",
+      "ab".repeat(32),
+      "completed",
     );
   });
 

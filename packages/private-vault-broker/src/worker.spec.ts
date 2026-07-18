@@ -50,6 +50,11 @@ function successFixture() {
       operation: "sealHostedResult" as const,
       resultEnvelope: sealedResult,
     })),
+    acknowledgeHostedResult: vi.fn(async () => ({
+      ...base,
+      operation: "acknowledgeHostedResult" as const,
+      delivered: true as const,
+    })),
   } as unknown as PrivateVaultNativeService;
   const transport = {
     claim: vi.fn(async (body: Uint8Array) => {
@@ -176,6 +181,15 @@ describe("PrivateVaultBrokerWorker", () => {
       state: "completed",
       resultPayload: fixture.executionPayload,
     });
+    expect(fixture.native.acknowledgeHostedResult).toHaveBeenCalledWith({
+      ...base,
+      operation: "acknowledgeHostedResult",
+      vaultId,
+      endpointId,
+      jobId,
+      jobHash,
+      state: "completed",
+    });
     expect(zeroize).toHaveBeenCalledWith(fixture.openedPayload);
     expect(zeroize).toHaveBeenCalledWith(fixture.executionPayload);
     expect(zeroize).toHaveBeenCalledWith(fixture.sealedResult);
@@ -243,6 +257,25 @@ describe("PrivateVaultBrokerWorker", () => {
       retryAt: "2026-07-18T12:00:02.000Z",
     });
     expect(fixture.transport.result).not.toHaveBeenCalled();
+  });
+
+  it("preserves the encrypted spool when local receipt acknowledgment fails", async () => {
+    const fixture = successFixture();
+    fixture.native.acknowledgeHostedResult = vi.fn(async () => {
+      throw new Error("native receipt commit failed");
+    });
+    const worker = new PrivateVaultBrokerWorker({
+      vaultId,
+      endpointId,
+      native: fixture.native,
+      transport: fixture.transport,
+      executor: fixture.executor,
+    });
+    await expect(worker.processOnce()).rejects.toEqual(
+      new PrivateVaultBrokerWorkerError(),
+    );
+    expect(fixture.transport.result).toHaveBeenCalledOnce();
+    expect(fixture.transport.retry).not.toHaveBeenCalled();
   });
 
   it("rejects concurrent work and mismatched hosted coordinates", async () => {
