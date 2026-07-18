@@ -3089,6 +3089,7 @@ const enUS = {
   localFiles: localFilesMessages,
   sidebar: {
     cannotReorderPages: "Cannot reorder pages",
+    addWorkspace: "Add workspace",
     addChild: "Add child",
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
@@ -3121,6 +3122,7 @@ const enUS = {
       "“{{title}}” and all its sub-pages will be permanently deleted. This cannot be undone.",
     deletePageQuestion: "Delete page?",
     localFiles: "Local files",
+    localFolder: "Local folder",
     files: "Files",
     loadingFiles: "Loading files…",
     localFilesActions: "Local files actions",

@@ -8,7 +8,6 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
-import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -114,6 +113,7 @@ import {
   IconEyeOff,
   IconFilter,
   IconFileText,
+  IconFolder,
   IconForms,
   IconGripVertical,
   IconLayoutKanban,
@@ -678,8 +678,6 @@ function DatabaseTable({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const contentSpacesQuery = useContentSpaces();
-  const activeOrgQuery = useOrg();
-  const switchOrg = useSwitchOrg();
   const [, setStoredSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
@@ -839,10 +837,6 @@ function DatabaseTable({
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
-  const activeOrgIdRef = useRef(activeOrgQuery.data?.orgId);
-  useEffect(() => {
-    activeOrgIdRef.current = activeOrgQuery.data?.orgId;
-  }, [activeOrgQuery.data?.orgId]);
   const builderReviewGenerationRef = useRef(0);
   const builderReviewSessionRef = useRef<BuilderReviewSession | null>(null);
   const [
@@ -1323,11 +1317,6 @@ function DatabaseTable({
       .current(async () => {
         await selectContentSpace({
           space,
-          activeOrgId: activeOrgIdRef.current,
-          switchOrg: async (orgId) => {
-            await switchOrg.mutateAsync(orgId);
-            activeOrgIdRef.current = orgId;
-          },
           syncApplicationState: (selected) =>
             setClientAppState(
               "content-space",
@@ -2738,6 +2727,7 @@ function DatabaseTable({
         open={settingsOpen}
         panel={settingsPanel}
         documentId={document.id}
+        isFilesDatabase={document.database?.systemRole === "files"}
         canEdit={canEdit}
         canManage={document.canManage === true}
         activeView={activeView}
@@ -7030,6 +7020,7 @@ function DatabaseSettingsPanelSheet({
   open,
   panel,
   documentId,
+  isFilesDatabase,
   canEdit,
   canManage,
   activeView,
@@ -7065,6 +7056,7 @@ function DatabaseSettingsPanelSheet({
   open: boolean;
   panel: DatabaseSettingsPanel;
   documentId: string;
+  isFilesDatabase: boolean;
   canEdit: boolean;
   canManage: boolean;
   activeView: ContentDatabaseView;
@@ -7178,6 +7170,7 @@ function DatabaseSettingsPanelSheet({
             source={source}
             sources={sources}
             documentId={documentId}
+            isFilesDatabase={isFilesDatabase}
             itemCount={items.length}
             canEdit={canEdit}
             canManage={canManage}
@@ -7560,6 +7553,7 @@ function DatabaseSettingsSourcePanel({
   source,
   sources,
   documentId,
+  isFilesDatabase,
   itemCount,
   canEdit,
   canManage,
@@ -7581,6 +7575,7 @@ function DatabaseSettingsSourcePanel({
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
   documentId: string;
+  isFilesDatabase: boolean;
   itemCount: number;
   canEdit: boolean;
   canManage: boolean;
@@ -7610,6 +7605,7 @@ function DatabaseSettingsSourcePanel({
   sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
   const { isCodeMode } = useCodeMode();
+  const navigate = useNavigate();
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
@@ -7656,6 +7652,10 @@ function DatabaseSettingsSourcePanel({
           )
         }
         onOpenNotion={() => onNavPush({ kind: "addSource" })}
+        onOpenLocalFolder={() =>
+          navigate(`/local-files?databaseId=${documentId}`)
+        }
+        showLocalFolder={isFilesDatabase}
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -8315,6 +8315,8 @@ function SourcesListView({
   reviewableCount,
   onOpenBuilder,
   onOpenNotion,
+  onOpenLocalFolder,
+  showLocalFolder,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -8325,6 +8327,8 @@ function SourcesListView({
   reviewableCount: number;
   onOpenBuilder: (source?: ContentDatabaseSource) => void;
   onOpenNotion: () => void;
+  onOpenLocalFolder: () => void;
+  showLocalFolder: boolean;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -8403,6 +8407,13 @@ function SourcesListView({
           }
           onClick={onOpenNotion}
         />
+        {showLocalFolder ? (
+          <DatabaseSettingsRow
+            icon={<IconFolder className="size-4" />}
+            label="Local folder"
+            onClick={onOpenLocalFolder}
+          />
+        ) : null}
       </div>
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

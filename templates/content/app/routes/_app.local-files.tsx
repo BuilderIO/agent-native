@@ -740,6 +740,7 @@ export default function LocalFilesRoute() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const targetSpaceId = searchParams.get("spaceId") || undefined;
+  const targetDatabaseId = searchParams.get("databaseId") || undefined;
   const manifestConnectionId = searchParams.get("connectionId") || undefined;
   const manifestFile = searchParams.get("file") || undefined;
   const { data: documents = [] } = useDocuments();
@@ -915,7 +916,8 @@ export default function LocalFilesRoute() {
         connectionId: directory.id,
         label: directory.sourcePrefix || directory.name,
         spaceId: targetSpaceId,
-        createSourceBackedSpace: !targetSpaceId,
+        databaseId: targetDatabaseId,
+        createSourceBackedSpace: !targetSpaceId && !targetDatabaseId,
         truthPolicy: "source_primary",
         dryRun,
       } as never,

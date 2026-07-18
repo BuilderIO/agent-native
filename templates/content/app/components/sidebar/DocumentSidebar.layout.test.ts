@@ -212,7 +212,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain(
       '<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">',
     );
-    expect(sidebar).not.toContain("<OrgSwitcher />");
+    expect(sidebar).toContain("<OrgSwitcher />");
+    expect(sidebar).toContain('t("sidebar.addWorkspace")');
+    expect(sidebar).toContain('<Link to="/local-files">');
   });
 
   it("keeps the trashed inline database lifecycle visible in the sidebar", () => {
@@ -252,15 +254,14 @@ describe("document sidebar layout", () => {
     );
   });
 
-  it("keeps local files above extensions and gates the dev database link to Code mode", () => {
+  it("removes the standalone Local files destination and gates the dev database link to Code mode", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     // The dev-only "Database admin" link must never render for normal users;
     // it is allowed only behind the Code mode gate.
     expect(sidebar).toContain("isCodeMode ? <DevDatabaseLink");
-    expect(sidebar.indexOf("{renderLocalFilesNavButton()}")).toBeLessThan(
-      sidebar.indexOf("<ExtensionsSidebarSection />"),
-    );
+    expect(sidebar).not.toContain("renderLocalFilesNavButton");
+    expect(sidebar).not.toContain('to="/local-files"\n              className');
   });
 
   it("persists tree section collapse state and exposes local file actions", () => {
@@ -293,15 +294,18 @@ describe("document sidebar layout", () => {
 
   it("keeps favorite rows constrained so long titles ellipsize", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
     expect(sidebar).toContain("const favoriteRowWidth =");
     expect(sidebar).toContain("{showFavorites && (");
     expect(sidebar).toContain('"mb-2 min-w-0"');
-    expect(sidebar).toContain(
-      '"flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm"',
-    );
-    expect(sidebar).toContain("width:");
-    expect(sidebar).toContain('"min-w-0 flex-1 truncate"');
+    expect(sidebar).toContain("<FavoriteDocumentItem");
+    expect(treeItem).toContain("export function FavoriteDocumentItem");
+    expect(treeItem).toContain('paddingInlineStart: "12px"');
+    expect(treeItem).toContain('"border-primary bg-accent font-medium');
+    expect(treeItem).toContain("Remove from favorites");
+    expect(treeItem).toContain("onCreateChildPage()");
+    expect(treeItem).toContain("setDeleteDialogOpen(true)");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 });

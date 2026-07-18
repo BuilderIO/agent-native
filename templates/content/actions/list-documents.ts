@@ -17,6 +17,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
@@ -50,7 +51,23 @@ export default defineAction({
   run: async () => {
     const db = getDb();
     const userEmail = getRequestUserEmail();
-    const orgId = getRequestOrgId();
+    const activeOrgId = getRequestOrgId();
+    const memberships = userEmail
+      ? await listContentOrganizationMemberships(userEmail)
+      : [];
+    const authorizedOrgIds = [
+      ...new Set([
+        ...memberships.map((membership) => membership.orgId),
+        ...(!userEmail && activeOrgId ? [activeOrgId] : []),
+      ]),
+    ];
+    const accessContexts = [
+      { userEmail: userEmail ?? undefined },
+      ...authorizedOrgIds.map((orgId) => ({
+        userEmail: userEmail ?? undefined,
+        orgId,
+      })),
+    ];
     // Projection that deliberately avoids pulling the full `content` blob:
     // document bodies can be multi-MB, and the list/tree path only needs a
     // short preview plus the true length. `substr` truncates the transferred
@@ -84,8 +101,15 @@ export default defineAction({
       .from(schema.documents)
       .where(
         and(
-          accessFilter(schema.documents, schema.documentShares),
-          documentDiscoveryFilter(),
+          or(
+            ...accessContexts.map((context) =>
+              accessFilter(schema.documents, schema.documentShares, context),
+            ),
+          ),
+          documentDiscoveryFilter({
+            userEmail,
+            orgIds: authorizedOrgIds,
+          }),
         ),
       )
       .orderBy(asc(schema.documents.position));
@@ -117,7 +141,7 @@ export default defineAction({
           )!,
         );
       }
-      if (orgId) {
+      for (const orgId of authorizedOrgIds) {
         principalClauses.push(
           and(
             eq(schema.documentShares.principalType, "org"),
@@ -277,7 +301,7 @@ export default defineAction({
         if (
           userEmail &&
           d.ownerEmail === userEmail &&
-          (orgId ? d.orgId === orgId : !d.orgId)
+          (!d.orgId || authorizedOrgIds.includes(d.orgId))
         ) {
           accessRole = "owner";
         }

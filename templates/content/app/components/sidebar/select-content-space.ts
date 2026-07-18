@@ -9,24 +9,17 @@ export function contentSpaceAvailability(args: {
   contentSpacesLoading: boolean;
   contentSpacesFetching: boolean;
   contentSpacesError: boolean;
-  activeOrganizationResolved: boolean;
-  activeOrganizationError: boolean;
   provisioningAttempted: boolean;
   provisioningPending: boolean;
   provisioningError: boolean;
 }): ContentSpaceAvailability {
   if (args.hasSelectedSpace) return "ready";
-  if (
-    args.contentSpacesError ||
-    args.activeOrganizationError ||
-    args.provisioningError
-  ) {
+  if (args.contentSpacesError || args.provisioningError) {
     return "error";
   }
   if (
     args.contentSpacesLoading ||
     args.contentSpacesFetching ||
-    !args.activeOrganizationResolved ||
     !args.provisioningAttempted ||
     args.provisioningPending
   ) {
@@ -35,22 +28,17 @@ export function contentSpaceAvailability(args: {
   return "error";
 }
 
-export function contentSpaceForActiveOrg(args: {
+export function contentSpaceForStoredSelection(args: {
   spaces: ContentSpaceSummary[];
   storedSpaceId: string | null;
-  activeOrgId: string | null | undefined;
 }) {
-  if (args.activeOrgId === undefined) return null;
   const stored = args.spaces.find((space) => space.id === args.storedSpaceId);
-  if (stored?.orgId === args.activeOrgId) return stored;
-  const matching = args.spaces.filter(
-    (space) => space.orgId === args.activeOrgId,
+  if (stored) return stored;
+  return (
+    args.spaces.find((space) => space.kind === "personal") ??
+    args.spaces[0] ??
+    null
   );
-  return args.activeOrgId === null
-    ? (matching.find((space) => space.kind === "personal") ??
-        matching[0] ??
-        null)
-    : (matching[0] ?? null);
 }
 
 export function contentSpaceForCatalogItem(args: {
@@ -99,15 +87,10 @@ export function contentSpaceIdForCreate(args: {
 
 export async function selectContentSpace(args: {
   space: ContentSpaceSummary;
-  activeOrgId: string | null | undefined;
-  switchOrg: (orgId: string | null) => Promise<unknown>;
   syncApplicationState: (space: ContentSpaceSummary) => Promise<unknown>;
   persistSelection: (spaceId: string) => void;
   openFiles: (documentId: string) => void;
 }) {
-  if (args.activeOrgId !== args.space.orgId) {
-    await args.switchOrg(args.space.orgId);
-  }
   await args.syncApplicationState(args.space);
   args.persistSelection(args.space.id);
   args.openFiles(args.space.filesDocumentId);

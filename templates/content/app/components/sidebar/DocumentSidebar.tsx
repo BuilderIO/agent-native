@@ -11,7 +11,7 @@ import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -35,6 +35,8 @@ import type {
 } from "@shared/api";
 import {
   IconBrain,
+  IconFolder,
+  IconFolderOpen,
   IconPlus,
   IconRestore,
   IconSearch,
@@ -43,7 +45,6 @@ import {
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconFolderOpen,
   IconChevronDown,
   IconChevronRight,
   IconDots,
@@ -121,11 +122,15 @@ import {
   getDocumentSidebarSections,
   isDirectLocalDocument,
 } from "./document-sidebar-sections";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import {
+  DocumentSidebarIcon,
+  DocumentTreeItem,
+  FavoriteDocumentItem,
+} from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
 import {
   contentSpaceAvailability,
-  contentSpaceForActiveOrg,
+  contentSpaceForStoredSelection,
   createContentSpaceSelectionQueue,
   ensureWorkspaceExpanded,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -332,14 +337,7 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const contentSpacesQuery = useContentSpaces();
   const ensureContentSpaces = useEnsureContentSpaces();
-  const activeOrgQuery = useOrg();
-  const activeOrg = activeOrgQuery.data;
-  const activeOrgIdRef = useRef(activeOrg?.orgId);
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
-  useEffect(() => {
-    activeOrgIdRef.current = activeOrg?.orgId;
-  }, [activeOrg?.orgId]);
-  const switchOrg = useSwitchOrg();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const spaceProvisionAttemptedRef = useRef(false);
   useEffect(() => {
@@ -360,10 +358,9 @@ export function DocumentSidebar({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
-  const selectedSpace = contentSpaceForActiveOrg({
+  const selectedSpace = contentSpaceForStoredSelection({
     spaces: contentSpaces,
     storedSpaceId,
-    activeOrgId: activeOrg?.orgId,
   });
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useLocalStorage<
     string[]
@@ -373,17 +370,11 @@ export function DocumentSidebar({
     contentSpacesLoading: contentSpacesQuery.isLoading,
     contentSpacesFetching: contentSpacesQuery.isFetching,
     contentSpacesError: contentSpacesQuery.isError,
-    activeOrganizationResolved: activeOrgQuery.isSuccess,
-    activeOrganizationError: activeOrgQuery.isError,
     provisioningAttempted: spaceProvisionAttemptedRef.current,
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
   const handleRetryContentSpaces = useCallback(() => {
-    if (activeOrgQuery.isError) {
-      void activeOrgQuery.refetch();
-      return;
-    }
     if (contentSpacesQuery.isError) {
       spaceProvisionAttemptedRef.current = false;
       void contentSpacesQuery.refetch();
@@ -391,7 +382,7 @@ export function DocumentSidebar({
     }
     spaceProvisionAttemptedRef.current = true;
     ensureContentSpaces.mutate({});
-  }, [activeOrgQuery, contentSpacesQuery, ensureContentSpaces]);
+  }, [contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {
     if (selectedSpace && selectedSpace.id !== storedSpaceId) {
       setStoredSpaceId(selectedSpace.id);
@@ -415,11 +406,6 @@ export function DocumentSidebar({
         await workspaceSelectionQueueRef.current(() =>
           selectContentSpace({
             space,
-            activeOrgId: activeOrgIdRef.current,
-            switchOrg: async (orgId) => {
-              await switchOrg.mutateAsync(orgId);
-              activeOrgIdRef.current = orgId;
-            },
             syncApplicationState: (selected) =>
               setClientAppState(
                 "content-space",
@@ -446,7 +432,7 @@ export function DocumentSidebar({
         return false;
       }
     },
-    [navigate, setExpandedWorkspaceIds, setStoredSpaceId, switchOrg],
+    [navigate, setExpandedWorkspaceIds, setStoredSpaceId],
   );
   useEffect(() => {
     if (!selectedSpace) return;
@@ -483,7 +469,6 @@ export function DocumentSidebar({
   );
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
-  const localFilesActive = location.pathname.startsWith("/local-files");
   const agentActive = location.pathname.startsWith("/agent");
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
@@ -1057,23 +1042,6 @@ export function DocumentSidebar({
       </Tooltip>
     ) : null;
 
-  const renderLocalFilesNavButton = () => (
-    <Link
-      to="/local-files"
-      className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-        localFilesActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-      )}
-    >
-      <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
-        {t("sidebar.localFiles")}
-      </span>
-    </Link>
-  );
-
   const renderSettingsNavButton = () => (
     <Link
       to="/settings"
@@ -1293,7 +1261,6 @@ export function DocumentSidebar({
                     type="button"
                     className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
                     onClick={() => void handleSelectContentSpace(space)}
-                    disabled={switchOrg.isPending}
                   >
                     {space.name}
                   </button>
@@ -1338,6 +1305,30 @@ export function DocumentSidebar({
               </div>
             );
           })}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-7 w-full min-w-0 items-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                aria-label={t("sidebar.addWorkspace")}
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center">
+                  <IconPlus size={14} />
+                </span>
+                <span className="truncate text-start text-[10px] font-semibold uppercase tracking-wider">
+                  {t("sidebar.addWorkspace")}
+                </span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem asChild>
+                <Link to="/local-files">
+                  <IconFolder className="me-2 size-4" />
+                  {t("sidebar.localFolder")}
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : contentSpaceState === "loading" ? (
         <div className="px-3 py-4 text-center text-sm text-muted-foreground">
@@ -1348,9 +1339,7 @@ export function DocumentSidebar({
           compact
           onRetry={handleRetryContentSpaces}
           retrying={
-            activeOrgQuery.isFetching ||
-            contentSpacesQuery.isFetching ||
-            ensureContentSpaces.isPending
+            contentSpacesQuery.isFetching || ensureContentSpaces.isPending
           }
         />
       )}
@@ -1469,22 +1458,6 @@ export function DocumentSidebar({
           <TooltipContent>{t("sidebar.expand")}</TooltipContent>
         </Tooltip>
         {renderCollapsedNewButton()}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/local-files"
-              className={cn(
-                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
-                localFilesActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <IconFolderOpen size={16} />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
-        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Link
@@ -1642,39 +1615,33 @@ export function DocumentSidebar({
               {/* Favorites */}
               {showFavorites && (
                 <div className="mb-2 min-w-0">
-                  <div className="flex min-w-0 items-center gap-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    <IconStar size={10} />
+                  <div className="flex h-7 min-w-0 items-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <span className="flex size-7 shrink-0 items-center justify-center">
+                      <IconStar size={11} />
+                    </span>
                     <span className="min-w-0 flex-1 truncate">
                       {t("sidebar.favorites")}
                     </span>
                   </div>
                   {favorites.map((doc) => (
-                    <button
+                    <FavoriteDocumentItem
                       key={doc.id}
-                      className={cn(
-                        "flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
-                        doc.id === activeDocumentId
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      style={{
-                        width:
-                          favoriteRowWidth === undefined
-                            ? undefined
-                            : `${favoriteRowWidth}px`,
-                      }}
-                      onClick={() => {
+                      document={doc}
+                      active={doc.id === activeDocumentId}
+                      sidebarWidth={favoriteRowWidth}
+                      onSelect={() => {
                         navigateToDocument(doc.id);
                         onNavigate?.();
                       }}
-                    >
-                      <span className="flex-shrink-0 w-5 text-center">
-                        <DocumentSidebarIcon document={doc} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {doc.title || t("sidebar.untitled")}
-                      </span>
-                    </button>
+                      onCreateChildPage={() => void handleCreatePage(doc.id)}
+                      onCreateChildDatabase={() =>
+                        void handleCreateDatabase(doc.id)
+                      }
+                      onRemoveFavorite={() =>
+                        handleToggleFavorite(doc.id, false)
+                      }
+                      onDelete={() => void handleDelete(doc.id)}
+                    />
                   ))}
                 </div>
               )}
@@ -1688,7 +1655,6 @@ export function DocumentSidebar({
 
       <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
-          {renderLocalFilesNavButton()}
           {renderAgentNavButton()}
           {renderSettingsNavButton()}
         </div>
@@ -1719,6 +1685,7 @@ export function DocumentSidebar({
             <ThemeToggle />
           </div>
         </div>
+        <OrgSwitcher />
       </div>
 
       {/* Resize handle */}

@@ -6,7 +6,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DocumentTreeNode } from "@shared/api";
+import type { Document, DocumentTreeNode } from "@shared/api";
 import {
   IconChevronRight,
   IconDatabase,
@@ -86,6 +86,170 @@ export function DocumentSidebarIcon({
     return <IconFolder size={14} className="text-muted-foreground" />;
   }
   return <IconFileText size={14} className="text-muted-foreground" />;
+}
+
+export function FavoriteDocumentItem({
+  document,
+  active,
+  sidebarWidth,
+  onSelect,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onRemoveFavorite,
+  onDelete,
+}: {
+  document: Document;
+  active: boolean;
+  sidebarWidth?: number;
+  onSelect: () => void;
+  onCreateChildPage: () => void;
+  onCreateChildDatabase: () => void;
+  onRemoveFavorite: () => void;
+  onDelete: () => void;
+}) {
+  const t = useT();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const canEdit = document.canEdit !== false;
+  const canManage =
+    document.canManage === true ||
+    document.accessRole === "owner" ||
+    document.accessRole === "admin";
+  const canCreateChild = canEdit && document.source?.mode !== "local-files";
+  const title = document.title || t("sidebar.untitled");
+
+  return (
+    <div
+      className={cn(
+        "group relative flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm",
+        active
+          ? "border-primary bg-accent font-medium text-accent-foreground"
+          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+      style={{
+        paddingInlineStart: "12px",
+        width:
+          sidebarWidth === undefined
+            ? undefined
+            : `${Math.max(0, sidebarWidth)}px`,
+      }}
+      aria-label={title}
+      onClick={onSelect}
+    >
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-center">
+        <DocumentSidebarIcon document={document} />
+      </span>
+      <span className="min-w-0 flex-1 truncate pe-12">{title}</span>
+      <div
+        className={cn(
+          "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+          active && "text-accent-foreground",
+        )}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        {(canEdit || canManage) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-6 w-6 items-center justify-center rounded hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`More actions for ${title}`}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <IconDots size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              {canEdit && (
+                <DropdownMenuItem
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemoveFavorite();
+                  }}
+                >
+                  <IconStar size={14} className="me-2 fill-current" />
+                  Remove from favorites
+                </DropdownMenuItem>
+              )}
+              {canEdit && canManage && <DropdownMenuSeparator />}
+              {canManage && (
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setDeleteDialogOpen(true);
+                  }}
+                >
+                  <IconTrash size={14} className="me-2" />
+                  {t("database.delete")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {canCreateChild && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 items-center justify-center rounded hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("sidebar.addChildTo", { title })}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <IconPlus size={14} />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="start" className="w-44">
+              <DropdownMenuItem
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCreateChildPage();
+                }}
+              >
+                <IconFileText className="me-2 size-4" />
+                {t("sidebar.page")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCreateChildDatabase();
+                }}
+              >
+                <IconDatabase className="me-2 size-4" />
+                {t("sidebar.database")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sidebar.deletePageDescription", { title })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={onDelete}
+            >
+              {t("database.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
 }
 
 export function DocumentTreeItem({
