@@ -379,32 +379,34 @@ export async function queueRemotePushNotifications(input: {
     orgId: input.orgId ?? null,
     limit: 100,
   });
+  if (registrations.length === 0) return { queued: 0 };
+
   const client = getDbExec();
   const now = Date.now();
-  let queued = 0;
-  for (const registration of registrations) {
-    const id = `remote-push-notification-${now}-${randomHex(8)}`;
-    const result = await client.execute({
-      sql: `INSERT INTO integration_remote_push_notifications
+  const payload = JSON.stringify(input.payload ?? null);
+  const values = registrations.map(
+    () => "(?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)",
+  );
+  const args = registrations.flatMap((registration) => [
+    `remote-push-notification-${now}-${randomHex(8)}`,
+    input.ownerEmail,
+    input.orgId ?? null,
+    registration.id,
+    payload,
+    now,
+    now,
+    now,
+  ]);
+  const result = await client.execute({
+    sql: `INSERT INTO integration_remote_push_notifications
         (id, owner_email, org_id, registration_id, payload_json, status,
          attempts, next_attempt_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        id,
-        input.ownerEmail,
-        input.orgId ?? null,
-        registration.id,
-        JSON.stringify(input.payload ?? null),
-        "pending",
-        0,
-        now,
-        now,
-        now,
-      ],
-    });
-    queued += result.rowsAffected ?? (result as any).rowCount ?? 0;
-  }
-  return { queued };
+        VALUES ${values.join(", ")}`,
+    args,
+  });
+  return {
+    queued: result.rowsAffected ?? (result as any).rowCount ?? 0,
+  };
 }
 
 export async function listRemotePushNotificationsForOwner(input: {

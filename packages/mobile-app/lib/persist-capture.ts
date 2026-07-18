@@ -1,6 +1,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 
 const CAPTURE_DIRECTORY_NAME = "captures";
+const ORPHAN_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 export interface RecoverableCaptureFile {
   captureId: string;
@@ -12,9 +13,15 @@ export interface RecoverableCaptureFile {
 
 interface PersistedCaptureFileLike {
   extension: string;
+  modificationTime?: number | null;
   name: string;
   size: number;
   uri: string;
+}
+
+interface CaptureSweepOptions {
+  minimumAgeMs?: number;
+  nowMs?: number;
 }
 
 function safeExtension(mimeType: string, uri: string): string {
@@ -103,19 +110,31 @@ export function recoverableCaptureFromFile(
   return [];
 }
 
-export function sweepOrphanedCaptureFiles(referencedUris: Iterable<string>) {
+export function sweepOrphanedCaptureFiles(
+  referencedUris: Iterable<string>,
+  options: CaptureSweepOptions = {},
+) {
   const files = captureDirectory()
     .list()
     .filter((entry): entry is File => entry instanceof File);
-  const orphanedUris = findOrphanedCaptureUris(
-    files.map((file) => file.uri),
-    referencedUris,
+  const orphanedUris = new Set(
+    findOrphanedCaptureUris(
+      files.map((file) => file.uri),
+      referencedUris,
+    ),
   );
-  for (const uri of orphanedUris) {
-    const file = new File(uri);
+  const nowMs = options.nowMs ?? Date.now();
+  const minimumAgeMs = options.minimumAgeMs ?? ORPHAN_CAPTURE_RETENTION_MS;
+  const sweepableFiles = files.filter(
+    (file) =>
+      orphanedUris.has(file.uri) &&
+      typeof file.modificationTime === "number" &&
+      nowMs - file.modificationTime >= minimumAgeMs,
+  );
+  for (const file of sweepableFiles) {
     if (file.exists) file.delete();
   }
-  return orphanedUris;
+  return sweepableFiles.map((file) => file.uri);
 }
 
 export function removePersistedCaptureFile(uri: string): void {

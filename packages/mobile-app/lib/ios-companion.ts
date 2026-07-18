@@ -26,8 +26,12 @@ interface SharedCaptureManifest {
   fileName: string;
   kind: "audio" | "video";
   mimeType: string;
+  status?: "completed" | "recording";
   title: string;
+  updatedAt?: string;
 }
+
+const ACTIVE_SHARED_CAPTURE_WINDOW_MS = 30_000;
 
 const nativeCompanion =
   Platform.OS === "ios"
@@ -123,7 +127,14 @@ function parseSharedCaptureManifest(
       typeof parsed.fileName !== "string" ||
       (parsed.kind !== "audio" && parsed.kind !== "video") ||
       typeof parsed.mimeType !== "string" ||
-      typeof parsed.title !== "string"
+      typeof parsed.title !== "string" ||
+      (parsed.durationMs !== undefined &&
+        (typeof parsed.durationMs !== "number" ||
+          !Number.isFinite(parsed.durationMs))) ||
+      (parsed.status !== undefined &&
+        parsed.status !== "completed" &&
+        parsed.status !== "recording") ||
+      (parsed.updatedAt !== undefined && typeof parsed.updatedAt !== "string")
     ) {
       return null;
     }
@@ -131,6 +142,19 @@ function parseSharedCaptureManifest(
   } catch {
     return null;
   }
+}
+
+export function isSharedCaptureReadyForImport(
+  manifest: Pick<SharedCaptureManifest, "status" | "updatedAt">,
+  now = Date.now(),
+): boolean {
+  if (manifest.status !== "recording") return true;
+  if (!manifest.updatedAt) return true;
+  const updatedAt = Date.parse(manifest.updatedAt);
+  return (
+    !Number.isFinite(updatedAt) ||
+    now - updatedAt >= ACTIVE_SHARED_CAPTURE_WINDOW_MS
+  );
 }
 
 export async function importIOSSharedCaptures(): Promise<number> {
@@ -152,27 +176,33 @@ export async function importIOSSharedCaptures(): Promise<number> {
   for (const manifestFile of manifests) {
     const manifest = parseSharedCaptureManifest(await manifestFile.text());
     if (!manifest) continue;
+    if (!isSharedCaptureReadyForImport(manifest)) continue;
     const mediaFile = new File(directory, manifest.fileName);
     if (!mediaFile.exists) continue;
-    const localUri = await persistCaptureFile(
-      mediaFile.uri,
-      manifest.mimeType,
-      manifest.captureId,
-    );
-    await enqueueCaptureJob({
-      id: manifest.captureId,
-      localUri,
-      ownerKey: session?.ownerKey,
-      kind: manifest.kind === "audio" ? "meeting" : "video",
-      durationMs: Math.max(0, manifest.durationMs ?? 0),
-      mimeType: manifest.mimeType,
-      title: manifest.title,
-      capturedAt: manifest.capturedAt,
-      retainLocalFile: false,
-    });
-    manifestFile.delete();
-    mediaFile.delete();
-    imported += 1;
+    if (typeof mediaFile.size === "number" && mediaFile.size <= 0) continue;
+    try {
+      const localUri = await persistCaptureFile(
+        mediaFile.uri,
+        manifest.mimeType,
+        manifest.captureId,
+      );
+      await enqueueCaptureJob({
+        id: manifest.captureId,
+        localUri,
+        ownerKey: session?.ownerKey,
+        kind: manifest.kind === "audio" ? "meeting" : "video",
+        durationMs: Math.max(0, manifest.durationMs ?? 0),
+        mimeType: manifest.mimeType,
+        title: manifest.title,
+        capturedAt: manifest.capturedAt,
+        retainLocalFile: false,
+      });
+      manifestFile.delete();
+      mediaFile.delete();
+      imported += 1;
+    } catch {
+      // Keep shared metadata and media intact so a later foreground tick can retry.
+    }
   }
 
   return imported;

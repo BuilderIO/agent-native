@@ -88,20 +88,25 @@ async function handleNotificationResponse(
   if (handledNotificationResponseKey === responseKey) return;
   handledNotificationResponseKey = responseKey;
   const url = notificationUrl(response);
-  if (url) await Linking.openURL(url);
-  await Notifications.clearLastNotificationResponseAsync().catch(() => null);
+  if (url) await Linking.openURL(url).catch(() => null);
+  try {
+    Notifications.clearLastNotificationResponse();
+  } catch {
+    // The response is still deduplicated in memory when clearing is unavailable.
+  }
 }
 
-async function initializeCaptureStorage() {
-  const resetCorruptedStore = await recoverCaptureQueueStore();
+export async function initializeCaptureStorage() {
+  await recoverCaptureQueueStore();
   await endStaleIOSCaptureActivities();
   await importIOSSharedCaptures();
   let jobs = await listCaptureJobs();
-  if (resetCorruptedStore) {
+  const recoverableCaptures = listRecoverableCaptureFiles(
+    jobs.map((job) => job.localUri),
+  );
+  if (recoverableCaptures.length > 0) {
     const session = await getClipsSession();
-    for (const capture of listRecoverableCaptureFiles(
-      jobs.map((job) => job.localUri),
-    )) {
+    for (const capture of recoverableCaptures) {
       await enqueueCaptureJob({
         id: capture.captureId,
         localUri: capture.localUri,
@@ -131,6 +136,7 @@ export default function CaptureSyncProvider({ children }: PropsWithChildren) {
       syncing = true;
       try {
         await initialized;
+        await importIOSSharedCaptures();
         await syncAndNotify();
       } catch {
         // The queue keeps its retry metadata; the next foreground tick retries.
@@ -150,11 +156,15 @@ export default function CaptureSyncProvider({ children }: PropsWithChildren) {
         void handleNotificationResponse(response);
       });
     const removeSharedCaptureListener = subscribeToSharedCapture(() => {
-      void importIOSSharedCaptures().then(() => run());
+      void run();
     });
-    void Notifications.getLastNotificationResponseAsync()
-      .then(handleNotificationResponse)
-      .catch(() => null);
+    try {
+      void handleNotificationResponse(
+        Notifications.getLastNotificationResponse(),
+      );
+    } catch {
+      // The response listener still handles taps when the sync getter is absent.
+    }
     return () => {
       clearInterval(retryTimer);
       subscription.remove();

@@ -9,6 +9,18 @@ export type AudioCaptureUiState =
   | "permission-denied"
   | "error";
 
+export function audioRecorderFailureMessage(status: {
+  error: string | null;
+  hasError: boolean;
+  mediaServicesDidReset?: boolean;
+}): string | null {
+  if (status.mediaServicesDidReset) {
+    return "iOS interrupted the audio recorder. Tap Try again to start a new recording.";
+  }
+  if (!status.hasError) return null;
+  return status.error?.trim() || "The recording was interrupted.";
+}
+
 export function reconcileAudioCaptureState(
   state: AudioCaptureUiState,
   nativeIsRecording: boolean,

@@ -8,7 +8,6 @@
     "scheme": "agentnative",
     "userInterfaceStyle": "dark",
     "ios": {
-      "appleTeamId": "W3PMF2T3MW",
       "bundleIdentifier": "com.agentnative.mobile",
       "supportsTablet": true,
       "entitlements": {

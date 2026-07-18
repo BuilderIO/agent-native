@@ -38,6 +38,7 @@ Tasks is a task-list-first agent-native app. The task list at `/tasks` is the de
 | `update-visible-task-fields` | POST   | Replace which custom fields appear on task cards (max 3)                                     |
 | `view-screen`                | —      | Read navigation, UI bulk selection, visible tasks, and inbox snapshot                        |
 | `navigate`                   | —      | Move UI to a view: `tasks`, `inbox`, `fields`, `extensions`, `team` (`home`/`ask` → `tasks`) |
+| `render-task-list-inline`    | —      | Render an interactive task-list widget inline in chat without leaving the current view       |
 
 ## Store Functions And Transactions
 
@@ -128,6 +129,8 @@ Default navigation shape on `/tasks`:
 - Capture in chat → `create-inbox-item` by default; use `create-task` only when the user asks to add directly to the task list.
 - Call `view-screen` before ambiguous edits when the user says "this task", "these tasks", "this inbox item", or "the list".
 - On `/tasks` or `/inbox`, `view-screen` returns `list` (with `items`), optional `selectedItem` (`inListSnapshot`), and optional `selection` (`selectedItems`, `selectedIdsNotInVisibleList`) when bulk-select is active.
+- When the user asks to see, review, or manage tasks while `navigation.view` is not `tasks`, call `render-task-list-inline` instead of navigating away. Pass `includeDone: true` when completed tasks should be included. The widget can add tasks and toggle completion through the existing task actions.
+- When the user is already on `/tasks`, use `view-screen` and the native task list for task-list context unless the user explicitly asks for an inline widget.
 - Prefer `selection.selectedItems` when the user has UI rows selected; fall back to `selectedItem` for a single deep-link highlight.
 - `delete-task`, `bulk-delete-tasks`, and `delete-inbox-item` only after explicit user confirmation in chat.
 - Use `navigation.includeDone` and `list` from `view-screen` to match what the user sees on `/tasks`.

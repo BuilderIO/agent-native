@@ -6,10 +6,13 @@ import ReplayKit
 private struct ReplayKitCaptureManifest: Codable {
   let captureId: String
   let capturedAt: String
+  let durationMs: Int
   let fileName: String
   let kind: String
   let mimeType: String
+  let status: String
   let title: String
+  let updatedAt: String
 }
 
 final class SampleHandler: RPBroadcastSampleHandler {
@@ -19,12 +22,18 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var appAudioInput: AVAssetWriterInput?
   private var microphoneInput: AVAssetWriterInput?
   private var outputURL: URL?
+  private var manifestURL: URL?
   private var captureId = ""
+  private var capturedAt = Date()
   private var startedSession = false
+  private var sessionStartSeconds: Double?
+  private var latestSampleEndSeconds: Double?
+  private var lastManifestDurationMs = 0
   private var terminalError: Error?
 
   override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
     captureId = UUID().uuidString.lowercased()
+    capturedAt = Date()
     guard let container = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroup
     ) else {
@@ -46,7 +55,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
       )
       let url = directory.appendingPathComponent("\(captureId).mp4")
       outputURL = url
+      manifestURL = url.deletingPathExtension().appendingPathExtension("json")
       writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+      try writeManifest(status: "recording", durationMs: 0)
     } catch {
       finishBroadcastWithError(error)
     }
@@ -110,13 +121,16 @@ final class SampleHandler: RPBroadcastSampleHandler {
       guard writer.startWriting() else {
         throw writer.error ?? captureError("Screen recording could not start.")
       }
-      writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+      let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+      writer.startSession(atSourceTime: presentationTime)
+      sessionStartSeconds = validSeconds(presentationTime)
       startedSession = true
     }
-    if videoInput?.isReadyForMoreMediaData == true,
-      videoInput?.append(sampleBuffer) == false
-    {
-      throw writer.error ?? captureError("A screen video frame could not be saved.")
+    if videoInput?.isReadyForMoreMediaData == true {
+      guard videoInput?.append(sampleBuffer) == true else {
+        throw writer.error ?? captureError("A screen video frame could not be saved.")
+      }
+      recordProgress(from: sampleBuffer)
     }
   }
 
@@ -151,10 +165,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
       }
       input = nextInput
     }
-    if input?.isReadyForMoreMediaData == true,
-      input?.append(sampleBuffer) == false
-    {
-      throw writer.error ?? captureError("Screen recording audio could not be saved.")
+    if input?.isReadyForMoreMediaData == true {
+      guard input?.append(sampleBuffer) == true else {
+        throw writer.error ?? captureError("Screen recording audio could not be saved.")
+      }
+      recordProgress(from: sampleBuffer)
     }
   }
 
@@ -170,8 +185,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       finished.signal()
     }
     guard finished.wait(timeout: .now() + 8) == .success,
-      writer.status == .completed,
-      let outputURL
+      writer.status == .completed
     else {
       let error = writer.error ?? captureError("Screen recording did not finish safely.")
       finishBroadcastWithError(error)
@@ -179,22 +193,69 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     do {
-      let manifest = ReplayKitCaptureManifest(
-        captureId: captureId,
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        fileName: outputURL.lastPathComponent,
-        kind: "video",
-        mimeType: "video/mp4",
-        title: "Screen recording"
-      )
-      let data = try JSONEncoder().encode(manifest)
-      try data.write(
-        to: outputURL.deletingPathExtension().appendingPathExtension("json"),
-        options: .atomic
-      )
+      try writeManifest(status: "completed", durationMs: currentDurationMs())
     } catch {
       finishBroadcastWithError(error)
     }
+  }
+
+  private func recordProgress(from sampleBuffer: CMSampleBuffer) {
+    guard let sampleStart = validSeconds(
+      CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+    ) else {
+      return
+    }
+    let sampleDuration = validSeconds(CMSampleBufferGetDuration(sampleBuffer)) ?? 0
+    latestSampleEndSeconds = max(
+      latestSampleEndSeconds ?? sampleStart,
+      sampleStart + max(0, sampleDuration)
+    )
+    let durationMs = currentDurationMs()
+    guard durationMs - lastManifestDurationMs >= 1_000 else {
+      return
+    }
+    do {
+      try writeManifest(status: "recording", durationMs: durationMs)
+      lastManifestDurationMs = durationMs
+    } catch {
+      terminalError = error
+      finishBroadcastWithError(error)
+    }
+  }
+
+  private func currentDurationMs() -> Int {
+    guard let sessionStartSeconds, let latestSampleEndSeconds else {
+      return 0
+    }
+    return max(0, Int(((latestSampleEndSeconds - sessionStartSeconds) * 1_000).rounded()))
+  }
+
+  private func validSeconds(_ time: CMTime) -> Double? {
+    guard time.isValid, !time.isIndefinite else {
+      return nil
+    }
+    let seconds = CMTimeGetSeconds(time)
+    return seconds.isFinite ? seconds : nil
+  }
+
+  private func writeManifest(status: String, durationMs: Int) throws {
+    guard let outputURL, let manifestURL else {
+      throw captureError("Screen recording recovery metadata is unavailable.")
+    }
+    let formatter = ISO8601DateFormatter()
+    let manifest = ReplayKitCaptureManifest(
+      captureId: captureId,
+      capturedAt: formatter.string(from: capturedAt),
+      durationMs: max(0, durationMs),
+      fileName: outputURL.lastPathComponent,
+      kind: "video",
+      mimeType: "video/mp4",
+      status: status,
+      title: "Screen recording",
+      updatedAt: formatter.string(from: Date())
+    )
+    let data = try JSONEncoder().encode(manifest)
+    try data.write(to: manifestURL, options: .atomic)
   }
 
   private func captureError(_ message: String) -> NSError {

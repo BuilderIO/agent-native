@@ -35,9 +35,6 @@ struct StopAgentNativeCaptureIntent: LiveActivityIntent {
   }
 
   func perform() async throws -> some IntentResult {
-    let defaults = UserDefaults(suiteName: agentNativeAppGroup)
-    defaults?.set(captureId, forKey: "capture.stopRequestedId")
-    defaults?.set(Date().timeIntervalSince1970, forKey: "capture.stopRequestedAt")
     NotificationCenter.default.post(
       name: agentNativeCaptureStopNotification,
       object: nil,

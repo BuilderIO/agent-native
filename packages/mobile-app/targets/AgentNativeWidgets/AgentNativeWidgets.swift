@@ -5,6 +5,41 @@ import WidgetKit
 
 private let captureAccent = Color(red: 0.78, green: 0.95, blue: 0.42)
 
+private struct CapturePhasePresentation {
+  let color: Color
+  let icon: String
+  let title: String
+
+  init(phase: String, kind: String) {
+    switch phase.lowercased() {
+    case "paused":
+      color = .orange
+      icon = "pause.fill"
+      title = "Capture paused"
+    case "recovering":
+      color = .orange
+      icon = "arrow.clockwise"
+      title = "Recovering capture"
+    case "failed":
+      color = .red
+      icon = "exclamationmark.triangle.fill"
+      title = "Capture needs recovery"
+    case "completed":
+      color = .green
+      icon = "checkmark.circle.fill"
+      title = "Capture saved"
+    case "discarded":
+      color = .gray
+      icon = "trash.fill"
+      title = "Capture discarded"
+    default:
+      color = captureAccent
+      icon = kind == "video" ? "video.fill" : "waveform"
+      title = kind == "video" ? "Capturing video" : "Recording"
+    }
+  }
+}
+
 private struct CaptureQuickActionsEntry: TimelineEntry {
   let date: Date
 }
@@ -99,12 +134,16 @@ struct AgentNativeCaptureWidget: Widget {
 struct AgentNativeCaptureLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: AgentNativeCaptureAttributes.self) { context in
+      let presentation = CapturePhasePresentation(
+        phase: context.state.phase,
+        kind: context.attributes.kind
+      )
       HStack(spacing: 14) {
-        Image(systemName: context.attributes.kind == "video" ? "video.fill" : "waveform")
-          .foregroundStyle(captureAccent)
+        Image(systemName: presentation.icon)
+          .foregroundStyle(presentation.color)
           .font(.title2)
         VStack(alignment: .leading, spacing: 3) {
-          Text(context.attributes.kind == "video" ? "Capturing video" : "Recording")
+          Text(presentation.title)
             .font(.headline)
           Text(timerInterval: context.state.startedAt...Date.distantFuture, countsDown: false)
             .font(.caption.monospacedDigit())
@@ -124,14 +163,24 @@ struct AgentNativeCaptureLiveActivity: Widget {
       .activitySystemActionForegroundColor(.white)
       .widgetURL(URL(string: "agentnative://capture/\(context.attributes.kind == "video" ? "video" : "audio")"))
     } dynamicIsland: { context in
-      DynamicIsland {
+      let presentation = CapturePhasePresentation(
+        phase: context.state.phase,
+        kind: context.attributes.kind
+      )
+      return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          Image(systemName: context.attributes.kind == "video" ? "video.fill" : "waveform")
-            .foregroundStyle(captureAccent)
+          Image(systemName: presentation.icon)
+            .foregroundStyle(presentation.color)
         }
         DynamicIslandExpandedRegion(.center) {
-          Text(timerInterval: context.state.startedAt...Date.distantFuture, countsDown: false)
-            .font(.headline.monospacedDigit())
+          if context.state.phase.lowercased() == "paused" {
+            Text("Paused")
+              .font(.headline)
+              .foregroundStyle(presentation.color)
+          } else {
+            Text(timerInterval: context.state.startedAt...Date.distantFuture, countsDown: false)
+              .font(.headline.monospacedDigit())
+          }
         }
         DynamicIslandExpandedRegion(.trailing) {
           Button(intent: StopAgentNativeCaptureIntent(captureId: context.attributes.captureId)) {
@@ -141,20 +190,25 @@ struct AgentNativeCaptureLiveActivity: Widget {
           .accessibilityLabel("Stop recording")
         }
         DynamicIslandExpandedRegion(.bottom) {
-          Text("Agent Native capture is active")
+          Text(presentation.title)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
       } compactLeading: {
-        Image(systemName: "waveform")
-          .foregroundStyle(captureAccent)
+        Image(systemName: presentation.icon)
+          .foregroundStyle(presentation.color)
       } compactTrailing: {
-        Text(timerInterval: context.state.startedAt...Date.distantFuture, countsDown: false)
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(captureAccent)
+        if context.state.phase.lowercased() == "paused" {
+          Image(systemName: "pause.fill")
+            .foregroundStyle(presentation.color)
+        } else {
+          Text(timerInterval: context.state.startedAt...Date.distantFuture, countsDown: false)
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(presentation.color)
+        }
       } minimal: {
-        Image(systemName: "waveform")
-          .foregroundStyle(captureAccent)
+        Image(systemName: presentation.icon)
+          .foregroundStyle(presentation.color)
       }
       .widgetURL(URL(string: "agentnative://capture/\(context.attributes.kind == "video" ? "video" : "audio")"))
     }

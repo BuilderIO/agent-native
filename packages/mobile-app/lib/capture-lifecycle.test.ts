@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  audioRecorderFailureMessage,
   reconcileAudioCaptureState,
   shouldStopVideoForAppState,
 } from "./capture-lifecycle";
@@ -12,6 +13,24 @@ describe("capture lifecycle", () => {
     expect(reconcileAudioCaptureState("recording", false, false)).toBe(
       "recording",
     );
+  });
+
+  it("surfaces an iOS media-services reset even without a native error flag", () => {
+    expect(
+      audioRecorderFailureMessage({
+        error: null,
+        hasError: false,
+        mediaServicesDidReset: true,
+      }),
+    ).toBe(
+      "iOS interrupted the audio recorder. Tap Try again to start a new recording.",
+    );
+    expect(
+      audioRecorderFailureMessage({
+        error: null,
+        hasError: false,
+      }),
+    ).toBeNull();
   });
 
   it("only stops camera capture once the app is actually backgrounded", () => {

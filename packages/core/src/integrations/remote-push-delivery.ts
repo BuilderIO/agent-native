@@ -13,7 +13,7 @@ const EXPO_PUSH_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const REQUEST_TIMEOUT_MS = 10_000;
 const RECEIPT_CHECK_DELAY_MS = 15 * 60_000;
 const MAX_DELIVERY_ATTEMPTS = 12;
-const DEFAULT_DELIVERY_LIMIT = 25;
+const DEFAULT_DELIVERY_LIMIT = 100;
 
 type ExpoResult = {
   status?: unknown;
@@ -197,7 +197,10 @@ async function sendExpoPushNotifications(
     : body.data && isExpoResult(body.data)
       ? [body.data]
       : [];
-  if (tickets.length !== supportedDeliveries.length) {
+  if (
+    tickets.length !== supportedDeliveries.length ||
+    tickets.some((ticket) => !isExpoResult(ticket))
+  ) {
     for (const delivery of supportedDeliveries) {
       outcomes.set(delivery.id, {
         kind: "retry",
@@ -350,8 +353,8 @@ function isExpoPushToken(value: string): boolean {
   return /^(Expo(nent)?PushToken)\[[A-Za-z0-9_-]+\]$/.test(value);
 }
 
-function isExpoResult(value: object): value is ExpoResult {
-  return "status" in value;
+function isExpoResult(value: unknown): value is ExpoResult {
+  return value !== null && typeof value === "object" && "status" in value;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

@@ -374,9 +374,27 @@ describe("remote relay stores", () => {
                 created_at: 1,
                 updated_at: 1,
               },
+              {
+                id: "push-2",
+                owner_email: "alice@example.com",
+                org_id: "org-1",
+                provider: "expo",
+                platform: "ios",
+                client_device_id: "phone-2",
+                label: "Alice iPad",
+                token: "ExpoPushToken[example_token]",
+                token_hash: "hashed-2",
+                status: "active",
+                last_seen_at: 1,
+                created_at: 1,
+                updated_at: 1,
+              },
             ],
             rowsAffected: 0,
           };
+        }
+        if (sql.includes("INSERT INTO integration_remote_push_notifications")) {
+          return { rows: [], rowsAffected: 2 };
         }
         return { rows: [], rowsAffected: 1 };
       },
@@ -388,19 +406,24 @@ describe("remote relay stores", () => {
       payload: { title: "Remote run completed", commandId: "cmd-1" },
     });
 
-    expect(result.queued).toBe(1);
-    const insertCall = executeMock.mock.calls.find(([query]) =>
+    expect(result.queued).toBe(2);
+    const insertCalls = executeMock.mock.calls.filter(([query]) =>
       querySql(query).includes(
         "INSERT INTO integration_remote_push_notifications",
       ),
     );
-    expect(queryArgs(insertCall![0])).toEqual(
+    expect(insertCalls).toHaveLength(1);
+    const insertSql = querySql(insertCalls[0]![0]);
+    const insertArgs = queryArgs(insertCalls[0]![0]);
+    expect(insertSql).toContain("'pending', 0");
+    expect(insertArgs).toHaveLength(16);
+    expect(insertArgs).toEqual(
       expect.arrayContaining([
         "alice@example.com",
         "org-1",
         "push-1",
+        "push-2",
         JSON.stringify({ title: "Remote run completed", commandId: "cmd-1" }),
-        "pending",
       ]),
     );
   });

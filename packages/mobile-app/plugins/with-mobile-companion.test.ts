@@ -1,43 +1,38 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
 import { describe, expect, it } from "vitest";
 
 import { addIosShortcutRouting } from "./with-mobile-companion";
 
-const EXPO_SDK_57_APP_DELEGATE = `internal import Expo
-import React
-import ReactAppDependencyProvider
+const require = createRequire(import.meta.url);
+const EXPO_APP_DELEGATE_ARCHIVE_PATH =
+  "package/ios/HelloWorld/AppDelegate.swift";
+const expoTemplateArchive = require.resolve("expo/template.tgz");
+const expoSdk57AppDelegate = readFileSync(
+  new URL("./fixtures/expo-sdk-57.0.6/AppDelegate.swift", import.meta.url),
+  "utf8",
+);
 
-@main
-class AppDelegate: ExpoAppDelegate {
-  var window: UIWindow?
-
-  public override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-  ) -> Bool {
-    let delegate = ReactNativeDelegate()
-    let factory = ExpoReactNativeFactory(delegate: delegate)
-    factory.startReactNative(
-      withModuleName: "main",
-      in: window,
-      launchOptions: launchOptions)
-
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  // Linking API
-  public override func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    true
-  }
+function readPinnedExpoAppDelegate() {
+  return execFileSync(
+    "tar",
+    ["-xOzf", expoTemplateArchive, EXPO_APP_DELEGATE_ARCHIVE_PATH],
+    { encoding: "utf8" },
+  );
 }
-`;
 
 describe("with-mobile-companion iOS template anchors", () => {
+  it("keeps its fixture identical to the pinned Expo template archive", () => {
+    expect(
+      expoSdk57AppDelegate,
+      "Refresh plugins/fixtures/expo-sdk-57.0.6 from expo/template.tgz when upgrading Expo.",
+    ).toBe(readPinnedExpoAppDelegate());
+  });
+
   it("routes cold and warm quick actions against the Expo SDK 57 AppDelegate", () => {
-    const result = addIosShortcutRouting(EXPO_SDK_57_APP_DELEGATE);
+    const result = addIosShortcutRouting(expoSdk57AppDelegate);
 
     expect(result).toContain("private enum AgentNativeShortcutRouter");
     expect(result).toContain("launchOptions: agentNativeLaunchOptions");
@@ -48,14 +43,14 @@ describe("with-mobile-companion iOS template anchors", () => {
   });
 
   it("is idempotent", () => {
-    const once = addIosShortcutRouting(EXPO_SDK_57_APP_DELEGATE);
+    const once = addIosShortcutRouting(expoSdk57AppDelegate);
     expect(addIosShortcutRouting(once)).toBe(once);
   });
 
   it("fails closed when Expo changes the AppDelegate anchors", () => {
     expect(() =>
       addIosShortcutRouting(
-        EXPO_SDK_57_APP_DELEGATE.replace(
+        expoSdk57AppDelegate.replace(
           "    let delegate = ReactNativeDelegate()",
           "    let delegate = NewReactNativeDelegate()",
         ),
