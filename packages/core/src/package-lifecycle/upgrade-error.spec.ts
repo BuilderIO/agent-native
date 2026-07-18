@@ -50,7 +50,25 @@ describe("AgentNativeUpgradeError", () => {
         manifest: { sinceVersion: "0.111.0", moves: {} },
         helperImport: "../../package-lifecycle/upgrade-error.js",
       }),
-    ).toThrow(/without an exact migration manifest move/);
+    ).toThrow(/without an active exact migration manifest move/);
+  });
+
+  it("does not render a tombstone for a planned move", () => {
+    expect(() =>
+      renderTombstoneModule({
+        from: "@agent-native/core/client/composer",
+        manifest: {
+          sinceVersion: "0.111.0",
+          moves: {
+            "@agent-native/core/client/composer": {
+              to: "@agent-native/toolkit/composer",
+              status: "planned",
+            },
+          },
+        },
+        helperImport: "../../package-lifecycle/upgrade-error.js",
+      }),
+    ).toThrow(/without an active exact migration manifest move/);
   });
 
   it("gives agents the exact one-command migration", () => {

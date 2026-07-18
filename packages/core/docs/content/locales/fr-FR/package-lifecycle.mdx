@@ -19,6 +19,9 @@ L'ajout et l'éjection sont simulés par défaut. `--apply` autorise les écritu
 et le gestionnaire de paquets. La CLI refuse les collisions et dispositions
 inconnues, puis restaure fichiers et verrous si l'installation échoue. Seul
 Scheduling est éjectable pendant ce pilote; Pinpoint reste différé.
+
 ## Migrations
 
 Les paquets publiés livrent `migration-manifest.json` pour les chemins et symboles déplacés. `npx @agent-native/core@latest upgrade --codemods` prévisualise le diff; `--yes` l'applique après revue. Exécutez `agent-native doctor --only migration-manifest` en CI: aucun opt-out.
+
+Les entrées `planned` peuvent être publiées avant leur destination; elles apparaissent comme des avertissements non bloquants et le codemod ne les réécrit pas. Un déplacement actif n'est réécrit que si l'export de destination est installé.

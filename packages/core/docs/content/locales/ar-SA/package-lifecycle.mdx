@@ -17,6 +17,9 @@ agent-native package eject @agent-native/scheduling --apply
 الإضافة والإخراج معاينة افتراضيًا. يسمح `--apply` بالكتابة وتشغيل مدير الحزم. ترفض
 الأداة التعارضات والتخطيطات غير المعروفة، وتستعيد الملفات وملفات القفل عند فشل التثبيت.
 يدعم الإصدار التجريبي إخراج Scheduling فقط، بينما يبقى Pinpoint مؤجلاً.
+
 ## الترحيل
 
 تتضمن الحزم المنشورة `migration-manifest.json` للمسارات والرموز المنقولة. يعاين `npx @agent-native/core@latest upgrade --codemods` الفرق، ثم يطبقه `--yes` بعد المراجعة. شغّل `agent-native doctor --only migration-manifest` في CI؛ لا يوجد opt-out.
+
+يمكن نشر إدخالات `planned` قبل توفر وجهتها؛ تظهر كتحذيرات غير حاجبة ولا يعيد codemod كتابتها. لا يُعاد كتابة النقل النشط إلا إذا كانت وجهة التصدير مثبتة.

@@ -6,12 +6,16 @@ import { fileURLToPath } from "node:url";
 export interface MigrationSymbolMove {
   to: string;
   name?: string;
+  status?: MigrationMoveStatus;
 }
 
 export interface MigrationMove {
   to: string;
   symbols?: Record<string, string | MigrationSymbolMove>;
+  status?: MigrationMoveStatus;
 }
+
+export type MigrationMoveStatus = "active" | "planned";
 
 export interface MigrationManifest {
   sinceVersion: string;
@@ -21,6 +25,13 @@ export interface MigrationManifest {
 export interface ResolvedMigrationSymbolMove {
   to: string;
   name: string;
+  status: MigrationMoveStatus;
+}
+
+export function migrationMoveStatus(
+  move: Pick<MigrationMove, "status">,
+): MigrationMoveStatus {
+  return move.status === "planned" ? "planned" : "active";
 }
 
 export function readMigrationManifest(
@@ -118,16 +129,30 @@ export function resolveMigrationSymbolMove(
   importedName: string,
 ): ResolvedMigrationSymbolMove | null {
   if (!move.symbols) {
-    return { to: move.to, name: importedName };
+    return {
+      to: move.to,
+      name: importedName,
+      status: migrationMoveStatus(move),
+    };
   }
   const symbolMove = move.symbols[importedName];
   if (typeof symbolMove === "string") {
-    return { to: move.to, name: symbolMove };
+    return {
+      to: move.to,
+      name: symbolMove,
+      status: migrationMoveStatus(move),
+    };
   }
   if (symbolMove) {
     return {
       to: symbolMove.to,
       name: symbolMove.name ?? importedName,
+      status:
+        symbolMove.status === "planned"
+          ? "planned"
+          : symbolMove.status === "active"
+            ? "active"
+            : migrationMoveStatus(move),
     };
   }
   return null;

@@ -32,7 +32,7 @@ import {
   scanUnscopedCredentials,
   scanUnscopedQueries,
 } from "../guards/index.js";
-import type { GuardResult } from "../guards/index.js";
+import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
   scanDeprecatedImports,
@@ -82,7 +82,12 @@ export interface DoctorFinding {
 export interface DoctorReport {
   ok: boolean;
   findings: DoctorFinding[];
+  warnings: DoctorFinding[];
   guardsRun: string[];
+}
+
+interface DoctorGuardResult extends GuardResult {
+  warnings?: GuardFinding[];
 }
 
 /**
@@ -126,7 +131,7 @@ function runGuard(
   root: string,
   config: DoctorConfig,
   migrationManifests?: MigrationManifest[],
-): GuardResult {
+): DoctorGuardResult {
   switch (name) {
     case "no-drizzle-push":
       return scanDrizzlePush({ root });
@@ -145,18 +150,29 @@ function runGuard(
       return scanEnvMutation({ root });
     case "no-localhost-fallback":
       return scanLocalhostFallback({ root, extraExemptPaths: [] });
-    case "migration-manifest":
+    case "migration-manifest": {
+      const imports = scanDeprecatedImports({
+        root,
+        manifests: migrationManifests,
+      });
       return {
         name,
-        findings: scanDeprecatedImports({
-          root,
-          manifests: migrationManifests,
-        }).map((finding) => ({
-          file: path.relative(root, finding.file),
-          line: finding.line,
-          message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
-        })),
+        findings: imports
+          .filter((finding) => finding.status === "active")
+          .map((finding) => ({
+            file: path.relative(root, finding.file),
+            line: finding.line,
+            message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+          })),
+        warnings: imports
+          .filter((finding) => finding.status === "planned")
+          .map((finding) => ({
+            file: path.relative(root, finding.file),
+            line: finding.line,
+            message: `${finding.from} is planned to move to ${finding.to.join(", ")} in a future release. No rewrite is available yet.`,
+          })),
       };
+    }
   }
 }
 
@@ -188,6 +204,7 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
   }
 
   const findings: DoctorFinding[] = [];
+  const warnings: DoctorFinding[] = [];
   for (const name of names) {
     const result = runGuard(name, root, config, options.migrationManifests);
     for (const f of result.findings) {
@@ -198,9 +215,22 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
         message: f.message,
       });
     }
+    for (const warning of result.warnings ?? []) {
+      warnings.push({
+        guard: name,
+        file: warning.file,
+        line: warning.line,
+        message: warning.message,
+      });
+    }
   }
 
-  return { ok: findings.length === 0, findings, guardsRun: names };
+  return {
+    ok: findings.length === 0,
+    findings,
+    warnings,
+    guardsRun: names,
+  };
 }
 
 /** Pure escalation rule shared by the CLI (`--strict`) and the `build`
@@ -234,6 +264,14 @@ function formatDoctorHuman(report: DoctorReport, root: string): string {
     lines.push(`${report.findings.length} finding(s):`);
     for (const f of report.findings) {
       lines.push(`  [${f.guard}] ${f.file}:${f.line} — ${f.message}`);
+    }
+  }
+  if (report.warnings.length > 0) {
+    lines.push(`${report.warnings.length} warning(s):`);
+    for (const warning of report.warnings) {
+      lines.push(
+        `  [${warning.guard}] ${warning.file}:${warning.line} — ${warning.message}`,
+      );
     }
   }
   return lines.join("\n");
@@ -285,7 +323,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
     [
       "Usage:",
       "  agent-native doctor                        Scan app source for security-critical guard violations",
-      "  agent-native doctor --json                 Machine-readable report: { ok, findings, guardsRun, strict }",
+      "  agent-native doctor --json                 Machine-readable report: { ok, findings, warnings, guardsRun, strict }",
       "  agent-native doctor --only <guard,guard>   Run only the named guard(s)",
       "  agent-native doctor --strict                Escalate findings to a hard failure when used by `agent-native build --strict`",
       "  agent-native doctor --cwd <dir>             Run against a project root other than the current directory",
@@ -407,6 +445,16 @@ export async function runDoctorBuildHook(
     );
     for (const f of report.findings) {
       io.err(`  [${f.guard}] ${f.file}:${f.line} — ${f.message}`);
+    }
+  }
+  if (report.warnings.length > 0) {
+    io.err(
+      `\n[doctor] ${report.warnings.length} planned migration warning(s) — no rewrite is available yet.`,
+    );
+    for (const warning of report.warnings) {
+      io.err(
+        `  [${warning.guard}] ${warning.file}:${warning.line} — ${warning.message}`,
+      );
     }
   }
 

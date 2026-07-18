@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 import {
@@ -13,6 +14,7 @@ import {
   bundledCorePackageVersion,
   isMigrationManifestActive,
   loadMigrationManifestsForProject,
+  migrationMoveStatus,
   resolveMigrationSymbolMove,
   type MigrationManifest,
   type MigrationMove,
@@ -46,6 +48,7 @@ export interface RunMigrationCodemodsOptions {
   root: string;
   manifests?: MigrationManifest[];
   apply?: boolean;
+  targetExists?: (specifier: string) => boolean;
 }
 
 interface PendingDependency {
@@ -153,18 +156,45 @@ function importedNameStructure(
   };
 }
 
+function warnSkippedTarget(
+  warnings: string[],
+  sourceFile: string,
+  target: string,
+  reason: "planned" | "unresolved",
+): void {
+  const message =
+    reason === "planned"
+      ? `${sourceFile}: migration to ${target} is planned but not active; no rewrite was applied`
+      : `${sourceFile}: migration target ${target} is not exported by an installed package; no rewrite was applied`;
+  if (!warnings.includes(message)) warnings.push(message);
+}
+
 function rewriteImportDeclaration(
   declaration: ImportDeclaration,
   move: MigrationMove,
   root: string,
   pendingDependencies: PendingDependency[],
   warnings: string[],
+  targetExists: (specifier: string) => boolean,
 ): boolean {
   const originalSpecifier = declaration.getModuleSpecifierValue();
   const sourceFile = declaration.getSourceFile();
   const namedImports = declaration.getNamedImports();
 
   if (!move.symbols) {
+    if (migrationMoveStatus(move) === "planned") {
+      warnSkippedTarget(warnings, sourceFile.getFilePath(), move.to, "planned");
+      return false;
+    }
+    if (!targetExists(move.to)) {
+      warnSkippedTarget(
+        warnings,
+        sourceFile.getFilePath(),
+        move.to,
+        "unresolved",
+      );
+      return false;
+    }
     declaration.setModuleSpecifier(move.to);
     recordIntroducedDependency(
       pendingDependencies,
@@ -189,6 +219,24 @@ function rewriteImportDeclaration(
     const importedName = namedImport.getName();
     const resolved = resolveMigrationSymbolMove(move, importedName);
     if (!resolved || resolved.to === originalSpecifier) continue;
+    if (resolved.status === "planned") {
+      warnSkippedTarget(
+        warnings,
+        sourceFile.getFilePath(),
+        resolved.to,
+        "planned",
+      );
+      continue;
+    }
+    if (!targetExists(resolved.to)) {
+      warnSkippedTarget(
+        warnings,
+        sourceFile.getFilePath(),
+        resolved.to,
+        "unresolved",
+      );
+      continue;
+    }
     const localName = namedImport.getAliasNode()?.getText() ?? importedName;
     const group = groups.get(resolved.to) ?? [];
     group.push(
@@ -238,6 +286,7 @@ function rewriteExportDeclarations(
   root: string,
   pendingDependencies: PendingDependency[],
   warnings: string[],
+  targetExists: (specifier: string) => boolean,
 ): void {
   for (const declaration of [...sourceFile.getExportDeclarations()]) {
     const originalSpecifier = declaration.getModuleSpecifierValue();
@@ -247,6 +296,24 @@ function rewriteExportDeclarations(
     const namedExports = declaration.getNamedExports();
 
     if (!move.symbols) {
+      if (migrationMoveStatus(move) === "planned") {
+        warnSkippedTarget(
+          warnings,
+          sourceFile.getFilePath(),
+          move.to,
+          "planned",
+        );
+        continue;
+      }
+      if (!targetExists(move.to)) {
+        warnSkippedTarget(
+          warnings,
+          sourceFile.getFilePath(),
+          move.to,
+          "unresolved",
+        );
+        continue;
+      }
       declaration.setModuleSpecifier(move.to);
       recordIntroducedDependency(
         pendingDependencies,
@@ -273,6 +340,24 @@ function rewriteExportDeclarations(
       const exportedFromName = namedExport.getName();
       const resolved = resolveMigrationSymbolMove(move, exportedFromName);
       if (!resolved || resolved.to === originalSpecifier) continue;
+      if (resolved.status === "planned") {
+        warnSkippedTarget(
+          warnings,
+          sourceFile.getFilePath(),
+          resolved.to,
+          "planned",
+        );
+        continue;
+      }
+      if (!targetExists(resolved.to)) {
+        warnSkippedTarget(
+          warnings,
+          sourceFile.getFilePath(),
+          resolved.to,
+          "unresolved",
+        );
+        continue;
+      }
       const publicName =
         namedExport.getAliasNode()?.getText() ?? exportedFromName;
       const group = groups.get(resolved.to) ?? [];
@@ -384,6 +469,17 @@ export function runMigrationCodemods(
   const root = path.resolve(options.root);
   const manifests = options.manifests ?? loadMigrationManifests(root);
   const moves = mergeManifestMoves(manifests);
+  const requireFromProject = createRequire(path.join(root, "package.json"));
+  const targetExists =
+    options.targetExists ??
+    ((specifier: string): boolean => {
+      try {
+        requireFromProject.resolve(specifier);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     manipulationSettings: { quoteKind: QuoteKind.Double },
@@ -404,6 +500,7 @@ export function runMigrationCodemods(
         root,
         pendingDependencies,
         warnings,
+        targetExists,
       );
     }
     rewriteExportDeclarations(
@@ -412,6 +509,7 @@ export function runMigrationCodemods(
       root,
       pendingDependencies,
       warnings,
+      targetExists,
     );
     const after = sourceFile.getFullText();
     if (before === after) continue;

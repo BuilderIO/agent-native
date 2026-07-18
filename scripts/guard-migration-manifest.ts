@@ -8,8 +8,19 @@ type PackageManifest = {
   name?: string;
   sideEffects?: boolean | string[];
 };
+type MigrationMoveStatus = "active" | "planned";
+type MigrationSymbolMove = {
+  name?: string;
+  status?: MigrationMoveStatus;
+  to: string;
+};
+type MigrationMove = {
+  status?: MigrationMoveStatus;
+  symbols?: Record<string, string | MigrationSymbolMove>;
+  to: string;
+};
 type MigrationManifest = {
-  moves?: Record<string, unknown>;
+  moves?: Record<string, MigrationMove>;
 };
 type ExportSnapshot = {
   exports?: Record<string, string[]>;
@@ -63,7 +74,7 @@ function normalizedTargets(value: ExportValue): string[] {
 }
 
 function hasExactMove(
-  moves: Record<string, unknown>,
+  moves: Record<string, MigrationMove>,
   specifier: string,
 ): boolean {
   const move = moves[specifier];
@@ -71,8 +82,55 @@ function hasExactMove(
     move &&
     typeof move === "object" &&
     typeof (move as { to?: unknown }).to === "string" &&
-    (move as { to: string }).to.length > 0,
+    (move as { to: string }).to.length > 0 &&
+    move.status !== "planned",
   );
+}
+
+function moveStatus(move: Pick<MigrationMove, "status">): MigrationMoveStatus {
+  return move.status === "planned" ? "planned" : "active";
+}
+
+function packageExportKey(packageName: string, specifier: string): string {
+  return specifier === packageName
+    ? "."
+    : `.${specifier.slice(packageName.length)}`;
+}
+
+function targetIsExported(
+  target: string,
+  packageCatalog: Record<string, PackageManifest>,
+): boolean {
+  const packageName = Object.keys(packageCatalog)
+    .sort((left, right) => right.length - left.length)
+    .find(
+      (candidate) => target === candidate || target.startsWith(`${candidate}/`),
+    );
+  if (!packageName) return false;
+  const exports = packageCatalog[packageName]?.exports ?? {};
+  const exportKey = packageExportKey(packageName, target);
+  return Object.keys(exports).some((candidate) => {
+    if (candidate === exportKey) return true;
+    if (!candidate.includes("*")) return false;
+    const [prefix, suffix] = candidate.split("*");
+    return exportKey.startsWith(prefix) && exportKey.endsWith(suffix);
+  });
+}
+
+function activeMoveTargets(move: MigrationMove): string[] {
+  if (!move.symbols) {
+    return moveStatus(move) === "active" ? [move.to] : [];
+  }
+  const targets = new Set<string>();
+  for (const symbolMove of Object.values(move.symbols)) {
+    if (typeof symbolMove === "string") {
+      if (moveStatus(move) === "active") targets.add(move.to);
+      continue;
+    }
+    const status = symbolMove.status ?? moveStatus(move);
+    if (status === "active") targets.add(symbolMove.to);
+  }
+  return [...targets];
 }
 
 function isSideEffectPinned(
@@ -91,12 +149,28 @@ export function checkMigrationManifest(
   packageManifest: PackageManifest,
   snapshot: ExportSnapshot,
   migrationManifest: MigrationManifest,
+  packageCatalog?: Record<string, PackageManifest>,
 ): MigrationManifestViolation[] {
   const packageName = packageManifest.name ?? "<unknown package>";
   const exports = packageManifest.exports ?? {};
   const snapshotExports = snapshot.exports ?? {};
   const moves = migrationManifest.moves ?? {};
   const violations: MigrationManifestViolation[] = [];
+
+  if (packageCatalog) {
+    const checkedTargets = new Set<string>();
+    for (const [from, move] of Object.entries(moves)) {
+      for (const target of activeMoveTargets(move)) {
+        if (checkedTargets.has(target)) continue;
+        checkedTargets.add(target);
+        if (targetIsExported(target, packageCatalog)) continue;
+        violations.push({
+          packageName,
+          message: `${from} has active migration target ${target}, but that target is not a published package export. Mark the move planned until the target ships.`,
+        });
+      }
+    }
+  }
 
   for (const [exportKey, previousTargets] of Object.entries(snapshotExports)) {
     const specifier = packageSpecifier(packageName, exportKey);
@@ -171,6 +245,14 @@ export function checkMigrationManifest(
 
 function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
+  const packageCatalog = Object.fromEntries(
+    GUARDED_PACKAGES.map(({ directory, name }) => [
+      name,
+      JSON.parse(
+        readFileSync(path.join(repoRoot, directory, "package.json"), "utf8"),
+      ) as PackageManifest,
+    ]),
+  );
   const violations = GUARDED_PACKAGES.flatMap(({ directory, name }) => {
     const readJson = <T>(file: string): T =>
       JSON.parse(
@@ -189,6 +271,7 @@ function main(): void {
       packageManifest,
       readJson<ExportSnapshot>("export-snapshot.json"),
       readJson<MigrationManifest>("migration-manifest.json"),
+      packageCatalog,
     );
   });
 

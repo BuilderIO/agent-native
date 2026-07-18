@@ -143,4 +143,79 @@ describe("migration manifest guard", () => {
       /changed its published export target.*tombstone/,
     );
   });
+
+  it("rejects an active move to an unpublished package export", () => {
+    const violations = checkMigrationManifest(
+      manifest,
+      snapshot,
+      {
+        moves: {
+          "@agent-native/core/legacy": {
+            to: "@agent-native/toolkit/composer",
+          },
+        },
+      },
+      {
+        "@agent-native/core": manifest,
+        "@agent-native/toolkit": {
+          name: "@agent-native/toolkit",
+          exports: { ".": "./dist/index.js" },
+        },
+      },
+    );
+
+    assert.match(
+      violations[0]?.message ?? "",
+      /active migration target.*toolkit\/composer.*not a published package export/,
+    );
+  });
+
+  it("allows a planned move before its target export ships", () => {
+    assert.deepEqual(
+      checkMigrationManifest(
+        manifest,
+        snapshot,
+        {
+          moves: {
+            "@agent-native/core/legacy": {
+              to: "@agent-native/toolkit/composer",
+              status: "planned",
+            },
+          },
+        },
+        {
+          "@agent-native/core": manifest,
+          "@agent-native/toolkit": {
+            name: "@agent-native/toolkit",
+            exports: { ".": "./dist/index.js" },
+          },
+        },
+      ),
+      [],
+    );
+  });
+
+  it("accepts an active move covered by a package export pattern", () => {
+    assert.deepEqual(
+      checkMigrationManifest(
+        manifest,
+        snapshot,
+        {
+          moves: {
+            "@agent-native/core/legacy": {
+              to: "@agent-native/toolkit/ui/dialog",
+            },
+          },
+        },
+        {
+          "@agent-native/core": manifest,
+          "@agent-native/toolkit": {
+            name: "@agent-native/toolkit",
+            exports: { "./ui/*": "./dist/ui/*.js" },
+          },
+        },
+      ),
+      [],
+    );
+  });
 });

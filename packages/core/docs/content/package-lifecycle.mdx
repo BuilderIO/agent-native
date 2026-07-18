@@ -62,6 +62,10 @@ to identify imports that are listed in installed manifests. The guard has no
 opt-out: migrate the import with the codemod instead of suppressing a future
 breaking change.
 
+Manifest entries can be `planned` before their destination ships. Doctor reports
+those as non-blocking warnings, and the codemod leaves them unchanged. An active
+move is rewritten only when the installed destination package exports its target.
+
 ## Scheduling pilot
 
 `@agent-native/scheduling` is the first package with the generic manifest. Add

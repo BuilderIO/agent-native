@@ -1,5 +1,8 @@
+import {
+  migrationMoveStatus,
+  type MigrationManifest,
+} from "./migration-manifest.js";
 import { migrationMoveMessage } from "./migration-message.js";
-import type { MigrationManifest } from "./migration-manifest.js";
 
 export interface TombstoneModuleOptions {
   from: string;
@@ -10,12 +13,13 @@ export interface TombstoneModuleOptions {
 }
 
 export function renderTombstoneModule(options: TombstoneModuleOptions): string {
-  const to = options.manifest.moves[options.from]?.to;
-  if (!to) {
+  const move = options.manifest.moves[options.from];
+  if (!move || migrationMoveStatus(move) !== "active") {
     throw new Error(
-      `Cannot render a tombstone for ${options.from} without an exact migration manifest move.`,
+      `Cannot render a tombstone for ${options.from} without an active exact migration manifest move.`,
     );
   }
+  const to = move.to;
   const message = migrationMoveMessage(options.from, to);
   const lines = [
     `import { throwMovedAgentNativeModule, type DeprecatedExport } from ${JSON.stringify(options.helperImport)};`,

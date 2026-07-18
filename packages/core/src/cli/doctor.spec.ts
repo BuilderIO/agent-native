@@ -85,6 +85,7 @@ describe("runDoctorScan", () => {
     const report = runDoctorScan({ root });
     expect(report.ok).toBe(true);
     expect(report.findings).toHaveLength(0);
+    expect(report.warnings).toHaveLength(0);
     expect(report.guardsRun.sort()).toEqual([...ALL_GUARD_NAMES].sort());
   });
 
@@ -151,6 +152,39 @@ describe("runDoctorScan", () => {
       }),
     ]);
   });
+
+  it("reports planned imports as non-blocking warnings", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx":
+        'import { PromptComposer } from "@agent-native/core/client/composer";\nvoid PromptComposer;\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["migration-manifest"],
+      migrationManifests: [
+        {
+          sinceVersion: "0.111.0",
+          moves: {
+            "@agent-native/core/client/composer": {
+              to: "@agent-native/toolkit/composer",
+              status: "planned",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.findings).toEqual([]);
+    expect(report.warnings).toEqual([
+      expect.objectContaining({
+        guard: "migration-manifest",
+        file: "app/root.tsx",
+        message: expect.stringContaining("planned to move"),
+      }),
+    ]);
+  });
 });
 
 describe("runDoctor (CLI)", () => {
@@ -205,7 +239,7 @@ describe("runDoctor (CLI)", () => {
     expect(out.join("\n")).toMatch(/no-drizzle-push/);
   });
 
-  it("--json emits { ok, findings, guardsRun, strict } shape", async () => {
+  it("--json emits { ok, findings, warnings, guardsRun, strict } shape", async () => {
     const root = makeTempAppRoot(VIOLATION_FILES);
     const { io, out } = captureIo();
     const code = await runDoctor(["--cwd", root, "--json"], io);
@@ -213,6 +247,7 @@ describe("runDoctor (CLI)", () => {
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(false);
     expect(Array.isArray(parsed.findings)).toBe(true);
+    expect(Array.isArray(parsed.warnings)).toBe(true);
     expect(Array.isArray(parsed.guardsRun)).toBe(true);
     expect(parsed.strict).toBe(false);
   });

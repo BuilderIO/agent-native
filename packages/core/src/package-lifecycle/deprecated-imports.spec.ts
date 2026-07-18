@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { scanDeprecatedImports } from "./deprecated-imports.js";
 import {
+  bundledCoreMigrationManifestPath,
   isMigrationManifestActive,
+  readMigrationManifest,
+  resolveMigrationSymbolMove,
   type MigrationManifest,
 } from "./migration-manifest.js";
 
@@ -27,6 +30,21 @@ describe("scanDeprecatedImports", () => {
     expect(isMigrationManifestActive(manifest, "0.110.9")).toBe(false);
     expect(isMigrationManifestActive(manifest, "0.111.0")).toBe(true);
     expect(isMigrationManifestActive(manifest, "0.112.0")).toBe(true);
+  });
+
+  it("keeps the prepublished composer move planned", () => {
+    const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
+    expect(manifest).not.toBeNull();
+    expect(manifest?.moves["@agent-native/core/client/composer"]?.status).toBe(
+      "planned",
+    );
+    const clientMove = manifest?.moves["@agent-native/core/client"];
+    expect(clientMove).toBeDefined();
+    expect(
+      clientMove
+        ? resolveMigrationSymbolMove(clientMove, "PromptComposer")?.status
+        : null,
+    ).toBe("planned");
   });
 
   it("reports only symbols covered by the manifest", () => {

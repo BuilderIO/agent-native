@@ -3,9 +3,11 @@ import path from "node:path";
 
 import {
   loadMigrationManifestsForProject,
+  migrationMoveStatus,
   resolveMigrationSymbolMove,
   type MigrationManifest,
   type MigrationMove,
+  type MigrationMoveStatus,
 } from "./migration-manifest.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx"]);
@@ -26,6 +28,7 @@ export interface DeprecatedImportFinding {
   from: string;
   to: string[];
   symbols: string[];
+  status: MigrationMoveStatus;
 }
 
 export interface ScanDeprecatedImportsOptions {
@@ -78,23 +81,55 @@ function lineAt(text: string, index: number): number {
 function matchingMoveTargets(
   move: MigrationMove,
   names: string[] | null,
-): { targets: string[]; symbols: string[] } | null {
+): Array<{
+  status: MigrationMoveStatus;
+  targets: string[];
+  symbols: string[];
+}> {
   if (!move.symbols) {
-    return { targets: [move.to], symbols: names ?? [] };
+    return [
+      {
+        status: migrationMoveStatus(move),
+        targets: [move.to],
+        symbols: names ?? [],
+      },
+    ];
   }
   if (!names) {
-    return { targets: [move.to], symbols: [] };
+    const groups = new Map<MigrationMoveStatus, Set<string>>();
+    for (const importedName of Object.keys(move.symbols)) {
+      const resolved = resolveMigrationSymbolMove(move, importedName);
+      if (!resolved) continue;
+      const targets = groups.get(resolved.status) ?? new Set<string>();
+      targets.add(resolved.to);
+      groups.set(resolved.status, targets);
+    }
+    return [...groups].map(([status, targets]) => ({
+      status,
+      targets: [...targets].sort(),
+      symbols: [],
+    }));
   }
-  const targets = new Set<string>();
-  const symbols: string[] = [];
+  const groups = new Map<
+    MigrationMoveStatus,
+    { targets: Set<string>; symbols: string[] }
+  >();
   for (const name of names) {
     const resolved = resolveMigrationSymbolMove(move, name);
     if (!resolved) continue;
-    targets.add(resolved.to);
-    symbols.push(name);
+    const group = groups.get(resolved.status) ?? {
+      targets: new Set<string>(),
+      symbols: [],
+    };
+    group.targets.add(resolved.to);
+    group.symbols.push(name);
+    groups.set(resolved.status, group);
   }
-  if (symbols.length === 0) return null;
-  return { targets: [...targets].sort(), symbols };
+  return [...groups].map(([status, group]) => ({
+    status,
+    targets: [...group.targets].sort(),
+    symbols: group.symbols,
+  }));
 }
 
 export function scanDeprecatedImports(
@@ -114,15 +149,17 @@ export function scanDeprecatedImports(
       const from = match[3];
       const move = moves[from];
       if (!move) continue;
-      const matched = matchingMoveTargets(move, importedNames(match[2]));
-      if (!matched) continue;
-      findings.push({
-        file,
-        line: lineAt(text, match.index ?? 0),
-        from,
-        to: matched.targets,
-        symbols: matched.symbols,
-      });
+      const matches = matchingMoveTargets(move, importedNames(match[2]));
+      for (const matched of matches) {
+        findings.push({
+          file,
+          line: lineAt(text, match.index ?? 0),
+          from,
+          to: matched.targets,
+          symbols: matched.symbols,
+          status: matched.status,
+        });
+      }
     }
     for (const match of text.matchAll(sideEffectImport)) {
       const from = match[1];
@@ -134,6 +171,7 @@ export function scanDeprecatedImports(
         from,
         to: [move.to],
         symbols: [],
+        status: migrationMoveStatus(move),
       });
     }
   }

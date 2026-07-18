@@ -71,7 +71,11 @@ describe("runMigrationCodemods", () => {
   it("previews split imports, symbol renames, exports, and dependencies", () => {
     const { root, source, packageFile } = fixture();
     const before = fs.readFileSync(source, "utf-8");
-    const result = runMigrationCodemods({ root, manifests: [manifest] });
+    const result = runMigrationCodemods({
+      root,
+      manifests: [manifest],
+      targetExists: () => true,
+    });
 
     expect(result.changes.map((change) => change.file)).toEqual([
       source,
@@ -91,6 +95,7 @@ describe("runMigrationCodemods", () => {
       root,
       manifests: [manifest],
       apply: true,
+      targetExists: () => true,
     });
     expect(applied.changes).toHaveLength(2);
 
@@ -109,6 +114,7 @@ describe("runMigrationCodemods", () => {
         root,
         manifests: [manifest],
         apply: true,
+        targetExists: () => true,
       }).changes,
     ).toEqual([]);
   });
@@ -123,6 +129,7 @@ describe("runMigrationCodemods", () => {
       root,
       manifests: [manifest],
       apply: true,
+      targetExists: () => true,
     });
     expect(result.changes).toEqual([]);
     expect(result.warnings).toEqual([
@@ -130,5 +137,69 @@ describe("runMigrationCodemods", () => {
         "cannot split default, namespace, or side-effect",
       ),
     ]);
+  });
+
+  it("does not rewrite a planned composer move", () => {
+    const { root, source } = fixture();
+    const before =
+      'import { PromptComposer } from "@agent-native/core/client";\nvoid PromptComposer;\n';
+    fs.writeFileSync(source, before);
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client": {
+              to: "@agent-native/core/client/hooks",
+              symbols: {
+                PromptComposer: {
+                  to: "@agent-native/toolkit/composer",
+                  status: "planned",
+                },
+              },
+            },
+          },
+        },
+      ],
+      apply: true,
+      targetExists: () => false,
+    });
+
+    expect(result.changes).toEqual([]);
+    expect(fs.readFileSync(source, "utf-8")).toBe(before);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("planned but not active"),
+    ]);
+  });
+
+  it("skips an active move whose target is not installed", () => {
+    const { root, source } = fixture();
+    const before =
+      'import { Legacy } from "@agent-native/core/client/legacy";\nvoid Legacy;\n';
+    fs.writeFileSync(source, before);
+    const result = runMigrationCodemods({
+      root,
+      manifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client/legacy": {
+              to: "@agent-native/toolkit/not-exported",
+            },
+          },
+        },
+      ],
+      apply: true,
+    });
+
+    expect(result.changes).toEqual([]);
+    expect(fs.readFileSync(source, "utf-8")).toBe(before);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("not exported by an installed package"),
+      ]),
+    );
   });
 });
