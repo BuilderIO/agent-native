@@ -1278,10 +1278,14 @@ describe("local-core dev aliases and router dedupe", () => {
     const coreSrcDir = path.join(tmpDir, "packages", "core", "src");
     const clientDomains = {
       "@agent-native/core/client/agent-chat": "client/agent-chat/index.ts",
+      "@agent-native/core/client/analytics": "client/analytics/index.ts",
+      "@agent-native/core/client/automation": "client/automation/index.ts",
       "@agent-native/core/client/changelog": "client/changelog/index.ts",
       "@agent-native/core/client/dev-overlay": "client/dev-overlay/index.ts",
       "@agent-native/core/client/feature-flags":
         "client/feature-flags/index.ts",
+      "@agent-native/core/client/rich-markdown-editor":
+        "client/rich-markdown-editor/index.ts",
       "@agent-native/core/client/hooks": "client/hooks/index.ts",
       "@agent-native/core/client/host": "client/host/index.ts",
       "@agent-native/core/client/integrations": "client/integrations/index.ts",

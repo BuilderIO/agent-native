@@ -782,6 +782,8 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
   "@agent-native/core/client/agent-chat",
+  "@agent-native/core/client/analytics",
+  "@agent-native/core/client/automation",
   "@agent-native/core/client/chat",
   "@agent-native/core/client/changelog",
   "@agent-native/core/client/collab",
@@ -789,6 +791,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/conversation",
   "@agent-native/core/client/dev-overlay",
   "@agent-native/core/client/editor",
+  "@agent-native/core/client/rich-markdown-editor",
   "@agent-native/core/client/feature-flags",
   "@agent-native/core/client/hooks",
   "@agent-native/core/client/host",
@@ -856,6 +859,14 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
             packageName: "@agent-native/core",
           },
           {
+            specifier: "@agent-native/core/client/analytics",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/automation",
+            packageName: "@agent-native/core",
+          },
+          {
             specifier: "@agent-native/core/client/chat",
             packageName: "@agent-native/core",
           },
@@ -881,6 +892,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           },
           {
             specifier: "@agent-native/core/client/editor",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/rich-markdown-editor",
             packageName: "@agent-native/core",
           },
           {
@@ -1164,6 +1179,14 @@ function getCoreSourceAliases(
       coreSrc,
       "client/agent-chat/index.ts",
     ),
+    "@agent-native/core/client/analytics": path.join(
+      coreSrc,
+      "client/analytics/index.ts",
+    ),
+    "@agent-native/core/client/automation": path.join(
+      coreSrc,
+      "client/automation/index.ts",
+    ),
     "@agent-native/core/client/chat": path.join(
       coreSrc,
       "client/chat/index.ts",
@@ -1191,6 +1214,10 @@ function getCoreSourceAliases(
     "@agent-native/core/client/editor": path.join(
       coreSrc,
       "client/editor/index.ts",
+    ),
+    "@agent-native/core/client/rich-markdown-editor": path.join(
+      coreSrc,
+      "client/rich-markdown-editor/index.ts",
     ),
     "@agent-native/core/client/feature-flags": path.join(
       coreSrc,
