@@ -508,6 +508,9 @@ export async function listPropertiesForDatabase(
       definition: {
         id: definition.id,
         databaseId: definition.databaseId,
+        systemRole: definition.systemRole as
+          | import("../shared/api.js").DocumentPropertySystemRole
+          | null,
         name: definition.name,
         type,
         description: definition.description,
@@ -531,7 +534,7 @@ export async function listPropertiesForDatabase(
                 blockFieldContent: blockContentByPropertyId.get(definition.id),
               })
             : parsePropertyValue(storedValue?.valueJson),
-      editable: !isComputedPropertyType(type),
+      editable: !definition.systemRole && !isComputedPropertyType(type),
     };
   });
 
@@ -577,6 +580,9 @@ function serializePropertyDefinition(
   return {
     id: definition.id,
     databaseId: definition.databaseId,
+    systemRole: definition.systemRole as
+      | import("../shared/api.js").DocumentPropertySystemRole
+      | null,
     name: definition.name,
     type,
     description: definition.description,
@@ -701,7 +707,9 @@ export async function listPropertiesForDatabaseDocuments(
                   ),
                 })
               : parsePropertyValue(storedValue?.valueJson),
-        editable: !isComputedPropertyType(propertyDefinition.type),
+        editable:
+          !definition.systemRole &&
+          !isComputedPropertyType(propertyDefinition.type),
       };
     });
 

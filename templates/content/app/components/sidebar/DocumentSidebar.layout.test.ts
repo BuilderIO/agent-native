@@ -309,7 +309,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
     expect(sidebar).toContain("<FavoriteDocumentItem");
     expect(treeItem).toContain("export function FavoriteDocumentItem");
-    expect(treeItem).toContain('paddingInlineStart: "20px"');
+    expect(sidebar).toContain("items-center ps-1 text-[10px]");
+    expect(treeItem).toContain('paddingInlineStart: "26px"');
     expect(treeItem).toContain('"border-primary bg-accent font-medium');
     expect(treeItem).toContain("Remove from favorites");
     expect(treeItem).toContain("aria-label={`Open ${title}`}");

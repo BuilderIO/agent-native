@@ -113,6 +113,771 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
+  it("exposes stable, derived Kind, Parent, and Source properties", async () => {
+    const spaceId = personalContentSpaceId(OWNER);
+    const filesDatabase = await getFilesDatabase(spaceId);
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "system-property-parent",
+          ownerEmail: OWNER,
+          orgId: null,
+          spaceId,
+          parentId: null,
+          title: "Visible parent",
+          content: "",
+          description: "",
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "system-property-child",
+          ownerEmail: OWNER,
+          orgId: null,
+          spaceId,
+          parentId: "system-property-parent",
+          title: "Imported child",
+          content: "",
+          description: "",
+          position: 1,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          sourceMode: "local-files",
+          sourceKind: "file",
+          sourcePath: "notes.md",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      reconcileContentFilesMemberships(getDb(), OWNER),
+    );
+    const [childItem] = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+          eq(schema.contentDatabaseItems.documentId, "system-property-child"),
+        ),
+      );
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "system-property-source",
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId: filesDatabase.id,
+      sourceType: "local-folder",
+      sourceName: "Project notes",
+      sourceTable: "opaque-connection",
+      syncState: "linked",
+      freshness: "fresh",
+      capabilitiesJson: "{}",
+      metadataJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabaseSourceRows).values({
+      id: "system-property-source-row",
+      ownerEmail: OWNER,
+      sourceId: "system-property-source",
+      databaseItemId: childItem.id,
+      documentId: "system-property-child",
+      sourceRowId: "notes.md",
+      sourceQualifiedId: "local-folder://opaque/notes.md",
+      sourceDisplayKey: "notes.md",
+      sourceValuesJson: "{}",
+      provenance: "test",
+      syncState: "linked",
+      freshness: "fresh",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({ databaseId: filesDatabase.id }),
+    );
+    const definitions = new Map(
+      response.properties.map((property) => [
+        property.definition.systemRole,
+        property,
+      ]),
+    );
+    expect(definitions.get("files_kind")).toMatchObject({ editable: false });
+    expect(definitions.get("files_parent")).toMatchObject({ editable: false });
+    expect(definitions.get("files_source")).toMatchObject({ editable: false });
+    expect(response.database.viewConfig.views[0]?.filters).toEqual([
+      expect.objectContaining({
+        key: definitions.get("files_kind")?.definition.id,
+        operator: "does_not_equal",
+        value: "database_row",
+      }),
+    ]);
+    const child = response.items.find(
+      (item) => item.document.id === "system-property-child",
+    )!;
+    const values = new Map(
+      child.properties.map((property) => [
+        property.definition.systemRole,
+        property.value,
+      ]),
+    );
+    expect(values.get("files_kind")).toBe("imported_file");
+    expect(values.get("files_parent")).toBe("system-property-parent");
+    expect(values.get("files_source")).toEqual(["system-property-source"]);
+    expect(
+      definitions
+        .get("files_parent")
+        ?.definition.options.options?.find(
+          (option) => option.id === "system-property-parent",
+        )?.name,
+    ).toBe("Visible parent");
+    expect(
+      definitions
+        .get("files_source")
+        ?.definition.options.options?.find(
+          (option) => option.id === "system-property-source",
+        )?.name,
+    ).toBe("Project notes");
+
+    await getDb()
+      .delete(schema.contentDatabaseSourceRows)
+      .where(
+        eq(schema.contentDatabaseSourceRows.id, "system-property-source-row"),
+      );
+    await getDb()
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, "system-property-source"));
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(
+        inArray(schema.contentDatabaseItems.documentId, [
+          "system-property-parent",
+          "system-property-child",
+        ]),
+      );
+    await getDb()
+      .delete(schema.documents)
+      .where(
+        inArray(schema.documents.id, [
+          "system-property-parent",
+          "system-property-child",
+        ]),
+      );
+  });
+
+  it("rejects mutations of derived Files system properties", async () => {
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const [kindProperty] = await getDb()
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, filesDatabase.id),
+          eq(schema.documentPropertyDefinitions.systemRole, "files_kind"),
+        ),
+      );
+    const [
+      setProperty,
+      configureProperty,
+      deleteProperty,
+      duplicateProperty,
+      reorderProperty,
+    ] = await Promise.all([
+      import("./set-document-property.js").then((module) => module.default),
+      import("./configure-document-property.js").then(
+        (module) => module.default,
+      ),
+      import("./delete-document-property.js").then((module) => module.default),
+      import("./duplicate-document-property.js").then(
+        (module) => module.default,
+      ),
+      import("./reorder-document-property.js").then((module) => module.default),
+    ]);
+    const inOwnerContext = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+
+    await expect(
+      inOwnerContext(() =>
+        setProperty.run({
+          documentId: filesDatabase.documentId,
+          propertyId: kindProperty.id,
+          value: "page",
+        }),
+      ),
+    ).rejects.toThrow("derived");
+    await expect(
+      inOwnerContext(() =>
+        configureProperty.run({
+          id: kindProperty.id,
+          documentId: filesDatabase.documentId,
+          name: "Other",
+          type: "select",
+        }),
+      ),
+    ).rejects.toThrow("cannot be changed");
+    await expect(
+      inOwnerContext(() =>
+        deleteProperty.run({
+          documentId: filesDatabase.documentId,
+          propertyId: kindProperty.id,
+        }),
+      ),
+    ).rejects.toThrow("cannot be deleted");
+    await expect(
+      inOwnerContext(() =>
+        duplicateProperty.run({
+          documentId: filesDatabase.documentId,
+          propertyId: kindProperty.id,
+        }),
+      ),
+    ).rejects.toThrow("cannot be duplicated");
+    const [contentProperty] = await getDb()
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, filesDatabase.id),
+          eq(schema.documentPropertyDefinitions.type, "blocks"),
+        ),
+      );
+    await expect(
+      inOwnerContext(() =>
+        reorderProperty.run({
+          documentId: filesDatabase.documentId,
+          propertyId: kindProperty.id,
+          targetPropertyId: contentProperty.id,
+          position: "before",
+        }),
+      ),
+    ).rejects.toThrow("cannot be reordered");
+  });
+
+  it("keeps complete Files inventory available for client-side filtered pagination", async () => {
+    const { defaultFilesDatabaseViewConfig } =
+      await import("./_files-system-properties.js");
+    const { serializeDatabaseViewConfig } =
+      await import("./_property-utils.js");
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const originalViewConfigJson = filesDatabase.viewConfigJson;
+    const now = new Date().toISOString();
+    const containingDatabaseDocumentId = "pagination-containing-database";
+    const containingDatabaseId = "pagination-containing-database-record";
+    const rowDocumentIds = Array.from(
+      { length: 101 },
+      (_, index) => `pagination-database-row-${index}`,
+    );
+    const topLevelDocumentId = "pagination-top-level-page";
+    const testDocumentIds = [
+      containingDatabaseDocumentId,
+      ...rowDocumentIds,
+      topLevelDocumentId,
+    ];
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: serializeDatabaseViewConfig(
+          defaultFilesDatabaseViewConfig(filesDatabase.id),
+        ),
+      })
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+    await getDb()
+      .insert(schema.documents)
+      .values(
+        testDocumentIds.map((id, position) => ({
+          id,
+          ownerEmail: OWNER,
+          spaceId: filesDatabase.spaceId,
+          title: id === topLevelDocumentId ? "Later top-level page" : id,
+          content: "",
+          position,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.contentDatabases).values({
+      id: containingDatabaseId,
+      ownerEmail: OWNER,
+      spaceId: filesDatabase.spaceId,
+      documentId: containingDatabaseDocumentId,
+      title: "Containing database",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        ...rowDocumentIds.map((documentId, position) => ({
+          id: `pagination-containing-item-${position}`,
+          ownerEmail: OWNER,
+          databaseId: containingDatabaseId,
+          documentId,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        ...rowDocumentIds.map((documentId, position) => ({
+          id: `pagination-files-item-${position}`,
+          ownerEmail: OWNER,
+          databaseId: filesDatabase.id,
+          documentId,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        {
+          id: "pagination-files-top-level-item",
+          ownerEmail: OWNER,
+          databaseId: filesDatabase.id,
+          documentId: topLevelDocumentId,
+          position: rowDocumentIds.length,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    const firstPage = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({
+        databaseId: filesDatabase.id,
+        limit: 100,
+      }),
+    );
+    expect(firstPage.items).toHaveLength(100);
+    expect(firstPage.items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: topLevelDocumentId }),
+        }),
+      ]),
+    );
+    expect(firstPage.pagination).toEqual({
+      offset: 0,
+      limit: 100,
+      totalItems: 102,
+      returnedItems: 100,
+      hasMore: true,
+    });
+    const expanded = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({
+        databaseId: filesDatabase.id,
+        limit: 102,
+      }),
+    );
+    expect(expanded.items).toHaveLength(102);
+    expect(expanded.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: topLevelDocumentId }),
+        }),
+      ]),
+    );
+    expect(expanded.pagination).toEqual({
+      offset: 0,
+      limit: 102,
+      totalItems: 102,
+      returnedItems: 102,
+      hasMore: false,
+    });
+
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, testDocumentIds));
+    await getDb()
+      .delete(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, containingDatabaseId));
+    await getDb()
+      .delete(schema.documents)
+      .where(inArray(schema.documents.id, testDocumentIds));
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: originalViewConfigJson })
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+  });
+
+  it("does not hide org-visible files because of an unreadable private database membership", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const filesDatabase = await getFilesDatabase(orgSpaceId);
+    const now = new Date().toISOString();
+    const privateDatabaseDocumentId = "private-containing-database-document";
+    const privateDatabaseId = "private-containing-database";
+    const visibleDocumentId = "private-membership-visible-org-page";
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: privateDatabaseDocumentId,
+          ownerEmail: OWNER,
+          orgId: ORG_ID,
+          spaceId: orgSpaceId,
+          title: "Owner private database",
+          content: "",
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: visibleDocumentId,
+          ownerEmail: OWNER,
+          orgId: ORG_ID,
+          spaceId: orgSpaceId,
+          title: "Visible organization page",
+          content: "",
+          visibility: "org",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb().insert(schema.contentDatabases).values({
+      id: privateDatabaseId,
+      ownerEmail: OWNER,
+      orgId: ORG_ID,
+      spaceId: orgSpaceId,
+      documentId: privateDatabaseDocumentId,
+      title: "Owner private database",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        {
+          id: "private-containing-database-item",
+          ownerEmail: OWNER,
+          orgId: ORG_ID,
+          databaseId: privateDatabaseId,
+          documentId: visibleDocumentId,
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "private-containing-files-item",
+          ownerEmail: OWNER,
+          orgId: ORG_ID,
+          databaseId: filesDatabase.id,
+          documentId: visibleDocumentId,
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    const response = await runWithRequestContext(
+      { userEmail: VIEWER, orgId: ORG_ID },
+      () => getContentDatabaseAction.run({ databaseId: filesDatabase.id }),
+    );
+    const visibleItem = response.items.find(
+      (item) => item.document.id === visibleDocumentId,
+    );
+    expect(visibleItem?.document.title).toBe("Visible organization page");
+    expect(
+      visibleItem?.properties.find(
+        (property) => property.definition.systemRole === "files_kind",
+      )?.value,
+    ).toBe("page");
+    expect(JSON.stringify(response)).not.toContain("Owner private database");
+
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(
+        inArray(schema.contentDatabaseItems.documentId, [visibleDocumentId]),
+      );
+    await getDb()
+      .delete(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, privateDatabaseId));
+    await getDb()
+      .delete(schema.documents)
+      .where(
+        inArray(schema.documents.id, [
+          privateDatabaseDocumentId,
+          visibleDocumentId,
+        ]),
+      );
+  });
+
+  it("repairs only unseeded Files defaults and preserves a cleared filter", async () => {
+    const { repairFilesSystemPropertyDefinitions } =
+      await import("./_files-system-properties.js");
+    const { defaultDatabaseViewConfig, serializeDatabaseViewConfig } =
+      await import("./_property-utils.js");
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const legacyDefault = serializeDatabaseViewConfig(
+      defaultDatabaseViewConfig("sidebar"),
+    );
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        filesSystemPropertiesSeeded: 0,
+        viewConfigJson: legacyDefault,
+      })
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+
+    await expect(repairFilesSystemPropertyDefinitions()).resolves.toBe(1);
+    const [repaired] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+    expect(repaired.filesSystemPropertiesSeeded).toBe(1);
+    expect(repaired.viewConfigJson).toContain("database_row");
+
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: legacyDefault })
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+    await expect(repairFilesSystemPropertyDefinitions()).resolves.toBe(0);
+    const [afterClearing] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+    expect(afterClearing.viewConfigJson).toBe(legacyDefault);
+  });
+
+  it("adopts a legacy multi-source Files Source property without losing values", async () => {
+    const { ensureFilesSystemPropertyDefinitions } =
+      await import("./_files-system-properties.js");
+    const { ensureDatabaseSourceProperty } =
+      await import("./_database-source-utils.js");
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "legacy-source-files-document",
+      spaceId: "legacy-source-space",
+      ownerEmail: OWNER,
+      title: "Files",
+      content: "",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "legacy-source-files-database",
+      spaceId: "legacy-source-space",
+      ownerEmail: OWNER,
+      documentId: "legacy-source-files-document",
+      title: "Files",
+      systemRole: "files",
+      viewConfigJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values([
+        {
+          id: "legacy-source-one",
+          ownerEmail: OWNER,
+          databaseId: "legacy-source-files-database",
+          sourceType: "local-folder",
+          sourceName: "One",
+          sourceTable: "one",
+          syncState: "linked",
+          freshness: "fresh",
+          capabilitiesJson: "{}",
+          metadataJson: "{}",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "legacy-source-two",
+          ownerEmail: OWNER,
+          databaseId: "legacy-source-files-database",
+          sourceType: "local-folder",
+          sourceName: "Two",
+          sourceTable: "two",
+          syncState: "linked",
+          freshness: "fresh",
+          capabilitiesJson: "{}",
+          metadataJson: "{}",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: "legacy-source-property",
+        ownerEmail: OWNER,
+        databaseId: "legacy-source-files-database",
+        name: "Source",
+        type: "select",
+        optionsJson: JSON.stringify({
+          options: [
+            { id: "legacy-source-one", name: "One", color: "blue" },
+            { id: "legacy-source-two", name: "Two", color: "green" },
+            { id: "local", name: "Local", color: "gray" },
+          ],
+        }),
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb().insert(schema.documentPropertyValues).values({
+      id: "legacy-source-value",
+      ownerEmail: OWNER,
+      documentId: "legacy-source-files-document",
+      propertyId: "legacy-source-property",
+      valueJson: '"local"',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, "legacy-source-files-database"));
+    await ensureFilesSystemPropertyDefinitions({ database, now });
+    const [seededDatabase] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, database.id));
+    await ensureDatabaseSourceProperty({ database: seededDatabase, now });
+
+    const sourceProperties = await getDb()
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, database.id),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(sourceProperties).toEqual([
+      expect.objectContaining({
+        id: "legacy-source-property",
+        systemRole: "files_source",
+        type: "multi_select",
+      }),
+    ]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.id, "legacy-source-value")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        propertyId: "legacy-source-property",
+        valueJson: '"local"',
+      }),
+    ]);
+
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.id, "legacy-source-value"));
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(
+        eq(
+          schema.documentPropertyDefinitions.databaseId,
+          "legacy-source-files-database",
+        ),
+      );
+    await getDb()
+      .delete(schema.contentDatabaseSources)
+      .where(
+        eq(
+          schema.contentDatabaseSources.databaseId,
+          "legacy-source-files-database",
+        ),
+      );
+    await getDb()
+      .delete(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, "legacy-source-files-database"));
+    await getDb()
+      .delete(schema.documents)
+      .where(eq(schema.documents.id, "legacy-source-files-document"));
+  });
+
+  it("leaves a user-created Source property untouched", async () => {
+    const { ensureFilesSystemPropertyDefinitions } =
+      await import("./_files-system-properties.js");
+    const now = new Date().toISOString();
+    const documentId = "custom-source-files-document";
+    const databaseId = "custom-source-files-database";
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId: "custom-source-space",
+      ownerEmail: OWNER,
+      title: "Files",
+      content: "",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: databaseId,
+      spaceId: "custom-source-space",
+      ownerEmail: OWNER,
+      documentId,
+      title: "Files",
+      systemRole: "files",
+      viewConfigJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: "custom-source-property",
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Source",
+        type: "select",
+        optionsJson: JSON.stringify({
+          options: [
+            { id: "internal", name: "Internal", color: "blue" },
+            { id: "external", name: "External", color: "green" },
+          ],
+        }),
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    await ensureFilesSystemPropertyDefinitions({ database, now });
+
+    const sourceProperties = await getDb()
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(sourceProperties).toHaveLength(2);
+    expect(sourceProperties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "custom-source-property",
+          systemRole: null,
+          type: "select",
+        }),
+        expect.objectContaining({
+          systemRole: "files_source",
+          type: "multi_select",
+        }),
+      ]),
+    );
+
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+    await getDb()
+      .delete(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    await getDb()
+      .delete(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+  });
+
   it("removes system databases and workspace references from Personal Files", async () => {
     const personalSpaceId = personalContentSpaceId(OWNER);
     const personalFiles = await getFilesDatabase(personalSpaceId);
@@ -213,7 +978,11 @@ describe("Content Files membership reconciliation", () => {
     });
     await getDb()
       .update(schema.documents)
-      .set({ content: "Keep this body exactly", icon: "📚" })
+      .set({
+        content: "Keep this body exactly",
+        icon: "📚",
+        parentId: "owner-private-org",
+      })
       .where(eq(schema.documents.id, "viewer-legacy-org"));
     await getDb()
       .update(schema.documents)
@@ -326,6 +1095,17 @@ describe("Content Files membership reconciliation", () => {
           document: expect.objectContaining({ id: "owner-private-org" }),
         }),
       ]),
+    );
+    const visibleItem = databaseResponse.items.find(
+      (item) => item.document.id === "viewer-legacy-org",
+    )!;
+    expect(
+      visibleItem.properties.find(
+        (property) => property.definition.systemRole === "files_parent",
+      )?.value,
+    ).toBeNull();
+    expect(JSON.stringify(databaseResponse)).not.toContain(
+      "Owner private page",
     );
     expect(databaseResponse.items).not.toEqual(
       expect.arrayContaining([

@@ -11,6 +11,10 @@ import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
 } from "./_content-space-access.js";
+import {
+  defaultFilesDatabaseViewConfig,
+  ensureFilesSystemPropertyDefinitions,
+} from "./_files-system-properties.js";
 import { withPositionLock } from "./_position-utils.js";
 import {
   defaultDatabaseViewConfig,
@@ -150,7 +154,9 @@ async function ensureSystemDatabase(args: {
         title: args.title,
         systemRole: args.role,
         viewConfigJson: serializeDatabaseViewConfig(
-          defaultDatabaseViewConfig("sidebar"),
+          args.role === "files"
+            ? defaultFilesDatabaseViewConfig(ids.databaseId)
+            : defaultDatabaseViewConfig("sidebar"),
         ),
         createdAt: args.now,
         updatedAt: args.now,
@@ -171,6 +177,11 @@ async function ensureSystemDatabase(args: {
     throw new Error(
       `Unable to provision ${args.role} database for Content space`,
     );
+  await ensureFilesSystemPropertyDefinitions({
+    database,
+    db: args.db,
+    now: args.now,
+  });
   return database;
 }
 

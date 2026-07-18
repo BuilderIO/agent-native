@@ -168,6 +168,7 @@ export type {
 export interface DocumentPropertyDefinition {
   id: string;
   databaseId: string | null;
+  systemRole?: DocumentPropertySystemRole | null;
   name: string;
   type: DocumentPropertyType;
   description?: string;
@@ -177,6 +178,11 @@ export interface DocumentPropertyDefinition {
   createdAt: string;
   updatedAt: string;
 }
+
+export type DocumentPropertySystemRole =
+  | "files_kind"
+  | "files_parent"
+  | "files_source";
 
 export interface DocumentProperty {
   definition: DocumentPropertyDefinition;

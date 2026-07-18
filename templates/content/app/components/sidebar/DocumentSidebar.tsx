@@ -1728,7 +1728,7 @@ export function DocumentSidebar({
               {/* Favorites */}
               {showFavorites && (
                 <div className="mb-2 min-w-0 px-2">
-                  <div className="flex h-7 min-w-0 items-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex h-7 min-w-0 items-center ps-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <span className="flex size-7 shrink-0 items-center justify-center">
                       <IconStar size={11} />
                     </span>

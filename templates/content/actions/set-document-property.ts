@@ -50,6 +50,9 @@ export default defineAction({
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
+    if (definition.systemRole) {
+      throw new Error("System properties are derived and cannot be edited.");
+    }
 
     const type = definition.type as DocumentPropertyType;
     if (isComputedPropertyType(type)) {

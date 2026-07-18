@@ -22,6 +22,10 @@ import {
   federateSources,
 } from "./_federation-join.js";
 import {
+  applyFilesSystemPropertyProjection,
+  filesSystemPropertyProjection,
+} from "./_files-system-properties.js";
+import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   serializeDatabase,
@@ -400,6 +404,30 @@ export async function getContentDatabaseResponse(
     // every document field it consumes except the deliberately omitted body.
     documents as Array<typeof schema.documents.$inferSelect>,
   );
+  const databaseProperties = await listPropertiesForDatabase(databaseId);
+  const filesProjection = await filesSystemPropertyProjection({
+    database,
+    documents,
+    properties: databaseProperties,
+  });
+  const responseProperties = filesProjection
+    ? applyFilesSystemPropertyProjection({
+        properties: databaseProperties,
+        projection: filesProjection,
+      })
+    : databaseProperties;
+  if (filesProjection) {
+    for (const document of documents) {
+      propertiesByDocumentId.set(
+        document.id,
+        applyFilesSystemPropertyProjection({
+          properties: propertiesByDocumentId.get(document.id) ?? [],
+          projection: filesProjection,
+          documentId: document.id,
+        }),
+      );
+    }
+  }
   const queuedBodyHydrationItemIds =
     items.length > 0
       ? new Set(
@@ -499,7 +527,7 @@ export async function getContentDatabaseResponse(
     contextPath: databaseDocument
       ? await getDocumentContextPath(databaseDocument)
       : [],
-    properties: await listPropertiesForDatabase(databaseId),
+    properties: responseProperties,
     items: itemsWithOverlay,
     source: pagedPrimary,
     sources: pagedSources,

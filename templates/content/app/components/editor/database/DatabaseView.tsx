@@ -296,6 +296,26 @@ export function databaseSearchExpansionIsPending(
   return !!searchQuery.trim() && responseLimit < requestedLimit;
 }
 
+export function databaseClientQueryExpandedItemLimit(
+  requiresCompleteDataset: boolean,
+  currentLimit: number,
+  totalItemCount: number,
+) {
+  if (!requiresCompleteDataset) return currentLimit;
+  return Math.max(
+    currentLimit,
+    Math.min(totalItemCount, CONTENT_DATABASE_MAX_ITEM_LIMIT),
+  );
+}
+
+export function databaseClientQueryExpansionIsPending(
+  requiresCompleteDataset: boolean,
+  requestedLimit: number,
+  responseLimit: number,
+) {
+  return requiresCompleteDataset && responseLimit < requestedLimit;
+}
+
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
 export type FilterOperator = ContentDatabaseFilterOperator;
@@ -685,10 +705,13 @@ function DatabaseTable({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
-  const [databaseItemLimit, setDatabaseItemLimit] = useState(
+  const [manualDatabaseItemLimit, setManualDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
-  const database = useContentDatabase(document.id, databaseItemLimit);
+  const [databaseRequestItemLimit, setDatabaseRequestItemLimit] = useState(
+    CONTENT_DATABASE_PAGE_SIZE,
+  );
+  const database = useContentDatabase(document.id, databaseRequestItemLimit);
   const addItem = useAddDatabaseItem(document.id);
   const createContentSpace = useCreateContentSpace();
   const workspaceCreateRequestIdRef = useRef<string | null>(null);
@@ -721,9 +744,9 @@ function DatabaseTable({
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
   const hasMoreItems =
     data?.pagination?.hasMore === true &&
-    databaseItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
+    databaseRequestItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
   const isLoadingMoreItems =
-    database.isFetching && data?.pagination?.limit !== databaseItemLimit;
+    database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
@@ -749,18 +772,6 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const searchExpandedItemLimit = databaseSearchExpandedItemLimit(
-    searchQuery,
-    databaseItemLimit,
-    totalItemCount,
-  );
-  const isSearchExpansionPending = databaseSearchExpansionIsPending(
-    searchQuery,
-    searchExpandedItemLimit,
-    data?.pagination?.limit ?? items.length,
-  );
-  const isDatabaseViewLoading =
-    isDatabaseInitialLoading || isSearchExpansionPending;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -776,10 +787,6 @@ function DatabaseTable({
   );
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
 
-  useEffect(() => {
-    if (searchExpandedItemLimit === databaseItemLimit) return;
-    setDatabaseItemLimit(searchExpandedItemLimit);
-  }, [databaseItemLimit, searchExpandedItemLimit]);
   const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
     string | null
   >(null);
@@ -908,6 +915,27 @@ function DatabaseTable({
     sorts,
     filters,
   );
+  const requiresCompleteClientDataset =
+    activeConstraintCount > 0 ||
+    !!databaseGroupProperty ||
+    activeView.type === "calendar" ||
+    activeView.type === "timeline";
+  const clientQueryExpandedItemLimit = databaseClientQueryExpandedItemLimit(
+    requiresCompleteClientDataset,
+    manualDatabaseItemLimit,
+    totalItemCount,
+  );
+  const isClientQueryExpansionPending = databaseClientQueryExpansionIsPending(
+    requiresCompleteClientDataset,
+    clientQueryExpandedItemLimit,
+    data?.pagination?.limit ?? items.length,
+  );
+  const isDatabaseViewLoading =
+    isDatabaseInitialLoading || isClientQueryExpansionPending;
+  useEffect(() => {
+    if (clientQueryExpandedItemLimit === databaseRequestItemLimit) return;
+    setDatabaseRequestItemLimit(clientQueryExpandedItemLimit);
+  }, [clientQueryExpandedItemLimit, databaseRequestItemLimit]);
   const rowsAreManuallyOrdered =
     !searchQuery.trim() &&
     sorts.length === 0 &&
@@ -2707,7 +2735,7 @@ function DatabaseTable({
         />
       )}
 
-      {hasMoreItems && !isSearchExpansionPending ? (
+      {hasMoreItems && !isClientQueryExpansionPending ? (
         <div className="flex items-center justify-center border-t border-border/45 py-3">
           <Button
             type="button"
@@ -2715,7 +2743,7 @@ function DatabaseTable({
             size="sm"
             disabled={isLoadingMoreItems}
             onClick={() =>
-              setDatabaseItemLimit((current) =>
+              setManualDatabaseItemLimit((current) =>
                 Math.min(
                   current + CONTENT_DATABASE_PAGE_SIZE,
                   totalItemCount,
@@ -15637,6 +15665,7 @@ function DatabasePropertyHeader({
   onResize: (event: ReactPointerEvent) => void;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const canReorder = canEdit && !property.definition.systemRole;
   const columnState = databaseColumnHeaderState(
     sorts,
     filters,
@@ -15648,14 +15677,14 @@ function DatabasePropertyHeader({
       data-database-property-id={property.definition.id}
       className={cn(
         "group relative flex h-8 min-w-0 items-center border-r border-border/35 px-1 transition-colors",
-        canEdit && "cursor-grab active:cursor-grabbing",
+        canReorder && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
       )}
-      onPointerDown={onPointerDown}
+      onPointerDown={canReorder ? onPointerDown : undefined}
     >
       <DatabaseDropIndicator side={dropSide} />
-      {canEdit ? (
+      {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
