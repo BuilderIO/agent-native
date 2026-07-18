@@ -17,6 +17,7 @@ import {
   IconDatabase,
   IconFileText,
   IconLoader2,
+  IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,7 +38,12 @@ import {
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useComments } from "@/hooks/use-comments";
 import {
   useCreateContentDatabase,
@@ -71,11 +77,10 @@ import {
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
-import { DescriptionField } from "./DescriptionField";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
-import { DocumentProperties } from "./DocumentProperties";
+import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
 import { NotionConflictBanner } from "./NotionConflictBanner";
@@ -94,6 +99,7 @@ interface DocumentEditorProps {
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
 type ContentSaveWatermark = { content: string; updatedAt: string | null };
+type DocumentUtilityPanel = "info" | "comments" | null;
 
 function adoptConfirmedSaveWatermarks({
   saved,
@@ -1196,18 +1202,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   } | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
+  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     canEdit && !isLocalFileDocument ? documentId : null,
   );
-  const hasComments =
-    !isLocalFileDocument &&
-    editorCanEdit &&
-    ((threads?.length ?? 0) > 0 || !!pendingComment);
-  const hasCommentRailSpace = useMinViewportWidth(1024);
-  const showDesktopComments = hasComments && hasCommentRailSpace;
-  const showCommentsSheet =
-    hasComments && editorCanEdit && !showDesktopComments;
+  const hasUtilityRailSpace = useMinViewportWidth(1024);
+  const showDesktopUtilityPanel = utilityPanel !== null && hasUtilityRailSpace;
+  const showUtilityPanelSheet =
+    utilityPanel !== null && !showDesktopUtilityPanel;
 
   const handleComment = useCallback(
     (
@@ -1217,6 +1220,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       range?: { from: number; to: number },
     ) => {
       setPendingComment({ quotedText, offsetTop, anchor, range });
+      setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
     },
@@ -1230,6 +1234,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   useEffect(() => {
     setPendingComment(null);
+    setUtilityPanel(null);
     clearCommentFocus();
   }, [clearCommentFocus, documentId]);
 
@@ -1301,7 +1306,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     [document, documents],
   );
 
-  const sidebar = (
+  const commentsSidebar = (
     <CommentsSidebar
       documentId={documentId}
       threads={threads ?? []}
@@ -1314,6 +1319,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      forceVisible
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -1349,6 +1355,36 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const exportContent = isInitializedRef.current
     ? localContent
     : document.content;
+  const utilityPanelTitle =
+    utilityPanel === "info" ? t("editor.toolbar.info") : t("comments.title");
+  const utilityPanelContent = utilityPanel ? (
+    <div className="w-full min-w-0 bg-background" data-document-utility-panel>
+      <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
+        <h2 className="text-sm font-semibold">{utilityPanelTitle}</h2>
+        {hasUtilityRailSpace ? (
+          <button
+            type="button"
+            className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t("editor.toolbar.closeUtilityPanel")}
+            onClick={() => setUtilityPanel(null)}
+          >
+            <IconX size={16} />
+          </button>
+        ) : null}
+      </div>
+      {utilityPanel === "info" ? (
+        <DocumentInfoPanel
+          document={document}
+          canEdit={editorCanEdit}
+          onSaveDescription={(description) =>
+            persistDocumentUpdates({ description })
+          }
+        />
+      ) : (
+        commentsSidebar
+      )}
+    </div>
+  ) : null;
 
   return (
     <BlockRegistryProvider
@@ -1389,6 +1425,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               deleteDocument.isPending || deleteContentDatabase.isPending
             }
             onDelete={handleDeleteDocument}
+            utilityPanel={utilityPanel}
+            onUtilityPanelChange={setUtilityPanel}
+            showCommentsControl={editorCanEdit && !isLocalFileDocument}
           />
 
           {!isLocalFileDocument ? (
@@ -1403,14 +1442,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             <div
               className={cn(
                 "flex min-h-full w-full min-w-0",
-                showDesktopComments ? "justify-center" : "flex-col",
+                showDesktopUtilityPanel ? "justify-center" : "flex-col",
               )}
               data-document-scroll-content
             >
               <div
                 className={cn(
                   "min-w-0",
-                  showDesktopComments ? "flex-1" : "w-full",
+                  showDesktopUtilityPanel ? "flex-1" : "w-full",
                 )}
               >
                 <div
@@ -1507,23 +1546,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       isDatabasePage ? "text-3xl" : "text-3xl md:text-4xl",
                     )}
                   />
-                  {!document.database ? (
-                    <DescriptionField
-                      description={document.description}
-                      canEdit={editorCanEdit}
-                      label={t("editor.properties.description")}
-                      placeholder={t("editor.properties.addPageDescription")}
-                      onSave={(description) =>
-                        persistDocumentUpdates({ description })
-                      }
-                    />
-                  ) : null}
-                  {document.databaseMembership && !isLocalFileDocument ? (
-                    <DocumentProperties
-                      documentId={documentId}
-                      canEdit={editorCanEdit}
-                    />
-                  ) : null}
                 </div>
                 {document.database ? (
                   <div className={documentEditorDatabaseRegionClassName()}>
@@ -1531,161 +1553,175 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   </div>
                 ) : null}
 
-                <div
-                  className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
-                  onClick={(e) => {
-                    if (e.target === e.currentTarget) {
-                      const pm = e.currentTarget.querySelector(
-                        ".ProseMirror",
-                      ) as HTMLElement | null;
-                      pm?.focus();
-                    }
-                  }}
-                >
-                  {(() => {
-                    if (bodyHydrationPending) {
-                      return (
-                        <BuilderBodySyncingNotice
-                          title={t("editor.builderBodySyncing")}
-                          description={t(
-                            "editor.builderBodySyncingDescription",
-                          )}
-                        />
-                      );
-                    }
-
-                    if (showNewDocumentTypeChooser) {
-                      return (
-                        <div
-                          className="flex flex-wrap gap-2 pt-3"
-                          aria-label={t("sidebar.newPage")}
-                        >
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="justify-start gap-2"
-                            disabled={
-                              !editorCanEdit || createDatabase.isPending
-                            }
-                            onClick={handleChoosePage}
-                          >
-                            <IconFileText />
-                            {t("sidebar.page")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="justify-start gap-2"
-                            disabled={
-                              !editorCanEdit || createDatabase.isPending
-                            }
-                            onClick={() => void handleChooseDatabase()}
-                          >
-                            {createDatabase.isPending ? (
-                              <IconLoader2 className="animate-spin" />
-                            ) : (
-                              <IconDatabase />
+                {!isDatabasePage ? (
+                  <div
+                    className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) {
+                        const pm = e.currentTarget.querySelector(
+                          ".ProseMirror",
+                        ) as HTMLElement | null;
+                        pm?.focus();
+                      }
+                    }}
+                  >
+                    {(() => {
+                      if (bodyHydrationPending) {
+                        return (
+                          <BuilderBodySyncingNotice
+                            title={t("editor.builderBodySyncing")}
+                            description={t(
+                              "editor.builderBodySyncingDescription",
                             )}
-                            {t("sidebar.database")}
-                          </Button>
-                        </div>
-                      );
-                    }
+                          />
+                        );
+                      }
 
-                    // The primary "Content" Blocks field IS the document body,
-                    // with the full collaborative editor. It renders chromeless
-                    // when it's the only Blocks field, or inside a
-                    // header/collapsible shell when the row has multiple Blocks
-                    // fields.
-                    const primaryEditor = (
-                      <VisualEditor
-                        key={`${documentId}:${editorCanEdit && !isLocalFileDocument ? "live" : "snapshot"}`}
-                        documentId={documentId}
-                        content={
-                          isLocalFileDocument ? localContent : document.content
-                        }
-                        contentUpdatedAt={
-                          isLocalFileDocument
-                            ? (localContentUpdatedAt ?? document.updatedAt)
-                            : document.updatedAt
-                        }
-                        onChange={handleContentChange}
-                        onSaveContent={handleContentSaveNow}
-                        // Bind the shared Y.Doc/awareness for viewers too — the
-                        // editor is non-editable for them and VisualEditor blocks
-                        // any local Y.Doc mutation, so they get live edits +
-                        // cursors without ever writing. Excludes local-file docs.
-                        ydoc={collabEnabled ? ydoc : null}
-                        collabSynced={collabEnabled ? collabSynced : true}
-                        awareness={collabEnabled ? awareness : null}
-                        user={currentUser}
-                        editable={editorCanEdit}
-                        localFileMode={isLocalFileDocument}
-                        localFilePath={
-                          isLocalFileDocument ? document.source?.path : null
-                        }
-                        onComment={
-                          editorCanEdit && !isLocalFileDocument
-                            ? handleComment
-                            : undefined
-                        }
-                        commentThreads={threads ?? []}
-                        activeThreadId={activeThreadId}
-                        pendingHighlight={pendingComment?.range ?? null}
-                        onActivateThread={
-                          editorCanEdit && !isLocalFileDocument
-                            ? setSelectedThreadId
-                            : undefined
-                        }
-                        onJoinTitle={joinFirstBodyBlockToTitle}
-                        notionPageLinks={notionPageLinks}
-                        onOpenNotionPageLink={handleOpenNotionPageLink}
-                        notionPageId={document.notionPageId}
-                      />
-                    );
+                      if (showNewDocumentTypeChooser) {
+                        return (
+                          <div
+                            className="flex flex-wrap gap-2 pt-3"
+                            aria-label={t("sidebar.newPage")}
+                          >
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="justify-start gap-2"
+                              disabled={
+                                !editorCanEdit || createDatabase.isPending
+                              }
+                              onClick={handleChoosePage}
+                            >
+                              <IconFileText />
+                              {t("sidebar.page")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="justify-start gap-2"
+                              disabled={
+                                !editorCanEdit || createDatabase.isPending
+                              }
+                              onClick={() => void handleChooseDatabase()}
+                            >
+                              {createDatabase.isPending ? (
+                                <IconLoader2 className="animate-spin" />
+                              ) : (
+                                <IconDatabase />
+                              )}
+                              {t("sidebar.database")}
+                            </Button>
+                          </div>
+                        );
+                      }
 
-                    // Only database rows have Blocks fields. Standalone pages
-                    // and local-file documents keep the plain chromeless body.
-                    if (document.databaseMembership && !isLocalFileDocument) {
-                      return (
-                        <DocumentBlockFields
+                      // The primary "Content" Blocks field IS the document body,
+                      // with the full collaborative editor. It renders chromeless
+                      // when it's the only Blocks field, or inside a
+                      // header/collapsible shell when the row has multiple Blocks
+                      // fields.
+                      const primaryEditor = (
+                        <VisualEditor
+                          key={`${documentId}:${editorCanEdit && !isLocalFileDocument ? "live" : "snapshot"}`}
                           documentId={documentId}
-                          canEdit={editorCanEdit}
-                          primaryEditor={primaryEditor}
+                          content={
+                            isLocalFileDocument
+                              ? localContent
+                              : document.content
+                          }
+                          contentUpdatedAt={
+                            isLocalFileDocument
+                              ? (localContentUpdatedAt ?? document.updatedAt)
+                              : document.updatedAt
+                          }
+                          onChange={handleContentChange}
+                          onSaveContent={handleContentSaveNow}
+                          // Bind the shared Y.Doc/awareness for viewers too — the
+                          // editor is non-editable for them and VisualEditor blocks
+                          // any local Y.Doc mutation, so they get live edits +
+                          // cursors without ever writing. Excludes local-file docs.
+                          ydoc={collabEnabled ? ydoc : null}
+                          collabSynced={collabEnabled ? collabSynced : true}
+                          awareness={collabEnabled ? awareness : null}
+                          user={currentUser}
+                          editable={editorCanEdit}
+                          localFileMode={isLocalFileDocument}
+                          localFilePath={
+                            isLocalFileDocument ? document.source?.path : null
+                          }
+                          onComment={
+                            editorCanEdit && !isLocalFileDocument
+                              ? handleComment
+                              : undefined
+                          }
+                          commentThreads={threads ?? []}
+                          activeThreadId={activeThreadId}
+                          pendingHighlight={pendingComment?.range ?? null}
+                          onActivateThread={
+                            editorCanEdit && !isLocalFileDocument
+                              ? setSelectedThreadId
+                              : undefined
+                          }
+                          onJoinTitle={joinFirstBodyBlockToTitle}
+                          notionPageLinks={notionPageLinks}
+                          onOpenNotionPageLink={handleOpenNotionPageLink}
+                          notionPageId={document.notionPageId}
                         />
                       );
-                    }
 
-                    return primaryEditor;
-                  })()}
-                  {!bodyHydrationPending &&
-                  !isLocalFileDocument &&
-                  collabLoading ? (
-                    <div
-                      className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
-                      role="status"
-                    >
-                      <IconLoader2 className="size-3.5 animate-spin" />
-                      {t("editor.collabConnectingReadOnly")}
-                    </div>
-                  ) : null}
-                </div>
+                      // Only database rows have Blocks fields. Standalone pages
+                      // and local-file documents keep the plain chromeless body.
+                      if (document.databaseMembership && !isLocalFileDocument) {
+                        return (
+                          <DocumentBlockFields
+                            documentId={documentId}
+                            canEdit={editorCanEdit}
+                            primaryEditor={primaryEditor}
+                          />
+                        );
+                      }
+
+                      return primaryEditor;
+                    })()}
+                    {!bodyHydrationPending &&
+                    !isLocalFileDocument &&
+                    collabLoading ? (
+                      <div
+                        className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                        role="status"
+                      >
+                        <IconLoader2 className="size-3.5 animate-spin" />
+                        {t("editor.collabConnectingReadOnly")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
-              {showDesktopComments ? sidebar : null}
+              {showDesktopUtilityPanel ? (
+                <aside className="w-80 shrink-0 border-s border-border">
+                  {utilityPanelContent}
+                </aside>
+              ) : null}
             </div>
           </div>
         </div>
 
-        {showCommentsSheet ? (
+        {showUtilityPanelSheet ? (
           <Sheet
-            open={hasComments}
+            open={utilityPanel !== null}
             onOpenChange={(open) => {
-              if (!open) setPendingComment(null);
+              if (!open) {
+                setUtilityPanel(null);
+                setPendingComment(null);
+              }
             }}
           >
             <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
-              {sidebar}
+              <SheetHeader className="sr-only">
+                <SheetTitle>{utilityPanelTitle}</SheetTitle>
+              </SheetHeader>
+              {utilityPanelContent}
             </SheetContent>
           </Sheet>
         ) : null}

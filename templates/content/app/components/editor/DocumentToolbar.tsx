@@ -27,7 +27,9 @@ import {
   IconFolderOpen,
   IconPlus,
   IconHistory,
+  IconInfoCircle,
   IconLink,
+  IconMessageCircle,
   IconRefresh,
   IconShare3,
   IconTrash,
@@ -273,6 +275,9 @@ interface DocumentToolbarProps {
   canDelete?: boolean;
   deletePending?: boolean;
   onDelete?: () => Promise<void>;
+  utilityPanel: "info" | "comments" | null;
+  onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
+  showCommentsControl?: boolean;
 }
 
 export function DocumentToolbar({
@@ -291,6 +296,9 @@ export function DocumentToolbar({
   canDelete = false,
   deletePending = false,
   onDelete,
+  utilityPanel,
+  onUtilityPanelChange,
+  showCommentsControl = true,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -775,6 +783,50 @@ export function DocumentToolbar({
             </TooltipTrigger>
             <TooltipContent>{t("editor.toolbar.copyPageLink")}</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  utilityPanel === "info" && "bg-accent text-foreground",
+                )}
+                aria-label={t("editor.toolbar.info")}
+                aria-pressed={utilityPanel === "info"}
+                onClick={() =>
+                  onUtilityPanelChange(utilityPanel === "info" ? null : "info")
+                }
+              >
+                <IconInfoCircle size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editor.toolbar.info")}</TooltipContent>
+          </Tooltip>
+
+          {showCommentsControl ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    utilityPanel === "comments" && "bg-accent text-foreground",
+                  )}
+                  aria-label={t("comments.title")}
+                  aria-pressed={utilityPanel === "comments"}
+                  onClick={() =>
+                    onUtilityPanelChange(
+                      utilityPanel === "comments" ? null : "comments",
+                    )
+                  }
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.title")}</TooltipContent>
+            </Tooltip>
+          ) : null}
 
           <DropdownMenu modal={false}>
             <Tooltip>

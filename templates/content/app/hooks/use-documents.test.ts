@@ -10,6 +10,9 @@ import {
   isDocumentUpdateConflict,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
+  restoreQuerySnapshots,
+  setDocumentFavoriteInDatabaseCache,
+  setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
 } from "./use-documents";
 
@@ -133,6 +136,75 @@ describe("mergeDocumentIntoListDocumentsCache", () => {
         updated,
       ),
     ).toEqual({ documents: [updated], cursor: null });
+  });
+});
+
+describe("optimistic document favorites", () => {
+  it("updates array and object list caches without disturbing other pages", () => {
+    const favorite = { ...doc("a", null), isFavorite: true };
+    expect(
+      setDocumentFavoriteInListCache(
+        [doc("a", null), doc("b", null)],
+        "a",
+        true,
+      ),
+    ).toEqual([favorite, doc("b", null)]);
+    expect(
+      setDocumentFavoriteInListCache(
+        { documents: [doc("a", null)], cursor: "next" },
+        "a",
+        true,
+      ),
+    ).toEqual({ documents: [favorite], cursor: "next" });
+  });
+
+  it("updates the matching row in every Files database cache shape", () => {
+    const database = {
+      items: [
+        {
+          id: "item-a",
+          databaseId: "files",
+          position: 0,
+          document: doc("a", null),
+          properties: [],
+        },
+        {
+          id: "item-b",
+          databaseId: "files",
+          position: 1,
+          document: doc("b", null),
+          properties: [],
+        },
+      ],
+    } as any;
+
+    const updated = setDocumentFavoriteInDatabaseCache(database, "a", true)!;
+    expect(updated.items[0].document.isFavorite).toBe(true);
+    expect(updated.items[1].document.isFavorite).toBe(false);
+    expect(database.items[0].document.isFavorite).toBe(false);
+  });
+
+  it("restores exact cache snapshots after a failed optimistic update", () => {
+    const queryClient = new QueryClient();
+    const documentKey = documentQueryKey("a");
+    const listKey = ["action", "list-documents", undefined] as const;
+    const originalDocument = doc("a", null);
+    const originalList = [originalDocument];
+    queryClient.setQueryData(documentKey, {
+      ...originalDocument,
+      isFavorite: true,
+    });
+    queryClient.setQueryData(listKey, [
+      { ...originalDocument, isFavorite: true },
+    ]);
+
+    restoreQuerySnapshots(queryClient, [
+      [documentKey, originalDocument],
+      [listKey, originalList],
+    ]);
+
+    expect(queryClient.getQueryData(documentKey)).toEqual(originalDocument);
+    expect(queryClient.getQueryData(listKey)).toEqual(originalList);
   });
 });
 

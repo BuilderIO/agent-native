@@ -1,5 +1,6 @@
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
+  ContentDatabaseResponse,
   ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
@@ -80,6 +81,56 @@ export function mergeDocumentIntoListDocumentsCache(
   );
 
   return { ...(old as object), documents: nextDocuments };
+}
+
+export function setDocumentFavoriteInListCache(
+  old: unknown,
+  documentId: string,
+  isFavorite: boolean,
+) {
+  if (Array.isArray(old)) {
+    return old.map((item: Document) =>
+      item.id === documentId ? { ...item, isFavorite } : item,
+    );
+  }
+
+  if (!old || typeof old !== "object") return old;
+  const cached = old as { documents?: unknown };
+  if (!Array.isArray(cached.documents)) return old;
+
+  return {
+    ...(old as object),
+    documents: cached.documents.map((item: Document) =>
+      item.id === documentId ? { ...item, isFavorite } : item,
+    ),
+  };
+}
+
+export function setDocumentFavoriteInDatabaseCache(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+  isFavorite: boolean,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  let changed = false;
+  const items = current.items.map((item) => {
+    if (item.document.id !== documentId) return item;
+    changed = true;
+    return {
+      ...item,
+      document: { ...item.document, isFavorite },
+    };
+  });
+  return changed ? { ...current, items } : current;
+}
+
+export function restoreQuerySnapshots(
+  queryClient: Pick<QueryClient, "setQueryData">,
+  snapshots: Array<[readonly unknown[], unknown]>,
+) {
+  for (const [queryKey, data] of snapshots) {
+    queryClient.setQueryData(queryKey, data);
+  }
 }
 
 export function seedDatabaseItemDocumentCaches(
@@ -198,6 +249,61 @@ export function useUpdateDocument() {
   return useActionMutation<DocumentUpdateResult, DocumentUpdateRequestWithCas>(
     "update-document",
     {
+      onMutate: async (variables) => {
+        if (variables.isFavorite === undefined) return undefined;
+
+        const documentKey = documentQueryKey(variables.id);
+        const databaseFilter = {
+          queryKey: ["action", "get-content-database"],
+        } as const;
+        await Promise.all([
+          queryClient.cancelQueries({ queryKey: documentKey }),
+          queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
+          queryClient.cancelQueries(databaseFilter),
+        ]);
+
+        const previous: Array<[readonly unknown[], unknown]> = [
+          [documentKey, queryClient.getQueryData(documentKey)],
+          [
+            LIST_DOCUMENTS_QUERY_KEY,
+            queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY),
+          ],
+          ...queryClient.getQueriesData<ContentDatabaseResponse>(
+            databaseFilter,
+          ),
+        ];
+
+        queryClient.setQueryData(documentKey, (old: unknown) =>
+          old && typeof old === "object"
+            ? { ...old, isFavorite: variables.isFavorite }
+            : old,
+        );
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+          setDocumentFavoriteInListCache(
+            old,
+            variables.id,
+            variables.isFavorite!,
+          ),
+        );
+        queryClient.setQueriesData<ContentDatabaseResponse>(
+          databaseFilter,
+          (current) =>
+            setDocumentFavoriteInDatabaseCache(
+              current,
+              variables.id,
+              variables.isFavorite!,
+            ),
+        );
+
+        return { previous };
+      },
+      onError: (_error, variables, context) => {
+        if (variables.isFavorite === undefined) return;
+        const rollback = context as
+          | { previous?: Array<[readonly unknown[], unknown]> }
+          | undefined;
+        restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
+      },
       onSuccess: (data, variables) => {
         // A CAS conflict is a normal (non-thrown) result, not a successful
         // save — converge the caches to the returned server document (so the
@@ -214,6 +320,17 @@ export function useUpdateDocument() {
           queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
             mergeDocumentIntoListDocumentsCache(old, serverDocument),
           );
+          if (variables.isFavorite !== undefined) {
+            queryClient.setQueriesData<ContentDatabaseResponse>(
+              { queryKey: ["action", "get-content-database"] },
+              (current) =>
+                setDocumentFavoriteInDatabaseCache(
+                  current,
+                  variables.id,
+                  serverDocument.isFavorite,
+                ),
+            );
+          }
           queryClient.invalidateQueries({
             queryKey: ["action", "get-document", { id: variables.id }],
           });
@@ -230,6 +347,17 @@ export function useUpdateDocument() {
         queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
           mergeDocumentIntoListDocumentsCache(old, data),
         );
+        if (variables.isFavorite !== undefined) {
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            { queryKey: ["action", "get-content-database"] },
+            (current) =>
+              setDocumentFavoriteInDatabaseCache(
+                current,
+                variables.id,
+                data.isFavorite,
+              ),
+          );
+        }
         queryClient.invalidateQueries({
           queryKey: ["action", "get-document", { id: variables.id }],
         });

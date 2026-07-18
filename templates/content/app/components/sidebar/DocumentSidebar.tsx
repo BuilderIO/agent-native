@@ -921,9 +921,21 @@ export function DocumentSidebar({
 
   const handleToggleFavorite = useCallback(
     (id: string, isFavorite: boolean) => {
-      updateDocument.mutate({ id, isFavorite });
+      updateDocument.mutate(
+        { id, isFavorite },
+        {
+          onError: (error) => {
+            toast.error(t("sidebar.failedUpdateFavorite"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
     },
-    [updateDocument],
+    [t, updateDocument],
   );
 
   const handleRestoreDatabase = useCallback(
