@@ -30,6 +30,9 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
+  "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m"
+  "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m"
+  "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultHostedAppendRetryStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultStateRoot.m"
@@ -732,7 +735,9 @@ case "${PRIVATE_VAULT_BUILD_FENCE_TESTS:-}" in
     lipo "$output" -verify_arch "$architecture"
   }
   compile_fence_test_slice arm64 "$ARM64_SODIUM"
-  compile_fence_test_slice x86_64 "$X86_64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_fence_test_slice x86_64 "$X86_64_SODIUM"
+  fi
   ;;
   *)
     echo "Invalid Private Vault fence-test build mode" >&2
@@ -777,6 +782,64 @@ case "${PRIVATE_VAULT_BUILD_REPOSITORY_TESTS:-}" in
   ;;
   *)
     echo "Invalid Private Vault repository-test build mode" >&2
+    exit 1
+    ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_GENESIS_PREPARATION_STORAGE_TESTS:-}" in
+  "") ;;
+  1)
+  GENESIS_PREPARATION_TEST_OUTPUT="$OUTPUT_ROOT/.genesis-preparation-storage-tests"
+  rm -rf "$GENESIS_PREPARATION_TEST_OUTPUT"
+  mkdir -p "$GENESIS_PREPARATION_TEST_OUTPUT"
+  compile_genesis_preparation_storage_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local common=(
+      -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror
+      -DANC_PRIVATE_VAULT_TESTING=1
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture"
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/storage"
+      -I"$sodium_root/include"
+      -framework Foundation -framework Security -framework LocalAuthentication
+    )
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecordTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-record-tests-$architecture"
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStoreTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-artifact-tests-$architecture"
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStoreTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-store-tests-$architecture"
+    lipo "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-record-tests-$architecture" \
+      -verify_arch "$architecture"
+    lipo "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-artifact-tests-$architecture" \
+      -verify_arch "$architecture"
+    lipo "$GENESIS_PREPARATION_TEST_OUTPUT/private-vault-genesis-preparation-store-tests-$architecture" \
+      -verify_arch "$architecture"
+  }
+  compile_genesis_preparation_storage_test_slice arm64 "$ARM64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_genesis_preparation_storage_test_slice x86_64 "$X86_64_SODIUM"
+  fi
+  ;;
+  *)
+    echo "Invalid Private Vault genesis-preparation-storage-test build mode" >&2
     exit 1
     ;;
 esac

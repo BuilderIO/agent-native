@@ -290,6 +290,76 @@ static void TestAmbiguousAndInterruptedWrites(void) {
          AncPrivateVaultFenceStatusOK);
 }
 
+static void TestGenesisPreparationExactBoundary(void) {
+  Reset();
+  AncPrivateVaultKeychain *keychain = Keychain();
+  uint8_t record[1024];
+  memset(record, 0x61, sizeof(record));
+  const uint8_t *recordBytes = record;
+
+  assert([keychain addData:[NSData dataWithBytes:record length:sizeof(record)]
+                forService:AncPrivateVaultGenesisPreparationStageService
+                   vaultId:@"lookup"
+                  recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain addGenesisPreparationRecord:record
+                                        length:sizeof(record) - 1
+                                    forService:
+                                        AncPrivateVaultGenesisPreparationStageService
+                                       vaultId:@"lookup"
+                                      recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain addGenesisPreparationRecord:record
+                                        length:sizeof(record)
+                                    forService:
+                                        AncPrivateVaultGenesisPreparationStageService
+                                       vaultId:@"lookup"
+                                      recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusOK);
+  __block BOOL consumed = NO;
+  assert([keychain
+             consumeGenesisPreparationRecordForService:
+                 AncPrivateVaultGenesisPreparationStageService
+                                             vaultId:@"lookup"
+                                            recordId:@"genesis-preparation"
+                                            consumer:^BOOL(const uint8_t *bytes) {
+                                              consumed =
+                                                  memcmp(bytes, recordBytes,
+                                                         sizeof(record)) == 0;
+                                              return YES;
+                                            }] ==
+             AncPrivateVaultKeychainStatusOK &&
+         consumed);
+  assert([keychain
+             deleteDataForService:AncPrivateVaultGenesisPreparationStageService
+                          vaultId:@"lookup"
+                         recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusInvalid);
+
+  gCommitThenErrorMutation = gMutationCount + 1;
+  assert([keychain deleteGenesisPreparationStageVaultId:@"lookup"
+                                               recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusOK);
+  assert(KeyForService(AncPrivateVaultGenesisPreparationStageService) == nil);
+  assert([keychain deleteGenesisPreparationStageVaultId:@"lookup"
+                                               recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusOK);
+
+  assert([keychain addGenesisPreparationRecord:record
+                                        length:sizeof(record)
+                                    forService:
+                                        AncPrivateVaultGenesisPreparationService
+                                       vaultId:@"lookup"
+                                      recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusOK);
+  assert([keychain
+             deleteDataForService:AncPrivateVaultGenesisPreparationService
+                          vaultId:@"lookup"
+                         recordId:@"genesis-preparation"] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert(KeyForService(AncPrivateVaultGenesisPreparationService) != nil);
+}
+
 int main(void) {
   @autoreleasepool {
     assert(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
@@ -297,6 +367,7 @@ int main(void) {
     TestDigestBoundTransitions();
     TestMismatchCorruptionAndMissing();
     TestAmbiguousAndInterruptedWrites();
+    TestGenesisPreparationExactBoundary();
     puts("private-vault generation-fence v2 tests passed");
   }
   return 0;

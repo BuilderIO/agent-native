@@ -12,6 +12,9 @@ FOUNDATION_EXPORT NSString *const AncPrivateVaultCustodyStageService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultRotationPreparationService;
 FOUNDATION_EXPORT NSString *const
     AncPrivateVaultRotationPreparationStageService;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultGenesisPreparationService;
+FOUNDATION_EXPORT NSString *const
+    AncPrivateVaultGenesisPreparationStageService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultRotationCleanupReceiptService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainAccessGroup;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainStorageDomain;
@@ -39,6 +42,8 @@ typedef LAContext *_Nonnull (^AncPrivateVaultLAContextFactory)(void);
 typedef BOOL (^AncPrivateVaultKeychainBytesConsumer)(const uint8_t *bytes,
                                                      size_t length);
 typedef BOOL (^AncPrivateVaultKeychainCustodyRecordConsumer)(
+    const uint8_t *record);
+typedef BOOL (^AncPrivateVaultKeychainGenesisPreparationRecordConsumer)(
     const uint8_t *record);
 
 #if ANC_PRIVATE_VAULT_TESTING
@@ -118,6 +123,25 @@ FOUNDATION_EXPORT void AncPrivateVaultKeychainSetBoundaryHookForTesting(
                                           forService:(NSString *)service
                 vaultId:(NSString *)vaultId
                recordId:(NSString *)recordId;
+
+- (AncPrivateVaultKeychainStatus)
+    consumeGenesisPreparationRecordForService:(NSString *)service
+                                      vaultId:(NSString *)vaultId
+                                     recordId:(NSString *)recordId
+                                     consumer:(AncPrivateVaultKeychainGenesisPreparationRecordConsumer)consumer;
+- (AncPrivateVaultKeychainStatus)addGenesisPreparationRecord:(const uint8_t *)record
+                                                      length:(size_t)length
+                                                  forService:(NSString *)service
+                                                     vaultId:(NSString *)vaultId
+                                                    recordId:(NSString *)recordId;
+- (AncPrivateVaultKeychainStatus)updateGenesisPreparationRecord:(const uint8_t *)record
+                                                         length:(size_t)length
+                                                     forService:(NSString *)service
+                                                        vaultId:(NSString *)vaultId
+                                                       recordId:(NSString *)recordId;
+- (AncPrivateVaultKeychainStatus)
+    deleteGenesisPreparationStageVaultId:(NSString *)vaultId
+                                recordId:(NSString *)recordId;
 - (AncPrivateVaultKeychainStatus)
     deleteCustodyRecordForService:(NSString *)service
                            vaultId:(NSString *)vaultId

@@ -325,11 +325,32 @@ checksummed, runtime-only Core oracle, rejects mutation and binding attacks, and
 writes no secret fixture. Production and focused arm64 builds, 204 Core E2EE
 tests, Core/Desktop typechecks, and the Core distribution build pass.
 
-This still is not a usable PREPARE ceremony. Durable preparation state, exact
-artifact spooling, pending-g1 creation, expiry/cancellation, crash reconciliation,
-and the trusted desktop confirmation surface remain required before any vault
-can be created. No builder operation is exposed through XPC, addon, preload, UI,
-or hosted JavaScript. Current-source x86_64 parity remains a machine-level proof
-gap while Rosetta is wedged before test entry.
+The native trust boundary now also has a durable genesis-PREPARE storage layer.
+It persists the fixed 1,024-byte preparation record and five 32-byte secret
+inputs only through guarded memory into typed, nonsynchronizable,
+device-bound Keychain services; the 48-byte bearer capability is never
+persisted. Public artifacts use generation-two, checksum-bound frames and an
+owner-only preparation index with atomic write, fsync, exclusive promotion,
+strict file-type/link/mode validation, bounded enumeration, and restart
+reconciliation. The Store reconciles stage, generation fence, and live record
+before publishing state, exposes secrets only after full capability
+verification, retires marker-only orphans and cleaned terminal markers, and
+cannot generically transition lifecycle state or delete live artifacts. The
+arm64 production/focused runner covers every persistence fault boundary,
+substitution, same-lookup capability collision, concurrent idempotent create,
+pending-fence recovery, cleanup failure, and 300-ceremony marker reuse; the
+Record, ArtifactStore, Store, Keychain, and generation-fence suites pass with an
+independent storage-slice GO.
+
+This is still not a usable PREPARE ceremony. The phase-specific coordinator,
+pending-g1 custody installation, proof-bound confirmation, expiry and
+cancellation policy, terminal receipt cleanup, startup orchestration, and the
+trusted desktop confirmation surface remain required before any vault can be
+created. The future coordinator must add a narrow live-artifact cleanup
+capability that independently verifies terminal and hosted-receipt proof; it
+must not restore a raw live-delete or caller-authored transition API. No builder
+or preparation operation is exposed through XPC, addon, preload, UI, or hosted
+JavaScript. Current-source x86_64 parity remains a machine-level proof gap while
+Rosetta is wedged before test entry.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

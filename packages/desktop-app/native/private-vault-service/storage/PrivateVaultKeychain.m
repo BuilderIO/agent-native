@@ -2,6 +2,7 @@
 
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultCustodyRecord.h"
+#import "PrivateVaultGenesisPreparationRecord.h"
 
 NSString *const AncPrivateVaultFenceService =
     @"com.agentnative.desktop.private-vault.anc-v1.fence";
@@ -15,6 +16,10 @@ NSString *const AncPrivateVaultRotationPreparationService =
     @"com.agentnative.desktop.private-vault.anc-v1.rotation-preparation";
 NSString *const AncPrivateVaultRotationPreparationStageService =
     @"com.agentnative.desktop.private-vault.anc-v1.rotation-preparation-stage";
+NSString *const AncPrivateVaultGenesisPreparationService =
+    @"com.agentnative.desktop.private-vault.anc-v1.genesis-preparation";
+NSString *const AncPrivateVaultGenesisPreparationStageService =
+    @"com.agentnative.desktop.private-vault.anc-v1.genesis-preparation-stage";
 NSString *const AncPrivateVaultRotationCleanupReceiptService =
     @"com.agentnative.desktop.private-vault.anc-v1.rotation-cleanup-receipt";
 NSString *const AncPrivateVaultKeychainAccessGroup =
@@ -92,6 +97,10 @@ static BOOL AncIsRotationPreparationService(NSString *service) {
       [service isEqualToString:AncPrivateVaultRotationPreparationService] ||
       [service isEqualToString:AncPrivateVaultRotationPreparationStageService];
 }
+static BOOL AncIsGenesisPreparationService(NSString *service) {
+  return [service isEqualToString:AncPrivateVaultGenesisPreparationService] ||
+         [service isEqualToString:AncPrivateVaultGenesisPreparationStageService];
+}
 
 static BOOL AncIsCustodyService(NSString *service) {
   return [service isEqualToString:AncPrivateVaultCustodyService] ||
@@ -135,6 +144,8 @@ static BOOL AncCustodyExactBoundaryActive(void) {
 static BOOL AncRecordLengthAllowed(NSString *service, NSUInteger length) {
   if (AncIsRotationPreparationService(service))
     return length == kRotationPreparationRecordBytes;
+  if (AncIsGenesisPreparationService(service))
+    return length == ANC_PV_GENESIS_PREPARATION_RECORD_BYTES;
   return length > 0 && length <= kMaximumRecordBytes;
 }
 
@@ -254,6 +265,9 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
       ![service isEqualToString:AncPrivateVaultRotationPreparationService] &&
       ![service
           isEqualToString:AncPrivateVaultRotationPreparationStageService] &&
+      ![service isEqualToString:AncPrivateVaultGenesisPreparationService] &&
+      ![service
+          isEqualToString:AncPrivateVaultGenesisPreparationStageService] &&
       ![service
           isEqualToString:AncPrivateVaultRotationCleanupReceiptService]) {
     return nil;
@@ -279,7 +293,8 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
     return AncPrivateVaultKeychainStatusInvalid;
   *data = nil;
   if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
-      AncIsRotationPreparationService(service))
+      AncIsRotationPreparationService(service) ||
+      AncIsGenesisPreparationService(service))
     return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *base = [self baseQueryForService:service
                                          vaultId:vaultId
@@ -564,12 +579,62 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
   });
 }
 
+- (AncPrivateVaultKeychainStatus)
+    consumeGenesisPreparationRecordForService:(NSString *)service
+                                      vaultId:(NSString *)vaultId
+                                     recordId:(NSString *)recordId
+                                     consumer:(AncPrivateVaultKeychainGenesisPreparationRecordConsumer)consumer {
+  if (!AncIsGenesisPreparationService(service) || consumer == nil)
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self consumeBytesForService:service
+                              vaultId:vaultId
+                             recordId:recordId
+                             consumer:^BOOL(const uint8_t *bytes, size_t length) {
+    return length == ANC_PV_GENESIS_PREPARATION_RECORD_BYTES && consumer(bytes);
+  }];
+}
+
+- (AncPrivateVaultKeychainStatus)addGenesisPreparationRecord:(const uint8_t *)record
+                                                      length:(size_t)length
+                                                  forService:(NSString *)service
+                                                     vaultId:(NSString *)vaultId
+                                                    recordId:(NSString *)recordId {
+  if (!AncIsGenesisPreparationService(service) ||
+      length != ANC_PV_GENESIS_PREPARATION_RECORD_BYTES)
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self addBytes:record length:length forService:service vaultId:vaultId
+                recordId:recordId];
+}
+
+- (AncPrivateVaultKeychainStatus)updateGenesisPreparationRecord:(const uint8_t *)record
+                                                         length:(size_t)length
+                                                     forService:(NSString *)service
+                                                        vaultId:(NSString *)vaultId
+                                                       recordId:(NSString *)recordId {
+  if (!AncIsGenesisPreparationService(service) ||
+      length != ANC_PV_GENESIS_PREPARATION_RECORD_BYTES)
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self updateBytes:record length:length forService:service vaultId:vaultId
+                   recordId:recordId];
+}
+
+- (AncPrivateVaultKeychainStatus)
+    deleteGenesisPreparationStageVaultId:(NSString *)vaultId
+                                recordId:(NSString *)recordId {
+  return [self
+      deleteDataCoreForService:AncPrivateVaultGenesisPreparationStageService
+                       vaultId:vaultId
+                      recordId:recordId
+                  custodyExact:NO];
+}
+
 - (AncPrivateVaultKeychainStatus)addData:(NSData *)data
                               forService:(NSString *)service
                                  vaultId:(NSString *)vaultId
                                 recordId:(NSString *)recordId {
   if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
-      AncIsRotationPreparationService(service))
+      AncIsRotationPreparationService(service) ||
+      AncIsGenesisPreparationService(service))
     return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *base = [self baseQueryForService:service
                                          vaultId:vaultId
@@ -607,7 +672,8 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                     vaultId:(NSString *)vaultId
                                    recordId:(NSString *)recordId {
   if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
-      AncIsRotationPreparationService(service))
+      AncIsRotationPreparationService(service) ||
+      AncIsGenesisPreparationService(service))
     return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *query = [self baseQueryForService:service
                                           vaultId:vaultId
@@ -640,7 +706,8 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
 - (AncPrivateVaultKeychainStatus)deleteDataForService:(NSString *)service
                                               vaultId:(NSString *)vaultId
                                              recordId:(NSString *)recordId {
-  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service))
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
+      AncIsGenesisPreparationService(service))
     return AncPrivateVaultKeychainStatusInvalid;
   return [self deleteDataCoreForService:service
                                 vaultId:vaultId
