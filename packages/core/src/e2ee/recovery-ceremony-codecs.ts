@@ -26,12 +26,17 @@ import {
   hashAncV1RecoverySnapshotCommitment,
 } from "./lifecycle-codecs.js";
 import {
+  type AncV1RecoveryEntropy,
+  type AncV1VaultId,
   ancV1BoxDecrypt,
   ancV1BoxEncrypt,
   ancV1BoxKeypairFromSeed,
+  ancV1DeriveRecoveryRoot,
   ancV1Hash,
+  ancV1RecoveryEntropyFromBip39Bytes,
   ancV1SignDetached,
   ancV1SigningKeypairFromSeed,
+  ancV1VaultId,
   ancV1VerifyDetached,
 } from "./portable-crypto.js";
 import { getAncV1RecoveryDerivationTestHook } from "./recovery-ceremony-test-hooks.js";
@@ -455,7 +460,12 @@ export async function deriveAncV1RecoveryId(input: {
   return (await ancV1Hash("recovery-authority", descriptor)).slice(0, ID_BYTES);
 }
 
-/** Derive purpose-separated recovery authority from the exact 32-byte Argon2 root. */
+/**
+ * Low-level native-parity primitive deriving authority from an existing root.
+ * Product callers should use `deriveAncV1RecoveryAuthorityFromEntropy` so the
+ * frozen entropy, vault-salt, KDF, generation-separation, and cleanup contract
+ * cannot be composed inconsistently.
+ */
 export async function deriveAncV1RecoveryAuthority(input: {
   vaultId: Uint8Array;
   recoveryGeneration: number;
@@ -523,6 +533,52 @@ export async function deriveAncV1RecoveryAuthority(input: {
         temporaryAgreementPrivateKey,
       );
     root.fill(0);
+  }
+}
+
+/**
+ * Normative anc/v1 product helper for genesis and every recovery generation.
+ * It snapshots caller inputs before its first await, derives the frozen Argon2
+ * root using vaultId as salt, generation-separates the authority, and wipes all
+ * owned secret intermediates.
+ */
+export async function deriveAncV1RecoveryAuthorityFromEntropy(input: {
+  recoveryEntropy: AncV1RecoveryEntropy;
+  vaultId: AncV1VaultId;
+  recoveryGeneration: number;
+}): Promise<AncV1RecoveryAuthority> {
+  exact(
+    input,
+    ["recoveryEntropy", "vaultId", "recoveryGeneration"],
+    "Canonical recovery authority derivation input",
+  );
+  let recoveryEntropy: AncV1RecoveryEntropy | undefined;
+  let vaultId: AncV1VaultId | undefined;
+  let argon2Root: Uint8Array | undefined;
+  try {
+    const recoveryEntropyInput = input.recoveryEntropy;
+    recoveryEntropy = ancV1RecoveryEntropyFromBip39Bytes(recoveryEntropyInput);
+    const vaultIdInput = input.vaultId;
+    vaultId = ancV1VaultId(vaultIdInput);
+    const generationInput = input.recoveryGeneration;
+    const generation = integer(generationInput, 1, "recoveryGeneration");
+    argon2Root = await ancV1DeriveRecoveryRoot({
+      recoveryEntropy,
+      vaultId,
+    });
+    return await deriveAncV1RecoveryAuthority({
+      vaultId,
+      recoveryGeneration: generation,
+      argon2Root,
+    });
+  } finally {
+    recoveryEntropy?.fill(0);
+    vaultId?.fill(0);
+    argon2Root?.fill(0);
+    if (argon2Root)
+      getAncV1RecoveryDerivationTestHook()?.observeWipedArgon2Root?.(
+        argon2Root,
+      );
   }
 }
 

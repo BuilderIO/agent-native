@@ -75,6 +75,12 @@ export type AncV1UnsignedEekWrapEnvelope = Omit<
   "signature"
 >;
 
+/**
+ * @deprecated Compatibility-only parallel sealed-EEK envelope retained for
+ * the frozen anc/v1 interoperability corpus. It is not the signed recovery
+ * authority/recovery-wrap path, must not be used by PREPARE or new vaults, and
+ * retains its caller-supplied salt solely to preserve existing vector bytes.
+ */
 export interface AncV1RecoveryEnvelope extends CommonEnvelope {
   type: "recovery";
   salt: Uint8Array;
@@ -645,6 +651,11 @@ const RECOVERY_FIELDS = [
   "authorizationHash",
 ] as const;
 
+/**
+ * @deprecated Encodes only the frozen compatibility sealed-EEK envelope. New
+ * vaults and PREPARE must derive authority with
+ * `deriveAncV1RecoveryAuthorityFromEntropy` and use signed recovery wraps.
+ */
 export function encodeAncV1RecoveryEnvelope(
   value: AncV1RecoveryEnvelope,
 ): Uint8Array {
@@ -693,6 +704,11 @@ export function encodeAncV1RecoveryEnvelope(
   );
 }
 
+/**
+ * @deprecated Decodes only the frozen compatibility sealed-EEK envelope. Its
+ * salt is intentionally caller-bound legacy data, not the normative anc/v1
+ * recovery-authority salt, which is always the exact vault ID.
+ */
 export function decodeAncV1RecoveryEnvelope(
   encoded: Uint8Array,
   binding: {

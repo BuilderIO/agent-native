@@ -2,14 +2,16 @@ import { createRequire } from "node:module";
 
 import {
   AncV1CryptoError,
+  E2EE_RECOVERY_KDF,
   e2eeDomainSeparationPrefix,
+  type AncV1RecoveryEntropy,
+  type AncV1VaultId,
   type E2EEDomainTag,
 } from "@agent-native/core/e2ee";
 
 import type {
   AncV1CryptoProvider,
   AncV1Keypair,
-  AncV1RecoveryOptions,
   AncV1SecretstreamCiphertext,
 } from "./provider.js";
 
@@ -26,9 +28,6 @@ interface NativeSodium {
   crypto_aead_xchacha20poly1305_ietf_KEYBYTES: number;
   crypto_aead_xchacha20poly1305_ietf_NPUBBYTES: number;
   crypto_aead_xchacha20poly1305_ietf_ABYTES: number;
-  crypto_pwhash_SALTBYTES: number;
-  crypto_pwhash_OPSLIMIT_INTERACTIVE: number;
-  crypto_pwhash_MEMLIMIT_INTERACTIVE: number;
   crypto_pwhash_ALG_ARGON2ID13: number;
   crypto_secretstream_xchacha20poly1305_KEYBYTES: number;
   crypto_secretstream_xchacha20poly1305_HEADERBYTES: number;
@@ -136,6 +135,15 @@ function copy(value: Uint8Array): Uint8Array {
   return Uint8Array.from(value);
 }
 
+const typedArrayPrototype = Object.getPrototypeOf(
+  Uint8Array.prototype,
+) as object;
+const typedArrayByteLength = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  "byteLength",
+)!.get!;
+const intrinsicUint8ArraySlice = Uint8Array.prototype.slice;
+
 function wipe(...values: readonly Uint8Array[]): void {
   for (const value of values) {
     if (value.byteLength > 0) sodium.sodium_memzero(bytes(value));
@@ -147,9 +155,24 @@ function concat(...parts: readonly Uint8Array[]): Buffer {
 }
 
 function assertLength(value: Uint8Array, length: number, name: string): void {
-  if (!(value instanceof Uint8Array) || value.byteLength !== length) {
+  let actualLength: number | undefined;
+  try {
+    actualLength = typedArrayByteLength.call(value) as number;
+  } catch {
+    // Proxies and impostors do not carry the required TypedArray internal slot.
+  }
+  if (actualLength !== length) {
     throw new AncV1CryptoError(`${name} must be exactly ${length} bytes`);
   }
+}
+
+function snapshotExactBytes(
+  value: Uint8Array,
+  length: number,
+  name: string,
+): Uint8Array {
+  assertLength(value, length, name);
+  return intrinsicUint8ArraySlice.call(value) as Uint8Array;
 }
 
 function assertCiphertextLength(
@@ -420,26 +443,34 @@ export class SodiumNativeAncV1CryptoProvider implements AncV1CryptoProvider {
     }
   }
 
-  deriveRecoveryKey(
-    passphrase: string,
-    salt: Uint8Array,
-    options?: AncV1RecoveryOptions,
+  deriveRecoveryRoot(
+    recoveryEntropy: AncV1RecoveryEntropy,
+    vaultId: AncV1VaultId,
   ): Uint8Array {
-    assertLength(salt, sodium.crypto_pwhash_SALTBYTES, "Recovery salt");
-    const output = Buffer.alloc(32);
-    const password = Buffer.from(passphrase);
+    const password = snapshotExactBytes(
+      recoveryEntropy,
+      E2EE_RECOVERY_KDF.inputBytes,
+      "BIP39 recovery entropy",
+    );
+    let salt: Uint8Array | undefined;
+    const output = Buffer.alloc(E2EE_RECOVERY_KDF.outputBytes);
     try {
+      salt = snapshotExactBytes(
+        vaultId,
+        E2EE_RECOVERY_KDF.saltBytes,
+        "Vault ID",
+      );
       sodium.crypto_pwhash(
         output,
-        password,
+        bytes(password),
         bytes(salt),
-        options?.opsLimit ?? sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-        options?.memLimit ?? sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+        E2EE_RECOVERY_KDF.opsLimit,
+        E2EE_RECOVERY_KDF.memLimitBytes,
         sodium.crypto_pwhash_ALG_ARGON2ID13,
       );
       return copy(output);
     } finally {
-      wipe(password, output);
+      wipe(password, ...(salt ? [salt] : []), output);
     }
   }
 

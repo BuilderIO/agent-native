@@ -11,12 +11,18 @@ import {
   ancV1AeadEncrypt,
   ancV1BoxEncrypt,
   ancV1BoxKeypairFromSeed,
-  ancV1DeriveRecoveryKey,
+  ancV1DeriveRecoveryRoot,
   ancV1Hash,
+  ancV1RecoveryEntropyFromBip39Bytes,
   ancV1SignDetached,
   ancV1SigningKeypairFromSeed,
+  ancV1VaultId,
 } from "./portable-crypto.js";
-import { type E2EEDomainTag, e2eeDomainSeparationPrefix } from "./suite.js";
+import {
+  type E2EEDomainTag,
+  E2EE_RECOVERY_KDF,
+  e2eeDomainSeparationPrefix,
+} from "./suite.js";
 
 interface NativeSodium {
   crypto_sign_PUBLICKEYBYTES: number;
@@ -214,27 +220,30 @@ describe("anc/v1 native and WASM libsodium parity", () => {
   });
 
   it("matches the frozen Argon2id recovery derivation", async () => {
-    const passphrase = "synthetic recovery parity phrase";
-    const salt = pattern(0x66, 16);
-    const opsLimit = 2;
-    const memLimit = 67_108_864;
-    const nativeKey = Buffer.alloc(32);
+    const recoveryEntropy = ancV1RecoveryEntropyFromBip39Bytes(
+      pattern(0x65, E2EE_RECOVERY_KDF.inputBytes),
+    );
+    const vaultId = ancV1VaultId(pattern(0x66, E2EE_RECOVERY_KDF.saltBytes));
+    const nativeKey = Buffer.alloc(E2EE_RECOVERY_KDF.outputBytes);
     sodium.crypto_pwhash(
       nativeKey,
-      Buffer.from(passphrase),
-      Buffer.from(salt),
-      opsLimit,
-      memLimit,
+      Buffer.from(recoveryEntropy),
+      Buffer.from(vaultId),
+      E2EE_RECOVERY_KDF.opsLimit,
+      E2EE_RECOVERY_KDF.memLimitBytes,
       sodium.crypto_pwhash_ALG_ARGON2ID13,
     );
     expect(nativeKey).toEqual(
       Buffer.from(
-        await ancV1DeriveRecoveryKey(passphrase, salt, {
-          opsLimit,
-          memLimit,
+        await ancV1DeriveRecoveryRoot({
+          recoveryEntropy,
+          vaultId,
         }),
       ),
     );
+    nativeKey.fill(0);
+    recoveryEntropy.fill(0);
+    vaultId.fill(0);
   });
 
   it("decrypts the pinned secretstream chunk identically", async () => {

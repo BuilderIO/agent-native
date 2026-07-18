@@ -14,5 +14,6 @@ export * from "./interoperability-vectors.js";
 export * from "./lifecycle-codecs.js";
 export * from "./portable-crypto.js";
 export * from "./recovery-ceremony-codecs.js";
+export * from "./recovery-derivation-vectors.js";
 export * from "./privacy-manifest.js";
 export * from "./suite.js";

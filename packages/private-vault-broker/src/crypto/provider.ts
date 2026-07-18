@@ -1,13 +1,12 @@
-import type { E2EEDomainTag } from "@agent-native/core/e2ee";
+import type {
+  AncV1RecoveryEntropy,
+  AncV1VaultId,
+  E2EEDomainTag,
+} from "@agent-native/core/e2ee";
 
 export interface AncV1Keypair {
   readonly publicKey: Uint8Array;
   readonly privateKey: Uint8Array;
-}
-
-export interface AncV1RecoveryOptions {
-  readonly opsLimit?: number;
-  readonly memLimit?: number;
 }
 
 export interface AncV1SecretstreamCiphertext {
@@ -59,10 +58,9 @@ export interface AncV1CryptoProvider {
     senderPublicKey: Uint8Array,
     recipientPrivateKey: Uint8Array,
   ): Uint8Array;
-  deriveRecoveryKey(
-    passphrase: string,
-    salt: Uint8Array,
-    options?: AncV1RecoveryOptions,
+  deriveRecoveryRoot(
+    recoveryEntropy: AncV1RecoveryEntropy,
+    vaultId: AncV1VaultId,
   ): Uint8Array;
   secretstreamEncryptOne(
     tag: E2EEDomainTag,

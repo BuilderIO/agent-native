@@ -259,6 +259,9 @@ describe("anc/v1 suite freeze", () => {
     });
     expect(E2EE_RECOVERY_KDF).toEqual({
       algorithm: "argon2id",
+      inputForm: "bip39-24-word-entropy",
+      inputBytes: 32,
+      saltSource: "vaultId",
       opsLimit: 2,
       memLimitBytes: 67_108_864,
       saltBytes: 16,

@@ -471,10 +471,49 @@ signed bytes and fails closed on exceptions, caught mutation attempts, or caller
 buffer changes. Both the verifier and callback passed arm64 and x86_64 corpus
 tests, the 9-test production native-service suite, deterministic corpus
 regeneration, and an independent trust-boundary review with a GO verdict. The
-verifier is compiled into the universal production XPC service. This still does
-not close PR 5: crash-safe durable first-device enrollment, complete enrollment
-and recovery product flows, malicious-directory and stolen-session transcripts,
-and the independently packageable broker exit gate remain.
+verifier is compiled into the universal production XPC service.
+
+The fork now also has a crash-safe native genesis commit coordinator. It
+pre-authenticates the exact public recovery confirmation, bootstrap transcript,
+authorization, signed control-log genesis, and pending g1 custody tuple before
+durably staging anything. A restart validates a bounded artifact inventory,
+re-verifies every signature and binding, reconciles every Keychain
+fail-before/commit-then-error boundary, promotes custody to exact anchored g2,
+rereads the official authority tuple, and removes the public artifacts only
+after proof. The artifact store pins and revalidates the complete
+`root -> state -> genesis` directory chain, fsyncs both parent directory links
+even after `EEXIST`, rejects swaps, symlinks, hard links, unknown files, corrupt
+frames, and unbounded temporary-file accumulation, and proves an empty startup
+fixed point before the XPC service accepts any operation. The narrow
+`commit_genesis` request accepts only the three bounded public artifacts; it
+does not accept a vault id, path, key, timestamp, URL, or secret. Native tests
+cover 32 concurrent same-vault commits, unavailable clock, restart, directory
+faults, and every observed custody mutation boundary. The final-source arm64
+suite, production service build, protocol runner, desktop client tests, and
+typecheck pass; the final-source x86_64 coordinator rerun remains pending after
+a Rosetta loader process wedged before test execution. Earlier dual-architecture
+corpus passes remain supporting history, not a substitute for that rerun.
+
+This still does not close PR 5: native entropy and recovery-code generation,
+the trusted confirmation UI, durable PREPARE/cancel/expiry, persistence of the
+actual recoverable epoch wrap, complete enrollment and recovery product flows,
+malicious-directory and stolen-session transcripts, and the independently
+packageable broker exit gate remain.
+
+Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
+display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
+decoded bytes rather than mnemonic text to Argon2id, and use the exact
+native-generated 16-byte vault ID as the salt for genesis and every later
+recovery generation. This preserves the frozen `anc/v1` wire format while
+removing an otherwise fatal recovery interoperability ambiguity. Core/native
+derivation parity and actual recovery-wrap persistence remain implementation
+gates before the first real vault is created.
+
+The public lifecycle `AncV1RecoveryEnvelope` codec retains an arbitrary salt
+only to decode its frozen synthetic compatibility vector. It is a parallel
+sealed-EEK envelope, not the authoritative recovery-wrap path, and is forbidden
+for native PREPARE and new vault creation. Product code uses the canonical
+entropy-plus-vault-ID helper and the signed recovery wrap exclusively.
 
 ### PR 6 — Feature-gated Content Private Vault vertical slice
 

@@ -245,6 +245,9 @@ describe("anc/v1 lifecycle canonical codecs", () => {
     );
     expect(decoded.opsLimit).toBe(E2EE_RECOVERY_KDF.opsLimit);
     expect(decoded.memLimitBytes).toBe(E2EE_RECOVERY_KDF.memLimitBytes);
+    // Compatibility-only: this frozen envelope predates the normative
+    // recovery-authority rule and deliberately preserves its non-vault salt.
+    expect(decoded.salt).not.toEqual(decoded.vaultId);
     expect(encodeAncV1RecoveryEnvelope(decoded)).toEqual(
       lifecycleVectors.recovery,
     );

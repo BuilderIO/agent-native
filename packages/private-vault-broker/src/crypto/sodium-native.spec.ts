@@ -4,11 +4,13 @@ import {
   ancV1AeadEncrypt,
   ancV1BoxEncrypt,
   ancV1BoxKeypairFromSeed,
-  ancV1DeriveRecoveryKey,
+  ancV1DeriveRecoveryRoot,
   ancV1Hash,
   ancV1PatternBytes,
+  ancV1RecoveryEntropyFromBip39Bytes,
   ancV1SignDetached,
   ancV1SigningKeypairFromSeed,
+  ancV1VaultId,
   buildAncV1InteroperabilityVectors,
 } from "@agent-native/core/e2ee";
 import { describe, expect, it } from "vitest";
@@ -80,22 +82,69 @@ describe("SodiumNativeAncV1CryptoProvider", () => {
     const signing = native.signingKeypairFromSeed(ancV1PatternBytes(0x11, 32));
 
     expect(signing.publicKey).toEqual(core.materials.signingPublicKey);
-    expect(
-      native.deriveRecoveryKey(
-        "synthetic recovery phrase for fixed vectors only",
-        ancV1PatternBytes(0xa1, 16),
-        { opsLimit: 2, memLimit: 67_108_864 },
-      ),
-    ).toEqual(core.materials.recoveryKey);
   });
 
-  it("matches Core Argon2id recovery derivation", async () => {
-    const passphrase = "synthetic recovery parity phrase";
-    const salt = ancV1PatternBytes(0x66, 16);
-    const options = { opsLimit: 2, memLimit: 67_108_864 };
-    expect(native.deriveRecoveryKey(passphrase, salt, options)).toEqual(
-      await ancV1DeriveRecoveryKey(passphrase, salt, options),
+  it("matches the frozen Core entropy-and-vault recovery derivation", async () => {
+    const recoveryEntropy = ancV1RecoveryEntropyFromBip39Bytes(
+      ancV1PatternBytes(0x65, 32),
     );
+    const vaultId = ancV1VaultId(ancV1PatternBytes(0x66, 16));
+    const expected = await ancV1DeriveRecoveryRoot({
+      recoveryEntropy,
+      vaultId,
+    });
+    const actual = native.deriveRecoveryRoot(recoveryEntropy, vaultId);
+
+    expect(actual).toEqual(expected);
+    expect(recoveryEntropy).toEqual(ancV1PatternBytes(0x65, 32));
+    expect(vaultId).toEqual(ancV1PatternBytes(0x66, 16));
+
+    actual.fill(0);
+    expected.fill(0);
+    recoveryEntropy.fill(0);
+    vaultId.fill(0);
+  });
+
+  it("rejects malformed recovery entropy and vault IDs", () => {
+    expect(() =>
+      native.deriveRecoveryRoot(
+        ancV1PatternBytes(0x65, 31) as ReturnType<
+          typeof ancV1RecoveryEntropyFromBip39Bytes
+        >,
+        ancV1VaultId(ancV1PatternBytes(0x66, 16)),
+      ),
+    ).toThrow("BIP39 recovery entropy must be exactly 32 bytes");
+    expect(() =>
+      native.deriveRecoveryRoot(
+        ancV1RecoveryEntropyFromBip39Bytes(ancV1PatternBytes(0x65, 32)),
+        ancV1PatternBytes(0x66, 15) as ReturnType<typeof ancV1VaultId>,
+      ),
+    ).toThrow("Vault ID must be exactly 16 bytes");
+  });
+
+  it("uses intrinsic snapshots and rejects proxied TypedArrays", () => {
+    class HostileSlice extends Uint8Array {
+      override slice(): Uint8Array {
+        return ancV1PatternBytes(0xff, this.length);
+      }
+    }
+    const entropy = new HostileSlice(ancV1PatternBytes(0x65, 32)) as ReturnType<
+      typeof ancV1RecoveryEntropyFromBip39Bytes
+    >;
+    const vaultId = new HostileSlice(ancV1PatternBytes(0x66, 16)) as ReturnType<
+      typeof ancV1VaultId
+    >;
+    const expected = native.deriveRecoveryRoot(
+      ancV1RecoveryEntropyFromBip39Bytes(ancV1PatternBytes(0x65, 32)),
+      ancV1VaultId(ancV1PatternBytes(0x66, 16)),
+    );
+    expect(native.deriveRecoveryRoot(entropy, vaultId)).toEqual(expected);
+    expect(() =>
+      native.deriveRecoveryRoot(new Proxy(entropy, {}), vaultId),
+    ).toThrow("BIP39 recovery entropy must be exactly 32 bytes");
+    expected.fill(0);
+    entropy.fill(0);
+    vaultId.fill(0);
   });
 
   it("decrypts the pinned Core secretstream fixture and round-trips new frames", async () => {

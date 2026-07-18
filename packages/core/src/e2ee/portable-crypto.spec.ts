@@ -6,13 +6,15 @@ import {
   ancV1BoxDecrypt,
   ancV1BoxEncrypt,
   ancV1BoxKeypairFromSeed,
-  ancV1DeriveRecoveryKey,
+  ancV1DeriveRecoveryRoot,
   ancV1Hash,
   ancV1PackNonceCiphertext,
   ancV1SignDetached,
   ancV1SigningKeypairFromSeed,
   ancV1UnpackNonceCiphertext,
+  ancV1RecoveryEntropyFromBip39Bytes,
   ancV1VerifyDetached,
+  ancV1VaultId,
   AncV1CryptoError,
 } from "./portable-crypto.js";
 
@@ -96,13 +98,112 @@ describe("anc/v1 portable crypto wrappers", () => {
     ).rejects.toBeInstanceOf(AncV1CryptoError);
   });
 
-  it("derives a fixed-length Argon2id recovery key", async () => {
-    const key = await ancV1DeriveRecoveryKey(
-      "synthetic recovery phrase for interoperability only",
-      pattern(0x88, 16),
-      { opsLimit: 2, memLimit: 67_108_864 },
+  it("rejects malformed canonical recovery-root inputs and mnemonic text", async () => {
+    expect(() => ancV1RecoveryEntropyFromBip39Bytes(pattern(0x01, 31))).toThrow(
+      /exactly 32 bytes/,
     );
-    expect(key).toHaveLength(32);
+    expect(() => ancV1VaultId(pattern(0x02, 15))).toThrow(/exactly 16 bytes/);
+
+    await expect(
+      ancV1DeriveRecoveryRoot({
+        recoveryEntropy: ancV1RecoveryEntropyFromBip39Bytes(pattern(0x01, 32)),
+        vaultId: pattern(0x02, 17) as ReturnType<typeof ancV1VaultId>,
+      }),
+    ).rejects.toThrow(/exactly 16 bytes/);
+
+    await expect(
+      ancV1DeriveRecoveryRoot({
+        recoveryEntropy: "e\u0301" as unknown as ReturnType<
+          typeof ancV1RecoveryEntropyFromBip39Bytes
+        >,
+        vaultId: ancV1VaultId(pattern(0x02, 16)),
+      }),
+    ).rejects.toThrow(/exactly 32 bytes/);
+    await expect(
+      ancV1DeriveRecoveryRoot({
+        recoveryEntropy: "\u00e9" as unknown as ReturnType<
+          typeof ancV1RecoveryEntropyFromBip39Bytes
+        >,
+        vaultId: ancV1VaultId(pattern(0x02, 16)),
+      }),
+    ).rejects.toThrow(/exactly 32 bytes/);
+  });
+
+  it("snapshots each recovery input once with intrinsic TypedArray semantics", async () => {
+    const originalEntropy = ancV1RecoveryEntropyFromBip39Bytes(
+      Uint8Array.from({ length: 32 }, (_, index) => index),
+    );
+    const originalVaultId = ancV1VaultId(
+      Uint8Array.from({ length: 16 }, (_, index) => index),
+    );
+    const expected = await ancV1DeriveRecoveryRoot({
+      recoveryEntropy: originalEntropy,
+      vaultId: originalVaultId,
+    });
+    const entropyForGetter = ancV1RecoveryEntropyFromBip39Bytes(
+      Uint8Array.from({ length: 32 }, (_, index) => index),
+    );
+    const vaultForGetter = ancV1VaultId(
+      Uint8Array.from({ length: 16 }, (_, index) => index),
+    );
+    let entropyReads = 0;
+    let vaultReads = 0;
+    const getterInput = {
+      get recoveryEntropy() {
+        entropyReads += 1;
+        return entropyReads === 1
+          ? entropyForGetter
+          : ancV1RecoveryEntropyFromBip39Bytes(pattern(0xff, 32));
+      },
+      get vaultId() {
+        vaultReads += 1;
+        entropyForGetter.fill(0xff);
+        return vaultReads === 1
+          ? vaultForGetter
+          : ancV1VaultId(pattern(0xff, 16));
+      },
+    };
+    const fromGetters = await ancV1DeriveRecoveryRoot(getterInput);
+    expect(fromGetters).toEqual(expected);
+    expect({ entropyReads, vaultReads }).toEqual({
+      entropyReads: 1,
+      vaultReads: 1,
+    });
+
+    class HostileSlice extends Uint8Array {
+      override slice(): Uint8Array {
+        return pattern(0xff, this.length);
+      }
+    }
+    const subclassEntropy = new HostileSlice(
+      Uint8Array.from({ length: 32 }, (_, index) => index),
+    ) as ReturnType<typeof ancV1RecoveryEntropyFromBip39Bytes>;
+    const subclassVaultId = new HostileSlice(
+      Uint8Array.from({ length: 16 }, (_, index) => index),
+    ) as ReturnType<typeof ancV1VaultId>;
+    await expect(
+      ancV1DeriveRecoveryRoot({
+        recoveryEntropy: subclassEntropy,
+        vaultId: subclassVaultId,
+      }),
+    ).resolves.toEqual(expected);
+
+    const proxiedEntropy = new Proxy(originalEntropy, {});
+    await expect(
+      ancV1DeriveRecoveryRoot({
+        recoveryEntropy: proxiedEntropy,
+        vaultId: originalVaultId,
+      }),
+    ).rejects.toThrow(/exactly 32 bytes/);
+
+    expected.fill(0);
+    fromGetters.fill(0);
+    originalEntropy.fill(0);
+    originalVaultId.fill(0);
+    entropyForGetter.fill(0);
+    vaultForGetter.fill(0);
+    subclassEntropy.fill(0);
+    subclassVaultId.fill(0);
   });
 
   it("round-trips nonce-prefixed opaque payloads", () => {

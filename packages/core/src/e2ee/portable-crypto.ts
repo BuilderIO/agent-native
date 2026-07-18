@@ -1,7 +1,7 @@
 import sodium from "libsodium-wrappers-sumo";
 
 import type { E2EEDomainTag } from "./suite.js";
-import { e2eeDomainSeparationPrefix } from "./suite.js";
+import { E2EE_RECOVERY_KDF, e2eeDomainSeparationPrefix } from "./suite.js";
 
 export class AncV1CryptoError extends Error {
   constructor(message: string) {
@@ -9,6 +9,33 @@ export class AncV1CryptoError extends Error {
     this.name = "AncV1CryptoError";
   }
 }
+
+declare const ancV1RecoveryEntropyBrand: unique symbol;
+declare const ancV1VaultIdBrand: unique symbol;
+
+/** Exact entropy decoded from a checksum-valid 24-word BIP39 recovery code. */
+export type AncV1RecoveryEntropy = Uint8Array & {
+  readonly [ancV1RecoveryEntropyBrand]: true;
+};
+
+/** Native-generated anc/v1 vault identifier. */
+export type AncV1VaultId = Uint8Array & {
+  readonly [ancV1VaultIdBrand]: true;
+};
+
+export interface AncV1RecoveryRootInput {
+  recoveryEntropy: AncV1RecoveryEntropy;
+  vaultId: AncV1VaultId;
+}
+
+const typedArrayPrototype = Object.getPrototypeOf(
+  Uint8Array.prototype,
+) as object;
+const typedArrayByteLength = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  "byteLength",
+)!.get!;
+const intrinsicUint8ArraySlice = Uint8Array.prototype.slice;
 
 function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
   const result = new Uint8Array(
@@ -50,9 +77,47 @@ export function ancV1UnpackNonceCiphertext(
 }
 
 function assertLength(value: Uint8Array, length: number, name: string): void {
-  if (!(value instanceof Uint8Array) || value.byteLength !== length) {
+  let actualLength: number | undefined;
+  try {
+    actualLength = typedArrayByteLength.call(value) as number;
+  } catch {
+    // Proxies and impostors do not carry the required TypedArray internal slot.
+  }
+  if (actualLength !== length) {
     throw new AncV1CryptoError(`${name} must be exactly ${length} bytes`);
   }
+}
+
+function snapshotExactBytes(
+  value: Uint8Array,
+  length: number,
+  name: string,
+): Uint8Array {
+  assertLength(value, length, name);
+  return intrinsicUint8ArraySlice.call(value) as Uint8Array;
+}
+
+/**
+ * Brand a private recovery-entropy snapshot after a checksum-valid 24-word
+ * BIP39 decoder has produced it. Mnemonic text must never cross this boundary.
+ */
+export function ancV1RecoveryEntropyFromBip39Bytes(
+  value: Uint8Array,
+): AncV1RecoveryEntropy {
+  return snapshotExactBytes(
+    value,
+    E2EE_RECOVERY_KDF.inputBytes,
+    "BIP39 recovery entropy",
+  ) as AncV1RecoveryEntropy;
+}
+
+/** Validate and snapshot the native-generated vault ID used as the KDF salt. */
+export function ancV1VaultId(value: Uint8Array): AncV1VaultId {
+  return snapshotExactBytes(
+    value,
+    E2EE_RECOVERY_KDF.saltBytes,
+    "Vault ID",
+  ) as AncV1VaultId;
 }
 
 function domainMessage(tag: E2EEDomainTag, payload: Uint8Array): Uint8Array {
@@ -270,21 +335,42 @@ export async function ancV1BoxDecrypt(
   }
 }
 
-export async function ancV1DeriveRecoveryKey(
-  passphrase: string,
-  salt: Uint8Array,
-  options?: { opsLimit?: number; memLimit?: number },
+/**
+ * Canonical anc/v1 recovery-root derivation for genesis and every replacement
+ * recovery generation. Inputs are snapshotted synchronously and the private
+ * working copies are erased after Argon2id completes.
+ */
+export async function ancV1DeriveRecoveryRoot(
+  input: AncV1RecoveryRootInput,
 ): Promise<Uint8Array> {
-  await ready();
-  assertLength(salt, sodium.crypto_pwhash_SALTBYTES, "Recovery salt");
-  return sodium.crypto_pwhash(
-    32,
-    passphrase,
-    salt,
-    options?.opsLimit ?? sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    options?.memLimit ?? sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_ALG_ARGON2ID13,
-  );
+  let recoveryEntropy: Uint8Array | undefined;
+  let vaultId: Uint8Array | undefined;
+  try {
+    const recoveryEntropyInput = input.recoveryEntropy;
+    recoveryEntropy = snapshotExactBytes(
+      recoveryEntropyInput,
+      E2EE_RECOVERY_KDF.inputBytes,
+      "BIP39 recovery entropy",
+    );
+    const vaultIdInput = input.vaultId;
+    vaultId = snapshotExactBytes(
+      vaultIdInput,
+      E2EE_RECOVERY_KDF.saltBytes,
+      "Vault ID",
+    );
+    await ready();
+    return sodium.crypto_pwhash(
+      E2EE_RECOVERY_KDF.outputBytes,
+      recoveryEntropy,
+      vaultId,
+      E2EE_RECOVERY_KDF.opsLimit,
+      E2EE_RECOVERY_KDF.memLimitBytes,
+      sodium.crypto_pwhash_ALG_ARGON2ID13,
+    );
+  } finally {
+    recoveryEntropy?.fill(0);
+    vaultId?.fill(0);
+  }
 }
 
 export async function ancV1SecretstreamEncryptOne(

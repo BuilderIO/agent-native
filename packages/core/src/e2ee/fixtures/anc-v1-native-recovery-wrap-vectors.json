@@ -11,7 +11,7 @@
     },
     {
       "path": "packages/core/src/e2ee/recovery-ceremony-codecs.ts",
-      "sha256": "d901ea9b98878212ba020013972ea9a0c1cd970e8495853b7a41bcfefe21a38f"
+      "sha256": "2d30922e6bd06e863d8428f5723d85d291d071724b48401fd9da8867ed431b63"
     },
     {
       "path": "packages/core/src/e2ee/canonical.ts",
@@ -19,15 +19,15 @@
     },
     {
       "path": "packages/core/src/e2ee/portable-crypto.ts",
-      "sha256": "6d4806bad71bf4ff80add69b8b60edecdab8dbd59416171aa29da248023eb9f4"
+      "sha256": "8c9c54b4aead43a179ea6ad445a1335bc70bef6ca77e8a4352cf0316199c5caa"
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "74721a1caa9da468caec951c1acb85a92e985c87e4b10aa4131da63c77e3a324"
+      "sha256": "6af1a59107782215c0a7ca8ec7f9f299086493d8ead0a8f5a3a6bb17bd3c7ec0"
     },
     {
       "path": "packages/core/src/e2ee/lifecycle-codecs.ts",
-      "sha256": "aabe60fdeda89c806d7176e2f1646ec09235ddede4e0d5290e1f4de3d90958bd"
+      "sha256": "1d88401eb2072a3ec18b28362f984ead339d38997a363eaa44f68e065980f0a9"
     },
     {
       "path": "packages/core/src/e2ee/control-log.ts",

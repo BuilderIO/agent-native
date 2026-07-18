@@ -166,12 +166,44 @@ For external-model work, the broker validates a fresh control-log head and the e
 
 ## Enrollment and recovery ceremonies
 
-- First device generates endpoint keys, epoch 1, and a 256-bit recovery secret; displays a 24-word or equivalent full-entropy code; requires echo-back confirmation; writes and verifies the signed genesis records.
+- First device generates endpoint keys, epoch 1, and a 256-bit recovery secret;
+  encodes that exact entropy as a 24-word BIP39 code; requires full echo-back
+  plus checksum confirmation; writes and verifies the signed genesis records.
 - Add-device generates keys on the new device. An existing endpoint verifies a QR/short-authentication string over both public identities, vault ID, and nonce before signing enrollment and boxing the current epoch key. The server cannot produce a valid enrollment.
 - Broker enrollment is the same ceremony with signed role `broker` and `unattended=true`.
 - Recovery uses the full-entropy code to unseal the current epoch on a fresh device, enrolls that device, immediately removes old endpoints through forced rotation, and issues a new single-use recovery secret.
 - Lose every endpoint and the recovery code and the vault is permanently unrecoverable. Support has no bypass.
 - Broker replacement enrolls the new broker, drains/expires outstanding jobs, then removes and rotates away from the old broker. Broker uniqueness is checked against signed endpoint state.
+
+`anc/v1` freezes recovery derivation as follows: the Argon2id password is the
+exact 32-byte entropy decoded from a checksum-valid 24-word BIP39 code, the salt
+is the exact 16-byte native-generated vault ID, and the cost/output parameters
+are the suite constants. Mnemonic text is display and confirmation encoding,
+not KDF input; this removes Unicode normalization and whitespace ambiguity. The
+same vault ID remains the salt when a recovery ceremony issues a fresh random
+recovery secret. Recovery generation then separates the downstream signing and
+key-agreement authorities. The salt is public by design and is recoverable from
+the signed vault state; the secret entropy, Argon2 root, private authority keys,
+and unwrapped epoch key never leave trusted native memory.
+
+This rule adds no `anc/v1` wire field: signed genesis already binds the vault ID,
+recovery generation and identity, both recovery public keys, and the exact
+recovery-wrap hash. A different vault ID derives a different authority and
+cannot satisfy those commitments. An offline recovery package must retain the
+public vault ID, the committed recovery wrap, and a latest signed-head
+commitment; the 24 words alone neither identify a vault nor defeat a malicious
+server withholding newer signed state. No real `anc/v1` vault may be created
+until native/Core parity proves this derivation. A vault ever created with a
+different salt rule must be explicitly versioned and migrated, never silently
+reinterpreted.
+
+The older `AncV1RecoveryEnvelope` lifecycle codec is a parallel synthetic
+sealed-EEK compatibility envelope with an explicit arbitrary salt. It is not a
+recovery descriptor, is not bound by genesis, and is not the signed
+recovery-authority/recovery-wrap path. Its frozen vector remains decodable only
+for interoperability compatibility. Native PREPARE and every new vault must not
+create or consume it; changing that envelope's salt semantics would require an
+explicitly versioned protocol migration.
 
 ## Dependency freeze
 
@@ -254,11 +286,27 @@ the broker/desktop milestone.
 Fork runtime checkpoint: the native desktop trust anchor now decodes,
 round-trips, hashes, and verifies the frozen `anc/v1`
 `genesis-recovery-confirmation` and `genesis-bootstrap-transcript` artifacts.
-The production XPC build includes the verifier for both supported architectures,
-and the native runner matches the exact positive corpus while rejecting all 72
-frozen wire, size, range, vault, confirmation, and digest failures. This proves
-native transcript parity only; it deliberately does not claim that genesis
-authorization, durable first-device enrollment, or the enrollment UI already
-exists.
+The production XPC build includes those verifiers and the full genesis
+authorization verifier. The native corpus matches the exact positive bytes and
+rejects all 72 bootstrap and 205 authorization wire, size, range, signature,
+vault, ceremony, endpoint, confirmation, control-log, and digest failures.
+
+The runtime now durably stages the three public genesis artifacts, freshly
+re-verifies them after restart, binds them to exact pending g1 custody, commits
+the authority/custody transition to anchored g2, rereads the official tuple,
+and cleans up only after proof. Production startup discovers and drains every
+validated staged ceremony before opening the XPC request surface. Directory
+ancestry, initial and reopened parent fsync, corruption, substitution,
+concurrency, clock failure, and every observed Keychain mutation ambiguity are
+covered. The request boundary remains public-artifact-only and is not exposed
+to a hosted webview. Final-source arm64 execution and all non-x86 gates pass;
+the final-source x86_64 coordinator rerun is still required because Rosetta
+wedged before entering the runner.
+
+This proves crash-safe commit and restart reconciliation, not complete
+first-device enrollment. Native PREPARE must still own entropy, recovery-code
+derivation, canonical artifact construction and signing, pending-g1 creation,
+the actual recoverable epoch wrap, expiry/cancellation, and a trusted desktop
+confirmation surface without exposing keys or recovery material to hosted JS.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

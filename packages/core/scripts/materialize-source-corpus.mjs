@@ -214,11 +214,21 @@ function shouldIncludeSourceFile(relativePath) {
   }
 }
 
-function listTrackedFiles(rootRel) {
+function listRepositoryFiles(rootRel) {
   try {
     const output = execFileSync(
       "git",
-      ["-C", repoRoot, "ls-files", "-z", "--", rootRel],
+      [
+        "-C",
+        repoRoot,
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--",
+        rootRel,
+      ],
       { encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] },
     );
     return output
@@ -253,9 +263,9 @@ function listFilesystemFiles(absRoot, relRoot) {
 }
 
 function sourceFilesFor(rootRel) {
-  const tracked = listTrackedFiles(rootRel);
+  const repositoryFiles = listRepositoryFiles(rootRel);
   const files =
-    tracked ?? listFilesystemFiles(join(repoRoot, rootRel), rootRel);
+    repositoryFiles ?? listFilesystemFiles(join(repoRoot, rootRel), rootRel);
   return files
     .filter(
       (file) => !shouldSkipRelativePath(file) && shouldIncludeSourceFile(file),

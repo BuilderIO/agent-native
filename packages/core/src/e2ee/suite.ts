@@ -349,9 +349,16 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
   }),
 });
 
-/** anc/v1 recovery parameters are suite constants, never envelope input. */
+/**
+ * anc/v1 recovery-authority KDF parameters are suite constants, never envelope
+ * input. `saltSource: "vaultId"` governs genesis and replacement authority
+ * derivation, not the deprecated parallel sealed-EEK compatibility envelope.
+ */
 export const E2EE_RECOVERY_KDF = Object.freeze({
   algorithm: "argon2id",
+  inputForm: "bip39-24-word-entropy",
+  inputBytes: 32,
+  saltSource: "vaultId",
   opsLimit: 2,
   memLimitBytes: 67_108_864,
   saltBytes: 16,

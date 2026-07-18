@@ -1,3 +1,5 @@
+import sodium from "libsodium-wrappers-sumo";
+
 import {
   type AncV1CanonicalValue,
   ancV1HexToBytes,
@@ -8,7 +10,6 @@ import {
   ancV1AeadEncrypt,
   ancV1BoxEncrypt,
   ancV1BoxKeypairFromSeed,
-  ancV1DeriveRecoveryKey,
   ancV1Hash,
   ancV1PackNonceCiphertext,
   ancV1SignDetached,
@@ -75,6 +76,26 @@ const RECIPIENT_ENDPOINT_ID = fixtureId(0x03);
 const OBJECT_ID = fixtureId(0x04);
 const GRANT_ID = fixtureId(0x05);
 const JOB_ID = fixtureId(0x06);
+
+/** Fixed-input compatibility materializer for the frozen synthetic corpus. */
+async function fixedSyntheticRecoveryVectorKey(): Promise<Uint8Array> {
+  await sodium.ready;
+  const password = text("synthetic recovery phrase for fixed vectors only");
+  const salt = ancV1PatternBytes(ANC_V1_SYNTHETIC_PATTERNS.recoverySalt, 16);
+  try {
+    return sodium.crypto_pwhash(
+      32,
+      password,
+      salt,
+      2,
+      67_108_864,
+      sodium.crypto_pwhash_ALG_ARGON2ID13,
+    );
+  } finally {
+    password.fill(0);
+    salt.fill(0);
+  }
+}
 
 // Secretstream does not expose deterministic header injection. These values
 // are one pinned, synthetic libsodium output generated from the 0x66 key and
@@ -441,11 +462,7 @@ export async function buildAncV1InteroperabilityVectors(): Promise<AncV1Interope
     ANC_V1_SYNTHETIC_PATTERNS.recoveryNonce,
     24,
   );
-  const recoveryKey = await ancV1DeriveRecoveryKey(
-    "synthetic recovery phrase for fixed vectors only",
-    recoverySalt,
-    { opsLimit: 2, memLimit: 67_108_864 },
-  );
+  const recoveryKey = await fixedSyntheticRecoveryVectorKey();
   const recoveryAad = withEntries(commonEnvelope("recovery", 0x1c), [
     [E2EE_ENVELOPE_FIELDS.recovery.salt, recoverySalt],
     [E2EE_ENVELOPE_FIELDS.recovery.opsLimit, 2],

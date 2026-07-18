@@ -1,8 +1,8 @@
 # Content E2EE M3 Ceremony Transcripts
 
 **Status:** normative ceremony contract for M3 review  
-**Scope:** control-flow and evidence requirements only; this document does not
-select or implement cryptography  
+**Scope:** control-flow and evidence requirements using the cryptographic suite
+selected by the M3 design; this document does not implement cryptography
 **Protocol:** `anc/v1`; unknown versions fail closed
 
 This contract turns every high-risk key or disclosure operation into a strict,
@@ -65,6 +65,14 @@ evidence must equal those values; mere presence is never sufficient.
     enrolled broker may record the exact `plaintext_destroyed` step while the
     ceremony is alert or incomplete; the original status and alert remain until
     signed abort or an otherwise-authorized continuation.
+13. First-device and replacement recovery secrets are native-generated 32-byte
+    entropy values displayed as checksum-valid 24-word BIP39 codes. Confirmation
+    decodes the complete words back to the exact entropy; mnemonic text is never
+    the Argon2 password. `anc/v1` uses the exact 16-byte vault ID as the Argon2id
+    salt for every recovery generation and uses the frozen suite parameters.
+    The transcript binds the resulting recovery identity and public keys plus
+    the exact recovery-wrap hash. Secret entropy, KDF roots, and private keys are
+    excluded from serialized ceremony evidence.
 
 ## Successful transcripts
 
@@ -73,7 +81,7 @@ final `signed_log_committed` step is mandatory.
 
 | Ceremony                   | Ordered transcript                                                                                                                                                                                                                                                                                                         | Required evidence at the critical seam                                                                                                                                    |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| First device               | `endpoint_keys_generated` → `recovery_secret_generated` → `recovery_secret_confirmed` → `epoch_created` → `endpoint_enrollment_signed` → `signed_log_committed`                                                                                                                                                            | Genesis starts at epoch 1 with no broker; recovery secret echo confirmed; enrollment endpoint-signed; server authorization explicitly absent                              |
+| First device               | `endpoint_keys_generated` → `recovery_secret_generated` → `recovery_secret_confirmed` → `epoch_created` → `endpoint_enrollment_signed` → `signed_log_committed`                                                                                                                                                            | Genesis starts at epoch 1 with no broker; all 24 words decode to the original 32-byte entropy; vault ID is the KDF salt; enrollment is endpoint-signed; server authorization is absent |
 | Add device                 | `candidate_keys_generated` → `sas_verified` → `endpoint_enrollment_signed` → `epoch_key_boxed` → `signed_log_committed`                                                                                                                                                                                                    | Existing endpoint verifies a bound SAS transcript, signs enrollment against a prior head, and records recipient-bound epoch boxing; server cannot enroll                  |
 | Add first broker           | `candidate_keys_generated` → `sas_verified` → `broker_enrollment_signed` → `epoch_key_boxed` → `broker_uniqueness_verified` → `signed_log_committed`                                                                                                                                                                       | Signed role binds `broker` and `unattended=true`; starts with zero active brokers and finishes with exactly one active broker                                             |
 | Remove device              | `removal_signed` → `rotation_started` → `live_deks_rewrapped` → `remaining_endpoints_acknowledged` → `old_epoch_destroyed` → `signed_log_committed`                                                                                                                                                                        | Signed removal names a different enrolled endpoint, immediately prunes its authority, then forces rewrap, acknowledgement, and old-key destruction                        |

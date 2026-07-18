@@ -1,5 +1,6 @@
 export type AncV1RecoveryDerivationTestHook = {
   afterSigningKeypair?: () => void;
+  observeWipedArgon2Root?: (bytes: Uint8Array) => void;
   observeWipedPrivateKey?: (
     kind: "signing" | "key-agreement",
     bytes: Uint8Array,
