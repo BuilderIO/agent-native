@@ -37,6 +37,9 @@ export function ContextXRayPanel({
       onPin={onPin}
       onEvict={onEvict}
       onRestore={onRestore}
+      systemOrderedLabel={t("contextXray.systemOrdered", {
+        defaultValue: "System · ordered, not evictable",
+      })}
       governanceLabels={{
         required: t("contextXray.governance.required", {
           defaultValue: "Required",

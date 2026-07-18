@@ -118,6 +118,7 @@ export function ContextXRayPanelView({
   onEvict,
   onRestore,
   governanceLabels = {},
+  systemOrderedLabel = "System · ordered, not evictable",
 }: {
   manifest: ContextManifestViewData;
   contextWindow: number;
@@ -126,6 +127,7 @@ export function ContextXRayPanelView({
   onEvict: (segmentId: string) => void;
   onRestore: (segmentId: string) => void;
   governanceLabels?: Partial<Record<"required" | "inherited" | "user", string>>;
+  systemOrderedLabel?: string;
 }) {
   const [mode, setMode] = useState<"list" | "map">("list");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -267,7 +269,7 @@ export function ContextXRayPanelView({
             {systemGroups.length ? (
               <div>
                 <div className="px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  System · ordered, not evictable
+                  {systemOrderedLabel}
                 </div>
                 {systemGroups.map((group) => {
                   const key = `system:${group.governance}`;
