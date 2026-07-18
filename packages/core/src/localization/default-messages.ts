@@ -377,7 +377,8 @@ const messages = {
     conversation: "Conversation",
     free: "free",
     noSystemContext: "No system context is available for this scope yet.",
-    pageTitle: "Context",
+    panelTitle: "Context X-Ray",
+    snapshotsTitle: "Snapshots",
     agent: "Agent",
     headerDescription:
       "See the system instructions and conversation tokens that shape the agent.",

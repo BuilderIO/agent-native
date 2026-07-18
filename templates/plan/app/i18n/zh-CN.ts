@@ -44,6 +44,10 @@ const messages = {
     suggestionUi: "这个界面现在是什么样？",
     suggestionApi: "这个 API 的结构是什么？",
   },
+  contextXray: {
+    panelTitle: "上下文 X 光",
+    snapshotsTitle: "快照",
+  },
   sidebar: {
     openNavigation: "打开导航",
     navigation: "导航",
