@@ -520,7 +520,18 @@ same authenticated control endpoint and signing key as the original grant, and
 the control-log verifier cannot advance its head until this durable insertion
 succeeds. Encryption, persistence, restart, stale-stage cleanup, tamper and
 rollback detection, authorization, and revocation pass on arm64 and x86_64.
-The index does not yet claim job replay protection or result custody; those are
-the next records to join this same encrypted generation fence.
+The same encrypted generation fence now owns the broker's unexpired job
+seen-set. Claiming a random job id atomically re-verifies the live grant and its
+exact account, endpoint, optional agent, resource, operation, and provider
+scope, then persists the job hash, requester keys, expiry, and scope before an
+execution may be accepted. A duplicate id is replay even when every supplied
+byte is identical. Locally sealed results bind a terminal state and exact
+result-envelope hash to that claim with conflict-safe idempotency. Expired
+claims are pruned only inside a newly fenced claim commit; neither load nor a
+hosted retry can silently erase replay history. Dual-architecture restart,
+replay, result substitution, encrypted-at-rest, tamper, and rollback proof is
+green. The remaining broker gate is to put the codec and this atomic claim
+behind packaged semantic XPC operations, then retain retryable encrypted result
+frames until the hosted receipt is durable.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

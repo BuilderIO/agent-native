@@ -17,6 +17,7 @@ static const uint8_t kDigestDomain[] = "anc/v1/grant-index-frame-digest";
 static const NSUInteger kMaximumIndexBytes = 1024 * 1024;
 static const NSUInteger kMaximumGrants = 256;
 static const NSUInteger kMaximumRevocations = 256;
+static const NSUInteger kMaximumJobs = 256;
 static const NSUInteger kMaximumTemporaryFilesPerVault = 64;
 static NSString *const kFenceRecordId = @"grant-index";
 
@@ -29,11 +30,32 @@ static NSString *const kFenceRecordId = @"grant-index";
 @implementation AncStoredGrant
 @end
 
+@interface AncStoredJob : NSObject
+@property(nonatomic) NSData *jobId;
+@property(nonatomic) NSData *jobHash;
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) uint64_t expiresAt;
+@property(nonatomic) NSData *subjectAccountId;
+@property(nonatomic) NSData *subjectEndpointId;
+@property(nonatomic, nullable) NSData *subjectAgentId;
+@property(nonatomic) NSData *requesterSigningPublicKey;
+@property(nonatomic) NSData *requesterBoxPublicKey;
+@property(nonatomic) NSData *resourceId;
+@property(nonatomic) NSString *operation;
+@property(nonatomic) NSString *provider;
+@property(nonatomic) NSString *status;
+@property(nonatomic, nullable) NSString *resultState;
+@property(nonatomic, nullable) NSData *resultHash;
+@end
+@implementation AncStoredJob
+@end
+
 @interface AncGrantIndexRecord : NSObject
 @property(nonatomic) NSData *vaultId;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) NSArray<AncStoredGrant *> *grants;
 @property(nonatomic) NSArray<NSData *> *revocations;
+@property(nonatomic) NSArray<AncStoredJob *> *jobs;
 @end
 @implementation AncGrantIndexRecord
 @end
@@ -42,6 +64,7 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) NSUInteger grantCount;
 @property(nonatomic) NSUInteger revocationCount;
+@property(nonatomic) NSUInteger jobCount;
 @end
 @implementation AncPrivateVaultGrantIndexSnapshot
 @end
@@ -93,6 +116,15 @@ static uint64_t FieldPositive(NSDictionary *map, NSInteger key) {
           value.integerValue > 0
       ? (uint64_t)value.integerValue
       : 0;
+}
+
+static BOOL ValidScopeText(NSString *value) {
+  NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
+  if (bytes.length == 0 || bytes.length > 160) return NO;
+  const uint8_t *raw = bytes.bytes;
+  for (NSUInteger index = 0; index < bytes.length; index += 1)
+    if (raw[index] < 0x21 || raw[index] > 0x7e) return NO;
+  return YES;
 }
 
 static NSData *EnvelopeIssuerId(NSData *envelope) {
@@ -152,6 +184,29 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
   NSMutableArray *revocations = [NSMutableArray array];
   for (NSData *revocation in record.revocations)
     [revocations addObject:[AncPrivateVaultCanonicalValue bytes:revocation]];
+  NSMutableArray *jobs = [NSMutableArray array];
+  for (AncStoredJob *job in record.jobs) {
+    [jobs addObject:[AncPrivateVaultCanonicalValue array:@[
+      [AncPrivateVaultCanonicalValue bytes:job.jobId],
+      [AncPrivateVaultCanonicalValue bytes:job.jobHash],
+      [AncPrivateVaultCanonicalValue bytes:job.grantRef],
+      [AncPrivateVaultCanonicalValue integer:(int64_t)job.expiresAt],
+      [AncPrivateVaultCanonicalValue bytes:job.subjectAccountId],
+      [AncPrivateVaultCanonicalValue bytes:job.subjectEndpointId],
+      job.subjectAgentId == nil ? [AncPrivateVaultCanonicalValue nullValue]
+                                : [AncPrivateVaultCanonicalValue bytes:job.subjectAgentId],
+      [AncPrivateVaultCanonicalValue bytes:job.requesterSigningPublicKey],
+      [AncPrivateVaultCanonicalValue bytes:job.requesterBoxPublicKey],
+      [AncPrivateVaultCanonicalValue bytes:job.resourceId],
+      [AncPrivateVaultCanonicalValue text:job.operation],
+      [AncPrivateVaultCanonicalValue text:job.provider],
+      [AncPrivateVaultCanonicalValue text:job.status],
+      job.resultState == nil ? [AncPrivateVaultCanonicalValue nullValue]
+                             : [AncPrivateVaultCanonicalValue text:job.resultState],
+      job.resultHash == nil ? [AncPrivateVaultCanonicalValue nullValue]
+                            : [AncPrivateVaultCanonicalValue bytes:job.resultHash],
+    ]]];
+  }
   AncPrivateVaultCanonicalStatus status;
   return AncPrivateVaultCanonicalEncode(
       [AncPrivateVaultCanonicalValue map:@{
@@ -160,6 +215,7 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
         @3 : [AncPrivateVaultCanonicalValue integer:(int64_t)record.generation],
         @4 : [AncPrivateVaultCanonicalValue array:grants],
         @5 : [AncPrivateVaultCanonicalValue array:revocations],
+        @6 : [AncPrivateVaultCanonicalValue array:jobs],
       }],
       &status);
 }
@@ -173,11 +229,15 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
   NSDictionary *map = root.type == AncPrivateVaultCanonicalTypeMap
       ? root.mapValue
       : nil;
-  NSSet *keys = [NSSet setWithArray:@[@1, @2, @3, @4, @5]];
+  NSSet *legacyKeys = [NSSet setWithArray:@[@1, @2, @3, @4, @5]];
+  NSSet *currentKeys = [NSSet setWithArray:@[@1, @2, @3, @4, @5, @6]];
   AncPrivateVaultCanonicalValue *grantsValue = map[@4];
   AncPrivateVaultCanonicalValue *revocationsValue = map[@5];
-  if (map.count != 5 ||
-      ![keys isEqualToSet:[NSSet setWithArray:map.allKeys]] ||
+  AncPrivateVaultCanonicalValue *jobsValue = map[@6];
+  NSSet *actualKeys = [NSSet setWithArray:map.allKeys];
+  BOOL legacy = map.count == 5 && [legacyKeys isEqualToSet:actualKeys];
+  BOOL current = map.count == 6 && [currentKeys isEqualToSet:actualKeys];
+  if ((!legacy && !current) ||
       ![((AncPrivateVaultCanonicalValue *)map[@1]).textValue
           isEqualToString:@"anc/v1"] ||
       ![FieldBytes(map, 2, 16) isEqualToData:expectedVaultId] ||
@@ -185,7 +245,9 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
       grantsValue.type != AncPrivateVaultCanonicalTypeArray ||
       grantsValue.arrayValue.count > kMaximumGrants ||
       revocationsValue.type != AncPrivateVaultCanonicalTypeArray ||
-      revocationsValue.arrayValue.count > kMaximumRevocations)
+      revocationsValue.arrayValue.count > kMaximumRevocations ||
+      (!legacy && (jobsValue.type != AncPrivateVaultCanonicalTypeArray ||
+                   jobsValue.arrayValue.count > kMaximumJobs)))
     return nil;
   NSMutableArray<AncStoredGrant *> *grants = [NSMutableArray array];
   for (AncPrivateVaultCanonicalValue *item in grantsValue.arrayValue) {
@@ -243,11 +305,82 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
     [revokedRefs addObject:grantRef];
     [revocations addObject:[item.bytesValue copy]];
   }
+  NSMutableArray<AncStoredJob *> *jobs = [NSMutableArray array];
+  NSMutableSet<NSData *> *jobIds = [NSMutableSet set];
+  for (AncPrivateVaultCanonicalValue *item in
+       (legacy ? @[] : jobsValue.arrayValue)) {
+    if (item.type != AncPrivateVaultCanonicalTypeArray ||
+        item.arrayValue.count != 15)
+      return nil;
+    NSArray<AncPrivateVaultCanonicalValue *> *fields = item.arrayValue;
+    AncPrivateVaultCanonicalValue *agent = fields[6];
+    AncPrivateVaultCanonicalValue *resultState = fields[13];
+    AncPrivateVaultCanonicalValue *resultHash = fields[14];
+    BOOL agentValid = agent.type == AncPrivateVaultCanonicalTypeNull ||
+        (agent.type == AncPrivateVaultCanonicalTypeBytes &&
+         agent.bytesValue.length == 16);
+    BOOL resultEmpty = resultState.type == AncPrivateVaultCanonicalTypeNull &&
+        resultHash.type == AncPrivateVaultCanonicalTypeNull;
+    BOOL resultPresent = resultState.type == AncPrivateVaultCanonicalTypeText &&
+        ([resultState.textValue isEqualToString:@"completed"] ||
+         [resultState.textValue isEqualToString:@"failed"]) &&
+        resultHash.type == AncPrivateVaultCanonicalTypeBytes &&
+        resultHash.bytesValue.length == 32;
+    if (fields[0].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[0].bytesValue.length != 16 ||
+        [jobIds containsObject:fields[0].bytesValue] ||
+        fields[1].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[1].bytesValue.length != 32 ||
+        fields[2].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[2].bytesValue.length != 32 ||
+        fields[3].type != AncPrivateVaultCanonicalTypeInteger ||
+        fields[3].integerValue <= 0 ||
+        fields[4].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[4].bytesValue.length != 16 ||
+        fields[5].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[5].bytesValue.length != 16 || !agentValid ||
+        fields[7].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[7].bytesValue.length != 32 ||
+        fields[8].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[8].bytesValue.length != 32 ||
+        fields[9].type != AncPrivateVaultCanonicalTypeBytes ||
+        fields[9].bytesValue.length != 16 ||
+        fields[10].type != AncPrivateVaultCanonicalTypeText ||
+        !ValidScopeText(fields[10].textValue) ||
+        fields[11].type != AncPrivateVaultCanonicalTypeText ||
+        !ValidScopeText(fields[11].textValue) ||
+        fields[12].type != AncPrivateVaultCanonicalTypeText ||
+        !([fields[12].textValue isEqualToString:@"claimed"] ||
+          [fields[12].textValue isEqualToString:@"result"]) ||
+        ([fields[12].textValue isEqualToString:@"claimed"] && !resultEmpty) ||
+        ([fields[12].textValue isEqualToString:@"result"] && !resultPresent))
+      return nil;
+    AncStoredJob *job = [AncStoredJob new];
+    job.jobId = [fields[0].bytesValue copy];
+    job.jobHash = [fields[1].bytesValue copy];
+    job.grantRef = [fields[2].bytesValue copy];
+    job.expiresAt = (uint64_t)fields[3].integerValue;
+    job.subjectAccountId = [fields[4].bytesValue copy];
+    job.subjectEndpointId = [fields[5].bytesValue copy];
+    job.subjectAgentId = agent.type == AncPrivateVaultCanonicalTypeBytes
+        ? [agent.bytesValue copy] : nil;
+    job.requesterSigningPublicKey = [fields[7].bytesValue copy];
+    job.requesterBoxPublicKey = [fields[8].bytesValue copy];
+    job.resourceId = [fields[9].bytesValue copy];
+    job.operation = [fields[10].textValue copy];
+    job.provider = [fields[11].textValue copy];
+    job.status = [fields[12].textValue copy];
+    job.resultState = resultPresent ? [resultState.textValue copy] : nil;
+    job.resultHash = resultPresent ? [resultHash.bytesValue copy] : nil;
+    [jobIds addObject:job.jobId];
+    [jobs addObject:job];
+  }
   AncGrantIndexRecord *record = [AncGrantIndexRecord new];
   record.vaultId = [expectedVaultId copy];
   record.generation = expectedGeneration;
   record.grants = [grants copy];
   record.revocations = [revocations copy];
+  record.jobs = [jobs copy];
   return record;
 }
 
@@ -348,6 +481,35 @@ static BOOL WriteAll(int fd, NSData *data) {
     remaining -= (size_t)written;
   }
   return fsync(fd) == 0;
+}
+
+static AncPrivateVaultGrantIndexStatus AuthorizeRecord(
+    AncGrantIndexRecord *record, NSData *vaultBytes, NSData *grantRef,
+    uint64_t nowSeconds, NSData *subjectAccountId, NSData *subjectEndpointId,
+    NSData *subjectAgentId, NSData *resourceId, NSString *operation,
+    NSString *provider) {
+  for (NSData *revocation in record.revocations)
+    if ([RevocationGrantRef(revocation) isEqualToData:grantRef])
+      return AncPrivateVaultGrantIndexStatusUnauthorized;
+  AncStoredGrant *stored = nil;
+  for (AncStoredGrant *candidate in record.grants)
+    if ([candidate.verified.grantRef isEqualToData:grantRef]) stored = candidate;
+  if (stored == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+  AncPrivateVaultGrantCodecStatus codecStatus;
+  AncPrivateVaultVerifiedGrant *verified = AncPrivateVaultVerifyGrantEnvelope(
+      stored.envelope, vaultBytes, nowSeconds, stored.verified.issuerEndpointId,
+      stored.issuerSigningPublicKey.bytes, &codecStatus);
+  BOOL agentMatches =
+      (verified.subjectAgentId == nil && subjectAgentId == nil) ||
+      [verified.subjectAgentId isEqualToData:subjectAgentId];
+  return verified != nil &&
+          [verified.subjectAccountId isEqualToData:subjectAccountId] &&
+          [verified.subjectEndpointId isEqualToData:subjectEndpointId] &&
+          agentMatches && [verified.resourceIds containsObject:resourceId] &&
+          [verified.operations containsObject:operation] &&
+          [verified.providers containsObject:provider]
+      ? AncPrivateVaultGrantIndexStatusOK
+      : AncPrivateVaultGrantIndexStatusUnauthorized;
 }
 
 @implementation AncPrivateVaultGrantIndex {
@@ -521,6 +683,7 @@ static BOOL WriteAll(int fd, NSData *data) {
     empty.generation = 0;
     empty.grants = @[];
     empty.revocations = @[];
+    empty.jobs = @[];
     *outRecord = empty;
     return AncPrivateVaultGrantIndexStatusOK;
   }
@@ -638,6 +801,7 @@ static BOOL WriteAll(int fd, NSData *data) {
           value.generation = record.generation;
           value.grantCount = record.grants.count;
           value.revocationCount = record.revocations.count;
+          value.jobCount = record.jobs.count;
           return AncPrivateVaultGrantIndexStatusOK;
         }];
   });
@@ -767,30 +931,122 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey {
         block:^AncPrivateVaultGrantIndexStatus(
             NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
           (void)key;
-          for (NSData *revocation in record.revocations)
-            if ([RevocationGrantRef(revocation) isEqualToData:grantRef])
-              return AncPrivateVaultGrantIndexStatusUnauthorized;
-          AncStoredGrant *stored = nil;
-          for (AncStoredGrant *candidate in record.grants)
-            if ([candidate.verified.grantRef isEqualToData:grantRef]) stored = candidate;
-          if (stored == nil) return AncPrivateVaultGrantIndexStatusNotFound;
-          AncPrivateVaultGrantCodecStatus codecStatus;
-          AncPrivateVaultVerifiedGrant *verified =
-              AncPrivateVaultVerifyGrantEnvelope(
-                  stored.envelope, vaultBytes, nowSeconds,
-                  stored.verified.issuerEndpointId,
-                  stored.issuerSigningPublicKey.bytes, &codecStatus);
-          BOOL agentMatches =
-              (verified.subjectAgentId == nil && subjectAgentId == nil) ||
-              [verified.subjectAgentId isEqualToData:subjectAgentId];
-          return verified != nil &&
-                  [verified.subjectAccountId isEqualToData:subjectAccountId] &&
-                  [verified.subjectEndpointId isEqualToData:subjectEndpointId] &&
-                  agentMatches && [verified.resourceIds containsObject:resourceId] &&
-                  [verified.operations containsObject:operation] &&
-                  [verified.providers containsObject:provider]
-              ? AncPrivateVaultGrantIndexStatusOK
-              : AncPrivateVaultGrantIndexStatusUnauthorized;
+          return AuthorizeRecord(record, vaultBytes, grantRef, nowSeconds,
+                                 subjectAccountId, subjectEndpointId,
+                                 subjectAgentId, resourceId, operation,
+                                 provider);
+        }];
+  });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    claimJobId:(NSData *)jobId
+        jobHash:(NSData *)jobHash
+        grantRef:(NSData *)grantRef
+         vaultId:(NSString *)vaultId
+      nowSeconds:(uint64_t)nowSeconds
+  expiresAtSeconds:(uint64_t)expiresAtSeconds
+subjectAccountId:(NSData *)subjectAccountId
+subjectEndpointId:(NSData *)subjectEndpointId
+   subjectAgentId:(NSData *)subjectAgentId
+requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
+ requesterBoxPublicKey:(NSData *)requesterBoxPublicKey
+       resourceId:(NSData *)resourceId
+        operation:(NSString *)operation
+         provider:(NSString *)provider {
+  if (jobId.length != 16 || jobHash.length != 32 || grantRef.length != 32 ||
+      nowSeconds == 0 || expiresAtSeconds <= nowSeconds ||
+      expiresAtSeconds > INT64_MAX || subjectAccountId.length != 16 ||
+      subjectEndpointId.length != 16 ||
+      (subjectAgentId != nil && subjectAgentId.length != 16) ||
+      requesterSigningPublicKey.length != 32 ||
+      requesterBoxPublicKey.length != 32 || resourceId.length != 16 ||
+      !ValidScopeText(operation) || !ValidScopeText(provider))
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          NSMutableArray<AncStoredJob *> *unexpired = [NSMutableArray array];
+          for (AncStoredJob *job in record.jobs) {
+            if (job.expiresAt >= nowSeconds) {
+              if ([job.jobId isEqualToData:jobId])
+                return AncPrivateVaultGrantIndexStatusReplay;
+              [unexpired addObject:job];
+            }
+          }
+          AncPrivateVaultGrantIndexStatus authorized = AuthorizeRecord(
+              record, vaultBytes, grantRef, nowSeconds, subjectAccountId,
+              subjectEndpointId, subjectAgentId, resourceId, operation,
+              provider);
+          if (authorized != AncPrivateVaultGrantIndexStatusOK)
+            return authorized;
+          if (unexpired.count >= kMaximumJobs || record.generation >= INT64_MAX)
+            return AncPrivateVaultGrantIndexStatusConflict;
+          AncStoredJob *job = [AncStoredJob new];
+          job.jobId = [jobId copy];
+          job.jobHash = [jobHash copy];
+          job.grantRef = [grantRef copy];
+          job.expiresAt = expiresAtSeconds;
+          job.subjectAccountId = [subjectAccountId copy];
+          job.subjectEndpointId = [subjectEndpointId copy];
+          job.subjectAgentId = [subjectAgentId copy];
+          job.requesterSigningPublicKey = [requesterSigningPublicKey copy];
+          job.requesterBoxPublicKey = [requesterBoxPublicKey copy];
+          job.resourceId = [resourceId copy];
+          job.operation = [operation copy];
+          job.provider = [provider copy];
+          job.status = @"claimed";
+          job.resultState = nil;
+          job.resultHash = nil;
+          [unexpired addObject:job];
+          record.jobs = [unexpired copy];
+          record.generation += 1;
+          return [self commitLockedRecord:record vaultId:vaultId
+                             localStateKey:key];
+        }];
+  });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    recordResultHash:(NSData *)resultHash
+               state:(NSString *)state
+               jobId:(NSData *)jobId
+              jobHash:(NSData *)jobHash
+               vaultId:(NSString *)vaultId {
+  if (resultHash.length != 32 || jobId.length != 16 || jobHash.length != 32 ||
+      !([state isEqualToString:@"completed"] ||
+        [state isEqualToString:@"failed"]))
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          AncStoredJob *job = nil;
+          for (AncStoredJob *candidate in record.jobs)
+            if ([candidate.jobId isEqualToData:jobId]) job = candidate;
+          if (job == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          if (![job.jobHash isEqualToData:jobHash])
+            return AncPrivateVaultGrantIndexStatusConflict;
+          if ([job.status isEqualToString:@"result"])
+            return [job.resultState isEqualToString:state] &&
+                    [job.resultHash isEqualToData:resultHash]
+                ? AncPrivateVaultGrantIndexStatusOK
+                : AncPrivateVaultGrantIndexStatusConflict;
+          if (![job.status isEqualToString:@"claimed"] ||
+              record.generation >= INT64_MAX)
+            return AncPrivateVaultGrantIndexStatusConflict;
+          job.status = @"result";
+          job.resultState = [state copy];
+          job.resultHash = [resultHash copy];
+          record.generation += 1;
+          return [self commitLockedRecord:record vaultId:vaultId
+                             localStateKey:key];
         }];
   });
   return status;

@@ -16,12 +16,14 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
   AncPrivateVaultGrantIndexStatusCorrupt = 6,
   AncPrivateVaultGrantIndexStatusStorageFailed = 7,
   AncPrivateVaultGrantIndexStatusCustodyUnavailable = 8,
+  AncPrivateVaultGrantIndexStatusReplay = 9,
 };
 
 @interface AncPrivateVaultGrantIndexSnapshot : NSObject
 @property(nonatomic, readonly) uint64_t generation;
 @property(nonatomic, readonly) NSUInteger grantCount;
 @property(nonatomic, readonly) NSUInteger revocationCount;
+@property(nonatomic, readonly) NSUInteger jobCount;
 @end
 
 @interface AncPrivateVaultGrantIndex : NSObject
@@ -59,6 +61,31 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey;
            resourceId:(NSData *)resourceId
             operation:(NSString *)operation
              provider:(NSString *)provider;
+
+/** Atomically authorizes the grant and claims one unexpired random job id. */
+- (AncPrivateVaultGrantIndexStatus)
+    claimJobId:(NSData *)jobId
+        jobHash:(NSData *)jobHash
+        grantRef:(NSData *)grantRef
+         vaultId:(NSString *)vaultId
+      nowSeconds:(uint64_t)nowSeconds
+  expiresAtSeconds:(uint64_t)expiresAtSeconds
+subjectAccountId:(NSData *)subjectAccountId
+subjectEndpointId:(NSData *)subjectEndpointId
+   subjectAgentId:(NSData *_Nullable)subjectAgentId
+requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
+ requesterBoxPublicKey:(NSData *)requesterBoxPublicKey
+       resourceId:(NSData *)resourceId
+        operation:(NSString *)operation
+         provider:(NSString *)provider;
+
+/** Binds the locally sealed result to the claimed job before hosted release. */
+- (AncPrivateVaultGrantIndexStatus)
+    recordResultHash:(NSData *)resultHash
+               state:(NSString *)state
+               jobId:(NSData *)jobId
+              jobHash:(NSData *)jobHash
+               vaultId:(NSString *)vaultId;
 @end
 
 NS_ASSUME_NONNULL_END

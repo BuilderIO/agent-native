@@ -182,6 +182,64 @@ int main(void) {
                          resourceId:Pattern(0x04, 16) operation:@"read"
                            provider:@"synthetic-provider"] ==
            AncPrivateVaultGrantIndexStatusUnauthorized);
+    NSData *jobId = Pattern(0x12, 16);
+    NSData *jobHash = Pattern(0x13, 32);
+    NSData *resultHash = Pattern(0x14, 32);
+    assert([index claimJobId:jobId jobHash:jobHash grantRef:grantRef
+                       vaultId:kVaultId nowSeconds:1721111112
+              expiresAtSeconds:1721111200
+               subjectAccountId:Pattern(0x07, 16)
+              subjectEndpointId:Pattern(0x03, 16)
+                 subjectAgentId:Pattern(0x08, 16)
+      requesterSigningPublicKey:Pattern(0x21, 32)
+          requesterBoxPublicKey:Pattern(0x22, 32)
+                     resourceId:Pattern(0x04, 16)
+                      operation:@"read"
+                       provider:@"synthetic-provider"] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index claimJobId:jobId jobHash:jobHash grantRef:grantRef
+                       vaultId:kVaultId nowSeconds:1721111112
+              expiresAtSeconds:1721111200
+               subjectAccountId:Pattern(0x07, 16)
+              subjectEndpointId:Pattern(0x03, 16)
+                 subjectAgentId:Pattern(0x08, 16)
+      requesterSigningPublicKey:Pattern(0x21, 32)
+          requesterBoxPublicKey:Pattern(0x22, 32)
+                     resourceId:Pattern(0x04, 16)
+                      operation:@"read"
+                       provider:@"synthetic-provider"] ==
+           AncPrivateVaultGrantIndexStatusReplay);
+    assert([index recordResultHash:resultHash state:@"completed" jobId:jobId
+                            jobHash:jobHash vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index recordResultHash:resultHash state:@"completed" jobId:jobId
+                            jobHash:jobHash vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index recordResultHash:Pattern(0x15, 32) state:@"completed"
+                              jobId:jobId jobHash:jobHash vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusConflict);
+    assert([index claimJobId:Pattern(0x16, 16) jobHash:Pattern(0x17, 32)
+                       grantRef:grantRef vaultId:kVaultId
+                     nowSeconds:1721111112 expiresAtSeconds:1721111200
+               subjectAccountId:Pattern(0x07, 16)
+              subjectEndpointId:Pattern(0x03, 16)
+                 subjectAgentId:Pattern(0x08, 16)
+      requesterSigningPublicKey:Pattern(0x21, 32)
+          requesterBoxPublicKey:Pattern(0x22, 32)
+                     resourceId:Pattern(0x04, 16) operation:@"read"
+                       provider:@"wrong-provider"] ==
+           AncPrivateVaultGrantIndexStatusUnauthorized);
+    assert([index claimJobId:Pattern(0x18, 16) jobHash:Pattern(0x19, 32)
+                       grantRef:grantRef vaultId:kVaultId
+                     nowSeconds:1721111300 expiresAtSeconds:1721111400
+               subjectAccountId:Pattern(0x07, 16)
+              subjectEndpointId:Pattern(0x03, 16)
+                 subjectAgentId:Pattern(0x08, 16)
+      requesterSigningPublicKey:Pattern(0x21, 32)
+          requesterBoxPublicKey:Pattern(0x22, 32)
+                     resourceId:Pattern(0x04, 16) operation:@"read"
+                       provider:@"synthetic-provider"] ==
+           AncPrivateVaultGrantIndexStatusOK);
     assert([index applyRevocationEnvelope:revocation vaultId:kVaultId
                   signerControlEndpointId:@"endpoint:index-owner"
                    signerSigningPublicKey:publicKey] ==
@@ -200,8 +258,8 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 2 && snapshot.grantCount == 1 &&
-           snapshot.revocationCount == 1);
+    assert(snapshot.generation == 5 && snapshot.grantCount == 1 &&
+           snapshot.revocationCount == 1 && snapshot.jobCount == 1);
     NSString *livePath = [temporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"grant-index/%@.live", kVaultId]];
     NSData *frame = [NSData dataWithContentsOfFile:livePath];
