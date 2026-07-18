@@ -29,7 +29,7 @@ export default defineAction({
   },
   run: async (args) =>
     privateVaultObjectService.getMetadata(
-      requirePrivateVaultActionScope(args.vaultId),
+      await requirePrivateVaultActionScope(args.vaultId),
       args.objectId,
       args.revisionId,
     ),

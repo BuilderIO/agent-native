@@ -8,8 +8,9 @@ const setResponseStatus = vi.hoisted(() => vi.fn());
 const authorizePut = vi.hoisted(() => vi.fn());
 const putRevision = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/server", () => ({
-  getSession: (...args: unknown[]) => getSession(...args),
+vi.mock("../../../../lib/private-vault-genesis-account-scope.js", () => ({
+  resolveAuthenticatedPrivateVaultScope: (...args: unknown[]) =>
+    getSession(...args),
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -53,8 +54,9 @@ describe("POST /api/private-vault/objects", () => {
     vi.resetAllMocks();
     getHeader.mockImplementation((_event, name: string) => headers[name]);
     getSession.mockResolvedValue({
-      email: "owner@example.test",
+      ownerEmail: "owner@example.test",
       orgId: "org:test-0001",
+      vaultId: "vault:test-0001",
     });
     authorizePut.mockResolvedValue(undefined);
     readPrivateVaultBoundedBody.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));

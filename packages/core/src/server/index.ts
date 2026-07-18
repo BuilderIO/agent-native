@@ -58,6 +58,7 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   getSession,
+  getCurrentBetterAuthSession,
   COOKIE_NAME,
   addSession,
   removeSession,
@@ -333,6 +334,8 @@ export {
 } from "./agent-run-context.js";
 export {
   runWithRequestContext,
+  getRequestStableUserId,
+  getRequestAuthSource,
   hasRequestContext,
   getRequestContext,
   getRequestUserEmail,

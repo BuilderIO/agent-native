@@ -5,6 +5,9 @@ import type { ActionEntry } from "../agent/production-agent.js";
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
+const mockGetCurrentBetterAuthSession = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
 const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
@@ -50,6 +53,8 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  getCurrentBetterAuthSession: (...args: unknown[]) =>
+    mockGetCurrentBetterAuthSession(...args),
 }));
 vi.mock("../a2a-claims.js", () => ({
   verifyA2ATokenWithClaims: (...args: unknown[]) =>
@@ -71,6 +76,8 @@ describe("mountActionRoutes", () => {
     mockResolveOrgIdForEmail.mockReset();
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue(null);
+    mockGetCurrentBetterAuthSession.mockReset();
+    mockGetCurrentBetterAuthSession.mockResolvedValue(null);
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     mockVerifyA2ATokenWithClaims.mockReset();
@@ -230,6 +237,59 @@ describe("mountActionRoutes", () => {
     expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
     expect(process.env.AGENT_ORG_ID).toBe("stale-org");
     expect(process.env.AGENT_USER_TIMEZONE).toBe("UTC");
+  });
+
+  it("exposes a stable subject only when Better Auth issued the resolved identity", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthSource, getRequestStableUserId } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mountActionRoutes(
+      nitroApp,
+      {
+        identity: {
+          run: vi.fn(async () => ({
+            userId: getRequestStableUserId(),
+            authSource: getRequestAuthSource(),
+          })),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async (event) => event._owner,
+        resolveOrgId: async () => "org-a",
+      },
+    );
+
+    mockGetCurrentBetterAuthSession.mockResolvedValue({
+      email: "alice@example.com",
+      userId: "stable-user-1",
+    });
+    const accepted = await mounted[0].handler({
+      _method: "POST",
+      _owner: "alice@example.com",
+      _headers: {},
+      req: { json: async () => ({}) },
+    });
+    expect(accepted).toEqual({
+      userId: "stable-user-1",
+      authSource: "better-auth",
+    });
+
+    const rejected = await mounted[0].handler({
+      _method: "POST",
+      _owner: "reassigned@example.com",
+      _headers: {},
+      req: { json: async () => ({}) },
+    });
+    expect(rejected).toEqual({
+      userId: undefined,
+      authSource: undefined,
+    });
   });
 
   it("runs optional-auth actions with an anonymous request context when auth resolution returns 401", async () => {

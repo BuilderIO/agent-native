@@ -19,5 +19,7 @@ export default defineAction({
     summary: () => "Listed opaque Private Vault jobs",
   },
   run: async ({ vaultId }) =>
-    privateVaultJobService.list(requirePrivateVaultJobActionScope(vaultId)),
+    privateVaultJobService.list(
+      await requirePrivateVaultJobActionScope(vaultId),
+    ),
 });

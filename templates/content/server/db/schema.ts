@@ -482,6 +482,10 @@ export const contentEncryptedVaults = table(
     serverReceivedAt: text("server_received_at").notNull().default(now()),
   },
   (vault) => [
+    uniqueIndex("content_encrypted_vaults_logical_scope_unique").on(
+      vault.accountId,
+      vault.workspaceId,
+    ),
     uniqueIndex("content_encrypted_vaults_scope_unique").on(
       vault.ownerEmail,
       vault.orgId,
@@ -511,6 +515,7 @@ export const contentEncryptedVaultGenesisAdmissions = table(
     controlEntryId: text("control_entry_id").notNull(),
     controlEntryHash: text("control_entry_hash").notNull(),
     signerEndpointId: text("signer_endpoint_id").notNull(),
+    candidateHash: text("candidate_hash").notNull().default(""),
     bootstrapTranscriptHash: text("bootstrap_transcript_hash").notNull(),
     authorizedAt: text("authorized_at").notNull().default(now()),
   },
@@ -524,6 +529,41 @@ export const contentEncryptedVaultGenesisAdmissions = table(
       admission.ownerEmail,
       admission.orgId,
       admission.vaultId,
+    ),
+  ],
+);
+
+/**
+ * Short-lived, content-free account challenges for admitting genesis.
+ *
+ * Only a hash of the canonical challenge is retained. The random challenge
+ * authenticator and the public genesis evidence stay out of SQL; a successful
+ * admission atomically marks the exact challenge consumed.
+ */
+export const contentEncryptedVaultGenesisChallenges = table(
+  "content_encrypted_vault_genesis_challenges",
+  {
+    challengeId: text("challenge_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull(),
+    version: integer("version").notNull().default(1),
+    accountId: text("account_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    vaultId: text("vault_id").notNull(),
+    candidateHash: text("candidate_hash").notNull(),
+    challengeHash: text("challenge_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    consumedAt: text("consumed_at"),
+    issuedAt: text("issued_at").notNull().default(now()),
+  },
+  (challenge) => [
+    uniqueIndex("content_encrypted_vault_genesis_challenge_hash_unique").on(
+      challenge.challengeHash,
+    ),
+    index("content_encrypted_vault_genesis_challenge_scope_expiry_idx").on(
+      challenge.ownerEmail,
+      challenge.orgId,
+      challenge.expiresAt,
     ),
   ],
 );

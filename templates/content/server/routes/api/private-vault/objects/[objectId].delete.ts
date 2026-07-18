@@ -1,4 +1,3 @@
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getHeader,
@@ -7,6 +6,7 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { resolveAuthenticatedPrivateVaultScope } from "../../../../lib/private-vault-genesis-account-scope.js";
 import {
   PrivateVaultObjectNotFoundError,
   privateVaultObjectService,
@@ -21,18 +21,15 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 403);
     return { error: "Request unavailable" };
   }
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const vaultId = getHeader(event, "x-anc-vault-id")?.trim() ?? "";
+  const scope = await resolveAuthenticatedPrivateVaultScope(event, vaultId);
+  if (!scope) {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
-  const vaultId = getHeader(event, "x-anc-vault-id")?.trim() ?? "";
   const objectId = getRouterParam(event, "objectId") ?? "";
   try {
-    return await privateVaultObjectService.deleteObject(
-      { ownerEmail: session.email, orgId: session.orgId ?? "", vaultId },
-      objectId,
-    );
+    return await privateVaultObjectService.deleteObject(scope, objectId);
   } catch (error) {
     setResponseStatus(
       event,

@@ -2285,6 +2285,26 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   })());
 }
 
+/**
+ * Resolve only a current session issued by this deployment's Better Auth
+ * instance. High-value ceremonies use this narrower authority instead of the
+ * general session resolver, which intentionally also supports BYOA, embeds,
+ * legacy access tokens, and desktop development brokers.
+ */
+export async function getCurrentBetterAuthSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  if (customGetSession) return null;
+  try {
+    const ba = getBetterAuthSync();
+    if (!ba) return null;
+    const session = await ba.api.getSession({ headers: event.headers });
+    return session?.user?.email ? mapBetterAuthSession(session) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
@@ -2337,19 +2357,8 @@ async function resolveSessionUncached(
     if (bearerSession) return bearerSession;
 
     // 5. Better Auth session (cookie or Bearer token)
-    try {
-      const ba = getBetterAuthSync();
-      if (ba) {
-        const baSession = await ba.api.getSession({
-          headers: event.headers,
-        });
-        if (baSession?.user?.email) {
-          return mapBetterAuthSession(baSession);
-        }
-      }
-    } catch (e) {
-      console.error("[auth] ba.api.getSession error:", e);
-    }
+    const betterAuthSession = await getCurrentBetterAuthSession(event);
+    if (betterAuthSession) return betterAuthSession;
 
     // 6. Legacy cookie fallback (for sessions created before migration)
     const cookieSession = await getLegacyCookieSession(event);

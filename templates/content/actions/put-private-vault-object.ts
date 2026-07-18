@@ -49,7 +49,7 @@ export default defineAction({
   run: async (args) => {
     const ciphertext = decodePrivateVaultCiphertext(args.ciphertextBase64);
     return privateVaultObjectService.putRevision(
-      requirePrivateVaultActionScope(args.vaultId),
+      await requirePrivateVaultActionScope(args.vaultId),
       {
         vaultId: args.vaultId,
         objectId: args.objectId,

@@ -23,7 +23,7 @@ export default defineAction({
   },
   run: async (args) =>
     privateVaultObjectService.deleteObject(
-      requirePrivateVaultActionScope(args.vaultId),
+      await requirePrivateVaultActionScope(args.vaultId),
       args.objectId,
     ),
 });

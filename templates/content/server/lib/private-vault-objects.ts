@@ -15,7 +15,9 @@ import {
 } from "@agent-native/core/protected-ciphertext";
 import { recordChange } from "@agent-native/core/server";
 import {
+  getRequestAuthSource,
   getRequestOrgId,
+  getRequestStableUserId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { and, asc, eq } from "drizzle-orm";
@@ -33,6 +35,7 @@ import {
   type PrivateVaultCiphertextStage,
   type PrivateVaultStageCoordinate,
 } from "./private-vault-ciphertext-staging.js";
+import { resolvePrivateVaultScopeForStableIdentity } from "./private-vault-genesis-account-scope.js";
 import {
   buildPrivateVaultRetentionItem,
   enqueuePrivateVaultRetentionItem,
@@ -74,12 +77,26 @@ export interface PrivateVaultScope {
   vaultId: string;
 }
 
-export function requirePrivateVaultActionScope(
+export async function requirePrivateVaultActionScope(
   vaultId: string,
-): PrivateVaultScope {
+): Promise<PrivateVaultScope> {
+  if (getRequestAuthSource() !== "better-auth") {
+    throw new PrivateVaultObjectNotFoundError();
+  }
+  const userId = getRequestStableUserId();
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new PrivateVaultObjectNotFoundError();
-  return { ownerEmail, orgId: getRequestOrgId() ?? "", vaultId };
+  const orgId = getRequestOrgId();
+  if (!userId || !ownerEmail || !orgId) {
+    throw new PrivateVaultObjectNotFoundError();
+  }
+  const scope = await resolvePrivateVaultScopeForStableIdentity({
+    userId,
+    email: ownerEmail,
+    orgId,
+    vaultId,
+  });
+  if (!scope) throw new PrivateVaultObjectNotFoundError();
+  return scope;
 }
 
 export interface PrivateVaultRevisionMetadata extends PrivateVaultObjectRevisionInput {

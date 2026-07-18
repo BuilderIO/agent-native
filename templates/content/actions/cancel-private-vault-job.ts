@@ -21,7 +21,7 @@ export default defineAction({
   },
   run: async ({ vaultId, jobId }) =>
     privateVaultJobService.cancel(
-      requirePrivateVaultJobActionScope(vaultId),
+      await requirePrivateVaultJobActionScope(vaultId),
       jobId,
     ),
 });

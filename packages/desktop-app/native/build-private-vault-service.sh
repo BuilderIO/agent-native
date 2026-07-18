@@ -695,6 +695,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
       "$SOURCE_ROOT/control/PrivateVaultGenesisHostedAppend.m" \

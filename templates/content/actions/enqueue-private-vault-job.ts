@@ -47,7 +47,7 @@ export default defineAction({
   },
   run: async ({ ciphertextBase64, ...args }) =>
     privateVaultJobService.enqueue(
-      requirePrivateVaultJobActionScope(args.vaultId),
+      await requirePrivateVaultJobActionScope(args.vaultId),
       {
         ...args,
         ciphertext: decodePrivateVaultJobCiphertext(ciphertextBase64),

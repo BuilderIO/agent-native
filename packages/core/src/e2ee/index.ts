@@ -10,6 +10,7 @@ export * from "./failure-fixtures.js";
 export * from "./failure-vectors.js";
 export * from "./genesis-ceremony-codecs.js";
 export * from "./genesis-bootstrap-transcript.js";
+export * from "./genesis-account-admission.js";
 export * from "./interoperability-vectors.js";
 export * from "./lifecycle-codecs.js";
 export * from "./portable-crypto.js";

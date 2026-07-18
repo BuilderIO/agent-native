@@ -1,4 +1,3 @@
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getHeader,
@@ -7,6 +6,7 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { resolveAuthenticatedPrivateVaultScope } from "../../../../../lib/private-vault-genesis-account-scope.js";
 import {
   PrivateVaultJobNotFoundError,
   privateVaultJobService,
@@ -16,18 +16,17 @@ export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const scope = await resolveAuthenticatedPrivateVaultScope(
+    event,
+    getHeader(event, "x-anc-vault-id")?.trim() ?? "",
+  );
+  if (!scope) {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
   try {
     const output = await privateVaultJobService.getResult(
-      {
-        ownerEmail: session.email,
-        orgId: session.orgId ?? "",
-        vaultId: getHeader(event, "x-anc-vault-id")?.trim() ?? "",
-      },
+      scope,
       getRouterParam(event, "jobId") ?? "",
     );
     setResponseHeader(event, "Content-Type", "application/octet-stream");

@@ -2,11 +2,13 @@
 
 #import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultCrypto.h"
+#import "PrivateVaultEndpointRequest.h"
 #import "PrivateVaultGenesisAuthorization.h"
 #import "PrivateVaultGenesisAuthorizationInternal.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisBuilder.h"
 #import "PrivateVaultGenesisCoordinatorInternal.h"
+#import "PrivateVaultGenesisHostedAppend.h"
 #import "PrivateVaultGenesisLock.h"
 #import "PrivateVaultGenesisPreparationStoreInternal.h"
 #import "PrivateVaultCustodyRepositoryGenesisInternal.h"
@@ -16,6 +18,7 @@
 #import <math.h>
 #import <objc/runtime.h>
 #import <sodium.h>
+#import <string.h>
 
 static const uint64_t kMaximumSafeInteger = UINT64_C(9007199254740991);
 
@@ -82,6 +85,39 @@ static void RaiseImmutable(void) {
 }
 @end
 @implementation AncPrivateVaultGenesisCoordinatorResult
+@end
+
+@interface AncPrivateVaultHostedAppendRequest ()
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) NSString *endpointId;
+@property(nonatomic, readwrite) NSData *body;
+@property(nonatomic, readwrite) NSString *proofHeader;
+@end
+@interface AncImmutableGenesisHostedAppendRequest
+    : AncPrivateVaultHostedAppendRequest
+@end
+@implementation AncImmutableGenesisHostedAppendRequest
+- (void)setVaultId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setEndpointId:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setBody:(NSData *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setProofHeader:(NSString *)value {
+  (void)value;
+  RaiseImmutable();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  RaiseImmutable();
+}
 @end
 
 @interface AncPrivateVaultGenesisPreparationResult ()
@@ -196,6 +232,20 @@ static NSString *Hex(const uint8_t *bytes) {
   for (size_t i = 0; i < 16; i++)
     [value appendFormat:@"%02x", bytes[i]];
   return value;
+}
+static BOOL ImmutableFoundationData(NSData *value, NSUInteger exactLength,
+                                    NSUInteger maximumLength) {
+  if (![value isKindOfClass:NSData.class] ||
+      [value isKindOfClass:NSMutableData.class] ||
+      (exactLength != NSNotFound && value.length != exactLength) ||
+      value.length == 0 || value.length > maximumLength)
+    return NO;
+  const char *valueImage = class_getImageName(object_getClass(value));
+  if (valueImage == NULL)
+    return NO;
+  NSString *imagePath = @(valueImage);
+  return [imagePath hasPrefix:@"/System/Library/"] ||
+         [imagePath hasPrefix:@"/usr/lib/"];
 }
 static BOOL Zero(const uint8_t *bytes, size_t length) {
   if (bytes == NULL)
@@ -422,6 +472,35 @@ static AncPrivateVaultGuardedMemory *RandomGuarded32(void) {
 static BOOL CloseGuarded(AncPrivateVaultGuardedMemory *memory) {
   return memory == nil || memory.isClosed ||
          [memory close] == AncPrivateVaultGuardedMemoryStatusOK;
+}
+
+static NSString *AncGenesisHostedAppendTimestamp(uint64_t milliseconds) {
+  NSDate *date = [NSDate
+      dateWithTimeIntervalSince1970:(NSTimeInterval)milliseconds / 1000.0];
+  if (date == nil)
+    return nil;
+  NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+  formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+  formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+  formatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+  NSString *value = [formatter stringFromDate:date];
+  return value.length == 24 ? value : nil;
+}
+
+static AncPrivateVaultHostedAppendRequest *
+AncGenesisMakeHostedAppendRequest(NSString *vaultId, NSString *endpointId,
+                                  NSData *body, NSString *proofHeader) {
+  if (vaultId.length == 0 || endpointId.length == 0 || body.length == 0 ||
+      proofHeader.length == 0)
+    return nil;
+  AncPrivateVaultHostedAppendRequest *request =
+      class_createInstance(AncPrivateVaultHostedAppendRequest.class, 0);
+  request.vaultId = [vaultId copy];
+  request.endpointId = [endpointId copy];
+  request.body = [body copy];
+  request.proofHeader = [proofHeader copy];
+  object_setClass(request, AncImmutableGenesisHostedAppendRequest.class);
+  return request;
 }
 
 static BOOL DeriveEndpointPublicKeys(AncPrivateVaultGuardedMemory *signingSeed,
@@ -1598,13 +1677,192 @@ static BOOL CopyPreparationSecrets(
 }
 
 - (AncPrivateVaultGenesisCoordinatorStatus)
+    prepareHostedGenesisAppendLookupId:(NSData *)lookupId
+                                request:
+                                    (AncPrivateVaultHostedAppendRequest **)request {
+  if (request != NULL)
+    *request = nil;
+  if (self.preparationStore == nil || self.preparationArtifactStore == nil ||
+      !ImmutableFoundationData(lookupId, 16, 16))
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+
+  uint8_t lookupBytes[16] = {0};
+  [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readLookupId:lookupBytes
+                                  length:sizeof lookupBytes
+                                snapshot:&snapshot
+                             secretHandle:nil];
+  NSString *vaultId = read == AncPrivateVaultGenesisPreparationStoreStatusOK
+                          ? Hex(snapshot.vault_id)
+                          : nil;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultId);
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK || lock == nil) {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return read == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisCoordinatorStatusInvalid
+               : PreparationStatus(read);
+  }
+
+  [lock lock];
+  @try {
+    uint64_t milliseconds = 0;
+    uint8_t nonceBytes[16] = {0};
+    if (![self.trustedClock readNowMilliseconds:&milliseconds] ||
+        milliseconds == 0 || milliseconds > kMaximumSafeInteger) {
+      anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+      return AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+    }
+    if (anc_pv_random(nonceBytes, sizeof nonceBytes) != ANC_PV_CRYPTO_OK) {
+      anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+      return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+    }
+    NSString *issuedAt = AncGenesisHostedAppendTimestamp(milliseconds);
+    NSString *nonce = Hex(nonceBytes);
+    anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+    if (issuedAt == nil || nonce.length != 32)
+      return AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+
+    __block AncPrivateVaultHostedAppendRequest *prepared = nil;
+    AncPrivateVaultGenesisPreparationStoreStatus borrowed =
+        [self.preparationStore
+            borrowCommittedHostedAppendLookupId:lookupBytes
+                                          length:sizeof lookupBytes
+                                      controlLog:self.controlLog
+                                  authorityStore:self.authorityStore
+                               custodyRepository:self.custodyRepository
+                                        consumer:^BOOL(
+                                            NSString *authenticatedVaultId,
+                                            NSString *endpointId,
+                                            const uint8_t *signedGenesisEntry,
+                                            size_t signedGenesisEntryLength,
+                                            const uint8_t *recoveryWrap,
+                                            size_t recoveryWrapLength,
+                                            const uint8_t *signingSeed,
+                                            NSData *signingPublicKey) {
+      NSData *signedData =
+          [NSData dataWithBytesNoCopy:(void *)signedGenesisEntry
+                               length:signedGenesisEntryLength
+                         freeWhenDone:NO];
+      NSData *wrapData = [NSData dataWithBytesNoCopy:(void *)recoveryWrap
+                                              length:recoveryWrapLength
+                                        freeWhenDone:NO];
+      NSData *body = AncPrivateVaultGenesisHostedAppendRequestEncode(
+          signedData, wrapData);
+      AncPrivateVaultEndpointRequestStatus endpointStatus =
+          AncPrivateVaultEndpointRequestStatusInvalid;
+      NSString *proof =
+          body == nil
+              ? nil
+              : AncPrivateVaultControlLogAppendProofHeaderCreate(
+                    authenticatedVaultId, endpointId, body, issuedAt, nonce,
+                    signingSeed, signingPublicKey, &endpointStatus);
+      prepared = endpointStatus == AncPrivateVaultEndpointRequestStatusOK
+                     ? AncGenesisMakeHostedAppendRequest(
+                           authenticatedVaultId, endpointId, body, proof)
+                     : nil;
+      return prepared != nil;
+    }];
+    if (borrowed != AncPrivateVaultGenesisPreparationStoreStatusOK ||
+        prepared == nil)
+      return borrowed == AncPrivateVaultGenesisPreparationStoreStatusOK
+                 ? AncPrivateVaultGenesisCoordinatorStatusProtectionFailed
+                 : PreparationStatus(borrowed);
+    if (request != NULL)
+      *request = prepared;
+    return AncPrivateVaultGenesisCoordinatorStatusOK;
+  } @catch (__unused NSException *exception) {
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  } @finally {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    [lock unlock];
+  }
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    recoverHostedGenesisAppendCleanupLookupId:(NSData *)lookupId {
+  if (self.preparationStore == nil || self.preparationArtifactStore == nil ||
+      !ImmutableFoundationData(lookupId, 16, 16))
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t lookupBytes[16] = {0};
+  [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readLookupId:lookupBytes
+                                  length:sizeof lookupBytes
+                                snapshot:&snapshot
+                             secretHandle:nil];
+  NSString *vaultId = read == AncPrivateVaultGenesisPreparationStoreStatusOK
+                          ? Hex(snapshot.vault_id)
+                          : nil;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  NSRecursiveLock *lock = AncPrivateVaultGenesisLockForVaultId(vaultId);
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK || lock == nil) {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return read == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisCoordinatorStatusInvalid
+               : PreparationStatus(read);
+  }
+  [lock lock];
+  @try {
+    AncPrivateVaultGenesisPreparationStoreStatus recovered =
+        [self.preparationStore
+            recoverCommittedCleanupLookupId:lookupBytes
+                                      length:sizeof lookupBytes
+                                  controlLog:self.controlLog
+                              authorityStore:self.authorityStore
+                           custodyRepository:self.custodyRepository];
+    if (recovered != AncPrivateVaultGenesisPreparationStoreStatusNotFound)
+      return PreparationStatus(recovered);
+
+    AncPrivateVaultGenesisPreparationStoreStatus exactPreReceipt =
+        [self.preparationStore
+            borrowCommittedHostedAppendLookupId:lookupBytes
+                                          length:sizeof lookupBytes
+                                      controlLog:self.controlLog
+                                  authorityStore:self.authorityStore
+                               custodyRepository:self.custodyRepository
+                                        consumer:^BOOL(
+                                            NSString *authenticatedVaultId,
+                                            NSString *endpointId,
+                                            const uint8_t *signedGenesisEntry,
+                                            size_t signedGenesisEntryLength,
+                                            const uint8_t *recoveryWrap,
+                                            size_t recoveryWrapLength,
+                                            const uint8_t *signingSeed,
+                                            NSData *signingPublicKey) {
+      (void)authenticatedVaultId;
+      (void)endpointId;
+      (void)signedGenesisEntry;
+      (void)signedGenesisEntryLength;
+      (void)recoveryWrap;
+      (void)recoveryWrapLength;
+      (void)signingSeed;
+      (void)signingPublicKey;
+      return YES;
+    }];
+    return exactPreReceipt == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisCoordinatorStatusNotFound
+               : PreparationStatus(exactPreReceipt);
+  } @catch (__unused NSException *exception) {
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  } @finally {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    [lock unlock];
+  }
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
     finalizeHostedGenesisAppendLookupId:(NSData *)lookupId
                                  receipt:(NSData *)receipt {
   if (self.preparationStore == nil ||
-      ![lookupId isKindOfClass:NSData.class] || lookupId.length != 16 ||
-      ![receipt isKindOfClass:NSData.class] || receipt.length == 0 ||
-      receipt.length > 1024)
+      !ImmutableFoundationData(lookupId, 16, 16) ||
+      !ImmutableFoundationData(receipt, NSNotFound, 1024))
     return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  NSData *canonicalReceipt =
+      [NSData dataWithBytes:receipt.bytes length:receipt.length];
   uint8_t lookupBytes[16] = {0};
   [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
   AncPrivateVaultGenesisPreparationSnapshot snapshot;
@@ -1630,7 +1888,7 @@ static BOOL CopyPreparationSecrets(
     cleaned = [self.preparationStore
         cleanCommittedLookupId:lookupBytes
                         length:sizeof lookupBytes
-                       receipt:receipt
+                       receipt:canonicalReceipt
                     controlLog:self.controlLog
                 authorityStore:self.authorityStore
              custodyRepository:self.custodyRepository];

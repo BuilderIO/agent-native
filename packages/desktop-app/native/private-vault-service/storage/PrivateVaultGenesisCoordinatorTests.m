@@ -4,6 +4,7 @@
 
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultAncCanonical.h"
+#import "PrivateVaultControlLogInternal.h"
 #import "PrivateVaultGenesisArtifactStore.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisCoordinator.h"
@@ -18,6 +19,35 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+@interface AncPrivateVaultHostedAppendRequest ()
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) NSString *endpointId;
+@property(nonatomic, readwrite) NSData *body;
+@property(nonatomic, readwrite) NSString *proofHeader;
+@end
+@implementation AncPrivateVaultHostedAppendRequest
+@end
+
+@interface AncTestGenesisDataSubclass : NSData
+- (instancetype)initWithData:(NSData *)data;
+@end
+@implementation AncTestGenesisDataSubclass {
+  NSData *_backing;
+}
+- (instancetype)initWithData:(NSData *)data {
+  self = [super init];
+  if (self != nil)
+    _backing = [data copy];
+  return self;
+}
+- (NSUInteger)length {
+  return _backing.length;
+}
+- (const void *)bytes {
+  return _backing.bytes;
+}
+@end
 
 #ifndef ANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH
 #error ANC_PV_GENESIS_AUTHORIZATION_VECTOR_PATH must name the frozen Core corpus
@@ -193,6 +223,34 @@ static NSString *HexString(NSData *data) {
   return s;
 }
 
+static NSDictionary *DecodeEndpointProof(NSString *header) {
+  NSString *base64 = [[header stringByReplacingOccurrencesOfString:@"-"
+                                                         withString:@"+"]
+      stringByReplacingOccurrencesOfString:@"_"
+                                  withString:@"/"];
+  while (base64.length % 4 != 0)
+    base64 = [base64 stringByAppendingString:@"="];
+  NSData *bytes = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+  return bytes == nil
+             ? nil
+             : [NSJSONSerialization JSONObjectWithData:bytes
+                                                options:0
+                                                  error:nil];
+}
+
+static BOOL DataContainsNeedle(NSData *haystack, const uint8_t *needle,
+                               size_t needleLength) {
+  if (haystack == nil || needle == NULL || needleLength == 0 ||
+      haystack.length < needleLength)
+    return NO;
+  const uint8_t *bytes = haystack.bytes;
+  for (NSUInteger offset = 0; offset <= haystack.length - needleLength;
+       offset += 1)
+    if (memcmp(bytes + offset, needle, needleLength) == 0)
+      return YES;
+  return NO;
+}
+
 static NSData *GenesisHostedReceipt(
     const AncPrivateVaultGenesisPreparationSnapshot *snapshot) {
   NSData *vault = [NSData dataWithBytes:snapshot->vault_id length:16];
@@ -219,7 +277,7 @@ static NSData *GenesisHostedReceipt(
   AncPrivateVaultCanonicalStatus status;
   NSData *encoded = AncPrivateVaultCanonicalEncode(root, &status);
   return AncPrivateVaultGenesisHostedAppendReceiptDecode(encoded) != nil
-             ? encoded
+             ? [NSData dataWithBytes:encoded.bytes length:encoded.length]
              : nil;
 }
 static void SetId(uint8_t out[160], size_t *length, NSString *value) {
@@ -810,6 +868,30 @@ static int PreparationCases(void) {
     return YES;
   }] == AncPrivateVaultGuardedMemoryStatusOK &&
         handleCopied);
+  NSData *lookup = [NSData dataWithBytes:handle length:16];
+  AncPrivateVaultHostedAppendRequest *prematureRequest = nil;
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:lookup
+                                                 request:&prematureRequest] ==
+            AncPrivateVaultGenesisCoordinatorStatusConflict &&
+        prematureRequest == nil);
+  uint8_t wrongLookupBytes[16] = {0};
+  memcpy(wrongLookupBytes, handle, sizeof wrongLookupBytes);
+  wrongLookupBytes[0] ^= 0xff;
+  NSData *wrongLookup =
+      [NSData dataWithBytes:wrongLookupBytes length:sizeof wrongLookupBytes];
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:wrongLookup
+                                                 request:nil] ==
+        AncPrivateVaultGenesisCoordinatorStatusNotFound);
+  NSMutableData *mutableLookup = [lookup mutableCopy];
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:mutableLookup
+                                                 request:nil] ==
+        AncPrivateVaultGenesisCoordinatorStatusInvalid);
+  AncTestGenesisDataSubclass *subclassLookup =
+      [[AncTestGenesisDataSubclass alloc] initWithData:lookup];
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:subclassLookup
+                                                 request:nil] ==
+        AncPrivateVaultGenesisCoordinatorStatusInvalid);
+  anc_pv_zeroize(wrongLookupBytes, sizeof wrongLookupBytes);
   __block NSData *mnemonicBytes = nil;
   CHECK([prepared.recoveryMnemonic
             borrow:^BOOL(uint8_t *bytes, size_t length) {
@@ -930,6 +1012,154 @@ static int PreparationCases(void) {
         lookupIds.count == 1 &&
         [lookupIds.firstObject
             isEqualToData:[NSData dataWithBytes:handle length:16]]);
+
+  CHECK([coordinator recoverHostedGenesisAppendCleanupLookupId:lookup] ==
+        AncPrivateVaultGenesisCoordinatorStatusNotFound);
+  AncPrivateVaultHostedAppendRequest *appendRequest = nil;
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:lookup
+                                                 request:&appendRequest] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        appendRequest != nil &&
+        [appendRequest.vaultId isEqualToString:prepared.vaultId] &&
+        appendRequest.endpointId.length == 32 && appendRequest.body.length > 0 &&
+        appendRequest.proofHeader.length > 0);
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *appendBody = AncPrivateVaultCanonicalDecode(
+      appendRequest.body, ANC_PV_GENESIS_HOSTED_APPEND_REQUEST_MAX_BYTES,
+      &canonicalStatus);
+  CHECK(canonicalStatus == AncPrivateVaultCanonicalStatusOK &&
+        appendBody.type == AncPrivateVaultCanonicalTypeMap &&
+        appendBody.mapValue.count == 5 &&
+        [appendBody.mapValue[@1].textValue isEqualToString:@"anc/v1"] &&
+        appendBody.mapValue[@2].integerValue == 1 &&
+        [appendBody.mapValue[@3].textValue
+            isEqualToString:@"control-log-genesis-append-request"] &&
+        appendBody.mapValue[@4].bytesValue.length > 0 &&
+        appendBody.mapValue[@5].bytesValue.length ==
+            snapshot.recovery_wrap_length &&
+        [AncPrivateVaultControlLogSignedEntryDomainHash(
+             appendBody.mapValue[@4].bytesValue)
+            isEqualToData:[NSData
+                              dataWithBytes:snapshot.genesis_control_head_hash
+                                     length:32]]);
+  NSDictionary *firstProof = DecodeEndpointProof(appendRequest.proofHeader);
+  CHECK(firstProof.count == 11 &&
+        [firstProof[@"suite"] isEqualToString:@"anc/v1"] &&
+        [firstProof[@"type"] isEqualToString:@"endpoint_request"] &&
+        [firstProof[@"vaultId"] isEqualToString:appendRequest.vaultId] &&
+        [firstProof[@"endpointId"] isEqualToString:appendRequest.endpointId] &&
+        [firstProof[@"method"] isEqualToString:@"POST"] &&
+        [firstProof[@"path"]
+            isEqualToString:@"/api/private-vault/control-log/append"] &&
+        [firstProof[@"issuedAt"] isEqualToString:@"2024-07-16T06:25:40.000Z"] &&
+        [firstProof[@"bodyHash"] length] == 64 &&
+        [firstProof[@"nonce"] length] == 32 &&
+        [firstProof[@"signature"] length] == 128);
+  AncPrivateVaultHostedAppendRequest *freshRequest = nil;
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:lookup
+                                                 request:&freshRequest] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        [freshRequest.body isEqualToData:appendRequest.body]);
+  NSDictionary *freshProof = DecodeEndpointProof(freshRequest.proofHeader);
+  CHECK(freshProof != nil &&
+        ![freshProof[@"nonce"] isEqualToString:firstProof[@"nonce"]]);
+  BOOL requestImmutable = NO;
+  @try {
+    [appendRequest setValue:[NSData data] forKey:@"body"];
+  } @catch (__unused NSException *exception) {
+    requestImmutable = YES;
+  }
+  CHECK(requestImmutable);
+
+  uint8_t activeSigningSeed[32] = {0};
+  uint8_t *activeSigningSeedPointer = activeSigningSeed;
+  CHECK([repository readVaultId:prepared.vaultId
+                       snapshot:&custody
+                         handle:&custodyHandle] ==
+            AncPrivateVaultCustodyRepositoryStatusOK &&
+        custodyHandle != nil &&
+        [custodyHandle borrow:^BOOL(
+                           const AncPrivateVaultCustodySecretInputs *secrets) {
+          if (secrets == NULL || secrets->signing_seed == NULL)
+            return NO;
+          memcpy(activeSigningSeedPointer, secrets->signing_seed, 32);
+          return YES;
+        }] == AncPrivateVaultCustodyRepositoryStatusOK &&
+        [custodyHandle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  custodyHandle = nil;
+  NSData *proofBytes =
+      [appendRequest.proofHeader dataUsingEncoding:NSUTF8StringEncoding];
+  CHECK(!DataContainsNeedle(appendRequest.body, activeSigningSeed, 32) &&
+        !DataContainsNeedle(proofBytes, activeSigningSeed, 32));
+  anc_pv_zeroize(activeSigningSeed, sizeof activeSigningSeed);
+  anc_pv_custody_snapshot_zero(&custody);
+
+  NSString *spoolPath = [[[root
+      stringByAppendingPathComponent:@"genesis-preparation-artifacts"]
+      stringByAppendingPathComponent:HexString(lookup)]
+      stringByAppendingString:@".live"];
+  NSData *originalSpool = [NSData dataWithContentsOfFile:spoolPath];
+  NSMutableData *tamperedSpool = [originalSpool mutableCopy];
+  CHECK(tamperedSpool.length > 0);
+  ((uint8_t *)tamperedSpool.mutableBytes)[tamperedSpool.length - 1] ^= 1;
+  CHECK([tamperedSpool writeToFile:spoolPath atomically:NO] &&
+        [coordinator prepareHostedGenesisAppendLookupId:lookup request:nil] !=
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        [originalSpool writeToFile:spoolPath atomically:NO]);
+
+  NSString *authorityDirectory =
+      [root stringByAppendingPathComponent:@"state/authority"];
+  NSArray<NSString *> *authorityNames =
+      [NSFileManager.defaultManager contentsOfDirectoryAtPath:authorityDirectory
+                                                        error:nil];
+  NSString *authorityName = nil;
+  for (NSString *candidate in authorityNames)
+    if ([candidate hasSuffix:@".authority"])
+      authorityName = candidate;
+  CHECK(authorityName != nil);
+  NSString *authorityPath =
+      [authorityDirectory stringByAppendingPathComponent:authorityName];
+  NSData *originalAuthority = [NSData dataWithContentsOfFile:authorityPath];
+  NSMutableData *tamperedAuthority = [originalAuthority mutableCopy];
+  CHECK(tamperedAuthority.length > 0);
+  ((uint8_t *)tamperedAuthority.mutableBytes)[0] ^= 1;
+  CHECK([tamperedAuthority writeToFile:authorityPath atomically:NO] &&
+        [coordinator prepareHostedGenesisAppendLookupId:lookup request:nil] !=
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        [originalAuthority writeToFile:authorityPath atomically:NO]);
+
+  NSMutableDictionary *keychainBeforeCustodyTamper = LoadKeychain();
+  NSString *custodyKey = nil;
+  for (NSString *candidate in keychainBeforeCustodyTamper)
+    if ([candidate hasPrefix:[AncPrivateVaultCustodyService
+                                 stringByAppendingString:@"|"]])
+      custodyKey = candidate;
+  CHECK(custodyKey != nil);
+  NSMutableData *tamperedCustody =
+      [keychainBeforeCustodyTamper[custodyKey] mutableCopy];
+  CHECK(tamperedCustody.length > 0);
+  ((uint8_t *)tamperedCustody.mutableBytes)[0] ^= 1;
+  NSMutableDictionary *keychainWithCustodyTamper =
+      [keychainBeforeCustodyTamper mutableCopy];
+  keychainWithCustodyTamper[custodyKey] = tamperedCustody;
+  CHECK(SaveKeychain(keychainWithCustodyTamper) &&
+        [coordinator prepareHostedGenesisAppendLookupId:lookup request:nil] !=
+            AncPrivateVaultGenesisCoordinatorStatusOK &&
+        SaveKeychain(keychainBeforeCustodyTamper));
+
+  NSData *receipt = GenesisHostedReceipt(&snapshot);
+  CHECK(receipt != nil);
+  NSMutableData *mutableReceipt = [receipt mutableCopy];
+  CHECK([coordinator finalizeHostedGenesisAppendLookupId:lookup
+                                                 receipt:mutableReceipt] ==
+        AncPrivateVaultGenesisCoordinatorStatusInvalid);
+  AncPrivateVaultGenesisCoordinatorStatus finalized =
+      [coordinator finalizeHostedGenesisAppendLookupId:lookup receipt:receipt];
+  CHECK(finalized == AncPrivateVaultGenesisCoordinatorStatusOK);
+  CHECK([coordinator recoverHostedGenesisAppendCleanupLookupId:lookup] ==
+        AncPrivateVaultGenesisCoordinatorStatusOK);
+  CHECK([coordinator prepareHostedGenesisAppendLookupId:lookup request:nil] ==
+        AncPrivateVaultGenesisCoordinatorStatusConflict);
   CHECK([prepared.preparationHandle close] ==
             AncPrivateVaultGuardedMemoryStatusOK &&
         [prepared.recoveryMnemonic close] ==

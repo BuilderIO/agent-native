@@ -928,18 +928,16 @@ static BOOL AncGenesisCustodyIdentifierEquals(const uint8_t *bytes,
 
 static BOOL AncGenesisCommittedOfficialTupleExact(
     const AncPrivateVaultGenesisPreparationSnapshot *preparation,
-    AncPrivateVaultGenesisHostedAppendReceipt *receipt,
     AncPrivateVaultAuthorityCheckpoint *authority,
     const AncPrivateVaultCustodySnapshot *custody) {
-  if (preparation == NULL || receipt == nil || authority == nil ||
-      authority.snapshot == nil || custody == NULL)
+  if (preparation == NULL || authority == nil || authority.snapshot == nil ||
+      custody == NULL)
     return NO;
   NSString *vaultHex = AncGenesisHex(preparation->vault_id, 16);
   NSString *endpointHex = AncGenesisHex(preparation->endpoint_id, 16);
   AncPrivateVaultAuthoritySnapshot *snapshot = authority.snapshot;
   return preparation->phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
          vaultHex.length == 32 && endpointHex.length == 32 &&
-         [receipt.vaultId isEqualToString:vaultHex] && receipt.sequence == 0 &&
          [authority.vaultId isEqualToString:vaultHex] &&
          [snapshot.vaultId isEqualToString:vaultHex] &&
          authority.custodyGeneration == 2 &&
@@ -964,9 +962,6 @@ static BOOL AncGenesisCommittedOfficialTupleExact(
                                    preparation->membership_hash, 32) &&
          AncGenesisDataEqualsBytes(snapshot.recoveryWrapHash,
                                    preparation->recovery_wrap_hash, 32) &&
-         [receipt.headHash isEqualToData:snapshot.headHash] &&
-         [receipt.recoveryWrapHash isEqualToData:snapshot.recoveryWrapHash] &&
-         receipt.recoveryWrapByteLength == preparation->recovery_wrap_length &&
          custody->record_version == ANC_PV_CUSTODY_VERSION &&
          custody->authority_anchor_present == 1 &&
          custody->expected_edge_present == 0 &&
@@ -995,6 +990,22 @@ static BOOL AncGenesisCommittedOfficialTupleExact(
              ANC_PV_CRYPTO_OK &&
          anc_pv_memcmp(custody->membership_digest,
                        snapshot.membershipHash.bytes, 32) == ANC_PV_CRYPTO_OK;
+}
+
+static BOOL AncGenesisCommittedReceiptExact(
+    const AncPrivateVaultGenesisPreparationSnapshot *preparation,
+    AncPrivateVaultGenesisHostedAppendReceipt *receipt,
+    AncPrivateVaultAuthorityCheckpoint *authority,
+    const AncPrivateVaultCustodySnapshot *custody) {
+  if (!AncGenesisCommittedOfficialTupleExact(preparation, authority, custody) ||
+      receipt == nil)
+    return NO;
+  NSString *vaultHex = AncGenesisHex(preparation->vault_id, 16);
+  AncPrivateVaultAuthoritySnapshot *snapshot = authority.snapshot;
+  return [receipt.vaultId isEqualToString:vaultHex] && receipt.sequence == 0 &&
+         [receipt.headHash isEqualToData:snapshot.headHash] &&
+         [receipt.recoveryWrapHash isEqualToData:snapshot.recoveryWrapHash] &&
+         receipt.recoveryWrapByteLength == preparation->recovery_wrap_length;
 }
 
 @implementation AncPrivateVaultGenesisPreparationStore
@@ -2923,6 +2934,169 @@ static BOOL AncGenesisCommittedOfficialTupleExact(
 }
 
 - (AncPrivateVaultGenesisPreparationStoreStatus)
+    borrowCommittedHostedAppendLookupId:(const uint8_t *)lookupId
+                                  length:(size_t)length
+                              controlLog:(AncPrivateVaultControlLog *)controlLog
+                          authorityStore:
+                              (AncPrivateVaultAuthorityStore *)authorityStore
+                       custodyRepository:
+                           (AncPrivateVaultCustodyRepository *)custodyRepository
+                                consumer:
+                                    (AncPrivateVaultCommittedGenesisHostedAppendBorrowBlock)
+                                        consumer {
+  if (lookupId == NULL ||
+      length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES ||
+      object_getClass(controlLog) != AncPrivateVaultControlLog.class ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class ||
+      consumer == nil)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+
+  AncPrivateVaultGenesisPreparationSnapshot observed;
+  AncPrivateVaultGenesisPreparationStoreStatus status =
+      [self readLookupId:lookupId
+                  length:length
+                snapshot:&observed
+             secretHandle:nil];
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return status;
+  const uint8_t requiredFlags =
+      ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND |
+      ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE |
+      ANC_PV_GENESIS_PREPARATION_FLAG_CUSTODY_RECORD_BOUND |
+      ANC_PV_GENESIS_PREPARATION_FLAG_OFFICIAL_AUTHORITY_BOUND;
+  NSString *vaultHex = AncGenesisHex(observed.vault_id, 16);
+  NSString *endpointHex = AncGenesisHex(observed.endpoint_id, 16);
+  if (observed.phase != ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED ||
+      observed.flags != requiredFlags || vaultHex.length != 32 ||
+      endpointHex.length != 32) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+
+  NSData *alreadyFencedReceipt = nil;
+  status = AncGenesisReadCleanupReceipt(self.keychain, vaultHex,
+                                        &alreadyFencedReceipt);
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusNotFound) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return status == AncPrivateVaultGenesisPreparationStoreStatusOK
+               ? AncPrivateVaultGenesisPreparationStoreStatusConflict
+               : status;
+  }
+
+  AncPrivateVaultAuthorityCheckpoint *authority = nil;
+  NSError *authorityError = nil;
+  AncPrivateVaultAuthorityStoreStatus authorityStatus =
+      [authorityStore loadVaultId:vaultHex
+                       checkpoint:&authority
+                            error:&authorityError];
+  AncPrivateVaultCustodySnapshot custody = {0};
+  AncPrivateVaultCustodyHandle *custodyHandle = nil;
+  AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+      [custodyRepository readVaultId:vaultHex
+                            snapshot:&custody
+                              handle:&custodyHandle];
+  BOOL official =
+      authorityStatus == AncPrivateVaultAuthorityStoreStatusOK &&
+      authorityError == nil &&
+      custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK &&
+      custodyHandle != nil &&
+      AncGenesisCommittedOfficialTupleExact(&observed, authority, &custody);
+  if (!official) {
+    AncPrivateVaultCustodyRepositoryStatus closed =
+        custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                             : [custodyHandle close];
+    anc_pv_custody_snapshot_zero(&custody);
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return AncPrivateVaultGenesisPreparationStoreStatusInaccessible;
+    if (authorityStatus != AncPrivateVaultAuthorityStoreStatusOK)
+      return AncGenesisAuthorityStatus(authorityStatus);
+    if (custodyStatus != AncPrivateVaultCustodyRepositoryStatusOK)
+      return AncGenesisCustodyStatus(custodyStatus);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+
+  __block BOOL accepted = NO;
+  AncPrivateVaultGenesisPreparationArtifactStatus artifactStatus =
+      AncPrivateVaultGenesisPreparationArtifactStatusStorageFailed;
+  AncPrivateVaultCustodyRepositoryStatus custodyClosed =
+      AncPrivateVaultCustodyRepositoryStatusInaccessible;
+  @try {
+    artifactStatus = [self.artifactStore
+        readLiveLookupId:observed.preparation_lookup_id
+                 vaultId:observed.vault_id
+              ceremonyId:observed.ceremony_id
+              generation:2
+          expectedDigest:observed.artifact_spool_digest
+               consumer:^BOOL(
+                   const uint8_t *wrapBytes, size_t wrapLength,
+                   const uint8_t *confirmationBytes, size_t confirmationLength,
+                   const uint8_t *bootstrapBytes, size_t bootstrapLength,
+                   const uint8_t *authorizationBytes,
+                   size_t authorizationLength) {
+      NSData *wrap = [NSData dataWithBytes:wrapBytes length:wrapLength];
+      NSData *confirmation = [NSData dataWithBytes:confirmationBytes
+                                            length:confirmationLength];
+      NSData *bootstrap = [NSData dataWithBytes:bootstrapBytes
+                                         length:bootstrapLength];
+      NSData *authorization = [NSData dataWithBytes:authorizationBytes
+                                             length:authorizationLength];
+      NSData *bootstrapDigest =
+          AncGenesisPublicBytes(observed.bootstrap_transcript_digest, 32);
+      AncGenesisConfirmedEvidence *evidence =
+          AncGenesisVerifyConfirmedEvidenceBytes(
+              wrap, confirmation, bootstrap, authorization, bootstrapDigest,
+              observed.confirmed_at_ms, controlLog, &observed);
+      AncPrivateVaultGenesisAuthorizationStatus commitStatus;
+      NSData *signedCommit =
+          evidence == nil
+              ? nil
+              : AncPrivateVaultGenesisAuthorizationCopySignedCommit(
+                    authorization,
+                    AncGenesisPublicBytes(observed.vault_id, 16),
+                    &commitStatus);
+      BOOL exact =
+          evidence != nil && signedCommit.length != 0 &&
+          AncGenesisEvidenceBindingsMatch(&observed, evidence,
+                                          observed.confirmed_at_ms) &&
+          [AncPrivateVaultControlLogSignedEntryDomainHash(signedCommit)
+              isEqualToData:authority.snapshot.headHash] &&
+          [evidence.recoveryWrapHash
+              isEqualToData:authority.snapshot.recoveryWrapHash] &&
+          evidence.recoveryWrap.length == observed.recovery_wrap_length;
+      if (!exact)
+        return NO;
+      NSData *publicKey =
+          AncGenesisPublicBytes(observed.endpoint_signing_public_key, 32);
+      AncPrivateVaultCustodyRepositoryStatus borrowed =
+          [custodyHandle borrow:^BOOL(
+                             const AncPrivateVaultCustodySecretInputs *secrets) {
+        accepted = secrets != NULL && secrets->signing_seed != NULL &&
+                   publicKey.length == 32 &&
+                   consumer(vaultHex, endpointHex, signedCommit.bytes,
+                            signedCommit.length, evidence.recoveryWrap.bytes,
+                            evidence.recoveryWrap.length,
+                            secrets->signing_seed, publicKey);
+        return accepted;
+      }];
+      return borrowed == AncPrivateVaultCustodyRepositoryStatusOK && accepted;
+    }];
+  } @finally {
+    custodyClosed = [custodyHandle close];
+    anc_pv_custody_snapshot_zero(&custody);
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+  }
+  if (custodyClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+    return AncPrivateVaultGenesisPreparationStoreStatusInaccessible;
+  if (artifactStatus != AncPrivateVaultGenesisPreparationArtifactStatusOK)
+    return AncGenesisArtifactStatus(artifactStatus);
+  return accepted ? AncPrivateVaultGenesisPreparationStoreStatusOK
+                  : AncPrivateVaultGenesisPreparationStoreStatusFailed;
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
     cleanCommittedLookupId:(const uint8_t *)lookupId
                     length:(size_t)length
                    receipt:(NSData *)receiptBytes
@@ -2977,8 +3151,8 @@ static BOOL AncGenesisCommittedOfficialTupleExact(
                authorityError == nil && custodyStatus ==
                                             AncPrivateVaultCustodyRepositoryStatusOK &&
                custodyHandle != nil &&
-               AncGenesisCommittedOfficialTupleExact(&observed, receipt,
-                                                      authority, &custody);
+               AncGenesisCommittedReceiptExact(&observed, receipt, authority,
+                                                &custody);
 
   __block NSData *wrap = nil, *confirmation = nil, *bootstrap = nil,
                          *authorization = nil;

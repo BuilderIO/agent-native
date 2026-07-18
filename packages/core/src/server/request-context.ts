@@ -129,6 +129,9 @@ export interface RequestRunContext {
 
 export interface RequestContext {
   userEmail?: string;
+  /** Stable subject only when `authSource` proves its issuer. */
+  userId?: string;
+  authSource?: "better-auth";
   userName?: string;
   orgId?: string;
   timezone?: string;
@@ -296,6 +299,19 @@ export function getRequestUserEmail(): string | undefined {
     return store.userEmail;
   }
   return processEnv("AGENT_USER_EMAIL");
+}
+
+export function getRequestStableUserId(): string | undefined {
+  const store = als.getStore();
+  if (store?.authSource === "better-auth" && store.userId) {
+    markAuthContextAccess(store);
+    return store.userId;
+  }
+  return undefined;
+}
+
+export function getRequestAuthSource(): RequestContext["authSource"] {
+  return als.getStore()?.authSource;
 }
 
 /**

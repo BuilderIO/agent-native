@@ -7,8 +7,9 @@ const setResponseHeader = vi.hoisted(() => vi.fn());
 const setResponseStatus = vi.hoisted(() => vi.fn());
 const getRevision = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/server", () => ({
-  getSession: (...args: unknown[]) => getSession(...args),
+vi.mock("../../../../../lib/private-vault-genesis-account-scope.js", () => ({
+  resolveAuthenticatedPrivateVaultScope: (...args: unknown[]) =>
+    getSession(...args),
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,

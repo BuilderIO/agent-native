@@ -1,6 +1,7 @@
 import { trackPluginInit } from "@agent-native/core/server";
 
 import { sqlPrivateVaultEndpointRequestNonceStore } from "../lib/private-vault-endpoint-request-nonces.js";
+import { deleteExpiredPrivateVaultGenesisChallenges } from "../lib/private-vault-genesis-admission.js";
 import {
   privateVaultRetentionService,
   PRIVATE_VAULT_RETENTION_SWEEP_INTERVAL_MS,
@@ -26,6 +27,7 @@ async function initializePrivateVaultRetention(nitroApp?: unknown) {
     try {
       await Promise.all([
         privateVaultRetentionService.sweep(),
+        deleteExpiredPrivateVaultGenesisChallenges(new Date().toISOString()),
         sqlPrivateVaultEndpointRequestNonceStore.deleteExpired(
           new Date().toISOString(),
         ),

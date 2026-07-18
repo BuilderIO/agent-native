@@ -1,4 +1,3 @@
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getHeader,
@@ -7,6 +6,7 @@ import {
 } from "h3";
 
 import { readPrivateVaultBoundedBody } from "../../../../lib/private-vault-bounded-body.js";
+import { resolveAuthenticatedPrivateVaultScope } from "../../../../lib/private-vault-genesis-account-scope.js";
 import {
   PRIVATE_VAULT_OBJECT_MAX_BYTES,
   PrivateVaultObjectConflictError,
@@ -43,9 +43,6 @@ export default defineEventHandler(async (event) => {
   ) {
     return fail(event, 403);
   }
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) return fail(event, 404);
-
   const parentHeader = header(event, "x-anc-parent-revision-ids");
   let parentRevisionIds: unknown = [];
   try {
@@ -78,11 +75,11 @@ export default defineEventHandler(async (event) => {
     return fail(event, 400);
   }
 
-  const scope = {
-    ownerEmail: session.email,
-    orgId: session.orgId ?? "",
-    vaultId: metadata.data.vaultId,
-  };
+  const scope = await resolveAuthenticatedPrivateVaultScope(
+    event,
+    metadata.data.vaultId,
+  );
+  if (!scope) return fail(event, 404);
   try {
     // Parent authorization is deliberately complete before the body is read.
     await privateVaultObjectService.authorizePut(scope, metadata.data);

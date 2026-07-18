@@ -4,8 +4,18 @@ const getHeader = vi.hoisted(() => vi.fn());
 const readPrivateVaultBoundedBody = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
 const setResponseStatus = vi.hoisted(() => vi.fn());
+const decodeAncV1ControlLogGenesisAppendRequest = vi.hoisted(() => vi.fn());
+const decodeAncV1ControlLogRotationAppendRequest = vi.hoisted(() => vi.fn());
+const appendPrivateVaultControlLogGenesis = vi.hoisted(() => vi.fn());
 const appendPrivateVaultControlLogRotation = vi.hoisted(() => vi.fn());
 
+vi.mock("@agent-native/core/e2ee", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/e2ee")>()),
+  decodeAncV1ControlLogGenesisAppendRequest: (...args: unknown[]) =>
+    decodeAncV1ControlLogGenesisAppendRequest(...args),
+  decodeAncV1ControlLogRotationAppendRequest: (...args: unknown[]) =>
+    decodeAncV1ControlLogRotationAppendRequest(...args),
+}));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getHeader: (...args: unknown[]) => getHeader(...args),
@@ -17,6 +27,8 @@ vi.mock("../../../../lib/private-vault-bounded-body.js", () => ({
     readPrivateVaultBoundedBody(...args),
 }));
 vi.mock("../../../../lib/private-vault-control-log-append.js", () => ({
+  appendPrivateVaultControlLogGenesis: (...args: unknown[]) =>
+    appendPrivateVaultControlLogGenesis(...args),
   appendPrivateVaultControlLogRotation: (...args: unknown[]) =>
     appendPrivateVaultControlLogRotation(...args),
   PrivateVaultControlLogAppendError: class extends Error {
@@ -54,6 +66,15 @@ describe("POST /api/private-vault/control-log/append", () => {
     vi.resetAllMocks();
     getHeader.mockImplementation((_event, name: string) => headers[name]);
     readPrivateVaultBoundedBody.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
+    decodeAncV1ControlLogGenesisAppendRequest.mockImplementation(() => {
+      throw new Error("not genesis");
+    });
+    decodeAncV1ControlLogRotationAppendRequest.mockReturnValue({
+      type: "control-log-rotation-append-request",
+    });
+    appendPrivateVaultControlLogGenesis.mockResolvedValue(
+      new Uint8Array([8, 9]),
+    );
     appendPrivateVaultControlLogRotation.mockResolvedValue(
       new Uint8Array([5, 6, 7]),
     );
@@ -66,6 +87,30 @@ describe("POST /api/private-vault/control-log/append", () => {
     await expect(handler({} as never)).resolves.toEqual({ error: "Not found" });
     expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 404);
     expect(readPrivateVaultBoundedBody).not.toHaveBeenCalled();
+    expect(appendPrivateVaultControlLogGenesis).not.toHaveBeenCalled();
+    expect(appendPrivateVaultControlLogRotation).not.toHaveBeenCalled();
+  });
+
+  it("dispatches only a strictly decoded genesis envelope to sequence zero", async () => {
+    decodeAncV1ControlLogGenesisAppendRequest.mockReturnValue({
+      type: "control-log-genesis-append-request",
+    });
+    const result = await handler({} as never);
+    expect(appendPrivateVaultControlLogGenesis).toHaveBeenCalledWith({
+      body: new Uint8Array([1, 2, 3, 4]),
+      proof,
+    });
+    expect(appendPrivateVaultControlLogRotation).not.toHaveBeenCalled();
+    expect(result).toEqual(new Uint8Array([8, 9]));
+  });
+
+  it("rejects an envelope that matches neither canonical request type", async () => {
+    decodeAncV1ControlLogRotationAppendRequest.mockImplementation(() => {
+      throw new Error("not rotation");
+    });
+    await expect(handler({} as never)).resolves.toEqual({ error: "Not found" });
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 404);
+    expect(appendPrivateVaultControlLogGenesis).not.toHaveBeenCalled();
     expect(appendPrivateVaultControlLogRotation).not.toHaveBeenCalled();
   });
 

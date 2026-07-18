@@ -14,7 +14,9 @@ import {
 } from "@agent-native/core/protected-ciphertext";
 import { recordChange } from "@agent-native/core/server";
 import {
+  getRequestAuthSource,
   getRequestOrgId,
+  getRequestStableUserId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
@@ -42,6 +44,7 @@ import {
   privateVaultCiphertextStagingService,
   type PrivateVaultCiphertextStage,
 } from "./private-vault-ciphertext-staging.js";
+import { resolvePrivateVaultScopeForStableIdentity } from "./private-vault-genesis-account-scope.js";
 import {
   buildPrivateVaultRetentionItem,
   enqueuePrivateVaultRetentionItem,
@@ -157,12 +160,26 @@ export class PrivateVaultEndpointAuthenticationUnavailableError extends Error {
   }
 }
 
-export function requirePrivateVaultJobActionScope(
+export async function requirePrivateVaultJobActionScope(
   vaultId: string,
-): PrivateVaultJobScope {
+): Promise<PrivateVaultJobScope> {
+  if (getRequestAuthSource() !== "better-auth") {
+    throw new PrivateVaultJobNotFoundError();
+  }
+  const userId = getRequestStableUserId();
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new PrivateVaultJobNotFoundError();
-  return { ownerEmail, orgId: getRequestOrgId() ?? "", vaultId };
+  const orgId = getRequestOrgId();
+  if (!userId || !ownerEmail || !orgId) {
+    throw new PrivateVaultJobNotFoundError();
+  }
+  const scope = await resolvePrivateVaultScopeForStableIdentity({
+    userId,
+    email: ownerEmail,
+    orgId,
+    vaultId,
+  });
+  if (!scope) throw new PrivateVaultJobNotFoundError();
+  return scope;
 }
 
 function normalizeScope<T extends PrivateVaultJobScope>(input: T): T {

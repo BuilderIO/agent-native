@@ -1205,6 +1205,40 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_genesis_admission_scope_idx
         ON content_encrypted_vault_genesis_admissions (owner_email, org_id, vault_id)`,
     },
+    {
+      version: 84,
+      name: "content-private-vault-genesis-account-challenges",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_genesis_challenges (
+        challenge_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        account_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        vault_id TEXT NOT NULL,
+        candidate_hash TEXT NOT NULL,
+        challenge_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        issued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_genesis_challenge_hash_unique
+        ON content_encrypted_vault_genesis_challenges (challenge_hash);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_genesis_challenge_scope_expiry_idx
+        ON content_encrypted_vault_genesis_challenges (owner_email, org_id, expires_at)`,
+    },
+    {
+      version: 85,
+      name: "content-private-vault-genesis-admission-candidate-binding",
+      sql: `ALTER TABLE content_encrypted_vault_genesis_admissions
+        ADD COLUMN IF NOT EXISTS candidate_hash TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 86,
+      name: "content-private-vault-stable-logical-scope",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vaults_logical_scope_unique
+        ON content_encrypted_vaults (account_id, workspace_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

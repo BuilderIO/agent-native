@@ -36,6 +36,7 @@ import {
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { getCurrentBetterAuthSession } from "./auth.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -540,10 +541,21 @@ export function mountActionRoutes(
             : undefined;
         }
         const timezone = readTimezoneHeader(event);
+        const betterAuthSession = !resolvedCaller
+          ? await getCurrentBetterAuthSession(event)
+          : null;
+        const stableBetterAuthSession =
+          betterAuthSession?.userId &&
+          betterAuthSession.email.trim().toLowerCase() ===
+            userEmail?.trim().toLowerCase()
+            ? betterAuthSession
+            : null;
 
         return runWithRequestContext(
           {
             userEmail,
+            userId: stableBetterAuthSession?.userId,
+            authSource: stableBetterAuthSession ? "better-auth" : undefined,
             userName,
             orgId,
             timezone,

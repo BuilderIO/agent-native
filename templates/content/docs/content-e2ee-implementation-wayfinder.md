@@ -603,6 +603,19 @@ not permission to synthesize a local receipt: only a hosted service that has
 independently committed the admitted genesis entry and exact recovery-wrap blob
 may issue it.
 
+Account admission now uses a separate session-authenticated challenge ceremony.
+The server derives a stable Better Auth subject and requires a current
+organization-membership row, then issues a five-minute challenge bound to the
+exact public genesis candidate, account, and workspace. The enrolled endpoint
+signs the final canonical request with the existing endpoint-request proof;
+public ceremony artifacts alone cannot claim a vault. Challenge consumption,
+the immutable admission anchor, and the vault row commit atomically, while an
+exact lost-response retry returns the same scoped receipt. The server retains
+only content-free challenge coordinates and hashes and purges them after
+expiry. `CONTENT_PRIVATE_VAULT_GENESIS_CHALLENGE_SECRET` must contain 32 random
+bytes encoded as lowercase hex; rotation invalidates only live challenges and
+never changes admitted vault identity.
+
 Native PREPARE is now contract-bound to generate 32 bytes of recovery entropy,
 display and fully confirm its checksum-valid 24-word BIP39 encoding, feed the
 decoded bytes rather than mnemonic text to Argon2id, and use the exact

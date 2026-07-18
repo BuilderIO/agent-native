@@ -1,6 +1,7 @@
 import {
   ancV1BytesToHex,
   ancV1Hash,
+  type SignedControlLogEntry,
   verifyAncV1RecoveryWrapRotation,
 } from "@agent-native/core/e2ee";
 import { readProtectedCiphertextAt } from "@agent-native/core/protected-ciphertext";
@@ -32,48 +33,59 @@ export async function resolveActivePrivateVaultControlScope(
   return vault ?? null;
 }
 
+/**
+ * Reuses the immutable account ceremony as the sole hosted trust anchor for
+ * sequence zero. Callers must still verify the signed entry itself; this only
+ * proves that these exact public bytes were admitted for this physical scope.
+ */
+export async function authorizePrivateVaultGenesisCandidate(input: {
+  scope: PrivateVaultControlLogScope;
+  entry: SignedControlLogEntry;
+  entryBytes: Uint8Array;
+}): Promise<boolean> {
+  const entryHash = ancV1BytesToHex(
+    await ancV1Hash("log-entry", input.entryBytes),
+  );
+  const [admission] = await getDb()
+    .select({
+      vaultId: schema.contentEncryptedVaultGenesisAdmissions.vaultId,
+    })
+    .from(schema.contentEncryptedVaultGenesisAdmissions)
+    .where(
+      and(
+        eq(
+          schema.contentEncryptedVaultGenesisAdmissions.vaultId,
+          input.scope.vaultId,
+        ),
+        eq(
+          schema.contentEncryptedVaultGenesisAdmissions.ownerEmail,
+          input.scope.ownerEmail,
+        ),
+        eq(
+          schema.contentEncryptedVaultGenesisAdmissions.orgId,
+          input.scope.orgId,
+        ),
+        eq(
+          schema.contentEncryptedVaultGenesisAdmissions.controlEntryId,
+          input.entry.envelopeId,
+        ),
+        eq(
+          schema.contentEncryptedVaultGenesisAdmissions.controlEntryHash,
+          entryHash,
+        ),
+        eq(
+          schema.contentEncryptedVaultGenesisAdmissions.signerEndpointId,
+          input.entry.signerEndpointId,
+        ),
+      ),
+    )
+    .limit(1);
+  return Boolean(admission);
+}
+
 export const privateVaultControlLogService =
   createPrivateVaultControlLogService({
-    authorizeGenesis: async ({ scope, entry, entryBytes }) => {
-      const entryHash = ancV1BytesToHex(
-        await ancV1Hash("log-entry", entryBytes),
-      );
-      const [admission] = await getDb()
-        .select({
-          vaultId: schema.contentEncryptedVaultGenesisAdmissions.vaultId,
-        })
-        .from(schema.contentEncryptedVaultGenesisAdmissions)
-        .where(
-          and(
-            eq(
-              schema.contentEncryptedVaultGenesisAdmissions.vaultId,
-              scope.vaultId,
-            ),
-            eq(
-              schema.contentEncryptedVaultGenesisAdmissions.ownerEmail,
-              scope.ownerEmail,
-            ),
-            eq(
-              schema.contentEncryptedVaultGenesisAdmissions.orgId,
-              scope.orgId,
-            ),
-            eq(
-              schema.contentEncryptedVaultGenesisAdmissions.controlEntryId,
-              entry.envelopeId,
-            ),
-            eq(
-              schema.contentEncryptedVaultGenesisAdmissions.controlEntryHash,
-              entryHash,
-            ),
-            eq(
-              schema.contentEncryptedVaultGenesisAdmissions.signerEndpointId,
-              entry.signerEndpointId,
-            ),
-          ),
-        )
-        .limit(1);
-      return Boolean(admission);
-    },
+    authorizeGenesis: authorizePrivateVaultGenesisCandidate,
     verifyRecoveryWrapRotation: async ({ scope, commit, entry, current }) => {
       try {
         const stored = await readProtectedCiphertextAt({

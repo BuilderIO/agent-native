@@ -25,7 +25,7 @@ export default defineAction({
   },
   run: async (args) =>
     privateVaultObjectService.listRevisions(
-      requirePrivateVaultActionScope(args.vaultId),
+      await requirePrivateVaultActionScope(args.vaultId),
       args.objectId,
     ),
 });

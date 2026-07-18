@@ -12,7 +12,9 @@ import {
   createAncV1RecoveryWrap,
   createEndpointRequestProof,
   createSignedControlLogEntry,
+  decodeAncV1ControlLogGenesisAppendReceipt,
   decodeAncV1ControlLogRotationAppendReceipt,
+  encodeAncV1ControlLogGenesisAppendRequest,
   encodeAncV1ControlLogRotationAppendRequest,
   encodeAncV1RecoveryWrap,
   encodeSignedControlLogEntry,
@@ -22,7 +24,17 @@ import {
   type ControlMembershipCommit,
 } from "@agent-native/core/e2ee";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import { validatePrivateVaultEndpointRow } from "../../shared/private-vault-hosted-records.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -93,6 +105,7 @@ vi.mock("@agent-native/core/protected-ciphertext", async (importOriginal) => {
 let getDb: (typeof import("../db/index.js"))["getDb"];
 let schema: typeof import("../db/schema.js");
 let controlLog: typeof import("./private-vault-control-log-runtime.js");
+let appendGenesis: (typeof import("./private-vault-control-log-append.js"))["appendPrivateVaultControlLogGenesis"];
 let appendRotation: (typeof import("./private-vault-control-log-append.js"))["appendPrivateVaultControlLogRotation"];
 
 function member(
@@ -151,8 +164,9 @@ beforeAll(async () => {
   schema = dbModule.schema;
   await (await import("../plugins/db.js")).default(undefined as never);
   controlLog = await import("./private-vault-control-log-runtime.js");
-  appendRotation = (await import("./private-vault-control-log-append.js"))
-    .appendPrivateVaultControlLogRotation;
+  const append = await import("./private-vault-control-log-append.js");
+  appendGenesis = append.appendPrivateVaultControlLogGenesis;
+  appendRotation = append.appendPrivateVaultControlLogRotation;
 }, 60_000);
 
 afterAll(() => {
@@ -535,5 +549,476 @@ describe("Private Vault authenticated rotation append", () => {
       recoveryWrapHash,
       ciphertextByteLength: recoveryWrap.byteLength,
     });
+  });
+});
+
+const GENESIS_OWNER = "genesis-owner@example.com";
+const GENESIS_ORG = "org:genesis-append";
+const GENESIS_VAULT_ID = "81".repeat(16);
+const GENESIS_ENDPOINT_ID = "82".repeat(16);
+const GENESIS_RECOVERY_ID = "83".repeat(16);
+const GENESIS_CEREMONY_ID = "84".repeat(16);
+
+async function buildGenesisFixture(input?: {
+  admissionOwner?: string;
+  includeAdmission?: boolean;
+}) {
+  const signing = await ancV1SigningKeypairFromSeed(
+    new Uint8Array(32).fill(21),
+  );
+  const agreement = await ancV1BoxKeypairFromSeed(new Uint8Array(32).fill(22));
+  const recovery = await ancV1BoxKeypairFromSeed(new Uint8Array(32).fill(23));
+  const recoverySigning = await ancV1SigningKeypairFromSeed(
+    new Uint8Array(32).fill(24),
+  );
+  const createdAt = "2026-07-18T02:00:00.000Z";
+  const recoveryWrap = encodeAncV1RecoveryWrap(
+    await createAncV1RecoveryWrap(
+      {
+        suite: "anc/v1",
+        vaultId: ancV1HexToBytes(GENESIS_VAULT_ID),
+        type: "recovery-wrap",
+        createdAt: Date.parse("2026-07-18T01:59:00.000Z") / 1_000,
+        envelopeId: ancV1HexToBytes("85".repeat(16)),
+        ceremonyId: ancV1HexToBytes(GENESIS_CEREMONY_ID),
+        recoveryGeneration: 1,
+        recoveryId: ancV1HexToBytes(GENESIS_RECOVERY_ID),
+        recoveryKeyAgreementPublicKey: recovery.publicKey,
+        epoch: 1,
+        issuerEndpointId: ancV1HexToBytes(GENESIS_ENDPOINT_ID),
+        activationControlSequence: 0,
+        activationPreviousHead: new Uint8Array(32),
+        activationPreviousMembershipHash: new Uint8Array(32),
+        nonce: new Uint8Array(24).fill(25),
+        eek: new Uint8Array(32).fill(26),
+      },
+      {
+        issuerKeyAgreementPrivateKey: agreement.privateKey,
+        issuerSigningPrivateKey: signing.privateKey,
+      },
+    ),
+  );
+  const recoveryWrapHash = ancV1BytesToHex(
+    await hashAncV1RecoveryWrap(
+      recoveryWrap,
+      ancV1HexToBytes(GENESIS_VAULT_ID),
+    ),
+  );
+  const initialMember = member(
+    GENESIS_ENDPOINT_ID,
+    signing.publicKey,
+    agreement.publicKey,
+  );
+  const genesisCommit: ControlMembershipCommit = {
+    suite: "anc/v1",
+    type: "membership_commit",
+    vaultId: GENESIS_VAULT_ID,
+    ceremonyId: GENESIS_CEREMONY_ID,
+    ceremonyKind: "first_device",
+    epoch: 1,
+    previousMembershipHash: null,
+    activeMembers: [initialMember],
+    removedEndpointIds: [],
+    rotationCompleted: false,
+    outstandingJobsResolved: false,
+    recoverySnapshotHash: null,
+    recoveryAuthorizationHash: null,
+    recoveryGeneration: 1,
+    recoveryId: GENESIS_RECOVERY_ID,
+    recoverySigningPublicKey: ancV1BytesToHex(recoverySigning.publicKey),
+    recoveryKeyAgreementPublicKey: ancV1BytesToHex(recovery.publicKey),
+    recoveryWrapHash,
+  };
+  const entry = await createSignedControlLogEntry({
+    vaultId: GENESIS_VAULT_ID,
+    createdAt,
+    envelopeId: "86".repeat(16),
+    sequence: 0,
+    previousHash: CONTROL_LOG_ZERO_HASH,
+    innerEnvelope: genesisCommit,
+    signerEndpointId: GENESIS_ENDPOINT_ID,
+    signingPrivateKey: signing.privateKey,
+  });
+  const signedEntry = encodeSignedControlLogEntry(entry);
+  const body = encodeAncV1ControlLogGenesisAppendRequest({
+    version: 1,
+    suite: "anc/v1",
+    type: "control-log-genesis-append-request",
+    signedEntry: Uint8Array.from(signedEntry),
+    recoveryWrap: Uint8Array.from(recoveryWrap),
+  });
+  await getDb().insert(schema.contentEncryptedVaults).values({
+    vaultId: GENESIS_VAULT_ID,
+    ownerEmail: GENESIS_OWNER,
+    orgId: GENESIS_ORG,
+    accountId: "account:genesis-append",
+    workspaceId: "workspace:genesis-append",
+    vaultState: "active",
+  });
+  if (input?.includeAdmission !== false) {
+    await getDb()
+      .insert(schema.contentEncryptedVaultGenesisAdmissions)
+      .values({
+        vaultId: GENESIS_VAULT_ID,
+        ownerEmail: input?.admissionOwner ?? GENESIS_OWNER,
+        orgId: GENESIS_ORG,
+        controlEntryId: entry.envelopeId,
+        controlEntryHash: ancV1BytesToHex(
+          await ancV1Hash("log-entry", signedEntry),
+        ),
+        signerEndpointId: GENESIS_ENDPOINT_ID,
+        bootstrapTranscriptHash: "87".repeat(32),
+      });
+  }
+  const requestTime = new Date();
+  const makeProof = (nonceByte: number, privateKey = signing.privateKey) => {
+    return Promise.all([
+      createEndpointRequestProof({
+        vaultId: GENESIS_VAULT_ID,
+        endpointId: GENESIS_ENDPOINT_ID,
+        method: "POST",
+        path: "/api/private-vault/control-log/append",
+        body,
+        issuedAt: requestTime.toISOString(),
+        nonce: nonceByte.toString(16).padStart(2, "0").repeat(16),
+        signingPrivateKey: privateKey,
+      }),
+      Promise.resolve(new Date(requestTime.getTime() + 500)),
+    ]).then(([proof, now]) => ({ proof, now }));
+  };
+  return {
+    body,
+    entry,
+    initialMember,
+    recoveryWrap,
+    recoveryWrapHash,
+    signing,
+    makeProof,
+  };
+}
+
+describe("Private Vault account-admitted genesis append", () => {
+  beforeEach(async () => {
+    beforeNextPut = null;
+    blobs.clear();
+    await getDb().delete(schema.contentEncryptedVaultEndpointRequestNonces);
+    await getDb().delete(
+      schema.contentEncryptedVaultEndpointRequestNoncesLegacy,
+    );
+    await getDb().delete(schema.contentEncryptedVaultEndpoints);
+    await getDb().delete(schema.contentEncryptedVaultRecoveryWraps);
+    await getDb().delete(schema.contentEncryptedVaultCiphertextStaging);
+    await getDb().delete(schema.contentEncryptedVaultControlHeads);
+    await getDb().delete(schema.contentEncryptedVaultControlLogEntries);
+    await getDb().delete(schema.contentEncryptedVaultGenesisAdmissions);
+    await getDb().delete(schema.contentEncryptedVaultRetentionQueue);
+    await getDb().delete(schema.contentEncryptedVaults);
+  });
+
+  it("commits the exact sequence-zero edge, wrap binding, stage, and endpoint projection once", async () => {
+    const fixture = await buildGenesisFixture();
+    const first = await fixture.makeProof(1);
+    const receiptBytes = await appendGenesis({
+      body: fixture.body,
+      ...first,
+    });
+    expect(
+      decodeAncV1ControlLogGenesisAppendReceipt(receiptBytes),
+    ).toMatchObject({
+      type: "control-log-genesis-append-receipt",
+      vaultId: GENESIS_VAULT_ID,
+      entryId: fixture.entry.envelopeId,
+      sequence: 0,
+      recoveryWrapHash: fixture.recoveryWrapHash,
+      recoveryWrapByteLength: fixture.recoveryWrap.byteLength,
+    });
+    const scope = {
+      ownerEmail: GENESIS_OWNER,
+      orgId: GENESIS_ORG,
+      vaultId: GENESIS_VAULT_ID,
+    };
+    const genesisState =
+      await controlLog.privateVaultControlLogService.loadVerifiedState(scope);
+    expect(genesisState).toMatchObject({ sequence: 0, epoch: 1 });
+    const [binding] = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultRecoveryWraps);
+    expect(binding).toMatchObject({
+      vaultId: GENESIS_VAULT_ID,
+      controlEntryId: fixture.entry.envelopeId,
+      recoveryWrapHash: fixture.recoveryWrapHash,
+      ciphertextByteLength: fixture.recoveryWrap.byteLength,
+    });
+    const [stage] = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultCiphertextStaging);
+    expect(stage).toMatchObject({
+      vaultId: GENESIS_VAULT_ID,
+      recoveryWrapHash: fixture.recoveryWrapHash,
+      phase: "committed",
+    });
+    const [endpoint] = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultEndpoints);
+    expect(endpoint).toMatchObject({
+      endpointId: GENESIS_ENDPOINT_ID,
+      vaultId: GENESIS_VAULT_ID,
+      ownerEmail: GENESIS_OWNER,
+      orgId: GENESIS_ORG,
+      endpointState: "online",
+      healthState: "healthy",
+    });
+    expect(JSON.parse(endpoint!.publicIdentityJson)).toMatchObject({
+      algorithmId: "anc/v1-control-log-member",
+    });
+    expect(() => validatePrivateVaultEndpointRow(endpoint)).not.toThrow();
+
+    const laterCheckpoint = await createSignedControlLogEntry({
+      vaultId: GENESIS_VAULT_ID,
+      createdAt: "2026-07-18T02:02:00.000Z",
+      envelopeId: "89".repeat(16),
+      sequence: 1,
+      previousHash: genesisState!.headHash,
+      innerEnvelope: {
+        suite: "anc/v1",
+        type: "continuity_checkpoint",
+        vaultId: GENESIS_VAULT_ID,
+        membershipHash: genesisState!.membershipHash,
+      },
+      signerEndpointId: GENESIS_ENDPOINT_ID,
+      signingPrivateKey: fixture.signing.privateKey,
+    });
+    await controlLog.privateVaultControlLogService.append(scope, {
+      entryBytes: encodeSignedControlLogEntry(laterCheckpoint),
+      expectedHead: {
+        sequence: genesisState!.sequence,
+        hash: genesisState!.headHash,
+      },
+    });
+    await getDb()
+      .update(schema.contentEncryptedVaultEndpoints)
+      .set({ endpointState: "removed", healthState: "offline" })
+      .where(
+        eq(
+          schema.contentEncryptedVaultEndpoints.endpointId,
+          GENESIS_ENDPOINT_ID,
+        ),
+      );
+    const lostResponseRetry = await fixture.makeProof(2);
+    await expect(
+      appendGenesis({ body: fixture.body, ...lostResponseRetry }),
+    ).resolves.toEqual(receiptBytes);
+    await expect(
+      appendGenesis({ body: fixture.body, ...first }),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultControlLogEntries),
+    ).toHaveLength(2);
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultEndpoints),
+    ).toHaveLength(1);
+  });
+
+  it("coalesces concurrent exact requests into one commit and one canonical receipt", async () => {
+    const fixture = await buildGenesisFixture();
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, (_, index) => fixture.makeProof(index + 10)),
+    );
+    const receipts = await Promise.all(
+      attempts.map((attempt) =>
+        appendGenesis({ body: fixture.body, ...attempt }),
+      ),
+    );
+    for (const receipt of receipts.slice(1)) {
+      expect(receipt).toEqual(receipts[0]);
+    }
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultControlLogEntries),
+    ).toHaveLength(1);
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultRecoveryWraps),
+    ).toHaveLength(1);
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultEndpoints),
+    ).toHaveLength(1);
+  });
+
+  it("fails closed for missing or cross-account admission and request type confusion", async () => {
+    const fixture = await buildGenesisFixture({ includeAdmission: false });
+    const missing = await fixture.makeProof(30);
+    await expect(
+      appendGenesis({ body: fixture.body, ...missing }),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+    await getDb()
+      .insert(schema.contentEncryptedVaultGenesisAdmissions)
+      .values({
+        vaultId: GENESIS_VAULT_ID,
+        ownerEmail: GENESIS_OWNER,
+        orgId: GENESIS_ORG,
+        controlEntryId: fixture.entry.envelopeId,
+        controlEntryHash: ancV1BytesToHex(
+          await ancV1Hash(
+            "log-entry",
+            encodeSignedControlLogEntry(fixture.entry),
+          ),
+        ),
+        signerEndpointId: GENESIS_ENDPOINT_ID,
+        bootstrapTranscriptHash: "88".repeat(32),
+      });
+    await getDb()
+      .insert(schema.contentEncryptedVaults)
+      .values({
+        vaultId: "92".repeat(16),
+        ownerEmail: "other-account@example.com",
+        orgId: "org:other-account",
+        accountId: "account:other-account",
+        workspaceId: "workspace:other-account",
+        vaultState: "active",
+      });
+    const otherAccountTime = new Date();
+    const otherAccount = await createEndpointRequestProof({
+      vaultId: "92".repeat(16),
+      endpointId: GENESIS_ENDPOINT_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body: fixture.body,
+      issuedAt: otherAccountTime.toISOString(),
+      nonce: "31".repeat(16),
+      signingPrivateKey: fixture.signing.privateKey,
+    });
+    await expect(
+      appendGenesis({
+        body: fixture.body,
+        proof: otherAccount,
+        now: new Date(otherAccountTime.getTime() + 500),
+      }),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+
+    const rotationTypeBody = encodeAncV1ControlLogRotationAppendRequest({
+      version: 1,
+      suite: "anc/v1",
+      type: "control-log-rotation-append-request",
+      signedEntry: Uint8Array.from(encodeSignedControlLogEntry(fixture.entry)),
+      recoveryWrap: Uint8Array.from(fixture.recoveryWrap),
+    });
+    await expect(
+      appendGenesis({
+        body: rotationTypeBody,
+        proof: missing.proof,
+        now: missing.now,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultControlLogEntries),
+    ).toHaveLength(0);
+  });
+
+  it("rejects a recovery wrap whose signed bytes no longer match the admitted genesis", async () => {
+    const fixture = await buildGenesisFixture();
+    const tamperedWrap = Uint8Array.from(fixture.recoveryWrap);
+    tamperedWrap[tamperedWrap.length - 1] ^= 0x80;
+    const body = encodeAncV1ControlLogGenesisAppendRequest({
+      version: 1,
+      suite: "anc/v1",
+      type: "control-log-genesis-append-request",
+      signedEntry: Uint8Array.from(encodeSignedControlLogEntry(fixture.entry)),
+      recoveryWrap: tamperedWrap,
+    });
+    const requestTime = new Date();
+    const proof = await createEndpointRequestProof({
+      vaultId: GENESIS_VAULT_ID,
+      endpointId: GENESIS_ENDPOINT_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body,
+      issuedAt: requestTime.toISOString(),
+      nonce: "71".repeat(16),
+      signingPrivateKey: fixture.signing.privateKey,
+    });
+    await expect(
+      appendGenesis({
+        body,
+        proof,
+        now: new Date(requestTime.getTime() + 500),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultControlLogEntries),
+    ).toHaveLength(0);
+  });
+
+  it("rolls back every SQL projection when the admitted endpoint coordinate conflicts", async () => {
+    const fixture = await buildGenesisFixture();
+    await getDb()
+      .insert(schema.contentEncryptedVaults)
+      .values({
+        vaultId: "91".repeat(16),
+        ownerEmail: "other-endpoint-owner@example.com",
+        orgId: "org:other-endpoint",
+        accountId: "account:other-endpoint",
+        workspaceId: "workspace:other-endpoint",
+        vaultState: "active",
+      });
+    await getDb()
+      .insert(schema.contentEncryptedVaultEndpoints)
+      .values({
+        endpointId: GENESIS_ENDPOINT_ID,
+        vaultId: "91".repeat(16),
+        ownerEmail: "other-endpoint-owner@example.com",
+        orgId: "org:other-endpoint",
+        endpointState: "online",
+        publicIdentityJson: JSON.stringify({
+          algorithmId: "anc/v1",
+          publicIdentity: "conflicting-public-identity",
+        }),
+        healthState: "healthy",
+      });
+    const attempt = await fixture.makeProof(40);
+    await expect(
+      appendGenesis({ body: fixture.body, ...attempt }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultControlLogEntries),
+    ).toHaveLength(0);
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultControlHeads),
+    ).toHaveLength(0);
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultRecoveryWraps),
+    ).toHaveLength(0);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultCiphertextStaging),
+    ).toHaveLength(0);
+  });
+
+  it("refuses to acknowledge a committed edge after exact blob readback diverges", async () => {
+    const fixture = await buildGenesisFixture();
+    const first = await fixture.makeProof(50);
+    await appendGenesis({ body: fixture.body, ...first });
+    const coordinate = JSON.stringify({
+      kind: "recovery-wrap",
+      vaultId: GENESIS_VAULT_ID,
+      recoveryWrapHash: fixture.recoveryWrapHash,
+    });
+    blobs.set(
+      coordinate,
+      new Uint8Array(fixture.recoveryWrap.byteLength).fill(9),
+    );
+    const retry = await fixture.makeProof(51);
+    await expect(
+      appendGenesis({ body: fixture.body, ...retry }),
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 });

@@ -8,8 +8,9 @@ const setResponseStatus = vi.hoisted(() => vi.fn());
 const authorizeEnqueue = vi.hoisted(() => vi.fn());
 const enqueue = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/server", () => ({
-  getSession: (...args: unknown[]) => getSession(...args),
+vi.mock("../../../../lib/private-vault-genesis-account-scope.js", () => ({
+  resolveAuthenticatedPrivateVaultScope: (...args: unknown[]) =>
+    getSession(...args),
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -52,8 +53,9 @@ describe("POST /api/private-vault/jobs", () => {
     vi.resetAllMocks();
     getHeader.mockImplementation((_event, name: string) => headers[name]);
     getSession.mockResolvedValue({
-      email: "owner@example.com",
+      ownerEmail: "owner@example.com",
       orgId: "org:test",
+      vaultId: "vault:test",
     });
     authorizeEnqueue.mockResolvedValue(undefined);
     readPrivateVaultBoundedBody.mockResolvedValue(

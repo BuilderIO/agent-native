@@ -6,6 +6,8 @@ import {
   getRequestOrgId,
   getRequestTimezone,
   getRequestContext,
+  getRequestAuthSource,
+  getRequestStableUserId,
   hasRequestContext,
   hasAuthContextAccess,
 } from "./request-context.js";
@@ -50,6 +52,30 @@ describe("server/request-context", () => {
       runWithRequestContext({ userEmail: undefined }, () => {
         expect(getRequestUserEmail()).toBeUndefined();
       });
+    });
+  });
+
+  describe("stable authenticated subject", () => {
+    it("returns a subject only when its issuer is Better Auth", () => {
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          userId: "user-1",
+          authSource: "better-auth",
+        },
+        () => {
+          expect(getRequestStableUserId()).toBe("user-1");
+          expect(getRequestAuthSource()).toBe("better-auth");
+        },
+      );
+
+      runWithRequestContext(
+        { userEmail: "alice@example.com", userId: "untrusted-user-1" },
+        () => {
+          expect(getRequestStableUserId()).toBeUndefined();
+          expect(getRequestAuthSource()).toBeUndefined();
+        },
+      );
     });
   });
 

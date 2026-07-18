@@ -1,6 +1,7 @@
 #import "PrivateVaultGenesisCoordinator.h"
 #import "PrivateVaultGenesisPreparationStore.h"
 #import "PrivateVaultGuardedMemory.h"
+#import "PrivateVaultRotationCoordinator.h"
 #import "PrivateVaultTrustedTimeStore.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -90,6 +91,19 @@ NS_ASSUME_NONNULL_BEGIN
 - (AncPrivateVaultGenesisCoordinatorStatus)
     finalizeHostedGenesisAppendLookupId:(NSData *)lookupId
                                  receipt:(NSData *)receipt;
+
+/* Rereads and authenticates the exact pre-receipt COMMITTED genesis tuple and
+ * retained spool, then creates one fresh endpoint-bound append attempt. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    prepareHostedGenesisAppendLookupId:(NSData *)lookupId
+                                request:
+                                    (AncPrivateVaultHostedAppendRequest
+                                         *_Nullable *_Nullable)request;
+
+/* Replays only an already fenced exact hosted receipt. NotFound is reserved
+ * for an exact COMMITTED ceremony with no local receipt; OK proves cleanup. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    recoverHostedGenesisAppendCleanupLookupId:(NSData *)lookupId;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

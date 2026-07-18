@@ -1,4 +1,3 @@
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getHeader,
@@ -7,6 +6,7 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { resolveAuthenticatedPrivateVaultScope } from "../../../../../lib/private-vault-genesis-account-scope.js";
 import {
   PrivateVaultObjectNotFoundError,
   privateVaultObjectService,
@@ -18,17 +18,17 @@ export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const vaultId = getHeader(event, "x-anc-vault-id")?.trim() ?? "";
+  const scope = await resolveAuthenticatedPrivateVaultScope(event, vaultId);
+  if (!scope) {
     setResponseStatus(event, 404);
     return NOT_FOUND;
   }
-  const vaultId = getHeader(event, "x-anc-vault-id")?.trim() ?? "";
   const objectId = getRouterParam(event, "objectId") ?? "";
   const revisionId = getRouterParam(event, "revisionId") ?? "";
   try {
     const result = await privateVaultObjectService.getRevision(
-      { ownerEmail: session.email, orgId: session.orgId ?? "", vaultId },
+      scope,
       objectId,
       revisionId,
     );

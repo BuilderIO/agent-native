@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const bridgeLegacyClaims = vi.hoisted(() => vi.fn());
 const deleteExpired = vi.hoisted(() => vi.fn());
+const deleteExpiredGenesisChallenges = vi.hoisted(() => vi.fn());
 const sweep = vi.hoisted(() => vi.fn());
 const awaitContentDatabaseReady = vi.hoisted(() => vi.fn());
 const trackPluginInit = vi.hoisted(() => vi.fn());
@@ -16,6 +17,10 @@ vi.mock("../lib/private-vault-retention.js", () => ({
   privateVaultRetentionService: { sweep },
   PRIVATE_VAULT_RETENTION_SWEEP_INTERVAL_MS: 6 * 60 * 60 * 1_000,
 }));
+vi.mock("../lib/private-vault-genesis-admission.js", () => ({
+  deleteExpiredPrivateVaultGenesisChallenges: (...args: unknown[]) =>
+    deleteExpiredGenesisChallenges(...args),
+}));
 vi.mock("./db.js", () => ({ awaitContentDatabaseReady }));
 vi.mock("@agent-native/core/server", () => ({ trackPluginInit }));
 
@@ -26,6 +31,7 @@ describe("Content Private Vault retention startup", () => {
     vi.resetAllMocks();
     bridgeLegacyClaims.mockResolvedValue(0);
     deleteExpired.mockResolvedValue(0);
+    deleteExpiredGenesisChallenges.mockResolvedValue(0);
     sweep.mockResolvedValue({});
     vi.spyOn(globalThis, "setTimeout").mockReturnValue({
       unref: vi.fn(),

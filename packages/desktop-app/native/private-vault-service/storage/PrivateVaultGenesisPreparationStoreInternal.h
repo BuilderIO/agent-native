@@ -7,6 +7,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef BOOL (^AncPrivateVaultCommittedGenesisHostedAppendBorrowBlock)(
+    NSString *vaultId, NSString *endpointId, const uint8_t *signedGenesisEntry,
+    size_t signedGenesisEntryLength, const uint8_t *recoveryWrap,
+    size_t recoveryWrapLength, const uint8_t *endpointSigningSeed,
+    NSData *endpointSigningPublicKey);
+
 /* Proof-bearing genesis transitions. These methods construct the next durable
  * snapshot from the reconciled current record; no caller supplies record state
  * or secret material. */
@@ -51,6 +57,23 @@ NS_ASSUME_NONNULL_BEGIN
                           (AncPrivateVaultAuthorityStore *)authorityStore
                    custodyRepository:
                        (AncPrivateVaultCustodyRepository *)custodyRepository;
+
+/* Independently rereads the exact COMMITTED record, official Authority g2,
+ * official Custody g2, and digest-bound live artifact spool. The complete
+ * confirmed evidence is replayed before the retained public append artifacts
+ * and active endpoint signing seed are lent synchronously. No object or secret
+ * supplied by the caller participates in validation. */
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    borrowCommittedHostedAppendLookupId:(const uint8_t *)lookupId
+                                  length:(size_t)length
+                              controlLog:(AncPrivateVaultControlLog *)controlLog
+                          authorityStore:
+                              (AncPrivateVaultAuthorityStore *)authorityStore
+                       custodyRepository:
+                           (AncPrivateVaultCustodyRepository *)custodyRepository
+                                consumer:
+                                    (AncPrivateVaultCommittedGenesisHostedAppendBorrowBlock)
+                                        consumer;
 
 - (AncPrivateVaultGenesisPreparationStoreStatus)
     bindConfirmedHandle:(const uint8_t *)handle

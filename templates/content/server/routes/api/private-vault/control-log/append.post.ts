@@ -1,5 +1,7 @@
 import {
   ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
+  decodeAncV1ControlLogGenesisAppendRequest,
+  decodeAncV1ControlLogRotationAppendRequest,
   endpointRequestProofSchema,
 } from "@agent-native/core/e2ee";
 import {
@@ -11,6 +13,7 @@ import {
 
 import { readPrivateVaultBoundedBody } from "../../../../lib/private-vault-bounded-body.js";
 import {
+  appendPrivateVaultControlLogGenesis,
   appendPrivateVaultControlLogRotation,
   PrivateVaultControlLogAppendError,
 } from "../../../../lib/private-vault-control-log-append.js";
@@ -43,6 +46,20 @@ function parseProof(value: string) {
   }
 }
 
+function requestKind(body: Uint8Array): "genesis" | "rotation" | null {
+  try {
+    decodeAncV1ControlLogGenesisAppendRequest(body);
+    return "genesis";
+  } catch {
+    try {
+      decodeAncV1ControlLogRotationAppendRequest(body);
+      return "rotation";
+    } catch {
+      return null;
+    }
+  }
+}
+
 export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
@@ -66,9 +83,13 @@ export default defineEventHandler(async (event) => {
     ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
   ).catch(() => null);
   if (!body) return fail(event, 404);
+  const kind = requestKind(body);
+  if (!kind) return fail(event, 404);
 
   try {
-    const receipt = await appendPrivateVaultControlLogRotation({ body, proof });
+    const receipt = await (kind === "genesis"
+      ? appendPrivateVaultControlLogGenesis({ body, proof })
+      : appendPrivateVaultControlLogRotation({ body, proof }));
     setResponseHeader(event, "Content-Type", REQUEST_TYPE);
     setResponseHeader(event, "Content-Length", String(receipt.byteLength));
     return receipt;
