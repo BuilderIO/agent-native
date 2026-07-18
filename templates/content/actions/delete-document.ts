@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -170,6 +171,7 @@ export async function deleteDocumentRecursive(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
   const propertyDefinitionIds: string[] = [];
   await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
@@ -370,13 +372,6 @@ export default defineAction({
       .where(eq(schema.contentDatabases.documentId, id));
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
-    }
-    const [workspaceReference] = await db
-      .select({ id: schema.contentSpaceCatalogItems.id })
-      .from(schema.contentSpaceCatalogItems)
-      .where(eq(schema.contentSpaceCatalogItems.documentId, id));
-    if (workspaceReference) {
-      throw new Error("Workspace references cannot be deleted as pages");
     }
     const deleted = await deleteDocumentRecursive(
       db,

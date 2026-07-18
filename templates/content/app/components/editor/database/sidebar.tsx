@@ -145,12 +145,17 @@ export function ContentFilesSidebarView({
   const activeView =
     viewConfig.views.find((view) => view.id === selectedViewId) ??
     activeDatabaseView(viewConfig);
+  const [constraintsCleared, setConstraintsCleared] = useState(false);
+  const activeFilterKey = JSON.stringify(activeView.filters);
+  useEffect(() => {
+    setConstraintsCleared(false);
+  }, [activeFilterKey, activeView.id]);
   const items = data
     ? applyDatabaseView(
         data.items,
         data.properties,
         "",
-        activeView.filters,
+        constraintsCleared ? [] : activeView.filters,
         activeView.sorts,
         activeView.filterMode ?? "and",
       )
@@ -193,9 +198,11 @@ export function ContentFilesSidebarView({
           !!databaseViewGroupingProperty(activeView, data?.properties ?? [])
         }
         isLoading={isLoading}
-        hasActiveConstraints={false}
+        hasActiveConstraints={
+          !constraintsCleared && activeView.filters.length > 0
+        }
         openPagesIn="full_page"
-        onClearResultConstraints={() => {}}
+        onClearResultConstraints={() => setConstraintsCleared(true)}
         onPreview={() => {}}
         onOpenItem={onOpenItem}
         activeDocumentId={activeDocumentId}

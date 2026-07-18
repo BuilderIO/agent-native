@@ -711,6 +711,10 @@ function DatabaseTable({
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
+  const isCreatingDatabaseItem =
+    data?.database.systemRole === "workspaces"
+      ? createContentSpace.isPending
+      : addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -2387,18 +2391,10 @@ function DatabaseTable({
               type="button"
               size="sm"
               className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
-              disabled={
-                (data?.database.systemRole === "workspaces"
-                  ? createContentSpace.isPending
-                  : addItem.isPending) || !databaseId
-              }
+              disabled={isCreatingDatabaseItem || !databaseId}
               onClick={() => void createRow()}
             >
-              {(
-                data?.database.systemRole === "workspaces"
-                  ? createContentSpace.isPending
-                  : addItem.isPending
-              ) ? (
+              {isCreatingDatabaseItem ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : null}
               New
@@ -2515,7 +2511,7 @@ function DatabaseTable({
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending || setProperty.isPending}
+          isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
@@ -2559,7 +2555,7 @@ function DatabaseTable({
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending}
+          isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
@@ -2582,7 +2578,7 @@ function DatabaseTable({
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending}
+          isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
@@ -2605,7 +2601,7 @@ function DatabaseTable({
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending || setProperty.isPending}
+          isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
@@ -2631,7 +2627,7 @@ function DatabaseTable({
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending || setProperty.isPending}
+          isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
@@ -2665,7 +2661,7 @@ function DatabaseTable({
           databaseDocumentId={document.id}
           canEdit={canEdit}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending}
+          isCreating={isCreatingDatabaseItem}
           columnWidths={columnWidths}
           sorts={sorts}
           filters={filters}

@@ -11,6 +11,7 @@ import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
 } from "./_content-space-access.js";
+import { withPositionLock } from "./_position-utils.js";
 import {
   defaultDatabaseViewConfig,
   normalizedValueJson,
@@ -494,172 +495,201 @@ async function provisionOwnedContentSpace(
     catalogItems: 0,
   };
 
-  const provisioned = await db.transaction(async (tx: Db) => {
-    const sourceFiles = await ensureSystemDatabase({
-      db: tx,
-      spaceId,
-      ownerEmail: email,
-      orgId: null,
-      title: "Files",
-      role: "files",
-      visibility: "private",
-      now,
-      created,
-    });
-    const [existingSpace] = await tx
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, spaceId));
-    if (existingSpace && input.kind === "user" && existingSpace.name !== name) {
-      throw new Error("Workspace request ID is already bound to another name");
-    }
-    if (!existingSpace) {
-      await tx
-        .insert(schema.contentSpaces)
-        .values({
-          id: spaceId,
-          name,
-          kind: input.kind,
-          ownerEmail: email,
-          orgId: null,
-          filesDatabaseId: sourceFiles.id,
-          createdBy: email,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing();
-    } else if (existingSpace.filesDatabaseId !== sourceFiles.id) {
-      await tx
-        .update(schema.contentSpaces)
-        .set({ filesDatabaseId: sourceFiles.id, updatedAt: now })
-        .where(eq(schema.contentSpaces.id, spaceId));
-    }
-
-    const referenceDocumentId = opaqueId(
-      "content_workspace_reference",
-      `${email}:${spaceId}`,
-    );
-    await ensureDocument(
-      tx,
-      {
-        id: referenceDocumentId,
-        spaceId: personalSpaceId,
+  const provisioned = await withPositionLock<{
+    files: typeof schema.contentDatabases.$inferSelect;
+    catalogDatabaseId: string;
+    catalogItemId: string;
+    catalogDocumentId: string;
+  }>(`contentSpace:${spaceId}`, () =>
+    db.transaction(async (tx: Db) => {
+      const sourceFiles = await ensureSystemDatabase({
+        db: tx,
+        spaceId,
         ownerEmail: email,
         orgId: null,
-        parentId: catalogIds.documentId,
-        title: name,
-        content: "",
-        description: "",
-        position: 0,
-        isFavorite: 0,
-        hideFromSearch: 0,
+        title: "Files",
+        role: "files",
         visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-      },
-      created,
-    );
-    if (!existingSpace || input.kind !== "user") {
-      await tx
-        .update(schema.documents)
-        .set({ title: name, updatedAt: now })
-        .where(eq(schema.documents.id, referenceDocumentId));
-    }
-
-    const [maxCatalogPosition] = await tx
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, catalogIds.databaseId));
-    const catalogItemId = await ensureDatabaseItem({
-      db: tx,
-      databaseId: catalogIds.databaseId,
-      documentId: referenceDocumentId,
-      ownerEmail: email,
-      orgId: null,
-      position: (maxCatalogPosition?.max ?? -1) + 1,
-      now,
-    });
-    const [mapping] = await tx
-      .select({ id: schema.contentSpaceCatalogItems.id })
-      .from(schema.contentSpaceCatalogItems)
-      .where(
-        and(
-          eq(
-            schema.contentSpaceCatalogItems.catalogDatabaseId,
-            catalogIds.databaseId,
-          ),
-          eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
-        ),
-      );
-    if (!mapping) {
-      await tx
-        .insert(schema.contentSpaceCatalogItems)
-        .values({
-          id: opaqueId("content_space_catalog", `${email}:${spaceId}`),
-          ownerEmail: email,
-          catalogDatabaseId: catalogIds.databaseId,
-          databaseItemId: catalogItemId,
-          documentId: referenceDocumentId,
-          spaceId,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing();
-    }
-    const initialPropertyValues = Object.entries(input.propertyValues ?? {});
-    if (initialPropertyValues.length > 0) {
-      const definitions = (await tx
+        now,
+        created,
+      });
+      const [existingSpace] = await tx
         .select()
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(
-              schema.documentPropertyDefinitions.databaseId,
-              catalogIds.databaseId,
-            ),
-            inArray(
-              schema.documentPropertyDefinitions.id,
-              initialPropertyValues.map(([propertyId]) => propertyId),
-            ),
-          ),
-        )) as Array<typeof schema.documentPropertyDefinitions.$inferSelect>;
-      const definitionById = new Map(
-        definitions.map((definition) => [definition.id, definition]),
-      );
-      for (const [propertyId, value] of initialPropertyValues) {
-        const definition = definitionById.get(propertyId);
-        const type = definition?.type as DocumentPropertyType | undefined;
-        if (!type || isComputedPropertyType(type)) continue;
-        await tx
-          .insert(schema.documentPropertyValues)
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId));
+      if (
+        existingSpace &&
+        input.kind === "user" &&
+        existingSpace.name !== name
+      ) {
+        throw new Error(
+          "Workspace request ID is already bound to another name",
+        );
+      }
+      let createdSpace = false;
+      if (!existingSpace) {
+        const inserted = await tx
+          .insert(schema.contentSpaces)
           .values({
-            id: opaqueId(
-              "content_workspace_property",
-              `${email}:${spaceId}:${propertyId}`,
-            ),
+            id: spaceId,
+            name,
+            kind: input.kind,
             ownerEmail: email,
-            documentId: referenceDocumentId,
-            propertyId,
-            valueJson: normalizedValueJson(type, value),
+            orgId: null,
+            filesDatabaseId: sourceFiles.id,
+            createdBy: email,
             createdAt: now,
             updatedAt: now,
           })
-          .onConflictDoUpdate({
-            target: schema.documentPropertyValues.id,
-            set: {
-              valueJson: normalizedValueJson(type, value),
-              updatedAt: now,
-            },
-          });
+          .onConflictDoNothing()
+          .returning({ id: schema.contentSpaces.id });
+        createdSpace = inserted.length > 0;
+      } else if (existingSpace.filesDatabaseId !== sourceFiles.id) {
+        await tx
+          .update(schema.contentSpaces)
+          .set({ filesDatabaseId: sourceFiles.id, updatedAt: now })
+          .where(eq(schema.contentSpaces.id, spaceId));
       }
-    }
-    return {
-      files: sourceFiles,
-      catalogDatabaseId: catalogIds.databaseId,
-      catalogItemId,
-      catalogDocumentId: referenceDocumentId,
-    };
-  });
+      const [canonicalSpace] = await tx
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId));
+      if (!canonicalSpace)
+        throw new Error("Unable to create Content workspace");
+      if (input.kind === "user" && canonicalSpace.name !== name) {
+        throw new Error(
+          "Workspace request ID is already bound to another name",
+        );
+      }
+
+      const referenceDocumentId = opaqueId(
+        "content_workspace_reference",
+        `${email}:${spaceId}`,
+      );
+      await ensureDocument(
+        tx,
+        {
+          id: referenceDocumentId,
+          spaceId: personalSpaceId,
+          ownerEmail: email,
+          orgId: null,
+          parentId: catalogIds.documentId,
+          title: name,
+          content: "",
+          description: "",
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+        created,
+      );
+      if (createdSpace || input.kind !== "user") {
+        await tx
+          .update(schema.documents)
+          .set({ title: name, updatedAt: now })
+          .where(eq(schema.documents.id, referenceDocumentId));
+      }
+
+      const [maxCatalogPosition] = await tx
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.contentDatabaseItems)
+        .where(
+          eq(schema.contentDatabaseItems.databaseId, catalogIds.databaseId),
+        );
+      const catalogItemId = await ensureDatabaseItem({
+        db: tx,
+        databaseId: catalogIds.databaseId,
+        documentId: referenceDocumentId,
+        ownerEmail: email,
+        orgId: null,
+        position: (maxCatalogPosition?.max ?? -1) + 1,
+        now,
+      });
+      const [mapping] = await tx
+        .select({ id: schema.contentSpaceCatalogItems.id })
+        .from(schema.contentSpaceCatalogItems)
+        .where(
+          and(
+            eq(
+              schema.contentSpaceCatalogItems.catalogDatabaseId,
+              catalogIds.databaseId,
+            ),
+            eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
+          ),
+        );
+      if (!mapping) {
+        await tx
+          .insert(schema.contentSpaceCatalogItems)
+          .values({
+            id: opaqueId("content_space_catalog", `${email}:${spaceId}`),
+            ownerEmail: email,
+            catalogDatabaseId: catalogIds.databaseId,
+            databaseItemId: catalogItemId,
+            documentId: referenceDocumentId,
+            spaceId,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing();
+      }
+      const initialPropertyValues = Object.entries(input.propertyValues ?? {});
+      if (createdSpace && initialPropertyValues.length > 0) {
+        const definitions = (await tx
+          .select()
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            and(
+              eq(
+                schema.documentPropertyDefinitions.databaseId,
+                catalogIds.databaseId,
+              ),
+              inArray(
+                schema.documentPropertyDefinitions.id,
+                initialPropertyValues.map(([propertyId]) => propertyId),
+              ),
+            ),
+          )) as Array<typeof schema.documentPropertyDefinitions.$inferSelect>;
+        const definitionById = new Map(
+          definitions.map((definition) => [definition.id, definition]),
+        );
+        for (const [propertyId, value] of initialPropertyValues) {
+          const definition = definitionById.get(propertyId);
+          const type = definition?.type as DocumentPropertyType | undefined;
+          if (!type || isComputedPropertyType(type)) continue;
+          await tx
+            .insert(schema.documentPropertyValues)
+            .values({
+              id: opaqueId(
+                "content_workspace_property",
+                `${email}:${spaceId}:${propertyId}`,
+              ),
+              ownerEmail: email,
+              documentId: referenceDocumentId,
+              propertyId,
+              valueJson: normalizedValueJson(type, value),
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: schema.documentPropertyValues.id,
+              set: {
+                valueJson: normalizedValueJson(type, value),
+                updatedAt: now,
+              },
+            });
+        }
+      }
+      return {
+        files: sourceFiles,
+        catalogDatabaseId: catalogIds.databaseId,
+        catalogItemId,
+        catalogDocumentId: referenceDocumentId,
+      };
+    }),
+  );
 
   await seedDefaultBlocksField({
     databaseId: provisioned.files.id,

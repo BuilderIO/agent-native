@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { ContentDatabaseItem } from "@shared/api";
+import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -9,7 +9,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { DatabaseSidebarView, databaseSidebarRows } from "./sidebar";
+import {
+  ContentFilesSidebarView,
+  DatabaseSidebarView,
+  databaseSidebarRows,
+} from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
 
 const item = (id: string, title: string) =>
@@ -117,6 +121,57 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("Team");
     expect(markup).toContain("Builder.io files");
     expect(markup).not.toContain('href="/page/workspace"');
+  });
+
+  it("explains when a saved workspace filter hides every root", () => {
+    const data = {
+      database: {
+        viewConfig: {
+          version: 1,
+          activeViewId: "filtered",
+          views: [
+            {
+              id: "filtered",
+              name: "Filtered",
+              type: "sidebar",
+              filters: [
+                {
+                  id: "missing",
+                  key: "name",
+                  label: "Name",
+                  operator: "contains",
+                  value: "Missing",
+                },
+              ],
+              sorts: [],
+              filterMode: "and",
+            },
+          ],
+        },
+      },
+      items: [item("workspace", "Builder.io")],
+      properties: [],
+    } as unknown as ContentDatabaseResponse;
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <ContentFilesSidebarView
+          data={data}
+          overrides={null}
+          isLoading={false}
+          labels={{
+            loadingLabel: "Loading workspaces",
+            noMatchesLabel: "No workspaces match this view",
+            clearLabel: "Show all",
+            navigationLabel: "Content navigation",
+            untitledLabel: "Untitled",
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain("No workspaces match this view");
+    expect(markup).toContain("Show all");
+    expect(markup).not.toContain("Builder.io");
   });
 
   it("lets the Files sidebar intercept a workspace reference row", async () => {

@@ -3,6 +3,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { getDb } from "../server/db/index.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import {
   databaseRowBatchSchema,
   renumberDatabaseRows,
@@ -26,6 +27,7 @@ export default defineAction({
 
     const deletedItemIds = rows.map((row) => row.item.id);
     const deletedDocumentIds = rows.map((row) => row.document.id);
+    await assertNotWorkspaceCatalogDocuments(db, deletedDocumentIds, "deleted");
     const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {

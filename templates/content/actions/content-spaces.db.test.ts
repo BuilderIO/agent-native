@@ -26,6 +26,9 @@ let listDocumentsAction: typeof import("./list-documents.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
+let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
+let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
 
 const OWNER = "owner@example.com";
 const MEMBER = "member@example.com";
@@ -53,6 +56,12 @@ beforeAll(async () => {
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
+  deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
+    .default;
+  duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
+    .default;
+  duplicateDatabaseItemsAction = (await import("./duplicate-database-items.js"))
+    .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -139,6 +148,18 @@ describe("Content space provisioning", () => {
         ),
       );
     expect(JSON.parse(focusValue.valueJson)).toBe("Editorial");
+    await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+      createContentSpaceAction.run({
+        name: "Writing",
+        requestId: "named-workspace-writing",
+        propertyValues: { "workspace-focus-property": "Changed on retry" },
+      }),
+    );
+    const [focusValueAfterRetry] = await getDb()
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.id, focusValue.id));
+    expect(JSON.parse(focusValueAfterRetry.valueJson)).toBe("Editorial");
     await getDb()
       .update(schema.documents)
       .set({ title: "Writing alias" })
@@ -202,7 +223,50 @@ describe("Content space provisioning", () => {
       await expect(
         deleteDocumentAction.run({ id: first.catalogDocumentId }),
       ).rejects.toThrow("Workspace references cannot be deleted as pages");
+      await expect(
+        deleteDatabaseItemsAction.run({
+          databaseId: first.catalogDatabaseId,
+          itemIds: [first.catalogItemId],
+        }),
+      ).rejects.toThrow("Workspace references cannot be deleted as pages");
+      await expect(
+        duplicateDatabaseItemAction.run({ itemId: first.catalogItemId }),
+      ).rejects.toThrow("Workspace references cannot be duplicated as pages");
+      await expect(
+        duplicateDatabaseItemsAction.run({
+          databaseId: first.catalogDatabaseId,
+          itemIds: [first.catalogItemId],
+        }),
+      ).rejects.toThrow("Workspace references cannot be duplicated as pages");
     });
+  });
+
+  it("binds concurrent workspace requests to one canonical name", async () => {
+    const outcomes = await Promise.allSettled(
+      ["Alpha", "Beta"].map((name) =>
+        runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+          createContentSpaceAction.run({
+            name,
+            requestId: "concurrent-name-binding",
+          }),
+        ),
+      ),
+    );
+    expect(
+      outcomes.filter((outcome) => outcome.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.status === "rejected"),
+    ).toHaveLength(1);
+    const fulfilled = outcomes.find(
+      (outcome): outcome is PromiseFulfilledResult<any> =>
+        outcome.status === "fulfilled",
+    );
+    const [space] = await getDb()
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, fulfilled!.value.spaceId));
+    expect(["Alpha", "Beta"]).toContain(space.name);
   });
 
   it("is idempotent, opaque, and creates exactly one Files and Workspaces database", async () => {
