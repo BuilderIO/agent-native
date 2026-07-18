@@ -15,10 +15,11 @@ migration support. Toolkit stays Core-free: controlled Toolkit views receive
 data and callbacks from Core runtime adapters instead of importing runtime
 state, actions, or server contracts.
 
-The Toolkit docs catalog groups reusable app-building UI by capability even
-when an implementation remains Core-owned. Domain packages such as Scheduling
-and Creative Context remain separate packages with their own lifecycle
-manifests and docs.
+The Toolkit docs catalog is one discovery shelf for reusable app-building
+capabilities, even when an implementation remains Core-owned. Scheduling,
+Creative Context, and Pinpoint are Toolkit capability modules installed on
+demand. They remain separate npm packages with independent lifecycle manifests
+and docs. Dispatch is a separate product rather than a Toolkit module.
 
 ## Imports
 
@@ -36,7 +37,8 @@ import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
 ```
 
 Import `@agent-native/toolkit/styles.css` after Tailwind to include Toolkit's
-source scanning and editor styles.
+source scanning. If an app renders `SharedRichEditor`, also import
+`@agent-native/toolkit/editor.css`.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.

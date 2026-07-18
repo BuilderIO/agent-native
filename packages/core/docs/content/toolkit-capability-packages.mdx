@@ -1,29 +1,33 @@
 ---
-title: "Capability Packages"
-description: "Use separate capability packages for domain features and manage their manifest-driven lifecycle without folding them into Toolkit."
+title: "Toolkit Capability Modules"
+description: "Install Toolkit domain capabilities on demand while preserving their package-level dependency and lifecycle boundaries."
 ---
 
-# Capability packages
+# Toolkit capability modules
 
-Capability packages add reusable domain behavior. They are distinct from
-Toolkit: Toolkit supplies cross-app product foundations, while capability
-packages bring a bounded domain model, actions, skills, and lifecycle metadata.
+Toolkit capability modules add reusable domain behavior on demand. They share
+one Toolkit discovery shelf while staying in separate npm packages, so an app
+only installs the bounded domain model, actions, skills, dependencies, and
+lifecycle metadata it needs.
 
 ## Current package boundary
 
-| Package                          | Position                                              | Lifecycle                                                                                               |
-| -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `@agent-native/scheduling`       | Separate scheduling and booking capability package    | Supports the generic manifest lifecycle pilot; package-local docs live under `docs/`.                   |
-| `@agent-native/creative-context` | Separate governed creative-library capability package | Publishes its own `agent-native.package.json` and package-local `docs/llms.txt` / `docs/llms-full.txt`. |
-| Core and Toolkit                 | Runtime and reusable presentation layers              | Do not absorb capability-package domain models into either layer.                                       |
+| Package                          | Toolkit module                                      | Lifecycle                                                                                               |
+| -------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `@agent-native/scheduling`       | Scheduling and booking, installed on demand         | Supports the generic manifest lifecycle pilot; package-local docs live under `docs/`.                   |
+| `@agent-native/creative-context` | Governed creative context, installed on demand      | Publishes its own `agent-native.package.json` and package-local `docs/llms.txt` / `docs/llms-full.txt`. |
+| `@agent-native/pinpoint`         | Visual feedback and annotation, installed on demand | Package-local setup and agent integration live in its README and packaged assets.                       |
 
-Scheduling and Creative Context are not Toolkit feature kits. Use each
-published package's README and `docs/` bundle with its
-`agent-native.package.json` lifecycle manifest as the source of truth for
-setup, contribution points, and ownership.
+These modules belong to the Toolkit brand without being folded into the
+`@agent-native/toolkit` npm package. Use each published package's README and,
+where present, `docs/` bundle and `agent-native.package.json` lifecycle manifest
+as the source of truth for setup, contribution points, and ownership.
+
+Dispatch is the workspace control plane and remains a separate product.
 
 - [Scheduling package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
 - [Creative Context package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+- [Pinpoint package README](https://github.com/BuilderIO/agent-native/tree/main/packages/pinpoint)
 
 ## Lifecycle manifests
 
@@ -43,6 +47,6 @@ example; it is not a substitute for the package-local contract.
 
 ## Related docs
 
-- [Toolkit overview](/docs/agent-native-toolkit) — what belongs in Toolkit instead.
+- [Toolkit overview](/docs/agent-native-toolkit) — the unified discovery shelf.
 - [Package Lifecycle](/docs/package-lifecycle) — manifest inspection, add, and eject.
 - [Recurring jobs](/docs/recurring-jobs) — runtime scheduling is different from the Scheduling package.

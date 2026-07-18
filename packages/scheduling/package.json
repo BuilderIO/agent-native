@@ -19,6 +19,7 @@
     "src"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",

@@ -1,23 +1,15 @@
 ---
-title: "Toolkits"
-description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
+title: "Toolkit"
+description: "一個均衡的目錄，涵蓋可重用基礎、編輯器與畫布、智慧代理脈絡、治理、工作區框架、營運以及 Toolkit 能力模組。"
 ---
 
 <!-- i18n-docs-ignore -->
 
-# Toolkits
+# Toolkit
 
-Toolkits are reusable, battle-tested building blocks for high-quality agentic
-applications. They turn the hard product work that repeats across apps into
-standard surfaces: realtime collaboration between humans and agents, sharing
-with humans and agents, settings, teams, setup, resources, history, review, and
-observability.
+Toolkit 是面向高品質智慧代理應用程式、可重複使用且經過實戰驗證的建構元件。它將跨應用程式反覆出現的困難產品工作轉化為標準介面：人類與智慧代理之間的即時協作、面向人類和智慧代理的分享、設定、團隊、設定流程、資源、歷程、審閱和可觀測性。
 
-Each kit packages the UI patterns, action contracts, app-state expectations,
-access boundaries, and agent-visible behavior that users expect to work
-consistently. Apps still own their domain model and visual identity; toolkits
-make the common product systems feel complete from the first version instead of
-being rebuilt in slightly different ways every time.
+每個套件都封裝了使用者期待能持續一致運作的 UI 模式、動作契約、應用程式狀態預期、存取邊界和智慧代理可見行為。應用程式仍擁有自己的領域模型和視覺識別；Toolkit 讓通用產品系統從第一個版本起就完整可用，而不是每次以稍有不同的方式重新建立。
 
 <WireframeBlock id="doc-block-toolkits-index">
   <Screen
@@ -28,23 +20,23 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="套件如何融入" summary={"框架執行階段提供持久保證。Toolkit 將這些保證轉化為可重複使用的產品系統。應用程式再加入領域特定的資料、路由和視覺識別。"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
-    actions, SQL, auth, app state, access checks, realtime transport
+    <span class="diagram-pill accent">執行階段</span><br />
+    動作、SQL、驗證、應用程式狀態、存取檢查、即時傳輸
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkits</span><br />
-    collaboration, sharing, setup, review, history, observability
+    <span class="diagram-pill accent">Toolkit</span><br />
+    協作、分享、設定流程、審閱、歷程、可觀測性
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
-    domain schema, routes, actions, branding, specialized workflows
+    <span class="diagram-pill accent">應用程式</span><br />
+    領域結構描述、路由、動作、品牌、專門工作流程
   </div>
 </div>
 ```
@@ -68,49 +60,60 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
-## The Kits {#the-kits}
+## 目錄 {#catalog}
 
-| Kit                                                      | Use it for                                                                                                  |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
-| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
-| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
-| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
-| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
-| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
-| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
-| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+| 領域               | 從這裡開始                                     | 涵蓋內容                                                     |
+| ------------------ | ---------------------------------------------- | ------------------------------------------------------------ |
+| 基礎               | [UI 原語](/docs/toolkit-ui)                    | 共用控制項、Hook、應用程式配接器和 Shell 接點。              |
+| 編輯器與畫布       | [編輯器與畫布](/docs/toolkit-editors-canvases) | 豐富編輯、結構化區塊、可重用畫布控制項和 Design 模式。       |
+| 智慧代理體驗與脈絡 | [脈絡與知識](/docs/toolkit-context-knowledge)  | Context X-Ray、資源、知識、Composer 脈絡和智慧代理可見狀態。 |
+| 協作與治理         | [協作](/docs/toolkit-collaboration)            | 分享、在線狀態、審閱、歷程、稽核和組織邊界。                 |
+| 工作區框架         | [應用程式框架](/docs/toolkit-settings)         | 設定、團隊、設定流程、導覽、資源和智慧代理 UX。              |
+| 營運               | [可觀測性](/docs/toolkit-observability)        | 使用情況、意見回饋、重播、診斷和營運可見性。                 |
+| Toolkit 能力模組   | [能力套件](/docs/toolkit-capability-packages)  | 依需要安裝的領域套件及其生命週期資訊清單。                   |
 
-## Implementation Boundary {#implementation-boundary}
+## 產品套件 {#product-kits}
 
-Kits are product surfaces first. Some pieces are runtime-backed
-(`@agent-native/core`), some are presentation primitives
-(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
-Use the package path that owns the needed behavior, but design the user-facing
-settings, collaboration, sharing, team, review, and setup experiences as one
-coherent kit instead of exposing package boundaries in the app.
+| 套件                                              | 用途                                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [分享](/docs/toolkit-sharing)                     | 可擁有資源、分享對話方塊、可見性徽章、分享動作、公開／私人／組織存取。         |
+| [協作](/docs/toolkit-collaboration)               | 即時編輯、在線狀態、即時游標、最近編輯醒目提示、協作復原。                     |
+| [設定](/docs/toolkit-settings)                    | 標準設定頁面和分頁，讓應用程式設定與智慧代理／提供者設定位於一個可預期的位置。 |
+| [組織與團隊](/docs/toolkit-org-team)              | 團隊頁面、組織切換、邀請、組織網域、角色和應用程式切換。                       |
+| [設定流程與連線](/docs/toolkit-setup-connections) | 上手引導、密鑰、工作區連線、OAuth／提供者就緒狀態和 Builder 連線。             |
+| [命令與導覽](/docs/toolkit-command-navigation)    | 命令選單、深層連結、標準應用程式路由、側欄和 Shell 模式。                      |
+| [資源](/docs/toolkit-resources)                   | 資源樹、編輯器、檔案選擇／搜尋、附件和本機檔案模式。                           |
+| [智慧代理 UX](/docs/toolkit-agent-ux)             | Composer、模型選擇器、脈絡籤、核准、執行復原和執行托盤。                       |
+| [歷程](/docs/toolkit-history)                     | 版本歷程、稽核日誌、復原／重做、還原和「有何變更」介面。                       |
+| [評論與審閱](/docs/toolkit-comments-review)       | 內嵌評論、註解、提及、已解決討論串和審閱狀態。                                 |
+| [可觀測性](/docs/toolkit-observability)           | 使用量、支出、意見回饋、重播、錯誤和執行診斷。                                 |
 
-## Foundation Pieces {#foundation-pieces}
+## 套件成熟度與所有權 {#package-maturity-and-ownership}
 
-- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
-  `@agent-native/toolkit/ui/*`.
-- [App Adapters](/docs/toolkit-ui#app-adapters) show how apps wrap Toolkit pieces
-  through local `@/components/*` adapters.
-- [Shell & Hooks](/docs/toolkit-ui#shell-hooks) cover header actions, mobile hooks,
-  toasts, and small app-shell helpers.
-- [Component API](/docs/components) remains the lower-level reference for the
-  public React exports.
+- 豐富編輯器由 **Toolkit** 擁有；移轉期間，現有 Core import 持續作為精簡的相容性 re-export。
+- Design 是使用可重用 `design-tweaks` 的**範本模式**，不是完整的即插即用編輯器或畫布。
+- 此階段 Blocks 和 Context X-Ray 引擎仍由 **Core** 擁有；可重用的 Context X-Ray 呈現由 Toolkit 擁有。
+- Creative Context、Scheduling 和 Pinpoint 是依需要安裝的 **Toolkit 能力模組**；它們保留獨立 npm 套件和生命週期資訊清單。Dispatch 仍是獨立產品。
 
-## Design Rule {#design-rule}
+## 實作邊界 {#implementation-boundary}
 
-Use a toolkit when the behavior repeats across apps and users expect it to feel
-standard: sharing, settings, teams, comments, history, and agent progress should
-not be slightly different in every template. Keep domain-specific data,
-workflows, labels, and visual styling in the app.
+套件首先是產品介面。有些部分由執行階段支援（`@agent-native/core`），有些是呈現原語（`@agent-native/toolkit`），應用程式通常會透過本機配接器封裝兩者。請使用擁有所需行為的套件路徑，但將面向使用者的設定、協作、分享、團隊、審閱和設定流程體驗設計為一個連貫的套件，而不要在應用程式中暴露套件邊界。
 
-## 均衡目錄 {#balanced-catalog}
+## 基礎元件 {#foundation-pieces}
 
-目錄也涵蓋基礎、編輯器與畫布、智慧代理脈絡與知識、協作與治理、工作區外殼、營運以及能力套件。豐富編輯器歸 Toolkit；Core 保留相容性重新匯出。Blocks 在本階段仍歸 Core。Design 是具 `design-tweaks` 的範本模式，而非完整即插即用編輯器。Context X-Ray 引擎歸 Core，可重用呈現歸 Toolkit。Scheduling 與 Creative Context 是獨立能力套件；請參閱[套件生命週期](/docs/package-lifecycle)。
+- [UI 原語](/docs/toolkit-ui) 涵蓋 `@agent-native/toolkit/ui/*` 下共用的 shadcn 風格原語。
+- [應用程式配接器](/docs/toolkit-ui#app-adapters) 說明應用程式如何透過本機 `@/components/*` 配接器封裝 Toolkit 元件。
+- [Shell 與 Hook](/docs/toolkit-ui#shell-hooks) 涵蓋頁首動作、行動裝置 Hook、Toast 和小型應用程式 Shell 輔助工具。
+- [元件 API](/docs/components) 仍是公開 React 匯出的低階參考。
+
+## 設計規則 {#design-rule}
+
+當行為在各應用程式間重複出現，且使用者期待標準體驗時，請使用 Toolkit：分享、設定、團隊、評論、歷程和智慧代理進度不應在每個範本中略有不同。請將領域特定的資料、工作流程、標籤和視覺樣式保留在應用程式中。
+
+## 下一步
+
+- [**Toolkit UI 原語**](/docs/toolkit-ui) — 共用原語、應用程式配接器和 Shell Hook。
+- [**分享套件**](/docs/toolkit-sharing) — 資源、分享對話框和可見性的良好起點。
+- [**建立範本**](/docs/creating-templates) — 端到端建立範本，並了解套件如何融入其中。
+- [**元件 API**](/docs/components) — 所有公開 React 匯出的參考。
+- [**套件生命週期**](/docs/package-lifecycle) — 安全地檢查、新增和彈出由資訊清單驅動的 Toolkit 能力模組。

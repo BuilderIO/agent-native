@@ -1,13 +1,13 @@
 ---
-title: "Toolkits"
-description: "A balanced catalog of reusable foundations, editors and canvases, agent context, governance, workspace chrome, operations, and capability packages."
+title: "Toolkit"
+description: "One catalog of reusable foundations, editors and canvases, agent context, governance, workspace chrome, operations, and install-on-demand capability modules."
 ---
 
-# Toolkits
+# Toolkit
 
-Toolkits are reusable, battle-tested building blocks for high-quality agentic
-applications. They turn the hard product work that repeats across apps into
-standard surfaces without making one app pattern the center of the catalog.
+Toolkit is the reusable, battle-tested building-block shelf for high-quality
+agentic applications. It turns the hard product work that repeats across apps
+into standard surfaces without making one app pattern the center of the catalog.
 
 This section is the single discovery shelf for reusable app-building UI. A
 surface belongs in these docs because it is reusable, even when its current
@@ -17,8 +17,8 @@ site.
 
 Each kit packages the UI patterns, action contracts, app-state expectations,
 access boundaries, and agent-visible behavior that users expect to work
-consistently. Apps still own their domain model and visual identity; toolkits
-make the common product systems feel complete from the first version instead of
+consistently. Apps still own their domain model and visual identity; Toolkit
+makes the common product systems feel complete from the first version instead of
 being rebuilt in slightly different ways every time.
 
 <WireframeBlock id="doc-block-toolkits-index">
@@ -30,7 +30,7 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkit turns those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
 
 ```html
 <div class="diagram-row">
@@ -40,7 +40,7 @@ being rebuilt in slightly different ways every time.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkits</span><br />
+    <span class="diagram-pill accent">Toolkit</span><br />
     collaboration, sharing, setup, review, history, observability
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -72,15 +72,15 @@ being rebuilt in slightly different ways every time.
 
 ## Catalog {#catalog}
 
-| Area                       | Start here                                               | What it covers                                                                  |
-| -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Foundations                | [UI Primitives](/docs/toolkit-ui)                        | Shared controls, hooks, app adapters, and shell seams.                          |
-| Editors & canvases         | [Editors & Canvases](/docs/toolkit-editors-canvases)     | Rich editing, structured blocks, reusable canvas controls, and Design patterns. |
-| Agent experience & context | [Context & Knowledge](/docs/toolkit-context-knowledge)   | Context X-Ray, resources, knowledge, composer context, and agent-visible state. |
-| Collaboration & governance | [Collaboration](/docs/toolkit-collaboration)             | Sharing, presence, review, history, audit, and organization boundaries.         |
-| Workspace chrome           | [App Chrome](/docs/toolkit-settings)                     | Settings, teams, setup, navigation, resources, and agent UX.                    |
-| Operations                 | [Observability](/docs/toolkit-observability)             | Usage, feedback, replay, diagnostics, and operational visibility.               |
-| Capability packages        | [Capability Packages](/docs/toolkit-capability-packages) | Separate domain packages, their ownership, and lifecycle manifests.             |
+| Area                       | Start here                                                      | What it covers                                                                  |
+| -------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Foundations                | [UI Primitives](/docs/toolkit-ui)                               | Shared controls, hooks, app adapters, and shell seams.                          |
+| Editors & canvases         | [Editors & Canvases](/docs/toolkit-editors-canvases)            | Rich editing, structured blocks, reusable canvas controls, and Design patterns. |
+| Agent experience & context | [Context & Knowledge](/docs/toolkit-context-knowledge)          | Context X-Ray, resources, knowledge, composer context, and agent-visible state. |
+| Collaboration & governance | [Collaboration](/docs/toolkit-collaboration)                    | Sharing, presence, review, history, audit, and organization boundaries.         |
+| Workspace chrome           | [App Chrome](/docs/toolkit-settings)                            | Settings, teams, setup, navigation, resources, and agent UX.                    |
+| Operations                 | [Observability](/docs/toolkit-observability)                    | Usage, feedback, replay, diagnostics, and operational visibility.               |
+| Capability modules         | [Toolkit Capability Modules](/docs/toolkit-capability-packages) | Scheduling, Creative Context, and Pinpoint as install-on-demand packages.       |
 
 ## Product kits {#product-kits}
 
@@ -107,8 +107,10 @@ being rebuilt in slightly different ways every time.
 - Blocks remain **Core-owned** in this phase.
 - The Context X-Ray engine remains **Core-owned**; its reusable presentation is
   Toolkit-owned.
-- Creative Context and Scheduling remain **separate capability packages**, not
-  Toolkit feature kits.
+- Scheduling, Creative Context, and Pinpoint are **Toolkit capability modules,
+  installed on demand**. They remain separate npm packages so each domain can
+  keep an independent lifecycle manifest, dependency graph, and release cadence.
+- Dispatch remains a **separate product**, not a Toolkit capability module.
 
 ## Implementation Boundary {#implementation-boundary}
 

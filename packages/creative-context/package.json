@@ -19,6 +19,9 @@
     "src"
   ],
   "type": "module",
+  "sideEffects": [
+    "dist/server/index.js"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./actions": "./dist/actions/index.js",
