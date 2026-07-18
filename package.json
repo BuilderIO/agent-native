@@ -61,6 +61,7 @@
     "guard:public-packages": "tsx scripts/guard-public-packages.ts",
     "guard:shared-ui-singletons": "tsx scripts/guard-shared-ui-singletons.ts",
     "guard:no-core-client-barrel-imports": "tsx scripts/guard-no-core-client-barrel-imports.ts",
+    "guard:toolkit-must-not-import-core": "tsx scripts/guard-toolkit-must-not-import-core.ts",
     "guard:migration-manifest": "tsx scripts/guard-migration-manifest.ts",
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",
     "guard:extension-no-public": "node scripts/guard-extension-no-public.mjs",
