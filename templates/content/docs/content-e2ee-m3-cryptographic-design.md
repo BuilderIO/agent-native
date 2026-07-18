@@ -310,11 +310,26 @@ generation-separated recovery-authority derivation now match Core on arm64 and
 have an independent implementation-review GO. The bounded decoder keeps phrase
 handling out of immutable Foundation objects, checks the complete vendored word
 order against the pinned oracle, rejects confusables and malformed UTF-8, and
-is compiled into production without any XPC/addon/preload operation. Native
-PREPARE must still own canonical artifact construction and signing, pending-g1
-creation, the actual recoverable epoch wrap, expiry/cancellation, and a trusted
-desktop confirmation surface without exposing keys or recovery material to
-hosted JS. Current-source x86_64 parity remains a machine-level proof gap while
-Rosetta is wedged before test entry.
+is compiled into production without any XPC/addon/preload operation.
+
+Native genesis preparation now constructs and signs the exact recovery wrap,
+recovery confirmation, bootstrap transcript, endpoint envelope, sequence-zero
+membership entry, and genesis authorization inside the desktop trust boundary.
+Before returning public bytes it independently verifies the wrap, actually
+unseals the wrapped epoch-one EEK and compares it in constant time, verifies the
+bootstrap and authorization, and replays the signed control entry. Endpoint
+private keys and recovery authority private keys remain guarded and are closed;
+the four caller-owned guarded inputs are borrowed synchronously and remain open.
+The native runner matches all five public outputs byte-for-byte against a
+checksummed, runtime-only Core oracle, rejects mutation and binding attacks, and
+writes no secret fixture. Production and focused arm64 builds, 204 Core E2EE
+tests, Core/Desktop typechecks, and the Core distribution build pass.
+
+This still is not a usable PREPARE ceremony. Durable preparation state, exact
+artifact spooling, pending-g1 creation, expiry/cancellation, crash reconciliation,
+and the trusted desktop confirmation surface remain required before any vault
+can be created. No builder operation is exposed through XPC, addon, preload, UI,
+or hosted JavaScript. Current-source x86_64 parity remains a machine-level proof
+gap while Rosetta is wedged before test entry.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

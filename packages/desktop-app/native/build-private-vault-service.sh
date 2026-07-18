@@ -13,6 +13,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
+  "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
   "$SOURCE_ROOT/recovery/PrivateVaultMnemonic.m"
   "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m"
@@ -622,6 +623,42 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_AUTHORIZATION_TESTS:-}" in
   }
   build_genesis_authorization_tests arm64
   build_genesis_authorization_tests x86_64
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_GENESIS_BUILDER_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  GENESIS_BUILDER_TEST_OUTPUT="$OUTPUT_ROOT/.genesis-builder-tests"
+  rm -rf "$GENESIS_BUILDER_TEST_OUTPUT"
+  mkdir -p "$GENESIS_BUILDER_TEST_OUTPUT"
+  build_genesis_builder_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$GENESIS_BUILDER_TEST_OUTPUT/private-vault-genesis-builder-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/recovery" \
+      -I"$sodium_root/include" -DANC_PRIVATE_VAULT_TESTING=1 \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBuilder.m" \
+      "$SOURCE_ROOT/recovery/PrivateVaultRecoveryAuthority.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGenesisBuilderTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_genesis_builder_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_genesis_builder_tests x86_64
+  fi
   ;;
 esac
 
