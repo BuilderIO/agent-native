@@ -407,10 +407,31 @@ fault, ambiguous writes, concurrency, substitution, orphan-stage cleanup,
 cancellation before confirmation, and cancellation after pending custody but
 before official authority.
 
-This is still not a usable PREPARE ceremony. The phase-specific coordinator,
-pending-g1 custody installation, proof-bound confirmation, and local
-cancel/expiry policy are implemented, but startup orchestration without the
-bearer, persisted trusted-time rollback defense, committed receipt cleanup, and
+Startup orchestration no longer depends on a caller-held bearer. The actual
+bearer suffix is deterministically derived with keyed BLAKE2b from the guarded
+local-state key and the preparation lookup, vault, and ceremony identifiers.
+Only the digest is stored; the native startup coordinator reconstructs the
+bearer in zeroized scope and uses the same proof-bound operations as an
+interactive retry. This does not grant startup confirmation authority:
+PREPARED remains pending or expires, while only already CONFIRMED or COMMITTING
+records may continue. Production constructs the preparation stores and keeps
+XPC closed until preparation and official-artifact sweeps succeed. Startup
+observes the persisted time floor unconditionally, repairs marker-only crashes,
+finishes proof-bound CANCELLED/EXPIRED cleanup before retiring their markers,
+and rejects a COMMITTED record whose hosted receipt has not authorized cleanup.
+
+The system clock is also fenced by a separate device-wide Keychain store.
+Authenticated current and high-water frames advance through pending and stable
+generations. A backward clock, corrupt or missing pair, or inaccessible storage
+fails closed; the stored floor is never silently substituted for rolled-back
+time. Every initialization/update write boundary and restart direction is in
+the arm64 synthetic corpus. This pair is crash-consistent and detects local
+wall-clock rollback, partial loss, and corruption; it is not an independent
+monotonic anchor against coordinated restoration of both valid Keychain
+frames. A remote or hardware witness is required before making that stronger
+anti-rollback claim.
+
+This is still not a usable PREPARE ceremony. Committed receipt cleanup and
 the trusted desktop confirmation surface remain required before any vault can
 be created. Committed cleanup must independently verify terminal and
 hosted-receipt proof; it must not turn the cancellation-only digest-bound delete

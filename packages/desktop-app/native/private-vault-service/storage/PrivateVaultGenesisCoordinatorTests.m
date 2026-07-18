@@ -1687,6 +1687,378 @@ static int StartupSweepCases(NSDictionary *exact) {
   }
   return 0;
 }
+
+static int PreparationStartupSweepCases(void) {
+  @autoreleasepool {
+    NSString *root = NewRoot(@"genesis-preparation-startup-empty-clock");
+    CHECK(root != nil);
+    gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+    FixedClock *clock = [FixedClock new];
+    clock.value = UINT64_C(1721111140000);
+    clock.available = NO;
+    AncPrivateVaultGenesisPreparationStore *preparationStore = nil;
+    AncPrivateVaultGenesisCoordinator *coordinator = PreparationEnvironment(
+        root, clock, &preparationStore, NULL, NULL);
+    AncPrivateVaultGenesisArtifactStore *artifacts =
+        [[AncPrivateVaultGenesisArtifactStore alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:root]];
+    CHECK(AncPrivateVaultResumePendingGenesisState(
+              artifacts, preparationStore, coordinator) ==
+          AncPrivateVaultGenesisStartupStatusResumeFailed);
+    clock.available = YES;
+    CHECK(AncPrivateVaultResumePendingGenesisState(
+              artifacts, preparationStore, coordinator) ==
+          AncPrivateVaultGenesisStartupStatusOK);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  }
+
+  @autoreleasepool {
+    NSString *root = NewRoot(@"genesis-preparation-startup-marker-only");
+    CHECK(root != nil);
+    gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+    FixedClock *clock = [FixedClock new];
+    clock.value = UINT64_C(1721611140000);
+    clock.available = YES;
+    AncPrivateVaultGenesisPreparationStore *preparationStore = nil;
+    AncPrivateVaultGenesisCoordinator *coordinator = PreparationEnvironment(
+        root, clock, &preparationStore, NULL, NULL);
+    AncPrivateVaultGenesisPreparationArtifactStore *preparationArtifacts =
+        [[AncPrivateVaultGenesisPreparationArtifactStore alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:root]];
+    uint8_t orphanLookup[16] = {0};
+    randombytes_buf(orphanLookup, sizeof orphanLookup);
+    CHECK([preparationArtifacts
+              createPreparationIndexLookupId:orphanLookup
+                                 preparedAtMs:clock.value
+                                  expiresAtMs:clock.value + 1000] ==
+          AncPrivateVaultGenesisPreparationArtifactStatusOK);
+    AncPrivateVaultGenesisArtifactStore *artifacts =
+        [[AncPrivateVaultGenesisArtifactStore alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:root]];
+    CHECK(AncPrivateVaultResumePendingGenesisState(
+              artifacts, preparationStore, coordinator) ==
+          AncPrivateVaultGenesisStartupStatusOK);
+    NSArray<NSData *> *remaining = nil;
+    CHECK([preparationStore listPreparationLookupIds:&remaining] ==
+              AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          remaining.count == 0);
+    anc_pv_zeroize(orphanLookup, sizeof orphanLookup);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  }
+
+  @autoreleasepool {
+    NSString *root = NewRoot(@"genesis-preparation-startup-expiry");
+    CHECK(root != nil);
+    gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+    FixedClock *clock = [FixedClock new];
+    clock.value = UINT64_C(1722111140000);
+    clock.available = YES;
+    AncPrivateVaultGenesisPreparationStore *preparationStore = nil;
+    AncPrivateVaultGenesisCoordinator *coordinator = PreparationEnvironment(
+        root, clock, &preparationStore, NULL, NULL);
+    AncPrivateVaultGenesisPreparationResult *prepared = nil;
+    CHECK([coordinator prepareWithResult:&prepared] ==
+          AncPrivateVaultGenesisCoordinatorStatusOK);
+    uint8_t handle[48] = {0};
+    CHECK(CopyPreparationHandle(prepared, handle));
+    AncPrivateVaultGenesisArtifactStore *artifacts =
+        [[AncPrivateVaultGenesisArtifactStore alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:root]];
+    CHECK(AncPrivateVaultResumePendingGenesisState(
+              artifacts, preparationStore, coordinator) ==
+          AncPrivateVaultGenesisStartupStatusOK);
+    AncPrivateVaultGenesisPreparationSnapshot snapshot;
+    CHECK([preparationStore readHandle:handle
+                          handleLength:sizeof handle
+                             snapshot:&snapshot
+                          secretHandle:nil] ==
+              AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED);
+    clock.value = prepared.expiresAtMs + 1;
+    CHECK(AncPrivateVaultResumePendingGenesisState(
+              artifacts, preparationStore, coordinator) ==
+          AncPrivateVaultGenesisStartupStatusOK);
+    CHECK([preparationStore readHandle:handle
+                          handleLength:sizeof handle
+                             snapshot:&snapshot
+                          secretHandle:nil] ==
+              AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          snapshot.phase == ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED);
+    NSArray<NSData *> *remaining = nil;
+    CHECK([preparationStore listPreparationLookupIds:&remaining] ==
+              AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          remaining.count == 0);
+    CHECK([prepared.preparationHandle close] ==
+              AncPrivateVaultGuardedMemoryStatusOK &&
+          [prepared.recoveryMnemonic close] ==
+              AncPrivateVaultGuardedMemoryStatusOK);
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    anc_pv_zeroize(handle, sizeof handle);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  }
+
+  @autoreleasepool {
+    NSString *root = NewRoot(@"genesis-preparation-startup-cancel-cleanup");
+    CHECK(root != nil);
+    gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+    FixedClock *clock = [FixedClock new];
+    clock.value = UINT64_C(1722611140000);
+    clock.available = YES;
+    AncPrivateVaultGenesisPreparationStore *preparationStore = nil;
+    AncPrivateVaultGenesisCoordinator *coordinator = PreparationEnvironment(
+        root, clock, &preparationStore, NULL, NULL);
+    AncPrivateVaultGenesisPreparationResult *prepared = nil;
+    CHECK([coordinator prepareWithResult:&prepared] ==
+          AncPrivateVaultGenesisCoordinatorStatusOK);
+    uint8_t handle[48] = {0};
+    CHECK(CopyPreparationHandle(prepared, handle));
+    AncPrivateVaultGuardedMemory *entropy =
+        CopyPreparationRecoveryEntropy(preparationStore, handle);
+    CHECK(entropy != nil);
+    AncPrivateVaultGenesisCoordinatorSetFaultHookForTesting(
+        ^BOOL(AncPrivateVaultGenesisCoordinatorFaultPoint point) {
+          return point ==
+                 AncPrivateVaultGenesisCoordinatorFaultAfterArtifactAuthentication;
+        });
+    CHECK([coordinator confirmPreparationHandle:prepared.preparationHandle
+                       confirmedRecoveryEntropy:entropy
+                                        result:nil] ==
+          AncPrivateVaultGenesisCoordinatorStatusStorageFailed);
+    AncPrivateVaultGenesisCoordinatorSetFaultHookForTesting(nil);
+    AncPrivateVaultGenesisPreparationArtifactSetFaultHookForTesting(
+        ^BOOL(AncPrivateVaultGenesisPreparationArtifactFaultPoint point) {
+          return point ==
+                 AncPrivateVaultGenesisPreparationArtifactFaultBeforeUnlink;
+        });
+    CHECK([coordinator cancelPreparationHandle:prepared.preparationHandle] ==
+          AncPrivateVaultGenesisCoordinatorStatusStorageFailed);
+    AncPrivateVaultGenesisPreparationArtifactSetFaultHookForTesting(nil);
+    AncPrivateVaultGenesisPreparationSnapshot cancelled;
+    CHECK([preparationStore readHandle:handle
+                          handleLength:sizeof handle
+                             snapshot:&cancelled
+                          secretHandle:nil] ==
+              AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          cancelled.phase == ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED &&
+          (cancelled.flags &
+           ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE) != 0 &&
+          (cancelled.flags &
+           ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) == 0);
+    AncPrivateVaultGenesisArtifactStore *artifacts =
+        [[AncPrivateVaultGenesisArtifactStore alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:root]];
+    CHECK(AncPrivateVaultResumePendingGenesisState(
+              artifacts, preparationStore, coordinator) ==
+          AncPrivateVaultGenesisStartupStatusOK);
+    NSArray<NSData *> *remaining = nil;
+    CHECK([preparationStore listPreparationLookupIds:&remaining] ==
+              AncPrivateVaultGenesisPreparationStoreStatusOK &&
+          remaining.count == 0);
+    CHECK([artifacts listVaultIds:&remaining] ==
+              AncPrivateVaultGenesisArtifactStoreStatusOK &&
+          remaining.count == 0);
+    CHECK([entropy close] == AncPrivateVaultGuardedMemoryStatusOK &&
+          [prepared.preparationHandle close] ==
+              AncPrivateVaultGuardedMemoryStatusOK &&
+          [prepared.recoveryMnemonic close] ==
+              AncPrivateVaultGuardedMemoryStatusOK);
+    anc_pv_genesis_preparation_snapshot_zero(&cancelled);
+    anc_pv_zeroize(handle, sizeof handle);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  }
+
+  for (NSUInteger variant = 0; variant < 2; variant += 1) {
+    @autoreleasepool {
+      NSString *root = NewRoot(variant == 0
+                                   ? @"genesis-preparation-startup-confirmed"
+                                   : @"genesis-preparation-startup-committing");
+      CHECK(root != nil);
+      gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+      FixedClock *clock = [FixedClock new];
+      clock.value = UINT64_C(1723111140000) + variant * 1000000;
+      clock.available = YES;
+      AncPrivateVaultGenesisPreparationStore *preparationStore = nil;
+      AncPrivateVaultGenesisCoordinator *coordinator = PreparationEnvironment(
+          root, clock, &preparationStore, NULL, NULL);
+      AncPrivateVaultGenesisPreparationResult *prepared = nil;
+      CHECK([coordinator prepareWithResult:&prepared] ==
+            AncPrivateVaultGenesisCoordinatorStatusOK);
+      uint8_t handle[48] = {0};
+      CHECK(CopyPreparationHandle(prepared, handle));
+      AncPrivateVaultGuardedMemory *entropy =
+          CopyPreparationRecoveryEntropy(preparationStore, handle);
+      CHECK(entropy != nil);
+      if (variant == 0) {
+        AncPrivateVaultGenesisPreparationStoreFaultPoint target =
+            AncPrivateVaultGenesisPreparationStoreFaultAfterStageWrite;
+        AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(
+            ^BOOL(AncPrivateVaultGenesisPreparationStoreFaultPoint point) {
+              return point == target;
+            });
+      } else {
+        AncPrivateVaultGenesisCoordinatorSetFaultHookForTesting(
+            ^BOOL(AncPrivateVaultGenesisCoordinatorFaultPoint point) {
+              return point ==
+                     AncPrivateVaultGenesisCoordinatorFaultAfterArtifactAuthentication;
+            });
+      }
+      CHECK([coordinator confirmPreparationHandle:prepared.preparationHandle
+                         confirmedRecoveryEntropy:entropy
+                                          result:nil] ==
+            AncPrivateVaultGenesisCoordinatorStatusStorageFailed);
+      AncPrivateVaultGenesisPreparationSetStoreFaultHookForTesting(nil);
+      AncPrivateVaultGenesisCoordinatorSetFaultHookForTesting(nil);
+      AncPrivateVaultGenesisPreparationSnapshot interrupted;
+      CHECK([preparationStore readHandle:handle
+                            handleLength:sizeof handle
+                               snapshot:&interrupted
+                            secretHandle:nil] ==
+                AncPrivateVaultGenesisPreparationStoreStatusOK &&
+            (interrupted.phase ==
+                 ANC_PV_GENESIS_PREPARATION_PHASE_CONFIRMED ||
+             interrupted.phase ==
+                 ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTING));
+      AncPrivateVaultGenesisArtifactStore *artifacts =
+          [[AncPrivateVaultGenesisArtifactStore alloc]
+              initWithStateRootURL:[NSURL fileURLWithPath:root]];
+      CHECK(AncPrivateVaultResumePendingGenesisState(
+                artifacts, preparationStore, coordinator) ==
+            AncPrivateVaultGenesisStartupStatusResumeFailed);
+      AncPrivateVaultGenesisPreparationSnapshot completed;
+      AncPrivateVaultGenesisPreparationSecretsHandle *terminalSecrets = nil;
+      CHECK([preparationStore readHandle:handle
+                            handleLength:sizeof handle
+                               snapshot:&completed
+                            secretHandle:&terminalSecrets] ==
+                AncPrivateVaultGenesisPreparationStoreStatusOK &&
+            completed.phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED &&
+            terminalSecrets == nil);
+      CHECK([entropy close] == AncPrivateVaultGuardedMemoryStatusOK &&
+            [prepared.preparationHandle close] ==
+                AncPrivateVaultGuardedMemoryStatusOK &&
+            [prepared.recoveryMnemonic close] ==
+                AncPrivateVaultGuardedMemoryStatusOK);
+      anc_pv_genesis_preparation_snapshot_zero(&interrupted);
+      anc_pv_genesis_preparation_snapshot_zero(&completed);
+      anc_pv_zeroize(handle, sizeof handle);
+      CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    }
+  }
+  return 0;
+}
+
+static int TrustedTimeCases(void) {
+  @autoreleasepool {
+    NSString *root = NewRoot(@"trusted-time-basic");
+    CHECK(root != nil);
+    gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+    AncPrivateVaultTrustedTimeStore *store =
+        [[AncPrivateVaultTrustedTimeStore alloc]
+            initWithKeychain:TestKeychain()];
+    uint64_t trusted = 0;
+    CHECK([store observeSystemMilliseconds:UINT64_C(1724111140000)
+                        trustedMilliseconds:&trusted] ==
+              AncPrivateVaultTrustedTimeStatusOK &&
+          trusted == UINT64_C(1724111140000));
+    CHECK([store observeSystemMilliseconds:UINT64_C(1724111145000)
+                        trustedMilliseconds:&trusted] ==
+              AncPrivateVaultTrustedTimeStatusOK &&
+          trusted == UINT64_C(1724111145000));
+    CHECK([store observeSystemMilliseconds:UINT64_C(1724111144999)
+                        trustedMilliseconds:&trusted] ==
+              AncPrivateVaultTrustedTimeStatusRollbackDetected &&
+          trusted == 0);
+    FixedClock *system = [FixedClock new];
+    system.value = UINT64_C(1724111145000);
+    system.available = YES;
+    AncPrivateVaultGenesisPersistedTrustedClock *clock =
+        [[AncPrivateVaultGenesisPersistedTrustedClock alloc]
+            initWithStore:store
+              systemClock:system];
+    CHECK([clock readNowMilliseconds:&trusted] &&
+          trusted == system.value);
+    system.value--;
+    CHECK(![clock readNowMilliseconds:&trusted] && trusted == 0);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  }
+
+  for (NSUInteger phase = 0; phase < 2; phase += 1) {
+    for (NSUInteger mutationIndex = 0; mutationIndex < 2; mutationIndex += 1) {
+      for (NSUInteger failure = 1; failure <= 4; failure += 1) {
+        @autoreleasepool {
+        NSString *root = NewRoot(@"trusted-time-crash");
+        CHECK(root != nil);
+        gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+        AncPrivateVaultTrustedTimeStore *store =
+            [[AncPrivateVaultTrustedTimeStore alloc]
+                initWithKeychain:TestKeychain()];
+        uint64_t trusted = 0;
+        if (phase == 1)
+          CHECK([store observeSystemMilliseconds:UINT64_C(1725111140000)
+                              trustedMilliseconds:&trusted] ==
+                AncPrivateVaultTrustedTimeStatusOK);
+        gCustodyMutationMode =
+            mutationIndex == 0 ? CustodyMutationModeFailBefore
+                               : CustodyMutationModeCommitThenError;
+        gCustodyMutationTarget = failure;
+        gCustodyMutationCount = 0;
+        gCustodyMutationHit = NO;
+        uint64_t target = phase == 0 ? UINT64_C(1725111140000)
+                                     : UINT64_C(1725111141000);
+        AncPrivateVaultTrustedTimeStatus interrupted =
+            [store observeSystemMilliseconds:target
+                         trustedMilliseconds:&trusted];
+        CHECK(gCustodyMutationHit &&
+              (mutationIndex == 0
+                   ? interrupted != AncPrivateVaultTrustedTimeStatusOK
+                   : interrupted == AncPrivateVaultTrustedTimeStatusOK));
+        gCustodyMutationMode = CustodyMutationModeDisabled;
+        AncPrivateVaultTrustedTimeStore *reopened =
+            [[AncPrivateVaultTrustedTimeStore alloc]
+                initWithKeychain:TestKeychain()];
+        CHECK([reopened observeSystemMilliseconds:target
+                              trustedMilliseconds:&trusted] ==
+                  AncPrivateVaultTrustedTimeStatusOK &&
+              trusted == target);
+        CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+        }
+      }
+    }
+  }
+
+  @autoreleasepool {
+    NSString *root = NewRoot(@"trusted-time-corrupt");
+    CHECK(root != nil);
+    gKeychainPath = [root stringByAppendingPathComponent:@"keychain.plist"];
+    AncPrivateVaultTrustedTimeStore *store =
+        [[AncPrivateVaultTrustedTimeStore alloc]
+            initWithKeychain:TestKeychain()];
+    uint64_t trusted = 0;
+    CHECK([store observeSystemMilliseconds:UINT64_C(1726111140000)
+                        trustedMilliseconds:&trusted] ==
+          AncPrivateVaultTrustedTimeStatusOK);
+    NSMutableDictionary *keychain = LoadKeychain();
+    NSString *targetKey = nil;
+    for (NSString *key in keychain) {
+      if ([key containsString:AncPrivateVaultTrustedTimeHighWaterService]) {
+        targetKey = key;
+        break;
+      }
+    }
+    CHECK(targetKey != nil);
+    NSMutableData *corrupt = [keychain[targetKey] mutableCopy];
+    CHECK(corrupt.length == 60);
+    ((uint8_t *)corrupt.mutableBytes)[28] ^= 1;
+    keychain[targetKey] = corrupt;
+    CHECK(SaveKeychain(keychain));
+    CHECK([store observeSystemMilliseconds:UINT64_C(1726111140000)
+                        trustedMilliseconds:&trusted] ==
+              AncPrivateVaultTrustedTimeStatusCorrupt &&
+          trusted == 0);
+    CHECK([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+  }
+  return 0;
+}
 static int Child(NSString *root) {
   NSDictionary *exact = Exact();
   NSData *vault = HexData(exact[@"parsed"][@"vaultIdHex"]);
@@ -1794,6 +2166,8 @@ int main(int argc, const char *argv[]) {
     CHECK(SameVaultCommitConcurrencyCases(exact) == 0);
     CHECK(CoordinatorCrashCases(exact) == 0);
     CHECK(StartupSweepCases(exact) == 0);
+    CHECK(PreparationStartupSweepCases() == 0);
+    CHECK(TrustedTimeCases() == 0);
     NSString *root = [NSTemporaryDirectory()
         stringByAppendingPathComponent:
             [NSString stringWithFormat:@"genesis-coordinator-%@",

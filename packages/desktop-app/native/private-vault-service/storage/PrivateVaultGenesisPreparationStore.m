@@ -827,6 +827,52 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
 
 @implementation AncPrivateVaultGenesisPreparationStore
 
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    readLookupId:(const uint8_t *)lookupId
+          length:(size_t)length
+        snapshot:(AncPrivateVaultGenesisPreparationSnapshot *)snapshot
+     secretHandle:(AncPrivateVaultGenesisPreparationSecretsHandle **)secretHandle {
+  if (snapshot != NULL)
+    anc_pv_genesis_preparation_snapshot_zero(snapshot);
+  if (secretHandle != NULL)
+    *secretHandle = nil;
+  if (lookupId == NULL ||
+      length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES ||
+      snapshot == NULL)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+  BOOL wantsSecrets = secretHandle != NULL;
+  __block AncPrivateVaultGenesisPreparationStoreStatus status;
+  __block AncPrivateVaultGenesisPreparationSecretsHandle *resultSecrets = nil;
+  dispatch_sync(self.queue, ^{
+    AncPrivateVaultGenesisGuardedRecord *record = nil;
+    AncPrivateVaultGenesisPreparationSecretsHandle *secrets = nil;
+    status = [self reconcileLookupIdLocked:lookupId
+                                    record:&record
+                                  snapshot:snapshot
+                             secretHandle:&secrets];
+    AncPrivateVaultGuardedMemoryStatus recordClosed =
+        record == nil ? AncPrivateVaultGuardedMemoryStatusOK : [record close];
+    if (recordClosed != AncPrivateVaultGuardedMemoryStatusOK) {
+      status = AncPrivateVaultGenesisPreparationStoreStatusFailed;
+    }
+    if (status == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+        wantsSecrets) {
+      resultSecrets = secrets;
+    } else {
+      AncPrivateVaultGenesisPreparationStoreStatus secretClosed =
+          [secrets close];
+      if (secretClosed != AncPrivateVaultGenesisPreparationStoreStatusOK)
+        status = secretClosed;
+    }
+  });
+  if (status == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+      wantsSecrets)
+    *secretHandle = resultSecrets;
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    anc_pv_genesis_preparation_snapshot_zero(snapshot);
+  return status;
+}
+
 - (instancetype)initWithKeychain:(AncPrivateVaultKeychain *)keychain
                             fence:(AncPrivateVaultGenerationFence *)fence
                     artifactStore:(AncPrivateVaultGenesisPreparationArtifactStore *)artifactStore {
@@ -924,6 +970,89 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
     if (status == AncPrivateVaultGenesisPreparationStoreStatusOK)
       status = [self commitCandidate:candidate
                            lookupKey:AncGenesisLookupKey(handle)
+                         allowCreate:NO];
+
+  close_candidate:
+    if (candidate != nil &&
+        [candidate close] != AncPrivateVaultGuardedMemoryStatusOK)
+      status = AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  close_current:
+    status = AncGenesisCloseObjects(current, currentSecrets, status);
+    anc_pv_genesis_preparation_snapshot_zero(&currentSnapshot);
+  });
+  return status;
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    guardedCASTerminalTransitionLookupId:(const uint8_t *)lookupId
+                                  length:(size_t)length
+                               construct:
+                                   (AncGenesisConstructedTransition)construct {
+  if (lookupId == NULL ||
+      length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES || construct == nil)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+  __block AncPrivateVaultGenesisPreparationStoreStatus status =
+      AncPrivateVaultGenesisPreparationStoreStatusFailed;
+  dispatch_sync(self.queue, ^{
+    AncPrivateVaultGenesisGuardedRecord *current = nil;
+    AncPrivateVaultGenesisGuardedRecord *candidate = nil;
+    AncPrivateVaultGenesisPreparationSnapshot currentSnapshot;
+    AncPrivateVaultGenesisPreparationSecretsHandle *currentSecrets = nil;
+    status = [self reconcileLookupIdLocked:lookupId
+                                    record:&current
+                                  snapshot:&currentSnapshot
+                             secretHandle:&currentSecrets];
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+      goto close_current;
+    if (currentSnapshot.phase < ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED) {
+      status = AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      goto close_current;
+    }
+
+    AncPrivateVaultGenesisPreparationSnapshot next;
+    anc_pv_genesis_preparation_snapshot_zero(&next);
+    BOOL shouldCommit = NO;
+    BOOL terminalizeSecrets = NO;
+    status = construct(&currentSnapshot, &next, &shouldCommit,
+                       &terminalizeSecrets);
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK ||
+        !shouldCommit) {
+      anc_pv_genesis_preparation_snapshot_zero(&next);
+      goto close_current;
+    }
+    if (!terminalizeSecrets) {
+      anc_pv_genesis_preparation_snapshot_zero(&next);
+      status = AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      goto close_current;
+    }
+
+    uint8_t terminalSecretBytes[160] = {0};
+    AncPrivateVaultGenesisPreparationSecretInputs terminalSecrets = {
+        terminalSecretBytes, terminalSecretBytes + 32,
+        terminalSecretBytes + 64, terminalSecretBytes + 96,
+        terminalSecretBytes + 128};
+    AncPrivateVaultGenesisPreparationStoreStatus encodeStatus;
+    candidate = AncGenesisEncode(&next, &terminalSecrets, &encodeStatus);
+    anc_pv_zeroize(terminalSecretBytes, sizeof terminalSecretBytes);
+    anc_pv_genesis_preparation_snapshot_zero(&next);
+    if (candidate == nil) {
+      status = encodeStatus;
+      goto close_candidate;
+    }
+    if (!AncGenesisTransitionValid(current, candidate)) {
+      status = AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      goto close_candidate;
+    }
+
+    status = AncGenesisCloseObjects(
+        current, currentSecrets,
+        AncPrivateVaultGenesisPreparationStoreStatusOK);
+    current = nil;
+    currentSecrets = nil;
+    anc_pv_genesis_preparation_snapshot_zero(&currentSnapshot);
+    if (status == AncPrivateVaultGenesisPreparationStoreStatusOK)
+      status = [self commitCandidate:candidate
+                           lookupKey:AncGenesisLookupKey(lookupId)
                          allowCreate:NO];
 
   close_candidate:
@@ -2515,6 +2644,115 @@ static AncGenesisConfirmedEvidence *AncGenesisVerifyConfirmedEvidence(
           secretHandle:nil];
   anc_pv_genesis_preparation_snapshot_zero(&snapshot);
   return status;
+}
+
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    cleanupTerminalLookupId:(const uint8_t *)lookupId length:(size_t)length {
+  if (lookupId == NULL ||
+      length != ANC_PV_GENESIS_PREPARATION_LOOKUP_ID_BYTES)
+    return AncPrivateVaultGenesisPreparationStoreStatusInvalid;
+
+  AncPrivateVaultGenesisPreparationSnapshot observed;
+  AncPrivateVaultGenesisPreparationStoreStatus status =
+      [self readLookupId:lookupId
+                  length:length
+                snapshot:&observed
+             secretHandle:nil];
+  if (status != AncPrivateVaultGenesisPreparationStoreStatusOK)
+    return status;
+  const AncPrivateVaultGenesisPreparationPhase phase = observed.phase;
+  if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED) {
+    const BOOL cleaned =
+        (observed.flags &
+         ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) != 0;
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    if (!cleaned)
+      return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+    return [self reconcileLookupId:lookupId length:length];
+  }
+  if (phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED &&
+      phase != ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED) {
+    anc_pv_genesis_preparation_snapshot_zero(&observed);
+    return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+  }
+
+  const BOOL artifactsBound =
+      (observed.flags & ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_BOUND) != 0;
+  const BOOL artifactsCleaned =
+      (observed.flags & ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED) != 0;
+  if (!artifactsCleaned) {
+    AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+        AncPrivateVaultGenesisPreparationArtifactStatusNotFound;
+    if (artifactsBound) {
+      AncPrivateVaultGenesisPreparationArtifactStatus reconciled =
+          [self.artifactStore
+              reconcileLookupId:observed.preparation_lookup_id
+                  expectedDigest:observed.artifact_spool_digest];
+      if (reconciled != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+          reconciled !=
+              AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+        anc_pv_genesis_preparation_snapshot_zero(&observed);
+        return AncGenesisArtifactStatus(reconciled);
+      }
+      deleted = [self.artifactStore
+          deleteLiveLookupId:observed.preparation_lookup_id
+              expectedDigest:observed.artifact_spool_digest];
+    } else {
+      deleted = [self.artifactStore
+          deleteUnboundStagedLookupId:observed.preparation_lookup_id
+                              vaultId:observed.vault_id
+                           ceremonyId:observed.ceremony_id
+                           generation:2];
+    }
+    if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+        deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncGenesisArtifactStatus(deleted);
+    }
+
+    AncPrivateVaultGenesisPreparationSnapshot expected = observed;
+    status = [self
+        guardedCASTerminalTransitionLookupId:lookupId
+                                      length:length
+                                   construct:^AncPrivateVaultGenesisPreparationStoreStatus(
+                                       const AncPrivateVaultGenesisPreparationSnapshot
+                                           *current,
+                                       AncPrivateVaultGenesisPreparationSnapshot
+                                           *next,
+                                       BOOL *shouldCommit,
+                                       BOOL *terminalizeSecrets) {
+      if (current->phase != ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED ||
+          !AncGenesisSnapshotPublicEqual(current, &expected))
+        return AncPrivateVaultGenesisPreparationStoreStatusConflict;
+      *next = *current;
+      next->flags &=
+          (uint8_t)~ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_LIVE;
+      next->flags |= ANC_PV_GENESIS_PREPARATION_FLAG_ARTIFACTS_CLEANED;
+      next->generation++;
+      *terminalizeSecrets = YES;
+      *shouldCommit = YES;
+      return AncPrivateVaultGenesisPreparationStoreStatusOK;
+    }];
+    anc_pv_genesis_preparation_snapshot_zero(&expected);
+    if (status != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return status;
+    }
+  } else if (!artifactsBound) {
+    AncPrivateVaultGenesisPreparationArtifactStatus deleted =
+        [self.artifactStore
+            deleteUnboundStagedLookupId:observed.preparation_lookup_id
+                                vaultId:observed.vault_id
+                             ceremonyId:observed.ceremony_id
+                             generation:2];
+    if (deleted != AncPrivateVaultGenesisPreparationArtifactStatusOK &&
+        deleted != AncPrivateVaultGenesisPreparationArtifactStatusNotFound) {
+      anc_pv_genesis_preparation_snapshot_zero(&observed);
+      return AncGenesisArtifactStatus(deleted);
+    }
+  }
+  anc_pv_genesis_preparation_snapshot_zero(&observed);
+  return [self reconcileLookupId:lookupId length:length];
 }
 
 - (AncPrivateVaultGenesisPreparationStoreStatus)

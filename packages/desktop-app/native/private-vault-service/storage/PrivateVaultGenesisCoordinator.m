@@ -15,6 +15,7 @@
 
 #import <math.h>
 #import <objc/runtime.h>
+#import <sodium.h>
 
 static const uint64_t kMaximumSafeInteger = UINT64_C(9007199254740991);
 
@@ -136,6 +137,38 @@ static void RaiseImmutable(void) {
     return NO;
   *milliseconds = value;
   return YES;
+}
+@end
+
+@interface AncPrivateVaultGenesisPersistedTrustedClock ()
+@property(nonatomic) AncPrivateVaultTrustedTimeStore *store;
+@property(nonatomic) id<AncPrivateVaultGenesisTrustedClock> systemClock;
+@end
+
+@implementation AncPrivateVaultGenesisPersistedTrustedClock
+- (instancetype)
+    initWithStore:(AncPrivateVaultTrustedTimeStore *)store
+      systemClock:(id<AncPrivateVaultGenesisTrustedClock>)systemClock {
+  self = [super init];
+  if (self == nil ||
+      object_getClass(store) != AncPrivateVaultTrustedTimeStore.class ||
+      systemClock == nil || systemClock == self)
+    return nil;
+  _store = store;
+  _systemClock = systemClock;
+  return self;
+}
+
+- (BOOL)readNowMilliseconds:(uint64_t *)milliseconds {
+  if (milliseconds == NULL)
+    return NO;
+  *milliseconds = 0;
+  uint64_t system = 0;
+  if (![self.systemClock readNowMilliseconds:&system])
+    return NO;
+  return [self.store observeSystemMilliseconds:system
+                           trustedMilliseconds:milliseconds] ==
+         AncPrivateVaultTrustedTimeStatusOK;
 }
 @end
 
@@ -297,17 +330,45 @@ static BOOL RandomNonzero(uint8_t *bytes, size_t length) {
   return NO;
 }
 
-static BOOL RandomPreparationHandle(uint8_t handle[48]) {
+static BOOL RandomPreparationLookup(uint8_t handle[48]) {
   if (handle == NULL)
     return NO;
+  anc_pv_zeroize(handle, 48);
   for (NSUInteger attempt = 0; attempt < 8; attempt++) {
-    if (anc_pv_random(handle, 48) != ANC_PV_CRYPTO_OK)
+    if (anc_pv_random(handle, 16) != ANC_PV_CRYPTO_OK)
       return NO;
-    if (!Zero(handle, 16) && !Zero(handle + 16, 32))
+    if (!Zero(handle, 16))
       return YES;
   }
   anc_pv_zeroize(handle, 48);
   return NO;
+}
+
+static BOOL DerivePreparationHandle(
+    const AncPrivateVaultGenesisPreparationSnapshot *snapshot,
+    const uint8_t localStateKey[32], uint8_t handle[48]) {
+  if (snapshot == NULL || localStateKey == NULL || handle == NULL ||
+      Zero(snapshot->preparation_lookup_id, 16) || Zero(snapshot->vault_id, 16) ||
+      Zero(snapshot->ceremony_id, 16) || Zero(localStateKey, 32))
+    return NO;
+  static const uint8_t domain[] =
+      "anc/v1/private-vault/genesis-preparation-startup-handle";
+  crypto_generichash_state state;
+  BOOL derived =
+      crypto_generichash_init(&state, localStateKey, 32, 32) == 0 &&
+      crypto_generichash_update(&state, domain, sizeof domain) == 0 &&
+      crypto_generichash_update(&state, snapshot->preparation_lookup_id, 16) ==
+          0 &&
+      crypto_generichash_update(&state, snapshot->vault_id, 16) == 0 &&
+      crypto_generichash_update(&state, snapshot->ceremony_id, 16) == 0 &&
+      crypto_generichash_final(&state, handle + 16, 32) == 0;
+  sodium_memzero(&state, sizeof state);
+  if (!derived || Zero(handle + 16, 32)) {
+    anc_pv_zeroize(handle, 48);
+    return NO;
+  }
+  memcpy(handle, snapshot->preparation_lookup_id, 16);
+  return YES;
 }
 
 static AncPrivateVaultGuardedMemory *GuardedCopy(const uint8_t *bytes,
@@ -712,7 +773,7 @@ static BOOL CopyPreparationSecrets(
     snapshot.prepared_at_ms = now;
     snapshot.expires_at_ms = now + UINT64_C(600000);
     BOOL identifiers =
-        RandomPreparationHandle(handle) &&
+        RandomPreparationLookup(handle) &&
         RandomNonzero(snapshot.vault_id, sizeof snapshot.vault_id) &&
         RandomNonzero(snapshot.ceremony_id, sizeof snapshot.ceremony_id) &&
         RandomNonzero(snapshot.endpoint_id, sizeof snapshot.endpoint_id) &&
@@ -729,10 +790,6 @@ static BOOL CopyPreparationSecrets(
     if (!identifiers)
       @throw [NSException exceptionWithName:@"AncExpected" reason:nil userInfo:nil];
     memcpy(snapshot.preparation_lookup_id, handle, 16);
-    if (anc_pv_genesis_preparation_handle_digest(
-            handle, sizeof handle, snapshot.handle_digest) !=
-        ANC_PV_GENESIS_PREPARATION_OK)
-      @throw [NSException exceptionWithName:@"AncExpected" reason:nil userInfo:nil];
 
     AncPrivateVaultMnemonicStatus mnemonicStatus;
     recoveryEntropy = AncPrivateVaultGenerateRecoveryEntropy(&mnemonicStatus);
@@ -744,6 +801,21 @@ static BOOL CopyPreparationSecrets(
         localStateKey == nil || epochOneEEK == nil ||
         !DeriveEndpointPublicKeys(signingSeed, boxSeed, signingPublic,
                                   boxPublic))
+      @throw [NSException exceptionWithName:@"AncExpected" reason:nil userInfo:nil];
+    __block BOOL handleDerived = NO;
+    uint8_t *derivedHandlePointer = handle;
+    AncPrivateVaultGuardedMemoryStatus handleStatus =
+        [localStateKey borrow:^BOOL(uint8_t *bytes, size_t length) {
+          handleDerived = length == 32 &&
+                          DerivePreparationHandle(&snapshot, bytes,
+                                                  derivedHandlePointer);
+          return handleDerived;
+        }];
+    if (handleStatus != AncPrivateVaultGuardedMemoryStatusOK ||
+        !handleDerived ||
+        anc_pv_genesis_preparation_handle_digest(
+            handle, sizeof handle, snapshot.handle_digest) !=
+            ANC_PV_GENESIS_PREPARATION_OK)
       @throw [NSException exceptionWithName:@"AncExpected" reason:nil userInfo:nil];
     memcpy(snapshot.endpoint_signing_public_key, signingPublic, 32);
     memcpy(snapshot.endpoint_agreement_public_key, boxPublic, 32);
@@ -1361,6 +1433,145 @@ static BOOL CopyPreparationSecrets(
     anc_pv_zeroize(handle, sizeof handle);
   }
   return PreparationStatus(expired);
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    resumePreparationLookupId:(NSData *)lookupId {
+  if (self.preparationStore == nil || self.preparationArtifactStore == nil ||
+      ![lookupId isKindOfClass:NSData.class] || lookupId.length != 16)
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  uint8_t lookupBytes[16] = {0};
+  [lookupId getBytes:lookupBytes length:sizeof lookupBytes];
+  AncPrivateVaultGenesisPreparationSnapshot snapshot;
+  AncPrivateVaultGenesisPreparationSecretsHandle *secrets = nil;
+  AncPrivateVaultGenesisPreparationStoreStatus read =
+      [self.preparationStore readLookupId:lookupBytes
+                                  length:sizeof lookupBytes
+                                snapshot:&snapshot
+                             secretHandle:&secrets];
+  if (read != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    return PreparationStatus(read);
+  }
+  AncPrivateVaultGenesisPreparationPhase phase = snapshot.phase;
+  if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_CANCELLED ||
+      phase == ANC_PV_GENESIS_PREPARATION_PHASE_EXPIRED) {
+    uint8_t vaultId[16] = {0};
+    memcpy(vaultId, snapshot.vault_id, sizeof vaultId);
+    AncPrivateVaultGenesisPreparationStoreStatus closed = [secrets close];
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    AncPrivateVaultGenesisArtifactStoreStatus artifactDeleted =
+        closed == AncPrivateVaultGenesisPreparationStoreStatusOK
+            ? [self.artifactStore deleteVaultId:vaultId]
+            : AncPrivateVaultGenesisArtifactStoreStatusStorageFailed;
+    AncPrivateVaultGenesisPreparationStoreStatus cleaned =
+        artifactDeleted == AncPrivateVaultGenesisArtifactStoreStatusOK
+            ? [self.preparationStore cleanupTerminalLookupId:lookupBytes
+                                                     length:sizeof lookupBytes]
+            : AncPrivateVaultGenesisPreparationStoreStatusFailed;
+    anc_pv_zeroize(vaultId, sizeof vaultId);
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return PreparationStatus(cleaned);
+  }
+  if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTED) {
+    uint8_t vaultId[16] = {0};
+    memcpy(vaultId, snapshot.vault_id, sizeof vaultId);
+    AncPrivateVaultGenesisPreparationStoreStatus closed = [secrets close];
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    if (closed != AncPrivateVaultGenesisPreparationStoreStatusOK) {
+      anc_pv_zeroize(vaultId, sizeof vaultId);
+      return PreparationStatus(closed);
+    }
+    AncPrivateVaultGenesisCoordinatorResult *result = nil;
+    AncPrivateVaultGenesisCoordinatorStatus resumed =
+        [self resumeVaultId:vaultId result:&result];
+    anc_pv_zeroize(vaultId, sizeof vaultId);
+    return resumed == AncPrivateVaultGenesisCoordinatorStatusOK && result != nil
+               ? resumed
+               : AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
+  }
+  uint64_t now = 0;
+  if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+      (![self.trustedClock readNowMilliseconds:&now] || now == 0 ||
+       now > kMaximumSafeInteger)) {
+    (void)[secrets close];
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return AncPrivateVaultGenesisCoordinatorStatusInvalid;
+  }
+  if (phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+      now <= snapshot.expires_at_ms) {
+    AncPrivateVaultGenesisPreparationStoreStatus closed = [secrets close];
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return PreparationStatus(closed);
+  }
+  if (phase != ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+      phase != ANC_PV_GENESIS_PREPARATION_PHASE_CONFIRMED &&
+      phase != ANC_PV_GENESIS_PREPARATION_PHASE_COMMITTING) {
+    (void)[secrets close];
+    anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+    anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+    return AncPrivateVaultGenesisCoordinatorStatusConflict;
+  }
+
+  uint8_t handle[48] = {0};
+  uint8_t *handlePointer = handle;
+  __block AncPrivateVaultGuardedMemory *recoveryEntropy = nil;
+  __block BOOL reconstructed = NO;
+  AncPrivateVaultGenesisPreparationStoreStatus borrowed =
+      [secrets borrow:^BOOL(
+                   const AncPrivateVaultGenesisPreparationSecretInputs *inputs) {
+        reconstructed =
+            DerivePreparationHandle(&snapshot, inputs->local_state_key,
+                                    handlePointer) &&
+            anc_pv_genesis_preparation_handle_verify(
+                handlePointer, 48, snapshot.preparation_lookup_id,
+                snapshot.handle_digest);
+        if (reconstructed &&
+            phase != ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED)
+          recoveryEntropy = GuardedCopy(inputs->recovery_entropy, 32);
+        return reconstructed &&
+               (phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED ||
+                recoveryEntropy != nil);
+      }];
+  AncPrivateVaultGenesisPreparationStoreStatus closed = [secrets close];
+  AncPrivateVaultGuardedMemory *handleMemory =
+      borrowed == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+              closed == AncPrivateVaultGenesisPreparationStoreStatusOK &&
+              reconstructed
+          ? GuardedCopy(handle, sizeof handle)
+          : nil;
+  anc_pv_genesis_preparation_snapshot_zero(&snapshot);
+  anc_pv_zeroize(lookupBytes, sizeof lookupBytes);
+  anc_pv_zeroize(handle, sizeof handle);
+  if (handleMemory == nil ||
+      (phase != ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED &&
+       recoveryEntropy == nil)) {
+    (void)[recoveryEntropy close];
+    (void)[handleMemory close];
+    return AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+  }
+  AncPrivateVaultGenesisCoordinatorStatus resumed =
+      phase == ANC_PV_GENESIS_PREPARATION_PHASE_PREPARED
+          ? [self expirePreparationHandle:handleMemory]
+          : [self confirmPreparationHandle:handleMemory
+               confirmedRecoveryEntropy:recoveryEntropy
+                                result:nil];
+  BOOL protected = CloseGuarded(recoveryEntropy) && CloseGuarded(handleMemory);
+  return protected ? resumed
+                   : AncPrivateVaultGenesisCoordinatorStatusProtectionFailed;
+}
+
+- (AncPrivateVaultGenesisCoordinatorStatus)validateTrustedTimeForStartup {
+  uint64_t now = 0;
+  return self.trustedClock != nil &&
+                 [self.trustedClock readNowMilliseconds:&now] && now != 0 &&
+                 now <= kMaximumSafeInteger
+             ? AncPrivateVaultGenesisCoordinatorStatusOK
+             : AncPrivateVaultGenesisCoordinatorStatusStorageFailed;
 }
 
 - (AncPrivateVaultGenesisCoordinatorStatus)

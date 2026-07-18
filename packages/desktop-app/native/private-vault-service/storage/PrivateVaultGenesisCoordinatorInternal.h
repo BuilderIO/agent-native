@@ -1,6 +1,7 @@
 #import "PrivateVaultGenesisCoordinator.h"
 #import "PrivateVaultGenesisPreparationStore.h"
 #import "PrivateVaultGuardedMemory.h"
+#import "PrivateVaultTrustedTimeStore.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -10,6 +11,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface AncPrivateVaultGenesisSystemTrustedClock
     : NSObject <AncPrivateVaultGenesisTrustedClock>
+@end
+
+@interface AncPrivateVaultGenesisPersistedTrustedClock
+    : NSObject <AncPrivateVaultGenesisTrustedClock>
+- (instancetype)
+    initWithStore:(AncPrivateVaultTrustedTimeStore *)store
+      systemClock:(id<AncPrivateVaultGenesisTrustedClock>)systemClock
+    NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
 @end
 
 @interface AncPrivateVaultGenesisPreparationResult : NSObject
@@ -62,6 +72,17 @@ NS_ASSUME_NONNULL_BEGIN
  * its durable deadline can expire. */
 - (AncPrivateVaultGenesisCoordinatorStatus)
     expirePreparationHandle:(AncPrivateVaultGuardedMemory *)handle;
+
+/* Trusted startup resumption by durable lookup id. PREPARED remains pending
+ * until its deadline, then expires; explicitly confirmed phases reconstruct a
+ * native-only derived handle and finish the same proof-bound coordinator path.
+ * No bearer or secret leaves the service. */
+- (AncPrivateVaultGenesisCoordinatorStatus)
+    resumePreparationLookupId:(NSData *)lookupId;
+
+/* Performs the persisted trusted-time observation required before the XPC
+ * request surface opens, even when no genesis work is pending. */
+- (AncPrivateVaultGenesisCoordinatorStatus)validateTrustedTimeForStartup;
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING

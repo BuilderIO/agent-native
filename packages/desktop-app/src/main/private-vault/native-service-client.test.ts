@@ -397,12 +397,17 @@ describe("Private Vault native service client", () => {
     );
     expect(serviceSource).toContain("SecCodeCreateWithXPCMessage");
     expect(serviceSource).toContain("SecCodeCheckValidity");
+    expect(serviceSource).toContain("AncPrivateVaultResumePendingGenesisState");
+    expect(serviceSource).toContain("AncPrivateVaultTrustedTimeStore");
     expect(serviceSource).toContain(
-      "AncPrivateVaultResumePendingGenesisArtifacts",
+      "AncPrivateVaultGenesisPersistedTrustedClock",
     );
-    expect(serviceSource).toContain("PVRequestCanRun(&request, gStartupComplete)");
+    expect(serviceSource).toContain("AncPrivateVaultGenesisPreparationStore");
+    expect(serviceSource).toContain(
+      "PVRequestCanRun(&request, gStartupComplete)",
+    );
     expect(
-      serviceSource.indexOf("AncPrivateVaultResumePendingGenesisArtifacts"),
+      serviceSource.indexOf("AncPrivateVaultResumePendingGenesisState"),
     ).toBeLessThan(serviceSource.indexOf("gStartupComplete = true"));
     expect(serviceSource.indexOf("gStartupComplete = true")).toBeLessThan(
       serviceSource.indexOf("xpc_main(PVConnectionHandler)"),

@@ -530,8 +530,7 @@ through authenticated artifacts, pending g1, official encrypted g2, exact
 official reread, and preparation-secret erasure. A second confirmation is an
 exact no-op backed by the same official state. Current-source arm64 production,
 coordinator, preparation-storage, and custody-repository suites pass. The
-ceremony remains native-internal: startup resumption without the bearer handle,
-persisted trusted-time floors, and the trusted desktop UI are still open gates.
+ceremony remains native-internal; the trusted desktop UI is still an open gate.
 
 The native lifecycle now also closes cancellation and expiry without inventing
 authority. User-authorized cancellation works from PREPARED, CONFIRMED, and
@@ -553,9 +552,40 @@ deadline boundaries, orphan-stage cleanup, cancellation before confirmation,
 and cancellation after pending custody but before official authority. Arm64-only runners are now
 explicit for the affected custody and authority suites.
 
-This still does not close PR 5: the trusted confirmation UI, durable
-startup reconciliation and expiry without a bearer handle, persistence of a
-trusted-time floor, persistence of the actual recoverable epoch wrap, complete
+Native startup is now preparation-aware and remains a hard request-surface
+gate. A preparation's external 48-byte bearer is derived from its protected
+local-state key plus the public lookup, vault, and ceremony identifiers; the
+bearer itself is never persisted or exposed, while the native service can
+reconstruct it inside guarded startup scope. PREPARED records never become
+confirmed during startup: they remain pending until their deadline and then
+expire. Durably CONFIRMED or COMMITTING records resume the existing exact
+confirmation path through artifact reconciliation, pending custody, official
+authority, and secret terminalization. The production XPC service now
+constructs the generation fence and both preparation stores and performs two
+preparation passes around the legacy official-artifact sweep before setting its
+startup-complete gate. The gate observes trusted time even when both work lists
+are empty, removes marker-only crash remnants, completes exact digest-bound
+CANCELLED/EXPIRED artifact cleanup, and rejects any residual terminal marker.
+A COMMITTED record with live artifacts therefore keeps startup closed until its
+independently verified hosted receipt has authorized cleanup.
+
+Time-dependent mutations now use a device-wide persisted trusted-time floor.
+Separate current and high-water Keychain frames carry versioned,
+domain-separated integrity checks and advance pending-to-stable. Interrupted
+initialization and updates recover only toward the larger authenticated floor;
+a lower system clock, a missing half, corruption, or an inaccessible frame
+fails closed without changing preparation, custody, authority, or artifacts.
+Synthetic coverage exercises every initialization and update write boundary,
+restart recovery, backward time, corruption, pending PREPARED startup, expiry,
+CONFIRMED/COMMITTING continuation without a caller bearer, marker-only repair,
+and interrupted cancellation cleanup. These two Keychain frames detect wall
+clock rollback, corruption, partial loss, and interrupted writes inside their
+local rollback domain. They cannot detect a coordinated restore of both frames
+to the same older valid snapshot; that stronger claim requires the planned
+remote or hardware monotonic witness and remains a release gate.
+
+This still does not close PR 5: the trusted confirmation UI, committed
+preparation-artifact/receipt cleanup, persistence of the actual recoverable epoch wrap, complete
 enrollment and recovery product flows, malicious-directory and stolen-session
 transcripts, and the independently packageable broker exit gate remain.
 

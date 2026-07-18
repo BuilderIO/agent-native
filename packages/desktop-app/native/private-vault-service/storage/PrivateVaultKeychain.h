@@ -16,6 +16,8 @@ FOUNDATION_EXPORT NSString *const AncPrivateVaultGenesisPreparationService;
 FOUNDATION_EXPORT NSString *const
     AncPrivateVaultGenesisPreparationStageService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultRotationCleanupReceiptService;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultTrustedTimeService;
+FOUNDATION_EXPORT NSString *const AncPrivateVaultTrustedTimeHighWaterService;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainAccessGroup;
 FOUNDATION_EXPORT NSString *const AncPrivateVaultKeychainStorageDomain;
 

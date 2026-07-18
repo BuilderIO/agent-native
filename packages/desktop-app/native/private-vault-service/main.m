@@ -14,6 +14,10 @@
 #import "PrivateVaultKeychain.h"
 #import "PrivateVaultGenesisArtifactStore.h"
 #import "PrivateVaultGenesisCoordinator.h"
+#import "PrivateVaultGenesisCoordinatorInternal.h"
+#import "PrivateVaultGenesisPreparationArtifactStore.h"
+#import "PrivateVaultGenesisPreparationStore.h"
+#import "PrivateVaultGenerationFence.h"
 #import "PrivateVaultGenesisStartup.h"
 #import "PrivateVaultRotationCoordinator.h"
 #import "PrivateVaultRotationPreparationSpool.h"
@@ -23,6 +27,7 @@
 #import "PrivateVaultHostedAppendRetryCoordinator.h"
 #import "PrivateVaultHostedAppendRetryStore.h"
 #import "PrivateVaultHostedAppendTransport.h"
+#import "PrivateVaultTrustedTimeStore.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -398,11 +403,32 @@ int main(void) {
         AncPrivateVaultGenesisArtifactStore *genesisArtifacts =
             [[AncPrivateVaultGenesisArtifactStore alloc]
                 initWithStateRootURL:stateRoot];
+        AncPrivateVaultGenesisPreparationArtifactStore
+            *genesisPreparationArtifacts =
+                [[AncPrivateVaultGenesisPreparationArtifactStore alloc]
+                    initWithStateRootURL:stateRoot];
+        AncPrivateVaultGenesisPreparationStore *genesisPreparationStore =
+            [[AncPrivateVaultGenesisPreparationStore alloc]
+                initWithKeychain:keychain
+                           fence:[[AncPrivateVaultGenerationFence alloc]
+                                     initWithKeychain:keychain]
+                   artifactStore:genesisPreparationArtifacts];
+        AncPrivateVaultTrustedTimeStore *trustedTimeStore =
+            [[AncPrivateVaultTrustedTimeStore alloc]
+                initWithKeychain:keychain];
+        AncPrivateVaultGenesisPersistedTrustedClock *genesisTrustedClock =
+            [[AncPrivateVaultGenesisPersistedTrustedClock alloc]
+                initWithStore:trustedTimeStore
+                  systemClock:
+                      [AncPrivateVaultGenesisSystemTrustedClock new]];
         gGenesisCoordinator = [[AncPrivateVaultGenesisCoordinator alloc]
             initWithArtifactStore:genesisArtifacts
                   authorityStore:authority
                custodyRepository:gCustodyRepository
-                      controlLog:controlLog];
+                      controlLog:controlLog
+                preparationStore:genesisPreparationStore
+           preparationArtifactStore:genesisPreparationArtifacts
+                    trustedClock:genesisTrustedClock];
         gRotationCoordinator = [[AncPrivateVaultRotationCoordinator alloc]
             initWithPreparationStore:preparation
                       authorityStore:authority
@@ -436,6 +462,9 @@ int main(void) {
         if (stateRoot == nil || keychain == nil || gCustodyRepository == nil ||
             spool == nil || preparation == nil || authority == nil ||
             controlLog == nil || genesisArtifacts == nil ||
+            genesisPreparationArtifacts == nil ||
+            genesisPreparationStore == nil ||
+            trustedTimeStore == nil || genesisTrustedClock == nil ||
             gGenesisCoordinator == nil || gRotationCoordinator == nil ||
             gHostedAppendTransport == nil || retryStore == nil ||
             gHostedAppendCandidates == nil || retryScheduler == nil ||
@@ -449,8 +478,9 @@ int main(void) {
             return EXIT_FAILURE;
         }
 
-        if (AncPrivateVaultResumePendingGenesisArtifacts(
-                genesisArtifacts, gGenesisCoordinator) !=
+        if (AncPrivateVaultResumePendingGenesisState(
+                genesisArtifacts, genesisPreparationStore,
+                gGenesisCoordinator) !=
             AncPrivateVaultGenesisStartupStatusOK) {
             return EXIT_FAILURE;
         }

@@ -12,6 +12,23 @@ NS_ASSUME_NONNULL_BEGIN
  * or secret material. */
 @interface AncPrivateVaultGenesisPreparationStore (GenesisInternal)
 
+/* Trusted startup-only read by durable lookup id. It never accepts a
+ * caller-provided transition or exposes data outside the native service. The
+ * returned secret handle must be closed by the coordinator. */
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    readLookupId:(const uint8_t *)lookupId
+          length:(size_t)length
+        snapshot:(AncPrivateVaultGenesisPreparationSnapshot *)snapshot
+     secretHandle:
+         (AncPrivateVaultGenesisPreparationSecretsHandle *_Nullable *_Nullable)
+             secretHandle;
+
+/* Startup-only, handleless cleanup is intentionally restricted to already
+ * terminal records. It derives every deletion target from the authenticated
+ * record and refuses COMMITTED cleanup until the hosted receipt is bound. */
+- (AncPrivateVaultGenesisPreparationStoreStatus)
+    cleanupTerminalLookupId:(const uint8_t *)lookupId length:(size_t)length;
+
 - (AncPrivateVaultGenesisPreparationStoreStatus)
     bindConfirmedHandle:(const uint8_t *)handle
            handleLength:(size_t)handleLength

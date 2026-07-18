@@ -26,6 +26,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultGenesisLock.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisStartup.m"
+  "$SOURCE_ROOT/storage/PrivateVaultTrustedTimeStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
@@ -711,6 +712,7 @@ case "${PRIVATE_VAULT_BUILD_GENESIS_COORDINATOR_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinator.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisStartup.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultTrustedTimeStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenesisCoordinatorTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"
     lipo "$output" -verify_arch "$architecture"
