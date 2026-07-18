@@ -1868,26 +1868,65 @@ export function App() {
   });
 
   const loadPendingUploads = useCallback(async () => {
-    try {
-      const nativeList = await invoke<Omit<PendingNativeUpload, "kind">[]>(
-        "native_fullscreen_pending_uploads",
+    // The two sources are independent and must not sink each other: this
+    // used to await them serially inside one try/catch, so a wedged
+    // IndexedDB open in the browser-backup lookup (WKWebView can block
+    // indefinitely on a pending version upgrade held by another webview)
+    // silently hung the whole lookup — locally saved native clips never
+    // appeared in the retry banner and no error was logged. Bound each
+    // lookup and render whatever arrived.
+    const bounded = <T,>(promise: Promise<T>, label: string): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`${label} timed out`)),
+          5_000,
+        );
+        promise.then(
+          (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err);
+          },
+        );
+      });
+    const [nativeResult, browserResult] = await Promise.allSettled([
+      bounded(
+        invoke<Omit<PendingNativeUpload, "kind">[]>(
+          "native_fullscreen_pending_uploads",
+        ),
+        "native pending uploads",
+      ),
+      bounded(listBrowserRecordingBackups(), "browser recording backups"),
+    ]);
+    if (nativeResult.status === "rejected") {
+      console.warn(
+        "[clips-tray] native pending upload lookup failed:",
+        nativeResult.reason,
       );
-      const browserList = await listBrowserRecordingBackups();
-      const nativeUploads = Array.isArray(nativeList)
-        ? nativeList.map((upload) => ({
+    }
+    if (browserResult.status === "rejected") {
+      console.warn(
+        "[clips-tray] browser backup lookup failed:",
+        browserResult.reason,
+      );
+    }
+    const nativeUploads =
+      nativeResult.status === "fulfilled" && Array.isArray(nativeResult.value)
+        ? nativeResult.value.map((upload) => ({
             ...upload,
             kind: "native" as const,
           }))
         : [];
-      setPendingUploads(
-        [...nativeUploads, ...browserList].sort((a, b) =>
-          b.savedAt.localeCompare(a.savedAt),
-        ),
-      );
-    } catch (err) {
-      console.warn("[clips-tray] pending upload lookup failed:", err);
-      setPendingUploads([]);
-    }
+    const browserUploads =
+      browserResult.status === "fulfilled" ? browserResult.value : [];
+    setPendingUploads(
+      [...nativeUploads, ...browserUploads].sort((a, b) =>
+        b.savedAt.localeCompare(a.savedAt),
+      ),
+    );
   }, []);
 
   useEffect(() => {
