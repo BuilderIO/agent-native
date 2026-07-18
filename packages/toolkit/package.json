@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "migration-manifest.json",
     "README.md"
   ],
   "type": "module",
@@ -156,6 +157,7 @@
       "import": "./dist/utils.js",
       "default": "./dist/utils.js"
     },
+    "./migration-manifest.json": "./migration-manifest.json",
     "./styles.css": "./dist/styles.css",
     "./editor.css": "./dist/editor.css"
   },
