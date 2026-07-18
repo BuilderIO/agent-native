@@ -57,6 +57,15 @@ describe("server/auth", () => {
       expect(shouldSkipEmailVerification()).toBe(false);
     }, 15_000);
 
+    it("is enabled by default for Netlify deploy previews", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CONTEXT", "deploy-preview");
+      const { shouldSkipEmailVerification } =
+        await import("./better-auth-instance.js");
+
+      expect(shouldSkipEmailVerification()).toBe(true);
+    }, 15_000);
+
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
       const { shouldSkipEmailVerification } =

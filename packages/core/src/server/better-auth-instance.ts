@@ -318,7 +318,9 @@ export function shouldSkipEmailVerification(): boolean {
   const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
   if (value == null) {
     return (
-      process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+      process.env.NODE_ENV === "development" ||
+      process.env.NODE_ENV === "test" ||
+      process.env.CONTEXT === "deploy-preview"
     );
   }
   const normalized = value.trim().toLowerCase();
