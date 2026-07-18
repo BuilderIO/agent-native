@@ -36,7 +36,6 @@ method gives the UI, docs, and future agents one stable contract.
    | Agent chat context | Agent chat helpers from `@agent-native/core/client/agent-chat` |
    | Ask the user a multiple-choice question from app code | `askUserQuestion` from `@agent-native/core/client/agent-chat` (renders inline in the agent panel; answer goes to the agent — do not build a custom modal) |
    | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` from `@agent-native/core/client/hooks` |
-   | Listen to the shared SSE/poll change stream | `subscribeSyncEvents` from `@agent-native/core/client/hooks` — never open a second `EventSource` to `/_agent-native/events` |
    | Extension iframe calls | `appAction`, `appFetch`, `extensionFetch` from the extension runtime |
 
    Action fetch behavior: every `useActionQuery` / `useActionMutation` /
