@@ -28,18 +28,20 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 ## How
 
-1. **Doctor first (optional but recommended)**
+1. **Preview migration codemods first**
 
    ```bash
-   npx @agent-native/core@latest upgrade check
+   npx @agent-native/core@latest upgrade --codemods
    ```
 
-   This reports framework overrides/patches and pending `@agent-native/*`
-   bumps. If overrides/patches are present, remove them before continuing.
+   Codemods are preview-by-default: read the diff before applying it. Do not
+   manually edit imports before running this command; the migration manifest is
+   the source of truth for renamed specifiers and symbols.
 
-2. **Run the upgrade**
+2. **Apply the reviewed codemods, then run the upgrade**
 
    ```bash
+   npx @agent-native/core@latest upgrade --codemods --yes
    npx @agent-native/core@latest upgrade
    ```
 
@@ -67,7 +69,12 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    agent-native upgrade --dry-run
    agent-native upgrade --skip-verify
    agent-native upgrade --skip-install   # package.json bumps only
+   agent-native doctor --only migration-manifest
    ```
+
+   `migration-manifest` has no opt-out. Run it in CI before upgrading to find
+   imports that will break, then use `npx @agent-native/core@latest upgrade --codemods`
+   to preview the supported rewrite.
 
 ## Don't
 
