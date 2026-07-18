@@ -1479,37 +1479,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       }
                     />
                   ) : null}
-                  {showNewDocumentTypeChooser ? (
-                    <div
-                      className="mt-5 flex flex-wrap gap-2"
-                      aria-label={t("sidebar.newPage")}
-                    >
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="justify-start gap-2"
-                        disabled={!editorCanEdit || createDatabase.isPending}
-                        onClick={handleChoosePage}
-                      >
-                        <IconFileText />
-                        {t("sidebar.page")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="justify-start gap-2"
-                        disabled={!editorCanEdit || createDatabase.isPending}
-                        onClick={() => void handleChooseDatabase()}
-                      >
-                        {createDatabase.isPending ? (
-                          <IconLoader2 className="animate-spin" />
-                        ) : (
-                          <IconDatabase />
-                        )}
-                        {t("sidebar.database")}
-                      </Button>
-                    </div>
-                  ) : null}
                   {document.databaseMembership && !isLocalFileDocument ? (
                     <DocumentProperties
                       documentId={documentId}
@@ -1543,6 +1512,44 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                             "editor.builderBodySyncingDescription",
                           )}
                         />
+                      );
+                    }
+
+                    if (showNewDocumentTypeChooser) {
+                      return (
+                        <div
+                          className="flex flex-wrap gap-2 pt-3"
+                          aria-label={t("sidebar.newPage")}
+                        >
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="justify-start gap-2"
+                            disabled={
+                              !editorCanEdit || createDatabase.isPending
+                            }
+                            onClick={handleChoosePage}
+                          >
+                            <IconFileText />
+                            {t("sidebar.page")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="justify-start gap-2"
+                            disabled={
+                              !editorCanEdit || createDatabase.isPending
+                            }
+                            onClick={() => void handleChooseDatabase()}
+                          >
+                            {createDatabase.isPending ? (
+                              <IconLoader2 className="animate-spin" />
+                            ) : (
+                              <IconDatabase />
+                            )}
+                            {t("sidebar.database")}
+                          </Button>
+                        </div>
                       );
                     }
 

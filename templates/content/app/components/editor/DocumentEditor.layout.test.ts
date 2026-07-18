@@ -30,6 +30,9 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('{t("sidebar.page")}');
     expect(source).toContain('{t("sidebar.database")}');
+    expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
+      source.indexOf("const primaryEditor ="),
+    );
   });
 
   it("gives database pages a wider database surface", () => {

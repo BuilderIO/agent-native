@@ -68,6 +68,7 @@ export function ContentFilesSidebarView({
   data,
   overrides,
   isLoading,
+  activeDocumentId,
   labels,
   onSelectView,
   onOpenItem,
@@ -75,6 +76,7 @@ export function ContentFilesSidebarView({
   data: ContentDatabaseResponse | undefined;
   overrides: ContentDatabasePersonalViewOverrides | null | undefined;
   isLoading: boolean;
+  activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   labels: Omit<
@@ -154,6 +156,7 @@ export function ContentFilesSidebarView({
         onClearResultConstraints={() => {}}
         onPreview={() => {}}
         onOpenItem={onOpenItem}
+        activeDocumentId={activeDocumentId}
       />
     </div>
   );
@@ -168,6 +171,7 @@ export function DatabaseSidebarView({
   onClearResultConstraints,
   onPreview,
   onOpenItem,
+  activeDocumentId,
   loadingLabel,
   noMatchesLabel,
   clearLabel,
@@ -182,6 +186,7 @@ export function DatabaseSidebarView({
   onClearResultConstraints: () => void;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  activeDocumentId?: string | null;
   loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
@@ -260,6 +265,7 @@ export function DatabaseSidebarView({
                         openPagesIn={openPagesIn}
                         onPreview={onPreview}
                         onOpenItem={onOpenItem}
+                        active={item.document.id === activeDocumentId}
                         untitledLabel={untitledLabel}
                       />
                     ))}
@@ -274,6 +280,7 @@ export function DatabaseSidebarView({
                 openPagesIn={openPagesIn}
                 onPreview={onPreview}
                 onOpenItem={onOpenItem}
+                active={item.document.id === activeDocumentId}
                 untitledLabel={untitledLabel}
               />
             ))}
@@ -287,12 +294,14 @@ function DatabaseSidebarRow({
   openPagesIn,
   onPreview,
   onOpenItem,
+  active,
   untitledLabel,
 }: {
   item: ContentDatabaseItem;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  active: boolean;
   untitledLabel: string;
 }) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -323,6 +332,7 @@ function DatabaseSidebarRow({
         item.document.icon ? "pl-1" : "pl-1.5",
       )}
       onClick={handleClick}
+      aria-current={active ? "page" : undefined}
     >
       {item.document.icon ? (
         <span aria-hidden="true" className="shrink-0 text-sm leading-none">
@@ -331,7 +341,9 @@ function DatabaseSidebarRow({
       ) : (
         <IconFileText className="size-3.5 shrink-0 text-muted-foreground" />
       )}
-      <span className="min-w-0 flex-1 truncate">
+      <span
+        className={cn("min-w-0 flex-1 truncate", active && "font-semibold")}
+      >
         {item.document.title || untitledLabel}
       </span>
     </Link>

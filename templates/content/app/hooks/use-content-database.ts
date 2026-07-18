@@ -8,6 +8,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseItem,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
@@ -54,6 +55,56 @@ export function contentDatabaseQueryKey(documentId: string) {
 
 export function contentDatabaseByIdQueryKey(databaseId: string) {
   return ["action", "get-content-database", { databaseId }] as const;
+}
+
+export function applyOptimisticItemToContentDatabase(
+  current: ContentDatabaseResponse | undefined,
+  item: ContentDatabaseItem,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  if (
+    current.items.some(
+      (candidate) =>
+        candidate.id === item.id || candidate.document.id === item.document.id,
+    )
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    items: [...current.items, item],
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: current.pagination.totalItems + 1,
+          returnedItems: current.pagination.returnedItems + 1,
+        }
+      : current.pagination,
+  };
+}
+
+export function removeOptimisticItemFromContentDatabase(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  const items = current.items.filter(
+    (candidate) => candidate.document.id !== documentId,
+  );
+  if (items.length === current.items.length) return current;
+
+  return {
+    ...current,
+    items,
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: Math.max(0, current.pagination.totalItems - 1),
+          returnedItems: Math.max(0, current.pagination.returnedItems - 1),
+        }
+      : current.pagination,
+  };
 }
 
 export function preserveScopedDatabasePlaceholder<T>(

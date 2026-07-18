@@ -194,7 +194,11 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
     expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
     expect(sidebar).toContain(
-      "await handleCreatePage(undefined, space.id, id)",
+      "await handleCreatePage(undefined, space.id, id, space.filesDatabaseId)",
+    );
+    expect(sidebar).toContain("activeDocumentId={activeDocumentId}");
+    expect(sidebar).toContain(
+      "applyOptimisticItemToContentDatabase(current, optimisticItem)",
     );
     expect(sidebar).not.toContain("<WorkspaceCreateMenu");
     expect(sidebar).toContain(

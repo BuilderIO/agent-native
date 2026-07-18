@@ -29,6 +29,7 @@ import {
 } from "@dnd-kit/sortable";
 import type {
   ContentDatabaseItem,
+  ContentDatabaseResponse,
   Document,
   DocumentTreeNode,
 } from "@shared/api";
@@ -88,6 +89,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  applyOptimisticItemToContentDatabase,
+  contentDatabaseByIdQueryKey,
+  removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
   useContentDatabasePersonalView,
   useUpdateContentDatabasePersonalView,
@@ -221,10 +225,12 @@ interface RemoveLocalFileSourceResult {
 function WorkspaceFilesSection({
   space,
   selected,
+  activeDocumentId,
   onActivate,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
+  activeDocumentId: string | null;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
 }) {
   const t = useT();
@@ -253,6 +259,7 @@ function WorkspaceFilesSection({
           data={filesDatabase.data}
           overrides={filesPersonalView.data?.overrides}
           isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+          activeDocumentId={activeDocumentId}
           onSelectView={(viewId) => {
             const current = filesPersonalView.data?.overrides;
             updateFilesPersonalView.mutate({
@@ -568,6 +575,7 @@ export function DocumentSidebar({
       parentId?: string,
       rootSpaceId = selectedSpace?.id,
       optimisticId?: string,
+      rootFilesDatabaseId?: string,
     ) => {
       if (localFileMode) {
         try {
@@ -620,6 +628,20 @@ export function DocumentSidebar({
         return { documents: [...docs, tempDoc] };
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      if (rootFilesDatabaseId) {
+        const optimisticItem: ContentDatabaseItem = {
+          id: `optimistic-${id}`,
+          databaseId: rootFilesDatabaseId,
+          document: tempDoc,
+          position: tempDoc.position,
+          properties: [],
+        };
+        queryClient.setQueryData<ContentDatabaseResponse>(
+          contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+          (current) =>
+            applyOptimisticItemToContentDatabase(current, optimisticItem),
+        );
+      }
 
       navigateToDocument(id);
       onNavigate?.();
@@ -650,6 +672,11 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
+        if (rootFilesDatabaseId) {
+          queryClient.invalidateQueries({
+            queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+          });
+        }
       } catch (err) {
         // Revert optimistic updates
         queryClient.invalidateQueries({
@@ -658,6 +685,12 @@ export function DocumentSidebar({
         queryClient.removeQueries({
           queryKey: ["action", "get-document", { id }],
         });
+        if (rootFilesDatabaseId) {
+          queryClient.setQueryData<ContentDatabaseResponse>(
+            contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+            (current) => removeOptimisticItemFromContentDatabase(current, id),
+          );
+        }
         navigate("/");
         toast.error(t("sidebar.failedCreatePage"), {
           description:
@@ -702,7 +735,7 @@ export function DocumentSidebar({
       if (selectedSpace?.id !== space.id) {
         void handleSelectContentSpace(space, null);
       }
-      await handleCreatePage(undefined, space.id, id);
+      await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
     },
     [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
   );
@@ -985,7 +1018,7 @@ export function DocumentSidebar({
             type="button"
             className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
             disabled={createDocument.isPending}
-            onClick={() => void handleCreatePage()}
+            onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
             <IconPlus size={16} />
           </button>
@@ -1248,6 +1281,7 @@ export function DocumentSidebar({
                   <WorkspaceFilesSection
                     space={space}
                     selected={selected}
+                    activeDocumentId={activeDocumentId}
                     onActivate={(nextSpace, documentId) =>
                       void handleSelectContentSpace(nextSpace, documentId)
                     }

@@ -66,12 +66,15 @@ describe("DatabaseSidebarView", () => {
           untitledLabel="Untitled"
           onClearResultConstraints={() => {}}
           onPreview={() => {}}
+          activeDocumentId="page"
         />
       </MemoryRouter>,
     );
 
     expect(markup).toContain('href="/page/page"');
     expect(markup).toContain("Project");
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain("font-semibold");
   });
 
   it("lets the Files sidebar intercept a workspace reference row", async () => {

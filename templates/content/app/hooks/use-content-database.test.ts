@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
+  applyOptimisticItemToContentDatabase,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
@@ -17,6 +18,7 @@ import {
   preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
+  removeOptimisticItemFromContentDatabase,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
 
@@ -55,6 +57,50 @@ describe("preserveScopedDatabasePlaceholder", () => {
         { databaseId: "personal-files" },
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("optimistic Content database items", () => {
+  it("adds a new page immediately and rolls it back by document id", () => {
+    const current = {
+      ...databaseResponse(),
+      items: [],
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 0,
+        returnedItems: 0,
+        hasMore: false,
+      },
+    };
+    const optimisticItem = {
+      id: "optimistic-new-page",
+      databaseId: "database",
+      document: databaseResponse().items[0]!.document,
+      position: 9999,
+      properties: [],
+    };
+
+    const added = applyOptimisticItemToContentDatabase(current, optimisticItem);
+
+    expect(added?.items).toEqual([optimisticItem]);
+    expect(added?.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+    expect(applyOptimisticItemToContentDatabase(added, optimisticItem)).toBe(
+      added,
+    );
+
+    const rolledBack = removeOptimisticItemFromContentDatabase(
+      added,
+      optimisticItem.document.id,
+    );
+    expect(rolledBack?.items).toEqual([]);
+    expect(rolledBack?.pagination).toMatchObject({
+      totalItems: 0,
+      returnedItems: 0,
+    });
   });
 });
 
