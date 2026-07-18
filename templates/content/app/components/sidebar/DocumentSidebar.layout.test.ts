@@ -305,6 +305,7 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain('"border-primary bg-accent font-medium');
     expect(treeItem).toContain("Remove from favorites");
     expect(treeItem).toContain('event.target.closest("button")');
+    expect(treeItem).toContain("onClick={(event) => event.stopPropagation()}");
     expect(treeItem).toContain("onCreateChildPage()");
     expect(treeItem).toContain("setDeleteDialogOpen(true)");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");

@@ -150,6 +150,7 @@ export function FavoriteDocumentItem({
           active && "text-accent-foreground",
         )}
         onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
         {(canEdit || canManage) && (
           <DropdownMenu>
