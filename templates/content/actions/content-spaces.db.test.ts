@@ -22,6 +22,7 @@ let resolveContentSpaceAccess: typeof import("./_content-space-access.js").resol
 let listContentSpacesAction: typeof import("./list-content-spaces.js").default;
 let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").default;
 let listDocumentsAction: typeof import("./list-documents.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 
@@ -44,6 +45,7 @@ beforeAll(async () => {
   ensureContentSpacesAction = (await import("./ensure-content-spaces.js"))
     .default;
   listDocumentsAction = (await import("./list-documents.js")).default;
+  getDocumentAction = (await import("./get-document.js")).default;
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
@@ -338,6 +340,13 @@ describe("Content space provisioning", () => {
         spaces: expect.arrayContaining([
           expect.objectContaining({ id: spaceId, role: "viewer" }),
         ]),
+      });
+      await expect(
+        getDocumentAction.run({ id: filesDatabase!.documentId }),
+      ).resolves.toMatchObject({
+        id: filesDatabase!.documentId,
+        database: expect.objectContaining({ systemRole: "files" }),
+        accessRole: "viewer",
       });
     });
   });
