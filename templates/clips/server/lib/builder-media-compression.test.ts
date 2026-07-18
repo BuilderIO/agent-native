@@ -249,6 +249,56 @@ describe("builder-media-compression", () => {
     );
   });
 
+  it("keeps polling when Builder returns a URL before duration verification is ready", async () => {
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-pending-duration",
+      ownerEmail: "owner@example.com",
+      sourceUrl:
+        "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-pending?apiKey=org-probe&token=asset-pending&alt=media",
+      compressedUrl:
+        "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-pending%2Fcompressed?apiKey=org-probe&token=asset-pending&alt=media&optimized=true",
+      objectPath: "assets/org-probe/asset-pending",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-pending",
+      status: "queued",
+      attempts: 0,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+      nextAttemptAt: "2026-07-06T00:00:00.000Z",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              url: "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-pending%2Fcompressed",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    const result = await runBuilderMediaCompressionForRecording({
+      recordingId: "rec-pending-duration",
+      ownerEmail: "owner@example.com",
+      orgId: "org-test",
+    });
+
+    expect(result?.status).toBe("triggered");
+    expect(result?.attempts).toBe(1);
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+    expect(mockWriteAppState).toHaveBeenLastCalledWith(
+      "recording-builder-compression-rec-pending-duration",
+      expect.objectContaining({
+        status: "triggered",
+        attempts: 1,
+        detail: expect.stringContaining("not ready"),
+      }),
+    );
+  });
+
   it("never probes or publishes a readable partial worker output before the done callback", async () => {
     const compressedUrl =
       "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true";

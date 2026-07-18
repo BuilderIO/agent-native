@@ -2,6 +2,7 @@ export interface FinalizeReceipt {
   ok?: unknown;
   finalized?: unknown;
   status?: unknown;
+  verificationPending?: unknown;
   sourceSizeBytes?: unknown;
   durationMs?: unknown;
 }
@@ -11,16 +12,22 @@ export interface LocalRecordingProof {
   durationMs: number;
 }
 
+export type FinalizeReceiptStatus = "processing" | "ready";
+
 export function verifyFinalizeReceipt(
   receipt: FinalizeReceipt | null,
   local: LocalRecordingProof,
-): void {
-  if (
-    !receipt ||
-    receipt.ok !== true ||
-    receipt.finalized !== true ||
-    receipt.status !== "ready"
-  ) {
+): FinalizeReceiptStatus {
+  const ready =
+    receipt?.ok === true &&
+    receipt.finalized === true &&
+    receipt.status === "ready";
+  const processing =
+    receipt?.ok === true &&
+    receipt.finalized === false &&
+    receipt.status === "processing" &&
+    receipt.verificationPending === true;
+  if (!ready && !processing) {
     throw new Error(
       "Clip may be incomplete. Finalization was not confirmed; the local backup was kept.",
     );
@@ -48,4 +55,6 @@ export function verifyFinalizeReceipt(
       "Clip may be incomplete. The uploaded duration did not match the local recording; the local backup was kept.",
     );
   }
+
+  return ready ? "ready" : "processing";
 }

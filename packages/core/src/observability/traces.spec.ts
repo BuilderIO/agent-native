@@ -257,6 +257,16 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       tool_calls: 1,
       successful_tools: 1,
       failed_tools: 0,
+      tools: [
+        {
+          name: "read",
+          started_offset_ms: expect.any(Number),
+          duration_ms: expect.any(Number),
+          status: "success",
+          error_class: null,
+        },
+      ],
+      tools_truncated: false,
       model_selection_source: "experiment",
       experiment_id: "hosted-model-test",
       experiment_variant: "gpt-5-6-luna",
@@ -278,6 +288,237 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     );
     expect(event.properties?.["$ai_input"]).toBeUndefined();
     expect(event.properties?.["$ai_output_choices"]).toBeUndefined();
+  });
+
+  it("keeps tool detail in invocation order and pairs parallel calls by id", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({
+          type: "tool_start",
+          id: "first",
+          tool: "read",
+          input: { secret: "must-not-be-tracked" },
+        });
+        send({
+          type: "tool_start",
+          id: "second",
+          tool: "read",
+          input: { result: "also-private" },
+        });
+        send({
+          type: "tool_done",
+          id: "unknown",
+          tool: "read",
+          result: "unmatched legacy noise",
+        });
+        send({
+          type: "tool_done",
+          id: "second",
+          tool: "read",
+          result: "ok",
+        });
+        send({
+          type: "tool_done",
+          id: "first",
+          tool: "read",
+          result: "private failure detail",
+          isError: true,
+        });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+        };
+      },
+      loopOpts,
+      runId: "run-parallel-tools",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties?.tools).toEqual([
+      {
+        name: "read",
+        started_offset_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+        status: "error",
+        error_class: "tool_error",
+      },
+      {
+        name: "read",
+        started_offset_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+        status: "success",
+        error_class: null,
+      },
+    ]);
+    expect(JSON.stringify(events[0]?.properties?.tools)).not.toContain(
+      "private",
+    );
+  });
+
+  it("caps tracked tool detail while retaining complete rollup counts", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        for (let index = 0; index < 51; index++) {
+          const id = `call-${index}`;
+          send({ type: "tool_start", id, tool: `tool-${index}`, input: {} });
+          send({ type: "tool_done", id, tool: `tool-${index}`, result: "ok" });
+        }
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+        };
+      },
+      loopOpts,
+      runId: "run-many-tools",
+      threadId: null,
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      delegation: {
+        protocol: "a2a",
+        callerApp: "slides",
+        taskId: "task-analytics",
+        parentRunId: "run-slides",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      tool_calls: 51,
+      successful_tools: 51,
+      failed_tools: 0,
+      tools_truncated: true,
+      delegated: true,
+      delegation_protocol: "a2a",
+      caller_app: "slides",
+      a2a_task_id: "task-analytics",
+      parent_run_id: "run-slides",
+    });
+    const tools = events[0]?.properties?.tools as Array<{ name: string }>;
+    expect(tools).toHaveLength(50);
+    expect(tools[0]?.name).toBe("tool-0");
+    expect(tools[49]?.name).toBe("tool-49");
+  });
+
+  it("emits failed generations and finalizes an interrupted tool", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await expect(
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send, runId }) => {
+          expect(runId).toBe("run-interrupted");
+          send({
+            type: "tool_start",
+            id: "hung-call",
+            tool: "slow-provider-read",
+            input: { private: "must-not-be-tracked" },
+          });
+          throw new Error("delegated run timed out");
+        },
+        loopOpts,
+        runId: "run-interrupted",
+        threadId: "thread-parent",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+        delegation: {
+          protocol: "a2a",
+          callerApp: "slides",
+          taskId: "task-analytics",
+          parentRunId: "run-slides",
+          parentTurnId: "turn-slides",
+        },
+      }),
+    ).rejects.toThrow("delegated run timed out");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      run_id: "run-interrupted",
+      model: "gpt-test",
+      status: "error",
+      input_tokens: 0,
+      output_tokens: 0,
+      tool_calls: 1,
+      successful_tools: 0,
+      failed_tools: 1,
+      parent_run_id: "run-slides",
+      parent_turn_id: "turn-slides",
+      tools: [
+        {
+          name: "slow-provider-read",
+          status: "error",
+          error_class: "interrupted",
+          duration_ms: expect.any(Number),
+        },
+      ],
+    });
+    expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
   });
 
   it("emits run/tool/llm spans with expected names and attributes", async () => {
@@ -357,7 +598,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.ended).toBe(true);
   });
 
-  it("counts explicitly failed tool events whose result has no Error prefix", async () => {
+  it("distinguishes explicit tool failures from legacy inferred errors", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -388,6 +629,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           result: "Invalid action parameters for mutate: input did not match.",
           isError: true,
         });
+        send({ type: "tool_start", tool: "legacy-read", input: {} });
+        send({
+          type: "tool_done",
+          tool: "legacy-read",
+          result: "Error: private legacy failure detail",
+        });
         return {
           inputTokens: 10,
           outputTokens: 5,
@@ -410,15 +657,28 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(toolSpan?.status?.message).toContain("Invalid action parameters");
 
     const runSpan = spans.find((span) => span.name === "agent.run");
-    expect(runSpan?.attributes["agent.tool_calls"]).toBe(1);
+    expect(runSpan?.attributes["agent.tool_calls"]).toBe(2);
     expect(runSpan?.attributes["agent.successful_tools"]).toBe(0);
-    expect(runSpan?.attributes["agent.failed_tools"]).toBe(1);
+    expect(runSpan?.attributes["agent.failed_tools"]).toBe(2);
 
     expect(events).toHaveLength(1);
     expect(events[0]?.properties).toMatchObject({
-      tool_calls: 1,
+      tool_calls: 2,
       successful_tools: 0,
-      failed_tools: 1,
+      failed_tools: 2,
+      tools: [
+        {
+          name: "mutate",
+          status: "error",
+          error_class: "tool_error",
+        },
+        {
+          name: "legacy-read",
+          status: "error",
+          error_class: "legacy_inferred_error",
+        },
+      ],
+      tools_truncated: false,
     });
   });
 

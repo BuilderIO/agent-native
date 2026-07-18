@@ -11,7 +11,7 @@ import {
   captureClientException,
   trackEvent,
 } from "@agent-native/core/client";
-import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
+import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chooseFallbackAudioInput,
   enumerateAudioInputDevices,
@@ -2231,7 +2231,7 @@ export class RecorderEngine {
   private async recoverReadyAfterFinalUploadError(
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | null> {
-    return waitForReadyRecordingAfterFinalizeError({
+    return waitForAcceptedRecordingAfterFinalizeError({
       uploadUrl: this.opts.uploadUrl,
       recordingId: this.opts.recordingId,
       preferAuthenticated: true,

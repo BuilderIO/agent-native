@@ -648,6 +648,21 @@ async function processCompressionState(
   try {
     const compressed = await triggerBuilderCompression(state);
     if (compressed) {
+      if (!compressed.durationMs) {
+        if (attempts >= MAX_TRIGGER_ATTEMPTS) {
+          return markCompressionFailed(
+            { ...state, attempts },
+            `Builder media compression did not provide a verified duration after ${attempts} attempts`,
+          );
+        }
+        return writeCompressionState(state, {
+          status: "triggered",
+          attempts,
+          lastTriggeredAt: new Date().toISOString(),
+          nextAttemptAt: isoAfter(TRIGGERED_POLL_DELAY_MS),
+          detail: "Compressed media is not ready with a verified duration yet",
+        });
+      }
       return swapRecordingToCompressed(
         state,
         compressed.url,

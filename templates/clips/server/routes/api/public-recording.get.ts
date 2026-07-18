@@ -42,6 +42,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   getOrganizationRoleForEmail,
@@ -367,6 +368,10 @@ export default defineEventHandler(async (event) => {
     resolvedVideoUrl,
     protectedMediaToken,
   );
+  const playbackThumbnailUrl = resolvePlayerThumbnailUrl(rec, {
+    accessToken: protectedMediaToken,
+    appPath,
+  });
 
   const canExposeAgentContext =
     (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
@@ -399,7 +404,7 @@ export default defineEventHandler(async (event) => {
       id: rec.id,
       title: rec.title,
       description: rec.description,
-      thumbnailUrl: rec.thumbnailUrl,
+      thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: rec.animatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,

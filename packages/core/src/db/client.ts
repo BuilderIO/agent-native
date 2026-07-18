@@ -669,6 +669,61 @@ export function isConnectionError(err: any): boolean {
   );
 }
 
+/**
+ * Classify database failures that should temporarily shed request load.
+ * Statement timeouts are not included in isConnectionError() because retrying
+ * every timed-out mutation would not be safe, but request handlers can still
+ * return a retryable service-unavailable response for them.
+ */
+export function isTransientDatabaseError(err: unknown): boolean {
+  const error = err as {
+    code?: unknown;
+    name?: unknown;
+    message?: unknown;
+    stack?: unknown;
+    cause?: {
+      code?: unknown;
+      name?: unknown;
+      message?: unknown;
+      stack?: unknown;
+    };
+  };
+  const code = String(error?.code ?? error?.cause?.code ?? "");
+  if (
+    code === "ECHECKOUTTIMEOUT" ||
+    code === "53300" ||
+    code === "57014" ||
+    /^08/.test(code) ||
+    /^57P0[123]$/.test(code)
+  ) {
+    return true;
+  }
+
+  const message = [error?.message, error?.cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  if (
+    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
+  ) {
+    return true;
+  }
+
+  const databaseSurface = [
+    error?.name,
+    error?.cause?.name,
+    error?.stack,
+    error?.cause?.stack,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return (
+    isConnectionError(error) &&
+    /@neondatabase|@libsql|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+      databaseSurface,
+    )
+  );
+}
+
 export async function retryOnConnectionError<T>(
   fn: () => Promise<T>,
   maxAttempts = 3,

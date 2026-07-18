@@ -1,5 +1,11 @@
 export const PLAYBACK_COMMENT_VISIBLE_MS = 4_000;
 
+export function getPlaybackCommentVisibleMs(playbackRate = 1): number {
+  const safePlaybackRate =
+    Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1;
+  return PLAYBACK_COMMENT_VISIBLE_MS * safePlaybackRate;
+}
+
 export interface PlaybackComment {
   id: string;
   content: string;
@@ -13,10 +19,13 @@ export interface PlaybackComment {
 export function getActivePlaybackComments(
   comments: PlaybackComment[] | undefined,
   currentMs: number,
+  playbackRate = 1,
 ): PlaybackComment[] {
   if (!comments?.length || !Number.isFinite(currentMs) || currentMs < 0) {
     return [];
   }
+
+  const visibleMs = getPlaybackCommentVisibleMs(playbackRate);
 
   return comments
     .filter((comment) => {
@@ -28,7 +37,7 @@ export function getActivePlaybackComments(
         Number.isFinite(timestamp) &&
         timestamp >= 0 &&
         currentMs >= timestamp &&
-        currentMs < timestamp + PLAYBACK_COMMENT_VISIBLE_MS
+        currentMs < timestamp + visibleMs
       );
     })
     .sort(
@@ -40,11 +49,17 @@ export function getActivePlaybackComments(
 export function PlaybackCommentOverlay({
   comments,
   currentMs,
+  playbackRate = 1,
 }: {
   comments: PlaybackComment[] | undefined;
   currentMs: number;
+  playbackRate?: number;
 }) {
-  const activeComments = getActivePlaybackComments(comments, currentMs);
+  const activeComments = getActivePlaybackComments(
+    comments,
+    currentMs,
+    playbackRate,
+  );
   if (activeComments.length === 0) return null;
 
   return (

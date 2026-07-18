@@ -151,6 +151,41 @@ describe("call-agent action", () => {
     );
   });
 
+  it("propagates caller lineage and a deterministic per-turn message key", async () => {
+    callAgentMock.mockResolvedValue("done");
+    const { run } = await import("./call-agent.js");
+    const context = {
+      send: vi.fn(),
+      threadId: "thread-qa",
+      runId: "run-qa",
+      turnId: "turn-qa",
+    } as any;
+
+    await run({ agent: "slides", message: "exact message" }, context, "mail");
+    await run({ agent: "slides", message: "exact message" }, context, "mail");
+    await run(
+      { agent: "slides", message: "exact message changed" },
+      context,
+      "mail",
+    );
+
+    const firstOptions = callAgentMock.mock.calls[0]?.[2];
+    const duplicateOptions = callAgentMock.mock.calls[1]?.[2];
+    const changedOptions = callAgentMock.mock.calls[2]?.[2];
+    expect(firstOptions).toMatchObject({
+      contextId: "thread-qa",
+      correlation: {
+        callerApp: "mail",
+        callerThreadId: "thread-qa",
+        parentRunId: "run-qa",
+        parentTurnId: "turn-qa",
+      },
+      idempotencyKey: expect.stringMatching(/^v1:[a-f0-9]{64}$/),
+    });
+    expect(duplicateOptions.idempotencyKey).toBe(firstOptions.idempotencyKey);
+    expect(changedOptions.idempotencyKey).not.toBe(firstOptions.idempotencyKey);
+  });
+
   it("polls a returned task id without sending another downstream message", async () => {
     callAgentMock.mockResolvedValueOnce("finished once");
     const { run, tool } = await import("./call-agent.js");
@@ -187,7 +222,13 @@ describe("call-agent action", () => {
         action: "gong-calls",
         input: { company: "Edmunds", days: 90 },
       },
-      { send } as any,
+      {
+        send,
+        threadId: "thread-qa",
+        runId: "run-qa",
+        turnId: "turn-qa",
+      } as any,
+      "mail",
     );
 
     expect(result).toBe('{"total":13}');
@@ -199,6 +240,13 @@ describe("call-agent action", () => {
         userEmail: "alice+qa@agent-native.test",
         orgDomain: "builder.io",
         orgSecret: "org-secret",
+        correlation: {
+          callerApp: "mail",
+          callerThreadId: "thread-qa",
+          parentRunId: "run-qa",
+          parentTurnId: "turn-qa",
+          invocationId: expect.any(String),
+        },
       }),
     );
     expect(callAgentMock).not.toHaveBeenCalled();

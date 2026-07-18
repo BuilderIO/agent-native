@@ -1,8 +1,10 @@
 import * as jose from "jose";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
   A2AApprovedAction,
+  A2ACorrelationMetadata,
   A2AReadOnlyActionResult,
   AgentCard,
   JsonRpcRequest,
@@ -239,6 +241,7 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
       /**
        * If true, ask the server to return the task immediately in `working`
@@ -255,6 +258,7 @@ export class A2AClient {
       message,
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      ...(opts?.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
       ...(opts?.approvedActions?.length
         ? { approvedActions: opts.approvedActions }
         : {}),
@@ -291,8 +295,14 @@ export class A2AClient {
   async invokeAction(
     action: string,
     input: Record<string, unknown> = {},
+    opts?: { metadata?: A2ACorrelationMetadata },
   ): Promise<A2AReadOnlyActionResult> {
-    const response = await this.rpc("actions/invoke", { action, input });
+    const metadata = sanitizeA2ACorrelationMetadata(opts?.metadata);
+    const response = await this.rpc("actions/invoke", {
+      action,
+      input,
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    });
     if (response.error) {
       throw new Error(
         `A2A error (${response.error.code}): ${response.error.message}`,
@@ -315,6 +325,7 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
       /** Total time to wait for completion. Default 5 min. */
       timeoutMs?: number;
@@ -327,6 +338,7 @@ export class A2AClient {
     const submitted = await this.send(message, {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      idempotencyKey: opts?.idempotencyKey,
       ...(opts?.approvedActions?.length
         ? { approvedActions: opts.approvedActions }
         : {}),
@@ -620,6 +632,10 @@ export async function callAgent(
     requestOrigin?: string;
     /** Exact downstream actions explicitly authorized in the caller's chat. */
     approvedActions?: A2AApprovedAction[];
+    /** Bounded telemetry-only lineage forwarded to the receiving app. */
+    correlation?: A2ACorrelationMetadata;
+    /** Stable caller-generated key for one message submission. */
+    idempotencyKey?: string;
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
      * cross-app calls that may exceed a synchronous serverless request budget.
@@ -657,6 +673,7 @@ export async function callAgent(
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
+  Object.assign(metadata, sanitizeA2ACorrelationMetadata(opts?.correlation));
 
   // Default to async + poll. The receiving A2A server's `_process-task` route
   // runs the handler in a fresh function execution (cross-platform queue
@@ -691,6 +708,7 @@ export async function callAgent(
           : await client.sendAndWait(message, {
               contextId: opts?.contextId,
               metadata,
+              idempotencyKey: opts?.idempotencyKey,
               ...(opts?.approvedActions?.length
                 ? { approvedActions: opts.approvedActions }
                 : {}),
@@ -705,6 +723,7 @@ export async function callAgent(
         task = await client.send(message, {
           contextId: opts?.contextId,
           metadata,
+          idempotencyKey: opts?.idempotencyKey,
           ...(opts?.approvedActions?.length
             ? { approvedActions: opts.approvedActions }
             : {}),
@@ -756,6 +775,7 @@ export async function callAction(
     orgDomain?: string;
     orgSecret?: string;
     requestTimeoutMs?: number;
+    correlation?: A2ACorrelationMetadata;
   },
 ): Promise<A2AReadOnlyActionResult> {
   const actionName = action.trim();
@@ -775,7 +795,9 @@ export async function callAction(
     fallbackApiKeys,
     requestTimeoutMs: opts?.requestTimeoutMs,
   });
-  return client.invokeAction(actionName, input);
+  return client.invokeAction(actionName, input, {
+    metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
+  });
 }
 
 async function buildA2AApiKeyAttempts(

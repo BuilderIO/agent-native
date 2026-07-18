@@ -97,6 +97,8 @@ export interface ActionRunContext {
    * every human/programmatic surface.
    */
   threadId?: string;
+  /** Concrete execution id for this agent-loop attempt. */
+  runId?: string;
   turnId?: string;
 }
 
