@@ -273,7 +273,7 @@ export default runMigrations(
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -289,9 +289,7 @@ export default function ProjectsPage() {
 ライブ同期をアプリ シェルの近くに 1 回接続して、エージェント、別のタブ、またはアクションがデータを変更したときに React クエリ キャッシュが更新されるようにします。
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -327,9 +325,7 @@ useQuery({
 アプリケーション状態の書き込み、タブスコープのコマンド読み取り、読み取り後の削除、および重複コマンド保護の一貫性を維持するには、UI フックに `useAgentRouteState` を使用します。
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

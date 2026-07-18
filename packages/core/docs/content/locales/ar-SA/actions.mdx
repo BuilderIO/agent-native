@@ -441,9 +441,7 @@ export default defineAction({
 بالنسبة إلى actions التي تغير الحالة:
 
 ```tsx
-import {
-  useActionMutation,
-} from "@agent-native/core/client/hooks"
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -461,9 +459,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 للقراءة فقط GET actions:
 
 ```ts
-import {
-  useActionQuery,
-} from "@agent-native/core/client/hooks"
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 

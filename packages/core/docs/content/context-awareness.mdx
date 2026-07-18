@@ -200,9 +200,7 @@ Use the `selection` app-state key for durable selection that should survive a mo
 Write it from the UI when the user selects, focuses, or multi-selects meaningful objects:
 
 ```tsx
-import {
-  setClientAppState,
-} from "@agent-native/core/client/hooks"
+import { setClientAppState } from "@agent-native/core/client/hooks";
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -231,9 +229,7 @@ The production agent injects that key into the next turn as immediate selection 
 Custom editors can write the same key when their selection is not represented by native browser selection:
 
 ```tsx
-import {
-  setClientAppState,
-} from "@agent-native/core/client/hooks"
+import { setClientAppState } from "@agent-native/core/client/hooks";
 await setClientAppState(
   "pending-selection-context",
   {
@@ -295,9 +291,7 @@ The agent should call `pnpm action view-screen` before acting on the current UI.
 Sometimes context should not just sit in app state. A user clicks a button, drops a comment pin, selects an item and chooses "Ask agent", or presses an AI command in a toolbar. That click is an instruction. In browser UI, hand it to the agent with `sendToAgentChat()`.
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -380,9 +374,7 @@ It stays short because it is a thin wrapper around the real framework primitive,
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

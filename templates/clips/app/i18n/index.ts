@@ -1,4 +1,8 @@
-import { type AgentNativeI18nCatalog, type LocaleCode, type LocaleMessages } from "@agent-native/core/client/i18n";
+import {
+  type AgentNativeI18nCatalog,
+  type LocaleCode,
+  type LocaleMessages,
+} from "@agent-native/core/client/i18n";
 
 import enUS from "./en-US";
 

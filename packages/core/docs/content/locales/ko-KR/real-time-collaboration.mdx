@@ -258,9 +258,7 @@ export default createCollabPlugin({
 ### 4. 클라이언트 후크를 사용하세요
 
 ```ts
-import {
-  useCollaborativeDoc,
-} from "@agent-native/core/client/collab"
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -433,9 +431,7 @@ import {
 원격 참가자의 반응 목록과 로컬 존재 페이로드에 대한 설정자를 반환합니다.
 
 ```ts
-import {
-  usePresence,
-} from "@agent-native/core/client/collab"
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -497,9 +493,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 팔로우하는 참가자의 뷰포트가 변경될 때마다 콜백을 호출합니다.
 
 ```ts
-import {
-  useFollowUser,
-} from "@agent-native/core/client/collab"
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -533,10 +527,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### 정규화된 좌표 도우미 {#norm-coords}
 
 ```ts
-import {
-  toNormalized,
-  fromNormalized,
-} from "@agent-native/core/client/collab"
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,

@@ -273,7 +273,7 @@ export default runMigrations(
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -289,9 +289,7 @@ export default function ProjectsPage() {
 에이전트, 다른 탭 또는 작업이 데이터를 변경할 때 React 쿼리가 새로 고침을 캐시하도록 앱 셸 근처에서 실시간 동기화를 한 번 연결합니다.
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -327,9 +325,7 @@ useQuery({
 UI 후크에 `useAgentRouteState`를 사용하면 애플리케이션 상태 쓰기, 탭 범위 명령 읽기, 읽기 후 삭제 및 중복 명령 보호가 일관되게 유지됩니다.
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

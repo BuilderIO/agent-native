@@ -176,9 +176,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import {
-  track,
-} from "@agent-native/core/client/analytics"
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -197,9 +195,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 يمكن لتطبيقات Agent Native الاشتراك في إعادة تشغيل جلسة المتصفح من الطرف الأول دون إضافة SDK تحليلات ثانٍ. استدعِ `configureTracking()` مرة واحدة في جذر المتصفح ومرر مفتاح Analytics العام بالإضافة إلى نقطة نهاية المُجمِّع:
 
 ```ts
-import {
-  configureTracking,
-} from "@agent-native/core/client/analytics"
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",

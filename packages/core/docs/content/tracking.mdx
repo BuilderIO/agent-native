@@ -175,9 +175,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import {
-  track,
-} from "@agent-native/core/client/analytics"
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,9 +194,7 @@ This is distinct from the framework's internal browser telemetry (`trackEvent()`
 Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
 
 ```ts
-import {
-  configureTracking,
-} from "@agent-native/core/client/analytics"
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",

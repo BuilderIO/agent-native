@@ -154,9 +154,7 @@ Lorsque vous avez besoin d'un contrôle total sur la mise en page (un itinérair
 
 ```tsx
 // app/routes/agent.tsx
-import {
-  AgentPanel,
-} from "@agent-native/core/client/agent-chat"
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -183,9 +181,7 @@ Accessoires complets : `AgentPanelProps` dans `@agent-native/core/client`.
 Un bouton qui confie le travail à l'agent (au lieu d'exécuter un appel `llm()` en ligne — l'anti-modèle du [ladder](/docs/what-is-agent-native#the-ladder)) :
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -234,9 +230,7 @@ Les appels `sendToAgentChat()` sont transférés vers le chat hôte lorsque cela
 Si vous souhaitez un état de chargement, utilisez le hook `useSendToAgentChat()` : il renvoie à la fois `send` et `isGenerating` :
 
 ```ts
-import {
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -270,9 +264,7 @@ le code client n'apprend pas un deuxième transport ad hoc.
 Lorsque le UI doit exécuter la même opération qu'un outil d'agent exécuterait (échelon 3 du [ladder](/docs/what-is-agent-native#rung-three)), utilisez `useActionMutation` :
 
 ```tsx
-import {
-  useActionMutation,
-} from "@agent-native/core/client/hooks"
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -302,7 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>

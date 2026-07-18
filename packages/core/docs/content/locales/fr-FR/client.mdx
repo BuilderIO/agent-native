@@ -67,7 +67,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -84,9 +84,7 @@ await callAction("archive-lead", { leadId });
 Envoyez un message au chat de l'agent via postMessage : le moyen courant de déléguer une tâche d'IA à partir d'une interaction UI. Transmettez `context` pour le contexte de modèle masqué et `submit: true` pour l'envoyer immédiatement, ou `submit: false` pour pré-remplir un brouillon que l'utilisateur examine en premier.
 
 ```ts
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -176,9 +174,7 @@ onglet Paramètres de la barre latérale de l'agent. Transmettez un identifiant 
 `"automations"`, `"voice"` ou `"limits"` pour ouvrir une section spécifique.
 
 ```ts
-import {
-  openAgentSettings,
-} from "@agent-native/core/client/navigation"
+import { openAgentSettings } from "@agent-native/core/client/navigation";
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -186,9 +182,7 @@ openAgentSettings("secrets");
 Préférez cette aide à l’envoi direct de `agent-panel:open-settings`.
 
 ```tsx
-import {
-  useAgentChatContext,
-} from "@agent-native/core/client/agent-chat"
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -249,7 +243,7 @@ compositeur pour les détails de forme libre et un formulaire/popover pour la sa
 import {
   askUserQuestion,
   sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -292,7 +286,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 ```
 
 `getMcpAppHostContext()` lit le dernier instantané de contexte d'hôte poussé ;
@@ -402,9 +396,7 @@ Lorsqu'une mutation de base de données côté serveur se produit, le serveur en
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import {
-  useChangeVersion,
-} from "@agent-native/core/client/hooks"
+import { useChangeVersion } from "@agent-native/core/client/hooks";
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");

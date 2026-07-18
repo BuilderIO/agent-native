@@ -261,9 +261,7 @@ export default createCollabPlugin({
 ### 4. Use o gancho do cliente
 
 ```ts
-import {
-  useCollaborativeDoc,
-} from "@agent-native/core/client/collab"
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -436,9 +434,7 @@ As mudanças no estado de reconhecimento agora se propagam em aproximadamente 15
 Retorna uma lista reativa de participantes remotos e um configurador para a carga de presença local:
 
 ```ts
-import {
-  usePresence,
-} from "@agent-native/core/client/collab"
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -500,9 +496,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 Invoque um retorno de chamada sempre que a janela de visualização do participante seguido for alterada:
 
 ```ts
-import {
-  useFollowUser,
-} from "@agent-native/core/client/collab"
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -536,10 +530,7 @@ O componente `PresenceBar` agora aceita adereços opcionais de modo de acompanha
 ### Ajudantes de coordenadas normalizadas {#norm-coords}
 
 ```ts
-import {
-  toNormalized,
-  fromNormalized,
-} from "@agent-native/core/client/collab"
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,

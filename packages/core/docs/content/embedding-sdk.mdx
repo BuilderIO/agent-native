@@ -115,7 +115,7 @@ On the client:
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -300,7 +300,7 @@ For standalone sidecar apps or cross-origin iframes, use the lower-level `<Agent
 import {
   AgentNative,
   defineClientAction,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -387,7 +387,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -462,9 +462,7 @@ In the sidecar app, start the browser-session bridge once when the iframe mounts
 
 ```tsx
 import { useEffect } from "react";
-import {
-  startAgentNativeBrowserSessionBridge,
-} from "@agent-native/core/client/host"
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -520,7 +518,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

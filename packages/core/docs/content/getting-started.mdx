@@ -223,7 +223,7 @@ Now add a durable page for the data behind the chat result:
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ResponseInsightsRoute() {
   const insights = useActionQuery("list-response-insights", {});
   const createInsight = useActionMutation("create-response-insight");

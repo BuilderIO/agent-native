@@ -196,9 +196,7 @@ if (url?.searchParams) {
 当用户选择、聚焦或多选有意义的对象时，从 UI 写入：
 
 ```tsx
-import {
-  setClientAppState,
-} from "@agent-native/core/client/hooks"
+import { setClientAppState } from "@agent-native/core/client/hooks";
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -227,9 +225,7 @@ async function syncSelection(selection: unknown | null) {
 当自定义编辑器的选择不由本机浏览器选择表示时，可以编写相同的键：
 
 ```tsx
-import {
-  setClientAppState,
-} from "@agent-native/core/client/hooks"
+import { setClientAppState } from "@agent-native/core/client/hooks";
 await setClientAppState(
   "pending-selection-context",
   {
@@ -291,9 +287,7 @@ await setClientAppState(
 有时上下文不应该仅仅处于应用程序状态。用户单击按钮、放下评论图钉、选择项目并选择“询问代理”，或者按下工具栏中的 AI 命令。那次点击是一个指令。在浏览器UI中，将其交给带有`sendToAgentChat()`的代理。
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -376,9 +370,7 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

@@ -256,9 +256,7 @@ El UI nunca llama directamente a un LLM. Cuando un usuario hace clic en "Generar
 
 ```ts
 // In a React component — delegate AI work to the agent
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -309,9 +307,7 @@ Los cambios en la base de datos se sincronizan con el UI a través del `useDbSyn
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 

@@ -15,9 +15,7 @@ Füge die Route zur App-Navigation hinzu und übergib `agentPageHref="/agent"` a
 Seite verweisen können, ohne diese Abläufe zu duplizieren.
 
 ```tsx filename="app/routes/agent.tsx"
-import {
-  AgentTabsPage,
-} from "@agent-native/core/client/agent-chat"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -417,9 +415,7 @@ export default createAgentNativeEmbeddedPlugin({
 Der Sidecar React übergibt Seitenkontext und Hostbefehle:
 
 ```tsx
-import {
-  AgentNativeEmbedded,
-} from "@agent-native/core/client/host"
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

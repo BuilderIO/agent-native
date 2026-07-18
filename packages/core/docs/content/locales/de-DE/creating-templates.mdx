@@ -273,7 +273,7 @@ Routen leben in `app/routes/` und verwenden das Dateirouting von React Router v8
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -289,9 +289,7 @@ export default function ProjectsPage() {
 Verdrahten Sie die Live-Synchronisierung einmal in der Nähe der App-Shell, damit React Abfrage-Caches aktualisiert werden, wenn der Agent, eine andere Registerkarte oder eine Aktion Daten ändert:
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -327,9 +325,7 @@ Durch den Anwendungsstatus weiß der Agent, was der Benutzer sieht. Fügen Sie m
 Verwenden Sie `useAgentRouteState` für den UI-Hook, damit Anwendungsstatus-Schreibvorgänge, tabulatorbezogene Befehlslesevorgänge, Löschung nach dem Lesen und Schutz vor doppelten Befehlen konsistent bleiben:
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

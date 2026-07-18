@@ -1,5 +1,8 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer, type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedApp,

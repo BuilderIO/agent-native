@@ -1,4 +1,11 @@
-import { DEFAULT_LOCALE, LOCALE_METADATA, localeDirection, normalizeLocaleCode, resolveLocaleFromCandidates, type LocaleCode } from "@agent-native/core/client/i18n";
+import {
+  DEFAULT_LOCALE,
+  LOCALE_METADATA,
+  localeDirection,
+  normalizeLocaleCode,
+  resolveLocaleFromCandidates,
+  type LocaleCode,
+} from "@agent-native/core/client/i18n";
 
 export type DocsLocale = LocaleCode;
 

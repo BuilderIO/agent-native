@@ -46,9 +46,7 @@ React が水和する前の `window.__AGENT_NATIVE_LOCALE__`。パブリック S
 ```ts
 // app/i18n/index.ts
 import enUS from "./en-US";
-import type {
-  AgentNativeI18nCatalog,
-} from "@agent-native/core/client/i18n"
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 export const i18nCatalog = {
   sourceLocale: "en-US",
   messages: enUS,

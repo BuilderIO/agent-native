@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 
-import { AgentNativeI18nProvider, LOCALE_STORAGE_KEY } from "@agent-native/core/client/i18n";
+import {
+  AgentNativeI18nProvider,
+  LOCALE_STORAGE_KEY,
+} from "@agent-native/core/client/i18n";
 import {
   cleanup,
   fireEvent,

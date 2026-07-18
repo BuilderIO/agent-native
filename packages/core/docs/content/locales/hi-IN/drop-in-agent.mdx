@@ -154,9 +154,7 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 
 ```tsx
 // app/routes/agent.tsx
-import {
-  AgentPanel,
-} from "@agent-native/core/client/agent-chat"
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -183,9 +181,7 @@ export default function AgentRoute() {
 एक बटन जो एजेंट को काम सौंपता है (इनलाइन `llm()` कॉल चलाने के बजाय - [ladder](/docs/what-is-agent-native#the-ladder) से एंटी-पैटर्न):
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -234,9 +230,7 @@ MCP ऐप ब्रिज व्यवहार के लिए [Client](/docs
 यदि आप लोडिंग स्थिति चाहते हैं, तो `useSendToAgentChat()` हुक का उपयोग करें - यह `send` और `isGenerating` दोनों लौटाता है:
 
 ```ts
-import {
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -270,9 +264,7 @@ const { send, isGenerating } = useSendToAgentChat();
 जब UI को समान ऑपरेशन चलाने की आवश्यकता होती है तो एक एजेंट टूल चलेगा - [ladder](/docs/what-is-agent-native#rung-three) का क्रमांक 3 - `useActionMutation` का उपयोग करें:
 
 ```tsx
-import {
-  useActionMutation,
-} from "@agent-native/core/client/hooks"
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -302,7 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>

@@ -1,4 +1,9 @@
-import { LOCALE_STORAGE_KEY, normalizeLocalizationPreference, useT, type LocalePreference } from "@agent-native/core/client/i18n";
+import {
+  LOCALE_STORAGE_KEY,
+  normalizeLocalizationPreference,
+  useT,
+  type LocalePreference,
+} from "@agent-native/core/client/i18n";
 import { IconLanguage } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";

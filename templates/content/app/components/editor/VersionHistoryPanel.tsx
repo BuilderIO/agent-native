@@ -1,5 +1,5 @@
-import { useT } from "@agent-native/core/client/i18n";
 import { type CollabUser } from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import type { DocumentVersion } from "@shared/api";
 import { IconArrowLeft, IconRotate, IconLoader2 } from "@tabler/icons-react";
 import { useState } from "react";

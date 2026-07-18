@@ -275,7 +275,7 @@ export default runMigrations(
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -291,9 +291,7 @@ export default function ProjectsPage() {
 ऐप शेल के पास एक बार वायर लाइव सिंक करें ताकि जब एजेंट, कोई अन्य टैब, या कोई एक्शन डेटा बदलता है तो React क्वेरी कैश रीफ्रेश हो जाता है:
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -329,9 +327,7 @@ useQuery({
 UI हुक के लिए `useAgentRouteState` का उपयोग करें ताकि एप्लिकेशन-स्टेट लिखें, टैब-स्कोप्ड कमांड पढ़ें, डिलीट-आफ्टर-रीड, और डुप्लिकेट-कमांड सुरक्षा सुसंगत रहें:
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

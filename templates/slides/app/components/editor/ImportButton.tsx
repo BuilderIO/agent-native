@@ -1,4 +1,7 @@
-import { agentNativePath, appBasePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload } from "@tabler/icons-react";
 import { useRef } from "react";

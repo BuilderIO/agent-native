@@ -276,7 +276,7 @@ Routes live in `app/routes/` and use React Router v8 file routing. Query data th
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -292,9 +292,7 @@ export default function ProjectsPage() {
 Wire live sync once near the app shell so React Query caches refresh when the agent, another tab, or an action changes data:
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -330,9 +328,7 @@ Application state is how the agent knows what the user is seeing. At minimum, ad
 Use `useAgentRouteState` for the UI hook so application-state writes, tab-scoped command reads, delete-after-read, and duplicate-command protection stay consistent:
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

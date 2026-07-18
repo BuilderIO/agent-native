@@ -271,7 +271,7 @@ Les itinéraires résident dans `app/routes/` et utilisent le routage de fichier
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,9 +287,7 @@ export default function ProjectsPage() {
 Câblez la synchronisation en direct une fois à proximité du shell de l'application afin que les caches de requête React s'actualisent lorsque l'agent, un autre onglet ou une action modifie les données :
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -325,9 +323,7 @@ L'état de l'application indique comment l'agent sait ce que l'utilisateur voit.
 Utilisez `useAgentRouteState` pour le hook UI afin que les écritures dans l'état de l'application, les lectures de commandes par tabulation, la suppression après lecture et la protection contre les commandes en double restent cohérentes :
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

@@ -196,9 +196,7 @@ Utilice la clave de estado de la aplicación `selection` para una selección dur
 Escríbalo desde UI cuando el usuario seleccione, enfoque o realice una selección múltiple de objetos significativos:
 
 ```tsx
-import {
-  setClientAppState,
-} from "@agent-native/core/client/hooks"
+import { setClientAppState } from "@agent-native/core/client/hooks";
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -227,9 +225,7 @@ El agente de producción inyecta esa clave en el siguiente turno como contexto d
 Los editores personalizados pueden escribir la misma clave cuando su selección no está representada por la selección del navegador nativo:
 
 ```tsx
-import {
-  setClientAppState,
-} from "@agent-native/core/client/hooks"
+import { setClientAppState } from "@agent-native/core/client/hooks";
 await setClientAppState(
   "pending-selection-context",
   {
@@ -291,9 +287,7 @@ El agente debe llamar a `pnpm action view-screen` antes de actuar sobre el UI ac
 A veces el contexto no debería limitarse a permanecer en el estado de la aplicación. Un usuario hace clic en un botón, coloca un pin de comentario, selecciona un elemento y elige "Preguntar al agente" o presiona un comando de IA en una barra de herramientas. Ese clic es una instrucción. En el navegador UI, entréguelo al agente con `sendToAgentChat()`.
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -376,9 +370,7 @@ Se queda corto porque es una envoltura delgada alrededor del marco primitivo rea
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

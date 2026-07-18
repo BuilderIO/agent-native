@@ -116,7 +116,7 @@ export default createAgentNativeEmbeddedPlugin({
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -297,7 +297,7 @@ for await (const chunk of sendMessage(
 import {
   AgentNative,
   defineClientAction,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -384,7 +384,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -459,9 +459,7 @@ const hostTools = createAgentNativeHostTools({
 
 ```tsx
 import { useEffect } from "react";
-import {
-  startAgentNativeBrowserSessionBridge,
-} from "@agent-native/core/client/host"
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -513,7 +511,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client/host"
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

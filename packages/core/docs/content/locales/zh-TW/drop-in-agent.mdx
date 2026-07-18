@@ -154,9 +154,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 將代�
 
 ```tsx
 // app/routes/agent.tsx
-import {
-  AgentPanel,
-} from "@agent-native/core/client/agent-chat"
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -183,9 +181,7 @@ export default function AgentRoute() {
 將工作交給代理的按鈕（而不是執行行內 `llm()` 呼叫 - [ladder](/docs/what-is-agent-native#the-ladder) 的反模式）：
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -234,9 +230,7 @@ sendToAgentChat({
 如果您想要載入狀態，請使用 `useSendToAgentChat()` 鉤子 - 它返回 `send` 和 `isGenerating`：
 
 ```ts
-import {
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -270,9 +264,7 @@ const { send, isGenerating } = useSendToAgentChat();
 當 UI 需要執行代理工具將執行的相同操作（[ladder](/docs/what-is-agent-native#rung-three) 的梯級 3）時，請使用 `useActionMutation`：
 
 ```tsx
-import {
-  useActionMutation,
-} from "@agent-native/core/client/hooks"
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -302,7 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>

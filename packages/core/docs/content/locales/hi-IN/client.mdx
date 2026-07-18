@@ -65,7 +65,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -82,9 +82,7 @@ await callAction("archive-lead", { leadId });
 पोस्टमैसेज के माध्यम से एजेंट चैट को एक संदेश भेजें - UI इंटरैक्शन से AI कार्य सौंपने का सामान्य तरीका। छिपे हुए मॉडल संदर्भ के लिए `context` और तुरंत भेजने के लिए `submit: true` पास करें, या उपयोगकर्ता द्वारा पहले समीक्षा किए गए ड्राफ्ट को प्रीफिल करने के लिए `submit: false` पास करें।
 
 ```ts
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -174,9 +172,7 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 किसी विशिष्ट अनुभाग को खोलने के लिए `"automations"`, `"voice"`, या `"limits"`।
 
 ```ts
-import {
-  openAgentSettings,
-} from "@agent-native/core/client/navigation"
+import { openAgentSettings } from "@agent-native/core/client/navigation";
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -184,9 +180,7 @@ openAgentSettings("secrets");
 सीधे `agent-panel:open-settings` भेजने के बजाय इस सहायक को प्राथमिकता दें।
 
 ```tsx
-import {
-  useAgentChatContext,
-} from "@agent-native/core/client/agent-chat"
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -247,7 +241,7 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 import {
   askUserQuestion,
   sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -290,7 +284,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 ```
 
 `getMcpAppHostContext()` नवीनतम पुश किए गए होस्ट संदर्भ स्नैपशॉट को पढ़ता है;
@@ -400,9 +394,7 @@ function App() {
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import {
-  useChangeVersion,
-} from "@agent-native/core/client/hooks"
+import { useChangeVersion } from "@agent-native/core/client/hooks";
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");

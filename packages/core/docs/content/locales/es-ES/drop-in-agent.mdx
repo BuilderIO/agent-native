@@ -154,9 +154,7 @@ Cuando necesite control total sobre el diseño (una ruta `/chat` dedicada, un pa
 
 ```tsx
 // app/routes/agent.tsx
-import {
-  AgentPanel,
-} from "@agent-native/core/client/agent-chat"
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -183,9 +181,7 @@ Accesorios completos: `AgentPanelProps` en `@agent-native/core/client`.
 Un botón que entrega el trabajo al agente (en lugar de ejecutar una llamada `llm()` en línea, el antipatrón del [ladder](/docs/what-is-agent-native#the-ladder)):
 
 ```tsx
-import {
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -234,9 +230,7 @@ Las llamadas `sendToAgentChat()` se reenvían al chat del anfitrión cuando sea 
 Si desea un estado de carga, utilice el gancho `useSendToAgentChat()`; devuelve tanto `send` como `isGenerating`:
 
 ```ts
-import {
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -270,9 +264,7 @@ El código del cliente no aprende un segundo transporte ad hoc.
 Cuando UI necesita ejecutar la misma operación que ejecutaría una herramienta de agente (rango 3 de [ladder](/docs/what-is-agent-native#rung-three)), use `useActionMutation`:
 
 ```tsx
-import {
-  useActionMutation,
-} from "@agent-native/core/client/hooks"
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -302,7 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client/agent-chat"
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>

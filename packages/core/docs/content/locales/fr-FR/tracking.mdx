@@ -176,9 +176,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import {
-  track,
-} from "@agent-native/core/client/analytics"
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -197,9 +195,7 @@ Ceci est distinct de la télémétrie interne du navigateur du framework (`track
 Les applications Agent Native peuvent activer la relecture de session (session replay) côté navigateur en mode propriétaire, sans ajouter un second SDK d'analyse. Appelez `configureTracking()` une fois à la racine du navigateur et transmettez la clé publique Analytics ainsi que le point de terminaison du collecteur :
 
 ```ts
-import {
-  configureTracking,
-} from "@agent-native/core/client/analytics"
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",

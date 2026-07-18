@@ -163,9 +163,7 @@ Use it for scheduled jobs, queues, CLI loops, or external-agent workflows where 
 The chat page is intentionally thin:
 
 ```tsx filename="app/routes/_index.tsx"
-import {
-  AgentChatSurface,
-} from "@agent-native/core/client/agent-chat"
+import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 export default function ChatRoute() {
   return (
     <AgentChatSurface

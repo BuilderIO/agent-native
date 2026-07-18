@@ -273,7 +273,7 @@ export default runMigrations(
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -289,9 +289,7 @@ export default function ProjectsPage() {
 在应用程序 shell 附近连接一次实时同步，以便在代理、另一个选项卡或操作更改数据时刷新 React 查询缓存：
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -327,9 +325,7 @@ useQuery({
 使用 `useAgentRouteState` 作为 UI 挂钩，以便应用程序状态写入、选项卡范围命令读取、读取后删除和重复命令保护保持一致：
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

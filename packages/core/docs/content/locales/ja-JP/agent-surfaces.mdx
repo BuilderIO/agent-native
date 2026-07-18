@@ -14,9 +14,7 @@ search: "ヘッドレス エージェント リッチ チャット フル アプ
 Resources と Settings から同じフローを重複させずにフルページへ移動できます。
 
 ```tsx filename="app/routes/agent.tsx"
-import {
-  AgentTabsPage,
-} from "@agent-native/core/client/agent-chat"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -415,9 +413,7 @@ export default createAgentNativeEmbeddedPlugin({
 React サイドカーは、ページ コンテキストとホスト コマンドを渡します。
 
 ```tsx
-import {
-  AgentNativeEmbedded,
-} from "@agent-native/core/client/host"
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

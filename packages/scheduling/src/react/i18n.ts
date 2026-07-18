@@ -1,4 +1,8 @@
-import { DEFAULT_LOCALE, useLocale, type LocaleCode } from "@agent-native/core/client/i18n";
+import {
+  DEFAULT_LOCALE,
+  useLocale,
+  type LocaleCode,
+} from "@agent-native/core/client/i18n";
 
 const enUS = {
   add: "Add",

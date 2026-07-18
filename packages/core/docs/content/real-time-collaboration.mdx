@@ -424,9 +424,7 @@ Awareness state changes propagate at ~150ms instead of waiting for the full poll
 Returns a reactive list of remote participants and a setter for the local presence payload:
 
 ```ts
-import {
-  usePresence,
-} from "@agent-native/core/client/collab"
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -488,9 +486,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 Invoke a callback whenever the followed participant's viewport changes:
 
 ```ts
-import {
-  useFollowUser,
-} from "@agent-native/core/client/collab"
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -524,10 +520,7 @@ The `PresenceBar` component accepts optional follow-mode props:
 ### Normalized coordinate helpers {#norm-coords}
 
 ```ts
-import {
-  toNormalized,
-  fromNormalized,
-} from "@agent-native/core/client/collab"
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,

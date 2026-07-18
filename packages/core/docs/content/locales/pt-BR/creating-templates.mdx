@@ -273,7 +273,7 @@ As rotas residem em `app/routes/` e usam o roteamento de arquivos do React Route
 import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client/hooks"
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -289,9 +289,7 @@ export default function ProjectsPage() {
 Conecte a sincronização ao vivo uma vez perto do shell do aplicativo para que os caches de consulta React sejam atualizados quando o agente, outra guia ou uma ação alterar os dados:
 
 ```tsx
-import {
-  useDbSync,
-} from "@agent-native/core/client/hooks"
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -327,9 +325,7 @@ O estado da aplicação é como o agente sabe o que o usuário está vendo. No m
 Use `useAgentRouteState` para o gancho UI para que gravações no estado do aplicativo, leituras de comandos com escopo de guia, exclusão após leitura e proteção de comando duplicado permaneçam consistentes:
 
 ```tsx
-import {
-  useAgentRouteState,
-} from "@agent-native/core/client/navigation"
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
