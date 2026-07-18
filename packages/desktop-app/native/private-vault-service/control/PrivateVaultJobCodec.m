@@ -52,6 +52,12 @@ static const NSUInteger kPayloadMaximum = 16 * 1024 * 1024;
 @implementation AncPrivateVaultSemanticJobPayload
 @end
 
+@interface AncPrivateVaultVerifiedResult ()
+@property(nonatomic) NSString *state;
+@end
+@implementation AncPrivateVaultVerifiedResult
+@end
+
 static void SetStatus(AncPrivateVaultJobCodecStatus *status,
                       AncPrivateVaultJobCodecStatus value) {
   if (status != NULL) *status = value;
@@ -97,6 +103,10 @@ static BOOL ScopeText(AncPrivateVaultCanonicalValue *value) {
     if (raw[index] < 0x21 || raw[index] > 0x7e) return NO;
   return YES;
 }
+
+static NSData *DomainMessage(const uint8_t *domain, size_t domainLength,
+                             NSData *payload);
+static NSData *UnsignedBytes(NSDictionary *map, NSInteger signatureKey);
 
 AncPrivateVaultJobCoordinates *AncPrivateVaultInspectJobEnvelope(
     NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
@@ -179,6 +189,61 @@ AncPrivateVaultSemanticJobPayload *AncPrivateVaultDecodeSemanticJobPayload(
   payload.body = [body.bytesValue copy];
   SetStatus(status, AncPrivateVaultJobCodecStatusOK);
   return payload;
+}
+
+AncPrivateVaultVerifiedResult *AncPrivateVaultVerifyResultEnvelope(
+    NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
+    NSData *expectedJobHash, NSData *expectedRecipientEndpointId,
+    const uint8_t brokerSigningPublicKey[32],
+    AncPrivateVaultJobCodecStatus *status) {
+  SetStatus(status, AncPrivateVaultJobCodecStatusInvalid);
+  if (envelope.length == 0 || envelope.length > kEnvelopeMaximum ||
+      expectedVaultId.length != 16 || expectedJobId.length != 16 ||
+      expectedJobHash.length != 32 || expectedRecipientEndpointId.length != 16 ||
+      brokerSigningPublicKey == NULL)
+    return nil;
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      envelope, kEnvelopeMaximum, &canonicalStatus);
+  NSDictionary *map = root.type == AncPrivateVaultCanonicalTypeMap
+      ? root.mapValue : nil;
+  NSSet *expected = [NSSet setWithArray:@[
+    @1, @2, @3, @4, @5, @100, @101, @102, @103, @104, @105
+  ]];
+  NSData *jobId = nil, *jobHash = nil, *recipient = nil, *signature = nil;
+  AncPrivateVaultCanonicalValue *ciphertext =
+      Field(map, 103, AncPrivateVaultCanonicalTypeBytes);
+  AncPrivateVaultCanonicalValue *state =
+      Field(map, 105, AncPrivateVaultCanonicalTypeText);
+  if (map.count != expected.count ||
+      ![expected isEqualToSet:[NSSet setWithArray:map.allKeys]] ||
+      !ExactCommon(map, @"result", expectedVaultId) ||
+      !ExactBytes(map, 100, 16, &jobId) ||
+      ![jobId isEqualToData:expectedJobId] ||
+      !ExactBytes(map, 101, 32, &jobHash) ||
+      ![jobHash isEqualToData:expectedJobHash] ||
+      !ExactBytes(map, 102, 16, &recipient) ||
+      ![recipient isEqualToData:expectedRecipientEndpointId] ||
+      ciphertext.bytesValue.length < 24 + 16 + sizeof kResultDomain ||
+      ciphertext.bytesValue.length >
+          kPayloadMaximum + 24 + 16 + sizeof kResultDomain ||
+      !ExactBytes(map, 104, 64, &signature) ||
+      !([state.textValue isEqualToString:@"completed"] ||
+        [state.textValue isEqualToString:@"failed"]))
+    return nil;
+  NSData *unsignedBytes = UnsignedBytes(map, 104);
+  NSData *message = DomainMessage(kResultDomain, sizeof kResultDomain,
+                                  unsignedBytes);
+  if (message == nil ||
+      anc_pv_ed25519_verify(signature.bytes, message.bytes, message.length,
+                            brokerSigningPublicKey) != ANC_PV_CRYPTO_OK) {
+    SetStatus(status, AncPrivateVaultJobCodecStatusSignature);
+    return nil;
+  }
+  AncPrivateVaultVerifiedResult *verified = [AncPrivateVaultVerifiedResult new];
+  verified.state = [state.textValue copy];
+  SetStatus(status, AncPrivateVaultJobCodecStatusOK);
+  return verified;
 }
 
 static NSData *DomainMessage(const uint8_t *domain, size_t domainLength,

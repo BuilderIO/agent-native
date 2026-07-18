@@ -24,6 +24,7 @@
 #import "PrivateVaultGenesisStartup.h"
 #import "PrivateVaultRotationCoordinator.h"
 #import "PrivateVaultRotationPreparationSpool.h"
+#import "PrivateVaultResultSpool.h"
 #import "PrivateVaultRotationPreparationStore.h"
 #import "PrivateVaultStateRoot.h"
 #import "PrivateVaultHostedAppendCandidateIndex.h"
@@ -1118,9 +1119,11 @@ int main(void) {
                    custodyRepository:gCustodyRepository];
         gGrantIndex = [[AncPrivateVaultGrantIndex alloc]
             initWithStateRootURL:stateRoot session:gSession keychain:keychain];
+        AncPrivateVaultResultSpool *resultSpool =
+            [[AncPrivateVaultResultSpool alloc] initWithStateRootURL:stateRoot];
         gJobProcessor = [[AncPrivateVaultJobProcessor alloc]
             initWithSession:gSession authorityStore:authority
-                 grantIndex:gGrantIndex];
+                 grantIndex:gGrantIndex resultSpool:resultSpool];
         AncPrivateVaultControlLog *controlLog =
             [[AncPrivateVaultControlLog alloc] init];
         AncPrivateVaultGenesisArtifactStore *genesisArtifacts =

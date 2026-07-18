@@ -2,6 +2,14 @@
 
 #include <string.h>
 
+#if ANC_PRIVATE_VAULT_TESTING
+static AncPrivateVaultJobProcessorAfterSpoolFaultHook gAfterSpoolFaultHook;
+void AncPrivateVaultJobProcessorSetAfterSpoolFaultHookForTesting(
+    AncPrivateVaultJobProcessorAfterSpoolFaultHook hook) {
+  gAfterSpoolFaultHook = [hook copy];
+}
+#endif
+
 static NSString *HexIdentifier(NSData *bytes) {
   if (bytes.length != 16) return nil;
   NSMutableString *value = [NSMutableString stringWithCapacity:32];
@@ -24,6 +32,18 @@ static NSData *HexBytes(NSString *value) {
   return bytes;
 }
 
+static NSData *ResultEnvelopeHash(NSData *envelope) {
+  if (envelope.length == 0) return nil;
+  static const uint8_t domain[] = "anc/v1/result-envelope";
+  uint8_t hash[32] = {0};
+  BOOL okay = anc_pv_blake2b_256_two_part(
+      hash, domain, sizeof domain, envelope.bytes, envelope.length) ==
+      ANC_PV_CRYPTO_OK;
+  NSData *result = okay ? [NSData dataWithBytes:hash length:sizeof hash] : nil;
+  anc_pv_zeroize(hash, sizeof hash);
+  return result;
+}
+
 @interface AncPrivateVaultAuthorizedJob ()
 @property(nonatomic) NSData *body;
 @property(nonatomic) NSData *jobHash;
@@ -35,6 +55,7 @@ static NSData *HexBytes(NSString *value) {
   AncPrivateVaultSession *_session;
   AncPrivateVaultAuthorityStore *_authorityStore;
   AncPrivateVaultGrantIndex *_grantIndex;
+  AncPrivateVaultResultSpool *_resultSpool;
   dispatch_queue_t _queue;
 }
 
@@ -60,8 +81,7 @@ static NSData *HexBytes(NSString *value) {
     AncPrivateVaultGrantIndexStatus indexStatus =
         [_grantIndex resolveJobId:jobId jobHash:jobHash vaultId:vaultId
                           context:&job];
-    if (indexStatus != AncPrivateVaultGrantIndexStatusOK || job == nil ||
-        job.resultRecorded) return;
+    if (indexStatus != AncPrivateVaultGrantIndexStatusOK || job == nil) return;
     AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
     if ([_authorityStore loadVaultId:vaultId checkpoint:&checkpoint error:nil] !=
             AncPrivateVaultAuthorityStoreStatusOK || checkpoint == nil) {
@@ -86,9 +106,50 @@ static NSData *HexBytes(NSString *value) {
     for (AncPrivateVaultAuthorityMember *member in checkpoint.snapshot.activeMembers)
       if ([member.endpointId isEqualToString:recipientId]) recipient = member;
     if (broker == nil || recipient == nil || vaultBytes == nil ||
+        broker.signingPublicKey.length != 32 ||
+        broker.keyAgreementPublicKey.length != 32 ||
         ![recipient.role isEqualToString:@"endpoint"] ||
         ![recipient.keyAgreementPublicKey isEqualToData:job.requesterBoxPublicKey])
       return;
+    AncPrivateVaultResultSpoolStatus spoolStatus =
+        [_resultSpool loadEnvelopeForVaultId:vaultBytes jobId:jobId
+                                      result:&sealed];
+    if (spoolStatus == AncPrivateVaultResultSpoolStatusOK) {
+      AncPrivateVaultJobCodecStatus codecStatus;
+      AncPrivateVaultVerifiedResult *verified =
+          AncPrivateVaultVerifyResultEnvelope(
+              sealed, vaultBytes, jobId, jobHash, job.subjectEndpointId,
+              broker.signingPublicKey.bytes, &codecStatus);
+      NSData *sealedHash = ResultEnvelopeHash(sealed);
+      if (verified == nil || ![verified.state isEqualToString:state] ||
+          sealedHash == nil ||
+          (job.resultRecorded &&
+           (![job.resultState isEqualToString:verified.state] ||
+            ![job.resultHash isEqualToData:sealedHash]))) {
+        sealed = nil;
+        status = AncPrivateVaultJobProcessorStatusStorageFailed;
+        return;
+      }
+      if (!job.resultRecorded) {
+        indexStatus = [_grantIndex recordResultHash:sealedHash
+                                             state:verified.state
+                                             jobId:jobId jobHash:jobHash
+                                            vaultId:vaultId];
+        if (indexStatus != AncPrivateVaultGrantIndexStatusOK) {
+          sealed = nil;
+          status = AncPrivateVaultJobProcessorStatusStorageFailed;
+          return;
+        }
+      }
+      status = AncPrivateVaultJobProcessorStatusOK;
+      return;
+    }
+    if (spoolStatus != AncPrivateVaultResultSpoolStatusNotFound ||
+        job.resultRecorded) {
+      sealed = nil;
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
+      return;
+    }
     AncPrivateVaultSessionStatus borrowed = [_session borrowVaultId:vaultId
         block:^BOOL(const AncPrivateVaultCustodySnapshot *snapshot,
                     const AncPrivateVaultCustodySecretInputs *secrets) {
@@ -131,20 +192,34 @@ static NSData *HexBytes(NSString *value) {
       status = AncPrivateVaultJobProcessorStatusCryptoFailed;
       return;
     }
-    static const uint8_t domain[] = "anc/v1/result-envelope";
-    uint8_t hash[32] = {0};
-    if (anc_pv_blake2b_256_two_part(hash, domain, sizeof domain, sealed.bytes,
-                                    sealed.length) != ANC_PV_CRYPTO_OK) {
+    spoolStatus = [_resultSpool storeEnvelope:sealed vaultId:vaultBytes
+                                         jobId:jobId];
+    if (spoolStatus != AncPrivateVaultResultSpoolStatusOK) {
+      sealed = nil;
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
+      return;
+    }
+#if ANC_PRIVATE_VAULT_TESTING
+    if (gAfterSpoolFaultHook != nil && gAfterSpoolFaultHook()) {
+      sealed = nil;
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
+      return;
+    }
+#endif
+    NSData *resultHash = ResultEnvelopeHash(sealed);
+    if (resultHash == nil) {
+      sealed = nil;
       status = AncPrivateVaultJobProcessorStatusCryptoFailed;
       return;
     }
-    NSData *resultHash = [NSData dataWithBytes:hash length:sizeof hash];
-    anc_pv_zeroize(hash, sizeof hash);
     indexStatus = [_grantIndex recordResultHash:resultHash state:state jobId:jobId
                                         jobHash:jobHash vaultId:vaultId];
-    status = indexStatus == AncPrivateVaultGrantIndexStatusOK
-        ? AncPrivateVaultJobProcessorStatusOK
-        : AncPrivateVaultJobProcessorStatusStorageFailed;
+    if (indexStatus == AncPrivateVaultGrantIndexStatusOK) {
+      status = AncPrivateVaultJobProcessorStatusOK;
+    } else {
+      sealed = nil;
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
+    }
   });
   if (status == AncPrivateVaultJobProcessorStatusOK && result != NULL)
     *result = sealed;
@@ -153,13 +228,16 @@ static NSData *HexBytes(NSString *value) {
 
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
                   authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
-                      grantIndex:(AncPrivateVaultGrantIndex *)grantIndex {
+                      grantIndex:(AncPrivateVaultGrantIndex *)grantIndex
+                     resultSpool:(AncPrivateVaultResultSpool *)resultSpool {
   self = [super init];
-  if (self == nil || session == nil || authorityStore == nil || grantIndex == nil)
+  if (self == nil || session == nil || authorityStore == nil ||
+      grantIndex == nil || resultSpool == nil)
     return nil;
   _session = session;
   _authorityStore = authorityStore;
   _grantIndex = grantIndex;
+  _resultSpool = resultSpool;
   _queue = dispatch_queue_create("com.agentnative.private-vault.jobs",
                                  DISPATCH_QUEUE_SERIAL);
   return self;

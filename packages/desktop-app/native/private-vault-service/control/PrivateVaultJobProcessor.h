@@ -3,6 +3,7 @@
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultGrantIndex.h"
 #import "PrivateVaultJobCodec.h"
+#import "PrivateVaultResultSpool.h"
 #import "PrivateVaultSession.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -28,6 +29,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
                   authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
                       grantIndex:(AncPrivateVaultGrantIndex *)grantIndex
+                     resultSpool:(AncPrivateVaultResultSpool *)resultSpool
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
@@ -47,5 +49,11 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
               nowSeconds:(uint64_t)nowSeconds
                   result:(NSData *_Nullable *_Nullable)result;
 @end
+
+#if ANC_PRIVATE_VAULT_TESTING
+typedef BOOL (^AncPrivateVaultJobProcessorAfterSpoolFaultHook)(void);
+FOUNDATION_EXPORT void AncPrivateVaultJobProcessorSetAfterSpoolFaultHookForTesting(
+    AncPrivateVaultJobProcessorAfterSpoolFaultHook _Nullable hook);
+#endif
 
 NS_ASSUME_NONNULL_END

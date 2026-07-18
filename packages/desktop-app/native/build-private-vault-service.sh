@@ -41,6 +41,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
+  "$SOURCE_ROOT/storage/PrivateVaultResultSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenesisPreparationArtifactStore.m"
@@ -390,6 +391,29 @@ case "${PRIVATE_VAULT_BUILD_GRANT_CODEC_TESTS:-}" in
   *) echo "Invalid Private Vault grant-codec-test build mode" >&2; exit 1 ;;
 esac
 
+case "${PRIVATE_VAULT_BUILD_RESULT_SPOOL_TESTS:-}" in
+  "") ;;
+  1)
+  RESULT_SPOOL_TEST_OUTPUT="$OUTPUT_ROOT/.result-spool-tests"
+  rm -rf "$RESULT_SPOOL_TEST_OUTPUT"
+  mkdir -p "$RESULT_SPOOL_TEST_OUTPUT"
+  compile_result_spool_test_slice() {
+    local architecture="$1"
+    local output="$RESULT_SPOOL_TEST_OUTPUT/private-vault-result-spool-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/storage" -framework Foundation \
+      "$SOURCE_ROOT/storage/PrivateVaultResultSpool.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultResultSpoolTests.m" \
+      -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_result_spool_test_slice arm64
+  compile_result_spool_test_slice x86_64
+  ;;
+  *) echo "Invalid Private Vault result-spool-test build mode" >&2; exit 1 ;;
+esac
+
 case "${PRIVATE_VAULT_BUILD_GRANT_INDEX_TESTS:-}" in
   "") ;;
   1)
@@ -415,6 +439,7 @@ case "${PRIVATE_VAULT_BUILD_GRANT_INDEX_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultSession.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultResultSpool.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGrantIndex.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGrantIndexTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"

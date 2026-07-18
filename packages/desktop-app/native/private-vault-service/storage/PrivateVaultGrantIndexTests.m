@@ -2,6 +2,7 @@
 
 #import "PrivateVaultGrantIndex.h"
 #import "PrivateVaultJobProcessor.h"
+#import "PrivateVaultResultSpool.h"
 
 #include <assert.h>
 #include <sys/stat.h>
@@ -333,10 +334,14 @@ int main(void) {
     authorityCheckpoint.snapshot = authoritySnapshot;
     TestAuthorityStore *authorityStore = [TestAuthorityStore new];
     authorityStore.checkpoint = authorityCheckpoint;
+    AncPrivateVaultResultSpool *resultSpool =
+        [[AncPrivateVaultResultSpool alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:temporary]];
     AncPrivateVaultJobProcessor *processor = [[AncPrivateVaultJobProcessor alloc]
         initWithSession:session
           authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
-              grantIndex:index];
+              grantIndex:index
+             resultSpool:resultSpool];
     AncPrivateVaultAuthorizedJob *authorizedJob = nil;
     assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
                                 jobId:Pattern(0x06, 16)
@@ -352,6 +357,9 @@ int main(void) {
                            nowSeconds:1721111200 result:&authorizedJob] ==
            AncPrivateVaultJobProcessorStatusReplay);
     NSData *resultEnvelope = nil;
+    AncPrivateVaultJobProcessorSetAfterSpoolFaultHookForTesting(^BOOL{
+      return YES;
+    });
     AncPrivateVaultJobProcessorStatus resultStatus =
         [processor sealResultPayload:
                   [@"{\"title\":\"Private\"}"
@@ -360,8 +368,41 @@ int main(void) {
                                   jobId:Pattern(0x06, 16)
                                  jobHash:authorizedJobHash
                               nowSeconds:1721111201 result:&resultEnvelope];
+    assert(resultStatus == AncPrivateVaultJobProcessorStatusStorageFailed &&
+           resultEnvelope == nil);
+    AncPrivateVaultJobContext *jobBeforeRecovery = nil;
+    assert([index resolveJobId:Pattern(0x06, 16)
+                          jobHash:authorizedJobHash vaultId:kVaultId
+                          context:&jobBeforeRecovery] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           !jobBeforeRecovery.resultRecorded);
+    NSData *orphanedResultEnvelope = nil;
+    assert([resultSpool loadEnvelopeForVaultId:Pattern(0x01, 16)
+                                          jobId:Pattern(0x06, 16)
+                                         result:&orphanedResultEnvelope] ==
+               AncPrivateVaultResultSpoolStatusOK &&
+           orphanedResultEnvelope.length > 0);
+    AncPrivateVaultJobProcessorSetAfterSpoolFaultHookForTesting(nil);
+    resultStatus = [processor sealResultPayload:
+        [@"ignored recovery payload" dataUsingEncoding:NSUTF8StringEncoding]
+                                             state:@"completed" vaultId:kVaultId
+                                             jobId:Pattern(0x06, 16)
+                                            jobHash:authorizedJobHash
+                                         nowSeconds:1721111202
+                                             result:&resultEnvelope];
     assert(resultStatus == AncPrivateVaultJobProcessorStatusOK &&
-           resultEnvelope.length > 0);
+           [resultEnvelope isEqualToData:orphanedResultEnvelope]);
+    NSData *retriedResultEnvelope = nil;
+    assert([processor sealResultPayload:
+               [@"ignored retry payload"
+                   dataUsingEncoding:NSUTF8StringEncoding]
+                                  state:@"completed" vaultId:kVaultId
+                                  jobId:Pattern(0x06, 16)
+                                 jobHash:authorizedJobHash
+                              nowSeconds:1721111203
+                                  result:&retriedResultEnvelope] ==
+               AncPrivateVaultJobProcessorStatusOK &&
+           [retriedResultEnvelope isEqualToData:resultEnvelope]);
     AncPrivateVaultJobContext *jobContext = nil;
     assert([index resolveJobId:Pattern(0x06, 16)
                           jobHash:authorizedJobHash vaultId:kVaultId
@@ -390,6 +431,24 @@ int main(void) {
            AncPrivateVaultGrantIndexStatusOK);
     assert(snapshot.generation == 8 && snapshot.grantCount == 2 &&
            snapshot.revocationCount == 1 && snapshot.jobCount == 2);
+    AncPrivateVaultJobProcessor *restartedProcessor =
+        [[AncPrivateVaultJobProcessor alloc]
+            initWithSession:session
+             authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+                 grantIndex:restarted
+                resultSpool:[[AncPrivateVaultResultSpool alloc]
+                    initWithStateRootURL:[NSURL fileURLWithPath:temporary]]];
+    NSData *restartResultEnvelope = nil;
+    assert([restartedProcessor sealResultPayload:
+               [@"another ignored retry payload"
+                   dataUsingEncoding:NSUTF8StringEncoding]
+                                         state:@"completed" vaultId:kVaultId
+                                         jobId:Pattern(0x06, 16)
+                                        jobHash:authorizedJobHash
+                                     nowSeconds:1721111204
+                                         result:&restartResultEnvelope] ==
+               AncPrivateVaultJobProcessorStatusOK &&
+           [restartResultEnvelope isEqualToData:resultEnvelope]);
     NSString *livePath = [temporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"grant-index/%@.live", kVaultId]];
     NSData *frame = [NSData dataWithContentsOfFile:livePath];

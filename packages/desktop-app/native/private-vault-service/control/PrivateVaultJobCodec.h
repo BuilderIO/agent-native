@@ -38,6 +38,10 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobCodecStatus) {
 @property(nonatomic, readonly) NSData *body;
 @end
 
+@interface AncPrivateVaultVerifiedResult : NSObject
+@property(nonatomic, readonly) NSString *state;
+@end
+
 FOUNDATION_EXPORT AncPrivateVaultJobCoordinates *_Nullable
 AncPrivateVaultInspectJobEnvelope(
     NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
@@ -47,6 +51,14 @@ AncPrivateVaultInspectJobEnvelope(
 FOUNDATION_EXPORT AncPrivateVaultSemanticJobPayload *_Nullable
 AncPrivateVaultDecodeSemanticJobPayload(NSData *encoded,
                                         AncPrivateVaultJobCodecStatus *status);
+
+/** Verifies exact result coordinates and broker signature without decrypting. */
+FOUNDATION_EXPORT AncPrivateVaultVerifiedResult *_Nullable
+AncPrivateVaultVerifyResultEnvelope(
+    NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
+    NSData *expectedJobHash, NSData *expectedRecipientEndpointId,
+    const uint8_t *_Nonnull brokerSigningPublicKey,
+    AncPrivateVaultJobCodecStatus *status);
 
 FOUNDATION_EXPORT AncPrivateVaultOpenedJob *_Nullable
 AncPrivateVaultOpenJobEnvelope(

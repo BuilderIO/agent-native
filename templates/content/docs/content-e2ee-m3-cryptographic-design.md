@@ -547,12 +547,21 @@ resolves the claimed requester's exact retained box key, rechecks the fresh
 single-broker authority and local signing/box key continuity, seals the
 terminal result in the reverse direction, and durably binds a
 domain-separated hash of the exact result envelope before it may leave native
-code. Result substitution and a second terminalization conflict. The remaining
-The bounded `seal_result` XPC/addon operation and trusted main-process mapping
+code. Result substitution and a second terminalization conflict. The bounded
+`seal_result` XPC/addon operation and trusted main-process mapping
 now expose only that requester-sealed envelope; result plaintext and native key
 material never become addon inputs or outputs beyond the explicit local action
-result body. The remaining broker gate is to retain the encrypted result frame
-itself until the hosted receipt is durable and connect the Content action
-executor and supervisor lifecycle.
+result body. Before the encrypted grant index records terminalization, the
+native service now durably stages and promotes the exact requester-encrypted
+result envelope in a pinned owner-only spool. A crash between that promotion
+and the fenced index commit recovers the same signed ciphertext, verifies its
+vault, job, job hash, requester, state, and broker signature, and records its
+existing hash instead of invoking or encrypting the action again. Once the
+index has recorded a result, a missing, substituted, malformed, or mismatched
+spool frame fails closed. Dual-architecture tests cover interrupted commit,
+restart, identical retry, conflicting bytes, unsafe modes, and symlink
+substitution. The remaining broker gate is an exact hosted-receipt
+acknowledgment that terminalizes the job and deletes this spool frame, followed
+by the Content action executor and supervisor lifecycle.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.
