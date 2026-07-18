@@ -589,6 +589,22 @@ async function runHandlerAndPersist(
   }
 }
 
+function verifiedTaskOwner(event?: any): {
+  ownerEmail: string | null;
+  ownerScope: string | null;
+} {
+  const ownerEmail =
+    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  return {
+    ownerEmail,
+    ownerScope: ownerEmail
+      ? ((event?.context?.__a2aOrgDomain as string | undefined)
+          ?.trim()
+          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE)
+      : null,
+  };
+}
+
 async function handleSend(
   params: Record<string, unknown>,
   config: A2AConfig,
@@ -615,13 +631,8 @@ async function handleSend(
   // on every subsequent tasks/get and tasks/cancel call. Caller-supplied
   // metadata.userEmail is NEVER used for ownership; that would re-introduce
   // the IDOR class fixed here.
-  const ownerEmailForTask =
-    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
-  const ownerScopeForTask = ownerEmailForTask
-    ? ((event?.context?.__a2aOrgDomain as string | undefined)
-        ?.trim()
-        .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE)
-    : null;
+  const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
+    verifiedTaskOwner(event);
   let idempotencyKey: string | undefined;
   if (ownerEmailForTask && params.idempotencyKey !== undefined) {
     if (typeof params.idempotencyKey !== "string") {
@@ -844,8 +855,8 @@ async function handleStream(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
   const approvedActions = trustedApprovedActions(params.approvedActions, event);
-  const ownerEmailForTask =
-    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
+    verifiedTaskOwner(event);
 
   await withA2ARequestContext(metadata, event, async () => {
     const task = await createTask(
@@ -853,6 +864,7 @@ async function handleStream(
       contextId,
       undefined,
       ownerEmailForTask,
+      ownerScopeForTask,
     );
 
     await updateTask(task.id, { state: "working" });

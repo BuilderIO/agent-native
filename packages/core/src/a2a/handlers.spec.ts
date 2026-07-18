@@ -929,6 +929,58 @@ describe("handleJsonRpc", () => {
     expect(chunks).not.toContain("event-missing");
   });
 
+  it("scopes streamed tasks to the caller's verified organization", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "acme.test",
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      ownerEvent,
+      { ...customHandler, streaming: true },
+    );
+
+    const streamEvents = ownerEvent.node.res._writes.map((chunk: string) =>
+      JSON.parse(chunk.replace(/^data: /, "").trim()),
+    );
+    const taskId = streamEvents.find((entry: any) => entry.result?.id)?.result
+      .id;
+    expect(taskId).toBeTruthy();
+
+    const otherOrgEvent = mockEvent();
+    otherOrgEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "other.test",
+    };
+    const denied = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      otherOrgEvent,
+      customHandler,
+    );
+
+    expect(denied.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+  });
+
   it("handles tasks/get for unknown task", async () => {
     const event = mockEvent();
     const result = await handleJsonRpc(
