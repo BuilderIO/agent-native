@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.109.3
+
+### Patch Changes
+
+- 5199e0b: Make Chat the first and default starting point in the new-app CLI picker.
+- 5199e0b: Track browser, server, cold-start, framework-readiness, and database latency for app requests; retain action 4xx failures; parallelize legacy route bootstrap reads; and deduplicate session lookups without treating transient auth failures as signed-out sessions.
+- 5199e0b: Deliver remote-session Expo push notifications through a retrying, batched outbox worker and verify provider receipts before marking delivery complete.
+
 ## 0.109.2
 
 ### Patch Changes
