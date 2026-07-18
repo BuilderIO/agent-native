@@ -189,6 +189,14 @@ pub struct ScreenMemoryEvent {
     pub window_title: Option<String>,
     pub bundle_id: Option<String>,
     pub source: String,
+    /// Present only for explicit coverage-gap markers. Kept optional so old
+    /// event logs remain readable and ordinary context rows stay compact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_gap_reason: Option<String>,
+    /// A small local semantic summary, never a raw accessibility tree. Older
+    /// events intentionally deserialize without this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accessibility: Option<crate::accessibility::AccessibilityFingerprint>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -331,6 +339,8 @@ pub async fn screen_memory_pause(app: AppHandle) -> Result<ScreenMemoryStatus, S
     feature_config.screen_memory.paused = true;
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
+    append_event(&app, coverage_gap_event("user-paused"));
+    let _ = refresh_rewind_chapters(&app);
     build_status(&app)
 }
 
@@ -341,6 +351,8 @@ pub async fn screen_memory_stop(app: AppHandle) -> Result<ScreenMemoryStatus, St
     feature_config.screen_memory.paused = false;
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
+    append_event(&app, coverage_gap_event("user-disabled"));
+    let _ = refresh_rewind_chapters(&app);
     build_status(&app)
 }
 
@@ -1327,7 +1339,10 @@ fn wait_for_rotation(
                 // A concurrent stop/fence that wins the transition lock must
                 // still fail closed after recognition.
                 mark_active_segment_exclusion_tainted(app);
-                append_event(app, coverage_gap_event());
+                append_event(
+                    app,
+                    coverage_gap_event(exclusion_reason.unwrap_or("privacy-exclusion")),
+                );
                 if let Err(error) = suspend_for_exclusion(app) {
                     record_error(app, error);
                 }
@@ -1369,13 +1384,14 @@ fn mark_active_segment_exclusion_tainted(app: &AppHandle) {
 fn sample_active_window(config: &ScreenMemoryConfig) -> (ScreenMemoryEvent, Option<&'static str>) {
     #[cfg(target_os = "macos")]
     {
-        let context = crate::accessibility::macos::active_window_context_impl();
+        let (context, owner_pid) =
+            crate::accessibility::macos::active_window_context_with_pid_impl();
         if let Some(reason) = event_exclusion_reason(
             config,
             context.bundle_id.as_deref(),
             context.window_title.as_deref(),
         ) {
-            return (coverage_gap_event(), Some(reason));
+            return (coverage_gap_event(reason), Some(reason));
         }
         (
             ScreenMemoryEvent {
@@ -1384,6 +1400,11 @@ fn sample_active_window(config: &ScreenMemoryConfig) -> (ScreenMemoryEvent, Opti
                 window_title: context.window_title,
                 bundle_id: context.bundle_id,
                 source: context.source,
+                coverage_gap_reason: None,
+                // Exclusion was checked above; this silent AX read never
+                // prompts and degrades to None when macOS denies/unreadable.
+                accessibility: owner_pid
+                    .and_then(crate::accessibility::macos::semantic_fingerprint_for_pid_impl),
             },
             None,
         )
@@ -1397,6 +1418,8 @@ fn sample_active_window(config: &ScreenMemoryConfig) -> (ScreenMemoryEvent, Opti
                 window_title: None,
                 bundle_id: None,
                 source: "unsupported".to_string(),
+                coverage_gap_reason: None,
+                accessibility: None,
             },
             None,
         )
@@ -1421,13 +1444,15 @@ fn event_exclusion_reason(
     None
 }
 
-fn coverage_gap_event() -> ScreenMemoryEvent {
+fn coverage_gap_event(reason: &str) -> ScreenMemoryEvent {
     ScreenMemoryEvent {
         captured_at: now_iso(),
         app_name: None,
         window_title: None,
         bundle_id: None,
         source: "coverage-gap".to_string(),
+        coverage_gap_reason: Some(reason.to_string()),
+        accessibility: None,
     }
 }
 
@@ -3127,6 +3152,8 @@ command = "keep"
             window_title: Some("Example window".to_string()),
             bundle_id: Some("example.app".to_string()),
             source: "test".to_string(),
+            coverage_gap_reason: None,
+            accessibility: None,
         }
     }
 
@@ -3167,9 +3194,25 @@ command = "keep"
             ),
             None
         );
-        let gap = coverage_gap_event();
+        let gap = coverage_gap_event("privacy-exclusion");
         assert_eq!(gap.source, "coverage-gap");
+        assert_eq!(
+            gap.coverage_gap_reason.as_deref(),
+            Some("privacy-exclusion")
+        );
         assert!(gap.app_name.is_none() && gap.window_title.is_none() && gap.bundle_id.is_none());
+        assert!(gap.accessibility.is_none());
+    }
+
+    #[test]
+    fn old_event_jsonl_lines_parse_without_accessibility() {
+        let event: ScreenMemoryEvent = serde_json::from_str(
+            r#"{"capturedAt":"2026-07-18T12:00:00Z","appName":"Mail","windowTitle":"Inbox","bundleId":"com.apple.mail","source":"core-graphics"}"#,
+        )
+        .expect("old event line remains readable");
+        assert_eq!(event.app_name.as_deref(), Some("Mail"));
+        assert!(event.coverage_gap_reason.is_none());
+        assert!(event.accessibility.is_none());
     }
 
     #[test]

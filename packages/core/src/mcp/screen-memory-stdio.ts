@@ -1,8 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 
 import { queryScreenMemoryContext } from "../mcp-client/screen-memory-local.js";
 
@@ -23,19 +23,28 @@ interface ScreenMemorySegment {
 
 export interface ScreenMemoryChapter {
   id: string;
+  /** In v2, chapter identity survives later semantic refinements. */
+  revision: number;
+  aliases: string[];
   startedAt: string;
   endedAt: string;
   durationMs: number;
   label: string;
   summary: string;
   keywords: string[];
+  accessibilitySummary: string;
+  accessibilityKeywords: string[];
   confidence: number;
   segmentRefs: Array<{ id: string; startedAt: string; endedAt: string }>;
+  sceneRefs: Array<{ id: string; startedAt?: string; endedAt?: string }>;
   evidenceRefs: Array<{
     sourceType: string;
+    sourceKind?: string;
     segmentId?: string;
     offsetMs?: number;
     capturedAt?: string;
+    keywords?: string[];
+    confidence?: number;
   }>;
   contexts: Array<{
     appName?: string;
@@ -49,12 +58,15 @@ export interface ScreenMemoryChapter {
     offsetMs: number;
     reason: string;
   }>;
+  representativeCoverage?:
+    | string
+    | { coveredScenes: number; totalScenes: number; truncated: boolean };
   ambiguityReasons: string[];
   indexState: "pending" | "partial" | "ready";
 }
 
 export interface ScreenMemoryChaptersDocument {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   state: string;
   coverage: unknown;
@@ -84,6 +96,21 @@ export interface RunScreenMemoryMCPStdioOptions {
 const MAX_CHAPTERS = 12;
 const MAX_FRAME_BYTES = 900_000;
 const MAX_FRAME_EDGE = 1280;
+const SEARCH_STOP_WORDS = new Set([
+  "and",
+  "for",
+  "from",
+  "that",
+  "the",
+  "this",
+  "was",
+  "were",
+  "what",
+  "when",
+  "with",
+  "work",
+  "working",
+]);
 
 function log(msg: string): void {
   process.stderr.write(`[screen-memory-mcp] ${msg}\n`);
@@ -162,6 +189,16 @@ function cleanText(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value.trim().slice(0, 2_000) : fallback;
 }
 
+function cleanKeywords(value: unknown, limit = 12): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => cleanText(item).slice(0, 80))
+        .filter(Boolean)
+        .slice(0, limit)
+    : [];
+}
+
 function parseChapter(value: unknown): ScreenMemoryChapter | null {
   if (
     !isRecord(value) ||
@@ -200,6 +237,9 @@ function parseChapter(value: unknown): ScreenMemoryChapter | null {
           ? [
               {
                 sourceType: cleanText(ref.sourceType),
+                ...(cleanText(ref.sourceKind)
+                  ? { sourceKind: cleanText(ref.sourceKind) }
+                  : {}),
                 ...(cleanText(ref.segmentId)
                   ? { segmentId: cleanText(ref.segmentId) }
                   : {}),
@@ -210,11 +250,54 @@ function parseChapter(value: unknown): ScreenMemoryChapter | null {
                 ...(isTimestamp(ref.capturedAt)
                   ? { capturedAt: ref.capturedAt }
                   : {}),
+                ...(cleanKeywords(ref.keywords, 64).length
+                  ? { keywords: cleanKeywords(ref.keywords, 64) }
+                  : {}),
+                ...(typeof ref.confidence === "number" &&
+                Number.isFinite(ref.confidence)
+                  ? { confidence: Math.max(0, Math.min(1, ref.confidence)) }
+                  : {}),
               },
             ]
           : [],
       )
     : [];
+  const sceneRefs = Array.isArray(value.sceneRefs)
+    ? value.sceneRefs.flatMap((ref) =>
+        typeof ref === "string" && cleanText(ref)
+          ? [{ id: cleanText(ref) }]
+          : isRecord(ref) && cleanText(ref.id)
+            ? [
+                {
+                  id: cleanText(ref.id),
+                  ...(isTimestamp(ref.startedAt)
+                    ? { startedAt: ref.startedAt }
+                    : {}),
+                  ...(isTimestamp(ref.endedAt) ? { endedAt: ref.endedAt } : {}),
+                },
+              ]
+            : [],
+      )
+    : [];
+  const representativeCoverage = isRecord(value.representativeCoverage)
+    ? typeof value.representativeCoverage.coveredScenes === "number" &&
+      Number.isFinite(value.representativeCoverage.coveredScenes) &&
+      typeof value.representativeCoverage.totalScenes === "number" &&
+      Number.isFinite(value.representativeCoverage.totalScenes) &&
+      typeof value.representativeCoverage.truncated === "boolean"
+      ? {
+          coveredScenes: Math.max(
+            0,
+            Math.trunc(value.representativeCoverage.coveredScenes),
+          ),
+          totalScenes: Math.max(
+            0,
+            Math.trunc(value.representativeCoverage.totalScenes),
+          ),
+          truncated: value.representativeCoverage.truncated,
+        }
+      : undefined
+    : cleanText(value.representativeCoverage) || undefined;
   const contexts = Array.isArray(value.contexts)
     ? value.contexts.flatMap((context) =>
         isRecord(context)
@@ -256,6 +339,13 @@ function parseChapter(value: unknown): ScreenMemoryChapter | null {
     : [];
   return {
     id,
+    revision:
+      typeof value.revision === "number" &&
+      Number.isInteger(value.revision) &&
+      value.revision >= 0
+        ? value.revision
+        : 1,
+    aliases: cleanKeywords(value.aliases, 24),
     startedAt: value.startedAt,
     endedAt: value.endedAt,
     durationMs:
@@ -264,21 +354,19 @@ function parseChapter(value: unknown): ScreenMemoryChapter | null {
         : Date.parse(value.endedAt) - Date.parse(value.startedAt),
     label: cleanText(value.label, "Untitled work chapter"),
     summary: cleanText(value.summary),
-    keywords: Array.isArray(value.keywords)
-      ? value.keywords
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => cleanText(item).slice(0, 80))
-          .filter(Boolean)
-          .slice(0, 12)
-      : [],
+    keywords: cleanKeywords(value.keywords),
+    accessibilitySummary: cleanText(value.accessibilitySummary),
+    accessibilityKeywords: cleanKeywords(value.accessibilityKeywords),
     confidence:
       typeof value.confidence === "number" && Number.isFinite(value.confidence)
         ? Math.max(0, Math.min(1, value.confidence))
         : 0,
     segmentRefs,
+    sceneRefs,
     evidenceRefs,
     contexts,
     representativeMoments,
+    ...(representativeCoverage ? { representativeCoverage } : {}),
     ambiguityReasons: Array.isArray(value.ambiguityReasons)
       ? value.ambiguityReasons
           .filter((item): item is string => typeof item === "string")
@@ -299,7 +387,7 @@ export function readScreenMemoryChapters(
     );
     if (
       !isRecord(raw) ||
-      raw.schemaVersion !== 1 ||
+      (raw.schemaVersion !== 1 && raw.schemaVersion !== 2) ||
       !isTimestamp(raw.generatedAt) ||
       typeof raw.state !== "string" ||
       !Array.isArray(raw.chapters)
@@ -310,7 +398,7 @@ export function readScreenMemoryChapters(
       .filter((chapter): chapter is ScreenMemoryChapter => Boolean(chapter));
     if (chapters.length !== raw.chapters.length) return null;
     return {
-      schemaVersion: 1,
+      schemaVersion: raw.schemaVersion,
       generatedAt: raw.generatedAt,
       state: raw.state,
       coverage: raw.coverage ?? null,
@@ -321,21 +409,31 @@ export function readScreenMemoryChapters(
   }
 }
 
-function chapterSearchTerms(chapter: ScreenMemoryChapter): string {
-  return [
-    chapter.label,
-    chapter.summary,
-    ...chapter.keywords,
-    ...chapter.contexts.flatMap((context) => [
-      context.appName,
-      context.windowTitle,
-      context.bundleId,
-    ]),
-    ...chapter.evidenceRefs.map((ref) => ref.sourceType),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+type MatchProvenance = {
+  sourceType: string;
+  sourceKind?: string;
+  confidence?: number;
+  matchedTerms: string[];
+};
+
+function textIncludes(value: string, term: string): boolean {
+  return value.toLowerCase().includes(term);
+}
+
+function isMicrophoneEvidence(
+  ref: ScreenMemoryChapter["evidenceRefs"][number],
+) {
+  return /microphone|mic/.test(
+    `${ref.sourceType} ${ref.sourceKind ?? ""}`.toLowerCase(),
+  );
+}
+
+function isStrongScreenEvidence(
+  ref: ScreenMemoryChapter["evidenceRefs"][number],
+) {
+  return /accessibility|ocr|visible|screen|visual/.test(
+    `${ref.sourceType} ${ref.sourceKind ?? ""}`.toLowerCase(),
+  );
 }
 
 export function searchScreenMemoryChapters(
@@ -343,17 +441,96 @@ export function searchScreenMemoryChapters(
   query: string,
   limit = 5,
   clientHint?: string,
-): Array<ScreenMemoryChapter & { score: number; matchReasons: string[] }> {
-  const terms = query.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) ?? [];
+): Array<
+  ScreenMemoryChapter & {
+    score: number;
+    matchReasons: string[];
+    matchProvenance: MatchProvenance[];
+  }
+> {
+  const terms = (
+    query.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) ?? []
+  ).filter((term) => !SEARCH_STOP_WORDS.has(term));
+  const exactPhrase = query.trim().toLowerCase();
   const hint = clientHint?.toLowerCase().slice(0, 500) ?? "";
   return document.chapters
     .map((chapter) => {
-      const haystack = chapterSearchTerms(chapter);
-      const matched = terms.filter((term) => haystack.includes(term));
-      const semanticScore = terms.length ? matched.length / terms.length : 0;
+      const strongText = [
+        chapter.label,
+        chapter.summary,
+        ...chapter.keywords,
+        chapter.accessibilitySummary,
+        ...chapter.accessibilityKeywords,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const contextText = chapter.contexts
+        .flatMap((context) => [
+          context.appName,
+          context.windowTitle,
+          context.bundleId,
+        ])
+        .filter(Boolean)
+        .join(" ");
+      const strongMatched = terms.filter((term) =>
+        textIncludes(strongText, term),
+      );
+      const contextMatched = terms.filter((term) =>
+        textIncludes(contextText, term),
+      );
+      const evidenceMatches = chapter.evidenceRefs.flatMap((ref) => {
+        const matchedTerms = terms.filter((term) =>
+          (ref.keywords ?? []).some((keyword) => textIncludes(keyword, term)),
+        );
+        return matchedTerms.length ? [{ ref, matchedTerms }] : [];
+      });
+      const corroboratedTerms = new Set([
+        ...strongMatched,
+        ...evidenceMatches
+          .filter(({ ref }) => isStrongScreenEvidence(ref))
+          .flatMap(({ matchedTerms }) => matchedTerms),
+      ]);
+      const evidenceScore = evidenceMatches.reduce(
+        (sum, { ref, matchedTerms }) => {
+          const sourceWeight = isStrongScreenEvidence(ref)
+            ? 1.5
+            : isMicrophoneEvidence(ref)
+              ? matchedTerms.filter((term) => corroboratedTerms.has(term))
+                  .length
+                ? 0.12
+                : 0
+              : /transcript/.test(
+                    `${ref.sourceType} ${ref.sourceKind ?? ""}`.toLowerCase(),
+                  )
+                ? 0.3
+                : 0.5;
+          return (
+            sum + sourceWeight * matchedTerms.length * (ref.confidence ?? 1)
+          );
+        },
+        0,
+      );
+      const exactStrong =
+        exactPhrase.length >= 2 && textIncludes(strongText, exactPhrase);
+      const exactEvidence = chapter.evidenceRefs.some(
+        (ref) =>
+          isStrongScreenEvidence(ref) &&
+          (ref.keywords ?? []).some((keyword) =>
+            textIncludes(keyword, exactPhrase),
+          ),
+      );
+      const semanticScore = terms.length
+        ? (strongMatched.length * 1.2 +
+            contextMatched.length * 0.2 +
+            evidenceScore) /
+            terms.length +
+          (exactStrong || exactEvidence ? 2 : 0)
+        : 0;
       // A hint may only settle an otherwise close semantic result; it cannot make a non-match win.
       const hintScore =
-        semanticScore > 0 && hint && chapterSearchTerms(chapter).includes(hint)
+        semanticScore > 0 &&
+        hint &&
+        (textIncludes(strongText, hint) || textIncludes(contextText, hint))
           ? 0.03
           : 0;
       const score = semanticScore + hintScore + chapter.confidence * 0.001;
@@ -362,15 +539,82 @@ export function searchScreenMemoryChapters(
         score,
         semanticScore,
         matchReasons: [
-          ...matched.map((term) => `matched \"${term}\"`),
+          ...(exactStrong || exactEvidence
+            ? [
+                `exact phrase \"${exactPhrase}\" matched visible or accessibility evidence`,
+              ]
+            : []),
+          ...strongMatched.map(
+            (term) =>
+              `matched \"${term}\" in chapter or accessibility evidence`,
+          ),
+          ...contextMatched.map(
+            (term) => `matched \"${term}\" in app or document context`,
+          ),
+          ...evidenceMatches.flatMap(({ ref, matchedTerms }) =>
+            matchedTerms.map((term) =>
+              isMicrophoneEvidence(ref) && !corroboratedTerms.has(term)
+                ? `ignored uncorroborated microphone match \"${term}\"`
+                : `matched \"${term}\" in ${ref.sourceType}${ref.sourceKind ? `/${ref.sourceKind}` : ""} evidence`,
+            ),
+          ),
           ...(hintScore ? ["client hint weakly broke a close tie"] : []),
         ],
+        matchProvenance: evidenceMatches.map(({ ref, matchedTerms }) => ({
+          sourceType: ref.sourceType,
+          ...(ref.sourceKind ? { sourceKind: ref.sourceKind } : {}),
+          ...(typeof ref.confidence === "number"
+            ? { confidence: ref.confidence }
+            : {}),
+          matchedTerms,
+        })),
       };
     })
     .filter((chapter) => chapter.semanticScore > 0)
     .sort((a, b) => b.score - a.score || b.endedAt.localeCompare(a.endedAt))
     .slice(0, Math.min(Math.max(Math.trunc(limit), 1), MAX_CHAPTERS))
     .map(({ semanticScore: _semanticScore, ...chapter }) => chapter);
+}
+
+export function projectScreenMemoryChapterCandidate(
+  chapter: ReturnType<typeof searchScreenMemoryChapters>[number],
+) {
+  const evidenceSources = [
+    ...new Set(
+      chapter.evidenceRefs.map(
+        (reference) =>
+          `${reference.sourceType}${reference.sourceKind ? `/${reference.sourceKind}` : ""}`,
+      ),
+    ),
+  ].slice(0, 8);
+  return {
+    id: chapter.id,
+    revision: chapter.revision,
+    aliases: chapter.aliases.slice(0, 8),
+    startedAt: chapter.startedAt,
+    endedAt: chapter.endedAt,
+    durationMs: chapter.durationMs,
+    label: redactCredentialText(chapter.label),
+    summary: redactCredentialText(chapter.summary),
+    keywords: chapter.keywords.slice(0, 8),
+    confidence: chapter.confidence,
+    sceneCount: chapter.sceneRefs.length,
+    evidenceSources,
+    contexts: chapter.contexts.slice(0, 6),
+    representativeMoments: chapter.representativeMoments
+      .slice(0, 8)
+      .map(({ momentId, capturedAt, reason }) => ({
+        momentId,
+        capturedAt,
+        reason,
+      })),
+    representativeCoverage: chapter.representativeCoverage,
+    ambiguityReasons: chapter.ambiguityReasons.slice(0, 8),
+    indexState: chapter.indexState,
+    score: chapter.score,
+    matchReasons: chapter.matchReasons.slice(0, 8),
+    matchProvenance: chapter.matchProvenance.slice(0, 6),
+  };
 }
 
 function decodeFrameWithFfmpeg(segmentPath: string, offsetMs: number): Buffer {
@@ -475,20 +719,48 @@ export function selectContactSheetTimestamps(
 ): string[] {
   const started = Date.parse(startAt);
   const duration = Date.parse(endAt) - started;
-  return [
-    ...new Set([
-      ...representative
+  const representatives = [
+    ...new Set(
+      representative
         .filter(isTimestamp)
         .filter(
           (timestamp) =>
             Date.parse(timestamp) >= started &&
             Date.parse(timestamp) <= started + duration,
         ),
-      ...Array.from({ length: count }, (_, index) =>
-        new Date(started + (duration * (index + 0.5)) / count).toISOString(),
-      ),
-    ]),
-  ].slice(0, count);
+    ),
+  ];
+  // Reserve one slot for temporal coverage whenever possible: a contact sheet
+  // should not become a cluster of favorite frames with no sense of the span.
+  const preferred = representatives.slice(0, Math.max(0, count - 1));
+  const even = Array.from({ length: count }, (_, index) =>
+    new Date(started + (duration * (index + 0.5)) / count).toISOString(),
+  );
+  const selected = [...preferred];
+  while (selected.length < count) {
+    const next = even
+      .filter((timestamp) => !selected.includes(timestamp))
+      .sort((a, b) => {
+        const distance = (timestamp: string) =>
+          Math.min(
+            ...selected.map((chosen) =>
+              Math.abs(Date.parse(timestamp) - Date.parse(chosen)),
+            ),
+            Number.POSITIVE_INFINITY,
+          );
+        return distance(b) - distance(a);
+      })[0];
+    if (!next) break;
+    selected.push(next);
+  }
+  return selected;
+}
+
+export function contactSheetRangeIsValid(
+  durationMs: number,
+  usesChapterMoments: boolean,
+): boolean {
+  return durationMs >= 0 && (usesChapterMoments || durationMs <= 5 * 60_000);
 }
 
 function recentSegments(
@@ -932,13 +1204,19 @@ export async function runScreenMemoryMCPStdio(
           ? Math.max(1, Math.min(Math.trunc(args.minutes), 24 * 60))
           : null;
       const cutoff = minutes ? Date.now() - minutes * 60_000 : null;
+      const boundedDocument = cutoff
+        ? {
+            ...document,
+            chapters: document.chapters.filter(
+              (chapter) => Date.parse(chapter.endedAt) >= cutoff,
+            ),
+          }
+        : document;
       const candidates = searchScreenMemoryChapters(
-        document,
+        boundedDocument,
         args.query.trim(),
         typeof args.limit === "number" ? args.limit : 5,
         typeof args.clientHint === "string" ? args.clientHint : undefined,
-      ).filter(
-        (chapter) => cutoff === null || Date.parse(chapter.endedAt) >= cutoff,
       );
       const ambiguous =
         candidates.length > 1 &&
@@ -979,6 +1257,10 @@ export async function runScreenMemoryMCPStdio(
         generatedAt: document.generatedAt,
         state: document.state,
         coverage: document.coverage,
+        gaps:
+          isRecord(document.coverage) && Array.isArray(document.coverage.gaps)
+            ? document.coverage.gaps
+            : [],
         indexState: candidates.some(
           (candidate) => candidate.indexState === "pending",
         )
@@ -987,13 +1269,7 @@ export async function runScreenMemoryMCPStdio(
             ? "partial"
             : "ready",
         ambiguous,
-        candidates: candidates.map(({ score, matchReasons, ...chapter }) => ({
-          ...chapter,
-          label: redactCredentialText(chapter.label),
-          summary: redactCredentialText(chapter.summary),
-          score,
-          matchReasons,
-        })),
+        candidates: candidates.map(projectScreenMemoryChapterCandidate),
         egress: {
           requestId,
           packet,
@@ -1049,7 +1325,7 @@ export async function runScreenMemoryMCPStdio(
           "Provide a valid chapterId or RFC3339 startAt and endAt.",
         );
       const durationMs = Date.parse(endAt) - Date.parse(startAt);
-      if (durationMs < 0 || durationMs > 5 * 60_000)
+      if (!contactSheetRangeIsValid(durationMs, Boolean(chapter)))
         throw new Error(
           "A contact sheet range must be between zero and five minutes.",
         );
