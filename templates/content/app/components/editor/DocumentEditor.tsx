@@ -1717,7 +1717,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               }
             }}
           >
-            <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
+            <SheetContent
+              side="right"
+              className="w-[85vw] max-w-sm p-0"
+              aria-describedby={undefined}
+            >
               <SheetHeader className="sr-only">
                 <SheetTitle>{utilityPanelTitle}</SheetTitle>
               </SheetHeader>
