@@ -78,6 +78,16 @@ static NSString *const kFenceRecordId = @"grant-index";
 @implementation AncPrivateVaultGrantContext
 @end
 
+@interface AncPrivateVaultJobContext ()
+@property(nonatomic) NSData *subjectEndpointId;
+@property(nonatomic) NSData *requesterBoxPublicKey;
+@property(nonatomic) BOOL resultRecorded;
+@property(nonatomic, nullable) NSString *resultState;
+@property(nonatomic, nullable) NSData *resultHash;
+@end
+@implementation AncPrivateVaultJobContext
+@end
+
 static BOOL ValidVaultId(NSString *vaultId, NSData **bytes) {
   if (vaultId.length != 32) return NO;
   NSMutableData *decoded = [NSMutableData dataWithLength:16];
@@ -1102,6 +1112,42 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
                              localStateKey:key];
         }];
   });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    resolveJobId:(NSData *)jobId
+          jobHash:(NSData *)jobHash
+           vaultId:(NSString *)vaultId
+           context:(AncPrivateVaultJobContext **)context {
+  if (context != NULL) *context = nil;
+  if (jobId.length != 16 || jobHash.length != 32)
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultJobContext *resolved = nil;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          (void)key;
+          AncStoredJob *job = nil;
+          for (AncStoredJob *candidate in record.jobs)
+            if ([candidate.jobId isEqualToData:jobId]) job = candidate;
+          if (job == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          if (![job.jobHash isEqualToData:jobHash])
+            return AncPrivateVaultGrantIndexStatusConflict;
+          resolved = [AncPrivateVaultJobContext new];
+          resolved.subjectEndpointId = [job.subjectEndpointId copy];
+          resolved.requesterBoxPublicKey = [job.requesterBoxPublicKey copy];
+          resolved.resultRecorded = [job.status isEqualToString:@"result"];
+          resolved.resultState = [job.resultState copy];
+          resolved.resultHash = [job.resultHash copy];
+          return AncPrivateVaultGrantIndexStatusOK;
+        }];
+  });
+  if (status == AncPrivateVaultGrantIndexStatusOK && context != NULL)
+    *context = resolved;
   return status;
 }
 

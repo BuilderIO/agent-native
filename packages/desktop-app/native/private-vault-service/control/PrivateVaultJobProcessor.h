@@ -37,6 +37,15 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
                jobId:(NSData *)jobId
           nowSeconds:(uint64_t)nowSeconds
               result:(AncPrivateVaultAuthorizedJob *_Nullable *_Nullable)result;
+
+- (AncPrivateVaultJobProcessorStatus)
+    sealResultPayload:(NSData *)payload
+                 state:(NSString *)state
+               vaultId:(NSString *)vaultId
+                  jobId:(NSData *)jobId
+                 jobHash:(NSData *)jobHash
+              nowSeconds:(uint64_t)nowSeconds
+                  result:(NSData *_Nullable *_Nullable)result;
 @end
 
 NS_ASSUME_NONNULL_END

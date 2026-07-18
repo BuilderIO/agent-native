@@ -542,9 +542,14 @@ denied. This path is now reachable through one bounded `open_job` operation in
 the code-signature-pinned XPC protocol and universal N-API addon; the trusted
 main-process client maps it to the reusable broker contract while ignoring the
 caller's endpoint assertion for authority. The service resolves the actual
-broker and requester from signed native state. The remaining broker gate is to
-seal results from the retained requester context, retain retryable encrypted
-result frames until the hosted receipt is durable, and connect the Content
+broker and requester from signed native state. The native processor now also
+resolves the claimed requester's exact retained box key, rechecks the fresh
+single-broker authority and local signing/box key continuity, seals the
+terminal result in the reverse direction, and durably binds a
+domain-separated hash of the exact result envelope before it may leave native
+code. Result substitution and a second terminalization conflict. The remaining
+broker gate is to retain the encrypted result frame itself until the hosted
+receipt is durable, expose result sealing through XPC, and connect the Content
 action executor and supervisor lifecycle.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.

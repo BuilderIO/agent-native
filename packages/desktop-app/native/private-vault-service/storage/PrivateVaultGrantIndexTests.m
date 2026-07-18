@@ -313,7 +313,17 @@ int main(void) {
     broker.endpointId = @"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
     broker.role = @"broker";
     broker.unattended = YES;
-    broker.signingPublicKey = Pattern(0x44, 32);
+    uint8_t brokerSigningSeed[32] = {0}, brokerSigningPublic[32] = {0};
+    uint8_t brokerSigningPrivate[64] = {0};
+    memset(brokerSigningSeed, 0x44, sizeof brokerSigningSeed);
+    assert(anc_pv_ed25519_seed_keypair(brokerSigningPublic,
+                                       brokerSigningPrivate,
+                                       brokerSigningSeed) == ANC_PV_CRYPTO_OK);
+    broker.signingPublicKey = [NSData dataWithBytes:brokerSigningPublic
+                                             length:sizeof brokerSigningPublic];
+    anc_pv_zeroize(brokerSigningSeed, sizeof brokerSigningSeed);
+    anc_pv_zeroize(brokerSigningPublic, sizeof brokerSigningPublic);
+    anc_pv_zeroize(brokerSigningPrivate, sizeof brokerSigningPrivate);
     broker.keyAgreementPublicKey = brokerBox;
     TestAuthoritySnapshot *authoritySnapshot = [TestAuthoritySnapshot new];
     authoritySnapshot.verifiedAtMs = 1721111200ULL * 1000;
@@ -336,10 +346,30 @@ int main(void) {
         [@"{\"action\":\"get-document\"}"
             dataUsingEncoding:NSUTF8StringEncoding]] &&
            authorizedJob.jobHash.length == 32);
+    NSData *authorizedJobHash = [authorizedJob.jobHash copy];
     assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
                                 jobId:Pattern(0x06, 16)
                            nowSeconds:1721111200 result:&authorizedJob] ==
            AncPrivateVaultJobProcessorStatusReplay);
+    NSData *resultEnvelope = nil;
+    AncPrivateVaultJobProcessorStatus resultStatus =
+        [processor sealResultPayload:
+                  [@"{\"title\":\"Private\"}"
+                      dataUsingEncoding:NSUTF8StringEncoding]
+                                  state:@"completed" vaultId:kVaultId
+                                  jobId:Pattern(0x06, 16)
+                                 jobHash:authorizedJobHash
+                              nowSeconds:1721111201 result:&resultEnvelope];
+    assert(resultStatus == AncPrivateVaultJobProcessorStatusOK &&
+           resultEnvelope.length > 0);
+    AncPrivateVaultJobContext *jobContext = nil;
+    assert([index resolveJobId:Pattern(0x06, 16)
+                          jobHash:authorizedJobHash vaultId:kVaultId
+                          context:&jobContext] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           jobContext.resultRecorded &&
+           [jobContext.resultState isEqualToString:@"completed"] &&
+           jobContext.resultHash.length == 32);
     assert([index applyRevocationEnvelope:revocation vaultId:kVaultId
                   signerControlEndpointId:@"endpoint:index-owner"
                    signerSigningPublicKey:publicKey] ==
@@ -358,7 +388,7 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 7 && snapshot.grantCount == 2 &&
+    assert(snapshot.generation == 8 && snapshot.grantCount == 2 &&
            snapshot.revocationCount == 1 && snapshot.jobCount == 2);
     NSString *livePath = [temporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"grant-index/%@.live", kVaultId]];

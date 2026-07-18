@@ -33,6 +33,14 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly, nullable) NSData *subjectAgentId;
 @end
 
+@interface AncPrivateVaultJobContext : NSObject
+@property(nonatomic, readonly) NSData *subjectEndpointId;
+@property(nonatomic, readonly) NSData *requesterBoxPublicKey;
+@property(nonatomic, readonly) BOOL resultRecorded;
+@property(nonatomic, readonly, nullable) NSString *resultState;
+@property(nonatomic, readonly, nullable) NSData *resultHash;
+@end
+
 @interface AncPrivateVaultGrantIndex : NSObject
 - (instancetype)initWithStateRootURL:(NSURL *)stateRootURL
                              session:(AncPrivateVaultSession *)session
@@ -100,6 +108,12 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
                jobId:(NSData *)jobId
               jobHash:(NSData *)jobHash
                vaultId:(NSString *)vaultId;
+
+- (AncPrivateVaultGrantIndexStatus)
+    resolveJobId:(NSData *)jobId
+          jobHash:(NSData *)jobHash
+           vaultId:(NSString *)vaultId
+           context:(AncPrivateVaultJobContext *_Nullable *_Nullable)context;
 @end
 
 NS_ASSUME_NONNULL_END

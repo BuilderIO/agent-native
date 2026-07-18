@@ -38,6 +38,119 @@ static NSData *HexBytes(NSString *value) {
   dispatch_queue_t _queue;
 }
 
+- (AncPrivateVaultJobProcessorStatus)
+    sealResultPayload:(NSData *)payload
+                 state:(NSString *)state
+               vaultId:(NSString *)vaultId
+                  jobId:(NSData *)jobId
+                 jobHash:(NSData *)jobHash
+              nowSeconds:(uint64_t)nowSeconds
+                  result:(NSData **)result {
+  if (result != NULL) *result = nil;
+  if (payload == nil || vaultId.length != 32 || jobId.length != 16 ||
+      jobHash.length != 32 || nowSeconds == 0 || nowSeconds > UINT64_MAX / 1000 ||
+      !([state isEqualToString:@"completed"] ||
+        [state isEqualToString:@"failed"]))
+    return AncPrivateVaultJobProcessorStatusInvalid;
+  __block AncPrivateVaultJobProcessorStatus status =
+      AncPrivateVaultJobProcessorStatusUnauthorized;
+  __block NSData *sealed = nil;
+  dispatch_sync(_queue, ^{
+    AncPrivateVaultJobContext *job = nil;
+    AncPrivateVaultGrantIndexStatus indexStatus =
+        [_grantIndex resolveJobId:jobId jobHash:jobHash vaultId:vaultId
+                          context:&job];
+    if (indexStatus != AncPrivateVaultGrantIndexStatusOK || job == nil ||
+        job.resultRecorded) return;
+    AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+    if ([_authorityStore loadVaultId:vaultId checkpoint:&checkpoint error:nil] !=
+            AncPrivateVaultAuthorityStoreStatusOK || checkpoint == nil) {
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
+      return;
+    }
+    uint64_t nowMs = nowSeconds * 1000;
+    if (checkpoint.snapshot.verifiedAtMs > nowMs ||
+        nowMs - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000) {
+      status = AncPrivateVaultJobProcessorStatusStaleAuthority;
+      return;
+    }
+    AncPrivateVaultAuthorityMember *broker = nil;
+    for (AncPrivateVaultAuthorityMember *member in checkpoint.snapshot.activeMembers)
+      if ([member.role isEqualToString:@"broker"] && member.unattended) {
+        if (broker != nil) return;
+        broker = member;
+      }
+    NSData *vaultBytes = HexBytes(vaultId);
+    NSString *recipientId = HexIdentifier(job.subjectEndpointId);
+    AncPrivateVaultAuthorityMember *recipient = nil;
+    for (AncPrivateVaultAuthorityMember *member in checkpoint.snapshot.activeMembers)
+      if ([member.endpointId isEqualToString:recipientId]) recipient = member;
+    if (broker == nil || recipient == nil || vaultBytes == nil ||
+        ![recipient.role isEqualToString:@"endpoint"] ||
+        ![recipient.keyAgreementPublicKey isEqualToData:job.requesterBoxPublicKey])
+      return;
+    AncPrivateVaultSessionStatus borrowed = [_session borrowVaultId:vaultId
+        block:^BOOL(const AncPrivateVaultCustodySnapshot *snapshot,
+                    const AncPrivateVaultCustodySecretInputs *secrets) {
+          NSString *local = [[NSString alloc]
+              initWithBytes:snapshot->endpoint_id
+                     length:snapshot->endpoint_id_length
+                   encoding:NSUTF8StringEncoding];
+          if (snapshot->role != ANC_PV_CUSTODY_ROLE_BROKER ||
+              ![local isEqualToString:broker.endpointId] ||
+              secrets->signing_seed == NULL || secrets->box_seed == NULL)
+            return NO;
+          uint8_t signPublic[32] = {0}, signPrivate[64] = {0};
+          uint8_t boxPublic[32] = {0}, boxPrivate[32] = {0};
+          uint8_t envelopeId[16] = {0}, nonce[24] = {0};
+          BOOL keys = anc_pv_ed25519_seed_keypair(
+                          signPublic, signPrivate, secrets->signing_seed) ==
+                          ANC_PV_CRYPTO_OK &&
+              anc_pv_box_seed_keypair(boxPublic, boxPrivate,
+                                      secrets->box_seed) == ANC_PV_CRYPTO_OK &&
+              anc_pv_memcmp(signPublic, broker.signingPublicKey.bytes, 32) == 0 &&
+              anc_pv_memcmp(boxPublic, broker.keyAgreementPublicKey.bytes, 32) == 0 &&
+              anc_pv_random(envelopeId, sizeof envelopeId) == ANC_PV_CRYPTO_OK &&
+              anc_pv_random(nonce, sizeof nonce) == ANC_PV_CRYPTO_OK;
+          AncPrivateVaultJobCodecStatus codecStatus;
+          sealed = keys ? AncPrivateVaultSealResultEnvelope(
+              vaultBytes, [NSData dataWithBytes:envelopeId length:sizeof envelopeId],
+              nowSeconds, jobId, jobHash, job.subjectEndpointId, state, payload,
+              [NSData dataWithBytes:nonce length:sizeof nonce],
+              secrets->signing_seed, boxPrivate,
+              recipient.keyAgreementPublicKey.bytes, &codecStatus) : nil;
+          anc_pv_zeroize(signPublic, sizeof signPublic);
+          anc_pv_zeroize(signPrivate, sizeof signPrivate);
+          anc_pv_zeroize(boxPublic, sizeof boxPublic);
+          anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
+          anc_pv_zeroize(envelopeId, sizeof envelopeId);
+          anc_pv_zeroize(nonce, sizeof nonce);
+          return sealed != nil;
+        }];
+    if (borrowed != AncPrivateVaultSessionStatusOK || sealed == nil) {
+      status = AncPrivateVaultJobProcessorStatusCryptoFailed;
+      return;
+    }
+    static const uint8_t domain[] = "anc/v1/result-envelope";
+    uint8_t hash[32] = {0};
+    if (anc_pv_blake2b_256_two_part(hash, domain, sizeof domain, sealed.bytes,
+                                    sealed.length) != ANC_PV_CRYPTO_OK) {
+      status = AncPrivateVaultJobProcessorStatusCryptoFailed;
+      return;
+    }
+    NSData *resultHash = [NSData dataWithBytes:hash length:sizeof hash];
+    anc_pv_zeroize(hash, sizeof hash);
+    indexStatus = [_grantIndex recordResultHash:resultHash state:state jobId:jobId
+                                        jobHash:jobHash vaultId:vaultId];
+    status = indexStatus == AncPrivateVaultGrantIndexStatusOK
+        ? AncPrivateVaultJobProcessorStatusOK
+        : AncPrivateVaultJobProcessorStatusStorageFailed;
+  });
+  if (status == AncPrivateVaultJobProcessorStatusOK && result != NULL)
+    *result = sealed;
+  return status;
+}
+
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
                   authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
                       grantIndex:(AncPrivateVaultGrantIndex *)grantIndex {
