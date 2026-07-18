@@ -114,6 +114,10 @@ export interface UploadClipsCaptureChunkResult {
   retryAfterMs?: number;
 }
 
+export interface ResetClipsCaptureUploadResult {
+  uploadMode: CaptureUploadMode;
+}
+
 export type SyncCaptureJobStatus =
   | "completed"
   | "processing"
@@ -458,6 +462,33 @@ export async function getClipsUploadStatus(
   return uploadStatusFromPayload(payload);
 }
 
+export async function resetClipsCaptureUpload(
+  recordingId: string,
+  mimeType: string,
+  session?: ClipsSession,
+): Promise<ResetClipsCaptureUploadResult> {
+  const payload = await clipsRequest<unknown>(
+    `/api/uploads/${encodeURIComponent(recordingId)}/reset-chunks`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestStreaming: true, mimeType }),
+      session,
+    },
+  );
+  const record = asRecord(payload);
+  if (asBoolean(record?.ok) !== true) {
+    throw new ClipsApiError("Clips returned an invalid upload reset response", {
+      code: "invalid_response",
+      details: payload,
+    });
+  }
+  return {
+    uploadMode:
+      asString(record?.uploadMode) === "streaming" ? "streaming" : "buffered",
+  };
+}
+
 function uploadResultFromPayload(
   payload: unknown,
   input: UploadClipsCaptureChunkInput,
@@ -676,6 +707,30 @@ async function runCaptureSync(
         "The capture chunk plan changed after upload began.",
         { code: "conflict", retryable: false },
       );
+    }
+
+    const existingRecordingId = workingJob.resume.recordingId;
+    if (
+      workingJob.state === "failed" &&
+      existingRecordingId &&
+      workingJob.resume.uploadChunkUrl
+    ) {
+      const remoteStatus = await getClipsUploadStatus(
+        existingRecordingId,
+        session,
+      );
+      if (remoteStatus.status === "failed") {
+        const reset = await resetClipsCaptureUpload(
+          existingRecordingId,
+          uploadMimeType,
+          session,
+        );
+        workingJob = await updateCaptureJobResume(workingJob.id, {
+          uploadMode: reset.uploadMode,
+          nextChunkIndex: 0,
+          uploadedBytes: 0,
+        });
+      }
     }
 
     workingJob = await startCaptureUploadAttempt(workingJob.id);
