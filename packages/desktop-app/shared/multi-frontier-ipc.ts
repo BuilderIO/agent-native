@@ -442,7 +442,7 @@ export function normalizeMultiFrontierProviderResult(
     schemaVersion: MULTI_FRONTIER_IPC_SCHEMA_VERSION,
     requestId,
     providerId,
-    status: sanitizeSubscriptionStatus(input.status),
+    status: sanitizeMultiFrontierSubscriptionStatus(input.status),
   };
   const error = normalizeIpcError(input.error);
   if (error) result.error = error;
@@ -667,19 +667,105 @@ function parseSubscriptions(
   const input = asRecord(value);
   const subscriptions: MultiFrontierRendererState["subscriptions"] = {};
   for (const providerId of MULTI_FRONTIER_PROVIDER_IDS) {
-    const status = sanitizeSubscriptionStatus(input?.[providerId]);
+    const status = sanitizeMultiFrontierSubscriptionStatus(input?.[providerId]);
     if (status?.providerId === providerId) subscriptions[providerId] = status;
   }
   return subscriptions;
 }
 
-function sanitizeSubscriptionStatus(value: unknown): SubscriptionStatus | null {
+export function sanitizeMultiFrontierSubscriptionStatus(
+  value: unknown,
+): SubscriptionStatus | null {
   const status = normalizeSubscriptionStatus(value);
   if (!status) return null;
   const sanitizeText = (text: string | undefined) =>
     text ? sanitizePublicText(text, MAX_MESSAGE_BYTES) : undefined;
+  const telemetry: SubscriptionStatus["telemetry"] = {
+    state: status.telemetry.state,
+    source: status.telemetry.source,
+    capabilities: status.telemetry.capabilities,
+    meters: status.telemetry.meters
+      .slice(0, MAX_SUBSCRIPTION_METERS)
+      .map((meter) => ({
+        id: sanitizePublicText(meter.id, MAX_ID_BYTES),
+        kind: meter.kind,
+        state: meter.state,
+        ...(meter.label ? { label: sanitizeText(meter.label) } : {}),
+        ...(meter.modelTier
+          ? { modelTier: sanitizeText(meter.modelTier) }
+          : {}),
+        ...(meter.usedPercent !== undefined
+          ? { usedPercent: meter.usedPercent }
+          : {}),
+        ...(meter.windowDurationMinutes !== undefined
+          ? { windowDurationMinutes: meter.windowDurationMinutes }
+          : {}),
+        ...(meter.resetsAt ? { resetsAt: meter.resetsAt } : {}),
+        ...(meter.message ? { message: sanitizeText(meter.message) } : {}),
+      })),
+  };
+  if (status.telemetry.updatedAt)
+    telemetry.updatedAt = status.telemetry.updatedAt;
+  if (status.telemetry.staleAt) telemetry.staleAt = status.telemetry.staleAt;
+  if (status.telemetry.sourceVersion) {
+    telemetry.sourceVersion = sanitizeText(status.telemetry.sourceVersion);
+  }
+  if (status.telemetry.contextWindow) {
+    const context = status.telemetry.contextWindow;
+    telemetry.contextWindow = {
+      state: context.state,
+      ...(context.usedTokens !== undefined
+        ? { usedTokens: context.usedTokens }
+        : {}),
+      ...(context.maxTokens !== undefined
+        ? { maxTokens: context.maxTokens }
+        : {}),
+      ...(context.usedPercent !== undefined
+        ? { usedPercent: context.usedPercent }
+        : {}),
+      ...(context.message ? { message: sanitizeText(context.message) } : {}),
+    };
+  }
+  if (status.telemetry.credits) {
+    const credits = status.telemetry.credits;
+    telemetry.credits = {
+      state: credits.state,
+      ...(credits.hasCredits !== undefined
+        ? { hasCredits: credits.hasCredits }
+        : {}),
+      ...(credits.unlimited !== undefined
+        ? { unlimited: credits.unlimited }
+        : {}),
+      ...(credits.balance !== undefined
+        ? {
+            balance:
+              typeof credits.balance === "string"
+                ? sanitizeText(credits.balance)
+                : credits.balance,
+          }
+        : {}),
+      ...(credits.used !== undefined ? { used: credits.used } : {}),
+      ...(credits.limit !== undefined ? { limit: credits.limit } : {}),
+      ...(credits.unit ? { unit: sanitizeText(credits.unit) } : {}),
+      ...(credits.currency ? { currency: sanitizeText(credits.currency) } : {}),
+      ...(credits.message ? { message: sanitizeText(credits.message) } : {}),
+    };
+  }
+  if (status.telemetry.error) {
+    telemetry.error = {
+      message: sanitizePublicText(
+        status.telemetry.error.message,
+        MAX_MESSAGE_BYTES,
+      ),
+      ...(status.telemetry.error.code
+        ? { code: sanitizeText(status.telemetry.error.code) }
+        : {}),
+    };
+  }
   return {
-    ...status,
+    schemaVersion: 1,
+    providerId: status.providerId,
+    connectionState: status.connectionState,
     ...(status.authMethod
       ? { authMethod: sanitizeText(status.authMethod) }
       : {}),
@@ -698,66 +784,7 @@ function sanitizeSubscriptionStatus(value: unknown): SubscriptionStatus | null {
           },
         }
       : {}),
-    telemetry: {
-      ...status.telemetry,
-      meters: status.telemetry.meters
-        .slice(0, MAX_SUBSCRIPTION_METERS)
-        .map((meter) => ({
-          ...meter,
-          ...(meter.id
-            ? { id: sanitizePublicText(meter.id, MAX_ID_BYTES) }
-            : {}),
-          ...(meter.label ? { label: sanitizeText(meter.label) } : {}),
-          ...(meter.modelTier
-            ? { modelTier: sanitizeText(meter.modelTier) }
-            : {}),
-          ...(meter.message ? { message: sanitizeText(meter.message) } : {}),
-        })),
-      ...(status.telemetry.contextWindow
-        ? {
-            contextWindow: {
-              ...status.telemetry.contextWindow,
-              ...(status.telemetry.contextWindow.message
-                ? {
-                    message: sanitizeText(
-                      status.telemetry.contextWindow.message,
-                    ),
-                  }
-                : {}),
-            },
-          }
-        : {}),
-      ...(status.telemetry.credits
-        ? {
-            credits: {
-              ...status.telemetry.credits,
-              ...(status.telemetry.credits.unit
-                ? { unit: sanitizeText(status.telemetry.credits.unit) }
-                : {}),
-              ...(status.telemetry.credits.currency
-                ? { currency: sanitizeText(status.telemetry.credits.currency) }
-                : {}),
-              ...(status.telemetry.credits.message
-                ? { message: sanitizeText(status.telemetry.credits.message) }
-                : {}),
-            },
-          }
-        : {}),
-      ...(status.telemetry.error
-        ? {
-            error: {
-              ...status.telemetry.error,
-              message: sanitizePublicText(
-                status.telemetry.error.message,
-                MAX_MESSAGE_BYTES,
-              ),
-              ...(status.telemetry.error.code
-                ? { code: sanitizeText(status.telemetry.error.code) }
-                : {}),
-            },
-          }
-        : {}),
-    },
+    telemetry,
   };
 }
 
@@ -847,6 +874,7 @@ function sanitizePublicText(value: string, maxBytes: number): string {
       /\b(?:sk|pk|rk)(?:-[A-Za-z0-9_-]+|_[A-Za-z0-9_-]+)\b/gi,
       "[redacted]",
     )
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted]")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ");
   return truncateUtf8(redacted.trim(), maxBytes);
 }

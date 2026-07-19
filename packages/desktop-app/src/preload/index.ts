@@ -49,6 +49,20 @@ import {
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
+import {
+  MULTI_FRONTIER_CHANNELS,
+  type MultiFrontierActionResult,
+  type MultiFrontierCreateIntent,
+  type MultiFrontierRendererApi,
+  type MultiFrontierSettings,
+  type MultiFrontierSubscriptionEnvelope,
+  type MultiFrontierSubscriptionResult,
+} from "@shared/multi-frontier-channels";
+import type {
+  MultiFrontierIpcEvent,
+  MultiFrontierProviderId,
+  MultiFrontierRendererState,
+} from "@shared/multi-frontier-ipc";
 import { isDesktopSentryConfigured } from "@shared/sentry-config";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -349,6 +363,77 @@ const electronAPI = {
       return () => ipcRenderer.removeListener(IPC.DEEP_LINK_OPEN, handler);
     },
   },
+
+  multiFrontier: {
+    getSettings: (): Promise<MultiFrontierSettings> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.settingsGet),
+    updateSettings: (
+      settings: Partial<MultiFrontierSettings>,
+    ): Promise<MultiFrontierSettings> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.settingsUpdate, settings),
+    getProviderStatus: (
+      providerId: MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.providerStatus, providerId),
+    beginProviderLogin: (
+      providerId: MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.providerLogin, providerId),
+    refreshProviderStatus: (
+      providerId: MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.providerRefresh, providerId),
+    list: (): Promise<MultiFrontierRendererState[]> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.list),
+    create: (
+      intent: MultiFrontierCreateIntent,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.create, intent),
+    start: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.start, collaborationId),
+    go: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.go, collaborationId),
+    pause: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.pause, collaborationId),
+    resume: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.resume, collaborationId),
+    cancel: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.cancel, collaborationId),
+    roleSwap: (
+      collaborationId: string,
+      nextDriverParticipantId: string,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.roleSwap, {
+        collaborationId,
+        nextDriverParticipantId,
+      }),
+    subscribe: (
+      collaborationId: string,
+      callback: (event: MultiFrontierIpcEvent) => void,
+    ): (() => void) => {
+      const subscriptionId = `mf-subscription-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        envelope: MultiFrontierSubscriptionEnvelope,
+      ) => {
+        if (envelope?.subscriptionId !== subscriptionId) return;
+        callback(envelope.event);
+      };
+      ipcRenderer.on(MULTI_FRONTIER_CHANNELS.events, handler);
+      ipcRenderer.send(MULTI_FRONTIER_CHANNELS.subscribe, {
+        subscriptionId,
+        collaborationId,
+      });
+      return () => {
+        ipcRenderer.removeListener(MULTI_FRONTIER_CHANNELS.events, handler);
+        ipcRenderer.send(MULTI_FRONTIER_CHANNELS.unsubscribe, {
+          subscriptionId,
+        });
+      };
+    },
+  } satisfies MultiFrontierRendererApi,
 
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {
