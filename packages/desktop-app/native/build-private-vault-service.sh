@@ -22,6 +22,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m"
   "$SOURCE_ROOT/control/PrivateVaultObjectJobScope.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m"
+  "$SOURCE_ROOT/control/PrivateVaultGrantRevocationBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAccountAdmission.m"
@@ -401,6 +402,36 @@ case "${PRIVATE_VAULT_BUILD_GRANT_CODEC_TESTS:-}" in
   compile_grant_codec_test_slice x86_64 "$X86_64_SODIUM"
   ;;
   *) echo "Invalid Private Vault grant-codec-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_GRANT_REVOCATION_BUILDER_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  GRANT_REVOCATION_BUILDER_TEST_OUTPUT="$OUTPUT_ROOT/.grant-revocation-builder-tests"
+  rm -rf "$GRANT_REVOCATION_BUILDER_TEST_OUTPUT"
+  mkdir -p "$GRANT_REVOCATION_BUILDER_TEST_OUTPUT"
+  build_grant_revocation_builder_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$GRANT_REVOCATION_BUILDER_TEST_OUTPUT/private-vault-grant-revocation-builder-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGrantRevocationBuilder.m" \
+      "$SOURCE_ROOT/control/PrivateVaultGrantRevocationBuilderTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_grant_revocation_builder_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_grant_revocation_builder_tests x86_64
+  fi
+  ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_RESULT_SPOOL_TESTS:-}" in

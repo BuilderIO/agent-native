@@ -722,15 +722,18 @@ exact envelope, idempotently resubmits it before claiming new work, and never
 re-executes the action.
 
 Attended endpoint custody can now create the matching canonical grant-revoke
-envelope as well as verify it. The native signer binds the exact stored grant
-hash, one-use revocation reference, issuer endpoint, reason, and trusted
-timestamp before releasing public bytes; its output matches the frozen Core
-vector byte-for-byte on arm64 and x86_64. Existing control-log replay already
-applies that envelope to the rollback-fenced grant index before advancing the
-head, so post-replay jobs fail authorization. Product revocation still requires
-the signed outer control entry, hosted append ceremony, and user-visible grant
-controls; this signer is the custody foundation, not a claim that the complete
-revocation path is shipped.
+envelope, wrap it in the next endpoint-signed outer control-log edge, and verify
+both layers before releasing public bytes. The native builder binds the exact
+stored grant hash, one-use revocation reference, issuer endpoint, reason,
+trusted timestamp, prior head, and next sequence. It independently replays its
+own result against the authenticated prior state and rejects changed authority
+projections. The inner envelope matches the frozen Core vector byte-for-byte,
+and the full genesis-to-grant-to-revoke path, wrong-key, mismatched-time, and
+tamper cases pass on arm64 and x86_64. Existing control-log replay applies the
+envelope to the rollback-fenced grant index before advancing the head, so
+post-replay jobs fail authorization. Product revocation still requires the
+hosted append ceremony and user-visible grant controls; native custody no
+longer leaves the signed outer edge to JavaScript.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the

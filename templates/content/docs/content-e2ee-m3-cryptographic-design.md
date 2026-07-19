@@ -482,7 +482,7 @@ green. Verified replay deliberately does not yet claim recovered custody:
 durable installation of fresh-device custody and its recovered endpoint edge
 remain the next implementation gate.
 
-Capability revocation now has a first executable authority-log edge. Core
+Capability revocation now has an executable authority-log edge. Core
 encodes the exact signed `grant-revoke` envelope as bytes inside an
 endpoint-signed `grant_revocation` control entry and refuses to advance the
 head until a trusted authorization callback accepts it. Broker signatures,
@@ -492,9 +492,14 @@ strict four-field inner envelope and passes the exact outer entry, inner entry,
 embedded revocation bytes, and authenticated prior state to its authorization
 boundary before state reduction. The regenerated `@3` Core/native corpus now
 replays twelve accepted edges and 101 adversarial cases identically on arm64
-and x86_64. This establishes ordered, non-hosted revocation authority; the
-callback must still durably verify and insert the nested revocation in the
-encrypted native grant/replay index before returning success.
+and x86_64. The native authorization callback durably verifies and inserts the
+nested revocation in the encrypted grant/replay index before returning success.
+Attended native custody now also constructs the nested revocation and the next
+signed outer edge, then independently replays both against the authenticated
+prior state before releasing them. The full builder path and adversarial
+wrong-key, timestamp, and tamper cases pass on arm64 and x86_64. Hosted append
+and user-facing grant controls remain product work, but JavaScript never
+receives the endpoint signing seed or assembles the signed authority edge.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact
