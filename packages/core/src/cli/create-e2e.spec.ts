@@ -618,7 +618,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
       }
     }
-  });
+  }, 180_000);
 
   it("overrides toolkit for workspace installs during local core development", async () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;

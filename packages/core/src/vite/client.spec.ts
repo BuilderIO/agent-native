@@ -1146,6 +1146,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/core": pathToFileURL(coreRoot).href,
           "@paper-design/shaders-react": "0.0.76",
           html2canvas: "^1.4.1",
+          "react-dom": "^19.2.7",
           "react-router": "^8.0.1",
         },
       }),
@@ -1194,6 +1195,7 @@ describe("local-core dev aliases and router dedupe", () => {
     );
     expect(deps).toContain("html2canvas");
     expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toContain("react-dom/server");
     expect(deps).toContain("react-router");
     expect(deps).not.toContain("@agent-native/core > react-router");
 

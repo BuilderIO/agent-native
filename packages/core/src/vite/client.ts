@@ -958,6 +958,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "react-day-picker" },
     { specifier: "react-i18next" },
     { specifier: "react-markdown" },
+    { specifier: "react-dom/server", packageName: "react-dom" },
     { specifier: "react-resizable-panels" },
     { specifier: "recharts" },
     ...(hasDep("react-router", cwd)
