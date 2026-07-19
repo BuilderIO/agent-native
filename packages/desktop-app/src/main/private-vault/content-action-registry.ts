@@ -11,6 +11,7 @@ import type {
 import type { PrivateVaultContentRegistry } from "./content-document-registry.js";
 
 const opaqueIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
+const revisionIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const optionalDocumentIdSchema = opaqueIdSchema.optional();
 
 export class PrivateVaultContentActionRegistryError extends Error {
@@ -102,11 +103,14 @@ export function createPrivateVaultContentActionRegistry(input: {
   readonly vaultId: string;
   readonly registry: Pick<
     PrivateVaultContentRegistry,
-    "listDocuments" | "getDocument" | "searchDocuments"
+    "listDocuments" | "getDocument" | "searchDocuments" | "listDocumentVersions"
   >;
   readonly mutations: Pick<
     PrivateVaultContentMutations,
-    "createDocument" | "updateDocument" | "deleteDocument"
+    | "createDocument"
+    | "updateDocument"
+    | "deleteDocument"
+    | "restoreDocumentVersion"
   >;
 }): PrivateVaultLocalActionRegistry {
   const vaultId = opaqueIdSchema.parse(input.vaultId);
@@ -289,6 +293,39 @@ export function createPrivateVaultContentActionRegistry(input: {
       run: async (args, context) => {
         const id = exactDocument(args, context);
         return input.mutations.deleteDocument(vaultId, id);
+      },
+    },
+    "list-document-versions": {
+      run: async (args, context) => {
+        const parsed = z
+          .object({ documentId: optionalDocumentIdSchema })
+          .strict()
+          .parse(args);
+        if (!parsed.documentId)
+          throw new PrivateVaultContentActionRegistryError();
+        requireResource(context, parsed.documentId);
+        return input.registry.listDocumentVersions(vaultId, parsed.documentId);
+      },
+    },
+    "restore-document-version": {
+      run: async (args, context) => {
+        const parsed = z
+          .object({
+            documentId: optionalDocumentIdSchema,
+            versionId: revisionIdSchema.optional(),
+          })
+          .strict()
+          .parse(args);
+        if (!parsed.documentId || !parsed.versionId)
+          throw new PrivateVaultContentActionRegistryError();
+        requireResource(context, parsed.documentId);
+        return documentResult(
+          await input.mutations.restoreDocumentVersion(
+            vaultId,
+            parsed.documentId,
+            parsed.versionId,
+          ),
+        );
       },
     },
   });

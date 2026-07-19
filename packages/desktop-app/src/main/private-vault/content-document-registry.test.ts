@@ -134,6 +134,23 @@ describe("PrivateVaultContentRegistry", () => {
     });
   });
 
+  it("lists immutable encrypted revisions newest first", async () => {
+    const source = fixture();
+    source.manifest.documents[0].revisions.push({
+      revision: 2,
+      revisionId: "77".repeat(32),
+      parentRevisionIds: [source.manifest.documents[0].revisions[0].revisionId],
+    });
+    const result = await new PrivateVaultContentRegistry(
+      source.index,
+    ).listDocumentVersions(vaultId, firstId);
+    expect(result.versions.map((version) => version.revision)).toEqual([2, 1]);
+    expect(result.versions[0]).toMatchObject({
+      documentId: firstId,
+      title: "Secret garden",
+    });
+  });
+
   it("fails closed for a missing cache entry or invalid tree", async () => {
     const source = fixture();
     source.documents.delete(secondId);

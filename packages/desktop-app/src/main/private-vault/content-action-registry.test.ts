@@ -48,6 +48,9 @@ function fixture() {
     })),
     getDocument: vi.fn(async () => document()),
     searchDocuments: vi.fn(async () => ({ documents: [] })),
+    listDocumentVersions: vi.fn(async () => ({
+      versions: [{ id: "44".repeat(32), documentId }],
+    })),
   };
   const mutations = {
     createDocument: vi.fn(async () => document()),
@@ -55,6 +58,7 @@ function fixture() {
       document(input.content ?? "A moonlit path"),
     ),
     deleteDocument: vi.fn(async () => ({ success: true as const, deleted: 1 })),
+    restoreDocumentVersion: vi.fn(async () => document("Older body")),
   };
   return {
     registry,
@@ -152,5 +156,24 @@ describe("Private Vault Content action registry", () => {
       ),
     ).rejects.toBeInstanceOf(Error);
     expect(source.registry.getDocument).not.toHaveBeenCalled();
+  });
+
+  it("lists and restores encrypted versions through the canonical names", async () => {
+    const source = fixture();
+    await expect(
+      source.actions["list-document-versions"].run(
+        { documentId },
+        context(documentId, "list-document-versions"),
+      ),
+    ).resolves.toMatchObject({ versions: [expect.any(Object)] });
+    await source.actions["restore-document-version"].run(
+      { documentId, versionId: "44".repeat(32) },
+      context(documentId, "restore-document-version"),
+    );
+    expect(source.mutations.restoreDocumentVersion).toHaveBeenCalledWith(
+      vaultId,
+      documentId,
+      "44".repeat(32),
+    );
   });
 });

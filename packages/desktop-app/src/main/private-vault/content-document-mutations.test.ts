@@ -184,4 +184,32 @@ describe("PrivateVaultContentMutations", () => {
     });
     expect(source.index.deleteDocument).toHaveBeenCalledTimes(2);
   });
+
+  it("restores history as a new immutable revision", async () => {
+    const source = harness();
+    await source.mutations.createDocument(vaultId, {
+      title: "First",
+      content: "One",
+    });
+    await source.mutations.updateDocument(vaultId, documentId, {
+      title: "Second",
+      content: "Two",
+    });
+
+    await expect(
+      source.mutations.restoreDocumentVersion(
+        vaultId,
+        documentId,
+        "5".repeat(64),
+      ),
+    ).resolves.toMatchObject({ title: "First", content: "One" });
+    expect(source.uploads[4]).toMatchObject({
+      objectId: documentId,
+      revision: 3,
+      parentRevisionIds: ["7".repeat(64)],
+    });
+    expect(
+      decodePrivateVaultContentDocument(source.uploads[4].plaintext),
+    ).toMatchObject({ title: "First", content: "One" });
+  });
 });

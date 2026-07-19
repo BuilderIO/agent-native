@@ -228,6 +228,42 @@ export class PrivateVaultContentMutations {
     });
   }
 
+  restoreDocumentVersion(
+    vaultId: string,
+    objectId: string,
+    revisionId: string,
+  ): Promise<PrivateVaultContentDocument> {
+    return this.#serialize(vaultId, async () => {
+      const head = await this.#requireHead(vaultId);
+      const entry = head.manifest.documents.find(
+        (candidate) => candidate.objectId === objectId,
+      );
+      const latest = entry?.revisions.at(-1);
+      const selected = entry?.revisions.find(
+        (revision) => revision.revisionId === revisionId,
+      );
+      if (!entry || !latest || !selected)
+        throw new PrivateVaultContentMutationError();
+      const historical = await this.#index.readDocument(
+        vaultId,
+        objectId,
+        selected.revisionId,
+      );
+      if (!historical) throw new PrivateVaultContentMutationError();
+      const restored = privateVaultContentDocumentSchema.parse({
+        ...historical,
+        updatedAt: this.#now(),
+      });
+      return this.#commitDocument(
+        vaultId,
+        head,
+        restored,
+        latest.revision + 1,
+        [latest.revisionId],
+      );
+    });
+  }
+
   async #commitDocument(
     vaultId: string,
     currentHead: PrivateVaultLocalManifestHead | null,

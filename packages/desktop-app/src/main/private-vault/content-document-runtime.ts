@@ -100,6 +100,11 @@ export class PrivateVaultContentDocumentRuntime {
     return this.#registry.searchDocuments(vaultId, query, limit);
   }
 
+  async listDocumentVersions(vaultId: string, objectId: string) {
+    this.#assertReady();
+    return this.#registry.listDocumentVersions(vaultId, objectId);
+  }
+
   async createDocument(vaultId: string, input: CreatePrivateDocumentInput) {
     this.#assertReady();
     return this.#mutations.createDocument(vaultId, input);
@@ -117,6 +122,19 @@ export class PrivateVaultContentDocumentRuntime {
   async deleteDocument(vaultId: string, objectId: string) {
     this.#assertReady();
     return this.#mutations.deleteDocument(vaultId, objectId);
+  }
+
+  async restoreDocumentVersion(
+    vaultId: string,
+    objectId: string,
+    revisionId: string,
+  ) {
+    this.#assertReady();
+    return this.#mutations.restoreDocumentVersion(
+      vaultId,
+      objectId,
+      revisionId,
+    );
   }
 
   actionRegistry(vaultId: string) {

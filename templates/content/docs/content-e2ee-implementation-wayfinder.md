@@ -1227,6 +1227,12 @@ failure closes the local document cache. This keeps the unfinished broker seam
 fail-closed instead of making background work appear functional with the wrong
 principal.
 
+The encrypted manifest's immutable revision history now backs the familiar
+`list-document-versions` and `restore-document-version` actions. Restore reads
+the selected cached ciphertext revision and commits its content as a new signed
+revision whose parent is the previous head; history is never rewritten or
+rolled backward in place.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

@@ -179,6 +179,34 @@ export class PrivateVaultContentRegistry {
     return Object.freeze({ documents: Object.freeze(matches) });
   }
 
+  async listDocumentVersions(vaultId: string, objectId: string) {
+    const head = await this.#index.readManifest(vaultId);
+    const entry = head?.manifest.documents.find(
+      (candidate) => candidate.objectId === objectId,
+    );
+    if (!entry) throw new PrivateVaultContentRegistryError();
+    const versions = await Promise.all(
+      [...entry.revisions].reverse().map(async (revision) => {
+        const document = await this.#index.readDocument(
+          vaultId,
+          objectId,
+          revision.revisionId,
+        );
+        if (!document || document.id !== objectId)
+          throw new PrivateVaultContentRegistryError();
+        return Object.freeze({
+          id: revision.revisionId,
+          documentId: objectId,
+          revision: revision.revision,
+          title: document.title,
+          content: document.content,
+          createdAt: document.updatedAt,
+        });
+      }),
+    );
+    return Object.freeze({ versions: Object.freeze(versions) });
+  }
+
   async #load(vaultId: string): Promise<{
     manifest: PrivateVaultContentManifest;
     documents: Map<string, PrivateVaultContentDocument>;
