@@ -284,6 +284,7 @@ export default function PrivateContentSurface({
   );
   const [grantsLoading, setGrantsLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [enrollingBroker, setEnrollingBroker] = useState(false);
   const [revokingGrantRef, setRevokingGrantRef] = useState<string | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
     null,
@@ -551,6 +552,23 @@ export default function PrivateContentSurface({
     setRevokingGrantRef(null);
   };
 
+  const enrollPersonalBroker = async () => {
+    setEnrollingBroker(true);
+    setMessage("");
+    const response =
+      await window.electronAPI.privateContent.enrollPersonalBroker();
+    if (!response.ok) {
+      setEnrollingBroker(false);
+      setMessage(
+        "The personal agent was not enrolled. Existing vault access did not change.",
+      );
+      return;
+    }
+    await loadMembers();
+    setEnrollingBroker(false);
+    setMessage("Personal agent enrolled with separate unattended custody.");
+  };
+
   if (state !== "open") {
     return (
       <section className="private-content private-content--locked">
@@ -713,6 +731,20 @@ export default function PrivateContentSurface({
                   </div>
                 ))
               )}
+              {!membersLoading &&
+                members.length > 0 &&
+                !members.some((member) => member.role === "broker") && (
+                  <button
+                    className="private-content-enroll-broker"
+                    disabled={enrollingBroker}
+                    onClick={() => void enrollPersonalBroker()}
+                    type="button"
+                  >
+                    {enrollingBroker
+                      ? "Enrolling personal agent…"
+                      : "Enroll personal agent"}
+                  </button>
+                )}
             </div>
             <div className="private-content-grants">
               <div className="private-content-grants-heading">

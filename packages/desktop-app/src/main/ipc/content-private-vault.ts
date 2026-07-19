@@ -4,6 +4,7 @@ import {
   type DesktopPrivateVaultAdvanceBrokerCandidateResult,
   type DesktopPrivateVaultBeginBrokerEnrollmentResult,
   type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultEnrollBrokerResult,
   type DesktopPrivateVaultRecoveryResult,
   type DesktopPrivateVaultResumeGenesisResult,
 } from "@shared/ipc-channels";
@@ -24,6 +25,9 @@ export interface ContentPrivateVaultIpcDeps {
   recoveryForEvent(event: IpcMainInvokeEvent): Promise<{
     vaultId: string;
     head: { sequence: number; hash: string };
+  }> | null;
+  brokerEnrollmentForEvent(event: IpcMainInvokeEvent): Promise<{
+    vaultId: string;
   }> | null;
   enrollmentCandidateForEvent(
     event: IpcMainInvokeEvent,
@@ -76,6 +80,10 @@ export function createContentPrivateVaultIpcHandlers(
     event: IpcMainInvokeEvent,
     ...arguments_: unknown[]
   ): Promise<DesktopPrivateVaultRecoveryResult>;
+  enrollBroker(
+    event: IpcMainInvokeEvent,
+    ...arguments_: unknown[]
+  ): Promise<DesktopPrivateVaultEnrollBrokerResult>;
   beginBrokerEnrollment(
     event: IpcMainInvokeEvent,
     ...arguments_: unknown[]
@@ -127,6 +135,17 @@ export function createContentPrivateVaultIpcHandlers(
           sequence: result.head.sequence,
           headHash: result.head.hash,
         };
+      } catch {
+        return { ok: false, error: UNAVAILABLE };
+      }
+    },
+    async enrollBroker(event, ...arguments_) {
+      try {
+        const enrollment =
+          arguments_.length === 0 ? deps.brokerEnrollmentForEvent(event) : null;
+        if (!enrollment) return { ok: false, error: UNAVAILABLE };
+        const result = await enrollment;
+        return { ok: true, state: "active", vaultId: result.vaultId };
       } catch {
         return { ok: false, error: UNAVAILABLE };
       }
@@ -216,6 +235,10 @@ export function registerContentPrivateVaultIpc(
   ipcMain.handle(IPC.CONTENT_PRIVATE_VAULT_CREATE_GENESIS, handlers.create);
   ipcMain.handle(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS, handlers.resume);
   ipcMain.handle(IPC.CONTENT_PRIVATE_VAULT_RECOVER, handlers.recover);
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_VAULT_ENROLL_BROKER,
+    handlers.enrollBroker,
+  );
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_VAULT_BEGIN_BROKER_ENROLLMENT,
     handlers.beginBrokerEnrollment,

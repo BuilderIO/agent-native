@@ -1364,6 +1364,15 @@ fall back to a content-free “open Desktop” state and cannot initiate a nativ
 ceremony. Privacy regressions statically reject both the bridge name and every
 Private Vault ceremony channel in the webview preload.
 
+The signed “Who can read?” panel now drives the existing same-device personal
+broker enrollment coordinator directly. Main process derives the active vault
+coordinate internally, so the renderer supplies neither a vault ID nor an
+invitation. The coordinator completes the public offer and challenge, native
+attended SAS decision, endpoint authorization, hosted commit, and separate
+unattended custody activation before the UI reports success and refreshes
+signed membership. Failed or cancelled enrollment leaves existing access
+unchanged.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

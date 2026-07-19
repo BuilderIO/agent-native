@@ -774,6 +774,21 @@ body {
   white-space: nowrap;
 }
 
+.private-content-enroll-broker {
+  border: 1px solid rgba(159, 183, 255, 0.3);
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: rgba(97, 126, 216, 0.12);
+  color: #cdd8ff;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.private-content-enroll-broker:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .private-content-grant button {
   flex: 0 0 auto;
   border: 0;

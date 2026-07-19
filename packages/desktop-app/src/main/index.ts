@@ -5900,6 +5900,35 @@ function contentPrivateVaultEnrollmentRolesForEvent(event: IpcMainInvokeEvent) {
   }
 }
 
+function contentPrivateVaultBrokerEnrollmentForEvent(
+  event: IpcMainInvokeEvent,
+) {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return null;
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  const origin = contentApp ? getAppOrigin(contentApp) : null;
+  const runtime = resolvePrivateVaultContentRuntime();
+  if (!origin || !runtime) return null;
+  try {
+    if (new URL(origin).protocol !== "https:") return null;
+    const vaultId = runtime.activeVaultId();
+    return privateVaultContentEnrollmentRuntime
+      .coordinator({
+        session: session.fromPartition("persist:app-content"),
+        origin,
+      })
+      .enroll(vaultId);
+  } catch {
+    return null;
+  }
+}
+
 function requireContentFilesWebviewAccess(
   event: IpcMainInvokeEvent,
 ): DesktopContentFilesResult | null {
@@ -8063,11 +8092,12 @@ registerContentFilesIpc({
   clearContentFilesGrant,
 });
 
-// The webview can only request the fixed native ceremony. It cannot provide
-// recovery text, candidate bytes, account coordinates, paths, or endpoints.
+// Only the signed shell can request a fixed native ceremony. It cannot provide
+// recovery text, broker custody, account coordinates, paths, or endpoints.
 registerContentPrivateVaultIpc({
   coordinatorForEvent: contentPrivateVaultCoordinatorForEvent,
   recoveryForEvent: contentPrivateVaultRecoveryForEvent,
+  brokerEnrollmentForEvent: contentPrivateVaultBrokerEnrollmentForEvent,
   enrollmentCandidateForEvent: (event) =>
     contentPrivateVaultEnrollmentRolesForEvent(event)?.candidate ?? null,
   enrollmentAuthorizerForEvent: (event) =>

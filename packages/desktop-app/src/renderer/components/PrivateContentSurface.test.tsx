@@ -33,6 +33,10 @@ describe("PrivateContentSurface privacy disclosure", () => {
             ok: false,
             error: "unavailable",
           })),
+          enrollPersonalBroker: vi.fn(async () => ({
+            ok: false,
+            error: "unavailable",
+          })),
           health: vi.fn(async () => ({ ok: false, error: "locked" })),
           list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
         },
@@ -129,6 +133,11 @@ describe("PrivateContentSurface privacy disclosure", () => {
             },
           })),
           revokeGrant,
+          enrollPersonalBroker: vi.fn(async () => ({
+            ok: true,
+            state: "active",
+            vaultId: "44".repeat(16),
+          })),
         },
       },
     });
@@ -147,6 +156,7 @@ describe("PrivateContentSurface privacy disclosure", () => {
     });
     expect(container.textContent).toContain("Agent 222222…222222");
     expect(container.textContent).toContain("This Mac");
+    expect(container.textContent).toContain("Enroll personal agent");
     expect(container.textContent).toContain(
       "Broker offline; hosted ciphertext may be waiting",
     );

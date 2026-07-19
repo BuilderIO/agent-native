@@ -51,6 +51,7 @@ import {
   type DesktopPrivateVaultBeginBrokerEnrollmentRequest,
   type DesktopPrivateVaultBeginBrokerEnrollmentResult,
   type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultEnrollBrokerResult,
   type DesktopPrivateVaultEnrollmentInvitationRequest,
   type DesktopPrivateVaultRecoveryResult,
   type DesktopPrivateVaultResumeGenesisResult,
@@ -101,6 +102,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS),
     recoverVault: (): Promise<DesktopPrivateVaultRecoveryResult> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RECOVER),
+    enrollPersonalBroker: (): Promise<DesktopPrivateVaultEnrollBrokerResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_ENROLL_BROKER),
     beginBrokerEnrollment: (
       request: DesktopPrivateVaultBeginBrokerEnrollmentRequest,
     ): Promise<DesktopPrivateVaultBeginBrokerEnrollmentResult> =>

@@ -1,4 +1,5 @@
 import { PrivateVaultContentBootstrapTransport } from "./content-bootstrap-transport.js";
+import { PrivateVaultContentEnrollmentCoordinator } from "./content-enrollment-coordinator.js";
 import {
   PrivateVaultContentEnrollmentAuthorizer,
   PrivateVaultContentEnrollmentCandidate,
@@ -24,6 +25,10 @@ export class PrivateVaultContentEnrollmentRuntime {
   readonly #roles = new WeakMap<
     ContentEnrollmentSession,
     Map<string, EnrollmentRoles>
+  >();
+  readonly #coordinators = new WeakMap<
+    ContentEnrollmentSession,
+    Map<string, PrivateVaultContentEnrollmentCoordinator>
   >();
 
   constructor(native: PrivateVaultNativeServiceClient) {
@@ -55,6 +60,25 @@ export class PrivateVaultContentEnrollmentRuntime {
     });
     byOrigin.set(input.origin, roles);
     return roles;
+  }
+
+  coordinator(input: {
+    readonly session: ContentEnrollmentSession;
+    readonly origin: string;
+  }): PrivateVaultContentEnrollmentCoordinator {
+    let byOrigin = this.#coordinators.get(input.session);
+    if (!byOrigin) {
+      byOrigin = new Map();
+      this.#coordinators.set(input.session, byOrigin);
+    }
+    const existing = byOrigin.get(input.origin);
+    if (existing) return existing;
+    const coordinator = new PrivateVaultContentEnrollmentCoordinator({
+      native: this.#native,
+      hosted: new PrivateVaultContentEnrollmentTransport(input),
+    });
+    byOrigin.set(input.origin, coordinator);
+    return coordinator;
   }
 }
 

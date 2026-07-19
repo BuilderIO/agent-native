@@ -630,6 +630,9 @@ interface ElectronAPI {
     recoverVault(): Promise<
       import("@shared/ipc-channels").DesktopPrivateVaultRecoveryResult
     >;
+    enrollPersonalBroker(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultEnrollBrokerResult
+    >;
     beginBrokerEnrollment(
       request: import("@shared/ipc-channels").DesktopPrivateVaultBeginBrokerEnrollmentRequest,
     ): Promise<

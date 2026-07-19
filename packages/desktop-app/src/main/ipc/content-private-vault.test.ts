@@ -9,6 +9,7 @@ import { createContentPrivateVaultIpcHandlers } from "./content-private-vault.js
 
 const event = {} as Electron.IpcMainInvokeEvent;
 const noEnrollment = {
+  brokerEnrollmentForEvent: () => null,
   enrollmentCandidateForEvent: () => null,
   enrollmentAuthorizerForEvent: () => null,
 };
@@ -70,6 +71,28 @@ describe("Content Private Vault IPC", () => {
       sequence: 7,
       headHash: "42".repeat(32),
     });
+  });
+
+  it("enrolls a personal broker without renderer-supplied coordinates", async () => {
+    const brokerEnrollmentForEvent = vi.fn(async () => ({
+      vaultId: "00112233445566778899aabbccddeeff",
+    }));
+    const handlers = createContentPrivateVaultIpcHandlers({
+      ...noEnrollment,
+      brokerEnrollmentForEvent,
+      coordinatorForEvent: () => coordinator(),
+      recoveryForEvent: () => null,
+    });
+
+    await expect(handlers.enrollBroker(event)).resolves.toEqual({
+      ok: true,
+      state: "active",
+      vaultId: "00112233445566778899aabbccddeeff",
+    });
+    await expect(
+      handlers.enrollBroker(event, { vaultId: "forbidden" }),
+    ).resolves.toMatchObject({ ok: false });
+    expect(brokerEnrollmentForEvent).toHaveBeenCalledTimes(1);
   });
 
   it("rejects every renderer-supplied argument before resolving authority", async () => {
@@ -151,6 +174,7 @@ describe("Content Private Vault IPC", () => {
       advance: vi.fn(async () => ({ state: "awaiting-candidate" as const })),
     };
     const handlers = createContentPrivateVaultIpcHandlers({
+      brokerEnrollmentForEvent: () => null,
       coordinatorForEvent: () => null,
       recoveryForEvent: () => null,
       enrollmentCandidateForEvent: () => candidate as never,
@@ -184,6 +208,7 @@ describe("Content Private Vault IPC", () => {
     const enrollmentCandidateForEvent = vi.fn();
     const enrollmentAuthorizerForEvent = vi.fn();
     const handlers = createContentPrivateVaultIpcHandlers({
+      brokerEnrollmentForEvent: () => null,
       coordinatorForEvent: () => null,
       recoveryForEvent: () => null,
       enrollmentCandidateForEvent,
