@@ -357,7 +357,10 @@ int main(void) {
 
   const char *enrollmentVault = "00112233445566778899aabbccddeeff";
   const char *ceremonyToken = "ffeeddccbbaa00998877665544332211";
+  const uint8_t enrollmentOffer[] = {0xa1, 0x01, 0x01};
+  const uint8_t enrollmentCandidateKeyProof[64] = {0x02};
   const uint8_t enrollmentChallenge[] = {0xa1, 0x01, 0x03};
+  const uint8_t enrollmentSasDecision[] = {0xa1, 0x01, 0x05};
   const uint8_t enrollmentAuthorization[] = {0xa1, 0x01, 0x04};
   xpc_object_t prepareEnrollment = PVMakeRequest(
       PV_PROTOCOL_VERSION, "prepare_enroll", "request-prepare-enroll");
@@ -369,8 +372,16 @@ int main(void) {
   xpc_object_t challengeEnrollment = PVMakeRequest(
       PV_PROTOCOL_VERSION, "challenge_enroll", "request-challenge-enroll");
   xpc_dictionary_set_string(challengeEnrollment, "vaultId", enrollmentVault);
+  xpc_dictionary_set_data(challengeEnrollment, "offer", enrollmentOffer,
+                          sizeof enrollmentOffer);
+  xpc_dictionary_set_data(challengeEnrollment, "candidateKeyProof",
+                          enrollmentCandidateKeyProof,
+                          sizeof enrollmentCandidateKeyProof);
   assert(PVParseRequest(challengeEnrollment, &parsed) == PVRequestValid &&
-         strcmp(parsed.vaultID, enrollmentVault) == 0);
+         strcmp(parsed.vaultID, enrollmentVault) == 0 &&
+         parsed.enrollmentOfferLength == sizeof enrollmentOffer &&
+         parsed.enrollmentCandidateKeyProofLength ==
+             sizeof enrollmentCandidateKeyProof);
   xpc_release(challengeEnrollment);
 
   xpc_object_t inspectEnrollment = PVMakeRequest(
@@ -386,11 +397,17 @@ int main(void) {
   xpc_object_t authorizeEnrollment = PVMakeRequest(
       PV_PROTOCOL_VERSION, "authorize_enroll", "request-authorize-enroll");
   xpc_dictionary_set_string(authorizeEnrollment, "vaultId", enrollmentVault);
+  xpc_dictionary_set_data(authorizeEnrollment, "offer", enrollmentOffer,
+                          sizeof enrollmentOffer);
   xpc_dictionary_set_data(authorizeEnrollment, "challenge",
                           enrollmentChallenge,
                           sizeof enrollmentChallenge);
+  xpc_dictionary_set_data(authorizeEnrollment, "sasDecision",
+                          enrollmentSasDecision,
+                          sizeof enrollmentSasDecision);
   assert(PVParseRequest(authorizeEnrollment, &parsed) == PVRequestValid &&
-         parsed.enrollmentChallengeLength == sizeof enrollmentChallenge);
+         parsed.enrollmentChallengeLength == sizeof enrollmentChallenge &&
+         parsed.enrollmentSasDecisionLength == sizeof enrollmentSasDecision);
   xpc_release(authorizeEnrollment);
 
   for (size_t index = 0; index < 2; index += 1) {

@@ -18,7 +18,10 @@
 #define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
 #define PV_JOB_ENVELOPE_MAXIMUM_BYTES (16 * 1024 * 1024 + 64 * 1024)
 #define PV_ENDPOINT_PROOF_MAXIMUM_BYTES (64 * 1024)
+#define PV_ENROLLMENT_OFFER_MAXIMUM_BYTES 1024
+#define PV_ENROLLMENT_CANDIDATE_PROOF_BYTES 64
 #define PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES (64 * 1024)
+#define PV_ENROLLMENT_SAS_DECISION_MAXIMUM_BYTES 2048
 #define PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
 #define PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES (1024 * 1024)
 #define PV_OBJECT_REVISION_MAXIMUM_BYTES (1024 * 1024 + 64 * 1024)
@@ -68,6 +71,12 @@ typedef struct {
     size_t unsignedProofLength;
     const void *enrollmentChallenge;
     size_t enrollmentChallengeLength;
+    const void *enrollmentOffer;
+    size_t enrollmentOfferLength;
+    const void *enrollmentCandidateKeyProof;
+    size_t enrollmentCandidateKeyProofLength;
+    const void *enrollmentSasDecision;
+    size_t enrollmentSasDecisionLength;
     const void *enrollmentAuthorization;
     size_t enrollmentAuthorizationLength;
     const void *objectPayload;

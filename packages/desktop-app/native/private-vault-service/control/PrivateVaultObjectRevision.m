@@ -64,6 +64,28 @@ static const uint8_t kChunkDomain[] = "anc/v1/chunk";
 - (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; [NSException raise:NSInternalInconsistencyException format:@"immutable opened object revision"]; }
 @end
 
+@interface AncPrivateVaultInspectedObjectRevision ()
+@property(nonatomic, readwrite) NSData *objectId;
+@property(nonatomic, readwrite) uint64_t revision;
+@property(nonatomic, readwrite) uint64_t epoch;
+@property(nonatomic, readwrite) NSString *contentType;
+@property(nonatomic, readwrite) NSData *writerEndpointId;
+@end
+@implementation AncPrivateVaultInspectedObjectRevision
+@end
+
+@interface AncPrivateVaultImmutableInspectedObjectRevision
+    : AncPrivateVaultInspectedObjectRevision
+@end
+@implementation AncPrivateVaultImmutableInspectedObjectRevision
+- (void)setObjectId:(NSData *)value { (void)value; [NSException raise:NSInternalInconsistencyException format:@"immutable inspected object revision"]; }
+- (void)setRevision:(uint64_t)value { (void)value; [NSException raise:NSInternalInconsistencyException format:@"immutable inspected object revision"]; }
+- (void)setEpoch:(uint64_t)value { (void)value; [NSException raise:NSInternalInconsistencyException format:@"immutable inspected object revision"]; }
+- (void)setContentType:(NSString *)value { (void)value; [NSException raise:NSInternalInconsistencyException format:@"immutable inspected object revision"]; }
+- (void)setWriterEndpointId:(NSData *)value { (void)value; [NSException raise:NSInternalInconsistencyException format:@"immutable inspected object revision"]; }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; [NSException raise:NSInternalInconsistencyException format:@"immutable inspected object revision"]; }
+@end
+
 static void SetStatus(AncPrivateVaultObjectRevisionStatus *status,
                       AncPrivateVaultObjectRevisionStatus value) {
   if (status != NULL) *status = value;
@@ -411,6 +433,123 @@ AncPrivateVaultSealedObjectRevision *AncPrivateVaultSealObjectRevision(
   if (!signingClosed || !dekClosed) {
     SetStatus(status, AncPrivateVaultObjectRevisionStatusCleanup);
     return nil;
+  }
+  return result;
+}
+
+AncPrivateVaultInspectedObjectRevision *AncPrivateVaultInspectObjectRevision(
+    NSData *encodedRevision, NSData *expectedVaultId,
+    NSData *expectedObjectId,
+    AncPrivateVaultControlLogState *authenticatedState,
+    AncPrivateVaultObjectRevisionStatus *status) {
+  SetStatus(status, AncPrivateVaultObjectRevisionStatusInvalid);
+  AncPrivateVaultInspectedObjectRevision *result = nil;
+  @try {
+    if (![encodedRevision isKindOfClass:NSData.class] ||
+        encodedRevision.length == 0 || encodedRevision.length > kMaximumEncoded ||
+        !Exact(expectedVaultId, 16) ||
+        (expectedObjectId != nil && !Exact(expectedObjectId, 16)) ||
+        authenticatedState == nil || authenticatedState.epoch == 0 ||
+        authenticatedState.epoch > kMaxSafeInteger ||
+        !Same(HexBytes(authenticatedState.vaultId), expectedVaultId))
+      @throw [NSException exceptionWithName:@"AncInvalid" reason:nil userInfo:nil];
+    NSDictionary *bundle = DecodeMap(encodedRevision, kMaximumEncoded);
+    NSArray *parts = Field(bundle, @4, AncPrivateVaultCanonicalTypeArray).arrayValue;
+    if (!Keys(bundle, @[@1,@2,@3,@4]) ||
+        ![Field(bundle, @1, AncPrivateVaultCanonicalTypeText).textValue
+            isEqualToString:@"anc/v1-object-bundle"] ||
+        Field(bundle, @2, AncPrivateVaultCanonicalTypeBytes) == nil ||
+        Field(bundle, @3, AncPrivateVaultCanonicalTypeBytes) == nil ||
+        parts.count != 1 ||
+        ((AncPrivateVaultCanonicalValue *)parts[0]).type !=
+            AncPrivateVaultCanonicalTypeBytes)
+      @throw [NSException exceptionWithName:@"AncEncoding" reason:nil userInfo:nil];
+    NSData *encodedDek = Field(bundle, @2, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *encodedHeader = Field(bundle, @3, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *encodedChunk = ((AncPrivateVaultCanonicalValue *)parts[0]).bytesValue;
+    NSDictionary *dekMap = DecodeMap(encodedDek, 64 * 1024);
+    NSDictionary *headerMap = DecodeMap(encodedHeader, 64 * 1024);
+    NSDictionary *chunkMap = DecodeMap(encodedChunk, kMaximumEncoded);
+    if (!Keys(dekMap, @[@1,@2,@3,@4,@5,@40,@41,@42,@43,@44]) ||
+        !Keys(headerMap, @[@1,@2,@3,@4,@5,@50,@51,@52,@53,@54,@55,@56,@57,@58]) ||
+        !Keys(chunkMap, @[@1,@2,@3,@4,@5,@130,@131,@132,@133,@134,@135]) ||
+        !CommonValid(dekMap, expectedVaultId, @"dek-wrap") ||
+        !CommonValid(headerMap, expectedVaultId, @"object-header") ||
+        !CommonValid(chunkMap, expectedVaultId, @"chunk") ||
+        CreatedAt(dekMap) != CreatedAt(headerMap) ||
+        CreatedAt(dekMap) != CreatedAt(chunkMap))
+      @throw [NSException exceptionWithName:@"AncEncoding" reason:nil userInfo:nil];
+    NSData *dekObject = Field(dekMap, @40, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *headerObject = Field(headerMap, @50, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *chunkObject = Field(chunkMap, @130, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    uint64_t revision = PositiveInteger(dekMap, @41);
+    uint64_t headerRevision = PositiveInteger(headerMap, @51);
+    uint64_t chunkRevision = PositiveInteger(chunkMap, @131);
+    uint64_t epoch = PositiveInteger(dekMap, @42);
+    uint64_t headerEpoch = PositiveInteger(headerMap, @52);
+    uint64_t chunkCount = PositiveInteger(headerMap, @53);
+    uint64_t plaintextLength = PositiveInteger(headerMap, @54);
+    NSString *contentType = Field(headerMap, @55, AncPrivateVaultCanonicalTypeText).textValue;
+    NSData *dekRef = Field(headerMap, @56, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *writerId = Field(headerMap, @57, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *signature = Field(headerMap, @58, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    int64_t chunkIndex = Field(chunkMap, @132, AncPrivateVaultCanonicalTypeInteger).integerValue;
+    uint64_t encodedChunkCount = PositiveInteger(chunkMap, @133);
+    NSData *streamHeader = Field(chunkMap, @134, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *streamCiphertext = Field(chunkMap, @135, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *nonce = Field(dekMap, @43, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    NSData *wrappedDek = Field(dekMap, @44, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+    if (!Exact(dekObject, 16) || !Same(dekObject, headerObject) ||
+        !Same(dekObject, chunkObject) ||
+        (expectedObjectId != nil && !Same(dekObject, expectedObjectId)) ||
+        revision == 0 || revision != headerRevision || revision != chunkRevision ||
+        epoch != authenticatedState.epoch || headerEpoch != epoch ||
+        chunkCount != 1 || encodedChunkCount != 1 || chunkIndex != 0 ||
+        plaintextLength == 0 || plaintextLength > kMaximumPlaintext ||
+        contentType.length == 0 ||
+        [contentType lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 120 ||
+        !Exact(dekRef, 32) || !Exact(writerId, 16) || !Exact(signature, 64) ||
+        !Exact(nonce, 24) || !Exact(wrappedDek, 48) ||
+        !Exact(streamHeader, 24) ||
+        streamCiphertext.length != plaintextLength + 17 ||
+        !Same(Hash(kDekDomain, sizeof kDekDomain, encodedDek), dekRef))
+      @throw [NSException exceptionWithName:@"AncBinding" reason:nil userInfo:nil];
+    NSMutableString *writerHex = [NSMutableString stringWithCapacity:32];
+    const uint8_t *writerBytes = writerId.bytes;
+    for (NSUInteger index = 0; index < 16; index++)
+      [writerHex appendFormat:@"%02x", writerBytes[index]];
+    AncPrivateVaultControlLogMember *member = nil;
+    for (AncPrivateVaultControlLogMember *candidate in authenticatedState.activeMembers) {
+      if ([candidate.endpointId isEqualToString:writerHex]) {
+        if (member != nil)
+          @throw [NSException exceptionWithName:@"AncBinding" reason:nil userInfo:nil];
+        member = candidate;
+      }
+    }
+    NSMutableDictionary *unsignedHeaderMap = [headerMap mutableCopy];
+    [unsignedHeaderMap removeObjectForKey:@58];
+    NSData *headerMessage = DomainData(
+        kHeaderDomain, sizeof kHeaderDomain, EncodeMap(unsignedHeaderMap));
+    if (member == nil || !Exact(member.signingPublicKey, 32) ||
+        anc_pv_ed25519_verify(signature.bytes, headerMessage.bytes,
+                             headerMessage.length,
+                             member.signingPublicKey.bytes) != ANC_PV_CRYPTO_OK)
+      @throw [NSException exceptionWithName:@"AncSignature" reason:nil userInfo:nil];
+    result = class_createInstance(AncPrivateVaultInspectedObjectRevision.class, 0);
+    result.objectId = [dekObject copy];
+    result.revision = revision;
+    result.epoch = epoch;
+    result.contentType = [contentType copy];
+    result.writerEndpointId = [writerId copy];
+    object_setClass(result, AncPrivateVaultImmutableInspectedObjectRevision.class);
+    SetStatus(status, AncPrivateVaultObjectRevisionStatusOK);
+  } @catch (NSException *exception) {
+    if ([exception.name isEqualToString:@"AncBinding"])
+      SetStatus(status, AncPrivateVaultObjectRevisionStatusBinding);
+    else if ([exception.name isEqualToString:@"AncSignature"])
+      SetStatus(status, AncPrivateVaultObjectRevisionStatusSignature);
+    else if ([exception.name isEqualToString:@"AncEncoding"])
+      SetStatus(status, AncPrivateVaultObjectRevisionStatusEncoding);
   }
   return result;
 }

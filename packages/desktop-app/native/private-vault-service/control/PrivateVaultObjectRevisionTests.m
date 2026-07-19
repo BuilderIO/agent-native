@@ -4,6 +4,7 @@
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultObjectRevision.h"
+#import "PrivateVaultObjectJobScope.h"
 
 static NSData *Pattern(uint8_t value, NSUInteger length) {
   NSMutableData *data = [NSMutableData dataWithLength:length];
@@ -87,6 +88,7 @@ int main(void) {
     assert(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
     NSData *vaultId = Pattern(0x11, 16);
     NSData *objectId = Pattern(0x22, 16);
+    NSData *otherObjectId = Pattern(0x23, 16);
     NSData *writerId = Pattern(0x33, 16);
     NSData *signingSeedBytes = Pattern(0x44, 32);
     NSData *epochBytes = Pattern(0x55, 32);
@@ -105,6 +107,28 @@ int main(void) {
     AncPrivateVaultGuardedMemory *signing = Secret(signingSeedBytes);
     AncPrivateVaultGuardedMemory *epoch = Secret(epochBytes);
     AncPrivateVaultObjectRevisionStatus status;
+    NSString *documentType =
+        @"application/vnd.agent-native.content-document+json";
+    NSString *manifestType =
+        @"application/vnd.agent-native.content-vault-manifest+json";
+    assert(AncPrivateVaultObjectJobScopeAllows(
+        vaultId, @"list-documents", @"content", @"claimed", NO, NO,
+        vaultId, otherObjectId, documentType));
+    assert(!AncPrivateVaultObjectJobScopeAllows(
+        vaultId, @"get-document", @"content", @"claimed", NO, NO,
+        vaultId, objectId, documentType));
+    assert(AncPrivateVaultObjectJobScopeAllows(
+        objectId, @"get-document", @"content", @"claimed", NO, NO,
+        vaultId, otherObjectId, nil));
+    assert(!AncPrivateVaultObjectJobScopeAllows(
+        objectId, @"get-document", @"content", @"claimed", NO, NO,
+        vaultId, otherObjectId, documentType));
+    assert(AncPrivateVaultObjectJobScopeAllows(
+        objectId, @"get-document", @"content", @"claimed", NO, NO,
+        vaultId, otherObjectId, manifestType));
+    assert(!AncPrivateVaultObjectJobScopeAllows(
+        objectId, @"get-document", @"content", @"result", YES, NO,
+        vaultId, objectId, documentType));
     AncPrivateVaultSealedObjectRevision *sealed =
         AncPrivateVaultSealObjectRevision(
             vaultId, objectId, writerId, 3, 7,
@@ -121,6 +145,20 @@ int main(void) {
                                                     0,
                                                     sealed.encodedRevision.length)]
                    .location == NSNotFound);
+    AncPrivateVaultInspectedObjectRevision *inspected =
+        AncPrivateVaultInspectObjectRevision(
+            sealed.encodedRevision, vaultId, objectId, state, &status);
+    assert(inspected != nil &&
+           status == AncPrivateVaultObjectRevisionStatusOK &&
+           [inspected.objectId isEqualToData:objectId] &&
+           inspected.revision == 3 && inspected.epoch == 7 &&
+           [inspected.contentType isEqualToString:
+               @"application/vnd.agent-native.content-document+json"] &&
+           [inspected.writerEndpointId isEqualToData:writerId]);
+    assert(AncPrivateVaultInspectObjectRevision(
+               sealed.encodedRevision, vaultId, Pattern(0x23, 16), state,
+               &status) == nil &&
+           status == AncPrivateVaultObjectRevisionStatusBinding);
     AncPrivateVaultOpenedObjectRevision *opened =
         AncPrivateVaultOpenObjectRevision(sealed.encodedRevision, vaultId,
                                           objectId, state, epoch, &status);

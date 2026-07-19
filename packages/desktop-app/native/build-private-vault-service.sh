@@ -20,6 +20,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
   "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m"
+  "$SOURCE_ROOT/control/PrivateVaultObjectJobScope.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
@@ -851,6 +852,7 @@ case "${PRIVATE_VAULT_BUILD_OBJECT_REVISION_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
       "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m" \
+      "$SOURCE_ROOT/control/PrivateVaultObjectJobScope.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
       "$SOURCE_ROOT/control/PrivateVaultObjectRevisionTests.m" \
       "$sodium_root/lib/libsodium.a" -o "$output"

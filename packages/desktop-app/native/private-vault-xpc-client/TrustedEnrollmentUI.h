@@ -17,6 +17,14 @@ PVTrustedEnrollmentDecision PVTrustedEnrollmentConfirmSAS(
     const char *membershipRole, bool unattended,
     const uint8_t *sasTranscriptHash, size_t sasTranscriptHashLength);
 
+/* Shows the authorizer-derived code before the public challenge is returned to
+ * Electron. The user must acknowledge that the candidate can compare it; the
+ * code itself never crosses the native addon boundary. */
+bool PVTrustedEnrollmentPresentSAS(
+    const char *sasCode, const char *candidateEndpointID,
+    const char *membershipRole, bool unattended,
+    const uint8_t *sasTranscriptHash, size_t sasTranscriptHashLength);
+
 /* Pure boundary validation shared with the noninteractive native test. */
 bool PVTrustedEnrollmentValidateInput(
     const char *sasCode, const char *candidateEndpointID,

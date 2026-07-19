@@ -103,6 +103,8 @@ describe("PrivateVaultContentEnrollmentCoordinator", () => {
     });
     expect(operator.buildBrokerEnrollmentChallenge).toHaveBeenCalledWith({
       vaultId,
+      offer,
+      candidateKeyProof: new Uint8Array(64),
     });
     expect(operator.confirmBrokerEnrollment).toHaveBeenCalledWith(
       vaultId,
@@ -110,7 +112,9 @@ describe("PrivateVaultContentEnrollmentCoordinator", () => {
     );
     expect(operator.buildBrokerEnrollmentAuthorization).toHaveBeenCalledWith({
       vaultId,
+      offer,
       challenge,
+      sasDecision,
     });
     expect(hosted.publishSasDecision).toHaveBeenCalledWith(
       offerHash,

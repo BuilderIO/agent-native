@@ -18,6 +18,8 @@ export interface PrivateVaultTrustedEnrollmentOperator {
   ): Promise<NativePrepareEnrollmentResult>;
   buildBrokerEnrollmentChallenge(input: {
     readonly vaultId: string;
+    readonly offer: Uint8Array;
+    readonly candidateKeyProof: Uint8Array;
   }): Promise<PrivateVaultEnrollmentAuthorizerResult>;
   confirmBrokerEnrollment(
     vaultId: string,
@@ -25,7 +27,9 @@ export interface PrivateVaultTrustedEnrollmentOperator {
   ): Promise<NativeConfirmEnrollmentResult>;
   buildBrokerEnrollmentAuthorization(input: {
     readonly vaultId: string;
+    readonly offer: Uint8Array;
     readonly challenge: Uint8Array;
+    readonly sasDecision: Uint8Array;
   }): Promise<PrivateVaultEnrollmentAuthorizerResult>;
   activateBrokerEnrollment(
     vaultId: string,
@@ -113,7 +117,9 @@ export class PrivateVaultContentEnrollmentCoordinator {
           }
           const built = await this.#native.buildBrokerEnrollmentAuthorization({
             vaultId,
+            offer: prepared.offer.slice(),
             challenge: challenge.slice(),
+            sasDecision: status.sasDecision.slice(),
           });
           status = await this.#hosted.publishAuthorization(
             prepared.offerHash,
@@ -152,6 +158,8 @@ export class PrivateVaultContentEnrollmentCoordinator {
     if (status.phase !== "offer") return status;
     const built = await this.#native.buildBrokerEnrollmentChallenge({
       vaultId: prepared.vaultId,
+      offer: prepared.offer.slice(),
+      candidateKeyProof: prepared.candidateKeyProof.slice(),
     });
     const challenged = await this.#hosted.publishChallenge(
       prepared.offerHash,

@@ -111,3 +111,46 @@ PVTrustedEnrollmentDecision PVTrustedEnrollmentConfirmSAS(
     return PVTrustedEnrollmentDecision::Confirmed;
   }
 }
+
+bool PVTrustedEnrollmentPresentSAS(
+    const char *sasCode, const char *candidateEndpointID,
+    const char *membershipRole, bool unattended,
+    const uint8_t *sasTranscriptHash, size_t sasTranscriptHashLength) {
+  if (![NSThread isMainThread] ||
+      !PVTrustedEnrollmentValidateInput(
+          sasCode, candidateEndpointID, membershipRole, unattended,
+          sasTranscriptHash, sasTranscriptHashLength))
+    return false;
+  @autoreleasepool {
+    NSString *code = [NSString stringWithUTF8String:sasCode];
+    NSString *candidate = [NSString stringWithUTF8String:candidateEndpointID];
+    if (code == nil || candidate == nil)
+      return false;
+
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = @"Verify a new Private Vault broker";
+    alert.informativeText = [NSString
+        stringWithFormat:
+            @"Read this code to the person at the new device. They must type "
+             "the same code into the trusted Private Vault window there.\n\n"
+             "Candidate: %@\n\nCancel if you did not start this enrollment. "
+             "A wrong code permanently rejects this attempt.",
+            candidate];
+    [alert addButtonWithTitle:@"I've Shared This Code"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSStackView *stack = [[NSStackView alloc]
+        initWithFrame:NSMakeRect(0, 0, 420, 52)];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeCenterX;
+    NSTextField *display = [NSTextField labelWithString:code];
+    display.font = [NSFont monospacedSystemFontOfSize:28
+                                               weight:NSFontWeightSemibold];
+    display.selectable = NO;
+    [stack addArrangedSubview:display];
+    alert.accessoryView = stack;
+
+    return [alert runModal] == NSAlertFirstButtonReturn;
+  }
+}

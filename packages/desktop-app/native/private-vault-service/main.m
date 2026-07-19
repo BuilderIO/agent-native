@@ -47,6 +47,7 @@
 #import "PrivateVaultEnrollmentSasReceiptStore.h"
 #import "PrivateVaultEnrollmentCoordinator.h"
 #import "PrivateVaultObjectRevision.h"
+#import "PrivateVaultObjectJobScope.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -1042,25 +1043,17 @@ static NSString *PVEnrollmentToken(void) {
     return token;
 }
 
-static BOOL PVEnrollmentContext(
-    NSString *vaultId, AncPrivateVaultEnrollmentOfferArtifact **artifact,
-    AncPrivateVaultControlLogState **state, uint64_t *signedAtSeconds) {
-    if (vaultId.length != 32 || artifact == NULL || state == NULL ||
-        signedAtSeconds == NULL || gEnrollmentArtifactStore == nil ||
+static BOOL PVEnrollmentAuthorityContext(
+    NSString *vaultId, AncPrivateVaultControlLogState **state,
+    uint64_t *signedAtSeconds) {
+    if (vaultId.length != 32 || state == NULL || signedAtSeconds == NULL ||
         gEndpointAuthorityStore == nil) {
         return NO;
     }
-    *artifact = nil;
     *state = nil;
     *signedAtSeconds = 0;
-    NSData *vaultBytes = PVLookupIDData(vaultId.UTF8String);
-    AncPrivateVaultEnrollmentOfferArtifact *stored = nil;
     AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
-    if (vaultBytes == nil ||
-        [gEnrollmentArtifactStore readVaultId:vaultBytes artifact:&stored] !=
-            AncPrivateVaultEnrollmentOfferArtifactStatusOK ||
-        stored == nil ||
-        [gEndpointAuthorityStore loadVaultId:vaultId
+    if ([gEndpointAuthorityStore loadVaultId:vaultId
                                   checkpoint:&checkpoint
                                        error:nil] !=
             AncPrivateVaultAuthorityStoreStatusOK ||
@@ -1074,10 +1067,27 @@ static BOOL PVEnrollmentContext(
         ![authenticated.vaultId isEqualToString:vaultId]) {
         return NO;
     }
-    *artifact = stored;
     *state = authenticated;
     *signedAtSeconds = checkpoint.snapshot.signedAtMs / 1000;
     return *signedAtSeconds > 0;
+}
+
+static BOOL PVEnrollmentContext(
+    NSString *vaultId, AncPrivateVaultEnrollmentOfferArtifact **artifact,
+    AncPrivateVaultControlLogState **state, uint64_t *signedAtSeconds) {
+    if (artifact == NULL || gEnrollmentArtifactStore == nil) return NO;
+    *artifact = nil;
+    NSData *vaultBytes = PVLookupIDData(vaultId.UTF8String);
+    AncPrivateVaultEnrollmentOfferArtifact *stored = nil;
+    if (vaultBytes == nil ||
+        [gEnrollmentArtifactStore readVaultId:vaultBytes artifact:&stored] !=
+            AncPrivateVaultEnrollmentOfferArtifactStatusOK ||
+        stored == nil ||
+        !PVEnrollmentAuthorityContext(vaultId, state, signedAtSeconds)) {
+        return NO;
+    }
+    *artifact = stored;
+    return YES;
 }
 
 static NSData *PVEnrollmentRandom(NSUInteger length) {
@@ -1333,27 +1343,11 @@ static AncPrivateVaultControlLogMember *PVObjectActiveBroker(
 static BOOL PVObjectJobScopeAllows(AncPrivateVaultJobContext *job,
                                    NSData *vaultId, NSData *objectId,
                                    NSString *contentType) {
-    if (job == nil || vaultId.length != 16 || objectId.length != 16 ||
-        ![job.provider isEqualToString:@"content"] ||
-        ![job.status isEqualToString:@"claimed"] || job.resultRecorded ||
-        job.receiptAcknowledged)
-        return NO;
-    BOOL vaultScoped = [job.resourceId isEqualToData:vaultId];
-    BOOL objectScoped = [job.resourceId isEqualToData:objectId];
-    NSSet<NSString *> *vaultOperations = [NSSet setWithArray:@[
-        @"list-documents", @"search-documents", @"create-document"
-    ]];
-    NSSet<NSString *> *objectOperations = [NSSet setWithArray:@[
-        @"get-document", @"pull-document", @"update-document",
-        @"edit-document", @"move-document", @"delete-document",
-        @"list-document-versions", @"restore-document-version"
-    ]];
-    if (vaultScoped && [vaultOperations containsObject:job.operation]) return YES;
-    if (![objectOperations containsObject:job.operation]) return NO;
-    if (contentType == nil) return YES;
-    return [contentType isEqualToString:
-                            @"application/vnd.agent-native.content-vault-manifest+json"] ||
-           objectScoped;
+    return job != nil && AncPrivateVaultObjectJobScopeAllows(
+                             job.resourceId, job.operation, job.provider,
+                             job.status, job.resultRecorded,
+                             job.receiptAcknowledged, vaultId, objectId,
+                             contentType);
 }
 
 static BOOL PVObjectBrokerContext(
@@ -1592,11 +1586,21 @@ static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
                  : PVObjectEndpointContext(vaultId, &state, &unusedWriter,
                                            &signing, &epoch));
         AncPrivateVaultObjectRevisionStatus status;
+        AncPrivateVaultInspectedObjectRevision *inspected =
+            contextOkay && jobBound
+                ? AncPrivateVaultInspectObjectRevision(
+                      encoded, vaultBytes, objectId, state, &status)
+                : nil;
+        BOOL jobAuthorized =
+            !jobBound ||
+            (inspected != nil &&
+             PVObjectJobScopeAllows(job, vaultBytes, objectId,
+                                    inspected.contentType));
         AncPrivateVaultOpenedObjectRevision *opened =
-            contextOkay ? AncPrivateVaultOpenObjectRevision(
-                              encoded, vaultBytes, objectId, state, epoch,
-                              &status)
-                        : nil;
+            contextOkay && jobAuthorized
+                ? AncPrivateVaultOpenObjectRevision(
+                      encoded, vaultBytes, objectId, state, epoch, &status)
+                : nil;
         BOOL signingClosed =
             signing != nil &&
             [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
@@ -1606,8 +1610,9 @@ static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
             opened.epoch != state.epoch ||
             !PVIsContentObjectType(opened.contentType) ||
             (jobBound &&
-             !PVObjectJobScopeAllows(job, vaultBytes, objectId,
-                                     opened.contentType)) ||
+             (![opened.contentType isEqualToString:inspected.contentType] ||
+              opened.revision != inspected.revision ||
+              opened.epoch != inspected.epoch)) ||
             !signingClosed || !epochClosed) {
             PVSendError(peer, message, "object_open_failed");
             return;
@@ -1636,7 +1641,16 @@ static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
                                   const PVRequest *request) {
     @autoreleasepool {
         NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
-        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        NSData *offerBytes =
+            request->enrollmentOffer == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentOffer
+                                  length:request->enrollmentOfferLength];
+        NSData *candidateKeyProof =
+            request->enrollmentCandidateKeyProof == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentCandidateKeyProof
+                                  length:request->enrollmentCandidateKeyProofLength];
         AncPrivateVaultControlLogState *state = nil;
         uint64_t signedAt = 0;
         uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
@@ -1645,7 +1659,8 @@ static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
         NSData *envelope = PVEnrollmentRandom(16);
         NSData *nonce = PVEnrollmentRandom(32);
         uint64_t expires = now > UINT64_MAX - 600 ? 0 : now + 600;
-        if (!PVEnrollmentContext(vaultId, &artifact, &state, &signedAt)) {
+        if (offerBytes == nil || candidateKeyProof.length != 64 ||
+            !PVEnrollmentAuthorityContext(vaultId, &state, &signedAt)) {
             PVSendError(peer, message, "enrollment_failed");
             return;
         }
@@ -1660,7 +1675,7 @@ static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
         AncPrivateVaultEnrollmentAuthorizerStatus status;
         AncPrivateVaultPreparedEnrollmentChallenge *prepared =
             AncPrivateVaultBuildEnrollmentChallenge(
-                artifact.encodedOffer, artifact.candidateKeyProof, state,
+                offerBytes, candidateKeyProof, state,
                 signing, agreement, envelope, nonce, signedAt, now, expires,
                 &status);
         BOOL signingClosed =
@@ -1672,6 +1687,16 @@ static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
             PVSendError(peer, message, "enrollment_failed");
             return;
         }
+        AncPrivateVaultEnrollmentChallengeResult *verified =
+            prepared.verifiedChallenge;
+        NSString *candidateId = PVVaultIDHex(verified.candidateEndpointId);
+        if (verified == nil || candidateId.length != 32 ||
+            verified.sasCode.length != 11 ||
+            verified.sasTranscriptHash.length != 32 ||
+            ![verified.targetMembershipRole isEqualToString:@"broker"]) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
         xpc_object_t reply = PVCreateReply(message, request);
         if (reply == NULL) return;
         xpc_dictionary_set_string(reply, "state", "challenged");
@@ -1679,6 +1704,13 @@ static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
         xpc_dictionary_set_data(reply, "challenge",
                                 prepared.encodedChallenge.bytes,
                                 prepared.encodedChallenge.length);
+        xpc_dictionary_set_string(reply, "sasCode",
+                                  verified.sasCode.UTF8String);
+        xpc_dictionary_set_string(reply, "candidateEndpointId",
+                                  candidateId.UTF8String);
+        xpc_dictionary_set_data(reply, "sasTranscriptHash",
+                                verified.sasTranscriptHash.bytes,
+                                verified.sasTranscriptHash.length);
         xpc_connection_send_message(peer, reply);
     }
 }
@@ -1687,31 +1719,42 @@ static void PVAuthorizeEnrollment(xpc_connection_t peer, xpc_object_t message,
                                   const PVRequest *request) {
     @autoreleasepool {
         NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *offerBytes =
+            request->enrollmentOffer == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentOffer
+                                  length:request->enrollmentOfferLength];
         NSData *challengeBytes =
             request->enrollmentChallenge == NULL
                 ? nil
                 : [NSData dataWithBytes:request->enrollmentChallenge
                                   length:request->enrollmentChallengeLength];
-        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        NSData *sasDecisionBytes =
+            request->enrollmentSasDecision == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentSasDecision
+                                  length:request->enrollmentSasDecisionLength];
         AncPrivateVaultControlLogState *state = nil;
         uint64_t signedAt = 0;
         uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
         AncPrivateVaultEnrollmentChallengeStatus challengeStatus;
         AncPrivateVaultEnrollmentChallengeResult *challenge = nil;
-        if (!PVEnrollmentContext(vaultId, &artifact, &state, &signedAt) ||
-            challengeBytes == nil || now == 0 ||
-            gEnrollmentReceiptStore == nil) {
+        if (offerBytes == nil || challengeBytes == nil ||
+            sasDecisionBytes == nil || now == 0 ||
+            !PVEnrollmentAuthorityContext(vaultId, &state, &signedAt)) {
             PVSendError(peer, message, "enrollment_failed");
             return;
         }
         challenge = AncPrivateVaultEnrollmentChallengeVerify(
-            artifact.encodedOffer, challengeBytes, state, signedAt, now,
+            offerBytes, challengeBytes, state, signedAt, now,
             &challengeStatus);
-        AncPrivateVaultEnrollmentSasReceipt *receipt = nil;
-        if (challenge == nil ||
-            [gEnrollmentReceiptStore readChallenge:challenge
-                                            receipt:&receipt] !=
-                AncPrivateVaultEnrollmentSasReceiptStoreStatusOK ||
+        AncPrivateVaultEnrollmentSasReceiptStatus receiptStatus;
+        AncPrivateVaultEnrollmentSasReceipt *receipt =
+            challenge == nil
+                ? nil
+                : AncPrivateVaultEnrollmentSasReceiptVerify(
+                      sasDecisionBytes, challenge, &receiptStatus);
+        if (receipt == nil ||
             receipt.decision != AncPrivateVaultEnrollmentSasDecisionConfirmed) {
             PVSendError(peer, message, "enrollment_failed");
             return;
@@ -1738,7 +1781,7 @@ static void PVAuthorizeEnrollment(xpc_connection_t peer, xpc_object_t message,
                     wrapNonce == nil || entryId == nil || expires <= now
                 ? nil
                 : AncPrivateVaultBuildEnrollmentAuthorization(
-                      artifact.encodedOffer, challenge, receipt, state, signing,
+                      offerBytes, challenge, receipt, state, signing,
                       agreement, epoch, authorizationId, endpointId, wrapId,
                       wrapNonce, entryId, now, signedAt, now, expires, &status);
         BOOL signingClosed =

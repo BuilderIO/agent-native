@@ -117,6 +117,8 @@ export interface PrivateVaultNativeServiceClient
   ): Promise<NativePrepareEnrollmentResult>;
   buildBrokerEnrollmentChallenge(input: {
     readonly vaultId: string;
+    readonly offer: Uint8Array;
+    readonly candidateKeyProof: Uint8Array;
   }): Promise<NativeEnrollmentAuthorizerResult>;
   confirmBrokerEnrollment(
     vaultId: string,
@@ -124,7 +126,9 @@ export interface PrivateVaultNativeServiceClient
   ): Promise<NativeConfirmEnrollmentResult>;
   buildBrokerEnrollmentAuthorization(input: {
     readonly vaultId: string;
+    readonly offer: Uint8Array;
     readonly challenge: Uint8Array;
+    readonly sasDecision: Uint8Array;
   }): Promise<NativeEnrollmentAuthorizerResult>;
   activateBrokerEnrollment(
     vaultId: string,
@@ -1457,19 +1461,38 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
 
   buildBrokerEnrollmentChallenge(input: {
     readonly vaultId: string;
+    readonly offer: Uint8Array;
+    readonly candidateKeyProof: Uint8Array;
   }): Promise<NativeEnrollmentAuthorizerResult> {
     if (!isLowerHex(input.vaultId, 32))
       return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let offerCopy: Buffer;
+    let proofCopy: Buffer;
+    try {
+      offerCopy = Buffer.from(copyBoundedBytes(input.offer, 1024));
+      proofCopy = Buffer.from(copyBoundedBytes(input.candidateKeyProof, 64));
+      if (proofCopy.byteLength !== 64) throw new Error();
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
     return this.#enqueue(async () => {
       try {
         const addon = await this.#addon;
         return parseEnrollmentAuthorizerResult(
-          await addon.request("challenge_enroll", input.vaultId),
+          await addon.request(
+            "challenge_enroll",
+            input.vaultId,
+            offerCopy,
+            proofCopy,
+          ),
           "challenge_enroll",
           input.vaultId,
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        offerCopy.fill(0);
+        proofCopy.fill(0);
       }
     });
   }
@@ -1502,13 +1525,21 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
 
   buildBrokerEnrollmentAuthorization(input: {
     readonly vaultId: string;
+    readonly offer: Uint8Array;
     readonly challenge: Uint8Array;
+    readonly sasDecision: Uint8Array;
   }): Promise<NativeEnrollmentAuthorizerResult> {
     if (!isLowerHex(input.vaultId, 32))
       return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let offerCopy: Buffer;
     let challengeCopy: Buffer;
+    let sasDecisionCopy: Buffer;
     try {
+      offerCopy = Buffer.from(copyBoundedBytes(input.offer, 1024));
       challengeCopy = Buffer.from(copyBoundedBytes(input.challenge, 64 * 1024));
+      sasDecisionCopy = Buffer.from(
+        copyBoundedBytes(input.sasDecision, 2 * 1024),
+      );
     } catch {
       return Promise.reject(new PrivateVaultNativeServiceClientError());
     }
@@ -1516,14 +1547,22 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       try {
         const addon = await this.#addon;
         return parseEnrollmentAuthorizerResult(
-          await addon.request("authorize_enroll", input.vaultId, challengeCopy),
+          await addon.request(
+            "authorize_enroll",
+            input.vaultId,
+            offerCopy,
+            challengeCopy,
+            sasDecisionCopy,
+          ),
           "authorize_enroll",
           input.vaultId,
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
+        offerCopy.fill(0);
         challengeCopy.fill(0);
+        sasDecisionCopy.fill(0);
       }
     });
   }

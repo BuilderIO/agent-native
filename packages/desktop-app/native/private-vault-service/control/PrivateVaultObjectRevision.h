@@ -27,6 +27,16 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultObjectRevisionStatus) {
 + (instancetype)new NS_UNAVAILABLE;
 @end
 
+@interface AncPrivateVaultInspectedObjectRevision : NSObject
+@property(nonatomic, readonly) NSData *objectId;
+@property(nonatomic, readonly) uint64_t revision;
+@property(nonatomic, readonly) uint64_t epoch;
+@property(nonatomic, readonly) NSString *contentType;
+@property(nonatomic, readonly) NSData *writerEndpointId;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+@end
+
 @interface AncPrivateVaultOpenedObjectRevision : NSObject
 @property(nonatomic, readonly) NSData *plaintext;
 @property(nonatomic, readonly) NSData *revisionId;
@@ -61,6 +71,15 @@ AncPrivateVaultOpenObjectRevision(
     NSData *_Nullable expectedObjectId,
     AncPrivateVaultControlLogState *authenticatedState,
     AncPrivateVaultGuardedMemory *epochKey,
+    AncPrivateVaultObjectRevisionStatus *_Nullable status);
+
+/* Authenticates the signed object header and its bundle bindings without
+ * unwrapping a DEK or decrypting document plaintext. */
+FOUNDATION_EXPORT AncPrivateVaultInspectedObjectRevision *_Nullable
+AncPrivateVaultInspectObjectRevision(
+    NSData *encodedRevision, NSData *expectedVaultId,
+    NSData *_Nullable expectedObjectId,
+    AncPrivateVaultControlLogState *authenticatedState,
     AncPrivateVaultObjectRevisionStatus *_Nullable status);
 
 FOUNDATION_EXPORT NSString *AncPrivateVaultObjectRevisionCategory(

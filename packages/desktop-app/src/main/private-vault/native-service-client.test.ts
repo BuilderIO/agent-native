@@ -225,7 +225,11 @@ describe("Private Vault native service client", () => {
       vaultId,
     });
     await expect(
-      client.buildBrokerEnrollmentChallenge({ vaultId }),
+      client.buildBrokerEnrollmentChallenge({
+        vaultId,
+        offer: new Uint8Array([0xa1, 0x01, 0x01]),
+        candidateKeyProof: new Uint8Array(64).fill(3),
+      }),
     ).resolves.toEqual({ encoded: challenge });
     await expect(
       client.confirmBrokerEnrollment(vaultId, challenge),
@@ -237,7 +241,12 @@ describe("Private Vault native service client", () => {
       sasDecision,
     });
     await expect(
-      client.buildBrokerEnrollmentAuthorization({ vaultId, challenge }),
+      client.buildBrokerEnrollmentAuthorization({
+        vaultId,
+        offer: new Uint8Array([0xa1, 0x01, 0x01]),
+        challenge,
+        sasDecision,
+      }),
     ).resolves.toEqual({ encoded: authorization });
     await expect(
       client.activateBrokerEnrollment(vaultId, challenge, authorization),
@@ -258,8 +267,33 @@ describe("Private Vault native service client", () => {
     expect(nativeSource).toContain('"decide_enroll"');
     expect(wrapperSource).not.toContain('addon.request("inspect_enroll"');
     expect(wrapperSource).not.toContain('addon.request("decide_enroll"');
-    expect(wrapperSource).toContain('addon.request("challenge_enroll"');
+    expect(wrapperSource).toMatch(/addon\.request\(\s*"challenge_enroll"/u);
     expect(wrapperSource).toContain('"authorize_enroll",');
+    expect(nativeSource).toContain("PVTrustedEnrollmentPresentSAS(");
+    expect(nativeSource).not.toContain('PVSetString(env, result, "sasCode"');
+    expect(nativeSource).not.toContain(
+      'PVSetBuffer(env, result, "sasTranscriptHash"',
+    );
+
+    const leakingClient = createPrivateVaultNativeServiceClientForTest(
+      async () => ({
+        request: vi.fn(async () => ({
+          version: 3,
+          operation: "challenge_enroll",
+          state: "challenged",
+          vaultId,
+          challenge,
+          sasCode: "056-775-976",
+        })),
+      }),
+    );
+    await expect(
+      leakingClient.buildBrokerEnrollmentChallenge({
+        vaultId,
+        offer: new Uint8Array([0xa1, 0x01, 0x01]),
+        candidateKeyProof: new Uint8Array(64).fill(1),
+      }),
+    ).rejects.toBeInstanceOf(PrivateVaultNativeServiceClientError);
   });
 
   it("seals and opens Content revisions only through the native endpoint boundary", async () => {

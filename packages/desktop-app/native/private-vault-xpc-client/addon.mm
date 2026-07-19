@@ -124,6 +124,7 @@ struct PVParsedReply {
   char algorithmID[161] = {0};
   char operationName[121] = {0};
   char candidateEndpointID[33] = {0};
+  char sasCode[12] = {0};
   char offerHash[65] = {0};
   char objectID[33] = {0};
   char contentType[121] = {0};
@@ -142,6 +143,7 @@ struct PVParsedReply {
   std::vector<uint8_t> resourceID;
   std::vector<uint8_t> writerEndpointID;
   std::vector<uint8_t> revisionID;
+  std::vector<uint8_t> sasTranscriptHash;
   std::vector<PVCandidate> candidates;
 };
 
@@ -239,6 +241,7 @@ struct PVAsyncRequest {
   char algorithmID[161] = {0};
   char operationName[121] = {0};
   char candidateEndpointID[33] = {0};
+  char sasCode[12] = {0};
   char offerHash[65] = {0};
   char objectID[33] = {0};
   char contentType[121] = {0};
@@ -263,6 +266,9 @@ struct PVAsyncRequest {
   std::vector<uint8_t> authorization;
   std::vector<uint8_t> recoveryMnemonic;
   std::vector<uint8_t> challenge;
+  std::vector<uint8_t> enrollmentOffer;
+  std::vector<uint8_t> enrollmentCandidateKeyProof;
+  std::vector<uint8_t> enrollmentSasDecision;
   std::vector<uint8_t> receipt;
   std::vector<uint8_t> body;
   std::vector<uint8_t> bootstrapFrame;
@@ -272,6 +278,7 @@ struct PVAsyncRequest {
   std::vector<uint8_t> objectPayload;
   std::vector<uint8_t> writerEndpointID;
   std::vector<uint8_t> revisionID;
+  std::vector<uint8_t> sasTranscriptHash;
   std::vector<PVCandidate> candidates;
 
   ~PVAsyncRequest() {
@@ -285,6 +292,12 @@ struct PVAsyncRequest {
       PVClearBytes(recoveryMnemonic);
     if (!challenge.empty())
       PVClearBytes(challenge);
+    if (!enrollmentOffer.empty())
+      PVClearBytes(enrollmentOffer);
+    if (!enrollmentCandidateKeyProof.empty())
+      PVClearBytes(enrollmentCandidateKeyProof);
+    if (!enrollmentSasDecision.empty())
+      PVClearBytes(enrollmentSasDecision);
     if (!receipt.empty())
       PVClearBytes(receipt);
     if (!body.empty())
@@ -303,6 +316,8 @@ struct PVAsyncRequest {
       PVClearBytes(writerEndpointID);
     if (!revisionID.empty())
       PVClearBytes(revisionID);
+    if (!sasTranscriptHash.empty())
+      PVClearBytes(sasTranscriptHash);
     for (auto &candidate : candidates)
       PVClearBytes(candidate.candidate);
   }
@@ -812,14 +827,19 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     const bool challenge = operation == PVOperation::ChallengeEnrollment;
     const char *const challengeKeys[] = {
         "version", "ok", "requestId", "state", "vaultId", "challenge",
+        "sasCode", "candidateEndpointId", "sasTranscriptHash",
     };
     const char *const authorizationKeys[] = {
         "version", "ok", "requestId", "state", "vaultId", "authorization",
     };
     const char *state = PVGetString(reply, "state");
     const char *vaultID = PVGetString(reply, "vaultId");
+    const char *sasCode = challenge ? PVGetString(reply, "sasCode") : nullptr;
+    const char *candidate =
+        challenge ? PVGetString(reply, "candidateEndpointId") : nullptr;
     if (!PVHasExactKeys(reply,
-                        challenge ? challengeKeys : authorizationKeys, 6) ||
+                        challenge ? challengeKeys : authorizationKeys,
+                        challenge ? 9 : 6) ||
         !PVRequestIDMatches(reply, requestID) || state == nullptr ||
         strcmp(state, challenge ? "challenged" : "authorized") != 0 ||
         !PVIsLowerHex(vaultID, 32) || expectedVaultID == nullptr ||
@@ -828,12 +848,25 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
                            challenge ? "challenge" : "authorization",
                            challenge ? PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES
                                      : PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES,
-                           parsed.body)) {
+                           parsed.body) ||
+        (challenge &&
+         (!PVCopyBoundedData(reply, "sasTranscriptHash", 32,
+                             parsed.sasTranscriptHash) ||
+          parsed.sasTranscriptHash.size() != 32 ||
+          !PVTrustedEnrollmentValidateInput(
+              sasCode, candidate, "broker", true,
+              parsed.sasTranscriptHash.data(),
+              parsed.sasTranscriptHash.size())))) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
     memcpy(parsed.state, state, strlen(state) + 1);
     memcpy(parsed.vaultID, vaultID, 33);
+    if (challenge) {
+      memcpy(parsed.sasCode, sasCode, sizeof(parsed.sasCode));
+      memcpy(parsed.candidateEndpointID, candidate,
+             sizeof(parsed.candidateEndpointID));
+    }
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -1492,10 +1525,25 @@ void PVExecute(napi_env env, void *data) {
                             request->objectPayload.data(),
                             request->objectPayload.size());
   }
+  if (request->operation == PVOperation::ChallengeEnrollment ||
+      request->operation == PVOperation::AuthorizeEnrollment) {
+    xpc_dictionary_set_data(message, "offer", request->enrollmentOffer.data(),
+                            request->enrollmentOffer.size());
+  }
+  if (request->operation == PVOperation::ChallengeEnrollment) {
+    xpc_dictionary_set_data(message, "candidateKeyProof",
+                            request->enrollmentCandidateKeyProof.data(),
+                            request->enrollmentCandidateKeyProof.size());
+  }
   if (request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
     xpc_dictionary_set_data(message, "challenge", request->challenge.data(),
                             request->challenge.size());
+  }
+  if (request->operation == PVOperation::AuthorizeEnrollment) {
+    xpc_dictionary_set_data(message, "sasDecision",
+                            request->enrollmentSasDecision.data(),
+                            request->enrollmentSasDecision.size());
   }
   if (request->operation == PVOperation::ActivateEnrollment) {
     xpc_dictionary_set_data(message, "authorization",
@@ -1659,6 +1707,7 @@ void PVExecute(napi_env env, void *data) {
            sizeof(request->operationName));
     memcpy(request->candidateEndpointID, parsed.candidateEndpointID,
            sizeof(request->candidateEndpointID));
+    memcpy(request->sasCode, parsed.sasCode, sizeof(request->sasCode));
     memcpy(request->offerHash, parsed.offerHash, sizeof(request->offerHash));
     memcpy(request->objectID, parsed.objectID, sizeof(request->objectID));
     memcpy(request->contentType, parsed.contentType,
@@ -1668,6 +1717,7 @@ void PVExecute(napi_env env, void *data) {
     request->objectRevision = parsed.objectRevision;
     request->plaintextLength = parsed.plaintextLength;
     request->revisionID = std::move(parsed.revisionID);
+    request->sasTranscriptHash = std::move(parsed.sasTranscriptHash);
     request->writerEndpointID = std::move(parsed.writerEndpointID);
     request->candidates = std::move(parsed.candidates);
   }
@@ -1715,6 +1765,13 @@ bool PVSetBuffer(napi_env env, napi_value object, const char *key,
 
 void PVComplete(napi_env env, napi_status status, void *data) {
   auto *request = static_cast<PVAsyncRequest *>(data);
+  if (status == napi_ok && request->failure == PVFailure::None &&
+      request->operation == PVOperation::ChallengeEnrollment &&
+      !PVTrustedEnrollmentPresentSAS(
+          request->sasCode, request->candidateEndpointID, "broker", true,
+          request->sasTranscriptHash.data(),
+          request->sasTranscriptHash.size()))
+    request->failure = PVFailure::ServiceError;
   gRequestGate.release();
   if (status != napi_ok || request->failure != PVFailure::None) {
     napi_value message;
@@ -2157,9 +2214,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::PendingResult ? 2
       : request->operation == PVOperation::SignRequest ? 2
       : request->operation == PVOperation::PrepareEnrollment ? 2
-      : request->operation == PVOperation::ChallengeEnrollment ? 2
+      : request->operation == PVOperation::ChallengeEnrollment ? 4
       : request->operation == PVOperation::ConfirmEnrollment ? 3
-      : request->operation == PVOperation::AuthorizeEnrollment ? 3
+      : request->operation == PVOperation::AuthorizeEnrollment ? 5
       : request->operation == PVOperation::ActivateEnrollment ? 4
       : request->operation == PVOperation::SealObject ? 6
       : request->operation == PVOperation::OpenObject ? 5
@@ -2345,15 +2402,57 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   }
   const uint8_t *enrollmentChallenge = nullptr;
   size_t enrollmentChallengeLength = 0;
+  const uint8_t *enrollmentOffer = nullptr;
+  size_t enrollmentOfferLength = 0;
+  const uint8_t *enrollmentCandidateKeyProof = nullptr;
+  size_t enrollmentCandidateKeyProofLength = 0;
+  const uint8_t *enrollmentSasDecision = nullptr;
+  size_t enrollmentSasDecisionLength = 0;
   const uint8_t *enrollmentAuthorization = nullptr;
   size_t enrollmentAuthorizationLength = 0;
+  if (request->operation == PVOperation::ChallengeEnrollment ||
+      request->operation == PVOperation::AuthorizeEnrollment) {
+    void *offerBytes = nullptr;
+    bool offerIsBuffer = false;
+    if (napi_is_buffer(env, argv[2], &offerIsBuffer) != napi_ok ||
+        !offerIsBuffer ||
+        napi_get_buffer_info(env, argv[2], &offerBytes,
+                             &enrollmentOfferLength) != napi_ok ||
+        offerBytes == nullptr || enrollmentOfferLength == 0 ||
+        enrollmentOfferLength > 1024) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    enrollmentOffer = static_cast<const uint8_t *>(offerBytes);
+  }
+  if (request->operation == PVOperation::ChallengeEnrollment) {
+    void *proofBytes = nullptr;
+    bool proofIsBuffer = false;
+    if (napi_is_buffer(env, argv[3], &proofIsBuffer) != napi_ok ||
+        !proofIsBuffer ||
+        napi_get_buffer_info(env, argv[3], &proofBytes,
+                             &enrollmentCandidateKeyProofLength) != napi_ok ||
+        proofBytes == nullptr || enrollmentCandidateKeyProofLength != 64) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    enrollmentCandidateKeyProof =
+        static_cast<const uint8_t *>(proofBytes);
+  }
   if (request->operation == PVOperation::ConfirmEnrollment ||
       request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
+    const size_t challengeIndex =
+        request->operation == PVOperation::AuthorizeEnrollment ? 3 : 2;
     void *bytes = nullptr;
     bool isBuffer = false;
-    if (napi_is_buffer(env, argv[2], &isBuffer) != napi_ok || !isBuffer ||
-        napi_get_buffer_info(env, argv[2], &bytes,
+    if (napi_is_buffer(env, argv[challengeIndex], &isBuffer) != napi_ok ||
+        !isBuffer ||
+        napi_get_buffer_info(env, argv[challengeIndex], &bytes,
                              &enrollmentChallengeLength) != napi_ok ||
         bytes == nullptr || enrollmentChallengeLength == 0 ||
         enrollmentChallengeLength > PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES) {
@@ -2363,6 +2462,22 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       return nullptr;
     }
     enrollmentChallenge = static_cast<const uint8_t *>(bytes);
+  }
+  if (request->operation == PVOperation::AuthorizeEnrollment) {
+    void *decisionBytes = nullptr;
+    bool decisionIsBuffer = false;
+    if (napi_is_buffer(env, argv[4], &decisionIsBuffer) != napi_ok ||
+        !decisionIsBuffer ||
+        napi_get_buffer_info(env, argv[4], &decisionBytes,
+                             &enrollmentSasDecisionLength) != napi_ok ||
+        decisionBytes == nullptr || enrollmentSasDecisionLength == 0 ||
+        enrollmentSasDecisionLength > 2048) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    enrollmentSasDecision = static_cast<const uint8_t *>(decisionBytes);
   }
   if (request->operation == PVOperation::ActivateEnrollment) {
     void *bytes = nullptr;
@@ -2564,13 +2679,27 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     }
   }
 
-  if (request->operation == PVOperation::ConfirmEnrollment ||
+  if (request->operation == PVOperation::ChallengeEnrollment ||
+      request->operation == PVOperation::ConfirmEnrollment ||
       request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
     try {
-      request->challenge.assign(
-          enrollmentChallenge,
-          enrollmentChallenge + enrollmentChallengeLength);
+      if (request->operation == PVOperation::ChallengeEnrollment ||
+          request->operation == PVOperation::AuthorizeEnrollment)
+        request->enrollmentOffer.assign(
+            enrollmentOffer, enrollmentOffer + enrollmentOfferLength);
+      if (request->operation == PVOperation::ChallengeEnrollment)
+        request->enrollmentCandidateKeyProof.assign(
+            enrollmentCandidateKeyProof,
+            enrollmentCandidateKeyProof + enrollmentCandidateKeyProofLength);
+      if (request->operation != PVOperation::ChallengeEnrollment)
+        request->challenge.assign(
+            enrollmentChallenge,
+            enrollmentChallenge + enrollmentChallengeLength);
+      if (request->operation == PVOperation::AuthorizeEnrollment)
+        request->enrollmentSasDecision.assign(
+            enrollmentSasDecision,
+            enrollmentSasDecision + enrollmentSasDecisionLength);
       if (request->operation == PVOperation::ActivateEnrollment)
         request->authorization.assign(
             enrollmentAuthorization,

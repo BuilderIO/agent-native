@@ -72,6 +72,10 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 return true;
             }
             if (strcmp(key, "unsignedProof") == 0) return true;
+            if (strcmp(key, "offer") == 0 ||
+                strcmp(key, "candidateKeyProof") == 0 ||
+                strcmp(key, "sasDecision") == 0)
+                return true;
             if (strcmp(key, "ceremonyToken") == 0 ||
                 strcmp(key, "decision") == 0)
                 return true;
@@ -273,13 +277,29 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
             request->jobID = xpc_dictionary_get_string(message, "jobId");
             request->jobHash = jobHash;
         }
-    } else if (prepareEnrollment || challengeEnrollment) {
+    } else if (prepareEnrollment) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
             return PVRequestInvalid;
         }
-    } else if (inspectEnrollment || authorizeEnrollment) {
+    } else if (challengeEnrollment) {
+        if (fieldCount != 6 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVReadBoundedData(message, "offer",
+                               PV_ENROLLMENT_OFFER_MAXIMUM_BYTES,
+                               &request->enrollmentOffer,
+                               &request->enrollmentOfferLength) ||
+            !PVReadBoundedDataRange(
+                message, "candidateKeyProof",
+                PV_ENROLLMENT_CANDIDATE_PROOF_BYTES,
+                PV_ENROLLMENT_CANDIDATE_PROOF_BYTES,
+                &request->enrollmentCandidateKeyProof,
+                &request->enrollmentCandidateKeyProofLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (inspectEnrollment) {
         if (fieldCount != 5 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
@@ -287,6 +307,24 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                                PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES,
                                &request->enrollmentChallenge,
                                &request->enrollmentChallengeLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (authorizeEnrollment) {
+        if (fieldCount != 7 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVReadBoundedData(message, "offer",
+                               PV_ENROLLMENT_OFFER_MAXIMUM_BYTES,
+                               &request->enrollmentOffer,
+                               &request->enrollmentOfferLength) ||
+            !PVReadBoundedData(message, "challenge",
+                               PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES,
+                               &request->enrollmentChallenge,
+                               &request->enrollmentChallengeLength) ||
+            !PVReadBoundedData(message, "sasDecision",
+                               PV_ENROLLMENT_SAS_DECISION_MAXIMUM_BYTES,
+                               &request->enrollmentSasDecision,
+                               &request->enrollmentSasDecisionLength)) {
             return PVRequestInvalid;
         }
     } else if (decideEnrollment) {
