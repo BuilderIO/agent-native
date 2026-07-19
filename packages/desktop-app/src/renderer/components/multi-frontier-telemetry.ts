@@ -1,4 +1,4 @@
-import { trackEvent } from "@agent-native/core/client";
+import { trackEvent } from "@agent-native/core/client/analytics";
 
 import type {
   MultiFrontierProviderId,

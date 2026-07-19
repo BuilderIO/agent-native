@@ -244,6 +244,7 @@
     "./usage": "./dist/usage/store.js",
     "./connections": "./dist/connections/index.js",
     "./provider-api": "./dist/provider-api/index.js",
+    "./provider-api/gong": "./dist/provider-api/gong.js",
     "./provider-api/corpus-jobs": "./dist/provider-api/corpus-jobs.js",
     "./provider-api/corpus-jobs-store": "./dist/provider-api/corpus-jobs-store.js",
     "./provider-api/staging": "./dist/provider-api/staging.js",
@@ -252,7 +253,11 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./provider-api/actions/staged-datasets": "./dist/provider-api/actions/staged-datasets.js",
     "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
+    "./provider-api/actions/provider-api": "./dist/provider-api/actions/provider-api.js",
+    "./provider-api/actions/provider-api-audit": "./dist/provider-api/actions/provider-api-audit.js",
+    "./provider-api/actions/custom-provider-registration": "./dist/provider-api/actions/custom-provider-registration.js",
     "./data-programs": {
       "types": "./dist/data-programs/index.d.ts",
       "default": "./dist/data-programs/index.js"

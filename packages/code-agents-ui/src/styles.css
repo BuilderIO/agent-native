@@ -1035,6 +1035,53 @@
   gap: 6px;
 }
 
+/* The Multi-Frontier control shares the compact composer toolbar. Keep its two
+   text controls quiet and sized to their labels rather than the toolbar's
+   icon-button rule. */
+.code-agents-multi-frontier-control {
+  min-width: 0;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.code-agents-standard-composer
+  .code-agents-multi-frontier-control
+  .code-agents-multi-frontier-mode-select {
+  min-width: 0;
+  max-width: 9.5rem;
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+.code-agents-standard-composer
+  .code-agents-multi-frontier-control
+  .code-agents-multi-frontier-mode-select
+  > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-standard-composer
+  .code-agents-multi-frontier-control
+  button:not(.desktop-select-trigger) {
+  width: auto;
+  min-width: 0;
+  max-width: 7rem;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-agents-standard-composer [class~="hidden"] {
   display: none;
 }

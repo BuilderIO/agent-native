@@ -29,8 +29,8 @@ fs.cpSync(packagedApp, isolatedApp, { recursive: true });
 fs.mkdirSync(workspace, { recursive: true });
 fs.mkdirSync(fakeBin, { recursive: true });
 
-process.env.AGENT_NATIVE_CODE_AGENTS_HOME = storeRoot;
-delete process.env.AGENT_NATIVE_FRAMEWORK_ROOT;
+process.env.AGENT_NATIVE_CODE_AGENTS_HOME = storeRoot; // guard:allow-env-mutation — standalone smoke process isolates packaged runner state
+delete process.env.AGENT_NATIVE_FRAMEWORK_ROOT; // guard:allow-env-mutation — standalone smoke process isolates packaged runner state
 
 async function main(): Promise<void> {
   const success = createRun("Packaged runner success", "fake-code-agent");

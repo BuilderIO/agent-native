@@ -18,6 +18,13 @@ export type {
   PlatformDeliveryReceipt,
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
+export {
+  deliverJsonWebhook,
+  escapeSlackMrkdwn,
+  isWebhookUrlAllowed,
+  type DeliverJsonWebhookOptions,
+  type JsonWebhookDeliveryResult,
+} from "./webhook-delivery.js";
 
 export { resolveDefaultIntegrationExecutionContext } from "./identity.js";
 export {
@@ -150,6 +157,8 @@ export type {
 } from "./installations-store.js";
 
 export {
+  SLACK_AUTHORIZE_URL,
+  SLACK_TOKEN_URL,
   assertSlackInstallAccess,
   buildSlackAuthorizeUrl,
   exchangeSlackOAuthCode,
@@ -157,6 +166,7 @@ export {
   slackInstallationKey,
   slackOAuthResponseToInstallation,
   testSlackAuth,
+  type SlackOAuthAccessResponse,
 } from "./slack-oauth.js";
 
 export {

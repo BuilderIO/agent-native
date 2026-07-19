@@ -789,6 +789,9 @@ importers:
 
   packages/dispatch:
     dependencies:
+      '@agent-native/toolkit':
+        specifier: workspace:*
+        version: link:../toolkit
       '@libsql/client':
         specifier: ^0.15.8
         version: 0.15.15

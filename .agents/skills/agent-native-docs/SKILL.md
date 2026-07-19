@@ -37,6 +37,7 @@ pnpm action docs-search --slug <slug>
 pnpm action docs-search --list
 pnpm action source-search --query "<pattern>"
 pnpm action source-search --path templates/plan/AGENTS.md
+pnpm action source-search --path toolkit/src/index.ts
 pnpm action source-search --list
 ```
 
@@ -56,6 +57,13 @@ under `node_modules/@agent-native/core/docs/content/`. For source examples,
 read files under `node_modules/@agent-native/core/corpus/core/` or
 `node_modules/@agent-native/core/corpus/templates/`.
 
+Toolkit source is searchable at `toolkit/` in the Core corpus and also ships as
+readable TypeScript under `node_modules/@agent-native/toolkit/src/`. Read
+`customizing-agent-native` before copying a shared component: inspect package
+source as a read-only reference, copy only the smallest UI piece into app-owned
+source, and preserve public actions, application state, auth, and agent-chat
+runtime contracts. Never edit `node_modules` or deep-import its private source.
+
 ## Useful Slugs
 
 | Need | Slugs |
@@ -74,3 +82,5 @@ read files under `node_modules/@agent-native/core/corpus/core/` or
 - Do not add custom REST wrappers for app data before reading `actions`.
 - Do not add inline LLM calls before reading `using-your-agent` and
   `agent-surfaces`.
+- Do not copy framework runtime internals when a public API or narrow UI copy
+  will do; read `customizing-agent-native` for the supported override ladder.

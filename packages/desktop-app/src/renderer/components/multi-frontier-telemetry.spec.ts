@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { trackEvent } = vi.hoisted(() => ({ trackEvent: vi.fn() }));
 
-vi.mock("@agent-native/core/client", () => ({ trackEvent }));
+vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
 import {
   multiFrontierFailureCategory,

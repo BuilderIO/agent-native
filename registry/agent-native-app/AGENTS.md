@@ -29,6 +29,10 @@ the agent can use.
   `node_modules/@agent-native/core/docs`. When implementation examples or
   template patterns matter, use `pnpm action source-search --query "<pattern>"`
   or search `node_modules/@agent-native/core/corpus`.
+- Before overriding shared UI, read `customizing-agent-native`. Configure or
+  compose public components first; if needed, copy only the smallest installed
+  reference UI piece into app-owned source. Never edit `node_modules`,
+  deep-import private source, or replace Core runtime contracts.
 - Use TypeScript for app source.
 - Use shadcn/ui primitives for standard controls and dialogs.
 - Do not use browser `alert`, `confirm`, or `prompt`; use app dialogs.
@@ -47,6 +51,7 @@ Read the relevant `.agents/skills/*/SKILL.md` file before changing that area:
 - `actions` for shared UI and agent operations.
 - `storing-data`, `portability`, `security`, and `sharing` for data work.
 - `frontend-design` and `shadcn-ui` for interface work.
+- `customizing-agent-native` for intentional app-owned shared-UI overrides.
 - `client-side-routing`, `context-awareness`, and `real-time-sync` for
   navigation, agent-visible state, and live updates.
 - `delegate-to-agent` when AI work should be handled by the agent chat.

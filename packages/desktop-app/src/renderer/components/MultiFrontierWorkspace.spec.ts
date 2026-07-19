@@ -6,10 +6,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MultiFrontierRendererState } from "../../../shared/multi-frontier-ipc.js";
+import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import {
   agreementPolicyForWorkspace,
   createMultiFrontierInput,
   controlsForState,
+  MultiFrontierParticipantSettings,
   MultiFrontierWorkspace,
   usageSummary,
   UsageMeter,
@@ -154,8 +156,54 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
       }),
     );
 
-    expect(markup).toContain("Connect both subscriptions above");
+    expect(markup).toContain("Connect subscriptions to begin");
     expect(markup).not.toContain("textarea");
+  });
+
+  it("keeps subscription details collapsed until they are explicitly expanded", async () => {
+    act(() => {
+      root.render(
+        createElement(MultiFrontierParticipantSettings, {
+          statuses: {
+            codex: connectedSubscription("codex", "Pro"),
+            claude: connectedSubscription("claude", "Max"),
+          },
+          busy: false,
+          autoContinueAfterAgreement: false,
+          defaultAutoContinueAfterAgreement: false,
+        }),
+      );
+    });
+
+    const participants = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Participants",
+    );
+    await act(async () => {
+      participants?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      participants?.click();
+      await Promise.resolve();
+    });
+
+    const details = document.body.querySelector<HTMLButtonElement>(
+      '[aria-label="Show Codex subscription details"]',
+    );
+    expect(details).toBeInstanceOf(HTMLButtonElement);
+    expect(details?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.textContent).not.toContain("ChatGPT subscription");
+    expect(document.body.textContent).not.toContain("Pro");
+
+    await act(async () => {
+      details?.focus();
+      details?.click();
+      await Promise.resolve();
+    });
+
+    expect(document.activeElement).toBe(details);
+    expect(details?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.textContent).toContain("ChatGPT subscription");
+    expect(document.body.textContent).toContain("Pro");
   });
 
   it("uses an existing run's persisted agreement policy rather than the new-run draft", () => {
@@ -234,5 +282,32 @@ function rendererState(
     approvalState: "pending",
     artifacts: [],
     subscriptions: {},
+  };
+}
+
+function connectedSubscription(
+  providerId: "codex" | "claude",
+  plan: string,
+): SubscriptionStatus {
+  return {
+    schemaVersion: 1,
+    providerId,
+    connectionState: "connected",
+    plan: { label: plan },
+    telemetry: {
+      state: "live",
+      source:
+        providerId === "codex" ? "codex-app-server" : "claude-status-line",
+      capabilities: {
+        account: false,
+        plan: true,
+        rateLimits: false,
+        modelTierRateLimits: false,
+        contextWindow: false,
+        credits: false,
+        liveUpdates: false,
+      },
+      meters: [],
+    },
   };
 }

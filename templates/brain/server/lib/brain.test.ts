@@ -2735,6 +2735,59 @@ describe("Brain connector smoke coverage", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
+  it("joins an explicitly configured public channel before reading history", async () => {
+    const calls: string[] = [];
+    const fetchSpy = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({
+            ok: true,
+            channel: {
+              id: "C123",
+              name: "product",
+              is_channel: true,
+              is_archived: false,
+              is_member: false,
+            },
+          });
+        }
+        if (url.pathname.endsWith("/conversations.join")) {
+          calls.push("join");
+          expect(init?.method).toBe("POST");
+          expect(new URLSearchParams(String(init?.body)).get("channel")).toBe(
+            "C123",
+          );
+          return Response.json({ ok: true });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          calls.push("history");
+          return Response.json({ ok: true, messages: [], has_more: false });
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      },
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-source",
+      title: "Slack product",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["C123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      stats: {
+        publicChannelsJoined: 1,
+        publicChannelsAlreadyJoined: 0,
+        scannedChannels: 1,
+      },
+    });
+    expect(calls).toEqual(["join", "history"]);
+  });
+
   it("uses the configured Slack page budget and resumes a bounded oldest backfill", async () => {
     const historyUrls: URL[] = [];
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {

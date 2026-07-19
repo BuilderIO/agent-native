@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "src",
     "migration-manifest.json",
     "README.md"
   ],
@@ -58,6 +59,20 @@
       "development": "./dist/collab-ui/*.js",
       "import": "./dist/collab-ui/*.js",
       "default": "./dist/collab-ui/*.js"
+    },
+    "./chat-history": {
+      "types": "./dist/chat-history/index.d.ts",
+      "browser": "./dist/chat-history/index.js",
+      "development": "./dist/chat-history/index.js",
+      "import": "./dist/chat-history/index.js",
+      "default": "./dist/chat-history/index.js"
+    },
+    "./chat-history/*": {
+      "types": "./dist/chat-history/*.d.ts",
+      "browser": "./dist/chat-history/*.js",
+      "development": "./dist/chat-history/*.js",
+      "import": "./dist/chat-history/*.js",
+      "default": "./dist/chat-history/*.js"
     },
     "./composer": {
       "types": "./dist/composer/index.d.ts",
@@ -173,6 +188,7 @@
     },
     "./migration-manifest.json": "./migration-manifest.json",
     "./styles.css": "./dist/styles.css",
+    "./chat-history.css": "./dist/chat-history.css",
     "./editor.css": "./dist/editor.css"
   },
   "publishConfig": {

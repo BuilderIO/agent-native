@@ -115,6 +115,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       '[aria-label="Run mode"]',
     );
     expect(trigger).not.toBeNull();
+    expect(
+      container.querySelector(".code-agents-multi-frontier-control"),
+    ).toContain(trigger);
+    expect(
+      trigger?.classList.contains("code-agents-multi-frontier-mode-select"),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Connect",
+      ),
+    ).toBeDefined();
     act(() => trigger?.focus());
     expect(document.activeElement).toBe(trigger);
 

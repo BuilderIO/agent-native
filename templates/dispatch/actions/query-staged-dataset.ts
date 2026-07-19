@@ -1,9 +1,4 @@
-import { defineAction } from "@agent-native/core";
-import { runAggregateQuery } from "@agent-native/core/provider-api/staged-datasets-aggregate";
-import {
-  getStagedDatasetMeta,
-  getStagedDatasetRows,
-} from "@agent-native/core/provider-api/staged-datasets-store";
+import { createQueryStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -37,7 +32,7 @@ const AggregateFieldSchema = z.object({
     .describe("Output column name. Default: {op}_{column}."),
 });
 
-export default defineAction({
+export default createQueryStagedDatasetAction({
   description:
     "Run a filter/aggregate/project query over a staged dataset previously written by provider-api-request (stageAs). Use after staging provider records, messages, documents, issues, events, or search results to count, group, filter, or project rows without re-fetching provider APIs.",
   schema: z.object({
@@ -82,45 +77,8 @@ export default defineAction({
       .optional()
       .describe("Maximum rows to return (default all, max 10000)."),
   }),
+  appId: DISPATCH_APP_ID,
+  getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
   http: false,
   readOnly: true,
-  run: async (args) => {
-    const ctx = getCredentialContext();
-    if (!ctx) {
-      throw new Error("No authenticated context for query-staged-dataset.");
-    }
-
-    const meta = await getStagedDatasetMeta({
-      id: args.datasetId,
-      appId: DISPATCH_APP_ID,
-      ownerEmail: ctx.userEmail,
-    });
-    if (!meta) {
-      throw new Error(
-        `Dataset ${args.datasetId} not found (or belongs to a different owner/app).`,
-      );
-    }
-
-    const rows = await getStagedDatasetRows({
-      id: args.datasetId,
-      appId: DISPATCH_APP_ID,
-      ownerEmail: ctx.userEmail,
-    });
-
-    const result = runAggregateQuery(rows, {
-      where: args.where,
-      groupBy: args.groupBy,
-      aggregate: args.aggregate,
-      select: args.select,
-      orderBy: args.orderBy,
-      orderDir: args.orderDir,
-      limit: args.limit,
-    });
-
-    return {
-      dataset: { id: meta.id, name: meta.name, totalRows: meta.rowCount },
-      rowCount: result.length,
-      rows: result,
-    };
-  },
 });

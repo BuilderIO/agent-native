@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
   resolveGoogleProviderCredentialCandidates,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
 
@@ -68,6 +70,47 @@ describe("resolveGoogleSignInCredentials", () => {
 
     expect(resolveGoogleProviderCredentialCandidates()).toEqual([
       { clientId: "provider-client", clientSecret: "provider-secret" },
+    ]);
+  });
+
+  it("uses scoped credentials before the injected legacy environment fallback", async () => {
+    const scoped = new Map([
+      ["GOOGLE_CLIENT_ID", "scoped-client"],
+      ["GOOGLE_CLIENT_SECRET", "scoped-secret"],
+    ]);
+    const fallback = new Map([
+      ["GOOGLE_CLIENT_ID", "environment-client"],
+      ["GOOGLE_CLIENT_SECRET", "environment-secret"],
+      ["GOOGLE_LEGACY_CLIENT_ID", "legacy-client"],
+      ["GOOGLE_LEGACY_CLIENT_SECRET", "legacy-secret"],
+    ]);
+
+    await expect(
+      resolveGoogleProviderCredentialCandidatesWithReader({
+        readCredential: async (key) => scoped.get(key),
+        fallbackReadCredential: (key) => fallback.get(key),
+      }),
+    ).resolves.toEqual([
+      { clientId: "scoped-client", clientSecret: "scoped-secret" },
+      { clientId: "legacy-client", clientSecret: "legacy-secret" },
+    ]);
+  });
+
+  it("does not mix incomplete injected credentials with a fallback pair", async () => {
+    await expect(
+      resolveGoogleProviderCredentialCandidatesWithReader({
+        readCredential: (key) =>
+          key === "GOOGLE_CLIENT_ID" ? "incomplete-scoped-client" : null,
+        fallbackReadCredential: (key) =>
+          key === "GOOGLE_CLIENT_ID"
+            ? "environment-client"
+            : key === "GOOGLE_CLIENT_SECRET"
+              ? "environment-secret"
+              : null,
+        credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+      }),
+    ).resolves.toEqual([
+      { clientId: "environment-client", clientSecret: "environment-secret" },
     ]);
   });
 });

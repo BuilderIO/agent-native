@@ -11,13 +11,6 @@ import {
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -44,8 +37,8 @@ import {
   IconArrowsExchange,
   IconBolt,
   IconChartBar,
+  IconChevronDown,
   IconDots,
-  IconLock,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerSkipForward,
@@ -247,14 +240,9 @@ export function MultiFrontierWorkspace({
       className="flex w-full max-w-3xl flex-col gap-4"
     >
       <header className="flex items-center justify-between gap-3">
-        <div>
-          <p id="multi-frontier-heading" className="text-sm font-medium">
-            Multi-Frontier
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Codex and Claude converge on one reviewed change.
-          </p>
-        </div>
+        <p id="multi-frontier-heading" className="text-sm font-medium">
+          Multi-Frontier
+        </p>
         {state ? <PhaseStatus phase={state.phase} round={state.round} /> : null}
       </header>
 
@@ -322,11 +310,9 @@ function SubscriptionSummary({
   onDefaultAutoContinueAfterAgreementChange?: (value: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-3 py-2">
       <p className="text-xs text-muted-foreground">
-        {allConnected
-          ? "Both subscription participants are ready."
-          : "Connect both subscription participants to continue."}
+        {allConnected ? "Participants ready" : "Connect subscriptions to begin"}
       </p>
       <MultiFrontierParticipantSettings
         statuses={statuses}
@@ -369,7 +355,12 @@ export function MultiFrontierParticipantSettings({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" size="sm" variant="outline" className="shrink-0">
+        <Button
+          type="button"
+          size="sm"
+          variant={allConnected ? "outline" : "default"}
+          className="shrink-0 whitespace-nowrap"
+        >
           {allConnected ? "Participants" : "Connect"}
         </Button>
       </PopoverTrigger>
@@ -378,14 +369,9 @@ export function MultiFrontierParticipantSettings({
         sideOffset={8}
         className="w-[min(32rem,calc(100vw-2rem))] p-3"
       >
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm font-medium">Subscription participants</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Sign in locally. No API key is needed.
-            </p>
-          </div>
-          <div className="grid gap-3">
+        <div className="space-y-2">
+          <p className="px-1 text-sm font-medium">Participants</p>
+          <div className="grid gap-1.5">
             {PROVIDERS.map((providerId) => (
               <SubscriptionCard
                 key={providerId}
@@ -397,38 +383,19 @@ export function MultiFrontierParticipantSettings({
               />
             ))}
           </div>
-          <Separator />
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Continue after agreement</Label>
-              <p className="text-xs text-muted-foreground">
-                {autoContinueAfterAgreement
-                  ? "Implementation starts after agreement."
-                  : "You will explicitly approve GO before implementation."}
-              </p>
-            </div>
-            {onAutoContinueAfterAgreementChange ? (
-              <Switch
-                checked={autoContinueAfterAgreement}
-                disabled={busy}
-                onCheckedChange={onAutoContinueAfterAgreementChange}
-                aria-label="Continue automatically after agreement"
-              />
-            ) : (
-              <span className="text-xs font-medium">
-                {autoContinueAfterAgreement ? "On" : "Explicit GO"}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
-            <Label className="text-xs">Use for new runs by default</Label>
-            <Switch
-              checked={defaultAutoContinueAfterAgreement}
-              disabled={busy || !onDefaultAutoContinueAfterAgreementChange}
-              onCheckedChange={onDefaultAutoContinueAfterAgreementChange}
-              aria-label="Continue automatically after agreement by default"
-            />
-          </div>
+          <RunPreferences
+            busy={busy}
+            autoContinueAfterAgreement={autoContinueAfterAgreement}
+            defaultAutoContinueAfterAgreement={
+              defaultAutoContinueAfterAgreement
+            }
+            onAutoContinueAfterAgreementChange={
+              onAutoContinueAfterAgreementChange
+            }
+            onDefaultAutoContinueAfterAgreementChange={
+              onDefaultAutoContinueAfterAgreementChange
+            }
+          />
         </div>
       </PopoverContent>
     </Popover>
@@ -451,71 +418,140 @@ function SubscriptionCard({
   const copy = PROVIDER_COPY[providerId];
   const connected = status?.connectionState === "connected";
   const plan = status?.plan?.label ?? status?.plan?.type;
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="gap-2 p-4 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              className={`size-2 shrink-0 rounded-full ${copy.accent}`}
-              aria-hidden="true"
-            />
-            <div className="min-w-0">
-              <CardTitle className="text-sm">{copy.label}</CardTitle>
-              <CardDescription className="mt-0.5 text-xs">
-                {copy.subscription}
-              </CardDescription>
-            </div>
-          </div>
-          <ConnectionBadge status={status} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-0">
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-muted-foreground">Plan</span>
-          <span className="truncate font-medium">
-            {plan ?? "Not connected"}
-          </span>
-        </div>
-        <p className="text-xs leading-5 text-muted-foreground">
+    <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+      <div className="rounded-xl bg-muted/50 p-1">
+        <p id={`${providerId}-subscription-status`} className="sr-only">
           {usageSummary(status)}
         </p>
-        <div className="flex items-center justify-between gap-2">
-          {connected ? (
-            <UsagePopover providerId={providerId} status={status} />
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              Sign in locally; no API key needed.
-            </span>
-          )}
-          <div className="ml-auto flex shrink-0 gap-1.5">
+        <div className="flex items-center gap-1">
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-9 min-w-0 flex-1 justify-start gap-2 rounded-lg px-2 text-left"
+              aria-label={`${detailsOpen ? "Hide" : "Show"} ${copy.label} subscription details`}
+              aria-describedby={`${providerId}-subscription-status`}
+            >
+              <span
+                className={`size-2 shrink-0 rounded-full ${copy.accent}`}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                {copy.label}
+              </span>
+              <ConnectionBadge status={status} />
+              <IconChevronDown
+                className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] ${detailsOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </Button>
+          </CollapsibleTrigger>
+          {!connected ? (
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              disabled={busy || !onConnect}
+              onClick={() => onConnect?.(providerId)}
+            >
+              Connect
+            </Button>
+          ) : null}
+        </div>
+        <CollapsibleContent className="px-2 pb-2 pt-1.5">
+          <div className="space-y-3 border-t border-border/60 px-1 pt-2.5">
+            <p className="text-xs text-muted-foreground">{copy.subscription}</p>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">Plan</span>
+              <span className="truncate font-medium">
+                {plan ?? "Not connected"}
+              </span>
+            </div>
             {connected ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={busy || !onRefresh}
-                onClick={() => onRefresh?.(providerId)}
-                aria-label={`Refresh ${copy.label} subscription status`}
-              >
-                <IconRefresh aria-hidden="true" />
-                Refresh
-              </Button>
+              <div className="flex items-center justify-between gap-2">
+                <UsagePopover providerId={providerId} status={status} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={busy || !onRefresh}
+                  onClick={() => onRefresh?.(providerId)}
+                  aria-label={`Refresh ${copy.label} subscription status`}
+                >
+                  <IconRefresh aria-hidden="true" />
+                </Button>
+              </div>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy || !onConnect}
-                onClick={() => onConnect?.(providerId)}
-              >
-                Connect
-              </Button>
+              <p className="text-xs text-muted-foreground">
+                Sign in through the local CLI. No API key is needed.
+              </p>
             )}
           </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function RunPreferences({
+  busy,
+  autoContinueAfterAgreement,
+  defaultAutoContinueAfterAgreement,
+  onAutoContinueAfterAgreementChange,
+  onDefaultAutoContinueAfterAgreementChange,
+}: {
+  busy: boolean;
+  autoContinueAfterAgreement: boolean;
+  defaultAutoContinueAfterAgreement: boolean;
+  onAutoContinueAfterAgreementChange?: (value: boolean) => void;
+  onDefaultAutoContinueAfterAgreementChange?: (value: boolean) => void;
+}) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-between px-2 text-xs text-muted-foreground"
+        >
+          Run preferences
+          <IconChevronDown className="size-3.5" aria-hidden="true" />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-2 pb-1 pt-1">
+        <div className="space-y-3 border-t border-border/60 pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-xs">Continue automatically</Label>
+            {onAutoContinueAfterAgreementChange ? (
+              <Switch
+                checked={autoContinueAfterAgreement}
+                disabled={busy}
+                onCheckedChange={onAutoContinueAfterAgreementChange}
+                aria-label="Continue automatically after agreement"
+              />
+            ) : (
+              <span className="text-xs font-medium">
+                {autoContinueAfterAgreement ? "On" : "Explicit GO"}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-xs">Use for new runs</Label>
+            <Switch
+              checked={defaultAutoContinueAfterAgreement}
+              disabled={busy || !onDefaultAutoContinueAfterAgreementChange}
+              onCheckedChange={onDefaultAutoContinueAfterAgreementChange}
+              aria-label="Continue automatically after agreement by default"
+            />
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -545,26 +581,19 @@ function UsagePopover({
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={8} className="w-80 p-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium">
-              {PROVIDER_COPY[providerId].label} plan usage
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {telemetry.state === "live"
-                ? "Live subscription telemetry"
-                : usageSummary(status)}
-            </p>
-          </div>
+          <p className="text-sm font-medium">
+            {PROVIDER_COPY[providerId].label} usage
+          </p>
           {telemetry.state === "stale" ? (
             <Badge variant="outline">Stale</Badge>
           ) : null}
         </div>
         <Separator className="my-3" />
         {isClaudeDegraded ? (
-          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm leading-5 text-muted-foreground">
-            Claude is connected and ready to participate. Live plan usage is not
-            exposed to non-interactive Claude Code sessions.
-          </div>
+          <p className="text-sm leading-5 text-muted-foreground">
+            Claude is ready to participate, but live plan usage is unavailable
+            in non-interactive Claude Code sessions.
+          </p>
         ) : telemetry.meters.length > 0 ? (
           <div className="space-y-3">
             {telemetry.meters.map((meter) => (
@@ -672,20 +701,11 @@ function Credits({
 
 function SetupPanel({ allConnected }: { allConnected: boolean }) {
   return (
-    <div className="space-y-3 rounded-md border border-border p-3">
-      {!allConnected ? (
-        <div className="flex items-start gap-2 text-sm text-muted-foreground">
-          <IconLock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <p>
-            Connect both subscriptions above before starting a collaboration.
-          </p>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Describe the change in the composer above to start a collaboration.
-        </p>
-      )}
-    </div>
+    <p className="text-sm text-muted-foreground">
+      {allConnected
+        ? "Describe the change in the composer to begin."
+        : "Connect both subscriptions to begin."}
+    </p>
   );
 }
 
@@ -724,7 +744,7 @@ function CollaborationPanel({
   const [recoveryPrompt, setRecoveryPrompt] = useState("");
 
   return (
-    <div className="space-y-3 rounded-md border border-border p-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <ParticipantBadges participants={state.participants} />
         <div className="flex items-center gap-1.5">
@@ -880,10 +900,7 @@ function CollaborationPanel({
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-2">
           {state.artifacts.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Evidence will appear as the participants propose, review, and
-              checkpoint work.
-            </p>
+            <p className="text-xs text-muted-foreground">No evidence yet.</p>
           ) : (
             <ol className="space-y-2" aria-label="Collaboration evidence">
               {state.artifacts.map((artifact) => (
@@ -936,7 +953,7 @@ function ParticipantBadges({
       {participants.map((participant) => (
         <Badge
           key={participant.participantId}
-          variant="outline"
+          variant="secondary"
           className="gap-1 px-1.5 py-0 text-[10px]"
         >
           <span
@@ -956,7 +973,7 @@ function Notice({ notice }: { notice: MultiFrontierNotice }) {
     <div
       role={destructive ? "alert" : "status"}
       aria-live={destructive ? "assertive" : "polite"}
-      className={`flex items-start gap-2 rounded-md border p-3 text-sm ${destructive ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-border bg-muted/40 text-muted-foreground"}`}
+      className={`flex items-start gap-2 rounded-xl p-3 text-sm ${destructive ? "bg-destructive/10 text-destructive" : "bg-muted/50 text-muted-foreground"}`}
     >
       {destructive ? (
         <IconAlertTriangle

@@ -63,6 +63,11 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    - Re-run `agent-native upgrade` or `pnpm typecheck`
    - Stop and ask the user if you cannot fix the app-level error
 
+   Intentional app-level UI customization is a separate workflow. Read
+   `customizing-agent-native` when the product needs to own a selectively
+   copied component; do not use that path to reproduce framework runtime
+   behavior or hide version skew.
+
 4. **Dry-run / partial runs**
 
    ```bash
@@ -91,4 +96,5 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 - **self-modifying-code** — Tier 4: framework packages are off limits
 - **agent-native-docs** — version-matched docs after the bump
+- **customizing-agent-native** — intentional app-owned UI copies, not upgrade patches
 - **portability** — keep app code provider-agnostic across upgrades

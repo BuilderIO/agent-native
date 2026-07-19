@@ -65,15 +65,15 @@ lifecycle behavior are additionally proven from the packaged app binary here.
 
 Status as of 2026-07-19 after the Phase 2 coordinator/runtime/IPC commit:
 
-| Property | Status | Evidence and boundary |
-| --- | --- | --- |
-| Generation fencing and recovery | Proven through the local coordinator and store contract | Multi-Frontier store and coordinator specs reject stale generations and event conflicts, prevent terminal-state regression and failed-driver promotion, and recover interrupted participants as paused, read-only, and lease-revoked. Explicit resume never replays a prior turn. |
-| Atomic replacement | Proven for single-writer corruption resistance | Same-directory temporary files are renamed over JSON records and cleanup is tested. The helpers do not call `fsync`; durability through a sudden power loss is explicitly deferred for local desktop v1. |
-| Sole-writer ownership | Proven through the local coordinator and durable store boundary | Shared `O_EXCL` arbitration covers Electron and runner-child updates to legacy run records and transcripts. An OS-process test applies eight concurrent record patches without field loss. The committed coordinator accepts only one Codex/Codex CLI and one Claude/Claude Code participant, grants `workspace_write` only to the current fenced driver generation, and serializes state and event mutation. |
-| Idempotent event append | Proven across processes for stable ids; legacy caller adoption partial | Concurrent OS processes appending the same stable id produce exactly one Code transcript line and one Multi-Frontier event line. Reused Multi-Frontier ids with different payloads remain conflicts. Most legacy single-agent production callers still generate fresh ids, so retry-level deduplication there remains follow-up work. |
-| Bounded Multi-Frontier renderer IPC | Proven for count and serialized bytes | Requests, snapshots, and events are rejected above 64 KiB. Normalized event text is capped at 16 KiB, artifact summaries at 8 KiB, subscription telemetry at eight meters per provider, and subscribe snapshots at 12 artifacts. Live collaboration subscriptions forward one normalized event at a time through the same bounded contract. |
-| Additive schema | Proven at library level | The Multi-Frontier record and event schema is additive and isolated from legacy run records. |
-| Persisted payload allowlist and retention | Proven for Multi-Frontier coordination artifacts and event tails | Proposal, review, and checkpoint records accept only bounded summary fields, safe file references, hashes, and test summaries. Provider payloads, raw diffs, and account identifiers are not fields in the durable contract. Event journals compact to a bounded contiguous tail with an explicit snapshot-required replay marker; artifacts stop at a per-run cap instead of silently evicting active records. Legacy single-agent records remain outside this new allowlist. |
+| Property                                  | Status                                                                 | Evidence and boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Generation fencing and recovery           | Proven through the local coordinator and store contract                | Multi-Frontier store and coordinator specs reject stale generations and event conflicts, prevent terminal-state regression and failed-driver promotion, and recover interrupted participants as paused, read-only, and lease-revoked. Explicit resume never replays a prior turn.                                                                                                                                                                                              |
+| Atomic replacement                        | Proven for single-writer corruption resistance                         | Same-directory temporary files are renamed over JSON records and cleanup is tested. The helpers do not call `fsync`; durability through a sudden power loss is explicitly deferred for local desktop v1.                                                                                                                                                                                                                                                                       |
+| Sole-writer ownership                     | Proven through the local coordinator and durable store boundary        | Shared `O_EXCL` arbitration covers Electron and runner-child updates to legacy run records and transcripts. An OS-process test applies eight concurrent record patches without field loss. The committed coordinator accepts only one Codex/Codex CLI and one Claude/Claude Code participant, grants `workspace_write` only to the current fenced driver generation, and serializes state and event mutation.                                                                  |
+| Idempotent event append                   | Proven across processes for stable ids; legacy caller adoption partial | Concurrent OS processes appending the same stable id produce exactly one Code transcript line and one Multi-Frontier event line. Reused Multi-Frontier ids with different payloads remain conflicts. Most legacy single-agent production callers still generate fresh ids, so retry-level deduplication there remains follow-up work.                                                                                                                                          |
+| Bounded Multi-Frontier renderer IPC       | Proven for count and serialized bytes                                  | Requests, snapshots, and events are rejected above 64 KiB. Normalized event text is capped at 16 KiB, artifact summaries at 8 KiB, subscription telemetry at eight meters per provider, and subscribe snapshots at 12 artifacts. Live collaboration subscriptions forward one normalized event at a time through the same bounded contract.                                                                                                                                    |
+| Additive schema                           | Proven at library level                                                | The Multi-Frontier record and event schema is additive and isolated from legacy run records.                                                                                                                                                                                                                                                                                                                                                                                   |
+| Persisted payload allowlist and retention | Proven for Multi-Frontier coordination artifacts and event tails       | Proposal, review, and checkpoint records accept only bounded summary fields, safe file references, hashes, and test summaries. Provider payloads, raw diffs, and account identifiers are not fields in the durable contract. Event journals compact to a bounded contiguous tail with an explicit snapshot-required replay marker; artifacts stop at a per-run cap instead of silently evicting active records. Legacy single-agent records remain outside this new allowlist. |
 
 This ledger intentionally distinguishes a library proof from an installed-app or
 multi-process proof. A property does not advance to proven merely because the
@@ -341,36 +341,36 @@ Runtime permission proofs:
 
 Helper record:
 
-| Slice | Requested model | Effective model |
-| --- | --- | --- |
-| Codex subscription adapter | `gpt-5.6-terra` | Not exposed by worker runtime |
+| Slice                                                    | Requested model | Effective model               |
+| -------------------------------------------------------- | --------------- | ----------------------------- |
+| Codex subscription adapter                               | `gpt-5.6-terra` | Not exposed by worker runtime |
 | Claude subscription research and abandoned sidecar spike | `gpt-5.6-terra` | Not exposed by worker runtime |
-| Claude participant permission proof | `gpt-5.6-terra` | Not exposed by worker runtime |
-| Codex participant permission proof | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Cross-process persistence arbitration | `gpt-5.6-terra` | Not exposed by worker runtime |
-| Renderer byte cap | `gpt-5.6-terra` | Not exposed by worker runtime |
-| Phase 2 store and artifact contract | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Phase 2 coordinator contract | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Renderer-safe Multi-Frontier IPC contract | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Participant cancellation, env, and stream hardening | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Electron persistence crash containment | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Phase 2 contract audit | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Runtime and IPC wiring map | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Subscription privacy and adapter hardening | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Core durable transition boundary | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Phase 2 lifecycle and resume race review | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Desktop Multi-Frontier workspace UI | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Packet #5 green review | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Live manager and real coordinator integration | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Checkpoint disposition and recovery loop | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Optional read-only helper gateway | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Accessibility and release-gap audit | `gpt-5.6-terra` | Not exposed by worker runtime |
-| Phase 3-6 completeness audit | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Final security audit | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Packaged Multi-Frontier smoke | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Packet #7 anti-anchoring and credential regressions | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Live provider-status event and verification matrix | `gpt-5.6-terra` | `gpt-5.6-terra` |
-| Lifecycle concurrency fix and final re-audit | `gpt-5.6-terra` | `gpt-5.6-terra` |
+| Claude participant permission proof                      | `gpt-5.6-terra` | Not exposed by worker runtime |
+| Codex participant permission proof                       | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Cross-process persistence arbitration                    | `gpt-5.6-terra` | Not exposed by worker runtime |
+| Renderer byte cap                                        | `gpt-5.6-terra` | Not exposed by worker runtime |
+| Phase 2 store and artifact contract                      | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Phase 2 coordinator contract                             | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Renderer-safe Multi-Frontier IPC contract                | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Participant cancellation, env, and stream hardening      | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Electron persistence crash containment                   | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Phase 2 contract audit                                   | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Runtime and IPC wiring map                               | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Subscription privacy and adapter hardening               | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Core durable transition boundary                         | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Phase 2 lifecycle and resume race review                 | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Desktop Multi-Frontier workspace UI                      | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Packet #5 green review                                   | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Live manager and real coordinator integration            | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Checkpoint disposition and recovery loop                 | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Optional read-only helper gateway                        | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Accessibility and release-gap audit                      | `gpt-5.6-terra` | Not exposed by worker runtime |
+| Phase 3-6 completeness audit                             | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Final security audit                                     | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Packaged Multi-Frontier smoke                            | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Packet #7 anti-anchoring and credential regressions      | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Live provider-status event and verification matrix       | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Lifecycle concurrency fix and final re-audit             | `gpt-5.6-terra` | `gpt-5.6-terra`               |
 
 ## Hosted v2 prerequisite
 

@@ -25,6 +25,10 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and this `AGENTS.md` plus `.agents/skills/` for
 workspace-specific conventions.
+Read `customizing-agent-native` before adapting shared UI: configure or compose
+public components first, then copy only the smallest reference UI piece into
+the owning app when necessary. Never edit `node_modules` or replace shared
+runtime contracts.
 
 ## Shared Context
 

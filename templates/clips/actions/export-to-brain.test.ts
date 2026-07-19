@@ -7,6 +7,10 @@ const mocks = vi.hoisted(() => ({
   getAppProductionUrl: vi.fn(),
   getCredentialContext: vi.fn(),
   getCurrentOwnerEmail: vi.fn(),
+  meetings: {
+    recordingId: "meetings.recordingId",
+  },
+  meetingShares: {},
   ownerEmailMatches: vi.fn(),
   resolveCredential: vi.fn(),
   select: vi.fn(),
@@ -38,9 +42,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ select: mocks.select }),
   schema: {
-    meetings: {
-      recordingId: "meetings.recordingId",
-    },
+    meetings: mocks.meetings,
+    meetingShares: mocks.meetingShares,
     meetingParticipants: {
       meetingId: "meetingParticipants.meetingId",
       createdAt: "meetingParticipants.createdAt",
@@ -223,6 +226,10 @@ describe("export-to-brain", () => {
       externalId: "clips:recording:recording-1",
       sourceUrl: "https://clips.example.test/r/recording-1",
     });
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      mocks.meetings,
+      mocks.meetingShares,
+    );
   });
 
   it("reports privacy quarantine instead of claiming export success", async () => {

@@ -953,14 +953,14 @@ export function MultiFrontierModeControl({
       ? "plan"
       : "auto";
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="code-agents-multi-frontier-control">
       <Select
         value={value}
         disabled={busy || modeLocked}
         onValueChange={onModeChange}
       >
         <SelectTrigger
-          className="code-agents-mode-select"
+          className="code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"
         >
           <SelectValue />

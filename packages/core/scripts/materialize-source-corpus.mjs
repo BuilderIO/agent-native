@@ -261,6 +261,7 @@ function writeCorpusReadme(stats, baseDir) {
     "## Contents",
     "",
     "- `core/` -- source and package files for `@agent-native/core`.",
+    "- `toolkit/` -- source and package files for `@agent-native/toolkit`.",
     "- `templates/` -- source-only copies of first-party Agent Native templates.",
     "",
     "Runtime data, local env files, dependency folders, caches, tests, and build",
@@ -282,6 +283,7 @@ function writeCorpusReadme(stats, baseDir) {
     "## Generated Counts",
     "",
     `- core files: ${stats.coreFiles}`,
+    `- toolkit files: ${stats.toolkitFiles}`,
     `- template files: ${stats.templateFiles}`,
     "",
   ];
@@ -352,10 +354,15 @@ export function materializeSourceCorpus() {
   mkdirSync(tempDir, { recursive: true });
 
   const coreStats = copySourceFiles("packages/core", "core", tempDir);
+  const toolkitStats = copySourceFiles("packages/toolkit", "toolkit", tempDir);
   const templateStats = copySourceFiles("templates", "templates", tempDir);
 
   writeCorpusReadme(
-    { coreFiles: coreStats.files, templateFiles: templateStats.files },
+    {
+      coreFiles: coreStats.files,
+      toolkitFiles: toolkitStats.files,
+      templateFiles: templateStats.files,
+    },
     tempDir,
   );
 
@@ -366,7 +373,7 @@ export function materializeSourceCorpus() {
     ? ""
     : " (accepted a concurrent run's equivalent corpus)";
   console.log(
-    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${templateStats.files} template files).${note}`,
+    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${toolkitStats.files} toolkit files, ${templateStats.files} template files).${note}`,
   );
 }
 

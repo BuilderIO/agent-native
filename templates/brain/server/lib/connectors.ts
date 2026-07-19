@@ -20,6 +20,10 @@ import {
   stableJson,
 } from "./brain.js";
 import {
+  ensureSlackPublicChannelMembership,
+  type SlackChannelJoinResponse,
+} from "./slack-channel-membership.js";
+import {
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
 } from "./source-credentials.js";
@@ -186,6 +190,7 @@ interface SlackChannel {
   is_group?: boolean;
   is_archived?: boolean;
   is_private?: boolean;
+  is_member?: boolean;
 }
 
 interface SlackMessage {
@@ -837,10 +842,31 @@ async function slackApi<T>(
   token: string,
   method: string,
   params: Record<string, string | number | boolean | null | undefined> = {},
+  options: {
+    httpMethod?: "GET" | "POST";
+    toleratedErrors?: readonly string[];
+  } = {},
 ): Promise<T> {
-  const url = buildUrl(`https://slack.com/api/${method}`, params);
+  const httpMethod = options.httpMethod ?? "GET";
+  const url = buildUrl(
+    `https://slack.com/api/${method}`,
+    httpMethod === "GET" ? params : {},
+  );
+  const body = new URLSearchParams();
+  if (httpMethod === "POST") {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== null && value !== undefined) body.set(key, String(value));
+    }
+  }
   const response = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${token}` },
+    method: httpMethod,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(httpMethod === "POST"
+        ? { "Content-Type": "application/x-www-form-urlencoded" }
+        : {}),
+    },
+    ...(httpMethod === "POST" ? { body } : {}),
   });
   if (response.status === 429) {
     throw new ConnectorRateLimitError(
@@ -861,6 +887,9 @@ async function slackApi<T>(
   if (data.ok === false) {
     if (data.error === "ratelimited") {
       throw new ConnectorRateLimitError("slack", method, 60);
+    }
+    if (data.error && options.toleratedErrors?.includes(data.error)) {
+      return data as T;
     }
     const details = [
       data.needed ? `needed: ${data.needed}` : null,
@@ -2169,6 +2198,8 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     capturesCreated: 0,
     threadsFetched: 0,
     sensitivityBlocked: 0,
+    publicChannelsJoined: 0,
+    publicChannelsAlreadyJoined: 0,
     rateLimited: false,
   };
 
@@ -2252,6 +2283,25 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     let permalinkCalls = 0;
 
     for (const channel of channelsToScan) {
+      const membership = await ensureSlackPublicChannelMembership(
+        channel,
+        (channelId) =>
+          slackApi<SlackChannelJoinResponse>(
+            token,
+            "conversations.join",
+            { channel: channelId },
+            {
+              httpMethod: "POST",
+              toleratedErrors: ["already_in_channel"],
+            },
+          ),
+      );
+      if (membership === "joined") {
+        stats.publicChannelsJoined = Number(stats.publicChannelsJoined) + 1;
+      } else if (membership === "already_member") {
+        stats.publicChannelsAlreadyJoined =
+          Number(stats.publicChannelsAlreadyJoined) + 1;
+      }
       const privateMemberEmails = channel.is_private
         ? await slackPrivateChannelMemberEmails(
             token,

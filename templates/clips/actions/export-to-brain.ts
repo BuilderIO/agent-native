@@ -210,7 +210,12 @@ async function buildPayload(
   const [meeting] = await db
     .select()
     .from(schema.meetings)
-    .where(eq(schema.meetings.recordingId, recording.id))
+    .where(
+      and(
+        eq(schema.meetings.recordingId, recording.id),
+        accessFilter(schema.meetings, schema.meetingShares),
+      ),
+    )
     .limit(1);
   const [participants, tags] = await Promise.all([
     meeting
