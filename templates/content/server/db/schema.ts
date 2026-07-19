@@ -1275,3 +1275,78 @@ export const contentEncryptedVaultCiphertextStaging = table(
     ),
   ],
 );
+
+/**
+ * Content-free control ledger for an explicit Standard Cloud migration.
+ * Source plaintext remains in the existing document tables until the user has
+ * verified every ciphertext object, an independent export, and recovery.
+ */
+export const contentEncryptedVaultMigrations = table(
+  "content_encrypted_vault_migrations",
+  {
+    migrationId: text("migration_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    version: integer("version").notNull().default(1),
+    state: text("state").notNull().default("preflight"),
+    sourceSnapshotHash: text("source_snapshot_hash").notNull(),
+    sourceCount: integer("source_count").notNull(),
+    verifiedCount: integer("verified_count").notNull().default(0),
+    exportBundleHash: text("export_bundle_hash"),
+    exportVerifiedAt: text("export_verified_at"),
+    recoveryDrillVerifiedAt: text("recovery_drill_verified_at"),
+    backupRetentionAcknowledgedAt: text("backup_retention_acknowledged_at"),
+    cutoverAt: text("cutover_at"),
+    cleanupAt: text("cleanup_at"),
+    rolledBackAt: text("rolled_back_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (migration) => [
+    index("content_encrypted_vault_migrations_scope_state_idx").on(
+      migration.ownerEmail,
+      migration.orgId,
+      migration.vaultId,
+      migration.state,
+    ),
+  ],
+);
+
+/** Exact source-to-ciphertext commitments for the frozen migration snapshot. */
+export const contentEncryptedVaultMigrationItems = table(
+  "content_encrypted_vault_migration_items",
+  {
+    id: text("id").primaryKey(),
+    migrationId: text("migration_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    sourceDocumentId: text("source_document_id").notNull(),
+    parentSourceDocumentId: text("parent_source_document_id"),
+    objectId: text("object_id").notNull(),
+    sourceDigest: text("source_digest").notNull(),
+    state: text("state").notNull().default("pending"),
+    sealedRevisionId: text("sealed_revision_id"),
+    sealedCiphertextHash: text("sealed_ciphertext_hash"),
+    verifiedAt: text("verified_at"),
+    cleanupAt: text("cleanup_at"),
+  },
+  (item) => [
+    uniqueIndex("content_encrypted_vault_migration_items_source_unique").on(
+      item.migrationId,
+      item.sourceDocumentId,
+    ),
+    uniqueIndex("content_encrypted_vault_migration_items_object_unique").on(
+      item.migrationId,
+      item.objectId,
+    ),
+    index("content_encrypted_vault_migration_items_scope_state_idx").on(
+      item.ownerEmail,
+      item.orgId,
+      item.vaultId,
+      item.migrationId,
+      item.state,
+    ),
+  ],
+);

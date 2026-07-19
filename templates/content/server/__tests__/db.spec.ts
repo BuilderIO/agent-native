@@ -201,7 +201,7 @@ describe("content database migrations", () => {
     expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
     expect(
       source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
-    ).toHaveLength(15);
+    ).toHaveLength(17);
     expect(source).toContain(
       "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
@@ -221,6 +221,32 @@ describe("content database migrations", () => {
     expect(source).toContain(
       "REFERENCES content_encrypted_vault_jobs(job_id, vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
+  });
+
+  it("adds an explicit content-free Private Vault migration ledger", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const start = source.indexOf(
+      'name: "content-private-vault-migration-ledger"',
+    );
+    const migration = source.slice(start, source.indexOf("`,\n    },", start));
+
+    expect(source).toContain("version: 92");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_migrations",
+    );
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_migration_items",
+    );
+    expect(migration).toContain("source_snapshot_hash TEXT NOT NULL");
+    expect(migration).toContain("sealed_ciphertext_hash TEXT");
+    expect(migration).toContain("backup_retention_acknowledged_at TEXT");
+    expect(migration).not.toMatch(
+      /source_title|source_content|plaintext_body|recovery_phrase|private_key/i,
+    );
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|RENAME TO/i);
   });
 
   it("adds the bounded endpoint-mediated enrollment rendezvous", () => {

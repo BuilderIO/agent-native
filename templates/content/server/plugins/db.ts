@@ -1346,6 +1346,60 @@ const runContentMigrations = runMigrations(
       sql: `ALTER TABLE content_encrypted_vault_ciphertext_staging
         ADD COLUMN IF NOT EXISTS grant_id TEXT`,
     },
+    {
+      version: 92,
+      name: "content-private-vault-migration-ledger",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_migrations (
+        migration_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        state TEXT NOT NULL DEFAULT 'preflight',
+        source_snapshot_hash TEXT NOT NULL,
+        source_count INTEGER NOT NULL,
+        verified_count INTEGER NOT NULL DEFAULT 0,
+        export_bundle_hash TEXT,
+        export_verified_at TEXT,
+        recovery_drill_verified_at TEXT,
+        backup_retention_acknowledged_at TEXT,
+        cutover_at TEXT,
+        cleanup_at TEXT,
+        rolled_back_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_migrations_scope_state_idx
+        ON content_encrypted_vault_migrations (owner_email, org_id, vault_id, state);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_migration_items (
+        id TEXT PRIMARY KEY,
+        migration_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        source_document_id TEXT NOT NULL,
+        parent_source_document_id TEXT,
+        object_id TEXT NOT NULL,
+        source_digest TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'pending',
+        sealed_revision_id TEXT,
+        sealed_ciphertext_hash TEXT,
+        verified_at TEXT,
+        cleanup_at TEXT,
+        FOREIGN KEY (migration_id) REFERENCES content_encrypted_vault_migrations(migration_id) ON DELETE CASCADE,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_migration_items_source_unique
+        ON content_encrypted_vault_migration_items (migration_id, source_document_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_migration_items_object_unique
+        ON content_encrypted_vault_migration_items (migration_id, object_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_migration_items_scope_state_idx
+        ON content_encrypted_vault_migration_items (owner_email, org_id, vault_id, migration_id, state)`,
+    },
   ],
   { table: "content_migrations" },
 );
