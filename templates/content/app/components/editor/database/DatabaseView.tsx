@@ -1,12 +1,11 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  agentNativePath,
-  getBrowserTabId,
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -116,6 +115,7 @@ import {
   IconGripVertical,
   IconLayoutKanban,
   IconLayoutGrid,
+  IconLayoutSidebar,
   IconList,
   IconLock,
   IconMinus,
@@ -248,6 +248,7 @@ import { VisualEditor } from "../VisualEditor";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
+import { DatabaseSidebarView } from "./sidebar";
 import { DatabaseTimelineView } from "./TimelineView";
 
 export interface DatabaseViewProps {
@@ -307,6 +308,7 @@ const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "timeline",
   "calendar",
   "form",
+  "sidebar",
 ];
 const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "preview",
@@ -2010,6 +2012,27 @@ function DatabaseTable({
     orderedProperties,
     visibleItems,
   ]);
+  const sidebarGroups = useMemo(
+    () =>
+      databaseVisibleGroups(
+        databaseViewItemGroups(
+          visibleItems,
+          orderedProperties,
+          activeView.groupByPropertyId,
+        ),
+        activeView.hideEmptyGroups === true,
+      ),
+    [
+      activeView.groupByPropertyId,
+      activeView.hideEmptyGroups,
+      orderedProperties,
+      visibleItems,
+    ],
+  );
+  const sidebarIsGrouped = useMemo(
+    () => !!databaseViewGroupingProperty(activeView, orderedProperties),
+    [activeView, orderedProperties],
+  );
 
   useEffect(() => {
     if (!data?.database.id) return;
@@ -2432,6 +2455,22 @@ function DatabaseTable({
           onPreview={previewItemPage}
           onDeletedPreviewItem={handleDeletedPreviewItem}
           onOpenPage={openItemPage}
+        />
+      ) : activeView.type === "sidebar" ? (
+        <DatabaseSidebarView
+          key={activeView.id}
+          groups={sidebarGroups}
+          grouped={sidebarIsGrouped}
+          isLoading={isDatabaseViewLoading}
+          hasActiveConstraints={hasResultConstraints}
+          openPagesIn={activeView.openPagesIn ?? "preview"}
+          loadingLabel={dbText("loadingList")}
+          noMatchesLabel={dbText("noRowsMatchThisView")}
+          clearLabel={dbText("clearSearchAndFilters")}
+          navigationLabel={dbText("databasePagePreview")}
+          untitledLabel={dbText("untitled")}
+          onClearResultConstraints={clearSearchAndFilters}
+          onPreview={previewItemPage}
         />
       ) : activeView.type === "list" ? (
         <DatabaseListView
@@ -7625,20 +7664,19 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onAddDetails={() =>
-          secondary
-            ? onNavPush({
-                kind: "keyConfirm",
-                candidate: {
-                  sourceType: secondary.sourceType,
-                  sourceName: secondary.sourceName,
-                  sourceTable: secondary.sourceTable,
-                  displayName: secondary.sourceName,
-                  existingSourceId: secondary.id,
-                },
-              })
-            : undefined
-        }
+        onAddDetails={() => {
+          if (!secondary || secondary.sourceType === "local-folder") return;
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: secondary.sourceType,
+              sourceName: secondary.sourceName,
+              sourceTable: secondary.sourceTable,
+              displayName: secondary.sourceName,
+              existingSourceId: secondary.id,
+            },
+          });
+        }}
         onAddItems={async () => {
           if (!secondary) return;
           await onChangeSourceRole(secondary.id, "items");
@@ -8151,12 +8189,17 @@ function DatabaseSettingsSourcePanel({
 
         <SourceRoleCard
           source={selectedSource}
-          canAddDetails={sources.some(
-            (item) => item.id !== selectedSource.id && !sourceAddsDetails(item),
-          )}
+          canAddDetails={
+            selectedSource.sourceType !== "local-folder" &&
+            sources.some(
+              (item) =>
+                item.id !== selectedSource.id && !sourceAddsDetails(item),
+            )
+          }
           canEdit={canEdit}
           pending={selectedSourceRoleControlPending}
-          onAddDetails={() =>
+          onAddDetails={() => {
+            if (selectedSource.sourceType === "local-folder") return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -8166,8 +8209,8 @@ function DatabaseSettingsSourcePanel({
                 displayName: selectedSource.sourceName,
                 existingSourceId: selectedSource.id,
               },
-            })
-          }
+            });
+          }}
           onAddItems={async () => {
             await onChangeSourceRole(selectedSource.id, "items");
             onNavReplace([]);
@@ -12988,7 +13031,8 @@ function normalizeClientDatabaseView(
     value.type === "gallery" ||
     value.type === "calendar" ||
     value.type === "timeline" ||
-    value.type === "form"
+    value.type === "form" ||
+    value.type === "sidebar"
       ? value.type
       : "table";
   return createDatabaseView(
@@ -13524,6 +13568,7 @@ function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "calendar") return IconCalendar;
   if (type === "timeline") return IconTimeline;
   if (type === "form") return IconForms;
+  if (type === "sidebar") return IconLayoutSidebar;
   return IconTable;
 }
 
@@ -13534,6 +13579,7 @@ function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
   if (type === "form") return "Form";
+  if (type === "sidebar") return "Sidebar";
   return "Table";
 }
 
@@ -13584,7 +13630,8 @@ export function databaseViewGroupingProperty(
   if (
     view.type !== "table" &&
     view.type !== "list" &&
-    view.type !== "gallery"
+    view.type !== "gallery" &&
+    view.type !== "sidebar"
   ) {
     return null;
   }

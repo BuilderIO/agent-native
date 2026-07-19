@@ -39,6 +39,7 @@ const esES = {
   theme: {
     light: "claro",
     dark: "oscuro",
+    toggle: "Cambiar tema",
     label: "Tema: {{theme}}",
   },
   docs: {
@@ -1476,6 +1477,8 @@ const esES = {
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Resumen",
     toolkitUiPrimitives: "Primitivas de UI",
+    toolkitEditorsCanvases: "Editores y lienzos",
+    toolkitContextKnowledge: "Contexto y conocimiento",
     toolkitSharing: "Compartir",
     toolkitCollaboration: "Colaboración",
     toolkitSettings: "Ajustes",
@@ -1489,6 +1492,9 @@ const esES = {
     toolkitObservability: "Observabilidad",
     featureKits: "Kits de funciones",
     appChrome: "Marco de la app",
+    capabilityPackages: "Paquetes de capacidad",
+    capabilityPackagesOverview: "Resumen",
+    packageLifecycle: "Ciclo de vida de paquetes",
     templatesOverview: "Plantillas",
     pureAgentApps: "Apps orientadas a la automatización",
     faq: "FAQ",

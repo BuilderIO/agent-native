@@ -71,6 +71,7 @@ const workspaceSkillIncludes = [
   "extensions",
   "external-agents",
   "frontend-design",
+  "feature-flags",
   "generative-ui",
   "harness-agents",
   "internationalization",
@@ -114,6 +115,7 @@ const templateSharedSkillIncludes = [
   "create-skill",
   "delegate-to-agent",
   "frontend-design",
+  "feature-flags",
   "internationalization",
   "performance",
   "real-time-collab",
@@ -130,15 +132,20 @@ const requiredTemplateSharedSkills: Record<string, string[]> = {
 };
 
 /** Copied into every first-party template that uses shared skills. */
-const requiredAllTemplateSharedSkills = ["upgrade-agent-native"];
+const requiredAllTemplateSharedSkills = [
+  "feature-flags",
+  "upgrade-agent-native",
+];
 
 const requiredDefaultTemplateSharedSkills = [
+  "feature-flags",
   "internationalization",
   "upgrade-agent-native",
 ];
 
 const requiredHeadlessTemplateSharedSkills = [
   "agent-native-docs",
+  "feature-flags",
   "upgrade-agent-native",
 ];
 

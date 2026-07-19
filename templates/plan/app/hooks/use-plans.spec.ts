@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   useActionQuery: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: mocks.useActionMutation,
   useActionQuery: mocks.useActionQuery,
 }));

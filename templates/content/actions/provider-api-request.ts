@@ -202,6 +202,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  toolCallable: false,
   run: async (args) => {
     if (args.stageAs) {
       const ctx = getCredentialContext();

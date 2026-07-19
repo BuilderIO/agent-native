@@ -1,4 +1,4 @@
-import { useFormatters, useT } from "@agent-native/core/client";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconDots,
   IconLock,
@@ -7,10 +7,12 @@ import {
   IconPlayerPlay,
   IconShare,
   IconFolder,
+  IconFolderPlus,
   IconArchive,
   IconTrash,
   IconCheck,
   IconAlertTriangle,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -31,6 +33,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
+import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
@@ -67,6 +70,7 @@ interface RecordingCardProps {
   onMove?: (rec: RecordingSummary, folderId: string | null) => void;
   moveTargets?: BulkMoveTarget[];
   isMovePending?: boolean;
+  onCreateFolder?: () => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
   readOnly?: boolean;
@@ -81,6 +85,7 @@ export function RecordingCard({
   onMove,
   moveTargets = [],
   isMovePending = false,
+  onCreateFolder,
   onArchive,
   onTrash,
   readOnly = false,
@@ -174,6 +179,11 @@ export function RecordingCard({
     },
     [onTrash, recording],
   );
+
+  const handleOpenDesktopApp = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    attemptOpenDesktopApp();
+  }, []);
 
   return (
     <div
@@ -281,6 +291,16 @@ export function RecordingCard({
                       ? t("clipsFinalRaw.retryFromClipsMenu")
                       : failureReason}
                 </div>
+                {nativeUploadPaused ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenDesktopApp}
+                    className="pointer-events-auto mt-1.5 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent"
+                  >
+                    <IconExternalLink className="h-3 w-3" />
+                    {t("captureInstall.openDesktopApp")}
+                  </button>
+                ) : null}
               </div>
               {!waitingForStorage && onTrash && (
                 <button
@@ -365,6 +385,16 @@ export function RecordingCard({
                       {t("clipsFinalRaw.moveToFolder")}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-64">
+                      <DropdownMenuItem
+                        disabled={isMovePending}
+                        onSelect={() => {
+                          setTimeout(() => onCreateFolder?.(), 0);
+                        }}
+                      >
+                        <IconFolderPlus className="h-4 w-4 me-2" />
+                        {t("navigation.newFolder")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       {moveTargets.map((target, index) => (
                         <DropdownMenuItem
                           key={target.id ?? `root-${index}`}

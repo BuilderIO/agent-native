@@ -16,6 +16,13 @@ patterns live in `.agents/skills/`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
+- A message beginning with `[Reprompt selection]` is preview-only. Call
+  `propose-node-rewrite` with its exact `repromptId`, target, and base hash;
+  never call `edit-design`, `update-design`, `update-file`, `generate-design`,
+  `apply-visual-edit`, or another content writer. Only the frontend-only
+  `resolve-node-rewrite` action may persist an explicitly accepted proposal.
+- A message beginning with `[Selection question]` is read-only. Answer about
+  the captured element and subtree without calling content-writing actions.
 - When a user wants an established public system as a starting point, call
   `create-design-system` with `templateId: material-3`, `carbon-white`, or
   `primer-light`. These are source-linked, versioned token snapshots with
@@ -133,12 +140,15 @@ patterns live in `.agents/skills/`.
   `generate-design` for new files. For broad rewrites of an existing selected
   file, use `edit-design` with `mode: "replace-file"` and the exact `fileId`;
   never resend files you aren't changing.
-- For reusable starting points, call `list-design-templates`. Use
+- When the user references a template, prior design, or past work, call both
+  `list-design-templates` and `list-designs` before generating so the existing
+  starting point is resolved instead of recreated. Use
   `save-design-as-template` to snapshot an editable inline design, including
   its screens, canvas dimensions, defaults, and locked layers. Use
   `create-design-from-template` to instantiate a normal design. If the user
   supplies a prompt, call `get-design-snapshot` once and refine the copied
   files with `edit-design`; never regenerate the template from scratch.
+  Read the `design-templates` skill for the complete copy/adaptation workflow.
 - Treat `data-agent-native-locked="true"` as an authoritative template
   boundary. Locked backgrounds, logos, and their descendants must remain
   byte-for-byte unchanged during agent edits. The server rejects attempts to
@@ -164,6 +174,15 @@ patterns live in `.agents/skills/`.
   `inspectorTab: "extensions"` after installing it.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
+- Before generation, follow the creative-context reuse ladder in
+  `.agents/skills/creative-context/SKILL.md`: explicit request and current
+  design first, then a pinned/current pack, then narrow library search. Respect
+  `creative-context.contextMode: "off"` without silently restoring a pack.
+- To submit a design to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it captures one immutable live design snapshot.
+  Reuse only a returned opaque native clone reference through the Design clone action.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
   through `index-design-system-with-builder` or the Design System Setup `.fig`
@@ -242,7 +261,8 @@ patterns live in `.agents/skills/`.
   `connect-localhost`; list them with `list-localhost-connections` before
   creating or resolving local-code artboards. Fusion designs are full-app
   designs backed by a running Builder Fusion container, created via
-  `create-fusion-app` when `FULL_APP_BUILDING_ENABLED` is on; preserve the
+  `create-fusion-app` when the `full-app-building` feature flag is enabled;
+  preserve the
   design's `fusionApp` linkage data whenever present and never invent it.
 - Localhost route manifests are scaffolding for URL-backed Flow Canvas
   artboards. Use `add-localhost-screens` to place routes or path/query states as
@@ -261,6 +281,15 @@ patterns live in `.agents/skills/`.
   generation planning state created by `generate-screens` (canvas region
   assignments and per-frame instructions consumed by `generate-design` and
   `view-screen`; not rendered as canvas overlays).
+- `design-reprompt-pending:<designId>:<fileId>` is the client-captured source
+  selection, instruction, base hash, and authoritative current request id for
+  a scoped regenerate request.
+- `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` is one
+  request-specific preview-only subtree proposal. Candidate payloads have a
+  256 KiB aggregate serialized limit. Resolution and cancellation use atomic
+  compare-and-set cleanup so an older request cannot erase a newer one.
+  `view-screen` lists only proposals paired to the current pending request as
+  `pendingCandidateReviews`.
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
 - `guided-questions` may contain a one-click chat choice for the current
@@ -403,8 +432,9 @@ patterns live in `.agents/skills/`.
 
 ## Full App Building
 
-Flag-gated (`FULL_APP_BUILDING_ENABLED` in `shared/full-app.ts`, default off)
-and requires Builder connected. See `full-app-build` skill for the full flow.
+Flag-gated by `FULL_APP_BUILDING` in `shared/full-app.ts` (key
+`full-app-building`, default off) and requires Builder connected. See
+`full-app-build` skill for the full flow.
 
 - `create-fusion-app`: creates the app branch via the Builder cloud agent; one
   branch per design; returns existing linkage if already created.
@@ -465,9 +495,13 @@ and requires Builder connected. See `full-app-build` skill for the full flow.
 Read the relevant skill before deeper work:
 
 - `design-generation` for creating/editing prototype HTML and variant flows.
+- `design-templates` for resolving, saving, copying, and adapting templates or
+  prior Design work without fresh generation.
 - `responsive-breakpoints` for Framer-style breakpoint editing (single DOM,
   cascading width-scoped overrides, the managed breakpoints media block).
 - `design-systems` for tokens, brand extraction, and linked systems.
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.
 - `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
 - `full-app-build` for flag-gated fusion-backed full app building.
 - `shader-fills` for code-backed GLSL shader fills/effects (editable source

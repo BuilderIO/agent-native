@@ -1,11 +1,11 @@
 import {
   AgentSidebar,
-  isEmbedAuthActive,
-  getBrowserTabId,
   useGuidedQuestionFlow,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
@@ -163,9 +163,12 @@ export function Layout({ children }: LayoutProps) {
           threadFooterSlot={designQuestionsWaitingSlot}
           onComposerTextChange={handleComposerTextChange}
           composerSlot={
-            detectedFigmaComposerLink ? (
-              <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
-            ) : null
+            <>
+              <CreativeContextComposerChip />
+              {detectedFigmaComposerLink ? (
+                <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
+              ) : null}
+            </>
           }
         >
           <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">

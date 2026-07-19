@@ -1,4 +1,5 @@
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
 
 import {

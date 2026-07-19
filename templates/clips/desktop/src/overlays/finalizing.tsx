@@ -20,6 +20,7 @@ type ProcessingProgress = {
   stage?: string;
   progress?: number | null;
   viewUrl?: string;
+  savedLocally?: boolean;
 };
 
 type NativeUploadFinished = {
@@ -52,7 +53,10 @@ function takePersistedFinalizingResult(): NativeUploadFinished | null {
       viewUrl: payload.viewUrl,
       ok: payload.ok,
       error: typeof payload.error === "string" ? payload.error : null,
-      localFilePath: null,
+      localFilePath:
+        typeof payload.localFilePath === "string"
+          ? payload.localFilePath
+          : null,
     };
   } catch {
     return null;
@@ -78,6 +82,7 @@ export function Finalizing() {
     let completionTimer: ReturnType<typeof window.setTimeout> | null = null;
     let openingWatchdog: ReturnType<typeof window.setTimeout> | null = null;
     const hardWatchdog = window.setTimeout(() => {
+      void invoke("show_popover").catch(() => {});
       void invoke("hide_finalizing").catch(() => {});
     }, 120_000);
     let finishedHandled = false;
@@ -164,6 +169,7 @@ export function Finalizing() {
         stage: "failed",
         progress: 1,
         viewUrl: payload.viewUrl,
+        savedLocally: Boolean(payload.localFilePath),
       });
       completionTimer = window.setTimeout(() => {
         void invoke("show_popover").catch(() => {});
@@ -212,7 +218,9 @@ export function Finalizing() {
     progress.stage === "uploaded"
       ? "Uploaded"
       : progress.stage === "failed"
-        ? "Upload paused"
+        ? progress.savedLocally
+          ? "Upload paused — clip saved locally"
+          : "Upload paused — open Clips to recover"
         : progress.stage === "uploading" ||
             progress.stage === "processing" ||
             progress.stage === "opening"

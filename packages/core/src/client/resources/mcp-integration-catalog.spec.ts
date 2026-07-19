@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
+  findMcpIntegrationForText,
   filterMcpIntegrations,
+  getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
   isMcpIntegrationCatalogAvailable,
+  isMcpConnectionFailureText,
   mcpIntegrationAuthLabel,
+  resolveMcpIntegrationScope,
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
@@ -30,11 +35,15 @@ describe("MCP integration catalog", () => {
       "supabase",
       "neon",
     ]);
-    expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual([
-      "sentry",
-      "linear",
-      "atlassian",
-    ]);
+    expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        "sentry",
+        "linear",
+        "atlassian",
+        "github",
+        "gitlab",
+      ]),
+    );
     expect(filterMcpIntegrations("jira").map((item) => item.id)).toEqual([
       "atlassian",
     ]);
@@ -70,10 +79,150 @@ describe("MCP integration catalog", () => {
     });
   });
 
+  it("records logo and provider-gating metadata for remote directory entries", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    );
+    const semgrep = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "semgrep",
+    );
+    const cloudflare = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "cloudflare",
+    );
+    const figma = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "figma",
+    );
+
+    expect(context7?.logoUrl).toMatch(
+      /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
+    );
+    expect(semgrep?.logoUrl).toMatch(
+      /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
+    );
+    expect(cloudflare).toMatchObject({
+      url: "https://mcp.cloudflare.com/mcp",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+    });
+    expect(cloudflare?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(figma).toMatchObject({
+      url: "https://mcp.figma.com/mcp",
+      connectionMode: "manual",
+      availability: "client-restricted",
+      setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
+      apiFallback: {
+        secretKey: "FIGMA_ACCESS_TOKEN",
+        docsUrl:
+          "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
+        templateUses: ["design"],
+      },
+    });
+    expect(getMcpIntegrationApiFallback(figma, "design")).toMatchObject({
+      secretKey: "FIGMA_ACCESS_TOKEN",
+    });
+    expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
+    expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(25);
+    expect(
+      new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
+        .size,
+    ).toBe(25);
+    for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      expect(integration.logoUrl).toMatch(
+        /^data:image\/(?:svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
+      );
+      expect(["verified", "preflight-only", "restricted"]).toContain(
+        integration.verification,
+      );
+    }
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
+    ).toMatchObject({
+      availability: "provider-setup",
+      verification: "restricted",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "intercom"),
+    ).toMatchObject({ url: "https://mcp.intercom.com/mcp" });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "zapier"),
+    ).toMatchObject({
+      url: "https://mcp.zapier.com/api/v1/connect",
+      authMode: "headers",
+      availability: "ready",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "paypal"),
+    ).toMatchObject({
+      url: "https://mcp.paypal.com/sse",
+      authMode: "oauth",
+      availability: "ready",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "canva"),
+    ).toMatchObject({
+      url: "https://mcp.canva.com/mcp",
+      connectionMode: "manual",
+      availability: "client-restricted",
+    });
+  });
+
+  it("matches resource links to their MCP preset", () => {
+    expect(
+      findMcpIntegrationForText(
+        "Please read https://www.notion.so/acme/Project-123",
+      )?.id,
+    ).toBe("notion");
+    expect(
+      findMcpIntegrationForText("Canva link: https://canva.com/design/abc")?.id,
+    ).toBe("canva");
+    expect(
+      findMcpIntegrationForText("I cannot read this Notion page")?.id,
+    ).toBe("notion");
+    expect(findMcpIntegrationForText("Explain linear algebra")).toBeNull();
+    expect(
+      findMcpIntegrationForText("Connect Linear to read my issues")?.id,
+    ).toBe("linear");
+    expect(isMcpConnectionFailureText("I can't read that Notion link")).toBe(
+      true,
+    );
+    expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
+  });
+
   it("labels authentication modes for compact badges", () => {
     expect(mcpIntegrationAuthLabel("none")).toBe("No auth");
     expect(mcpIntegrationAuthLabel("headers")).toBe("Header");
     expect(mcpIntegrationAuthLabel("oauth")).toBe("OAuth");
+  });
+
+  it("builds an encoded OAuth start URL", () => {
+    const url = buildMcpOAuthStartUrl({
+      name: "Linear & Issues",
+      url: "https://mcp.linear.app/sse?tenant=one&mode=oauth",
+      description: "Read and write issues",
+      scope: "org",
+      returnUrl: "/settings?tab=mcp#linear",
+    });
+    const params = new URL(url, "https://example.com").searchParams;
+
+    expect(new URL(url, "https://example.com").pathname).toBe(
+      "/_agent-native/mcp/servers/oauth/start",
+    );
+    expect(params.get("name")).toBe("Linear & Issues");
+    expect(params.get("url")).toBe(
+      "https://mcp.linear.app/sse?tenant=one&mode=oauth",
+    );
+    expect(params.get("description")).toBe("Read and write issues");
+    expect(params.get("scope")).toBe("org");
+    expect(params.get("return")).toBe("/settings?tab=mcp#linear");
+  });
+
+  it("falls back to personal scope when organization access is unavailable", () => {
+    expect(resolveMcpIntegrationScope("org", false, true)).toBe("user");
+    expect(resolveMcpIntegrationScope("org", true, false)).toBe("user");
+    expect(resolveMcpIntegrationScope("org", true, true)).toBe("org");
+    expect(resolveMcpIntegrationScope("user", true, true)).toBe("user");
   });
 
   it("can hide all default presets while leaving custom setup available", () => {

@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
+  getOrganizationDefaultVisibility,
   nanoid,
 } from "../server/lib/recordings.js";
 
@@ -64,7 +65,9 @@ export default defineAction({
       visibility: z
         .enum(["private", "org", "public"])
         .optional()
-        .describe("Initial visibility — defaults to private"),
+        .describe(
+          "Initial visibility. When omitted, uses the organization default and falls back to public.",
+        ),
       source: z
         .enum(["calendar", "adhoc", "manual"])
         .optional()
@@ -187,7 +190,8 @@ export default defineAction({
       }
     }
 
-    const visibility = args.visibility ?? "private";
+    const visibility =
+      args.visibility ?? (await getOrganizationDefaultVisibility(orgId));
 
     try {
       await db.insert(schema.meetings).values({

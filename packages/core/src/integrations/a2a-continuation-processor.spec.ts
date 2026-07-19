@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import {
+  appendA2AArtifactLinks,
+  buildA2ARecoverableArtifactMessage,
+} from "../a2a/artifact-response.js";
 import type { A2AContinuation } from "./a2a-continuations-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -957,7 +960,7 @@ describe("A2A continuation processor", () => {
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
     expect(sentText).toContain("needs an LLM connection");
-    expect(sentText).toContain("Agent settings > LLM");
+    expect(sentText).toContain("Manage agent > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
     expect(sentText).toContain("Error code: `missing_credentials`");
     expect(sentText).toContain("Request ID: `task-1`");
@@ -1094,6 +1097,210 @@ describe("A2A continuation processor", () => {
       }),
     );
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps polling past checkpoint A so a later final artifact B wins", async () => {
+    vi.useFakeTimers();
+    process.env.A2A_SECRET = "test-a2a-secret-for-signed-checkpoints";
+    const checkpointAToolResults = [
+      {
+        tool: "submit-content-database-form",
+        result: JSON.stringify({
+          createdDocumentId: "request_checkpoint_a",
+          urlPath: "/page/request_checkpoint_a",
+          verification: { found: true },
+        }),
+      },
+    ];
+    const checkpointAMessage = buildA2ARecoverableArtifactMessage(
+      checkpointAToolResults,
+    );
+    const checkpointA = appendA2AArtifactLinks(
+      checkpointAMessage!,
+      checkpointAToolResults,
+      { includePersistedArtifactMarker: true },
+    );
+    const finalBToolResults = [
+      {
+        tool: "submit-content-database-form",
+        result: JSON.stringify({
+          createdDocumentId: "request_final_b",
+          urlPath: "/page/request_final_b",
+          verification: { found: true },
+        }),
+      },
+    ];
+    const finalB = appendA2AArtifactLinks(
+      "Final artifact B",
+      finalBToolResults,
+      {
+        includePersistedArtifactMarker: true,
+      },
+    );
+    getTaskMock
+      .mockResolvedValueOnce({
+        id: "a2a-task-1",
+        status: {
+          state: "working",
+          message: {
+            role: "agent",
+            metadata: { agentNativeRecoverableArtifacts: true },
+            parts: [{ type: "text", text: checkpointA }],
+          },
+          timestamp: new Date().toISOString(),
+        },
+      })
+      .mockResolvedValueOnce({
+        id: "a2a-task-1",
+        status: {
+          state: "completed",
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: finalB }],
+          },
+          timestamp: new Date().toISOString(),
+        },
+      });
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await processing;
+
+    expect(getTaskMock).toHaveBeenCalledTimes(2);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("request_final_b"),
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain(
+      "request_checkpoint_a",
+    );
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("delivers the latest signed checkpoint only when remote polling is exhausted", async () => {
+    vi.useFakeTimers();
+    process.env.A2A_SECRET = "test-a2a-secret-for-signed-checkpoints";
+    const toolResults = [
+      {
+        tool: "submit-content-database-form",
+        result: JSON.stringify({
+          createdDocumentId: "request_checkpoint_retry",
+          urlPath: "/page/request_checkpoint_retry",
+          verification: { found: true },
+        }),
+      },
+    ];
+    const checkpointMessage = buildA2ARecoverableArtifactMessage(toolResults);
+    const checkpoint = appendA2AArtifactLinks(checkpointMessage!, toolResults, {
+      includePersistedArtifactMarker: true,
+    });
+    getTaskMock.mockResolvedValue({
+      id: "a2a-task-1",
+      status: {
+        state: "working",
+        message: {
+          role: "agent",
+          metadata: { agentNativeRecoverableArtifacts: true },
+          parts: [{ type: "text", text: checkpoint! }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ attempts: 30 }),
+    );
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await processing;
+
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("request_checkpoint_retry"),
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+    expect(sendResponse.mock.calls[0][0].text).toContain(
+      "did not finish its full response",
+    );
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("verifies recoverable checkpoints with an organization-only A2A secret", async () => {
+    vi.useFakeTimers();
+    delete process.env.A2A_SECRET;
+    const orgSecret = "org-only-a2a-secret-for-signed-checkpoints";
+    vi.doMock("../org/context.js", () => ({
+      getOrgDomain: vi.fn(async () => "builder.io"),
+      getOrgA2ASecret: vi.fn(async () => orgSecret),
+    }));
+    const toolResults = [
+      {
+        tool: "submit-content-database-form",
+        result: JSON.stringify({
+          createdDocumentId: "request_org_checkpoint",
+          urlPath: "/page/request_org_checkpoint",
+          verification: { found: true },
+        }),
+      },
+    ];
+    const checkpointMessage = buildA2ARecoverableArtifactMessage(toolResults);
+    const checkpoint = appendA2AArtifactLinks(checkpointMessage!, toolResults, {
+      includePersistedArtifactMarker: true,
+      persistedArtifactSecret: orgSecret,
+    });
+    getTaskMock.mockResolvedValue({
+      id: "a2a-task-1",
+      status: {
+        state: "working",
+        message: {
+          role: "agent",
+          metadata: { agentNativeRecoverableArtifacts: true },
+          parts: [{ type: "text", text: checkpoint }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ attempts: 30, orgId: "builder_io" }),
+    );
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await processing;
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("request_org_checkpoint"),
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
   });
 
   it("treats aborted task polling as transient while attempts remain", async () => {

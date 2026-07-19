@@ -47,6 +47,13 @@ Meeting capture records **two streams** and tags transcript segments by source:
 
 Each transcript segment carries a `source: "mic" | "system"` tag, which we use to attribute action items to the right attendee. This is why **per-attendee action items only work reliably with mic + system capture** — mic-only recordings make remote attendees silent. Document this caveat whenever you surface action items.
 
+The iOS/Android companion is intentionally different: mobile background meeting
+capture is microphone-only because the operating systems do not expose another
+phone app's Zoom/Meet/Teams audio. It is appropriate for in-person rooms and for
+capturing audio played from a separate device. Mobile recordings still receive
+Clips transcription and summaries, but do not promise desktop-quality remote
+speaker attribution or per-attendee action items.
+
 ## Bidirectional recording ↔ meeting link
 
 A meeting can have an associated recording, and a recording can be linked back to a meeting:
@@ -58,7 +65,7 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 ## Calendar reminders
 
-Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Desktop Zoom joins use Zoom's native `zoommtg://` link so the Zoom app opens directly without an intermediate browser tab; unsupported Zoom link shapes and other providers retain their HTTPS join URL. Agents do not need to schedule reminders manually.
+Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live and excludes events the current user has declined, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. The normal Meetings list remains calendar-backed and is not filtered by the reminder-only exclusion. Desktop Zoom joins use Zoom's native `zoommtg://` link so the Zoom app opens directly without an intermediate browser tab; unsupported Zoom link shapes and other providers retain their HTTPS join URL. Agents do not need to schedule reminders manually.
 
 ## Adhoc Zoom / Teams detection (desktop)
 

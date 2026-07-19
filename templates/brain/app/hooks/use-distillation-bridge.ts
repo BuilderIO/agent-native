@@ -1,9 +1,6 @@
-import {
-  agentNativePath,
-  callAction,
-  sendToAgentChat,
-  useActionQuery,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";

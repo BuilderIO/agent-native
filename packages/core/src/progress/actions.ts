@@ -35,6 +35,7 @@ Use for non-trivial work with multiple real steps (not single-action lookups). D
 - Exactly one task in progress at a time; never batch-complete steps after the fact — update as you go.
 - Always transition pending → in_progress before completing a step.
 - If the task pivots (scope change, unexpected blocker), update the current step to reflect it before continuing.
+- Only include fields for the selected action; do not send empty placeholder fields.
 - End every run with "complete" (succeeded / failed / cancelled). Never leave a run open indefinitely.
 
 Actions:
@@ -78,8 +79,9 @@ Actions:
             },
             status: {
               type: "string",
-              enum: ["succeeded", "failed", "cancelled"],
-              description: "[complete] Terminal status for the run.",
+              enum: ["", "succeeded", "failed", "cancelled"],
+              description:
+                '[complete] Terminal status for the run. Omit it for "start" and "update".',
             },
             active: {
               type: "boolean",

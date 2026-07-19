@@ -40,6 +40,19 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
+- For a known, read-only sibling-app operation, use `call-agent` with `action`
+  and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
+  model loop. In Analytics, use `gong-native-insights` for provider-synthesized
+  briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- Before generation, follow the creative-context reuse ladder in
+  `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
+  first, then a pinned/current pack, then narrow library search. Respect
+  `creative-context.contextMode: "off"` without silently restoring a pack.
+- To submit a deck to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it captures one immutable deck version. Reuse
+  only a returned opaque native clone reference through the Slides clone action.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 
 ## Persistence Model
 
@@ -84,3 +97,5 @@ Read the relevant skill before deeper work:
 - `deck-management` for organization, sharing, import/export, and metadata.
 - `slide-images` and `image-generation-via-a2a` for image work.
 - `design-systems`, `frontend-design`, `shadcn-ui`, and `actions` as needed.
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.

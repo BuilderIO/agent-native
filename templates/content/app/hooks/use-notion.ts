@@ -1,9 +1,9 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
-  appApiPath,
   callAction,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import type {
   CreateNotionPageRequest,
   Document,

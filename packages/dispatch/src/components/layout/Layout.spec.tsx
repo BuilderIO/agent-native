@@ -13,17 +13,13 @@ const clientState = vi.hoisted(() => ({
   threads: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => children,
-  FeedbackButton: () => <div>Feedback</div>,
-  appBasePath: () => "",
-  appPath: (path: string) => path,
   focusAgentChat: vi.fn(),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
-  useActionQuery: () => ({ data: undefined }),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
   useChatThreads: () => ({
@@ -35,9 +31,18 @@ vi.mock("@agent-native/core/client", () => ({
     renameThread: vi.fn(),
     refreshThreads: vi.fn(),
   }),
-  useFormatters: () => ({
-    formatDate: () => "Jan 1",
-  }),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+  appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => ({ data: undefined }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -55,6 +60,10 @@ vi.mock("@agent-native/core/client", () => ({
     };
     return messages[key] ?? String(values?.defaultValue ?? key);
   },
+}));
+
+vi.mock("@agent-native/core/client/ui", () => ({
+  FeedbackButton: () => <div>Feedback</div>,
 }));
 
 vi.mock("@agent-native/core/client/extensions", () => ({

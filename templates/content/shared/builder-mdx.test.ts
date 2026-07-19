@@ -505,6 +505,120 @@ describe("Builder MDX conversion", () => {
     ]);
   });
 
+  it("converts fresh Content callouts into safe Builder text blocks", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        '<callout icon="💡" color="blue_bg">',
+        "\tRemember **the review boundary**.",
+        "\t- Reconcile ambiguous writes",
+        "\t\t- Check the remote identity",
+        "\t- Publish once",
+        "</callout>",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: [
+              "<blockquote>",
+              "<p><strong>💡</strong></p>",
+              "<p>Remember <strong>the review boundary</strong>.</p>\n",
+              "<ul><li>Reconcile ambiguous writes<ul><li>Check the remote identity</li></ul></li><li>Publish once</li></ul>",
+              "</blockquote>",
+            ].join(""),
+          },
+        },
+      },
+    ]);
+  });
+
+  it("renders unsafe callout links as text without a stored script URL", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        "<callout>",
+        "\t[unsafe](javascript:alert(document.domain))",
+        "\t[external](//attacker.example)",
+        "\t[safe](https://example.com)",
+        "\t[local](/docs)",
+        "\t[next](chapter-2)",
+        "</callout>",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          options: {
+            text: expect.not.stringContaining("javascript:"),
+          },
+        },
+      },
+    ]);
+    expect(JSON.stringify(blocks)).toContain(
+      '<a href=\\"https://example.com\\">safe</a>',
+    );
+    expect(JSON.stringify(blocks)).not.toContain("attacker.example");
+    expect(JSON.stringify(blocks)).toContain('<a href=\\"/docs\\">local</a>');
+    expect(JSON.stringify(blocks)).toContain(
+      '<a href=\\"chapter-2\\">next</a>',
+    );
+  });
+
+  it("extracts callout bodies after literal greater-than attributes", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      ['<callout icon="x>y">', "\tBody only", "</callout>"].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          options: {
+            text: "<blockquote><p><strong>x&gt;y</strong></p><p>Body only</p></blockquote>",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("assigns distinct stable IDs to repeated identical callouts", async () => {
+    const source = [
+      "<callout>",
+      "\tRepeated",
+      "</callout>",
+      "",
+      "<callout>",
+      "\tRepeated",
+      "</callout>",
+    ].join("\n");
+    const first = await builderMdxBodyToBuilderBlocks(source, {});
+    const second = await builderMdxBodyToBuilderBlocks(source, {});
+    const ids = first.map((block) => (block as { id: string }).id);
+
+    expect(new Set(ids).size).toBe(2);
+    expect(second.map((block) => (block as { id: string }).id)).toEqual(ids);
+  });
+
+  it("rejects dynamic or unknown fresh callout syntax", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ['<callout tone="warning">', "\tUnsafe", "</callout>"].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder callout attribute: tone");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ["<callout>", "\t{danger}", "</callout>"].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported dynamic syntax inside Builder callout");
+  });
+
   it("preserves ordered and unordered Markdown lists as distinct Builder HTML lists", async () => {
     const markdown = [
       "- Inspect the review.",

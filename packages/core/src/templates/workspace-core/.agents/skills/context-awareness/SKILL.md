@@ -29,7 +29,7 @@ The UI writes a `navigation` key to application-state on every route change. Thi
 
 ```tsx
 // app/hooks/use-navigation-state.ts
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

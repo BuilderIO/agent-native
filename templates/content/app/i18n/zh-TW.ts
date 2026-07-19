@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
     commandSearchDocuments: "搜尋檔案",
@@ -49,10 +52,9 @@ const messages = {
     workspaceTitle: "工作區",
     workspaceDescription: "管理協作者和共用檔案存取權限。",
     openTeamSettings: "開啟工作區存取設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",
@@ -85,6 +87,8 @@ const messages = {
     heading2: "標題 2",
     heading3: "標題 3",
     heading4: "標題 4",
+    heading5: "標題 5",
+    heading6: "標題 6",
     link: "連結",
     comment: "評論",
     pasteLink: "貼上連結...",
@@ -414,6 +418,8 @@ const messages = {
       heading2Description: "中標題",
       heading3Description: "小標題",
       heading4Description: "副標題",
+      heading5Description: "較小標題",
+      heading6Description: "最小標題",
       image: "圖片",
       imageDescription: "上傳或嵌入圖片",
       inlineEquation: "行內公式",
@@ -1008,6 +1014,8 @@ const messages = {
     summaryUnchanged: "{{count}} 個未更改",
     summarySkipped: "已跳過 {{count}} 個",
     summaryErrors: "{{count}} 個錯誤",
+    summaryConflicts: "{{count}} 個衝突",
+    conflictNeedsReview: "Content 和資料夾都已變更；需要進行審查。",
     pageTitle: "本機檔案",
     foldersRemembered: "已記住的資料夾",
     linkedCount: "已連結 {{count}} 個",
@@ -1110,7 +1118,10 @@ const messages = {
       "「{{title}}」及其所有子頁面將被永久刪除。此操作無法復原。",
     deletePageQuestion: "刪除頁面？",
     localFiles: "本機檔案",
+    files: "檔案",
+    loadingFiles: "正在載入檔案…",
     new: "新增",
+    newDatabase: "新增資料庫",
     newPage: "新頁面",
     nextStep: "下一步",
     notionConfigureOAuthAuthorize: "設定 OAuth，然後授權你的工作區。",
@@ -1139,6 +1150,7 @@ const messages = {
     notionSyncDocumentsDescription: "與 Notion 工作區同步檔案。",
     notionUploadCredentialsJson: "上傳憑證 JSON",
     noFilesYet: "還沒有檔案",
+    noWorkspaces: "還沒有工作區",
     noLocalFilesYet: "還沒有本機檔案",
     noOrganizationPagesYet: "還沒有組織頁面",
     noPagesFound: "未找到頁面",
@@ -1160,6 +1172,7 @@ const messages = {
     trash: "垃圾桶",
     favorites: "釘選",
     untitled: "無標題",
+    workspaces: "工作區",
   },
 };
 

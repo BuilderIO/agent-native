@@ -7,6 +7,11 @@ through actions and SQL-backed state.
 Keep this file essential. Querying, dashboard, warehouse, and implementation
 details live in `.agents/skills/`.
 
+Governed Creative Contexts submit immutable, SQL-backed dashboard revisions;
+their previews use only structure and synthetic data, never query results.
+Use `manage-context-membership` with `operation="submit-latest"` and a Library
+membership id when its native update status reports `update-available`.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -117,10 +122,11 @@ details live in `.agents/skills/`.
   with captured errors, mint a temporary replay-context link, and inspect the
   timeline, page navigation, console diagnostics, failed network requests, and
   clicks when needed. The authenticated connector catalog is the fast fallback
-  and exposes only bounded, user/org-scoped read actions for incident triage:
+  and exposes only bounded, user/org-scoped read actions. Incident triage uses:
   `list-session-recordings`, `get-session-replay-summary`,
   `get-session-replay-timeline`, `query-agent-native-analytics`,
-  `list-error-issues`, and `get-error-issue`. Fetch the summary before the
+  `list-error-issues`, and `get-error-issue`. Cross-app Gong work also exposes
+  `account-deep-dive`, `gong-calls`, and `gong-native-insights`. Fetch the summary before the
   sanitized timeline; the timeline contains bounded page/click/error markers
   without raw replay events or storage references. Do not add replay blob or
   dashboard mutation actions to this catalog without an explicit security
@@ -132,8 +138,9 @@ details live in `.agents/skills/`.
   issue id.
 - Analytics keeps its direct MCP surface explicitly curated, so external
   agents should use `ask_app` for multi-step investigation and changes. The
-  six incident reads above are bounded, user/org-scoped fallback tools for
-  callers that already know which lookup they need. Generic core
+  cataloged reads above are bounded, user/org-scoped fallback tools for callers
+  that already know which lookup they need. Sibling apps should invoke the exact
+  action directly when no Analytics reasoning loop is needed. Generic core
   `db-schema` / `db-query` remain in-app agent tools and are not exposed
   directly because broad SQL/schema access is too powerful to infer from
   read-only metadata. Writes remain `ask_app`-only. Use the explicit catalog
@@ -141,7 +148,18 @@ details live in `.agents/skills/`.
   exposing an unannotated action.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
-  evals, experiments, and feedback. `/agents?view=dashboards` shows the
+  evals, agent experiments, and feedback. `/agents?view=flags` is the
+  sole admin-only fleet feature-flag control plane. Call
+  `list-workspace-feature-flags` before changing a flag and preserve
+  each app's explicit state: `unsupported`, `unreachable`, `forbidden`, and
+  `unknown-legacy` are unknown states, never synonyms for off. Use
+  `set-workspace-feature-flag` for app-qualified changes; target apps remain the
+  source of truth and are resolved only through the trusted organization
+  directory. Treat only a versioned mutation response whose key, org scope, and
+  requested rules match as success. Flags are source-declared booleans; do not
+  create variants, metrics, exposure tracking, or per-app management panels.
+  Report a failed target mutation instead of claiming the rollout changed.
+  `/agents?view=dashboards` shows the
   admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
   admins ask about dashboard created/modified dates, owners, last tracked
   modifier, views, engagements, saved views, or cleanup candidates. The
@@ -158,6 +176,17 @@ details live in `.agents/skills/`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
+- Dashboard extension boxes use `chartType: "extension"`. For ordinary requests
+  such as "put X in this dashboard," default to `config.extensionId`: the
+  author-selected extension is part of the shared dashboard, renders for every
+  viewer who can access it, and remains present in scheduled report captures.
+  Direct embeds receive dashboard id, name, description, current filters, and
+  panel context. Use `config.extensionSlotId` only when the user explicitly asks
+  for a personal/per-viewer widget slot. The stable per-box slot is
+  `analytics.dashboard.<dashboard-id>.panel.<panel-id>`; call
+  `add-extension-slot-target` and `install-extension` for it. Slot installs are
+  per-user, so different viewers can see different widgets and service-account
+  report captures may show the empty install affordance.
 - Dashboard saves keep bounded history in SQL. Use
   `list-dashboard-revisions` to inspect undo points and
   `restore-dashboard-revision` to restore one instead of hand-editing history
@@ -175,6 +204,19 @@ details live in `.agents/skills/`.
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
   config/components or saved-analysis markdown/chart format, automatically build
   it as an extension instead and tell the user why.
+- For an existing extension-backed dashboard or migrated surface such as Risk
+  Meeting, separate data repair from visual redesign. Inspect the dashboard and
+  extension first, then use `update-extension` `patches`/`edits` that touch only
+  the data-loading seam. Preserve the existing layout, CSS, copy, and
+  interactions; never reconstruct the full HTML body for a data-only fix.
+  `update-extension` blocks full-body replacement unless
+  `allowFullReplacement: true` is explicit, and that flag is reserved for a
+  user-requested broad rewrite or a complete replacement body supplied by the
+  user. A request that combines a visual rewrite (for example compacting,
+  removing sections, renaming, or changing padding) with a data repair is still
+  a broad rewrite; after inspecting the current extension, set
+  `allowFullReplacement: true` for the complete replacement. If a focused edit
+  fails, do not retry unchanged arguments.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the
@@ -234,8 +276,9 @@ details live in `.agents/skills/`.
   replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
   `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
   public status pages, or error triage, and `view="agents"` with
-  `agentsView="dashboards|database"` plus optional `dbAdminConnectionId` for
-  dashboard usage or connected app database admin.
+  `agentsView="dashboards|database|flags"` plus optional
+  `dbAdminConnectionId` for dashboard usage, connected app database admin,
+  or fleet feature flags.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay

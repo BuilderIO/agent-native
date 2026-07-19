@@ -2,6 +2,9 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
 } from "../shared/agent-sidebar-url.js";
+import { hasChatThreadDeepLink } from "./chat-thread-url.js";
+
+export { hasChatThreadDeepLink } from "./chat-thread-url.js";
 
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
@@ -139,6 +142,7 @@ export function getInitialAgentSidebarOpen(
 ): boolean {
   const urlOverride = getAgentSidebarUrlOpenOverride();
   if (urlOverride !== null) return urlOverride;
+  if (hasChatThreadDeepLink()) return true;
 
   // On mobile viewports the sidebar would cover most of the screen, so
   // always start closed regardless of any persisted desktop preference.

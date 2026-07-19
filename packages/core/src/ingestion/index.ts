@@ -1,0 +1,107 @@
+export {
+  acquireIngestionLease,
+  assertInventoryComplete,
+  consumeIngestionBudget,
+  createIngestionBudgetState,
+  createIngestionCheckpoint,
+  ingestionBudgetStopReason,
+  releaseIngestionLease,
+  renewIngestionLease,
+  type AcquireIngestionLeaseInput,
+  type AcquireIngestionLeaseResult,
+  type IngestionBudgetLimits,
+  type IngestionBudgetState,
+  type IngestionBudgetStopReason,
+  type IngestionCheckpoint,
+  type IngestionLease,
+  type IngestionPhase,
+} from "./orchestration.js";
+export {
+  detectOfficeDocumentType,
+  normalizeDocumentText,
+  parseOfficeDocument,
+  type OfficeDocumentAst,
+  type OfficeDocumentParser,
+  type OfficeDocumentPart,
+  type OfficeDocumentType,
+  type ParsedOfficeDocument,
+  type ParseOfficeDocumentInput,
+} from "./office.js";
+export {
+  parsePptxPresentation,
+  type ParsedPptxImage,
+  type ParsedPptxPresentation,
+  type ParsedPptxSlide,
+  type ParsedPptxTextRun,
+} from "./pptx.js";
+export {
+  extractDocxSections,
+  parseDocxDocument,
+  sanitizeInertDocumentHtml,
+  type ParsedDocxDocument,
+  type ParsedDocxSection,
+} from "./docx.js";
+export {
+  compositeFigmaColors,
+  extractFigmaTopLevelFrames,
+  figmaColorToHex,
+  figmaContrastRatio,
+  summarizeFigmaFrame,
+  summarizeFigmaNode,
+  type FigmaContextNode,
+  type FigmaFrameSummary,
+  type FigmaRgba,
+  type SummarizeFigmaNodeResult,
+} from "./figma.js";
+export {
+  assertFigmaNodeTreeComplexity,
+  collectFallbackNodeIds,
+  collectFontUsage,
+  collectImageFillRefs,
+  gradientAngleDegrees,
+  mapFigmaNodeToHtml,
+  type FidelityEntry,
+  type FidelityLevel,
+  type FidelityReport,
+  type FigmaBoundingBox,
+  type FigmaColor,
+  type FigmaColorStop,
+  type FigmaEffect,
+  type FigmaFontUsage,
+  type FigmaImageFilter,
+  type FigmaIndividualStrokeWeights,
+  type FigmaNode,
+  type FigmaPaint,
+  type FigmaTypeStyle,
+  type MapFigmaNodeOptions,
+  type MapFigmaNodeResult,
+} from "./figma-node-to-html.js";
+export {
+  notionBlocksToMarkdown,
+  notionBlockToMarkdown,
+  type NotionMarkdownResult,
+  type NotionMarkdownSection,
+} from "./notion.js";
+export {
+  compareRasterImages,
+  cropImageRegion,
+  extractCssColors,
+  extractDominantColors,
+  fingerprintMedia,
+  rankColorSamples,
+  readBoundedResponseBytes,
+  type CroppedImageRegion,
+  type MediaFingerprint,
+} from "./media.js";
+export {
+  extractStaticWebsiteContext,
+  type WebsiteAsset,
+  type WebsiteDesignTokens,
+  type WebsiteExtraction,
+} from "./website.js";
+export {
+  selectInventoryForHydration,
+  type IngestionHydrationPolicy,
+  type IngestionHydrationSelection,
+  type IngestionInventoryCandidate,
+} from "./selection.js";

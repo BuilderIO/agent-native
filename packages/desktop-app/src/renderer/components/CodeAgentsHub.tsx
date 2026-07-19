@@ -6,7 +6,7 @@ import {
   type CodeAgentTranscriptRequest,
   type CodeAgentsHost,
 } from "@agent-native/code-agents-ui";
-import { createAgentNativeQueryClient } from "@agent-native/core/client";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useMemo } from "react";

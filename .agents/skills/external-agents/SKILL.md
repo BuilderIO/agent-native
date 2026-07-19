@@ -68,6 +68,61 @@ the real app focused on exactly what was produced. It reuses the existing
 `navigate` / `application_state` contract the UI already drains every 2s (see
 **context-awareness**) — we never invent a second navigation mechanism.
 
+## App-facing MCP connectors
+
+Apps can also consume connected remote MCP servers as a server-side API. The
+framework stores each connector's OAuth client registration, discovery metadata,
+access token, and refresh token in the encrypted `oauth_tokens` store, scoped to
+the user or organization. The browser and sandboxed MCP App iframes never
+receive those credentials.
+
+Use the hidden core actions `list-mcp-tools` and `call-mcp-tool` when an app UI
+needs a request-scoped API surface. Server-side app actions can import
+`listVisibleMcpTools` and `callMcpTool` from `@agent-native/core/mcp-client`.
+Both paths require an authenticated request context and enforce user/org server
+visibility plus MCP App visibility metadata. Pass the configured server id and
+the server's original tool name; the framework resolves the internal prefixed
+tool name and injects the connector's bearer token.
+
+```ts
+import { callMcpTool } from "@agent-native/core/mcp-client";
+
+const result = await callMcpTool("org_acme_linear", "list_issues", {
+  project: "<PROJECT_ID>",
+});
+```
+
+Use this for bounded product workflows (for example, syncing issues or
+refreshing analytics). Do not expose a raw token, arbitrary server URL, or
+unbounded proxy from an app action. Keep provider-specific schemas and access
+checks in the app action, and use the connector catalog/OAuth button for setup.
+
+## Provider API connectors
+
+The shared workspace connection catalog is also the setup surface for provider
+APIs. When a provider advertises OAuth, show that connection as the primary
+setup action and retain its API key or token as an explicit fallback. Current
+shared OAuth providers include Figma, GitHub, Google Drive, HubSpot, Jira Cloud, Notion, and Sentry. Slack
+uses its managed messaging-install OAuth flow. Gmail,
+Calendar, and Slides may use template-owned Google OAuth flows with broader
+scopes; do not replace those flows with the narrower Drive connection.
+
+Provider API actions resolve credentials server-side. Pass a granted
+`connectionId` when a request must use a particular OAuth account; never copy
+the access token into a browser, extension, MCP App, prompt, or stored action
+payload. Key-only providers should remain in the normal scoped secrets flow
+until their upstream OAuth app, scopes, refresh behavior, and identity mapping
+have been implemented and configured.
+
+Extensions can consume both classes of connection through the same host-side
+action bridge. Use `agentNative.mcp.listTools()` / `callTool()` for connected
+remote MCP servers, and `agentNative.providerApi.catalog()` / `docs()` to
+discover template-owned provider API actions. The bridge
+preserves the current user's or organization's access scope and never exposes
+MCP URLs, OAuth tokens, refresh tokens, or client secrets to the iframe. Local
+file extensions must declare the corresponding action names in
+`permissions.appActions`.
+
 ## How
 
 ### 1. Connect to hosted apps

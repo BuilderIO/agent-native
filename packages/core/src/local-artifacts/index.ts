@@ -16,6 +16,14 @@ export interface AgentNativeManifestRoot {
   extensions?: string[];
   include?: string[];
   hide?: string[];
+  source?: {
+    type: "local-folder";
+    connectionId: string;
+    truthPolicy?:
+      | "database_primary"
+      | "source_primary"
+      | "reviewed_bidirectional";
+  };
 }
 
 export interface AgentNativeManifestApp {
@@ -73,6 +81,7 @@ export interface LoadedLocalArtifactRoot {
   extensions: string[];
   hide: string[];
   include: string[];
+  source?: AgentNativeManifestRoot["source"];
 }
 
 export interface LoadedLocalArtifactApp {
@@ -267,6 +276,26 @@ function rootNameFromPath(rootPath: string): string {
 function normalizeManifestRoot(value: unknown): AgentNativeManifestRoot | null {
   if (typeof value === "string") return { path: value };
   if (!isRecord(value) || typeof value.path !== "string") return null;
+  const truthPolicy:
+    | NonNullable<AgentNativeManifestRoot["source"]>["truthPolicy"]
+    | undefined =
+    value.source &&
+    isRecord(value.source) &&
+    (value.source.truthPolicy === "database_primary" ||
+      value.source.truthPolicy === "source_primary" ||
+      value.source.truthPolicy === "reviewed_bidirectional")
+      ? value.source.truthPolicy
+      : undefined;
+  const source =
+    isRecord(value.source) &&
+    value.source.type === "local-folder" &&
+    typeof value.source.connectionId === "string"
+      ? {
+          type: "local-folder" as const,
+          connectionId: value.source.connectionId,
+          ...(truthPolicy ? { truthPolicy } : {}),
+        }
+      : undefined;
   return {
     name: typeof value.name === "string" ? value.name : undefined,
     path: value.path,
@@ -275,6 +304,7 @@ function normalizeManifestRoot(value: unknown): AgentNativeManifestRoot | null {
     extensions: normalizeExtensions(value.extensions),
     include: asStringArray(value.include),
     hide: asStringArray(value.hide),
+    ...(source ? { source } : {}),
   };
 }
 
@@ -483,6 +513,7 @@ export async function getLocalArtifactApp(
       extensions,
       hide: [...DEFAULT_HIDE_PATTERNS, ...asStringArray(root.hide)],
       include: asStringArray(root.include),
+      source: root.source,
     };
   });
 
@@ -683,6 +714,16 @@ export async function listLocalArtifactFiles(
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+export async function listConfiguredLocalArtifactFiles(
+  options: LocalArtifactOptions,
+): Promise<LocalArtifactFileMeta[]> {
+  const app = await getLocalArtifactApp(options);
+  const files = (await Promise.all(app.roots.map((root) => walkRoot(root))))
+    .flat()
+    .filter((file) => !matchesPatterns(file.path, app.hide));
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
 function rootForArtifactPath(
   app: LoadedLocalArtifactApp,
   artifactPath: string,
@@ -754,6 +795,30 @@ export async function readLocalArtifactFile(
     if (errorCode(error) === "ENOENT") {
       return null;
     }
+    throw error;
+  }
+}
+
+export async function readConfiguredLocalArtifactFile(
+  options: LocalArtifactOptions & { path: string },
+): Promise<LocalArtifactFile | null> {
+  const app = await getLocalArtifactApp(options);
+  const { root, safePath, absolutePath } = await resolveArtifactPath(
+    app,
+    options.path,
+  );
+  try {
+    const { content, stat } = readTextFileWithoutSymlink(root, absolutePath);
+    const meta = await fileMetaForPath(
+      root,
+      safePath,
+      absolutePath,
+      content,
+      stat,
+    );
+    return { ...meta, content };
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return null;
     throw error;
   }
 }

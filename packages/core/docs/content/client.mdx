@@ -73,8 +73,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/hooks";
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -91,8 +90,7 @@ await callAction("archive-lead", { leadId });
 Send a message to the agent chat via postMessage — the common way to delegate an AI task from a UI interaction. Pass `context` for hidden model context and `submit: true` to send immediately, or `submit: false` to prefill a draft the user reviews first.
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -182,8 +180,7 @@ the agent sidebar's Settings tab. Pass a section id such as `"llm"`, `"secrets"`
 `"automations"`, `"voice"`, or `"limits"` to open a specific section.
 
 ```ts
-import { openAgentSettings } from "@agent-native/core/client";
-
+import { openAgentSettings } from "@agent-native/core/client/navigation";
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -191,8 +188,7 @@ openAgentSettings("secrets");
 Prefer this helper over dispatching `agent-panel:open-settings` directly.
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core/client";
-
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -250,8 +246,10 @@ kicks off agent work — instead of building a custom modal. Reach for the
 composer for freeform detail, and a form/popover for multi-field input.
 
 ```tsx
-import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  askUserQuestion,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat";
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -294,7 +292,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 ```
 
 `getMcpAppHostContext()` reads the latest pushed host context snapshot;
@@ -329,8 +327,9 @@ Set `dynamicSuggestions={false}` to keep only static chips. Pass `getSuggestions
 React hook that wraps sendToAgentChat with loading state tracking:
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core/client";
-
+import {
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat"
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
 
@@ -356,7 +355,9 @@ function GenerateButton() {
 React hook (formerly `useFileWatcher`) that listens for database changes over SSE, falls back to polling, and invalidates the framework query caches that keep the UI aligned with agent writes:
 
 ```ts
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -401,8 +402,7 @@ When any server-side database mutation occurs, the server records a change event
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import { useChangeVersion } from "@agent-native/core/client";
-
+import { useChangeVersion } from "@agent-native/core/client/hooks";
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");
@@ -467,8 +467,9 @@ function DashboardView({ id }) {
 Utility for merging class names (clsx + tailwind-merge):
 
 ```ts
-import { cn } from "@agent-native/core/client";
-
+import {
+  cn,
+} from "@agent-native/toolkit/utils"
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",

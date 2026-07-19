@@ -24,6 +24,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
@@ -197,6 +198,9 @@ export default defineAction({
         ),
       );
     if (!database) throw new Error(`Database "${databaseId}" not found.`);
+    if (!database.spaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
 
     const access = await assertAccess(
       "document",
@@ -204,6 +208,11 @@ export default defineAction({
       "editor",
     );
     const databaseDocument = access.resource;
+    if (databaseDocument.spaceId !== database.spaceId) {
+      throw new Error(
+        "Database page and database belong to different Content spaces.",
+      );
+    }
     const definitions = await db
       .select()
       .from(schema.documentPropertyDefinitions)
@@ -318,6 +327,7 @@ export default defineAction({
 
       await tx.insert(schema.documents).values({
         id: documentId,
+        spaceId: database.spaceId,
         ownerEmail: database.ownerEmail,
         orgId: database.orgId,
         parentId: database.documentId,
@@ -380,6 +390,8 @@ export default defineAction({
           })),
         );
       }
+
+      await ensureDocumentFilesMembership(tx, documentId, now);
 
       const [savedDocument] = await tx
         .select({

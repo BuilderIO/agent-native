@@ -1,8 +1,7 @@
 /**
  * `@agent-native/core/testing` — a small barrel of internal symbols that
  * template test suites need direct access to (an in-memory db factory, the
- * local Design/Plan dev bridges, and the shared rich-markdown-editor drag
- * handle). Published so template specs can import these through the package
+ * local Design/Plan dev bridges). Published so template specs can import these through the package
  * boundary instead of reaching into `packages/core/src/**` with deep
  * relative paths.
  *
@@ -22,5 +21,3 @@ export {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "./cli/design-connect.js";
-
-export { DragHandle } from "./client/rich-markdown-editor/DragHandle.js";

@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
@@ -116,5 +116,42 @@ describe("SeriesLegend actions", () => {
 
     expect(onToggle).toHaveBeenCalledWith("alpha");
     expect(onFilter).not.toHaveBeenCalled();
+  });
+
+  it("opens the action popover from a touch without toggling the series", async () => {
+    const onFilter = vi.fn();
+    const onToggle = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <SeriesLegend
+          keys={["alpha", "beta"]}
+          colors={["#111", "#222"]}
+          panel={{ chartType: "line", source: "first-party" } as never}
+          onFilterKey={onFilter}
+          onToggleKey={onToggle}
+        />,
+      );
+    });
+
+    const seriesButton = container.querySelector<HTMLButtonElement>(
+      'button[title="alpha"]',
+    );
+    expect(seriesButton).not.toBeNull();
+
+    await act(async () => {
+      seriesButton!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          pointerType: "touch",
+        }),
+      );
+      seriesButton!.click();
+    });
+
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(
+      document.body.querySelector('[data-chart-legend-action="filter"]'),
+    ).not.toBeNull();
   });
 });

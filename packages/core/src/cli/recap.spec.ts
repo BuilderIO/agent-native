@@ -1904,6 +1904,52 @@ describe("recap screenshot capture", () => {
     }
   });
 
+  it("refuses to capture the app shell while the recap is still on its loading skeleton", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.waitForSelector.mockImplementation(async (selector: string) => {
+      if (selector === "main") return;
+      throw new Error(`missing ${selector}`);
+    });
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-loading",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.waitForSelector).toHaveBeenCalledWith(
+        "[data-plan-document]",
+        {
+          timeout: 30_000,
+          state: "visible",
+        },
+      );
+      expect(page.waitForSelector).toHaveBeenCalledTimes(1);
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        reason: "missing [data-plan-document]",
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   it("does not upload a screenshot when the recap page returns an HTTP error", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
     const out = path.join(dir, "recap.png");

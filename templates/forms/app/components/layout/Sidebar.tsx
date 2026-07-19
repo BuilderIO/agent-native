@@ -1,14 +1,14 @@
 import {
   useSendToAgentChat,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconArrowUp,
   IconPlus,

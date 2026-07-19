@@ -170,7 +170,7 @@ const messages = {
       "انتهى مسجل سطح المكتب وحفظ نسخة محلية، لكن لم يتمكن Clips من تحميلها. يمكنك إعادة المحاولة من قائمة Clips دون التسجيل مرة أخرى.",
     retryLibrary: "يمكنك إعادة المحاولة من المكتبة.",
     processingStuck:
-      "لم تكتمل المعالجة بعد 30 ثانية (الحالة={{status}}). ربما لم يتم الانتهاء من تحميل المقطع — تحقق من سجلات الخادم بحثًا عن الرسائل المجمعة/النهائية.",
+      "يستغرق حفظ المقطع وقتًا أطول من المتوقع (الحالة={{status}}). إذا سجلته في تطبيق سطح المكتب، فافتح Clips من شريط القوائم لإعادة محاولة الرفع أو تنزيل نسخة محلية محفوظة، ثم تحقق مرة أخرى.",
     uploadingAssembling:
       "تحميل الفيديو الخاص بك وتجميعه — يستغرق هذا عادةً بضع ثوانٍ فقط.",
     connectStorageImportLoom: "قم بتوصيل وحدة التخزين لاستيراد Loom هذا.",
@@ -214,6 +214,9 @@ const messages = {
     autoChapters: "فصول السيارات",
     removeFillerWords: "إزالة كلمات الحشو",
     removeSilences: "إزالة فترات الصمت (> 1.2 ثانية)",
+    silenceWorking: "جارٍ إزالة فترات الصمت…",
+    silenceCompleted: "اكتملت إزالة فترات الصمت",
+    silenceFailed: "فشلت إزالة فترات الصمت",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:
@@ -540,6 +543,9 @@ const messages = {
     brandingUpdated: "تم تحديث العلامة التجارية",
     saveFailed: "فشل الحفظ",
     organizationName: "اسم المؤسسة",
+    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
+    defaultVisibilityDescription:
+      "تُطبّق على التسجيلات الجديدة ما لم تختر رؤية مختلفة.",
     brandColor: "لون العلامة التجارية",
     brandColorPicker: "منتقي لون العلامة التجارية",
     useColor: "استخدم {{color}}",
@@ -606,10 +612,10 @@ const messages = {
     pageTitle: "انضم إلى الفريق · Clips",
   },
   settings: {
-    openAgentSettings: "فتح إعدادات الوكيل",
+    openAgentSettings: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    agentTitle: "إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إدارة الوكيل",
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
@@ -617,6 +623,16 @@ const messages = {
     languageDescription:
       "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
     languageLabel: "لغة الواجهة",
+    uploadWorkspaceTitle: "مساحة العمل النشطة",
+    uploadWorkspaceDescription:
+      "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
+    uploadWorkspaceLabel: "مساحة العمل الحالية",
+    uploadWorkspacePlaceholder: "اختر مساحة عمل",
+    uploadWorkspaceHint:
+      "يؤدي تغييرها أيضًا إلى تحديث عروض Clips المرتبطة بمساحة العمل.",
+    uploadWorkspaceSaving: "جارٍ حفظ مساحة العمل…",
+    uploadWorkspaceSaved: "تم تحديث مساحة العمل النشطة",
+    uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
     viewAllUpdates: "عرض كل التحديثات",
@@ -1100,6 +1116,7 @@ const messages = {
     desktopTitle: "Desktop app (مترجم)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (مترجم)",
+    openDesktopApp: "Open desktop app (مترجم)",
   },
   editableTitle: {
     untitled: "Untitled Clip (مترجم)",
@@ -1227,9 +1244,10 @@ const messages = {
     visibilityOrg: "Organization (مترجم)",
     visibilityPublic: "Public (مترجم)",
     passwordProtection: "Password protection (مترجم)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (مترجم)",
+    passwordSetPlaceholder: "Password is set — type to replace (مترجم)",
     noPasswordPlaceholder: "No password (مترجم)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (مترجم)",
+    removePassword: "Remove (مترجم)",
     expiry: "Expiry (مترجم)",
     viewerOptions: "Viewer options (مترجم)",
     comments: "Comments (مترجم)",
@@ -1360,7 +1378,8 @@ const messages = {
     savedLocally: "حُفظ محليًا",
     uploadFailed: "فشل الرفع",
     connectStorageToFinish: "افتح للاتصال بالتخزين وإنهاء الحفظ.",
-    retryFromClipsMenu: "أعد المحاولة من قائمة Clips؛ لا حاجة لإعادة التسجيل.",
+    retryFromClipsMenu:
+      "افتح Clips من شريط القائمة لإعادة محاولة هذا الرفع المحفوظ؛ لا حاجة لإعادة التسجيل.",
     removeFailedClip: "إزالة هذا المقطع الفاشل.",
     remove: "إزالة",
     viewsCount: "{{count}} مشاهدة",

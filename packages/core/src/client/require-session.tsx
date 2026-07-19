@@ -95,14 +95,31 @@ export function RequireSession({
   signedOut,
   bypass = false,
 }: RequireSessionProps) {
+  if (bypass) return <>{children}</>;
+  return (
+    <ResolvedSessionGate
+      fallback={fallback}
+      redirect={redirect}
+      signedOut={signedOut}
+    >
+      {children}
+    </ResolvedSessionGate>
+  );
+}
+
+function ResolvedSessionGate({
+  children,
+  fallback,
+  redirect = true,
+  signedOut,
+}: Omit<RequireSessionProps, "bypass">) {
   const { session, isLoading } = useSession();
   // Guard against firing the redirect more than once (effect re-runs, React
   // StrictMode double-invoke) — a second navigation while the first is in
   // flight is harmless but noisy.
   const redirectedRef = useRef(false);
 
-  const mustRedirect =
-    !bypass && !isLoading && !session && redirect && !isOnSignInPage();
+  const mustRedirect = !isLoading && !session && redirect && !isOnSignInPage();
 
   useEffect(() => {
     if (!mustRedirect) return;
@@ -114,7 +131,6 @@ export function RequireSession({
     window.location.replace(buildSignInReturnHref());
   }, [mustRedirect]);
 
-  if (bypass) return <>{children}</>;
   // Still resolving, or redirect already in flight: show the loading fallback
   // rather than flashing app chrome the visitor can't use.
   if (isLoading) return <>{fallback ?? <DefaultSpinner />}</>;

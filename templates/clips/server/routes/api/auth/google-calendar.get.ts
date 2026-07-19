@@ -44,7 +44,7 @@ export default defineEventHandler(async (event: H3Event) => {
     return {
       error: "missing_credentials",
       message:
-        "Google Calendar OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your environment, or paste them in the agent settings.",
+        "Google Calendar OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your environment, or paste them in Manage agent.",
     };
   }
 

@@ -1,15 +1,16 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { callAction } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
-  AppearancePicker,
-  callAction,
-  ChangelogSettingsCard,
-  LanguagePicker,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  type AppearancePresetId,
   type SettingsSearchEntry,
-  useT,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
+import {
+  AppearancePicker,
+  type AppearancePresetId,
+} from "@agent-native/core/client/ui";
 import {
   IconBrandZoom,
   IconExternalLink,

@@ -10,6 +10,7 @@ import { nanoid } from "./_property-utils.js";
 import {
   createContentDatabaseRecord,
   databaseTitleForPage,
+  resolveContentDatabaseSpace,
 } from "./create-content-database.js";
 
 function createInlineDatabaseBlockId(): string {
@@ -33,6 +34,10 @@ export default defineAction({
     const ownerBlockId = createInlineDatabaseBlockId();
     let databaseId: string | null = null;
     let databaseDocumentId: string | null = null;
+    const spaceId = await resolveContentDatabaseSpace(
+      { parentId: hostDocumentId },
+      db,
+    );
 
     await db.transaction(async (tx) => {
       databaseId = await createContentDatabaseRecord(
@@ -41,7 +46,7 @@ export default defineAction({
           title: databaseTitleForPage(title),
           description,
         },
-        { db: tx },
+        { db: tx, spaceId },
       );
 
       const [updated] = await tx

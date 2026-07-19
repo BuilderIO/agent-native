@@ -4,8 +4,8 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
@@ -51,8 +51,6 @@ export function Layout({ children }: LayoutProps) {
     if (!formId) return null;
     return { type: "form" as const, id: formId };
   }, [location.pathname]);
-  const sidebarScope = chatHomeHandoffActive ? null : formScope;
-
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
@@ -89,7 +87,7 @@ export function Layout({ children }: LayoutProps) {
           <AgentSidebar
             position="right"
             agentPageHref="/agent"
-            defaultOpen
+            defaultOpen={false}
             chatViewTransition
             storageKey="forms"
             browserTabId={TAB_ID}
@@ -101,7 +99,7 @@ export function Layout({ children }: LayoutProps) {
               t("agent.suggestionSubmissions"),
               t("agent.suggestionExport"),
             ]}
-            scope={sidebarScope}
+            scope={formScope}
           >
             <div className="flex h-full flex-1 flex-col overflow-hidden">
               {showHeader ? <Header /> : null}

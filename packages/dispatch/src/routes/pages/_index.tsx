@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { Spinner } from "../../components/ui/spinner";

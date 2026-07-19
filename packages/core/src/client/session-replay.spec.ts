@@ -291,6 +291,8 @@ describe("session replay", () => {
     delete (globalThis as any)[replayStateKey];
     delete (globalThis as any)[pageviewStateKey];
     recordMock.mockReset();
+    delete (recordMock as typeof recordMock & { addCustomEvent?: unknown })
+      .addCustomEvent;
     sentryMock.init.mockReset();
     sentryMock.setTag.mockReset();
     sentryMock.setUser.mockReset();
@@ -306,6 +308,46 @@ describe("session replay", () => {
     await tick();
 
     expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("adds content-free agent-chat correlation markers to active replay", async () => {
+    installBrowser("https://analytics.agent-native.com/ask");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayAgentChatEvent,
+      startSessionReplay,
+      SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayAgentChatEvent({
+      phase: "run-observed",
+      surface: "sidebar",
+      threadId: "thread-1",
+      runId: "run-1",
+      tabId: "tab-1",
+    });
+
+    expect(addCustomEvent).toHaveBeenCalledOnce();
+    expect(addCustomEvent).toHaveBeenCalledWith(
+      SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+      {
+        phase: "run-observed",
+        surface: "sidebar",
+        threadId: "thread-1",
+        runId: "run-1",
+        tabId: "tab-1",
+      },
+    );
   });
 
   it("starts signed-in replay by default when first-party analytics is configured", async () => {

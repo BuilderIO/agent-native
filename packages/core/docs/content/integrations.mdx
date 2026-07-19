@@ -1,0 +1,431 @@
+---
+title: "Integrations Directory"
+description: "Connect the tools your Agent-Native apps can use through remote MCP, reusable workspace connections, and provider APIs."
+search: "integrations directory MCP connectors OAuth manual setup restricted provider API workspace connections self-hosted"
+---
+
+# Connect your stack
+
+Agent-Native apps can use the tools your team already works in. This directory
+mirrors the framework's current remote MCP catalog: 25 provider presets that
+can be discovered from the composer and Workspace Resources surfaces. It also
+explains the separate reusable workspace-connection and provider-API layers so
+you can choose the connection path that matches your product.
+
+The catalog is intentionally honest about setup friction. **OAuth** means the
+provider exposes an interactive authorization flow that the runtime can start.
+**Manual setup** means the provider requires a registered client, an approved
+client, or vendor-specific configuration before authorization can work.
+**Restricted** means the preset remains visible for discovery, but a provider
+or administrator policy can prevent a generic one-click connection.
+
+<Callout id="integration-paths" title="Three ways to connect" tone="info">
+
+- **Remote MCP integrations** add a provider's tools to the agent. Use the
+  [MCP Clients](/docs/mcp-clients#remote-via-ui) setup flow for personal or
+  organization scope.
+- **Workspace connections** store reusable account metadata and scoped grants
+  so multiple apps can use one connected provider. See [Workspace
+  Connections](/docs/workspace-connections).
+- **Provider APIs** expose a safe, catalog-driven HTTP request and docs surface
+  to actions. They are not automatically one-click MCP presets; use
+  `provider-api-catalog` and `provider-api-docs` when building an app action.
+
+</Callout>
+
+## The integration wall {#integration-wall}
+
+These self-hosted provider marks keep the directory fast and deployable
+without a third-party logo CDN. Connection details and status categories remain
+in the directory table below.
+
+<Diagram id="doc-block-integrations-wall" title="Remote MCP integrations" summary="A self-hosted logo wall of the 25 remote MCP presets currently shipped in the Agent-Native framework." frame="hide" renderMode="design">
+
+```html
+<div class="integration-wall">
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/context7.svg" alt=""
+      /></span>
+      <div><strong>Context7</strong><small>Docs &amp; reference</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/sentry.svg" alt=""
+      /></span>
+      <div><strong>Sentry</strong><small>Errors &amp; debugging</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/notion.svg" alt=""
+      /></span>
+      <div><strong>Notion</strong><small>Knowledge &amp; docs</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/semgrep.svg" alt=""
+      /></span>
+      <div><strong>Semgrep</strong><small>Security scanning</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/linear.svg" alt=""
+      /></span>
+      <div><strong>Linear</strong><small>Issues &amp; planning</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/atlassian.svg" alt=""
+      /></span>
+      <div><strong>Atlassian</strong><small>Jira &amp; Confluence</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/supabase.svg" alt=""
+      /></span>
+      <div><strong>Supabase</strong><small>Database &amp; auth</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/neon.svg" alt=""
+      /></span>
+      <div><strong>Neon</strong><small>Serverless Postgres</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/stripe.svg" alt=""
+      /></span>
+      <div><strong>Stripe</strong><small>Payments &amp; billing</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/cloudflare.svg" alt=""
+      /></span>
+      <div><strong>Cloudflare</strong><small>Cloud &amp; security</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/gitlab.svg" alt=""
+      /></span>
+      <div><strong>GitLab</strong><small>Repos &amp; CI/CD</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/figma.svg" alt=""
+      /></span>
+      <div><strong>Figma</strong><small>Design context</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/canva.svg" alt=""
+      /></span>
+      <div><strong>Canva</strong><small>Designs &amp; assets</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/vercel.svg" alt=""
+      /></span>
+      <div><strong>Vercel</strong><small>Deployments &amp; logs</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/github.svg" alt=""
+      /></span>
+      <div><strong>GitHub</strong><small>Code &amp; pull requests</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/slack.svg" alt=""
+      /></span>
+      <div><strong>Slack</strong><small>Messages &amp; channels</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/asana.svg" alt=""
+      /></span>
+      <div><strong>Asana</strong><small>Tasks &amp; projects</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/hubspot.svg" alt=""
+      /></span>
+      <div><strong>HubSpot</strong><small>CRM &amp; customer data</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/intercom.svg" alt=""
+      /></span>
+      <div><strong>Intercom</strong><small>Support conversations</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/monday.svg" alt=""
+      /></span>
+      <div><strong>monday.com</strong><small>Work management</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/webflow.svg" alt=""
+      /></span>
+      <div><strong>Webflow</strong><small>Websites &amp; CMS</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/paypal.svg" alt=""
+      /></span>
+      <div><strong>PayPal</strong><small>Commerce &amp; invoices</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/box.svg" alt=""
+      /></span>
+      <div><strong>Box</strong><small>Files &amp; folders</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/netlify.svg" alt=""
+      /></span>
+      <div><strong>Netlify</strong><small>Sites &amp; builds</small></div>
+    </div>
+  </div>
+  <div class="integration-card">
+    <div class="integration-head">
+      <span class="integration-mark"
+        ><img src="/integration-logos/zapier.svg" alt=""
+      /></span>
+      <div><strong>Zapier</strong><small>Automation actions</small></div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.integration-wall {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.integration-card {
+  display: flex;
+  align-items: center;
+  min-height: 70px;
+  padding: 14px;
+  border: 1px solid var(--wf-line);
+  border-radius: 12px;
+  background: var(--wf-card);
+  box-sizing: border-box;
+}
+.integration-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.integration-head div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.integration-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.integration-head small {
+  color: var(--wf-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+.integration-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+.integration-mark img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+@media (max-width: 760px) {
+  .integration-wall {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 430px) {
+  .integration-wall {
+    grid-template-columns: 1fr;
+  }
+}
+```
+
+</Diagram>
+
+## Remote MCP directory {#remote-mcp}
+
+The table below mirrors `DEFAULT_MCP_INTEGRATIONS` in the framework. **Ready**
+means the preset is available in the catalog. **Preflight only** means the
+endpoint is reachable or cataloged, but a live provider authorization or tool
+session still needs to be completed. **Restricted** entries remain discoverable
+but need provider or administrator setup before a generic connection can work.
+
+| Integration                                                                                                                    | Connection mode        | Status                             | Endpoint                                  | Setup and notes                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Context7](https://context7.com/)                                                                                              | No auth                | Ready · verified                   | `https://mcp.context7.com/mcp`            | Fetch current library and framework docs.                                                                                                                                                                                         |
+| [Sentry](https://docs.sentry.io/product/sentry-mcp/)                                                                           | Header / token         | Ready · preflight only             | `https://mcp.sentry.dev/mcp`              | Add a Sentry bearer token as the `Authorization` header.                                                                                                                                                                          |
+| [Notion](https://developers.notion.com/guides/mcp/get-started-with-mcp)                                                        | OAuth                  | Ready · preflight only             | `https://mcp.notion.com/mcp`              | User OAuth; enterprise admins can audit or restrict MCP clients.                                                                                                                                                                  |
+| [Semgrep](https://github.com/semgrep/mcp#readme)                                                                               | No auth                | Ready · preflight only             | `https://mcp.semgrep.ai/mcp`              | Scan code for security findings.                                                                                                                                                                                                  |
+| [Linear](https://linear.app/docs/mcp)                                                                                          | OAuth                  | Ready · preflight only             | `https://mcp.linear.app/mcp`              | Authorize the workspace and issue permissions required by the workflow.                                                                                                                                                           |
+| [Atlassian Rovo MCP](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)                                   | OAuth + provider setup | Restricted                         | `https://mcp.atlassian.com/v1/mcp/authv2` | Admins may need to trust the app origin and enable Rovo Read, Write, and Search permissions.                                                                                                                                      |
+| [Supabase](https://www.builder.io/c/docs/fusion-connect-to-supabase)                                                           | OAuth                  | Ready · preflight only             | `https://mcp.supabase.com/mcp`            | Authorize the Supabase project and requested backend scopes.                                                                                                                                                                      |
+| [Neon](https://www.builder.io/c/docs/fusion-connect-to-neon)                                                                   | OAuth                  | Ready · preflight only             | `https://mcp.neon.tech/sse`               | Authorize access to the serverless Postgres projects needed by the app.                                                                                                                                                           |
+| [Stripe](https://docs.stripe.com/mcp)                                                                                          | OAuth                  | Ready · preflight only             | `https://mcp.stripe.com`                  | Review payment, customer, and subscription permissions before authorizing.                                                                                                                                                        |
+| [Cloudflare](https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/)               | OAuth                  | Ready · preflight only             | `https://mcp.cloudflare.com/mcp`          | Choose the narrowest Cloudflare server and review scopes.                                                                                                                                                                         |
+| [GitLab](https://docs.gitlab.com/user/model_context_protocol/mcp_server/)                                                      | OAuth + provider setup | Beta · restricted                  | `https://gitlab.com/api/v4/mcp`           | A top-level group admin, or the equivalent self-managed instance admin, must allow MCP.                                                                                                                                           |
+| [Figma](https://developers.figma.com/docs/figma-mcp-server/)                                                                   | Manual setup           | Approved clients only · restricted | `https://mcp.figma.com/mcp`               | Figma only allows clients in its MCP Catalog. Use the [Figma REST API personal access token fallback](https://developers.figma.com/docs/rest-api/personal-access-tokens/) for file and node reads until Agent Native is approved. |
+| [Canva](https://www.canva.dev/docs/mcp/)                                                                                       | Manual setup           | Approved domains · restricted      | `https://mcp.canva.com/mcp`               | Per-user OAuth; clients must allow Canva's canva.com and canva.ai domains and follow the current redirect setup.                                                                                                                  |
+| [Vercel](https://vercel.com/docs/agent-resources/vercel-mcp)                                                                   | Manual setup           | Approved clients only · restricted | `https://mcp.vercel.com`                  | Vercel must list the client as approved before a generic connection will work.                                                                                                                                                    |
+| [GitHub](https://github.com/github/github-mcp-server)                                                                          | Manual setup           | Provider setup · restricted        | `https://api.githubcopilot.com/mcp/`      | Use a registered OAuth app; organizations may also enforce OAuth App Access Policies.                                                                                                                                             |
+| [Slack](https://docs.slack.dev/ai/slack-mcp-server/)                                                                           | Manual setup           | Approved clients only · restricted | `https://mcp.slack.com/mcp`               | Requires a fixed registered Slack app; dynamic client registration is not supported.                                                                                                                                              |
+| [Asana](https://developers.asana.com/docs/integrating-with-asanas-mcp-server)                                                  | Manual setup           | Provider setup · restricted        | `https://mcp.asana.com/v2/mcp`            | Pre-register an Asana MCP OAuth app before connecting.                                                                                                                                                                            |
+| [HubSpot](https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server) | Manual setup           | Provider setup · restricted        | `https://mcp.hubspot.com`                 | Create a HubSpot MCP Auth App with PKCE; the existing HubSpot OAuth connector remains available to app actions.                                                                                                                   |
+| [Intercom](https://developers.intercom.com/docs/guides/mcp)                                                                    | OAuth                  | Ready · preflight only             | `https://mcp.intercom.com/mcp`            | Available for US-hosted workspaces; confirm region and scopes during authorization.                                                                                                                                               |
+| [monday.com](https://developer.monday.com/api-reference/docs/build-on-monday-with-ai)                                          | OAuth                  | Ready · preflight only             | `https://mcp.monday.com/mcp`              | Choose the workspace and permissions to share during authorization.                                                                                                                                                               |
+| [Webflow](https://developers.webflow.com/mcp/reference/getting-started)                                                        | OAuth                  | Ready · preflight only             | `https://mcp.webflow.com/mcp`             | Designer capabilities may install Webflow's Bridge App; Data API access is separate.                                                                                                                                              |
+| [PayPal](https://developer.paypal.com/ai-tools/mcp-server/)                                                                    | OAuth                  | Ready · preflight only             | `https://mcp.paypal.com/sse`              | Review merchant permissions before authorizing the remote server.                                                                                                                                                                 |
+| [Box](https://developer.box.com/guides/box-mcp)                                                                                | Manual setup           | Beta · restricted                  | `https://mcp.box.com`                     | An administrator must enable Box MCP; custom clients also need credentials, a redirect URI, and approved scopes.                                                                                                                  |
+| [Netlify](https://docs.netlify.com/build/build-with-ai/agent-setup-guides/agent-setup-overview/)                               | OAuth                  | Ready · preflight only             | `https://netlify-mcp.netlify.app/mcp`     | Review site and team permissions before completing OAuth.                                                                                                                                                                         |
+| [Zapier MCP](https://help.zapier.com/hc/en-us/articles/36265392843917-Use-Zapier-MCP-with-your-client)                         | Header / token         | User-created server · restricted   | `https://mcp.zapier.com/api/v1/connect`   | Create the MCP server in Zapier, then paste its generated bearer token into the header field.                                                                                                                                     |
+
+### Repeatable preflight verification
+
+Run the repository-owned probe before changing a preset or publishing a new
+one:
+
+```sh
+corepack pnpm exec tsx scripts/mcp-integration-preflight.ts
+```
+
+The probe sends no credentials. It records whether an endpoint returns an MCP
+`initialize` response, is merely reachable, or is blocked behind provider
+authorization/setup. A `verified` result proves protocol reachability only; it
+does not prove that a user has authorized the provider or that every tool call
+will be allowed.
+
+## Reusable workspace connections {#workspace-connections}
+
+Workspace connections are the right surface when an account should be
+connected once and granted to several Agent-Native apps. The framework's
+workspace provider catalog currently includes these providers:
+
+| Provider     | Connection mode                             | Typical use                                 | Setup note                                                                     |
+| ------------ | ------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| Slack        | Managed OAuth; bot-token fallback           | Messages, channels, company memory          | New messaging setups should use the managed Slack install.                     |
+| GitHub       | OAuth preferred; token fallback             | Repositories, issues, pull requests, code   | Fine-grained tokens remain available for local or legacy setups.               |
+| Figma        | OAuth preferred; personal-token fallback    | Design files, frames, components            | Use workspace OAuth for shared access.                                         |
+| Notion       | OAuth                                       | Pages, wikis, databases                     | Store the grant once and scope it to consuming apps.                           |
+| Gmail        | Google OAuth                                | Mailbox search, triage, replies             | Configure the Google OAuth client used by the workspace.                       |
+| Google Drive | Google OAuth                                | Drive files, Docs, Sheets, and Slides       | Keep the grant scoped to the files and apps that need it.                      |
+| HubSpot      | OAuth preferred; private-token fallback     | CRM records and engagement history          | OAuth is preferred for new connections.                                        |
+| Jira Cloud   | OAuth preferred; API-token fallback         | Projects, issues, and sprints               | OAuth discovers the site; token fallback needs the site URL and account email. |
+| Sentry       | OAuth preferred; auth/server-token fallback | Error tracking and performance              | Token fallback is useful for self-hosted or local Sentry.                      |
+| Granola      | API key                                     | Meeting notes and transcripts               | Respect the visibility of the connected Granola workspace.                     |
+| Clips        | Built-in                                    | Agent-Native recordings and transcripts     | No external credential is required for the framework's own Clips exports.      |
+| Generic      | Manual/custom                               | Webhooks, CSV exports, and transcript drops | Use when a source does not need a first-class provider yet.                    |
+
+See [Workspace Connections](/docs/workspace-connections#building-a-reusable-connector)
+for the connection, grant, `credentialRef`, and readiness model.
+
+## Provider APIs behind agent actions {#provider-apis}
+
+The provider API catalog is a separate action surface for provider-agnostic
+discovery, documentation lookup, and safe HTTP requests. It currently includes
+these built-in providers:
+
+- **OAuth-backed or workspace-granted:** GitHub, Figma, Gmail, Google
+  Calendar, Google Drive, Google Slides, HubSpot, Jira Cloud, Notion, and
+  Sentry.
+- **Google service-account:** BigQuery, Google Analytics 4, and Google Cloud
+  APIs.
+- **API key or bearer token:** Apollo, Clay, Common Room, Granola, Grafana,
+  PostHog, Pylon, Slack, Stripe, and Twitter/X via `twitterapi.io`.
+- **Basic or service credentials:** Amplitude, DataForSEO, Gong, and Mixpanel.
+- **Instance-authenticated:** Prometheus, using the configured URL and the
+  instance's supported basic or bearer credentials.
+
+These entries are available to actions through the shared
+`provider-api-catalog`, `provider-api-docs`, and `provider-api-request` pattern.
+They do not imply that the provider also appears in the remote MCP picker.
+Custom provider registrations can extend this action catalog without changing
+the built-in list above.
+
+## Keep the directory honest {#keep-current}
+
+Provider OAuth policies, approved-client lists, endpoint versions, and scopes
+change independently of the framework. Before enabling an integration in a
+production catalog:
+
+1. Open the provider's setup link in the directory.
+2. Confirm the deployment origin, OAuth client, redirect URI, scopes, and admin
+   policies that apply to your workspace.
+3. Prefer workspace grants and the vault for reusable credentials; never put
+   tokens in prompts, committed config, or docs examples.
+4. Treat a **restricted**, **beta**, or **preflight-only** label as a setup
+   requirement, not as a promise of one-click availability.
+
+For custom remote servers, see [MCP Clients — Remote MCP servers](/docs/mcp-clients#remote-via-ui).
+For exposing your own app to Claude, ChatGPT, Codex, Cursor, or another MCP
+host, see [External Agents](/docs/external-agents).

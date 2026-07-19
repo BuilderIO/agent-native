@@ -8,6 +8,8 @@ type AgentClientModule = {
   AgentChatSurface: ComponentType<{
     mode?: "panel" | "page";
     className?: string;
+    showHeader?: boolean;
+    showTabBar?: boolean;
   }>;
   AgentTabsPage?: ComponentType<AgentPageProps>;
 };
@@ -33,7 +35,14 @@ export function resolveAgentPageComponent(
   if (existing) return existing;
 
   const legacyAgentPage = function LegacyAgentPage() {
-    return <client.AgentChatSurface mode="page" className="h-full" />;
+    return (
+      <client.AgentChatSurface
+        mode="page"
+        className="h-full"
+        showHeader={false}
+        showTabBar={false}
+      />
+    );
   };
   legacyAgentPages.set(client, legacyAgentPage);
   return legacyAgentPage;

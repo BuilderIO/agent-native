@@ -1,8 +1,6 @@
-import {
-  appBasePath,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+import { captureClientException } from "@agent-native/core/client/analytics";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
@@ -318,6 +316,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Whether we've already captured-and-uploaded a still-frame thumbnail for
     // this clip. Owner-only and once per player lifecycle.
     const thumbnailCapturedRef = useRef(false);
+    const [thumbnailLoadFailed, setThumbnailLoadFailed] = useState(false);
     // "Preparing your clip…" overlay — shown while the browser buffers the
     // first frame of a freshly-finalized clip so the user doesn't see a blank
     // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
@@ -510,6 +509,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       bumpControls();
       setPlayError(null);
 
+      // The center replay control calls requestPlay directly (rather than the
+      // surface toggle path), so restart an ended media element here as well.
+      if (v.ended) {
+        try {
+          v.currentTime = 0;
+          setCurrentMs(0);
+        } catch {
+          // Let the normal play attempt report a media error if the seek fails.
+        }
+      }
+
       if (
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) &&
@@ -679,7 +689,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           (isPlaying || playAttemptPendingRef.current || !v.paused),
         );
 
-        if (v) v.playbackRate = nextSpeed;
+        if (v) {
+          v.defaultPlaybackRate = nextSpeed;
+          v.playbackRate = nextSpeed;
+        }
         setSpeed(nextSpeed);
         savePlaybackSpeedPreference(nextSpeed);
         onSpeedChange?.(nextSpeed);
@@ -778,6 +791,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const v = videoRef.current;
       if (!v) return;
       const initialSpeed = readPlaybackSpeedPreference(defaultSpeed);
+      v.defaultPlaybackRate = initialSpeed;
       v.playbackRate = initialSpeed;
       setSpeed(initialSpeed);
       onSpeedChange?.(initialSpeed);
@@ -917,6 +931,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setIsBuffering(false);
       setPlayError(null);
     }, [activeVideoSourceIdentity, recordingId]);
+
+    useEffect(() => {
+      setThumbnailLoadFailed(false);
+    }, [recordingId, thumbnailUrl]);
 
     useEffect(() => {
       let cancelled = false;
@@ -1173,10 +1191,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // retry on a format that will never play. Show the poster with a
           // clear, non-looping explanation instead.
           <div className="relative flex h-full w-full items-center justify-center bg-black">
-            {thumbnailUrl ? (
+            {thumbnailUrl && !thumbnailLoadFailed ? (
               <img
                 src={resolveLocalUrl(thumbnailUrl)}
                 alt=""
+                onError={() => setThumbnailLoadFailed(true)}
                 className={cn(
                   "absolute inset-0 h-full w-full",
                   cover ? "object-cover" : "object-contain",
@@ -1432,6 +1451,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {thumbnailUrl &&
+        !thumbnailLoadFailed &&
         !autoPlay &&
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) ? (
@@ -1439,6 +1459,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             src={resolveLocalUrl(thumbnailUrl)}
             alt=""
             aria-hidden="true"
+            onError={() => setThumbnailLoadFailed(true)}
             className={cn(
               "pointer-events-none absolute inset-0 z-[1] h-full w-full",
               cover ? "object-cover" : "object-contain",
@@ -1480,7 +1501,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         {/* Timestamped comments */}
         {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
-          <PlaybackCommentOverlay comments={comments} currentMs={currentMs} />
+          <PlaybackCommentOverlay
+            comments={comments}
+            currentMs={currentMs}
+            playbackRate={speed}
+          />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}

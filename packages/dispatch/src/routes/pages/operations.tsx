@@ -1,8 +1,6 @@
-import {
-  DbAdminPage,
-  ObservabilityDashboard,
-  useT,
-} from "@agent-native/core/client";
+import { DbAdminPage } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import {
   IconActivity,
   IconArrowUpRight,

@@ -172,7 +172,7 @@ const messages = {
       "O gravador de desktop terminou e salvou uma cópia local, mas Clips não conseguiu carregá-la. Você pode tentar novamente no menu Clips sem gravar novamente.",
     retryLibrary: "Você pode tentar novamente na biblioteca.",
     processingStuck:
-      "O processamento não foi concluído após 30 segundos (status={{status}}). O upload do clipe pode não ter terminado — verifique os logs do servidor para mensagens de fragmentação/finalização.",
+      "O salvamento está demorando mais do que o esperado (status={{status}}). Se você gravou no app para desktop, abra o Clips pela barra de menus para tentar o upload novamente ou baixar uma cópia local salva e verifique outra vez.",
     uploadingAssembling:
       "Carregar e montar seu vídeo – isso geralmente leva apenas alguns segundos.",
     connectStorageImportLoom:
@@ -221,6 +221,9 @@ const messages = {
     autoChapters: "Capítulos automáticos",
     removeFillerWords: "Remover palavras de preenchimento",
     removeSilences: "Remover silêncios (>1,2s)",
+    silenceWorking: "Removendo silêncios…",
+    silenceCompleted: "Remoção de silêncios concluída",
+    silenceFailed: "Falha ao remover silêncios",
     generatePrSummary: "Gerar resumo de PR",
     generateSop: "Gerar SOP",
     generateSopTooltip:
@@ -549,6 +552,9 @@ const messages = {
     brandingUpdated: "Marca atualizada",
     saveFailed: "Falha ao salvar",
     organizationName: "Nome da organização",
+    defaultVisibility: "Visibilidade padrão de novas gravações",
+    defaultVisibilityDescription:
+      "Aplicada a novas gravações, a menos que você escolha outra visibilidade.",
     brandColor: "Cor da marca",
     brandColorPicker: "Seletor de cor da marca",
     useColor: "Usar {{color}}",
@@ -616,10 +622,10 @@ const messages = {
     pageTitle: "Entrar na equipe · Clips",
   },
   settings: {
-    openAgentSettings: "Abrir configurações do agente",
+    openAgentSettings: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    agentTitle: "Configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Gerenciar agente",
     title: "Configurações",
     pageTitle: "Configurações · Clips",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
@@ -627,6 +633,16 @@ const messages = {
     languageDescription:
       "Escolha o idioma da interface para esta conta. O Clips lembrará em todos os seus dispositivos.",
     languageLabel: "Idioma da interface",
+    uploadWorkspaceTitle: "Espaço ativo",
+    uploadWorkspaceDescription:
+      "Escolha o espaço que o Clips usará para novas gravações, incluindo uploads do desktop.",
+    uploadWorkspaceLabel: "Espaço atual",
+    uploadWorkspacePlaceholder: "Escolha um espaço",
+    uploadWorkspaceHint:
+      "Isso também atualiza as telas do Clips vinculadas ao espaço.",
+    uploadWorkspaceSaving: "Salvando espaço…",
+    uploadWorkspaceSaved: "Espaço ativo atualizado",
+    uploadWorkspaceSaveFailed: "Não foi possível atualizar o espaço ativo",
     whatsNew: "Novidades",
     changelogEmpty: "Ainda não há atualizações.",
     viewAllUpdates: "Ver todas as atualizações",
@@ -1115,6 +1131,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     desktopTitle: "Desktop app (Localizado)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localizado)",
+    openDesktopApp: "Open desktop app (Localizado)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localizado)",
@@ -1242,9 +1259,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     visibilityOrg: "Organization (Localizado)",
     visibilityPublic: "Public (Localizado)",
     passwordProtection: "Password protection (Localizado)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Localizado)",
+    passwordSetPlaceholder: "Password is set — type to replace (Localizado)",
     noPasswordPlaceholder: "No password (Localizado)",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (Localizado)",
+    removePassword: "Remove (Localizado)",
     expiry: "Expiry (Localizado)",
     viewerOptions: "Viewer options (Localizado)",
     comments: "Comments (Localizado)",
@@ -1377,7 +1396,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     connectStorageToFinish:
       "Abra para conectar o armazenamento e concluir o salvamento.",
     retryFromClipsMenu:
-      "Tente novamente pelo menu do Clips; não precisa gravar de novo.",
+      "Abra o Clips pela barra de menus para tentar novamente este upload salvo; não é preciso gravar de novo.",
     removeFailedClip: "Remover este clip com falha.",
     remove: "Remover",
     viewsCount: "{{count}} visualizações",

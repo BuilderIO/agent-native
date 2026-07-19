@@ -5,7 +5,7 @@ const sendToAgentChatAndConfirmMock = vi.hoisted(() =>
   vi.fn(() => Promise.resolve({ tabId: "tab-design", delivered: true })),
 );
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: sendToAgentChatMock,
   sendToAgentChatAndConfirm: sendToAgentChatAndConfirmMock,
 }));

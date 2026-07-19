@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useEffect, useState } from "react";
 import { useParams, Navigate, useSearchParams } from "react-router";
 

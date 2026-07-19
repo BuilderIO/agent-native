@@ -82,8 +82,7 @@ export default defineAction({
 `useActionQuery`를 사용하여 UI에서 `list-audit-events`를 호출하여 활동 피드 또는 "이 항목을 변경한 사람" 줄을 작성합니다. 감사 테이블에 가져오기를 직접 작성하지 마세요.
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,

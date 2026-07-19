@@ -18,13 +18,21 @@ export interface MediaWorkerJob {
   callback: { url: string };
 }
 
-export interface MediaWorkerCallback {
-  jobId: string;
-  status: "done" | "failed";
-  outputUrl?: string;
-  error?: string;
-  durationMs?: number;
-}
+export type MediaWorkerCallback =
+  | {
+      jobId: string;
+      status: "done";
+      outputUrl?: string;
+      error?: string;
+      durationMs: number;
+    }
+  | {
+      jobId: string;
+      status: "failed";
+      outputUrl?: string;
+      error?: string;
+      durationMs?: number;
+    };
 
 export interface MediaWorkerSignatureHeaders {
   [MEDIA_WORKER_TIMESTAMP_HEADER]: string;
@@ -125,22 +133,31 @@ export function parseMediaWorkerCallback(
     return null;
   }
   if (body.error !== undefined && typeof body.error !== "string") return null;
+  const durationMs =
+    typeof body.durationMs === "number" && Number.isFinite(body.durationMs)
+      ? Math.round(body.durationMs)
+      : undefined;
+  if (body.status === "done") {
+    if (durationMs === undefined || durationMs <= 0) return null;
+    return {
+      jobId: body.jobId,
+      status: "done",
+      outputUrl: body.outputUrl,
+      error: body.error,
+      durationMs,
+    };
+  }
   if (
     body.durationMs !== undefined &&
-    (typeof body.durationMs !== "number" ||
-      !Number.isFinite(body.durationMs) ||
-      body.durationMs < 0)
+    (durationMs === undefined || durationMs < 0)
   ) {
     return null;
   }
   return {
     jobId: body.jobId,
-    status: body.status,
+    status: "failed",
     outputUrl: body.outputUrl,
     error: body.error,
-    durationMs:
-      typeof body.durationMs === "number"
-        ? Math.round(body.durationMs)
-        : undefined,
+    durationMs,
   };
 }

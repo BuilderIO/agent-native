@@ -1,21 +1,21 @@
 import {
-  agentNativePath,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
-  PromptComposer,
   sendToAgentChat,
-  useCodeMode,
   useChatThreads,
   useSendToAgentChat,
-  useSession,
-  useT,
   type ChatThreadSummary,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconArchive,
   IconBrain,
@@ -442,13 +442,17 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
       signInForPlanCreate();
       return;
     }
-    markAgentChatHomeHandoff("plans");
+    if (location.pathname === "/" && isAgentChatHomeHandoffActive("plans")) {
+      markAgentChatHomeHandoff("plans");
+    }
     navigateWithAgentChatViewTransition(navigate, "/plans?create=1");
   };
 
   const openPlanPath = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
     event.preventDefault();
-    markAgentChatHomeHandoff("plans");
+    if (location.pathname === "/" && isAgentChatHomeHandoffActive("plans")) {
+      markAgentChatHomeHandoff("plans");
+    }
     navigateWithAgentChatViewTransition(navigate, path);
   };
 
@@ -738,7 +742,13 @@ export function Sidebar({
             <Link
               to={item.href}
               onClick={() => {
-                if (item.href !== "/") markAgentChatHomeHandoff("plans");
+                if (
+                  item.href !== "/" &&
+                  location.pathname === "/" &&
+                  isAgentChatHomeHandoffActive("plans")
+                ) {
+                  markAgentChatHomeHandoff("plans");
+                }
               }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",

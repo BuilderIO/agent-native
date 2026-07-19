@@ -1,4 +1,5 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
 import {
@@ -11,6 +12,7 @@ import { designTemplateFeatureOverrides } from "./i18n-template-feature";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
@@ -31,10 +33,10 @@ const enUS = {
     collapseSidebar: "Collapse sidebar",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
@@ -926,6 +928,38 @@ const enUS = {
       stay: "Stay here",
       leave: "Leave without applying",
     },
+    nodeRewrite: {
+      composerTitle: "Ask or change selection",
+      send: "Send",
+      autoHint: "Describe a change or ask a question",
+      willPreview: "Will preview changes for your approval",
+      willAsk: "Will ask the agent without changing the design",
+      modeAuto: "Auto",
+      modePreview: "Preview change",
+      modeAsk: "Ask agent",
+      modeRegenerate: "Regenerate",
+      agentModeOptions: "Choose agent behavior",
+      pendingReview: "Review changes · {{count}}",
+      pendingReviewMenu: "Changes ready to review",
+      reviewCandidate: "Review change",
+      regenerate: "Regenerate…",
+      sending: "Regenerating…",
+      sent: "Regeneration request sent",
+      sendFailed: "Could not send the regeneration request",
+      previewTitle: "Regenerated selection",
+      variants: "Regeneration variants",
+      variantNumber: "Variant {{count}}: {{summary}}",
+      candidatePosition: "{{current}} of {{total}}",
+      previousCandidate: "Previous candidate",
+      nextCandidate: "Next candidate",
+      refinePlaceholder: "Refine this result…",
+      refine: "Refine result",
+      refinementSent: "Refinement sent",
+      refinementFailed: "Could not send the refinement",
+      accept: "Accept",
+      reject: "Reject",
+      resolveFailed: "Could not resolve this proposal",
+    },
     capabilities: {
       "deterministic-style-edit": "Safe style edit",
       "deterministic-class-edit": "Safe class edit",
@@ -1123,6 +1157,18 @@ const enUS = {
     designSystem: "Design system",
     noDesignSystem: "No design system",
     newDesignSystem: "New",
+    createDesignSystem: "Create design system",
+    template: "Template",
+    blank: "Blank",
+    builtIn: "Built-in",
+    chooseTemplate: "Choose a template",
+    searchTemplates: "Search templates...",
+    noTemplatesFound: "No templates found.",
+    yourTemplates: "Your templates",
+    builtInTemplates: "Built-in templates",
+    templatePromptPlaceholder: "Describe how to adapt {{title}}...",
+    reskinTemplatePrompt:
+      "Apply the {{system}} design system to {{title}} while preserving its structure and locked layers.",
     addAttachment: "Add",
     removeAttachment: "Remove {{name}}",
     uploadFile: "Upload file",
@@ -1258,11 +1304,18 @@ const enUS = {
     description:
       "Start with the right dimensions and defaults, then prompt the unlocked content into place.",
     searchPlaceholder: "Search templates...",
-    starterTemplates: "Starter templates",
-    savedTemplates: "Saved templates",
+    starterTemplates: "Built-in templates",
+    savedTemplates: "Your templates",
     savedTemplatesDescription:
       "Save any Design project as a reusable template from its editor menu.",
     savedEmpty: "Open a design and choose Save as template to add it here.",
+    yourTemplates: "Your templates",
+    yourTemplatesDescription:
+      "Save any Design project as a reusable template from its editor menu.",
+    yourTemplatesEmpty:
+      "Open a design and choose Save as template to add it here.",
+    builtInTemplates: "Built-in templates",
+    builtIn: "Built-in",
     brand: "Brand: {{title}}",
     useTemplate: "Use template",
     useAsIs: "Use template as-is",
@@ -1554,7 +1607,11 @@ function mergeLocalizedMessages(
   overrides: PartialMessages,
 ): Messages {
   return attachLocalizedKeyboardShortcuts(
-    mergeMessages(overrides),
+    mergeMessages(
+      mergePartialMessages(overrides, {
+        creativeContext: creativeContextMessagesByLocale[locale],
+      }),
+    ),
     keyboardShortcutLabels[locale],
     keyboardKeyLabels[locale],
   );
@@ -14730,10 +14787,10 @@ export const messagesByLocale = {
           collapseSidebar: "收起侧边栏",
         },
         settings: {
-          agentTitle: "代理设置",
+          agentTitle: "管理代理",
           agentDescription:
-            "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-          openAgentSettings: "打开代理设置",
+            "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+          openAgentSettings: "管理代理",
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
@@ -14806,10 +14863,10 @@ export const messagesByLocale = {
           collapseSidebar: "Contraer barra lateral",
         },
         settings: {
-          agentTitle: "Ajustes del agente",
+          agentTitle: "Gestionar agente",
           agentDescription:
-            "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-          openAgentSettings: "Abrir ajustes del agente",
+            "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+          openAgentSettings: "Gestionar agente",
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
@@ -14885,10 +14942,10 @@ export const messagesByLocale = {
           collapseSidebar: "Réduire la barre latérale",
         },
         settings: {
-          agentTitle: "Paramètres de l’agent",
+          agentTitle: "Gérer l’agent",
           agentDescription:
-            "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-          openAgentSettings: "Ouvrir les paramètres de l’agent",
+            "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+          openAgentSettings: "Gérer l’agent",
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
@@ -14964,10 +15021,10 @@ export const messagesByLocale = {
           collapseSidebar: "Seitenleiste einklappen",
         },
         settings: {
-          agentTitle: "Agent-Einstellungen",
+          agentTitle: "Agent verwalten",
           agentDescription:
-            "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-          openAgentSettings: "Agent-Einstellungen öffnen",
+            "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+          openAgentSettings: "Agent verwalten",
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
@@ -15043,10 +15100,10 @@ export const messagesByLocale = {
           collapseSidebar: "サイドバーを折りたたむ",
         },
         settings: {
-          agentTitle: "エージェント設定",
+          agentTitle: "エージェントを管理",
           agentDescription:
-            "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-          openAgentSettings: "エージェント設定を開く",
+            "エージェントのモデル、API キー、自動化、音声などを管理します。",
+          openAgentSettings: "エージェントを管理",
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
@@ -15123,10 +15180,10 @@ export const messagesByLocale = {
           collapseSidebar: "사이드바 접기",
         },
         settings: {
-          agentTitle: "에이전트 설정",
+          agentTitle: "에이전트 관리",
           agentDescription:
-            "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-          openAgentSettings: "에이전트 설정 열기",
+            "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+          openAgentSettings: "에이전트 관리",
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
@@ -15201,10 +15258,10 @@ export const messagesByLocale = {
           collapseSidebar: "Recolher barra lateral",
         },
         settings: {
-          agentTitle: "Configurações do agente",
+          agentTitle: "Gerenciar agente",
           agentDescription:
-            "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-          openAgentSettings: "Abrir configurações do agente",
+            "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+          openAgentSettings: "Gerenciar agente",
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
@@ -15280,10 +15337,10 @@ export const messagesByLocale = {
           collapseSidebar: "साइडबार समेटें",
         },
         settings: {
-          agentTitle: "एजेंट सेटिंग्स",
+          agentTitle: "एजेंट प्रबंधित करें",
           agentDescription:
-            "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-          openAgentSettings: "एजेंट सेटिंग्स खोलें",
+            "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+          openAgentSettings: "एजेंट प्रबंधित करें",
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
@@ -15359,10 +15416,10 @@ export const messagesByLocale = {
           collapseSidebar: "طي الشريط الجانبي",
         },
         settings: {
-          agentTitle: "إعدادات الوكيل",
+          agentTitle: "إدارة الوكيل",
           agentDescription:
-            "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-          openAgentSettings: "فتح إعدادات الوكيل",
+            "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+          openAgentSettings: "إدارة الوكيل",
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",

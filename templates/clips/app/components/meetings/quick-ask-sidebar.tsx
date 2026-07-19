@@ -1,23 +1,5 @@
-/**
- * Cmd+J "Ask about this meeting" sidebar.
- *
- * Granola's signature pattern (from `granola-ux.md` §6):
- *
- *   "During recording, empty state on right pane: literally blank — the point
- *    is to NOT fill the canvas with AI noise mid-meeting. Mid-meeting AI is
- *    accessed only via Cmd+J chat sidebar."
- *
- * Implementation:
- *   - 320px slide-in panel on the right (shadcn `Sheet`).
- *   - Header + 3 quick-prompt buttons + free-form composer.
- *   - All AI work delegates to the agent chat via `sendToAgentChat` (per the
- *     `delegate-to-agent` skill). Never inline LLM calls.
- *   - The keyboard handler is mounted ONCE per page-mount (single
- *     `keydown` listener with cleanup) so toggling open/close doesn't leak
- *     listeners. Esc and Cmd+J both close the sheet.
- */
-
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCommand,
   IconNotes,

@@ -1,4 +1,4 @@
-import { generateTabId } from "@agent-native/core/client";
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 
 /** Stable for the lifetime of this module, including editor component refreshes. */
 export const TAB_ID = generateTabId();

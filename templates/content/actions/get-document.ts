@@ -15,12 +15,6 @@ import {
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import {
-  getLocalFileDocument,
-  getLocalDocumentContextPath,
-  isLocalDocumentId,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
 import "../server/db/index.js";
 import {
   listPropertiesForDocument,
@@ -45,14 +39,6 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
-
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(args.id)) {
-      const document = await getLocalFileDocument(args.id);
-      return {
-        ...document,
-        contextPath: await getLocalDocumentContextPath(args.id),
-      };
-    }
 
     const access = await resolveAccess("document", args.id);
     // Not-found is a deterministic client-state condition (deleted or

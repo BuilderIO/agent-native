@@ -1,10 +1,10 @@
 import {
   AgentChatSurface,
-  getBrowserTabId,
   markAgentChatHomeHandoff,
   sendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";

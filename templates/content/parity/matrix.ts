@@ -17,6 +17,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "create-document",
+      "clone-creative-context-document",
       "delete-document",
       "get-document",
       "list-documents",
@@ -34,6 +35,34 @@ export const parityMatrix: ParityRow[] = [
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "workspace.spaces-and-files-catalog",
+    surface: "workspace",
+    label: "Provision and navigate Content spaces through Files and Workspaces",
+    uiEntrypoints: [
+      "app/components/sidebar/DocumentSidebar.tsx",
+      "app/hooks/use-content-spaces.ts",
+    ],
+    durableEffect:
+      "Personal and organization spaces, their canonical Files databases, and the personal Workspaces catalog are provisioned and reconciled in SQL.",
+    uiImplementation:
+      "The app sidebar calls the shared space actions and renders the selected Files database through a saved sidebar view.",
+    status: "action-backed",
+    actions: [
+      "backfill-content-files",
+      "ensure-content-spaces",
+      "list-content-spaces",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-spaces.db.test.ts",
+      "actions/content-files.db.test.ts",
+    ],
   },
   {
     id: "sidebar.navigation-and-screen-context",
@@ -537,16 +566,24 @@ export const parityMatrix: ParityRow[] = [
       "UI reads/writes browser or Desktop folder handles around import/export actions.",
     status: "action-backed",
     actions: [
+      "connect-local-folder-source",
+      "disconnect-local-folder-source",
       "export-content-source",
       "import-content-source",
       "remove-local-file-source",
+      "resolve-local-folder-conflict",
+      "sync-local-folder-source",
+      "sync-manifest-local-folder-source",
     ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/_local-file-documents.test.ts"],
+    coverageRefs: [
+      "actions/_local-file-documents.test.ts",
+      "actions/local-folder-source.db.test.ts",
+    ],
     evalScenarioIds: ["local-file-source-truth"],
   },
   {

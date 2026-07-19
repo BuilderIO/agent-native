@@ -1,16 +1,20 @@
 import { agentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  AgentPresenceChip,
-  agentNativePath,
-  RecentEditHighlights,
-  sendToAgentChat,
-  setClientAppState,
-  usePinchZoom,
-  useT,
-  useAvatarUrl,
   type AttributedRecentEdit,
   type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import {
+  setClientAppState,
+  usePinchZoom,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  AgentPresenceChip,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   IconAlertTriangle,

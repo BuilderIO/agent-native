@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["pt-BR"],
   root: {
     commandPresentations: "Apresentações",
     searchDecks: "Buscar decks",
@@ -34,10 +37,10 @@ const messages = {
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    agentTitle: "Configurações do agente",
+    agentTitle: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    openAgentSettings: "Abrir configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    openAgentSettings: "Gerenciar agente",
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre suas apresentações",

@@ -138,6 +138,14 @@ export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
     "export default { Resvg };",
     "",
   ].join("\n"),
+  playwright: [
+    "const unavailable = async () => { throw new Error('playwright unavailable in Cloudflare Pages worker'); };",
+    "export const chromium = { launch: unavailable, connect: unavailable, connectOverCDP: unavailable };",
+    "export const firefox = { launch: unavailable, connect: unavailable };",
+    "export const webkit = { launch: unavailable, connect: unavailable };",
+    "export default { chromium, firefox, webkit };",
+    "",
+  ].join("\n"),
   "playwright-core": [
     "const unavailable = async () => { throw new Error('playwright-core unavailable in Cloudflare Pages worker'); };",
     "export const chromium = { launch: unavailable };",
@@ -186,6 +194,50 @@ export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
   "@excalidraw/mermaid-to-excalidraw":
     "export default async () => ({ elements: [], files: {} });\n",
 };
+
+export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
+  "pdf-parse/worker": [
+    "const unavailable = async () => { throw new Error('pdf-parse/worker unavailable in Cloudflare Pages worker'); };",
+    "export class CanvasFactory {}",
+    "export const getData = unavailable;",
+    "export default { CanvasFactory, getData };",
+    "",
+  ].join("\n"),
+};
+
+export function cloudflareWorkerStubAliasArgs(stubDir: string): string[] {
+  const subpathAliases = Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES)
+    .sort((a, b) => b.length - a.length)
+    .map(
+      (mod) =>
+        `--alias:${mod}=${path.join(stubDir, `${mod.replace(/\//g, "__")}.js`)}`,
+    );
+  const packageAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES)
+    .sort((a, b) => b.length - a.length)
+    .map((mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`);
+  return [...subpathAliases, ...packageAliases];
+}
+
+export function assertNoCloudflareWorkerStubDynamicImports(
+  code: string,
+  sourceName: string,
+): void {
+  const stubbedModules = [
+    ...Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES),
+    ...Object.keys(CLOUDFLARE_WORKER_STUB_MODULES),
+  ];
+  const pattern = stubbedModules
+    .sort((a, b) => b.length - a.length)
+    .map((moduleName) => moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const unresolvedImport = code.match(
+    new RegExp(`\\bimport\\s*\\(\\s*(["'])(${pattern})\\1\\s*\\)`),
+  );
+  if (!unresolvedImport) return;
+  throw new Error(
+    `Cloudflare worker output ${sourceName} retained a dynamic import for stubbed module "${unresolvedImport[2]}". Use a literal import so the worker bundler can apply its fail-closed stub.`,
+  );
+}
 
 function cloudflareNodeBuiltinStubSource(
   moduleName: string,
@@ -1666,9 +1718,15 @@ async function buildCloudflarePages() {
       JSON.stringify({ name: mod, main: "index.js", type: "module" }),
     );
   }
-  const stubAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES).map(
-    (mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`,
-  );
+  for (const [mod, source] of Object.entries(
+    CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
+  )) {
+    fs.writeFileSync(
+      path.join(stubDir, `${mod.replace(/\//g, "__")}.js`),
+      source,
+    );
+  }
+  const stubAliases = cloudflareWorkerStubAliasArgs(stubDir);
   const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
   fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
   const nodeBuiltinStubAliases: string[] = [];
@@ -1849,6 +1907,8 @@ async function buildCloudflarePages() {
         (match) => match + timerRestore,
       );
     }
+
+    assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
 
     fs.writeFileSync(jsFile, code);
   }
@@ -2513,9 +2573,32 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
+const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
+  "fast-xml-parser",
+  "jszip",
+  "officeparser",
+  "pdf-parse",
+  "pdfjs-dist",
+] as const;
+
+function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+  ).test(source);
+}
+
 function hasUnsupportedYjsSubpathImport(source: string): boolean {
   return /\b(?:from\s*|import\s*\(\s*|import\s*)["']yjs\/[^"']*["']/.test(
     source,
+  );
+}
+
+function hasBundledVitestRuntime(source: string): boolean {
+  return (
+    /["'`]@vitest\//.test(source) ||
+    /["'`]vitest\/(?:dist|src)\//.test(source) ||
+    /__vitest_\d+__/.test(source)
   );
 }
 
@@ -2714,6 +2797,23 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
+  const bareIngestionImports: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    for (const dependency of NETLIFY_BUNDLED_INGESTION_DEPENDENCIES) {
+      if (hasBareRuntimeImport(source, dependency)) {
+        bareIngestionImports.push(
+          `${dependency} in ${path.relative(projectCwd, filePath)}`,
+        );
+      }
+    }
+  });
+  if (bareIngestionImports.length > 0) {
+    failures.push(
+      `Netlify server bundle leaves ingestion dependencies as runtime imports: ${bareIngestionImports.join(", ")}`,
+    );
+  }
+
   // Nitro's `_libs/yjs.mjs` is a private tree-shaken chunk, not a package
   // facade. Repointing a prebuilt SSR chunk at it can request public exports
   // (notably `Text`) that the private chunk did not retain. The controlled
@@ -2731,6 +2831,21 @@ export function assertSingleTemplateNetlifyBuildOutput(
   if (privateYjsImports.length > 0) {
     failures.push(
       `Netlify server bundle imports Nitro's internal tree-shaken _libs/yjs.mjs: ${privateYjsImports.join(", ")}`,
+    );
+  }
+
+  // React Router's filesystem route discovery can accidentally treat a
+  // co-located *.test.ts route as production code. That bundles Vitest into
+  // SSR and only fails when the first request executes the test helpers.
+  const bundledVitestRuntime: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    if (hasBundledVitestRuntime(fs.readFileSync(filePath, "utf-8"))) {
+      bundledVitestRuntime.push(path.relative(projectCwd, filePath));
+    }
+  });
+  if (bundledVitestRuntime.length > 0) {
+    failures.push(
+      `Netlify server bundle contains Vitest test runtime code: ${bundledVitestRuntime.join(", ")}`,
     );
   }
 

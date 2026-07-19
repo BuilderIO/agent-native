@@ -1,11 +1,7 @@
 // Jira Cloud REST API client
-// Uses Basic auth (email + API token)
 
-import { resolveCredential } from "./credentials";
-import {
-  requireRequestCredentialContext,
-  scopedCredentialCacheKey,
-} from "./credentials-context";
+import { scopedCredentialCacheKey } from "./credentials-context";
+import { executeProviderApiRequest } from "./provider-api";
 
 const API_V3 = "/rest/api/3";
 const API_AGILE = "/rest/agile/1.0";
@@ -14,29 +10,6 @@ const API_AGILE = "/rest/agile/1.0";
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 100;
-
-async function getAuth(): Promise<{
-  baseUrl: string;
-  headers: Record<string, string>;
-}> {
-  const ctx = requireRequestCredentialContext("JIRA_BASE_URL");
-  const baseUrl = await resolveCredential("JIRA_BASE_URL", ctx);
-  const email = await resolveCredential("JIRA_USER_EMAIL", ctx);
-  const token = await resolveCredential("JIRA_API_TOKEN", ctx);
-  if (!baseUrl || !email || !token) {
-    throw new Error(
-      "JIRA_BASE_URL, JIRA_USER_EMAIL, and JIRA_API_TOKEN are not configured",
-    );
-  }
-  const encoded = Buffer.from(`${email}:${token}`).toString("base64");
-  return {
-    baseUrl: baseUrl.replace(/\/$/, ""),
-    headers: {
-      Authorization: `Basic ${encoded}`,
-      Accept: "application/json",
-    },
-  };
-}
 
 async function jiraGet<T>(
   path: string,
@@ -53,21 +26,20 @@ async function jiraGet<T>(
     return cached.data as T;
   }
 
-  const { baseUrl, headers } = await getAuth();
-  const url = new URL(path, baseUrl);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      url.searchParams.set(k, v);
-    }
+  const result = (await executeProviderApiRequest({
+    provider: "jira",
+    path,
+    query: params,
+  })) as {
+    response: { ok: boolean; status: number; json?: unknown; text?: string };
+  };
+  if (!result.response.ok) {
+    throw new Error(
+      `Jira API error ${result.response.status}: ${String(result.response.text ?? "")}`,
+    );
   }
 
-  const res = await fetch(url.toString(), { headers });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Jira API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
+  const data = result.response.json;
   if (cache.size >= MAX_CACHE) {
     const oldest = cache.keys().next().value;
     if (oldest) cache.delete(oldest);

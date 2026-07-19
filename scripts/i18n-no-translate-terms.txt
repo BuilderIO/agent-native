@@ -68,6 +68,7 @@ Neon Postgres
 Nitro preset
 NOTIFICATIONS_WEBHOOK_URL
 OAuth / access token
+SQL dashboard
 OAuth 2.1 + PKCE
 onNavigate / onRefresh
 PKCE

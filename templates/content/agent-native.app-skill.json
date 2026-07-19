@@ -38,6 +38,10 @@
   ],
   "skills": [
     {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
+    },
+    {
       "path": ".agents/skills/content",
       "visibility": "both",
       "exportAs": "content"

@@ -1,9 +1,9 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  agentNativePath,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPuzzle,
   IconGripVertical,
@@ -70,7 +70,9 @@ export function StitchManager({
   const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const listQuery = useActionQuery("list-recordings", {});
+  const listQuery = useActionQuery("list-recordings", {
+    includeMedia: true,
+  });
   const stitch = useActionMutation("stitch-recordings");
 
   useEffect(() => {
@@ -169,20 +171,20 @@ export function StitchManager({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(760px,calc(100vh-32px))] max-w-3xl flex-col gap-0">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <IconPuzzle className="w-4 h-4 text-primary" />
             {t("stitchManager.title")}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 min-h-[320px]">
-          <div className="flex flex-col border rounded-md">
+        <div className="grid min-h-[320px] flex-1 grid-cols-2 gap-3">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-md border">
             <div className="px-3 py-2 text-xs font-medium border-b">
               {t("navigation.library")}
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="min-h-0 flex-1">
               {available.length === 0 ? (
                 <div className="p-3 text-xs text-muted-foreground">
                   {t("stitchManager.noOtherRecordings")}
@@ -214,7 +216,7 @@ export function StitchManager({
             </ScrollArea>
           </div>
 
-          <div className="flex flex-col border rounded-md">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-md border">
             <div className="px-3 py-2 text-xs font-medium border-b flex items-center justify-between">
               <span>{t("stitchManager.combineOrder")}</span>
               <span className="text-muted-foreground">
@@ -222,7 +224,7 @@ export function StitchManager({
                 {formatMs(queue.reduce((s, r) => s + r.durationMs, 0))}
               </span>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="min-h-0 flex-1">
               {queue.length === 0 ? (
                 <div className="p-3 text-xs text-muted-foreground">
                   {t("stitchManager.emptyQueue")}
@@ -263,7 +265,7 @@ export function StitchManager({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 pt-4">
           <label className="text-xs text-muted-foreground">
             {t("stitchManager.titleLabel")}
           </label>
@@ -275,7 +277,7 @@ export function StitchManager({
         </div>
 
         {busy && (
-          <div className="text-xs text-muted-foreground flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 pt-3 text-xs text-muted-foreground">
             <IconLoader2 className="w-4 h-4 animate-spin" />
             {t("stitchManager.combining", {
               progress: Math.round(progress * 100),
@@ -283,7 +285,7 @@ export function StitchManager({
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>

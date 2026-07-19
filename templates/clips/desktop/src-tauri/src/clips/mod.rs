@@ -87,7 +87,7 @@ enum TextInsertionStrategy {
     UnicodeType,
 }
 
-/// Extra vertical real-estate reserved beneath the circular bubble for the
+/// Extra vertical real-estate reserved above the circular bubble for the
 /// hover-controls pill (small-dot + medium-dot). The Tauri window is
 /// `transparent: true`, so the budget paints through as empty space until the
 /// user hovers the bubble and the pill fades in. We'd otherwise have no pixels
@@ -95,7 +95,7 @@ enum TextInsertionStrategy {
 /// matter what CSS `overflow` says.
 ///
 /// 80 physical px ≈ 40 logical px on retina — enough for the ~28px pill plus
-/// an 8px gap from the circle, with a small cushion at the window bottom.
+/// an 8px gap from the circle, with a small cushion at the window top.
 const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
 
 fn overlay_scale_factor(app: &AppHandle) -> f64 {
@@ -128,7 +128,7 @@ fn bubble_size_for_name(name: &str) -> u32 {
 }
 
 /// Total window height for a bubble of the given diameter — includes the
-/// controls-budget strip beneath the circle.
+/// controls-budget strip above the circle.
 fn bubble_window_height_for(size: u32) -> u32 {
     size + BUBBLE_CONTROLS_BUDGET_PX
 }
@@ -874,18 +874,17 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     let size_name = load_bubble_size_name(&app);
     let size: u32 = bubble_size_for_name(&size_name);
     // The actual window is TALLER than the circle — see
-    // `BUBBLE_CONTROLS_BUDGET_PX` — to give the hover controls pill room.
+    // `BUBBLE_CONTROLS_BUDGET_PX` — to give the hover controls pill room
+    // above the face while keeping the face aligned to the bottom edge.
     let gutter = overlay_shadow_gutter_physical(&app);
-    let content_h: u32 = bubble_window_height_for(size);
     let (win_w, win_h) = bubble_window_size_for(&app, size);
 
     let (mon_x, mon_y, mon_w, mon_h) = tray_monitor_physical_rect(&app);
 
-    // Default Loom-style anchor: flush-left with a small margin, a hair
-    // above the bottom edge of the target monitor. On Retina the 60
-    // physical-px offset maps to ~30 logical px.
+    // Default Loom-style anchor: flush-left with the circle resting against
+    // the bottom edge of the target monitor (inside the shadow gutter).
     let default_x: i32 = mon_x + 48 - gutter as i32;
-    let default_y: i32 = mon_y + mon_h as i32 - content_h as i32 - 60 - gutter as i32;
+    let default_y: i32 = mon_y + mon_h as i32 - win_h as i32;
     let (default_x, default_y) =
         clamp_bubble_window_position(&app, default_x, default_y, win_w, win_h);
     // Keep saved positions, but normalize them against the current display

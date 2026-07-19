@@ -133,13 +133,15 @@ capability is missing, add or extend a `defineAction` so both the agent and UI
 share the same operation. Do not create `/api/*` routes that only call,
 repackage, or proxy an action.
 
-| Action        | Args                              | Purpose                         |
-| ------------- | --------------------------------- | ------------------------------- |
-| `view-screen` |                                   | See current UI state            |
-| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
-| `hello`       | `[--name <name>]`                 | Example script                  |
-| `db-schema`   |                                   | Show all tables, columns, types |
-| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
+| Action           | Args                                                   | Purpose                                                   |
+| ---------------- | ------------------------------------------------------ | --------------------------------------------------------- |
+| `view-screen`    |                                                        | See current UI state                                      |
+| `navigate`       | `--view <name>` or `--path <url>`                      | Navigate the UI                                           |
+| `hello`          | `[--name <name>]`                                      | Example script                                            |
+| `db-schema`      |                                                        | Show all tables, columns, types                           |
+| `db-query`       | `--sql "SELECT ..."`                                   | Run a SELECT query                                        |
+| `list-mcp-tools` | `--serverId <id>`                                      | List connected MCP tools visible to the authenticated app |
+| `call-mcp-tool`  | `--serverId <id> --toolName <name> --arguments <json>` | Call a connected MCP tool through the scoped app API      |
 
 **For data changes, pick the right surface:**
 
@@ -156,6 +158,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | ---------------------- | --------------------------------------------------------------------------------- |
 | `agent-native-docs`    | Before using advanced Agent Native framework APIs or generated-app features       |
 | `adding-a-feature`     | **Read first when adding ANY new feature** — the four-area parity checklist       |
+| `feature-flags`        | Before shipping a staged production rollout or replacing a compile-time switch    |
 | `real-time-sync`       | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
 | `storing-data`         | Before storing or reading any app state                                           |
 | `internationalization` | Before adding or editing visible UI copy, prompts, toasts, labels, or formatting  |

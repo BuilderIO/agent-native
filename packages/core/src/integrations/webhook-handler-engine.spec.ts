@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -9,6 +10,7 @@ const createThreadMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
 const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -26,12 +28,23 @@ const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
   getThreadMapping: getThreadMappingMock,
   saveThreadMapping: saveThreadMappingMock,
 }));
+
+vi.mock("./pending-tasks-store.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("./pending-tasks-store.js")
+  >("./pending-tasks-store.js");
+  return {
+    ...actual,
+    stageTaskDeliveryPayload: stageTaskDeliveryPayloadMock,
+  };
+});
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
@@ -40,6 +53,7 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  getOrgA2ASecret: getOrgA2ASecretMock,
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
@@ -231,6 +245,7 @@ describe("integration webhook handler engine resolution", () => {
     getThreadMock.mockResolvedValue({ threadData: "{}" });
     updateThreadDataMock.mockResolvedValue(undefined);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    getOrgA2ASecretMock.mockResolvedValue(null);
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
     getOwnerApiKeyMock.mockResolvedValue(undefined);
     isLocalDatabaseMock.mockReturnValue(true);
@@ -578,8 +593,69 @@ describe("integration webhook handler engine resolution", () => {
     },
   );
 
+  it("retains organization-signed artifact identity in delivery and thread checkpoints", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const orgSecret = "org-only-a2a-secret-for-webhook-artifacts";
+    vi.stubEnv("A2A_SECRET", "");
+    getOrgA2ASecretMock.mockResolvedValue(orgSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "tool_start", id: "delegate", tool: "call-agent" });
+      send({
+        type: "tool_done",
+        id: "delegate",
+        tool: "call-agent",
+        result: downstream,
+      });
+      send({ type: "text", text: "The Content agent filed the ask." });
+    });
+
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(
+        vi.fn(async () => ({ status: "delivered" as const })),
+      ),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    const staged = JSON.parse(stageTaskDeliveryPayloadMock.mock.calls[0][1]);
+    expect(staged.artifacts).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.at(-1).metadata.integrationArtifacts).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
   it(
-    "does not persist participant-visible history without a delivery receipt",
+    "preserves a successful mutation and returns a delivery-only checkpoint when receipt proof is missing",
     { timeout: 15_000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
@@ -596,9 +672,10 @@ describe("integration webhook handler engine resolution", () => {
         });
         send({ type: "text", text: "Created, but delivery failed." });
       });
+      const sendResponse = vi.fn(async () => undefined);
 
-      await processIntegrationTask(pendingTask(), {
-        adapter: createAdapter(vi.fn(async () => undefined)),
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
         systemPrompt: "system",
         actions: {},
         apiKey: "test-key",
@@ -607,9 +684,352 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          kind: "response-delivery",
+          incoming: { externalThreadId: "thread-qa" },
+          message: { text: expect.stringContaining("delivery failed") },
+          internalThreadId: "thread-qa",
+          assistantMessageId: expect.any(String),
+        },
+      });
+      expect(stageTaskDeliveryPayloadMock).toHaveBeenCalledWith(
+        "task-qa",
+        expect.stringContaining('"kind":"response-delivery"'),
+      );
+      expect(
+        stageTaskDeliveryPayloadMock.mock.invocationCallOrder[0],
+      ).toBeLessThan(sendResponse.mock.invocationCallOrder[0]);
+      expect(updateThreadDataMock).toHaveBeenCalledOnce();
+      const persisted = JSON.parse(updateThreadDataMock.mock.calls[0][1]);
+      const assistant = persisted.messages.at(-1);
+      expect(assistant.metadata.integrationDeliveryAttempted).toBe(true);
+      expect(assistant.metadata.integrationDelivery).toBeUndefined();
+      expect(assistant.metadata.integrationArtifacts).toEqual([
+        expect.objectContaining({
+          id: "hidden_request",
+          url: "/page/hidden_request",
+        }),
+      ]);
+    },
+  );
+
+  it(
+    "retries history only when receipt checkpointing fails after provider delivery",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "Updated /page/request_123" });
+      });
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["provider-reply-1"],
+      }));
+      stageTaskDeliveryPayloadMock
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("checkpoint database unavailable"));
+
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          kind: "response-delivery",
+          userMessageId: expect.any(String),
+          assistantMessageId: expect.any(String),
+          deliveryReceipt: {
+            status: "delivered",
+            messageRefs: ["provider-reply-1"],
+          },
+        },
+        errorMessage: "checkpoint database unavailable",
+      });
+      expect(sendResponse).toHaveBeenCalledOnce();
       expect(updateThreadDataMock).not.toHaveBeenCalled();
     },
   );
+
+  it(
+    "retains stable history identity when a confirmed delivery history write fails",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "Updated /page/request_123" });
+      });
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["provider-reply-history"],
+      }));
+      updateThreadDataMock.mockRejectedValueOnce(
+        new Error("history database response lost"),
+      );
+
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          deliveryReceipt: {
+            status: "delivered",
+            messageRefs: ["provider-reply-history"],
+          },
+          userMessageId: expect.stringContaining("integration-fake:thread-qa"),
+          assistantMessageId: expect.stringContaining(
+            "integration-fake:thread-qa",
+          ),
+        },
+        errorMessage: "Integration response history checkpoint failed",
+      });
+      expect(sendResponse).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains a confirmed budget-limit receipt when checkpointing fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    listIntegrationUsageBudgetsMock.mockResolvedValue([
+      { id: "budget-org", subjectType: "org", subjectId: "org-qa" },
+    ]);
+    reserveIntegrationUsageBudgetMock.mockResolvedValueOnce({
+      allowed: false,
+      status: "exhausted",
+    });
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["budget-limit-reply"],
+    }));
+    stageTaskDeliveryPayloadMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("budget receipt checkpoint failed"));
+
+    const result = await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(result).toMatchObject({
+      status: "delivery-pending",
+      payload: {
+        deliveryReceipt: {
+          status: "delivered",
+          messageRefs: ["budget-limit-reply"],
+        },
+      },
+      errorMessage: "budget receipt checkpoint failed",
+    });
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("records a confirmed delivery retry as participant-visible context", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            id: "assistant-checkpoint",
+            role: "assistant",
+            content: [{ type: "text", text: "Updated /page/request_123" }],
+            metadata: { integrationDeliveryAttempted: true },
+          },
+        ],
+      }),
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update it",
+          platformContext: {},
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        assistantMessageId: "assistant-checkpoint",
+        deliveredAt: "2026-07-17T15:00:00.000Z",
+      },
+      { status: "delivered", messageRefs: ["slack-reply-1"] },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages[0].metadata.integrationDelivery).toEqual({
+      platform: "slack",
+      status: "delivered",
+      text: "Updated /page/request_123",
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+      messageRefs: ["slack-reply-1"],
+    });
+  });
+
+  it("reconstructs delivered conversation context after a pre-send crash", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update the same Design Ask",
+          platformContext: {},
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        artifacts: [
+          {
+            resourceType: "document",
+            id: "request_123",
+            sourceAction: "set-document-property",
+            url: "/page/request_123",
+          },
+        ],
+      },
+      { status: "delivered", messageRefs: ["slack-reply-2"] },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.map((message: any) => message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(persisted.messages[1].metadata.integrationArtifacts[0].id).toBe(
+      "request_123",
+    );
+    expect(persisted.messages[1].metadata.integrationDelivery.status).toBe(
+      "delivered",
+    );
+  });
+
+  it("reuses deterministic reconstructed history IDs across delivery retries", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    const payload = {
+      kind: "response-delivery" as const,
+      incoming: {
+        platform: "slack",
+        externalThreadId: "slack-thread",
+        text: "Update the same Design Ask",
+        platformContext: { messageTs: "1001.0001" },
+        timestamp: 1001,
+      },
+      message: {
+        text: "Updated /page/request_123",
+        platformContext: {},
+      },
+      internalThreadId: "thread-qa",
+    };
+    const receipt = {
+      status: "delivered" as const,
+      messageRefs: ["slack-reply-stable"],
+    };
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(payload, receipt);
+    const firstPersisted = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1],
+    );
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: JSON.stringify(firstPersisted),
+    });
+
+    await recordIntegrationResponseDelivery(payload, receipt);
+    const secondPersisted = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1],
+    );
+
+    expect(secondPersisted.messages).toHaveLength(2);
+    expect(secondPersisted.messages.map((message: any) => message.id)).toEqual(
+      firstPersisted.messages.map((message: any) => message.id),
+    );
+  });
+
+  it("reconstructs the exact staged history IDs when the original write did not commit", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update the same Design Ask",
+          platformContext: { messageTs: "1001.0001" },
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        userMessageId: "staged-user-id",
+        assistantMessageId: "staged-assistant-id",
+      },
+      {
+        status: "delivered",
+        messageRefs: ["slack-reply-staged"],
+      },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.map((message: any) => message.id)).toEqual([
+      "staged-user-id",
+      "staged-assistant-id",
+    ]);
+  });
 
   it(
     "uses the explicit engine provider when resolving owner API keys",
@@ -771,7 +1191,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
-    expect(sentText).toContain("Agent settings > LLM");
+    expect(sentText).toContain("Manage agent > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
   });
 
@@ -1440,6 +1860,61 @@ describe("integration webhook handler engine resolution", () => {
     ).toBe(false);
   });
 
+  it("preserves a queued parent reply receipt when checkpointing fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["queued-parent-reply"],
+    }));
+    const fail = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000003" },
+        onEvent: vi.fn(async () => undefined),
+        complete: vi.fn(async () => undefined),
+        fail,
+      }),
+    };
+    stageTaskDeliveryPayloadMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("checkpoint database unavailable"));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Analytics agent is still working.`,
+      });
+      send({ type: "text", text: "371 pageview events were recorded." });
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-queued-parent-checkpoint-failure" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "delivery-pending",
+      payload: {
+        deliveryReceipt: {
+          status: "delivered",
+          messageRefs: ["queued-parent-reply"],
+        },
+      },
+    });
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(fail).not.toHaveBeenCalled();
+  });
+
   it("sends substantive partial answers without closing a queued continuation stream", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
@@ -1617,6 +2092,97 @@ describe("integration webhook handler engine resolution", () => {
       expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain("deck-guessed");
+  });
+
+  it("does not append an artifact link from a failed or incomplete write", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "update-document",
+        isError: true,
+        completedSideEffect: false,
+        result: JSON.stringify({
+          id: "request_failed",
+          urlPath: "/page/request_failed",
+        }),
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-failed-write" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain(
+      "The model finished without a visible answer",
+    );
+    expect(deliveredText).not.toContain("request_failed");
+  });
+
+  it("surfaces a verified mutation receipt when a sparse correction finishes without final text", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "set-document-property",
+        input: {
+          documentId: "request_456",
+          propertyId: "priority",
+          value: "P1 High",
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "set-document-property",
+        completedSideEffect: true,
+        result: JSON.stringify({
+          documentId: "request_456",
+          properties: [{ propertyId: "priority", value: "P1 High" }],
+        }),
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-written-empty" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain("A verified change was saved");
+    expect(deliveredText).toContain(
+      "https://content.agent.test/page/request_456",
+    );
+    expect(deliveredText).toContain("ID: request_456");
+    expect(deliveredText).not.toContain(
+      "The model finished without a visible answer",
+    );
+    expect(deliveredText).not.toContain("P1 High");
   });
 
   it("links Slack-style replies directly to the Dispatch chat thread", async () => {

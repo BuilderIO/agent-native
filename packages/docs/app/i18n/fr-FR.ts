@@ -39,6 +39,7 @@ const frFR = {
   theme: {
     light: "clair",
     dark: "sombre",
+    toggle: "Changer de thème",
     label: "Thème : {{theme}}",
   },
   docs: {
@@ -1478,6 +1479,8 @@ const frFR = {
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Vue d’ensemble",
     toolkitUiPrimitives: "Primitives UI",
+    toolkitEditorsCanvases: "Éditeurs et canevas",
+    toolkitContextKnowledge: "Contexte et connaissances",
     toolkitSharing: "Partage",
     toolkitCollaboration: "Collaboration",
     toolkitSettings: "Paramètres",
@@ -1491,6 +1494,9 @@ const frFR = {
     toolkitObservability: "Observabilité",
     featureKits: "Kits de fonctionnalités",
     appChrome: "Cadre de l'app",
+    capabilityPackages: "Packages de capacité",
+    capabilityPackagesOverview: "Vue d’ensemble",
+    packageLifecycle: "Cycle de vie des packages",
     templatesOverview: "Modèles",
     pureAgentApps: "Apps orientées automatisation",
     faq: "FAQ",

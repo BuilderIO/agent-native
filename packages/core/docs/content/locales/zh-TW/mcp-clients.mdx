@@ -246,7 +246,23 @@ MCP 工具僅在 Node 執行時啟用 - Cloudflare Workers 和其他邊緣
 MCP（模型脈絡協議）伺服器為您的代理提供新的能力 - 例如連線到 Zapier、Cloudflare、Composio 或您公司的內部工具。連線後，代理可以像使用內建工具一樣使用這些工具。
 
 預設 ID 包括 `context7`、`sentry`、`notion`、`semgrep`、`linear`、
-`atlassian`、`supabase`、`neon` 和 `stripe`。
+`atlassian`、`supabase`、`neon`、`stripe`、`cloudflare`、`gitlab`、`figma`、
+`vercel`、`github`、`slack`、`asana`、`hubspot`、`intercom`、`monday`、`webflow`、`paypal`、`box`、`netlify` 和 `zapier`。
+
+目錄會區分支援通用 OAuth 流程的端點，以及需要供應商核准的用戶端或預先註冊的
+OAuth 應用程式的供應商。後者仍會顯示以便探索，並連結至官方設定說明；但在不支援
+時不會顯示容易誤導的一鍵連線按鈕。沙盒擴充功能可以透過主機動作使用
+`agentNative.mcp.listTools`、`agentNative.mcp.callTool` 以及
+`agentNative.providerApi.catalog(...)`、`agentNative.providerApi.docs(...)`
+來探索已連線的資料，但絕不會收到連線 URL、存取權杖或重新整理權杖。原始的
+`provider-api-request` 刻意僅限主機與代理使用：若向共用擴充功能開放任意
+方法/路徑的請求，擴充功能就可能變成一個經過驗證的寫入代理。因此擴充功能
+應改用 `agentNative.mcp.callTool(...)` 或專為此目的打造的應用程式動作，
+執行範圍受限的供應商操作。
+
+本機檔案擴充功能必須在 `extension.json` 中明確允許 `list-mcp-tools`、
+`call-mcp-tool` 以及其使用的任何支援供應商動作。探索輔助函式也可透過
+`agentNative.connectors.mcp` 和 `agentNative.connectors.providerApi` 使用。
 
 ### Atlassian / Jira
 

@@ -1,23 +1,15 @@
 ---
-title: "Toolkits"
-description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
+title: "Toolkit"
+description: "再利用可能な基盤、エディタとキャンバス、エージェントのコンテキスト、ガバナンス、ワークスペースのクローム、運用、Toolkit の能力モジュールをまとめた均衡の取れたカタログ。"
 ---
 
 <!-- i18n-docs-ignore -->
 
-# Toolkits
+# Toolkit
 
-Toolkits are reusable, battle-tested building blocks for high-quality agentic
-applications. They turn the hard product work that repeats across apps into
-standard surfaces: realtime collaboration between humans and agents, sharing
-with humans and agents, settings, teams, setup, resources, history, review, and
-observability.
+Toolkit は、高品質なエージェント型アプリケーションのための、再利用可能で実戦で磨かれた構成要素です。アプリ間で繰り返される難しいプロダクト作業を、人とエージェントのリアルタイムコラボレーション、人とエージェントへの共有、設定、チーム、セットアップ、リソース、履歴、レビュー、オブザーバビリティといった標準的な画面へ変換します。
 
-Each kit packages the UI patterns, action contracts, app-state expectations,
-access boundaries, and agent-visible behavior that users expect to work
-consistently. Apps still own their domain model and visual identity; toolkits
-make the common product systems feel complete from the first version instead of
-being rebuilt in slightly different ways every time.
+各キットには、ユーザーが一貫して機能することを期待する UI パターン、アクション契約、アプリ状態の前提、アクセス境界、エージェントから見える振る舞いが含まれます。アプリはドメインモデルと視覚的アイデンティティを引き続き所有します。Toolkit は、共通のプロダクトシステムを、毎回少しずつ異なる形で作り直すのではなく、最初のバージョンから完成したものにします。
 
 <WireframeBlock id="doc-block-toolkits-index">
   <Screen
@@ -28,23 +20,23 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="キットの位置づけ" summary={"フレームワークランタイムは永続的な保証を提供します。Toolkit はその保証を再利用可能なプロダクトシステムへ変換します。アプリはドメイン固有のデータ、ルート、視覚的アイデンティティを加えます。"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
-    actions, SQL, auth, app state, access checks, realtime transport
+    <span class="diagram-pill accent">ランタイム</span><br />
+    アクション、SQL、認証、アプリ状態、アクセスチェック、リアルタイム転送
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkits</span><br />
-    collaboration, sharing, setup, review, history, observability
+    <span class="diagram-pill accent">Toolkit</span><br />
+    コラボレーション、共有、セットアップ、レビュー、履歴、オブザーバビリティ
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
-    domain schema, routes, actions, branding, specialized workflows
+    <span class="diagram-pill accent">アプリ</span><br />
+    ドメインスキーマ、ルート、アクション、ブランディング、専門ワークフロー
   </div>
 </div>
 ```
@@ -68,45 +60,60 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
-## The Kits {#the-kits}
+## カタログ {#catalog}
 
-| Kit                                                      | Use it for                                                                                                  |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
-| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
-| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
-| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
-| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
-| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
-| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
-| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+| 領域                           | 開始地点                                                  | 内容                                                                                    |
+| ------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 基盤                           | [UI プリミティブ](/docs/toolkit-ui)                       | 共有コントロール、フック、アプリアダプター、シェルの接続点。                            |
+| エディタとキャンバス           | [エディタとキャンバス](/docs/toolkit-editors-canvases)    | リッチ編集、構造化ブロック、再利用可能なキャンバス制御、Design パターン。               |
+| エージェント体験とコンテキスト | [コンテキストとナレッジ](/docs/toolkit-context-knowledge) | Context X-Ray、リソース、ナレッジ、コンポーザーのコンテキスト、エージェント可視の状態。 |
+| コラボレーションとガバナンス   | [コラボレーション](/docs/toolkit-collaboration)           | 共有、プレゼンス、レビュー、履歴、監査、組織境界。                                      |
+| ワークスペースのクローム       | [アプリクローム](/docs/toolkit-settings)                  | 設定、チーム、セットアップ、ナビゲーション、リソース、エージェント UX。                 |
+| 運用                           | [オブザーバビリティ](/docs/toolkit-observability)         | 利用状況、フィードバック、リプレイ、診断、運用上の可視性。                              |
+| Toolkit 能力モジュール         | [能力パッケージ](/docs/toolkit-capability-packages)       | 必要に応じて導入するドメインパッケージとライフサイクルマニフェスト。                    |
 
-## Implementation Boundary {#implementation-boundary}
+## プロダクトキット {#product-kits}
 
-Kits are product surfaces first. Some pieces are runtime-backed
-(`@agent-native/core`), some are presentation primitives
-(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
-Use the package path that owns the needed behavior, but design the user-facing
-settings, collaboration, sharing, team, review, and setup experiences as one
-coherent kit instead of exposing package boundaries in the app.
+| キット                                                       | 用途                                                                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| [共有](/docs/toolkit-sharing)                                | 所有可能なリソース、共有ダイアログ、可視性バッジ、共有アクション、公開／非公開／組織アクセス。   |
+| [コラボレーション](/docs/toolkit-collaboration)              | リアルタイム編集、プレゼンス、ライブカーソル、最近の編集の強調、共同 undo。                      |
+| [設定](/docs/toolkit-settings)                               | アプリ設定とエージェント／プロバイダー設定を一つの予測可能な場所にまとめる標準設定ページとタブ。 |
+| [組織とチーム](/docs/toolkit-org-team)                       | チームページ、組織切り替え、招待、組織ドメイン、ロール、アプリ切り替え。                         |
+| [セットアップと接続](/docs/toolkit-setup-connections)        | オンボーディング、シークレット、ワークスペース接続、OAuth／プロバイダーの準備、Builder 接続。    |
+| [コマンドとナビゲーション](/docs/toolkit-command-navigation) | コマンドメニュー、ディープリンク、標準アプリルート、サイドバーとシェルのパターン。               |
+| [リソース](/docs/toolkit-resources)                          | リソースツリー、エディタ、ファイルピッカー／検索、添付、ローカルファイルモード。                 |
+| [エージェント UX](/docs/toolkit-agent-ux)                    | コンポーザー、モデルピッカー、コンテキストチップ、承認、実行復旧、実行トレイ。                   |
+| [履歴](/docs/toolkit-history)                                | バージョン履歴、監査ログ、undo／redo、復元、「何が変わったか」の画面。                           |
+| [コメントとレビュー](/docs/toolkit-comments-review)          | インラインコメント、注釈、メンション、解決済みスレッド、レビュー状態。                           |
+| [オブザーバビリティ](/docs/toolkit-observability)            | 利用状況、支出、フィードバック、リプレイ、エラー、実行診断。                                     |
 
-## Foundation Pieces {#foundation-pieces}
+## パッケージの成熟度と所有権 {#package-maturity-and-ownership}
 
-- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
-  `@agent-native/toolkit/ui/*`.
-- [App Adapters](/docs/toolkit-ui#app-adapters) show how apps wrap Toolkit pieces
-  through local `@/components/*` adapters.
-- [Shell & Hooks](/docs/toolkit-ui#shell-hooks) cover header actions, mobile hooks,
-  toasts, and small app-shell helpers.
-- [Component API](/docs/components) remains the lower-level reference for the
-  public React exports.
+- リッチエディタは **Toolkit** 所有です。移行中は既存の Core import を薄い互換 re-export として維持します。
+- Design は再利用可能な `design-tweaks` を備えた **テンプレートパターン** であり、完全なドロップインエディタやキャンバスではありません。
+- Blocks と Context X-Ray エンジンはこの段階では **Core 所有** のままです。再利用可能な Context X-Ray 表示は Toolkit 所有です。
+- Creative Context、Scheduling、Pinpoint は必要に応じて導入する **Toolkit 能力モジュール** で、個別の npm パッケージとライフサイクルマニフェストを維持します。Dispatch は独立した製品です。
 
-## Design Rule {#design-rule}
+## 実装の境界 {#implementation-boundary}
 
-Use a toolkit when the behavior repeats across apps and users expect it to feel
-standard: sharing, settings, teams, comments, history, and agent progress should
-not be slightly different in every template. Keep domain-specific data,
-workflows, labels, and visual styling in the app.
+キットはまずプロダクト画面です。一部はランタイムに支えられ（`@agent-native/core`）、一部は表示プリミティブ（`@agent-native/toolkit`）で、アプリは通常ローカルアダプターで両方を包みます。必要な振る舞いを所有するパッケージパスを使いつつ、ユーザー向けの設定、コラボレーション、共有、チーム、レビュー、セットアップの体験は、アプリ内でパッケージ境界を見せず、一つの一貫したキットとして設計してください。
+
+## 基盤となる要素 {#foundation-pieces}
+
+- [UI プリミティブ](/docs/toolkit-ui) は `@agent-native/toolkit/ui/*` にある共有の shadcn スタイルプリミティブを扱います。
+- [アプリアダプター](/docs/toolkit-ui#app-adapters) は、アプリがローカルの `@/components/*` アダプターを通して Toolkit の要素を包む方法を示します。
+- [シェルとフック](/docs/toolkit-ui#shell-hooks) はヘッダーアクション、モバイルフック、トースト、小さなアプリシェルヘルパーを扱います。
+- [コンポーネント API](/docs/components) は公開 React export の低レベルなリファレンスです。
+
+## 設計ルール {#design-rule}
+
+アプリ間で振る舞いが繰り返され、ユーザーが標準的に感じることを期待する場合は Toolkit を使います。共有、設定、チーム、コメント、履歴、エージェントの進行状況は、テンプレートごとに少しずつ異なるべきではありません。ドメイン固有のデータ、ワークフロー、ラベル、視覚スタイルはアプリに残します。
+
+## 次のステップ
+
+- [**Toolkit UI プリミティブ**](/docs/toolkit-ui) — 共有プリミティブ、アプリアダプター、シェルフック。
+- [**共有キット**](/docs/toolkit-sharing) — リソース、共有ダイアログ、可視性のためのよい最初のキット。
+- [**テンプレートの作成**](/docs/creating-templates) — テンプレートをエンドツーエンドで作成し、キットの位置を確認します。
+- [**コンポーネント API**](/docs/components) — すべての公開 React export のリファレンス。
+- [**パッケージライフサイクル**](/docs/package-lifecycle) — manifest 駆動の Toolkit 能力モジュールを安全に調査、追加、eject します。

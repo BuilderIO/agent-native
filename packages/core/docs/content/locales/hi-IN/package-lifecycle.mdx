@@ -18,3 +18,9 @@ agent-native package eject @agent-native/scheduling --apply
 मैनेजर चलाने की अनुमति देता है। टकराव या अनजान लेआउट अस्वीकार होते हैं और इंस्टॉल विफल
 होने पर फ़ाइलें व लॉकफ़ाइल वापस रखी जाती हैं। अभी केवल Scheduling समर्थित है; Pinpoint
 बाद के लिए स्थगित है।
+
+## माइग्रेशन
+
+प्रकाशित पैकेज में स्थानांतरित paths और symbols के लिए `migration-manifest.json` होता है। `npx @agent-native/core@latest upgrade --codemods` diff दिखाता है, फिर समीक्षा के बाद `--yes` लगाएँ। CI में `agent-native doctor --only migration-manifest` चलाएँ; opt-out नहीं है।
+
+`planned` entries को destination उपलब्ध होने से पहले प्रकाशित किया जा सकता है; वे non-blocking warnings के रूप में दिखती हैं और codemod उन्हें rewrite नहीं करता। Active move तभी rewrite होता है जब destination export installed हो।

@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
 import type { PlanAnnotation } from "@shared/plan-content";
 import {
@@ -67,7 +67,7 @@ export function PlanVisualSurface({
     ? `${selectedDesignElement.frameId ?? ""}::${selectedDesignElement.blockId ?? ""}::${selectedDesignElement.elementId}`
     : null;
   const [tabValue, setTabValue] = useState<"prototype" | "wireframes">(
-    designCanvas ? "wireframes" : prototype ? "prototype" : "wireframes",
+    "wireframes",
   );
   const requestedTabValue =
     requestedVisualMode === "prototype" || requestedVisualMode === "wireframes"

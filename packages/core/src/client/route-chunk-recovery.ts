@@ -201,6 +201,17 @@ function recoverToIntendedNavigation(
   return true;
 }
 
+function recoverFromDynamicImportFailure(
+  win: Window,
+  state: RouteChunkRecoveryState,
+  message: string,
+): boolean {
+  if (!isDynamicImportFailureMessage(message)) return false;
+  state.routeModuleFailureAt = Date.now();
+  if (recoverToIntendedNavigation(win, state)) return true;
+  return reloadForStaleChunk(win);
+}
+
 function patchHistoryMethod(
   win: Window,
   state: RouteChunkRecoveryState,
@@ -290,16 +301,17 @@ export function installRouteChunkRecovery(
   win.addEventListener("unhandledrejection", (event) => {
     const reason = (event as PromiseRejectionEvent).reason;
     const message = String(reason?.message || reason || "");
-    if (!isDynamicImportFailureMessage(message)) return;
-    state.routeModuleFailureAt = Date.now();
-    if (recoverToIntendedNavigation(win, state)) {
+    if (recoverFromDynamicImportFailure(win, state, message)) {
       event.preventDefault();
-      return;
     }
-    // No fresh cross-route target — the current route's own chunk went stale.
-    // Reload once (guarded) to fetch fresh assets instead of leaving the user
-    // on a broken view.
-    if (reloadForStaleChunk(win)) {
+  });
+
+  win.addEventListener("error", (event) => {
+    const errorEvent = event as ErrorEvent;
+    const message = String(
+      errorEvent.error?.message || errorEvent.message || "",
+    );
+    if (recoverFromDynamicImportFailure(win, state, message)) {
       event.preventDefault();
     }
   });

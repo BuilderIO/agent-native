@@ -443,9 +443,16 @@ export const hitTestBridgeScript: string = `"use strict";
     function reviewAnchorElementAtPoint(clientX, clientY) {
       var element = elementFromEditorPoint(clientX, clientY);
       if (!element) return null;
-      return element.closest(
+      var identifiedAncestor = element.closest(
         "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
       );
+      if (identifiedAncestor && identifiedAncestor !== document.body && identifiedAncestor !== document.documentElement) {
+        return identifiedAncestor;
+      }
+      if (element === document.body || element === document.documentElement) {
+        return null;
+      }
+      return element;
     }
     function reviewNodeElements(nodeIds) {
       var wanted = {};
@@ -504,12 +511,15 @@ export const hitTestBridgeScript: string = `"use strict";
           reviewPointX,
           reviewPointY
         );
+        var reviewPointNodeId = reviewPointElement ? getNodeId(reviewPointElement) : "";
+        var reviewPointSelector = reviewPointElement && !reviewPointNodeId ? buildSourceEquivalentSelector(reviewPointElement) : "";
         try {
           window.parent.postMessage(
             {
               type: "agent-native:review-anchor-at-point-result",
               correlationId: reviewPointCorrelationId,
-              nodeId: reviewPointElement ? getNodeId(reviewPointElement) || void 0 : void 0,
+              nodeId: reviewPointNodeId || void 0,
+              targetSelector: reviewPointSelector || void 0,
               layerName: reviewPointElement?.getAttribute(
                 "data-agent-native-layer-name"
               ) || void 0,

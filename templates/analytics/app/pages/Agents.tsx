@@ -1,12 +1,11 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import {
-  agentNativePath,
-  ObservabilityDashboard,
   useActionMutation,
   useActionQuery,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
-import { DbAdminPage } from "@agent-native/core/client/db-admin";
+} from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconActivity,
@@ -18,11 +17,13 @@ import {
   IconLoader2,
   IconMouse,
   IconPlus,
+  IconToggleRight,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
+import { FeatureFlagsFleetPanel } from "@/components/agents/FeatureFlagsFleetPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,7 +71,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type AgentAdminView = "monitoring" | "dashboards" | "database";
+type AgentAdminView = "monitoring" | "dashboards" | "database" | "flags";
 
 interface DbAdminConnection {
   id: string;
@@ -117,6 +118,7 @@ const AGENT_ADMIN_VIEWS: AgentAdminView[] = [
   "monitoring",
   "dashboards",
   "database",
+  "flags",
 ];
 
 function parseView(value: string | null): AgentAdminView {
@@ -383,7 +385,7 @@ export default function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const selectedConnectionId = searchParams.get("db");
-  const isAdminView = view === "dashboards" || view === "database";
+  const isAdminView = view !== "monitoring";
 
   function setView(next: AgentAdminView) {
     const params = new URLSearchParams(searchParams);
@@ -493,6 +495,21 @@ export default function AgentsPage() {
             {t("agents.dashboardUsage")}
           </button>
         ) : null}
+        {canManageOrg ? (
+          <button
+            type="button"
+            onClick={() => setView("flags")}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              view === "flags"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <IconToggleRight className="size-4" />
+            {t("agents.featureFlags")}
+          </button>
+        ) : null}
         {canManageOrg && view === "database" && (
           <button
             type="button"
@@ -512,6 +529,8 @@ export default function AgentsPage() {
         />
       ) : view === "dashboards" ? (
         <DashboardUsageAdminPanel />
+      ) : view === "flags" ? (
+        <FeatureFlagsFleetPanel />
       ) : (
         <div className="min-w-0">
           <div className="mb-4 max-w-3xl text-sm leading-6 text-muted-foreground">

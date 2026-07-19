@@ -1,5 +1,11 @@
-import { AgentTabsPage } from "@agent-native/core/client";
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
 
 export default function AgentRoute() {
-  return <AgentTabsPage appName="Analytics" />;
+  return (
+    <AgentTabsPage
+      appName="Analytics"
+      extraTabFactories={[createCreativeContextAgentTab]}
+    />
+  );
 }

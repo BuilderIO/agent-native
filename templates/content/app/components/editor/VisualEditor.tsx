@@ -1,15 +1,17 @@
+import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
+import {
+  usePresence,
+  useRecentEdits,
+  type AttributedRecentEdit,
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
+import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   createSharedEditorExtensions,
   useCollabReconcile,
-  usePresence,
-  useRecentEdits,
-  RecentEditHighlights,
-  RegistryBlockDataProvider,
-  useT,
-  type AttributedRecentEdit,
-  type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,

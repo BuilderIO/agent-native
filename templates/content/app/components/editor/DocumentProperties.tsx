@@ -1,9 +1,6 @@
-import {
-  emailToName,
-  useActionMutation,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+import { emailToName } from "@agent-native/core/client/collab";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   BindContentDatabaseSourceFieldRequest,

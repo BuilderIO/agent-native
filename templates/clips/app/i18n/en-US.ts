@@ -161,6 +161,9 @@ const messages = {
     chapterQueued: "Chapter request queued",
     fillerQueued: "Filler-word removal queued",
     silenceQueued: "Silence removal queued",
+    silenceWorking: "Removing silences…",
+    silenceCompleted: "Silence removal complete",
+    silenceFailed: "Silence removal failed",
     workflowQueued: "Workflow request queued",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -171,7 +174,7 @@ const messages = {
       "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.",
     retryLibrary: "You can retry from the library.",
     processingStuck:
-      "Processing has not completed after 30 seconds (status={{status}}). The clip may not have finished uploading — check the server logs for chunk/finalize messages.",
+      "Saving is taking longer than expected (status={{status}}). If you recorded in the desktop app, open Clips from the menu bar to retry or download a saved local copy, then check again.",
     uploadingAssembling:
       "Uploading and assembling your video — this usually takes just a few seconds.",
     connectStorageImportLoom: "Connect storage to import this Loom.",
@@ -536,6 +539,9 @@ const messages = {
     brandingUpdated: "Branding updated",
     saveFailed: "Failed to save",
     organizationName: "Organization name",
+    defaultVisibility: "Default recording visibility",
+    defaultVisibilityDescription:
+      "Applied to new recordings unless you choose a different visibility.",
     brandColor: "Brand color",
     brandColorPicker: "Brand color picker",
     useColor: "Use {{color}}",
@@ -602,10 +608,10 @@ const messages = {
     pageTitle: "Join team · Clips",
   },
   settings: {
-    openAgentSettings: "Open agent settings",
+    openAgentSettings: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    agentTitle: "Manage agent",
     title: "Settings",
     pageTitle: "Settings · Clips",
     intro: "Preferences and connected services for this Clips workspace.",
@@ -613,6 +619,16 @@ const messages = {
     languageDescription:
       "Choose the interface language for this account. Clips remembers it across devices.",
     languageLabel: "Interface language",
+    uploadWorkspaceTitle: "Active workspace",
+    uploadWorkspaceDescription:
+      "Choose the workspace Clips uses for new recordings, including desktop uploads.",
+    uploadWorkspaceLabel: "Current workspace",
+    uploadWorkspacePlaceholder: "Choose a workspace",
+    uploadWorkspaceHint:
+      "Switching this also updates workspace-scoped Clips views.",
+    uploadWorkspaceSaving: "Saving workspace…",
+    uploadWorkspaceSaved: "Active workspace updated",
+    uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
     viewAllUpdates: "View all updates",
@@ -1096,6 +1112,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     desktopTitle: "Desktop app",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    openDesktopApp: "Open desktop app",
   },
   editableTitle: {
     untitled: "Untitled Clip",
@@ -1221,9 +1238,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     visibilityOrg: "Organization",
     visibilityPublic: "Public",
     passwordProtection: "Password protection",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear",
+    passwordSetPlaceholder: "Password is set — type to replace",
     noPasswordPlaceholder: "No password",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password.",
+    removePassword: "Remove",
     expiry: "Expiry",
     viewerOptions: "Viewer options",
     comments: "Comments",
@@ -1349,7 +1367,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     savedLocally: "Saved locally",
     uploadFailed: "Upload failed",
     connectStorageToFinish: "Open to connect storage and finish saving.",
-    retryFromClipsMenu: "Retry from the Clips menu; no need to re-record.",
+    retryFromClipsMenu:
+      "Open Clips from the menu bar to retry this saved upload; no need to re-record.",
     removeFailedClip: "Remove this failed clip.",
     remove: "Remove",
     viewsCount: "{{count}} views",

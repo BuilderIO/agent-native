@@ -220,8 +220,10 @@ separate REST route just for the browser if an action is the operation.
 Now add a durable page for the data behind the chat result:
 
 ```tsx filename="app/routes/response-insights.tsx"
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ResponseInsightsRoute() {
   const insights = useActionQuery("list-response-insights", {});
   const createInsight = useActionMutation("create-response-insight");

@@ -132,6 +132,19 @@ export interface A2AApprovedAction {
   input: unknown;
 }
 
+/**
+ * Telemetry-only cross-app correlation. Receivers must never use these
+ * caller-supplied values for identity, ownership, org scoping, access, or
+ * approval decisions.
+ */
+export interface A2ACorrelationMetadata {
+  callerApp?: string;
+  callerThreadId?: string;
+  parentRunId?: string;
+  parentTurnId?: string;
+  invocationId?: string;
+}
+
 // --- Framework config ---
 
 export interface A2AHandlerContext {
@@ -164,6 +177,19 @@ export interface A2AApprovalExecution {
   callId: string;
 }
 
+/** One explicitly exposed read-only app action invoked without an agent loop. */
+export interface A2AReadOnlyActionInvocation {
+  action: string;
+  input: Record<string, unknown>;
+  invocationId: string;
+}
+
+export interface A2AReadOnlyActionResult {
+  action: string;
+  status: "completed" | "failed";
+  output: string;
+}
+
 export type A2AHandler = (
   message: Message,
   context: A2AHandlerContext,
@@ -171,6 +197,8 @@ export type A2AHandler = (
 
 export interface A2AConfig {
   name: string;
+  /** Canonical receiver app id used only for telemetry attribution. */
+  appId?: string;
   description: string;
   version?: string;
   skills: AgentSkill[];
@@ -186,4 +214,8 @@ export interface A2AConfig {
     status: "completed" | "failed";
     output: string;
   }>;
+  /** Execute an explicitly exposed read-only action without starting a model. */
+  executeReadOnlyAction?: (
+    invocation: A2AReadOnlyActionInvocation,
+  ) => Promise<Pick<A2AReadOnlyActionResult, "status" | "output">>;
 }

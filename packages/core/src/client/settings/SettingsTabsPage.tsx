@@ -49,6 +49,8 @@ export interface SettingsTabItem {
   label: string;
   icon?: SettingsTabIcon;
   content: ReactNode;
+  /** Whether a parent surface may expose a personal/organization scope for this tab. */
+  scopeAware?: boolean;
   /**
    * Optional visual navigation group. Adjacent tabs with the same group render
    * together; a quiet divider separates each group on desktop while mobile

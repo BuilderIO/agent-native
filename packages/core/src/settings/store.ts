@@ -128,6 +128,63 @@ export interface StoreWriteOptions {
   requestSource?: string;
 }
 
+const SETTINGS_MUTATION_ATTEMPTS = 25;
+
+/**
+ * Atomically derive and persist one setting with an optimistic raw-value CAS.
+ * This works across SQLite/libSQL and Postgres and remains safe across
+ * horizontally scaled processes where an in-memory mutex would not.
+ * The updater may run more than once after contention and must not perform
+ * external side effects.
+ */
+export async function mutateSetting(
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  options?: StoreWriteOptions,
+): Promise<Record<string, unknown>> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  for (let attempt = 0; attempt < SETTINGS_MUTATION_ATTEMPTS; attempt += 1) {
+    // Deliberately bypass the request cache: a failed CAS means another
+    // request committed a newer value and the next attempt must reread it.
+    const snapshot = await client.execute({
+      sql: `SELECT value FROM ${table} WHERE key = ?`,
+      args: [key],
+    });
+    const raw =
+      snapshot.rows.length === 0 ? null : (snapshot.rows[0]?.value as string);
+    const current = raw == null ? null : JSON.parse(raw);
+    const next = await updater(current);
+    const nextRaw = JSON.stringify(next);
+    const timestamp = Date.now();
+    const result =
+      raw == null
+        ? await client.execute({
+            sql: isPostgres()
+              ? `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
+              : `INSERT OR IGNORE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
+            args: [key, nextRaw, timestamp],
+          })
+        : await client.execute({
+            sql: `UPDATE ${table} SET value = ?, updated_at = ? WHERE key = ? AND value = ?`,
+            args: [nextRaw, timestamp, key, raw],
+          });
+    if (result.rowsAffected === 0) continue;
+    requestSettingsCache()?.set(key, nextRaw);
+    _emitter.emit("settings", {
+      source: "settings",
+      type: "change",
+      key,
+      ...(options?.requestSource && { requestSource: options.requestSource }),
+    });
+    return JSON.parse(nextRaw);
+  }
+  throw new Error(`Setting ${key} changed too many times; retry the mutation.`);
+}
+
 export async function putSetting(
   key: string,
   value: Record<string, unknown>,

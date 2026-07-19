@@ -1,4 +1,5 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -2750,6 +2751,8 @@ const editorSlashMessages = {
   heading2Description: "Medium heading",
   heading3Description: "Small heading",
   heading4Description: "Subheading",
+  heading5Description: "Smaller heading",
+  heading6Description: "Smallest heading",
   image: "Image",
   imageDescription: "Upload or embed image",
   inlineEquation: "Inline equation",
@@ -2795,6 +2798,9 @@ const localFilesMessages = {
   summaryUnchanged: "{{count}} unchanged",
   summarySkipped: "{{count}} skipped",
   summaryErrors: "{{count}} errors",
+  summaryConflicts: "{{count}} conflicts",
+  conflictNeedsReview:
+    "Content and the folder both changed; review is required.",
   pageTitle: "Local files",
   foldersRemembered: "Folders remembered",
   linkedCount: "{{count}} linked",
@@ -2858,6 +2864,7 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
     commandSearchDocuments: "Search documents",
@@ -2910,10 +2917,10 @@ const enUS = {
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage collaborators and shared document access.",
     openTeamSettings: "Open workspace access",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -2947,6 +2954,8 @@ const enUS = {
     heading2: "Heading 2",
     heading3: "Heading 3",
     heading4: "Heading 4",
+    heading5: "Heading 5",
+    heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
     pasteLink: "Paste link...",
@@ -3107,11 +3116,14 @@ const enUS = {
       "“{{title}}” and all its sub-pages will be permanently deleted. This cannot be undone.",
     deletePageQuestion: "Delete page?",
     localFiles: "Local files",
+    files: "Files",
+    loadingFiles: "Loading files…",
     localFilesActions: "Local files actions",
     localFilesRemoved: "Local files removed",
     localFilesRemovedDescription: "{{count}} items removed",
     manageLocalFolders: "Manage folders",
     new: "New",
+    newDatabase: "New database",
     newPage: "New page",
     nextStep: "Next step",
     notionConfigureOAuthAuthorize:
@@ -3143,6 +3155,7 @@ const enUS = {
       "Sync documents with your Notion workspace.",
     notionUploadCredentialsJson: "Upload credentials JSON",
     noFilesYet: "No files yet",
+    noWorkspaces: "No workspaces yet",
     noLocalFilesYet: "No local files yet",
     noOrganizationPagesYet: "No organization pages yet",
     noPagesFound: "No pages found",
@@ -3168,6 +3181,7 @@ const enUS = {
     trash: "Trash",
     favorites: "Favorites",
     untitled: "Untitled",
+    workspaces: "Workspaces",
   },
 };
 
@@ -5608,6 +5622,8 @@ const editorMessagesByLocale = {
       heading2Description: "中标题",
       heading3Description: "小标题",
       heading4Description: "副标题",
+      heading5Description: "较小标题",
+      heading6Description: "最小标题",
       image: "图片",
       imageDescription: "上传或嵌入图像",
       localComponents: "本地组件",
@@ -5944,6 +5960,8 @@ const editorMessagesByLocale = {
       heading2Description: "título medio",
       heading3Description: "título pequeño",
       heading4Description: "Subtítulo",
+      heading5Description: "Encabezado más pequeño",
+      heading6Description: "Encabezado mínimo",
       image: "Imagen",
       imageDescription: "Subir o insertar imagen",
       localComponents: "Componentes locales",
@@ -6292,6 +6310,8 @@ const editorMessagesByLocale = {
       heading2Description: "Titre moyen",
       heading3Description: "Petit titre",
       heading4Description: "Sous-titre",
+      heading5Description: "Titre plus petit",
+      heading6Description: "Titre le plus petit",
       image: "Images",
       imageDescription: "Télécharger ou intégrer une image",
       localComponents: "Composants locaux",
@@ -6640,6 +6660,8 @@ const editorMessagesByLocale = {
       heading2Description: "Mittlere Überschrift",
       heading3Description: "Kleine Überschrift",
       heading4Description: "Unterüberschrift",
+      heading5Description: "Kleinere Überschrift",
+      heading6Description: "Kleinste Überschrift",
       image: "Bild",
       imageDescription: "Bild hochladen oder einbetten",
       localComponents: "Lokale Komponenten",
@@ -6987,6 +7009,8 @@ const editorMessagesByLocale = {
       heading2Description: "中見出し",
       heading3Description: "小見出し",
       heading4Description: "小見出し",
+      heading5Description: "より小さい見出し",
+      heading6Description: "最小の見出し",
       image: "画像",
       imageDescription: "画像をアップロードまたは埋め込む",
       localComponents: "ローカルコンポーネント",
@@ -7327,6 +7351,8 @@ const editorMessagesByLocale = {
       heading2Description: "중간 제목",
       heading3Description: "작은 제목",
       heading4Description: "소제목",
+      heading5Description: "더 작은 제목",
+      heading6Description: "가장 작은 제목",
       image: "이미지",
       imageDescription: "이미지 업로드 또는 삽입",
       localComponents: "로컬 구성요소",
@@ -7670,6 +7696,8 @@ const editorMessagesByLocale = {
       heading2Description: "Título médio",
       heading3Description: "Título pequeno",
       heading4Description: "Subtítulo",
+      heading5Description: "Título menor",
+      heading6Description: "Título mínimo",
       image: "Imagem",
       imageDescription: "Carregar ou incorporar imagem",
       localComponents: "Componentes locais",
@@ -8012,6 +8040,8 @@ const editorMessagesByLocale = {
       heading2Description: "मध्यम शीर्षक",
       heading3Description: "छोटा शीर्षक",
       heading4Description: "उपशीर्षक",
+      heading5Description: "और छोटा शीर्षक",
+      heading6Description: "सबसे छोटा शीर्षक",
       image: "छवि",
       imageDescription: "छवि अपलोड या एम्बेड करें",
       localComponents: "स्थानीय घटक",
@@ -8348,6 +8378,8 @@ const editorMessagesByLocale = {
       heading2Description: "عنوان متوسط",
       heading3Description: "عنوان صغير",
       heading4Description: "عنوان فرعي",
+      heading5Description: "عنوان أصغر",
+      heading6Description: "أصغر عنوان",
       image: "صورة",
       imageDescription: "تحميل أو تضمين الصورة",
       localComponents: "المكونات المحلية",
@@ -8597,6 +8629,10 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
   };
 }
 
@@ -8655,7 +8691,10 @@ function mergeMessagesForLocale(
       ...localeRawLiteralOverrides?.sidebar,
     },
   };
-  const base = mergeMessages(overrides);
+  const base = mergeMessages({
+    ...overrides,
+    creativeContext: creativeContextMessagesByLocale[locale],
+  });
   return {
     ...base,
     root: { ...base.root, ...rawLiteralOverrides.root },
@@ -8770,10 +8809,9 @@ export const messagesByLocale = {
       workspaceTitle: "工作区",
       workspaceDescription: "管理协作者和共享文档访问权限。",
       openTeamSettings: "打开工作区访问设置",
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
     },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
@@ -8810,6 +8848,8 @@ export const messagesByLocale = {
       heading2: "标题 2",
       heading3: "标题 3",
       heading4: "标题 4",
+      heading5: "标题 5",
+      heading6: "标题 6",
       link: "链接",
       comment: "评论",
       pasteLink: "粘贴链接...",
@@ -8835,6 +8875,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "无法重新排序页面",
+      loadingFiles: "正在加载文件…",
+      newDatabase: "新建数据库",
+      noWorkspaces: "还没有工作区",
       collapse: "折叠侧边栏",
       expand: "展开侧边栏",
       failedCreatePage: "创建页面失败",
@@ -8953,10 +8996,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gestiona colaboradores y acceso a documentos compartidos.",
       openTeamSettings: "Abrir acceso al espacio de trabajo",
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
     },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
@@ -8994,6 +9037,8 @@ export const messagesByLocale = {
       heading2: "Encabezado 2",
       heading3: "Encabezado 3",
       heading4: "Encabezado 4",
+      heading5: "Encabezado 5",
+      heading6: "Encabezado 6",
       link: "Enlace",
       comment: "Comentario",
       pasteLink: "Pegar enlace...",
@@ -9020,6 +9065,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "No se pueden reordenar las páginas",
+      loadingFiles: "Cargando archivos…",
+      newDatabase: "Nueva base de datos",
+      noWorkspaces: "Aún no hay espacios de trabajo",
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "No se pudo crear la página",
@@ -9139,10 +9187,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gérez les collaborateurs et l’accès aux documents partagés.",
       openTeamSettings: "Ouvrir l’accès à l’espace de travail",
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
     },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
@@ -9180,6 +9228,8 @@ export const messagesByLocale = {
       heading2: "Titre 2",
       heading3: "Titre 3",
       heading4: "Titre 4",
+      heading5: "Titre 5",
+      heading6: "Titre 6",
       link: "Lien",
       comment: "Commentaire",
       pasteLink: "Coller le lien...",
@@ -9206,6 +9256,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Impossible de réordonner les pages",
+      loadingFiles: "Chargement des fichiers…",
+      newDatabase: "Nouvelle base de données",
+      noWorkspaces: "Aucun espace de travail pour le moment",
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
       failedCreatePage: "Échec de la création de la page",
@@ -9323,10 +9376,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Verwalte Mitwirkende und gemeinsamen Dokumentzugriff.",
       openTeamSettings: "Arbeitsbereichszugriff öffnen",
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
     },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
@@ -9364,6 +9417,8 @@ export const messagesByLocale = {
       heading2: "Überschrift 2",
       heading3: "Überschrift 3",
       heading4: "Überschrift 4",
+      heading5: "Überschrift 5",
+      heading6: "Überschrift 6",
       link: "Link",
       comment: "Kommentar",
       pasteLink: "Link einfügen...",
@@ -9390,6 +9445,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Seiten können nicht neu angeordnet werden",
+      loadingFiles: "Dateien werden geladen…",
+      newDatabase: "Neue Datenbank",
+      noWorkspaces: "Noch keine Arbeitsbereiche",
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
       failedCreatePage: "Seite konnte nicht erstellt werden",
@@ -9507,10 +9565,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "共同編集者と共有ドキュメントのアクセスを管理します。",
       openTeamSettings: "ワークスペースアクセスを開く",
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
     },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
@@ -9548,6 +9606,8 @@ export const messagesByLocale = {
       heading2: "見出し 2",
       heading3: "見出し 3",
       heading4: "見出し 4",
+      heading5: "見出し 5",
+      heading6: "見出し 6",
       link: "リンク",
       comment: "コメント",
       pasteLink: "リンクを貼り付け...",
@@ -9574,6 +9634,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "ページを並べ替えられません",
+      loadingFiles: "ファイルを読み込んでいます…",
+      newDatabase: "新しいデータベース",
+      noWorkspaces: "ワークスペースはまだありません",
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
       failedCreatePage: "ページを作成できませんでした",
@@ -9682,10 +9745,10 @@ export const messagesByLocale = {
       workspaceTitle: "워크스페이스",
       workspaceDescription: "공동 작업자와 공유 문서 접근 권한을 관리합니다.",
       openTeamSettings: "워크스페이스 접근 열기",
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
     },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
@@ -9722,6 +9785,8 @@ export const messagesByLocale = {
       heading2: "제목 2",
       heading3: "제목 3",
       heading4: "제목 4",
+      heading5: "제목 5",
+      heading6: "제목 6",
       link: "링크",
       comment: "댓글",
       pasteLink: "링크 붙여넣기...",
@@ -9747,6 +9812,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "페이지 순서를 변경할 수 없습니다",
+      loadingFiles: "파일을 불러오는 중…",
+      newDatabase: "새 데이터베이스",
+      noWorkspaces: "아직 워크스페이스가 없습니다",
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
       failedCreatePage: "페이지를 만들지 못했습니다",
@@ -9865,10 +9933,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gerencie colaboradores e acesso a documentos compartilhados.",
       openTeamSettings: "Abrir acesso ao espaço de trabalho",
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
     },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -9906,6 +9974,8 @@ export const messagesByLocale = {
       heading2: "Título 2",
       heading3: "Título 3",
       heading4: "Título 4",
+      heading5: "Título 5",
+      heading6: "Título 6",
       link: "Link",
       comment: "Comentário",
       pasteLink: "Cole o link...",
@@ -9932,6 +10002,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Não é possível reordenar páginas",
+      loadingFiles: "Carregando arquivos…",
+      newDatabase: "Novo banco de dados",
+      noWorkspaces: "Ainda não há espaços de trabalho",
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "Falha ao criar página",
@@ -10038,10 +10111,10 @@ export const messagesByLocale = {
       workspaceTitle: "कार्यस्थान",
       workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
       openTeamSettings: "कार्यस्थान पहुंच खोलें",
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
     },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -10078,6 +10151,8 @@ export const messagesByLocale = {
       heading2: "शीर्षक 2",
       heading3: "शीर्षक 3",
       heading4: "शीर्षक 4",
+      heading5: "शीर्षक 5",
+      heading6: "शीर्षक 6",
       link: "लिंक",
       comment: "टिप्पणी",
       pasteLink: "लिंक चिपकाएं...",
@@ -10103,6 +10178,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "पेजों को फिर से क्रमबद्ध नहीं किया जा सकता",
+      loadingFiles: "फ़ाइलें लोड हो रही हैं…",
+      newDatabase: "नया डेटाबेस",
+      noWorkspaces: "अभी कोई कार्यस्थान नहीं है",
       collapse: "साइडबार संकुचित करें",
       expand: "साइडबार फैलाएं",
       failedCreatePage: "पेज नहीं बन सका",
@@ -10212,10 +10290,10 @@ export const messagesByLocale = {
       workspaceTitle: "مساحة العمل",
       workspaceDescription: "إدارة المتعاونين ووصول المستندات المشتركة.",
       openTeamSettings: "فتح وصول مساحة العمل",
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
     },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",
@@ -10252,6 +10330,8 @@ export const messagesByLocale = {
       heading2: "عنوان 2",
       heading3: "عنوان 3",
       heading4: "عنوان 4",
+      heading5: "عنوان 5",
+      heading6: "عنوان 6",
       link: "رابط",
       comment: "تعليق",
       pasteLink: "الصق الرابط...",
@@ -10277,6 +10357,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "تعذرت إعادة ترتيب الصفحات",
+      loadingFiles: "جارٍ تحميل الملفات…",
+      newDatabase: "قاعدة بيانات جديدة",
+      noWorkspaces: "لا توجد مساحات عمل بعد",
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
       failedCreatePage: "فشل إنشاء الصفحة",

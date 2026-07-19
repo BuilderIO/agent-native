@@ -3,9 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TweaksPanelContent } from "./TweaksPanel";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  VisualTweakControl: () => null,
 }));
 
 vi.mock("@/lib/utils", () => ({
