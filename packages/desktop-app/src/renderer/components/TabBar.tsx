@@ -1,4 +1,5 @@
 import { IconX, IconPlus, IconReload } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 import type { Tab } from "../App.js";
 import { shouldReserveMacOSWindowControlsSpace } from "../lib/platform.js";
@@ -14,6 +15,7 @@ interface TabBarProps {
   onTabClose: (tabId: string) => void;
   onTabRefresh: (tabId: string) => void;
   onNewTab: () => void;
+  accessory?: ReactNode;
 }
 
 export default function TabBar({
@@ -24,6 +26,7 @@ export default function TabBar({
   onTabClose,
   onTabRefresh,
   onNewTab,
+  accessory,
 }: TabBarProps) {
   return (
     <div className="tabbar">
@@ -87,6 +90,7 @@ export default function TabBar({
           <IconPlus size={14} strokeWidth={1.75} />
         </button>
       </div>
+      {accessory && <div className="tabbar-accessory">{accessory}</div>}
     </div>
   );
 }

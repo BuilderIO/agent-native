@@ -158,6 +158,33 @@ body {
   display: none;
 }
 
+.tabbar-accessory {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  -webkit-app-region: no-drag;
+}
+
+.private-content-tab-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.68);
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.private-content-tab-toggle:hover,
+.private-content-tab-toggle.is-active {
+  border-color: rgba(126, 162, 255, 0.45);
+  background: rgba(92, 126, 214, 0.16);
+  color: #dce6ff;
+}
+
 .tab {
   display: flex;
   align-items: center;
@@ -473,6 +500,283 @@ body {
   min-width: 0;
   border-radius: var(--app-surface-radius) 0 0 var(--app-surface-radius);
   isolation: isolate;
+}
+
+/* ─── Signed Private Content surface ─────────────────────────── */
+.private-content {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  background: #111318;
+  color: #e8ebf2;
+}
+
+.private-content button,
+.private-content input,
+.private-content textarea {
+  font: inherit;
+}
+
+.private-content--locked {
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(
+      circle at 50% 28%,
+      rgba(74, 99, 166, 0.18),
+      transparent 34%
+    ),
+    #101217;
+}
+
+.private-content-back {
+  position: absolute;
+  left: 20px;
+  top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #aeb5c5;
+  cursor: pointer;
+}
+
+.private-content-lock-card {
+  width: min(460px, calc(100% - 48px));
+  padding: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  background: rgba(24, 27, 35, 0.9);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  text-align: center;
+}
+
+.private-content-lock-card > svg {
+  color: #9fb7ff;
+}
+
+.private-content-lock-card h1 {
+  margin: 16px 0 8px;
+  font-size: 25px;
+  font-weight: 590;
+}
+
+.private-content-lock-card p {
+  margin: 0 auto 24px;
+  color: #aeb5c5;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.private-content-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(135, 163, 240, 0.55);
+  border-radius: 8px;
+  background: #536fb9;
+  color: white;
+  padding: 8px 13px;
+  cursor: pointer;
+}
+
+.private-content-primary:hover {
+  background: #607dca;
+}
+
+.private-content-primary:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.private-content-message {
+  margin-top: 16px !important;
+  color: #d4bba0 !important;
+}
+
+.private-content-tree {
+  width: 278px;
+  min-width: 278px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  background: #15171d;
+}
+
+.private-content-tree-header,
+.private-content-tree-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+}
+
+.private-content-tree-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.private-content-tree-header button,
+.private-content-tree-footer button,
+.private-content-search button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #aeb5c5;
+  cursor: pointer;
+}
+
+.private-content-health {
+  font-size: 10px;
+  color: #8f98aa;
+}
+
+.private-content-health--online {
+  color: #83c79b;
+}
+
+.private-content-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 10px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #858da0;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.private-content-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #e8ebf2;
+  font-size: 12px;
+}
+
+.private-content-document-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+
+.private-content-document-list > button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #cfd4df;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.private-content-document-list > button:hover,
+.private-content-document-list > button.is-active {
+  background: rgba(113, 139, 211, 0.13);
+}
+
+.private-content-document-list strong {
+  overflow: hidden;
+  width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.private-content-document-list span {
+  overflow: hidden;
+  width: 100%;
+  color: #777f90;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.private-content-tree-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+}
+
+.private-content-editor {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 54px max(52px, 8vw) 24px;
+  background: #111318;
+}
+
+.private-content-title {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f0f2f7;
+  font-size: 28px;
+  font-weight: 620;
+  line-height: 1.3;
+}
+
+.private-content-editor textarea {
+  min-height: 0;
+  flex: 1;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #cfd4de;
+  padding: 24px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.private-content-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.private-content-editor-footer > span {
+  margin-right: auto;
+  color: #8f98aa;
+  font-size: 11px;
+}
+
+.private-content-editor-footer > button:not(.private-content-primary) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #9fa7b7;
+  cursor: pointer;
+}
+
+.private-content-editor-footer > button.is-confirming {
+  color: #e4a09b;
+}
+
+.private-content-empty {
+  margin: auto;
+  color: #7f8798;
+  text-align: center;
 }
 
 .code-agents-shell-surface {

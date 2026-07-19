@@ -10,6 +10,7 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { IconShieldLock } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Toaster, toast } from "sonner";
 
@@ -19,6 +20,7 @@ import AppSettings, {
 } from "./components/AppSettings.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import PrivateContentSurface from "./components/PrivateContentSurface.js";
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
@@ -131,6 +133,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
+  const [showPrivateContent, setShowPrivateContent] = useState(false);
   const [editingSidebarAppId, setEditingSidebarAppId] = useState<string | null>(
     null,
   );
@@ -944,6 +947,17 @@ export default function App() {
           onTabClose={handleTabClose}
           onTabRefresh={handleTabRefresh}
           onNewTab={handleNewTab}
+          accessory={
+            activeSidebarAppId === "content" ? (
+              <button
+                className={`private-content-tab-toggle${showPrivateContent ? " is-active" : ""}`}
+                onClick={() => setShowPrivateContent((value) => !value)}
+                type="button"
+              >
+                <IconShieldLock size={14} /> Private Vault
+              </button>
+            ) : undefined
+          }
         />
       )}
       <div className="shell-body">
@@ -999,6 +1013,13 @@ export default function App() {
                 onAppsChanged={handleAppsChanged}
               />
             ))}
+          {!isCodeAgentsActive &&
+            activeSidebarAppId === "content" &&
+            showPrivateContent && (
+              <PrivateContentSurface
+                onClose={() => setShowPrivateContent(false)}
+              />
+            )}
         </div>
       </div>
 
