@@ -1,3 +1,14 @@
+import {
+  MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES,
+  MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES,
+} from "../../shared/multi-frontier-ipc.js";
+import type {
+  MultiFrontierCoordinatorFacade,
+  MultiFrontierTrustedCoordinatorSnapshot,
+  MultiFrontierTurnRequest,
+  MultiFrontierTurnResult,
+} from "./multi-frontier-orchestrator.js";
+
 export type LocalFrontierPermission = "read_only" | "workspace_write";
 export type LocalFrontierPhase =
   | "proposing"
@@ -48,6 +59,8 @@ export interface LocalFrontierCoordinatorState {
   participants: LocalFrontierParticipantState[];
   driver: LocalFrontierDriverLease | null;
   approval: "not_required" | "pending" | "approved" | "rejected";
+  currentSynthesisArtifactId?: string;
+  approvedSynthesisArtifactId?: string;
   checkpointIds: string[];
   round: number;
   autoContinueAfterAgreement: boolean;
@@ -79,11 +92,13 @@ export interface LocalFrontierParticipant {
   readonly sessionRef?: string;
   start(input: LocalFrontierSessionInput): Promise<void>;
   resume?(input: LocalFrontierSessionInput): Promise<void>;
-  runTurn(input: LocalFrontierTurnInput): Promise<void>;
+  runTurn(input: LocalFrontierTurnInput): Promise<LocalFrontierTurnResult>;
   cancel(): Promise<void>;
   dispose(): Promise<void>;
   onEvent(listener: (event: LocalFrontierParticipantEvent) => void): () => void;
 }
+
+export type LocalFrontierTurnResult = MultiFrontierTurnResult;
 
 /** This is deliberately the entire child-process surface; it has no store writer. */
 export interface LocalFrontierSessionInput {
@@ -179,7 +194,7 @@ export class MultiFrontierCoordinator {
   readonly #seenEventIds = new Set<string>();
   readonly #eventIdsInOrder: string[] = [];
   readonly #activeTurnParticipantIds = new Set<string>();
-  readonly #activeTurnPromises = new Set<Promise<void>>();
+  readonly #activeTurnPromises = new Set<Promise<LocalFrontierTurnResult>>();
   #hasActiveWorkspaceWriteTurn = false;
   #mutationQueue: Promise<void> = Promise.resolve();
   #state: LocalFrontierCoordinatorState | null = null;
@@ -343,8 +358,13 @@ export class MultiFrontierCoordinator {
     }
   }
 
-  async requestGo(): Promise<LocalFrontierCoordinatorState> {
+  async requestGo(
+    synthesisArtifactId: string,
+  ): Promise<LocalFrontierCoordinatorState> {
     this.#assertStableBoundary();
+    if (!SAFE_ID.test(synthesisArtifactId)) {
+      throw new Error("A safe synthesis artifact id is required.");
+    }
     return this.#update((current) => {
       if (
         ![
@@ -362,6 +382,8 @@ export class MultiFrontierCoordinator {
         ...current,
         phase: "awaiting_go",
         approval: "pending",
+        currentSynthesisArtifactId: synthesisArtifactId,
+        approvedSynthesisArtifactId: undefined,
         participants: readOnlyParticipants(current.participants),
         driver: revokeDriver(current.driver),
       };
@@ -395,6 +417,7 @@ export class MultiFrontierCoordinator {
         ...current,
         phase: "implementing",
         approval: "approved",
+        approvedSynthesisArtifactId: current.currentSynthesisArtifactId,
         driver: {
           participantId: driverParticipantId,
           generation,
@@ -427,7 +450,7 @@ export class MultiFrontierCoordinator {
       | "implementation";
     instruction: string;
     generation?: number;
-  }): Promise<void> {
+  }): Promise<LocalFrontierTurnResult> {
     this.#assertTurnStartAllowed();
     const participant = this.#requireParticipant(input.participantId);
     if (!SAFE_ID.test(input.turnId))
@@ -455,7 +478,7 @@ export class MultiFrontierCoordinator {
   async #runReservedTurn(
     input: Parameters<MultiFrontierCoordinator["runTurn"]>[0],
     participant: LocalFrontierParticipant,
-  ): Promise<void> {
+  ): Promise<LocalFrontierTurnResult> {
     let participantStarted = false;
     try {
       const turn = await this.#serializeMutation(async () => {
@@ -483,7 +506,7 @@ export class MultiFrontierCoordinator {
         >;
       });
       participantStarted = true;
-      await participant.runTurn({
+      const result = await participant.runTurn({
         collaborationId: this.#collaborationId,
         turnId: input.turnId,
         round: turn.round,
@@ -495,6 +518,7 @@ export class MultiFrontierCoordinator {
         instruction: input.instruction,
       });
       await this.#updateParticipantStatus(input.participantId, "waiting");
+      return boundTurnResult(result);
     } catch (error) {
       if (participantStarted && !this.#lifecycleFence) {
         await this.#pauseForParticipant(input.participantId);
@@ -526,6 +550,60 @@ export class MultiFrontierCoordinator {
         driver: revokeDriver(current.driver),
       };
     });
+  }
+
+  async swapDriverRole(input: {
+    fromParticipantId: string;
+    toParticipantId: string;
+    expectedGeneration: number;
+    synthesisArtifactId: string;
+  }): Promise<LocalFrontierDriverLease> {
+    this.#assertStableBoundary();
+    this.#requireParticipant(input.fromParticipantId);
+    this.#requireParticipant(input.toParticipantId);
+    if (input.fromParticipantId === input.toParticipantId) {
+      throw new Error("A role swap requires distinct participants.");
+    }
+    if (
+      !Number.isSafeInteger(input.expectedGeneration) ||
+      input.expectedGeneration < 1
+    ) {
+      throw new Error("A role swap requires the current driver generation.");
+    }
+    if (!SAFE_ID.test(input.synthesisArtifactId)) {
+      throw new Error("A safe synthesis artifact id is required.");
+    }
+    const next = await this.#update((current) => {
+      if (
+        !["awaiting_go", "checkpoint_review"].includes(current.phase) ||
+        current.driver?.leaseState !== "revoked" ||
+        current.driver.participantId !== input.fromParticipantId ||
+        current.driver.generation !== input.expectedGeneration ||
+        current.currentSynthesisArtifactId !== input.synthesisArtifactId
+      ) {
+        throw new Error(
+          "A role swap requires the current revoked driver lease.",
+        );
+      }
+      return {
+        ...current,
+        driver: {
+          participantId: input.toParticipantId,
+          generation: input.expectedGeneration + 1,
+          leaseState: "revoked",
+        },
+        participants: readOnlyParticipants(current.participants),
+      };
+    });
+    return { ...next.driver! };
+  }
+
+  async readTrustedSnapshot(): Promise<MultiFrontierTrustedCoordinatorSnapshot> {
+    const persisted = await this.#store.read(this.#collaborationId);
+    if (!persisted) {
+      throw new Error("The durable collaboration state is unavailable.");
+    }
+    return toTrustedSnapshot(persisted);
   }
 
   async beginNextRound(): Promise<LocalFrontierCoordinatorState> {
@@ -1052,8 +1130,199 @@ export class MultiFrontierCoordinator {
   }
 }
 
+export interface MultiFrontierOrchestratorBridge {
+  coordinator: MultiFrontierCoordinatorFacade;
+  captureTurnResult(
+    request: MultiFrontierTurnRequest,
+  ): Promise<MultiFrontierTurnResult>;
+}
+
+/**
+ * Couples orchestrator capture to the only coordinator-authorized participant
+ * turn. Captures subscribe before the coordinator starts the child process.
+ */
+export function createMultiFrontierOrchestratorBridge(
+  coordinator: MultiFrontierCoordinator,
+): MultiFrontierOrchestratorBridge {
+  const captures = new Map<
+    string,
+    {
+      request: MultiFrontierTurnRequest;
+      settle: (result: PromiseSettledResult<MultiFrontierTurnResult>) => void;
+    }
+  >();
+  const captureTurnResult = (
+    request: MultiFrontierTurnRequest,
+  ): Promise<MultiFrontierTurnResult> => {
+    if (request.collaborationId !== coordinator.state?.collaborationId) {
+      return Promise.reject(
+        new Error("The turn capture has another collaboration."),
+      );
+    }
+    if (captures.has(request.turnId)) {
+      return Promise.reject(
+        new Error("The turn capture is already registered."),
+      );
+    }
+    return new Promise<MultiFrontierTurnResult>((resolve, reject) => {
+      const onAbort = () => {
+        captures.delete(request.turnId);
+        reject(new Error("The turn capture was canceled."));
+      };
+      request.signal.addEventListener("abort", onAbort, { once: true });
+      captures.set(request.turnId, {
+        request,
+        settle: (result) => {
+          request.signal.removeEventListener("abort", onAbort);
+          captures.delete(request.turnId);
+          if (result.status === "fulfilled") resolve(result.value);
+          else reject(result.reason);
+        },
+      });
+    });
+  };
+  const settleCapture = (
+    turnId: string,
+    result: PromiseSettledResult<MultiFrontierTurnResult>,
+  ) => {
+    captures.get(turnId)?.settle(result);
+  };
+  return {
+    captureTurnResult,
+    coordinator: {
+      readTrustedSnapshot: () => coordinator.readTrustedSnapshot(),
+      runTurn: async (input) => {
+        const capture = captures.get(input.turnId);
+        if (
+          capture &&
+          (capture.request.participantId !== input.participantId ||
+            capture.request.round !== coordinator.state?.round)
+        ) {
+          settleCapture(
+            input.turnId,
+            rejectedTurnResult(
+              "The coordinator turn did not match its capture.",
+            ),
+          );
+          throw new Error("The coordinator turn did not match its capture.");
+        }
+        try {
+          const result = await coordinator.runTurn(input);
+          settleCapture(input.turnId, { status: "fulfilled", value: result });
+        } catch (error) {
+          settleCapture(input.turnId, rejectedTurnResult(error));
+          throw error;
+        }
+      },
+      beginCrossReview: () => coordinator.beginCrossReview(),
+      beginConvergence: () => coordinator.beginConvergence(),
+      beginNextRound: () => coordinator.beginNextRound(),
+      requestGo: (synthesisArtifactId) =>
+        coordinator.requestGo(synthesisArtifactId),
+      approveGo: async (participantId) => {
+        const lease = await coordinator.approveGo(participantId);
+        return { generation: lease.generation };
+      },
+      checkpoint: (checkpointId) => coordinator.checkpoint(checkpointId),
+      pause: () => coordinator.pause(),
+      complete: () => coordinator.complete(),
+      swapDriverRole: async (input) => {
+        const lease = await coordinator.swapDriverRole(input);
+        return { generation: lease.generation };
+      },
+    },
+  };
+}
+
 function isTerminalPhase(phase: LocalFrontierPhase): boolean {
   return phase === "completed" || phase === "failed" || phase === "canceled";
+}
+
+function toTrustedSnapshot(
+  state: LocalFrontierCoordinatorState,
+): MultiFrontierTrustedCoordinatorSnapshot {
+  return {
+    schemaVersion: 1,
+    collaborationId: state.collaborationId,
+    phase: state.phase,
+    approval: state.approval,
+    autoContinueAfterAgreement: state.autoContinueAfterAgreement,
+    ...(state.currentSynthesisArtifactId
+      ? { currentSynthesisArtifactId: state.currentSynthesisArtifactId }
+      : {}),
+    ...(state.approvedSynthesisArtifactId
+      ? { approvedSynthesisArtifactId: state.approvedSynthesisArtifactId }
+      : {}),
+    checkpointIds: [...state.checkpointIds],
+    driver: state.driver ? { ...state.driver } : null,
+    round: state.round,
+  };
+}
+
+function boundTurnResult(
+  result: LocalFrontierTurnResult,
+): MultiFrontierTurnResult {
+  if (!result || typeof result.text !== "string" || !result.text.trim()) {
+    throw new Error("A participant turn must return bounded text.");
+  }
+  const text = boundText(result.text, "participant turn text");
+  const findings = result.findings?.slice(0, 40).map((finding) => ({
+    id: boundId(finding.id, "finding id"),
+    category: finding.category,
+    summary: boundText(finding.summary, "finding summary"),
+  }));
+  const dispositions = result.dispositions?.slice(0, 40).map((disposition) => ({
+    findingId: boundId(disposition.findingId, "finding id"),
+    disposition: disposition.disposition,
+    reason: boundText(disposition.reason, "finding disposition reason"),
+  }));
+  return {
+    text,
+    ...(typeof result.agreed === "boolean" ? { agreed: result.agreed } : {}),
+    ...(typeof result.requiresRevision === "boolean"
+      ? { requiresRevision: result.requiresRevision }
+      : {}),
+    ...(findings ? { findings } : {}),
+    ...(dispositions ? { dispositions } : {}),
+    ...(result.reversibleResolution
+      ? {
+          reversibleResolution: {
+            alternatives: result.reversibleResolution.alternatives
+              .slice(0, 8)
+              .map((value) => boundText(value, "resolution alternative")),
+            comparator: boundText(
+              result.reversibleResolution.comparator,
+              "resolution comparator",
+            ),
+            selected: boundText(
+              result.reversibleResolution.selected,
+              "resolution selection",
+            ),
+            reversibility: boundText(
+              result.reversibleResolution.reversibility,
+              "resolution reversibility",
+            ),
+          },
+        }
+      : {}),
+  };
+}
+
+function boundText(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`A ${label} is required.`);
+  return Buffer.from(trimmed, "utf8")
+    .subarray(0, MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES)
+    .toString("utf8");
+}
+
+function boundId(value: string, label: string): string {
+  if (!SAFE_ID.test(value)) throw new Error(`A safe ${label} is required.`);
+  return value;
+}
+
+function rejectedTurnResult(reason: unknown): PromiseRejectedResult {
+  return { status: "rejected", reason };
 }
 
 function hasRequiredRuntimeRoster(
@@ -1152,4 +1421,3 @@ function serializedEventBytes(
     return null;
   }
 }
-import { MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES } from "../../shared/multi-frontier-ipc.js";

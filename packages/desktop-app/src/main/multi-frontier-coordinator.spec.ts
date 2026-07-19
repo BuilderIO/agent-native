@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MultiFrontierCoordinator,
+  createMultiFrontierOrchestratorBridge,
   type LocalFrontierCoordinatorState,
   type LocalFrontierParticipant,
   type LocalFrontierParticipantEvent,
@@ -16,6 +17,7 @@ class FakeParticipant implements LocalFrontierParticipant {
   cancelCount = 0;
   disposeCount = 0;
   runTurnGate: Promise<void> | null = null;
+  turnResult = { text: "Participant completed its bounded turn." };
   resumeGate: Promise<void> | null = null;
   emitStatusOnRun: LocalFrontierParticipantStatus | null = null;
   #listeners = new Set<(event: LocalFrontierParticipantEvent) => void>();
@@ -35,7 +37,7 @@ class FakeParticipant implements LocalFrontierParticipant {
     this.starts.push(input);
   }
 
-  async runTurn(input: LocalFrontierTurnInput): Promise<void> {
+  async runTurn(input: LocalFrontierTurnInput) {
     this.turns.push(input);
     if (this.emitStatusOnRun) {
       this.emit({
@@ -50,6 +52,7 @@ class FakeParticipant implements LocalFrontierParticipant {
       });
     }
     await this.runTurnGate;
+    return this.turnResult;
   }
 
   async resume(input: LocalFrontierSessionInput): Promise<void> {
@@ -208,7 +211,7 @@ describe("MultiFrontierCoordinator", () => {
   it("requires a pending explicit GO and a matching generation for workspace writes", async () => {
     const { alpha, beta, coordinator } = createHarness();
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-1");
     const lease = await coordinator.approveGo("alpha");
 
     expect(lease).toEqual({
@@ -252,6 +255,74 @@ describe("MultiFrontierCoordinator", () => {
     });
   });
 
+  it("bridges only coordinator-authorized bounded turn results to the orchestrator", async () => {
+    const { alpha, coordinator } = createHarness({
+      autoContinueAfterAgreement: true,
+    });
+    alpha.turnResult = { text: "A bounded proposal." };
+    await coordinator.begin();
+    const bridge = createMultiFrontierOrchestratorBridge(coordinator);
+    const controller = new AbortController();
+    const capture = bridge.captureTurnResult({
+      collaborationId: "collaboration-1",
+      participantId: "alpha",
+      turnId: "bridge-proposal",
+      stage: "proposal",
+      round: 1,
+      signal: controller.signal,
+    });
+
+    await bridge.coordinator.runTurn({
+      participantId: "alpha",
+      turnId: "bridge-proposal",
+      kind: "proposal",
+      instruction: "Publish the bounded proposal.",
+    });
+
+    await expect(capture).resolves.toEqual({ text: "A bounded proposal." });
+    await bridge.coordinator.requestGo("synthesis-bridge");
+    await expect(
+      bridge.coordinator.readTrustedSnapshot(),
+    ).resolves.toMatchObject({
+      phase: "awaiting_go",
+      approval: "pending",
+      autoContinueAfterAgreement: true,
+      currentSynthesisArtifactId: "synthesis-bridge",
+      checkpointIds: [],
+    });
+  });
+
+  it("fences role swaps to a revoked stable boundary and advances generation", async () => {
+    const { coordinator } = createHarness();
+    await coordinator.begin();
+    await coordinator.requestGo("synthesis-swap");
+    const firstLease = await coordinator.approveGo("alpha");
+    await coordinator.checkpoint("checkpoint-swap");
+    await coordinator.requestGo("synthesis-swap");
+
+    await expect(
+      coordinator.swapDriverRole({
+        fromParticipantId: "alpha",
+        toParticipantId: "beta",
+        expectedGeneration: firstLease.generation,
+        synthesisArtifactId: "synthesis-swap",
+      }),
+    ).resolves.toEqual({
+      participantId: "beta",
+      generation: firstLease.generation + 1,
+      leaseState: "revoked",
+    });
+    await expect(
+      coordinator.runTurn({
+        participantId: "alpha",
+        turnId: "stale-driver-after-swap",
+        kind: "implementation",
+        generation: firstLease.generation,
+        instruction: "Must remain fenced.",
+      }),
+    ).rejects.toThrow("current explicit driver lease");
+  });
+
   it("keeps proposal, cross-review, and convergence turns read-only", async () => {
     const { alpha, beta, coordinator } = createHarness();
     await coordinator.begin();
@@ -278,7 +349,7 @@ describe("MultiFrontierCoordinator", () => {
   it("rejects stale write events before the parent store is mutated", async () => {
     const { coordinator, events, getState } = createHarness();
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-2");
     await coordinator.approveGo("alpha");
     const before = structuredClone(getState());
 
@@ -354,7 +425,7 @@ describe("MultiFrontierCoordinator", () => {
   it("does not grant a second simultaneous implementation turn to the driver", async () => {
     const { alpha, coordinator } = createHarness();
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-3");
     const lease = await coordinator.approveGo("alpha");
 
     const first = coordinator.runTurn({
@@ -390,7 +461,7 @@ describe("MultiFrontierCoordinator", () => {
       },
     });
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-4");
     const lease = await coordinator.approveGo("alpha");
     blockWrites = true;
     const turn = coordinator.runTurn({
@@ -415,7 +486,7 @@ describe("MultiFrontierCoordinator", () => {
     const { alpha, coordinator } = createHarness();
     alpha.runTurnGate = turnGate.promise;
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-5");
     const lease = await coordinator.approveGo("alpha");
     const turn = coordinator.runTurn({
       participantId: "alpha",
@@ -482,7 +553,7 @@ describe("MultiFrontierCoordinator", () => {
   it("pauses and revokes the lease on crash or cancellation, then resumes without replay", async () => {
     const { alpha, beta, coordinator } = createHarness();
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-6");
     const lease = await coordinator.approveGo("alpha");
     await coordinator.ingestEvent({
       id: "driver-crashed",
@@ -521,7 +592,7 @@ describe("MultiFrontierCoordinator", () => {
   it("fails closed when a persisted participant id resolves to another runtime", async () => {
     const { alpha, coordinator } = createHarness();
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-7");
     const lease = await coordinator.approveGo("alpha");
     await coordinator.ingestEvent({
       id: "alpha-crashed-for-runtime-check",
@@ -538,7 +609,7 @@ describe("MultiFrontierCoordinator", () => {
 
     const runtimeMismatch = createHarness();
     await runtimeMismatch.coordinator.begin();
-    await runtimeMismatch.coordinator.requestGo();
+    await runtimeMismatch.coordinator.requestGo("synthesis-8");
     const runtimeLease = await runtimeMismatch.coordinator.approveGo("alpha");
     await runtimeMismatch.coordinator.ingestEvent({
       id: "alpha-crashed-for-runtime-name-check",
@@ -559,7 +630,7 @@ describe("MultiFrontierCoordinator", () => {
   it("revokes the driver at a checkpoint boundary before a new GO", async () => {
     const { coordinator } = createHarness();
     await coordinator.begin();
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-9");
     await coordinator.approveGo("alpha");
 
     await coordinator.checkpoint("checkpoint-1");
@@ -584,7 +655,7 @@ describe("MultiFrontierCoordinator", () => {
         instruction: "Review.",
       }),
     ).rejects.toThrow("cross_review turns are only allowed");
-    await coordinator.requestGo();
+    await coordinator.requestGo("synthesis-10");
     await coordinator.approveGo("alpha");
     await expect(
       coordinator.runTurn({

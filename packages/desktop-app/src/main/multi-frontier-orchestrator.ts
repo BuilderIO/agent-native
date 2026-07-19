@@ -849,10 +849,10 @@ export class MultiFrontierOrchestrator {
     assertApprovedSynthesisArtifact(synthesisArtifact);
     const before = await this.#trustedSnapshot();
     if (
-      before.phase !== "implementing" ||
-      before.approval !== "approved" ||
-      before.approvedSynthesisArtifactId !== input.synthesisArtifactId ||
-      before.driver?.leaseState !== "active" ||
+      !["awaiting_go", "checkpoint_review"].includes(before.phase) ||
+      before.approval !== "pending" ||
+      before.currentSynthesisArtifactId !== input.synthesisArtifactId ||
+      before.driver?.leaseState !== "revoked" ||
       before.driver.participantId !== input.fromParticipantId ||
       before.driver.generation !== input.expectedGeneration
     ) {
@@ -861,7 +861,8 @@ export class MultiFrontierOrchestrator {
     const lease = await this.#options.coordinator.swapDriverRole(input);
     const after = await this.#trustedSnapshot();
     if (
-      after.driver?.leaseState !== "active" ||
+      !["awaiting_go", "checkpoint_review"].includes(after.phase) ||
+      after.driver?.leaseState !== "revoked" ||
       after.driver.participantId !== input.toParticipantId ||
       after.driver.generation !== lease.generation ||
       lease.generation <= input.expectedGeneration
@@ -1030,6 +1031,19 @@ export class MultiFrontierOrchestrator {
       throw error;
     }
     const result = await capture;
+    if (input.stage === "watchdog_review" && result.findings === undefined) {
+      throw new Error(
+        "A watchdog review turn must report structured findings.",
+      );
+    }
+    if (
+      input.stage === "finding_disposition" &&
+      result.dispositions === undefined
+    ) {
+      throw new Error(
+        "A finding disposition turn must report structured dispositions.",
+      );
+    }
     return {
       ...result,
       text: boundedPlainText(result.text, "turn result"),

@@ -18,6 +18,7 @@ import {
   type MultiFrontierRunState,
   type MultiFrontierStoredRun,
 } from "../../../core/src/cli/multi-frontier-runs.js";
+import { MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES } from "../../shared/multi-frontier-ipc.js";
 import type {
   LocalFrontierCoordinatorState,
   LocalFrontierCoordinatorStore,
@@ -25,9 +26,21 @@ import type {
   LocalFrontierParticipantEvent,
   LocalFrontierSessionInput,
   LocalFrontierTurnInput,
+  LocalFrontierTurnResult,
 } from "./multi-frontier-coordinator.js";
 
 const TERMINAL_PHASES = new Set(["completed", "failed", "canceled"]);
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
+const FINDING_CATEGORIES = new Set([
+  "reversible_technical",
+  "intent_or_scope",
+  "destructive_action",
+  "security_or_privacy",
+  "outward_effect",
+  "meaningful_cost_expansion",
+  "irreversible_architecture",
+]);
+const FINDING_DISPOSITIONS = new Set(["addressed", "rejected", "deferred"]);
 
 type CoreRuntimeApi = Pick<
   typeof import("../../../core/src/cli/multi-frontier-runs.js"),
@@ -71,7 +84,7 @@ export class CoreMultiFrontierCoordinatorStore implements LocalFrontierCoordinat
       collaborationId: state.collaborationId,
       phase: state.phase,
       participants: toCoreParticipants(state.participants),
-      approval: toCoreApproval(state.approval),
+      approval: toCoreApproval(state),
       checkpointIds: [...state.checkpointIds],
       autoContinueAfterAgreement: state.autoContinueAfterAgreement,
     });
@@ -150,7 +163,7 @@ export class CodexLocalFrontierParticipant implements LocalFrontierParticipant {
   readonly #run: typeof runCodexCliParticipant;
   readonly #options: CodexLocalFrontierParticipantOptions;
   #controller: AbortController | null = null;
-  #activeRun: Promise<void> | null = null;
+  #activeRun: Promise<LocalFrontierTurnResult> | null = null;
   #sessionRef: string | undefined;
 
   constructor(options: CodexLocalFrontierParticipantOptions) {
@@ -174,14 +187,16 @@ export class CodexLocalFrontierParticipant implements LocalFrontierParticipant {
 
   async resume(_input: LocalFrontierSessionInput): Promise<void> {}
 
-  async runTurn(input: LocalFrontierTurnInput): Promise<void> {
+  async runTurn(
+    input: LocalFrontierTurnInput,
+  ): Promise<LocalFrontierTurnResult> {
     const controller = new AbortController();
     this.#controller = controller;
     this.#emit(input, "running");
     const activeRun = this.#runTurn(input, controller);
     this.#activeRun = activeRun;
     try {
-      await activeRun;
+      return await activeRun;
     } finally {
       if (this.#activeRun === activeRun) this.#activeRun = null;
       if (this.#controller === controller) this.#controller = null;
@@ -191,7 +206,7 @@ export class CodexLocalFrontierParticipant implements LocalFrontierParticipant {
   async #runTurn(
     input: LocalFrontierTurnInput,
     controller: AbortController,
-  ): Promise<void> {
+  ): Promise<LocalFrontierTurnResult> {
     try {
       const result = await this.#run({
         role:
@@ -216,6 +231,7 @@ export class CodexLocalFrontierParticipant implements LocalFrontierParticipant {
         await this.#options.onSessionRef?.(result.resumeSessionId);
       }
       this.#emit(input, "waiting");
+      return turnResultFromProviderEvents(result.events, "Codex");
     } catch (error) {
       this.#emit(input, "failed", "crash");
       throw error;
@@ -285,7 +301,7 @@ export class ClaudeLocalFrontierParticipant implements LocalFrontierParticipant 
   readonly #run: typeof runClaudeCodeParticipant;
   readonly #options: ClaudeLocalFrontierParticipantOptions;
   #controller: AbortController | null = null;
-  #activeRun: Promise<void> | null = null;
+  #activeRun: Promise<LocalFrontierTurnResult> | null = null;
   #session: ClaudeCodeParticipantSession | undefined;
 
   constructor(options: ClaudeLocalFrontierParticipantOptions) {
@@ -314,14 +330,16 @@ export class ClaudeLocalFrontierParticipant implements LocalFrontierParticipant 
 
   async resume(_input: LocalFrontierSessionInput): Promise<void> {}
 
-  async runTurn(input: LocalFrontierTurnInput): Promise<void> {
+  async runTurn(
+    input: LocalFrontierTurnInput,
+  ): Promise<LocalFrontierTurnResult> {
     const controller = new AbortController();
     this.#controller = controller;
     this.#emit(input, "running");
     const activeRun = this.#runTurn(input, controller);
     this.#activeRun = activeRun;
     try {
-      await activeRun;
+      return await activeRun;
     } finally {
       if (this.#activeRun === activeRun) this.#activeRun = null;
       if (this.#controller === controller) this.#controller = null;
@@ -331,9 +349,9 @@ export class ClaudeLocalFrontierParticipant implements LocalFrontierParticipant 
   async #runTurn(
     input: LocalFrontierTurnInput,
     controller: AbortController,
-  ): Promise<void> {
+  ): Promise<LocalFrontierTurnResult> {
     try {
-      await this.#run({
+      const result = await this.#run({
         role: input.permission === "workspace_write" ? "driver" : "watchdog",
         prompt: input.instruction,
         cwd: this.#options.cwd,
@@ -344,6 +362,7 @@ export class ClaudeLocalFrontierParticipant implements LocalFrontierParticipant 
         signal: controller.signal,
       } satisfies RunClaudeCodeParticipantOptions);
       this.#emit(input, "waiting");
+      return turnResultFromProviderEvents(result.events, "Claude");
     } catch (error) {
       this.#emit(input, "failed", "crash");
       throw error;
@@ -469,6 +488,12 @@ function toLocalState(
     })),
     driver: run.driver ? { ...run.driver } : null,
     approval: run.approval.state,
+    ...(run.approval.proposalId
+      ? { currentSynthesisArtifactId: run.approval.proposalId }
+      : {}),
+    ...(run.approval.state === "approved" && run.approval.proposalId
+      ? { approvedSynthesisArtifactId: run.approval.proposalId }
+      : {}),
     checkpointIds: [...run.checkpointIds],
     round: run.round,
     autoContinueAfterAgreement: run.autoContinueAfterAgreement,
@@ -498,7 +523,7 @@ function toCoreState(
     phase: state.phase,
     participants: toCoreParticipants(state.participants, current),
     driver: state.driver ? { ...state.driver } : null,
-    approval: toCoreApproval(state.approval, current),
+    approval: toCoreApproval(state, current),
     checkpointIds: [...state.checkpointIds],
     round: state.round,
     proposalIds: [...current.proposalIds],
@@ -547,16 +572,219 @@ function toCoreParticipants(
 }
 
 function toCoreApproval(
-  state: LocalFrontierCoordinatorState["approval"],
+  state: LocalFrontierCoordinatorState,
   current?: MultiFrontierStoredRun,
 ): MultiFrontierRunState["approval"] {
+  const synthesisArtifactId =
+    state.approvedSynthesisArtifactId ??
+    state.currentSynthesisArtifactId ??
+    current?.approval.proposalId;
   return {
-    state,
-    ...(current?.approval.proposalId
-      ? { proposalId: current.approval.proposalId }
-      : {}),
+    state: state.approval,
+    ...(synthesisArtifactId ? { proposalId: synthesisArtifactId } : {}),
     ...(current?.approval.reviewPacketId
       ? { reviewPacketId: current.approval.reviewPacketId }
       : {}),
   };
+}
+
+function turnResultFromProviderEvents(
+  events: readonly unknown[],
+  provider: string,
+): LocalFrontierTurnResult {
+  for (const event of [...events].reverse()) {
+    const text = resultTextFromEvent(event);
+    if (!text) continue;
+    const structured = parseStructuredTurnResult(text);
+    if (structured) return boundRuntimeTurnResult(structured);
+    return { text: boundRuntimeText(text) };
+  }
+  return {
+    text: boundRuntimeText(`${provider} completed the requested turn.`),
+  };
+}
+
+function resultTextFromEvent(event: unknown): string | null {
+  if (!event || typeof event !== "object" || Array.isArray(event)) return null;
+  const record = event as Record<string, unknown>;
+  for (const key of ["result", "text", "summary"] as const) {
+    if (typeof record[key] === "string" && record[key].trim()) {
+      return record[key];
+    }
+  }
+  const message = record.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) {
+    return null;
+  }
+  const content = (message as Record<string, unknown>).content;
+  return typeof content === "string" && content.trim() ? content : null;
+}
+
+function parseStructuredTurnResult(
+  text: string,
+): LocalFrontierTurnResult | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    throw new Error("The provider returned malformed structured turn output.");
+  }
+  const result = requireRecord(parsed, "structured turn result");
+  assertExactKeys(result, [
+    "text",
+    "agreed",
+    "requiresRevision",
+    "findings",
+    "dispositions",
+    "reversibleResolution",
+  ]);
+  if (typeof result.text !== "string" || !result.text.trim()) {
+    throw new Error("Structured turn output requires text.");
+  }
+  if (result.agreed !== undefined && typeof result.agreed !== "boolean") {
+    throw new Error("Structured turn agreement is invalid.");
+  }
+  if (
+    result.requiresRevision !== undefined &&
+    typeof result.requiresRevision !== "boolean"
+  ) {
+    throw new Error("Structured turn revision state is invalid.");
+  }
+  return {
+    text: boundRuntimeText(result.text),
+    ...(typeof result.agreed === "boolean" ? { agreed: result.agreed } : {}),
+    ...(typeof result.requiresRevision === "boolean"
+      ? { requiresRevision: result.requiresRevision }
+      : {}),
+    ...(result.findings === undefined
+      ? {}
+      : { findings: parseFindings(result.findings) }),
+    ...(result.dispositions === undefined
+      ? {}
+      : { dispositions: parseDispositions(result.dispositions) }),
+    ...(result.reversibleResolution === undefined
+      ? {}
+      : {
+          reversibleResolution: parseReversibleResolution(
+            result.reversibleResolution,
+          ),
+        }),
+  };
+}
+
+function boundRuntimeTurnResult(
+  result: LocalFrontierTurnResult,
+): LocalFrontierTurnResult {
+  return { ...result, text: boundRuntimeText(result.text) };
+}
+
+function boundRuntimeText(value: string): string {
+  const text = value.trim();
+  if (!text) throw new Error("A participant turn result must include text.");
+  return Buffer.from(text, "utf8")
+    .subarray(0, MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES)
+    .toString("utf8");
+}
+
+function parseFindings(
+  value: unknown,
+): NonNullable<LocalFrontierTurnResult["findings"]> {
+  if (!Array.isArray(value) || value.length > 40) {
+    throw new Error("Structured turn findings are invalid.");
+  }
+  return value.map((item) => {
+    const finding = requireRecord(item, "structured finding");
+    assertExactKeys(finding, ["id", "category", "summary"]);
+    if (
+      typeof finding.id !== "string" ||
+      typeof finding.category !== "string" ||
+      typeof finding.summary !== "string" ||
+      !SAFE_ID.test(finding.id) ||
+      !FINDING_CATEGORIES.has(finding.category)
+    ) {
+      throw new Error("Structured turn finding is invalid.");
+    }
+    return {
+      id: finding.id,
+      category: finding.category as NonNullable<
+        LocalFrontierTurnResult["findings"]
+      >[number]["category"],
+      summary: boundRuntimeText(finding.summary),
+    };
+  });
+}
+
+function parseDispositions(
+  value: unknown,
+): NonNullable<LocalFrontierTurnResult["dispositions"]> {
+  if (!Array.isArray(value) || value.length > 40) {
+    throw new Error("Structured turn dispositions are invalid.");
+  }
+  return value.map((item) => {
+    const disposition = requireRecord(item, "structured disposition");
+    assertExactKeys(disposition, ["findingId", "disposition", "reason"]);
+    if (
+      typeof disposition.findingId !== "string" ||
+      typeof disposition.disposition !== "string" ||
+      typeof disposition.reason !== "string" ||
+      !SAFE_ID.test(disposition.findingId) ||
+      !FINDING_DISPOSITIONS.has(disposition.disposition)
+    ) {
+      throw new Error("Structured turn disposition is invalid.");
+    }
+    return {
+      findingId: disposition.findingId,
+      disposition: disposition.disposition as NonNullable<
+        LocalFrontierTurnResult["dispositions"]
+      >[number]["disposition"],
+      reason: boundRuntimeText(disposition.reason),
+    };
+  });
+}
+
+function parseReversibleResolution(
+  value: unknown,
+): NonNullable<LocalFrontierTurnResult["reversibleResolution"]> {
+  const resolution = requireRecord(value, "reversible resolution");
+  assertExactKeys(resolution, [
+    "alternatives",
+    "comparator",
+    "selected",
+    "reversibility",
+  ]);
+  if (
+    !Array.isArray(resolution.alternatives) ||
+    resolution.alternatives.length === 0 ||
+    resolution.alternatives.length > 8 ||
+    resolution.alternatives.some((item) => typeof item !== "string") ||
+    typeof resolution.comparator !== "string" ||
+    typeof resolution.selected !== "string" ||
+    typeof resolution.reversibility !== "string"
+  ) {
+    throw new Error("Structured reversible resolution is invalid.");
+  }
+  return {
+    alternatives: resolution.alternatives.map((item) => boundRuntimeText(item)),
+    comparator: boundRuntimeText(resolution.comparator),
+    selected: boundRuntimeText(resolution.selected),
+    reversibility: boundRuntimeText(resolution.reversibility),
+  };
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`The ${label} is invalid.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function assertExactKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+): void {
+  if (Object.keys(value).some((key) => !allowedKeys.includes(key))) {
+    throw new Error("Structured turn output includes unsupported fields.");
+  }
 }

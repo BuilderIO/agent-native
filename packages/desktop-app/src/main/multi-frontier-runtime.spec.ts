@@ -157,7 +157,34 @@ describe("multi-frontier runtime", () => {
   it("maps both providers through their core participant runners without starting sessions", async () => {
     const codexRun = vi.fn(async () => ({
       exitCode: 0,
-      events: [],
+      events: [
+        {
+          result: JSON.stringify({
+            text: "Codex proposal.",
+            agreed: true,
+            findings: [
+              {
+                id: "finding-credential-boundary",
+                category: "security_or_privacy",
+                summary: "Credential data must remain provider-owned.",
+              },
+            ],
+            dispositions: [
+              {
+                findingId: "finding-credential-boundary",
+                disposition: "addressed",
+                reason: "The boundary is enforced by the main process.",
+              },
+            ],
+            reversibleResolution: {
+              alternatives: ["Codex", "Claude"],
+              comparator: "smallest bounded diff",
+              selected: "Codex",
+              reversibility: "driver role may swap at a checkpoint",
+            },
+          }),
+        },
+      ],
       stderr: "",
       stderrTruncated: false,
       resumeSessionId: "codex-session-2",
@@ -196,7 +223,7 @@ describe("multi-frontier runtime", () => {
       permission: "read_only",
       round: 1,
     });
-    await codex.runTurn({
+    const codexTurn = await codex.runTurn({
       collaborationId: "collaboration-1",
       turnId: "turn-read",
       round: 1,
@@ -223,6 +250,30 @@ describe("multi-frontier runtime", () => {
     });
 
     expect(codexRun).toHaveBeenCalledTimes(2);
+    expect(codexTurn).toEqual({
+      text: "Codex proposal.",
+      agreed: true,
+      findings: [
+        {
+          id: "finding-credential-boundary",
+          category: "security_or_privacy",
+          summary: "Credential data must remain provider-owned.",
+        },
+      ],
+      dispositions: [
+        {
+          findingId: "finding-credential-boundary",
+          disposition: "addressed",
+          reason: "The boundary is enforced by the main process.",
+        },
+      ],
+      reversibleResolution: {
+        alternatives: ["Codex", "Claude"],
+        comparator: "smallest bounded diff",
+        selected: "Codex",
+        reversibility: "driver role may swap at a checkpoint",
+      },
+    });
     const codexCalls = codexRun.mock.calls as unknown as Array<
       [Record<string, unknown>]
     >;
@@ -253,6 +304,37 @@ describe("multi-frontier runtime", () => {
     expect(events.every((event) => !("payload" in (event as object)))).toBe(
       true,
     );
+  });
+
+  it("rejects malformed or unknown structured provider output instead of inventing fields", async () => {
+    const participant = new CodexLocalFrontierParticipant({
+      participantId: "codex",
+      cwd: "/tmp/workspace",
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        events: [
+          {
+            result: JSON.stringify({
+              text: "Unexpected envelope.",
+              untrusted: true,
+            }),
+          },
+        ],
+        stderr: "",
+        stderrTruncated: false,
+      })) as never,
+    });
+
+    await expect(
+      participant.runTurn({
+        collaborationId: "collaboration-1",
+        turnId: "turn-malformed-envelope",
+        round: 1,
+        phase: "proposing",
+        permission: "read_only",
+        instruction: "Return a structured proposal.",
+      }),
+    ).rejects.toThrow("unsupported fields");
   });
 
   it("cancels an owned participant runner with an AbortController", async () => {

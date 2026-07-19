@@ -116,7 +116,7 @@ function createCoordinator(
         driver: {
           participantId: input.toParticipantId,
           generation,
-          leaseState: "active",
+          leaseState: "revoked",
         },
       };
       return { generation };
@@ -434,6 +434,29 @@ describe("MultiFrontierOrchestrator", () => {
     expect(harness.artifacts).toHaveLength(2);
   });
 
+  it("fails closed when a watchdog result omits structured findings", async () => {
+    const harness = createHarness({
+      initialSnapshot: implementationSnapshot("plan-1"),
+      captureTurnResult: async () => ({ text: "Review completed." }),
+    });
+    await expect(
+      harness.orchestrator.runCheckpoint({
+        operationId: "checkpoint-op-missing-findings",
+        round: 2,
+        requestSummary: "Bounded checkpoint.",
+        acceptedPlanArtifactId: "plan-1",
+        driverParticipantId: "codex",
+        driverSummary: "Ready for review.",
+        openRisks: [],
+        snapshotWorkspace: async () => ({
+          contentRef: "snapshots/missing-findings.diff",
+          contentHash: "e".repeat(64),
+          testOutput: "1 passed",
+        }),
+      }),
+    ).rejects.toThrow("must report structured findings");
+  });
+
   it("recovers a checkpoint persisted before its watchdog review without re-snapshotting", async () => {
     const durableArtifacts: MultiFrontierArtifact[] = [];
     const input = {
@@ -668,7 +691,7 @@ describe("MultiFrontierOrchestrator", () => {
     const valid = createHarness({
       initialArtifacts: [synthesis],
       initialSnapshot: {
-        ...implementationSnapshot(synthesis.id),
+        ...awaitingGoSnapshot(synthesis.id),
         round: 2,
       },
     });
@@ -684,7 +707,7 @@ describe("MultiFrontierOrchestrator", () => {
     const stale = createHarness({
       initialArtifacts: [synthesis],
       initialSnapshot: {
-        ...implementationSnapshot(synthesis.id),
+        ...awaitingGoSnapshot(synthesis.id),
         round: 2,
       },
     });
@@ -818,6 +841,22 @@ function implementationSnapshot(
       participantId: "codex",
       generation: 7,
       leaseState: "active",
+    },
+  };
+}
+
+function awaitingGoSnapshot(
+  synthesisArtifactId: string,
+): Partial<MultiFrontierTrustedCoordinatorSnapshot> {
+  return {
+    phase: "awaiting_go",
+    round: 2,
+    approval: "pending",
+    currentSynthesisArtifactId: synthesisArtifactId,
+    driver: {
+      participantId: "codex",
+      generation: 7,
+      leaseState: "revoked",
     },
   };
 }
