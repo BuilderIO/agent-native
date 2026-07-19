@@ -56,4 +56,74 @@ describe("PrivateContentSurface privacy disclosure", () => {
     );
     expect(container.textContent).not.toMatch(/zero.knowledge/i);
   });
+
+  it("shows standing agent grants and requires an accessible revoke confirmation", async () => {
+    const grantRef = "ab".repeat(32);
+    const revokeGrant = vi.fn(async () => ({
+      ok: true as const,
+      value: { state: "revoked", grantRef },
+    }));
+    const listGrants = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          grants: [
+            {
+              grantRef,
+              subjectEndpointId: "11".repeat(16),
+              subjectAgentId: "22".repeat(16),
+              issuedAt: 1_721_111_111,
+              expiresAt: 2_021_114_711,
+              revoked: false,
+              pendingRevocation: false,
+            },
+          ],
+        },
+      })
+      .mockResolvedValue({ ok: true, value: { grants: [] } });
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        privateContent: {
+          health: vi.fn(async () => ({
+            ok: true,
+            value: { brokerState: "offline", broker: null },
+          })),
+          list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
+          listGrants,
+          revokeGrant,
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<PrivateContentSurface onClose={vi.fn()} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const summary = container.querySelector("summary");
+    expect(summary).not.toBeNull();
+    await act(async () => {
+      (summary as HTMLElement | null)?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Agent 222222…222222");
+
+    const revoke = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Revoke",
+    );
+    await act(async () => revoke?.click());
+    expect(document.body.textContent).toContain("Revoke this agent’s access?");
+    const confirm = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Revoke access",
+    );
+    await act(async () => {
+      confirm?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(revokeGrant).toHaveBeenCalledWith(grantRef);
+  });
 });

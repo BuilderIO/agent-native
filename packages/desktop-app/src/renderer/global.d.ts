@@ -669,6 +669,14 @@ interface ElectronAPI {
     ): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
+    listGrants(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    revokeGrant(
+      grantRef: string,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
   };
 
   windowControls: {

@@ -117,6 +117,12 @@ const electronAPI = {
       request: DesktopPrivateContentRestoreVersionRequest,
     ): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION, request),
+    listGrants: (): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_LIST_GRANTS),
+    revokeGrant: (
+      grantRef: string,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT, grantRef),
   },
 
   /** Window chrome controls */

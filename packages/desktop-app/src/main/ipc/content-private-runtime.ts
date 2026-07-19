@@ -37,7 +37,7 @@ const updateSchema = createSchema
 
 type RuntimeSurface = Pick<
   PrivateVaultContentRuntime,
-  "ensureStarted" | "stop" | "health"
+  "ensureStarted" | "stop" | "health" | "listAgentGrants" | "revokeAgentGrant"
 > & {
   documents(): {
     listDocuments(vaultId: string): Promise<unknown>;
@@ -186,6 +186,17 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
             parsed.revisionId,
           );
       }),
+    listGrants: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        exactNoArguments(arguments_);
+        return runtime(event).listAgentGrants();
+      }),
+    revokeGrant: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const grantRef = revisionIdSchema.parse(arguments_[0]);
+        return runtime(event).revokeAgentGrant(grantRef);
+      }),
   };
 }
 
@@ -209,5 +220,10 @@ export function registerContentPrivateRuntimeIpc(input: {
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION,
     handlers.restoreVersion,
+  );
+  ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_LIST_GRANTS, handlers.listGrants);
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT,
+    handlers.revokeGrant,
   );
 }

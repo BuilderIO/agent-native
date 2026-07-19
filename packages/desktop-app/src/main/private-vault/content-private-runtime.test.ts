@@ -21,7 +21,14 @@ function harness() {
     health: vi.fn(() => ({ state: "running" })),
   };
   const factory = vi.fn(() => broker);
-  const requester = { runAction: vi.fn(async () => ({ id: "result" })) };
+  const requester = {
+    runAction: vi.fn(async () => ({ id: "result" })),
+    listContentGrants: vi.fn(async () => ({ grants: [] })),
+    revokeContentGrant: vi.fn(async (_vaultId: string, grantRef: string) => ({
+      state: "revoked",
+      grantRef,
+    })),
+  };
   return {
     actions,
     broker,
@@ -122,5 +129,26 @@ describe("PrivateVaultContentRuntime", () => {
         subjectAgentId,
       }),
     ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
+  });
+
+  it("keeps grant inventory and revocation behind the active signed runtime", async () => {
+    const source = harness();
+    const grantRef = "33".repeat(32);
+    await expect(source.runtime.listAgentGrants()).rejects.toBeInstanceOf(
+      PrivateVaultContentRuntimeError,
+    );
+    await source.runtime.start();
+    await expect(source.runtime.listAgentGrants()).resolves.toEqual({
+      grants: [],
+    });
+    await expect(source.runtime.revokeAgentGrant(grantRef)).resolves.toEqual({
+      state: "revoked",
+      grantRef,
+    });
+    expect(source.requester.listContentGrants).toHaveBeenCalledWith(vaultId);
+    expect(source.requester.revokeContentGrant).toHaveBeenCalledWith(
+      vaultId,
+      grantRef,
+    );
   });
 });

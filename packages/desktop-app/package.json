@@ -34,6 +34,7 @@
     "@agent-native/private-vault-broker": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@radix-ui/react-alert-dialog": "1.1.19",
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",
     "@tanstack/react-query": "5.101.2",

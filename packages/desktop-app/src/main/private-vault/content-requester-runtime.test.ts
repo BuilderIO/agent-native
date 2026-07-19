@@ -256,4 +256,76 @@ describe("Content requester runtime", () => {
     expect(seenAgents.sort()).toEqual([subjectAgentId, secondAgentId].sort());
     expect(native.createContentGrant).toHaveBeenCalledTimes(2);
   });
+
+  it("drops a revoked standing grant before the next agent action", async () => {
+    let created = 0;
+    const firstGrantRef = "06".repeat(32);
+    const native = {
+      createContentGrant: vi.fn(async () => {
+        created += 1;
+        return {
+          issuedAt: 1_721_131_200,
+          expiresAt: 1_723_723_200,
+          grantId: Uint8Array.from({ length: 16 }, () => created),
+          grantRef: Uint8Array.from({ length: 32 }, () => created + 5),
+          grantEnvelope: Uint8Array.from([created]),
+        };
+      }),
+      listContentGrants: vi.fn(async () => ({
+        operation: "list_grants",
+        grants: [],
+      })),
+      revokeContentGrant: vi.fn(async () => ({
+        operation: "revoke_grant",
+        state: "revoked",
+        grantRef: firstGrantRef,
+      })),
+      sealContentJob: vi.fn(async () => ({
+        epoch: 2,
+        issuedAt: 1_721_131_200,
+        expiresAt: 1_721_131_800,
+        jobEnvelope: Uint8Array.from([2]),
+      })),
+      openContentResult: vi.fn(async () => ({
+        state: "completed",
+        resultPayload: new TextEncoder().encode(
+          '{"version":1,"type":"content-action-result","ok":true,"result":[]}',
+        ),
+      })),
+    } as unknown as PrivateVaultNativeServiceClient;
+    const transport = {
+      putGrant: vi.fn(async () => ({})),
+      putJob: vi.fn(async () => ({})),
+      getResult: vi.fn(async () => ({
+        state: "completed",
+        jobHash: "cd".repeat(32),
+        ciphertext: Uint8Array.from([3]),
+      })),
+    } as unknown as PrivateVaultContentRequesterTransport;
+    const runtime = new PrivateVaultContentRequesterRuntime({
+      descriptor: { read: vi.fn(async () => descriptor) },
+      native,
+      transport,
+      now: () => 1_721_131_200_000,
+    });
+
+    const run = () =>
+      runtime.runAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId,
+      });
+    await run();
+    await expect(
+      runtime.listContentGrants(descriptor.vaultId),
+    ).resolves.toEqual({ operation: "list_grants", grants: [] });
+    await runtime.revokeContentGrant(descriptor.vaultId, firstGrantRef);
+    await run();
+
+    expect(native.revokeContentGrant).toHaveBeenCalledWith({
+      vaultId: descriptor.vaultId,
+      grantRef: firstGrantRef,
+    });
+    expect(native.createContentGrant).toHaveBeenCalledTimes(2);
+  });
 });

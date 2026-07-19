@@ -21,6 +21,11 @@ function fixture(allowed = true) {
     stop: vi.fn(async () => undefined),
     health: vi.fn(() => ({ vaultId, brokerState: "offline", broker: null })),
     documents: vi.fn(() => documents),
+    listAgentGrants: vi.fn(async () => ({ grants: [] })),
+    revokeAgentGrant: vi.fn(async (grantRef: string) => ({
+      state: "revoked",
+      grantRef,
+    })),
   };
   return {
     documents,
@@ -55,6 +60,8 @@ describe("signed Private Content IPC", () => {
       id: documentId,
       revisionId: "33".repeat(32),
     });
+    await source.handlers.listGrants(event);
+    await source.handlers.revokeGrant(event, "44".repeat(32));
 
     expect(source.documents.createDocument).toHaveBeenCalledWith(
       vaultId,
@@ -77,6 +84,10 @@ describe("signed Private Content IPC", () => {
       vaultId,
       documentId,
       "33".repeat(32),
+    );
+    expect(source.runtime.listAgentGrants).toHaveBeenCalledOnce();
+    expect(source.runtime.revokeAgentGrant).toHaveBeenCalledWith(
+      "44".repeat(32),
     );
   });
 
@@ -102,7 +113,11 @@ describe("signed Private Content IPC", () => {
         revisionId: "not-a-revision",
       }),
     ).resolves.toMatchObject({ ok: false });
+    await expect(
+      source.handlers.revokeGrant({} as never, "not-a-grant-ref"),
+    ).resolves.toMatchObject({ ok: false });
     expect(source.documents.getDocument).not.toHaveBeenCalled();
     expect(source.documents.createDocument).not.toHaveBeenCalled();
+    expect(source.runtime.revokeAgentGrant).not.toHaveBeenCalled();
   });
 });

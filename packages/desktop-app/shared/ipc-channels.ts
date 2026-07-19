@@ -81,6 +81,8 @@ export const IPC = {
     "content-private-runtime:list-versions",
   CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION:
     "content-private-runtime:restore-version",
+  CONTENT_PRIVATE_RUNTIME_LIST_GRANTS: "content-private-runtime:list-grants",
+  CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT: "content-private-runtime:revoke-grant",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -435,6 +437,16 @@ export interface DesktopPrivateContentVersion {
 export interface DesktopPrivateContentRestoreVersionRequest {
   id: string;
   revisionId: string;
+}
+
+export interface DesktopPrivateContentGrantSummary {
+  grantRef: string;
+  subjectEndpointId: string;
+  subjectAgentId?: string;
+  issuedAt: number;
+  expiresAt: number;
+  revoked: boolean;
+  pendingRevocation: boolean;
 }
 
 export type DesktopPrivateContentResult<T> =

@@ -33,6 +33,8 @@ interface RequesterSurface {
     args: unknown;
     subjectAgentId: string;
   }): Promise<unknown>;
+  listContentGrants(vaultId: string): Promise<unknown>;
+  revokeContentGrant(vaultId: string, grantRef: string): Promise<unknown>;
 }
 
 type PrivateContentDocuments = DocumentLifecycle &
@@ -134,6 +136,27 @@ export class PrivateVaultContentRuntime {
   documents(): PrivateContentDocuments {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     return this.#documents;
+  }
+
+  async listAgentGrants() {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#requester.listContentGrants(this.#active.vaultId);
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
+  async revokeAgentGrant(grantRef: string) {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#requester.revokeContentGrant(
+        this.#active.vaultId,
+        grantRef,
+      );
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
   }
 
   async runAgentAction(input: {

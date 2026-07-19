@@ -1,5 +1,6 @@
 import type {
   DesktopPrivateContentDocument,
+  DesktopPrivateContentGrantSummary,
   DesktopPrivateContentSummary,
   DesktopPrivateContentVersion,
 } from "@shared/ipc-channels";
@@ -15,11 +16,23 @@ import {
   IconSearch,
   IconServerOff,
   IconShieldLock,
+  IconUserShield,
   IconTrash,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { privateContentTree } from "../lib/private-content-tree.js";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./ui/alert-dialog.js";
 
 type SurfaceState = "locked" | "opening" | "open" | "error";
 type BrokerState =
@@ -142,6 +155,39 @@ function privateVersions(value: unknown): DesktopPrivateContentVersion[] {
   );
 }
 
+function privateGrants(value: unknown): DesktopPrivateContentGrantSummary[] {
+  if (!value || typeof value !== "object") return [];
+  const grants = (value as { grants?: unknown }).grants;
+  if (!Array.isArray(grants)) return [];
+  return grants.filter((grant): grant is DesktopPrivateContentGrantSummary => {
+    if (!grant || typeof grant !== "object" || Array.isArray(grant))
+      return false;
+    const record = grant as Record<string, unknown>;
+    const hasAgent = "subjectAgentId" in record;
+    const expectedKeys = hasAgent ? 7 : 6;
+    return (
+      Object.keys(record).length === expectedKeys &&
+      typeof record.grantRef === "string" &&
+      /^[0-9a-f]{64}$/u.test(record.grantRef) &&
+      typeof record.subjectEndpointId === "string" &&
+      /^[0-9a-f]{32}$/u.test(record.subjectEndpointId) &&
+      (!hasAgent ||
+        (typeof record.subjectAgentId === "string" &&
+          /^[0-9a-f]{32}$/u.test(record.subjectAgentId))) &&
+      Number.isSafeInteger(record.issuedAt) &&
+      (record.issuedAt as number) > 0 &&
+      Number.isSafeInteger(record.expiresAt) &&
+      (record.expiresAt as number) > (record.issuedAt as number) &&
+      typeof record.revoked === "boolean" &&
+      typeof record.pendingRevocation === "boolean"
+    );
+  });
+}
+
+function shortIdentity(value: string) {
+  return `${value.slice(0, 6)}…${value.slice(-6)}`;
+}
+
 function PrivateContentDisclosure({ compact = false }: { compact?: boolean }) {
   return (
     <div
@@ -190,6 +236,9 @@ export default function PrivateContentSurface({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [versions, setVersions] = useState<DesktopPrivateContentVersion[]>([]);
   const [showVersions, setShowVersions] = useState(false);
+  const [grants, setGrants] = useState<DesktopPrivateContentGrantSummary[]>([]);
+  const [grantsLoading, setGrantsLoading] = useState(false);
+  const [revokingGrantRef, setRevokingGrantRef] = useState<string | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
     null,
   );
@@ -198,6 +247,19 @@ export default function PrivateContentSurface({
     const response = await window.electronAPI.privateContent.list();
     if (!response.ok) throw new Error();
     setDocuments(privateDocuments(response.value));
+  }, []);
+
+  const loadGrants = useCallback(async () => {
+    setGrantsLoading(true);
+    try {
+      const response = await window.electronAPI.privateContent.listGrants();
+      if (!response.ok) throw new Error();
+      setGrants(privateGrants(response.value));
+    } catch {
+      setMessage("Agent access could not be verified on this device.");
+    } finally {
+      setGrantsLoading(false);
+    }
   }, []);
 
   const open = useCallback(async () => {
@@ -214,12 +276,12 @@ export default function PrivateContentSurface({
     setHealth(privateContentHealth(response.value));
     setState("open");
     try {
-      await loadList();
+      await Promise.all([loadList(), loadGrants()]);
     } catch {
       setState("error");
       setMessage("Private documents could not be verified on this device.");
     }
-  }, [loadList]);
+  }, [loadGrants, loadList]);
 
   useEffect(() => {
     const refreshHealth = () =>
@@ -373,7 +435,22 @@ export default function PrivateContentSurface({
     setVersions([]);
     setShowVersions(false);
     setHealth(null);
+    setGrants([]);
     setState("locked");
+  };
+
+  const revokeGrant = async (grantRef: string) => {
+    setRevokingGrantRef(grantRef);
+    const response =
+      await window.electronAPI.privateContent.revokeGrant(grantRef);
+    if (!response.ok) {
+      setRevokingGrantRef(null);
+      setMessage("That agent grant could not be revoked safely.");
+      return;
+    }
+    setMessage("Agent access revoked. Future encrypted jobs will fail closed.");
+    await loadGrants();
+    setRevokingGrantRef(null);
   };
 
   if (state !== "open") {
@@ -461,9 +538,92 @@ export default function PrivateContentSurface({
           ))}
         </div>
         <div className="private-content-tree-footer">
-          <details className="private-content-reader-details">
+          <details
+            className="private-content-reader-details"
+            onToggle={(event) => {
+              if (event.currentTarget.open) void loadGrants();
+            }}
+          >
             <summary>Who can read?</summary>
             <PrivateContentDisclosure compact />
+            <div className="private-content-grants">
+              <div className="private-content-grants-heading">
+                <IconUserShield size={15} aria-hidden="true" />
+                <strong>Agent access</strong>
+              </div>
+              {grantsLoading ? (
+                <span>Checking signed grants…</span>
+              ) : grants.filter((grant) => !grant.revoked).length === 0 ? (
+                <span>No agent currently has a standing grant.</span>
+              ) : (
+                grants
+                  .filter((grant) => !grant.revoked)
+                  .map((grant) => (
+                    <div className="private-content-grant" key={grant.grantRef}>
+                      <div>
+                        <strong>
+                          Agent{" "}
+                          {shortIdentity(
+                            grant.subjectAgentId ?? grant.subjectEndpointId,
+                          )}
+                        </strong>
+                        <span>
+                          {grant.pendingRevocation
+                            ? "Revocation is being committed"
+                            : `Expires ${new Date(
+                                grant.expiresAt * 1000,
+                              ).toLocaleString()}`}
+                        </span>
+                      </div>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            disabled={
+                              grant.pendingRevocation ||
+                              revokingGrantRef === grant.grantRef
+                            }
+                            type="button"
+                          >
+                            {grant.pendingRevocation ||
+                            revokingGrantRef === grant.grantRef
+                              ? "Revoking…"
+                              : "Revoke"}
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Revoke this agent’s access?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Future encrypted jobs using this grant will be
+                              rejected. Text already handed to the agent or its
+                              model provider cannot be pulled back.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Keep access</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => void revokeGrant(grant.grantRef)}
+                            >
+                              Revoke access
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  ))
+              )}
+              {grants.some((grant) => grant.revoked) && (
+                <span>
+                  {grants.filter((grant) => grant.revoked).length} revoked
+                  {grants.filter((grant) => grant.revoked).length === 1
+                    ? " grant is"
+                    : " grants are"}{" "}
+                  held only as encrypted authority history.
+                </span>
+              )}
+            </div>
           </details>
           <button onClick={onClose} type="button">
             Standard Cloud

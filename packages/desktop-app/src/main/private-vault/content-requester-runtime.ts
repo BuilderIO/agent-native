@@ -11,7 +11,9 @@ import {
 } from "./content-requester-transport.js";
 import {
   createPrivateVaultNativeServiceClient,
+  type NativeListedContentGrantsResult,
   type NativeCreatedContentGrantResult,
+  type NativeRevokedContentGrantResult,
   type PrivateVaultNativeServiceClient,
 } from "./native-service-client.js";
 
@@ -128,6 +130,7 @@ export class PrivateVaultContentRequesterRuntime {
   readonly #timeoutMilliseconds: number;
   readonly #grants = new Map<string, GrantCache>();
   readonly #grantFlights = new Map<string, Promise<GrantCache>>();
+  readonly #revokedGrantRefs = new Set<string>();
 
   constructor(input: {
     descriptor: {
@@ -229,6 +232,25 @@ export class PrivateVaultContentRequesterRuntime {
     }
   }
 
+  listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult> {
+    return this.#native.listContentGrants(vaultId);
+  }
+
+  async revokeContentGrant(
+    vaultId: string,
+    grantRef: string,
+  ): Promise<NativeRevokedContentGrantResult> {
+    this.#revokedGrantRefs.add(grantRef);
+    try {
+      return await this.#native.revokeContentGrant({ vaultId, grantRef });
+    } finally {
+      for (const [key, grant] of this.#grants) {
+        if (grant.vaultId === vaultId && grant.grantRef === grantRef)
+          this.#grants.delete(key);
+      }
+    }
+  }
+
   async #grantFor(
     descriptor: PrivateVaultContentBrokerRuntimeDescriptor,
     subjectAgentId: string,
@@ -240,7 +262,8 @@ export class PrivateVaultContentRequesterRuntime {
       cached?.vaultId === descriptor.vaultId &&
       cached.recipientEndpointId === descriptor.endpointId &&
       cached.subjectAgentId === subjectAgentId &&
-      cached.expiresAt > nowSeconds + JOB_LIFETIME_SECONDS
+      cached.expiresAt > nowSeconds + JOB_LIFETIME_SECONDS &&
+      !this.#revokedGrantRefs.has(cached.grantRef)
     )
       return cached;
     const existingFlight = this.#grantFlights.get(key);
@@ -323,9 +346,10 @@ export function createPrivateVaultContentRequesterRuntime(input: {
     read(): Promise<PrivateVaultContentBrokerRuntimeDescriptor>;
   };
 }) {
+  const native = createPrivateVaultNativeServiceClient();
   return new PrivateVaultContentRequesterRuntime({
     descriptor: input.descriptor,
-    native: createPrivateVaultNativeServiceClient(),
+    native,
     transport: new PrivateVaultContentRequesterTransport(input),
   });
 }
