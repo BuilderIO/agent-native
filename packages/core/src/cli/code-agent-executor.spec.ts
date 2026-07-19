@@ -414,6 +414,18 @@ describe("executeCodeAgentRun", () => {
       },
     });
     expect(updated?.metadata?.pendingApproval).toBeUndefined();
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message: "Codex CLI run paused.",
+          metadata: expect.objectContaining({
+            status: "paused",
+            phase: "paused",
+          }),
+        }),
+      ]),
+    );
   });
 
   it("can execute a run whose initial prompt was written by Desktop", async () => {
