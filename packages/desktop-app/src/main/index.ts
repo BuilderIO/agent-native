@@ -142,6 +142,7 @@ import {
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
+import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -190,6 +191,11 @@ import {
 
 initializeDesktopSentry();
 initializeDesktopLogger();
+
+const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
+  lockWaitMs: 50,
+  reclaimFreshDeadOwner: false,
+};
 
 // ---------- stdout/stderr pipe resilience ----------
 // The main process logs spawned dev-server / code-agent child output via
@@ -3043,10 +3049,14 @@ function appendCodeAgentTranscriptEvent(
     kind: event.type,
     message: event.text,
   };
-  appendUniqueJsonLineAtomically(eventFile, persistedEvent, (value) =>
-    isObject(value) && typeof value.id === "string"
-      ? (value as typeof persistedEvent)
-      : null,
+  appendUniqueJsonLineAtomically(
+    eventFile,
+    persistedEvent,
+    (value) =>
+      isObject(value) && typeof value.id === "string"
+        ? (value as typeof persistedEvent)
+        : null,
+    { lock: DESKTOP_CODE_AGENT_PERSISTENCE_LOCK },
   );
   notifyCodeAgentTranscriptChanged(event.runId, "append");
   return eventFile;
@@ -3244,6 +3254,14 @@ function appendCodeAgentStatusEvent(
   });
 }
 
+function persistCodeAgentChildEvent(
+  runId: string,
+  source: string,
+  persist: () => void,
+): void {
+  guardCodeAgentPersistence({ runId, source }, persist);
+}
+
 function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
@@ -3326,32 +3344,40 @@ function spawnCodeAgentRunner(
       },
     });
     child.stdout?.on("data", (chunk) => {
-      appendCodeAgentAssistantDeltaEvent(runId, chunk.toString());
+      persistCodeAgentChildEvent(runId, "runner-stdout", () => {
+        appendCodeAgentAssistantDeltaEvent(runId, chunk.toString());
+      });
     });
     child.stderr?.on("data", (chunk) => {
-      appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
-        source: "runner-stderr",
+      persistCodeAgentChildEvent(runId, "runner-stderr", () => {
+        appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
+          source: "runner-stderr",
+        });
       });
     });
     child.on("exit", (code, signal) => {
       revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       codeAgentAssistantDeltaSeq.delete(runId);
-      appendCodeAgentStatusEvent(
-        runId,
-        code === 0
-          ? "Agent-Native Code process exited."
-          : `Agent-Native Code process exited with ${signal ?? code}.`,
-        { source: "desktop-runner", code, signal },
-      );
-      touchCodeAgentRunRecord(runId, {
-        updatedAt: new Date().toISOString(),
-        metadata: {
-          runnerState: "exited",
-          runnerExitedAt: new Date().toISOString(),
-          runnerExitCode: code,
-          runnerExitSignal: signal,
-        },
+      persistCodeAgentChildEvent(runId, "runner-exit-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          code === 0
+            ? "Agent-Native Code process exited."
+            : `Agent-Native Code process exited with ${signal ?? code}.`,
+          { source: "desktop-runner", code, signal },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "runner-exit-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          updatedAt: new Date().toISOString(),
+          metadata: {
+            runnerState: "exited",
+            runnerExitedAt: new Date().toISOString(),
+            runnerExitCode: code,
+            runnerExitSignal: signal,
+          },
+        });
       });
       // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
@@ -3368,24 +3394,47 @@ function spawnCodeAgentRunner(
         showCodeAgentRunNotification(runId, "approval-needed", runTitle);
       }
     });
+    child.on("error", () => {
+      revokeDesktopComputerRun(runId);
+      activeCodeAgentProcesses.delete(runId);
+      codeAgentAssistantDeltaSeq.delete(runId);
+      persistCodeAgentChildEvent(runId, "runner-error-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          "Agent-Native Code process could not continue.",
+          { source: "desktop-runner" },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "runner-error-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          status: "errored",
+          phase: "runner-error",
+          metadata: { runnerState: "failed" },
+        });
+      });
+    });
     child.unref();
   } catch (err) {
     revokeDesktopComputerRun(runId);
-    appendCodeAgentStatusEvent(
-      runId,
-      "Could not start Agent-Native Code process.",
-      {
-        source: "desktop-runner",
-        error: err instanceof Error ? err.message : String(err),
-      },
-    );
-    touchCodeAgentRunRecord(runId, {
-      status: "errored",
-      phase: "runner-error",
-      metadata: {
-        runnerState: "failed",
-        runnerError: err instanceof Error ? err.message : String(err),
-      },
+    persistCodeAgentChildEvent(runId, "runner-start-error-status", () => {
+      appendCodeAgentStatusEvent(
+        runId,
+        "Could not start Agent-Native Code process.",
+        {
+          source: "desktop-runner",
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    });
+    persistCodeAgentChildEvent(runId, "runner-start-error-run", () => {
+      touchCodeAgentRunRecord(runId, {
+        status: "errored",
+        phase: "runner-error",
+        metadata: {
+          runnerState: "failed",
+          runnerError: err instanceof Error ? err.message : String(err),
+        },
+      });
     });
   }
 }
@@ -3484,34 +3533,42 @@ function spawnCodeAgentApprovalRunner(
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString().trim();
       if (!text) return;
-      appendCodeAgentStatusEvent(runId, text, {
-        source: "approval-stdout",
+      persistCodeAgentChildEvent(runId, "approval-stdout", () => {
+        appendCodeAgentStatusEvent(runId, text, {
+          source: "approval-stdout",
+        });
       });
     });
     child.stderr?.on("data", (chunk) => {
       const text = chunk.toString().trim();
       if (!text) return;
-      appendCodeAgentStatusEvent(runId, text, {
-        source: "approval-stderr",
+      persistCodeAgentChildEvent(runId, "approval-stderr", () => {
+        appendCodeAgentStatusEvent(runId, text, {
+          source: "approval-stderr",
+        });
       });
     });
     child.on("exit", (code, signal) => {
       revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
-      appendCodeAgentStatusEvent(
-        runId,
-        code === 0
-          ? "Approval process exited."
-          : `Approval process exited with ${signal ?? code}.`,
-        { source: "desktop-approval-runner", code, signal },
-      );
-      touchCodeAgentRunRecord(runId, {
-        updatedAt: new Date().toISOString(),
-        metadata: {
-          approvalRunnerExitedAt: new Date().toISOString(),
-          approvalRunnerExitCode: code,
-          approvalRunnerExitSignal: signal,
-        },
+      persistCodeAgentChildEvent(runId, "approval-exit-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          code === 0
+            ? "Approval process exited."
+            : `Approval process exited with ${signal ?? code}.`,
+          { source: "desktop-approval-runner", code, signal },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "approval-exit-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          updatedAt: new Date().toISOString(),
+          metadata: {
+            approvalRunnerExitedAt: new Date().toISOString(),
+            approvalRunnerExitCode: code,
+            approvalRunnerExitSignal: signal,
+          },
+        });
       });
       // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
@@ -3528,6 +3585,25 @@ function spawnCodeAgentApprovalRunner(
         showCodeAgentRunNotification(runId, "approval-needed", runTitle);
       }
     });
+    child.on("error", () => {
+      revokeDesktopComputerRun(runId);
+      activeCodeAgentProcesses.delete(runId);
+      persistCodeAgentChildEvent(runId, "approval-error-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          "Approval process could not continue.",
+          { source: "desktop-approval-runner" },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "approval-error-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          status: "needs-approval",
+          phase: "approval-error",
+          needsApproval: true,
+          metadata: { approvalRunnerState: "failed" },
+        });
+      });
+    });
     child.unref();
     return {
       ok: true,
@@ -3538,17 +3614,25 @@ function spawnCodeAgentApprovalRunner(
   } catch (err) {
     revokeDesktopComputerRun(runId);
     const message = err instanceof Error ? err.message : String(err);
-    appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
-      source: "desktop-approval-runner",
-      error: message,
+    persistCodeAgentChildEvent(runId, "approval-start-error-status", () => {
+      appendCodeAgentStatusEvent(
+        runId,
+        "Could not start the approval command.",
+        {
+          source: "desktop-approval-runner",
+          error: message,
+        },
+      );
     });
-    touchCodeAgentRunRecord(runId, {
-      status: "needs-approval",
-      phase: "approval-error",
-      needsApproval: true,
-      metadata: {
-        approvalRunnerError: message,
-      },
+    persistCodeAgentChildEvent(runId, "approval-start-error-run", () => {
+      touchCodeAgentRunRecord(runId, {
+        status: "needs-approval",
+        phase: "approval-error",
+        needsApproval: true,
+        metadata: {
+          approvalRunnerError: message,
+        },
+      });
     });
     return {
       ok: false,
@@ -3910,6 +3994,7 @@ function touchCodeAgentRunRecord(
         metadata: { ...metadata, ...updateMetadata },
       };
     },
+    { lock: DESKTOP_CODE_AGENT_PERSISTENCE_LOCK },
   );
 }
 
