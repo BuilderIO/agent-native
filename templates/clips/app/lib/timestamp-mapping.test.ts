@@ -26,6 +26,7 @@ describe("skipExcludedRange", () => {
     expect(
       skipExcludedRange(4_900, [{ startMs: 4_000, endMs: 6_000 }], 5_000),
     ).toBe(5_000);
+  });
 });
 
 describe("Rewind original-start provenance", () => {
