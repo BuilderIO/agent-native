@@ -20,6 +20,8 @@ const SCENE_SLICE_MS: i64 = 30_000;
 // than the 15–20 minute acceptance samples and must not split merely by age.
 const MAX_CHAPTER_SPAN_MS: i64 = 60 * 60 * 1_000;
 const TRANSIENT_SCENE_MS: i64 = 75_000;
+const MIN_SEMANTIC_TOPIC_MS: i64 = 120_000;
+const SAME_SURFACE_CONTINUITY_OVERLAP: f32 = 0.40;
 const MAX_KEYWORDS: usize = 8;
 const MAX_EVIDENCE_REFS_PER_SOURCE: usize = 8;
 const MAX_EVIDENCE_KEYWORDS: usize = 64;
@@ -154,6 +156,10 @@ pub(crate) struct ChapterContext {
     pub window_title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_url: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -546,10 +552,21 @@ fn context_event_at(
 }
 
 fn chapter_context_from_event(event: &ScreenMemoryEvent) -> ChapterContext {
+    let document = event
+        .accessibility
+        .as_ref()
+        .and_then(|fingerprint| fingerprint.document.as_ref());
     ChapterContext {
         app_name: event.app_name.clone(),
         window_title: event.window_title.clone(),
         bundle_id: event.bundle_id.clone(),
+        document_title: document.and_then(|node| {
+            node.title
+                .clone()
+                .or_else(|| node.document.clone())
+                .filter(|value| !value.trim().is_empty())
+        }),
+        document_url: document.and_then(|node| node.url.clone()),
     }
 }
 
@@ -568,27 +585,33 @@ fn accessibility_keywords(event: &ScreenMemoryEvent) -> BTreeMap<String, usize> 
     let Some(accessibility) = event.accessibility.as_ref() else {
         return keywords;
     };
-    if let Ok(value) = serde_json::to_value(accessibility) {
-        collect_json_strings(&value, &mut keywords);
+    for node in [
+        accessibility.document.as_ref(),
+        accessibility.focused.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        // Roles describe the accessibility API, not the user's work. Ingesting
+        // them recursively produced labels such as "Working on AXTextArea".
+        for text in [
+            node.title.as_deref(),
+            node.description.as_deref(),
+            node.document.as_deref(),
+            node.selected_text.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            add_keywords(text, &mut keywords);
+            add_semantic_phrases(text, &mut keywords);
+        }
+    }
+    for label in &accessibility.visible_labels {
+        add_keywords(label, &mut keywords);
+        add_semantic_phrases(label, &mut keywords);
     }
     keywords
-}
-
-fn collect_json_strings(value: &serde_json::Value, keywords: &mut BTreeMap<String, usize>) {
-    match value {
-        serde_json::Value::String(text) => add_keywords(text, keywords),
-        serde_json::Value::Array(values) => {
-            for value in values.iter().take(32) {
-                collect_json_strings(value, keywords);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for value in values.values().take(32) {
-                collect_json_strings(value, keywords);
-            }
-        }
-        _ => {}
-    }
 }
 
 fn add_keyword_list(keywords: &[String], counts: &mut BTreeMap<String, usize>) {
@@ -884,6 +907,25 @@ fn group_semantic_scenes(scenes: &[SceneItem]) -> Vec<Vec<SceneItem>> {
             group.push(scene);
         }
     }
+
+    // A bounded audit or retained archive can begin in the middle of a task.
+    // When the first observed foreground context changes almost immediately,
+    // there is no earlier evidence with which to prove a genuine chapter
+    // boundary. Keep that open-edge sliver with the first durable chapter and
+    // let the next rebuild recover the original boundary if more history exists.
+    if groups.len() > 1 {
+        let first_duration_ms = groups[0]
+            .last()
+            .map(|last| (last.end - groups[0][0].start).num_milliseconds())
+            .unwrap_or_default();
+        let next_has_hard_boundary = groups[1]
+            .first()
+            .is_some_and(|scene| scene.scene.hard_boundary_before);
+        if first_duration_ms < SCENE_SLICE_MS && !next_has_hard_boundary {
+            let first = groups.remove(0);
+            groups[0].splice(0..0, first);
+        }
+    }
     groups
 }
 
@@ -900,7 +942,16 @@ fn should_split_semantically(
         return true;
     }
 
-    let context_changed = previous.scene.context != next.scene.context;
+    // Window titles and accessibility summaries can change every few seconds
+    // inside one app. Treat the foreground application as the stable surface;
+    // semantic evidence below remains responsible for finding topic changes
+    // within that surface.
+    let context_changed =
+        !same_foreground_context(previous.scene.context.as_ref(), next.scene.context.as_ref());
+    let current_group_ms = (previous.end - group[0].start).num_milliseconds();
+    if current_group_ms < SCENE_SLICE_MS && (!context_changed || previous.scene.context.is_none()) {
+        return false;
+    }
     let previous_semantics = if context_changed {
         group
             .iter()
@@ -920,35 +971,188 @@ fn should_split_semantically(
         return false;
     }
     let overlap = keyword_overlap(&previous_semantics, &next_semantics);
-    if overlap >= 0.28 {
+
+    if context_changed && returns_after_transient_surface(group, next) {
         return false;
     }
 
     if context_changed
-        && following.iter().take(2).any(|later| {
-            later.scene.context == previous.scene.context
-                && (later.start - next.start).num_milliseconds() <= TRANSIENT_SCENE_MS
+        && following.iter().any(|later| {
+            (later.start - next.start).num_milliseconds() <= TRANSIENT_SCENE_MS
+                && group.iter().rev().any(|earlier| {
+                    same_foreground_context(
+                        later.scene.context.as_ref(),
+                        earlier.scene.context.as_ref(),
+                    )
+                })
         })
     {
         return false;
     }
 
-    let persistent_new_context = context_changed
-        && following
-            .first()
-            .is_some_and(|later| later.scene.context == next.scene.context);
+    if (context_changed && strong_cross_surface_continuity(&previous_semantics, &next_semantics))
+        || (!context_changed && overlap >= SAME_SURFACE_CONTINUITY_OVERLAP)
+    {
+        return false;
+    }
+
+    if !context_changed
+        && document_context_changed(previous.scene.context.as_ref(), next.scene.context.as_ref())
+        && document_context_persists_for(next, following, MIN_SEMANTIC_TOPIC_MS)
+    {
+        return true;
+    }
+
+    let persistent_new_context =
+        context_changed && context_persists_for(next, following, TRANSIENT_SCENE_MS);
     if persistent_new_context {
         return true;
     }
 
     if !context_changed && !previous_semantics.is_empty() && !next_semantics.is_empty() {
-        return following
-            .first()
-            .map(semantic_keywords)
-            .is_some_and(|later| keyword_overlap(&next_semantics, &later) >= 0.28);
+        return semantics_persist_for(next, following, MIN_SEMANTIC_TOPIC_MS);
     }
 
-    context_changed && (!previous_semantics.is_empty() || !next_semantics.is_empty())
+    // A context seen only at the open edge of the retained/audited range is not
+    // enough evidence for a new chapter. The next rebuild can split at the
+    // original boundary once the foreground change has actually persisted.
+    false
+}
+
+fn same_foreground_context(left: Option<&ChapterContext>, right: Option<&ChapterContext>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            if let (Some(left_bundle), Some(right_bundle)) =
+                (left.bundle_id.as_deref(), right.bundle_id.as_deref())
+            {
+                return left_bundle.eq_ignore_ascii_case(right_bundle);
+            }
+            if let (Some(left_app), Some(right_app)) =
+                (left.app_name.as_deref(), right.app_name.as_deref())
+            {
+                return left_app.eq_ignore_ascii_case(right_app);
+            }
+            left.window_title == right.window_title
+        }
+        _ => false,
+    }
+}
+
+fn document_context_key(context: Option<&ChapterContext>) -> Option<String> {
+    let context = context?;
+    context
+        .document_url
+        .as_deref()
+        .or(context.document_title.as_deref())
+        .or_else(|| {
+            context
+                .window_title
+                .as_deref()
+                .filter(|title| !generic_surface_title(title) && !transient_surface_title(title))
+        })
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+}
+
+fn document_context_changed(
+    previous: Option<&ChapterContext>,
+    next: Option<&ChapterContext>,
+) -> bool {
+    match (document_context_key(previous), document_context_key(next)) {
+        (Some(previous), Some(next)) => previous != next,
+        _ => false,
+    }
+}
+
+fn document_context_persists_for(
+    next: &SceneItem,
+    following: &[SceneItem],
+    minimum_ms: i64,
+) -> bool {
+    let Some(target) = document_context_key(next.scene.context.as_ref()) else {
+        return false;
+    };
+    let mut covered_until = next.end;
+    if (covered_until - next.start).num_milliseconds() >= minimum_ms {
+        return true;
+    }
+    for later in following {
+        if later.scene.hard_boundary_before
+            || document_context_key(later.scene.context.as_ref()).as_deref()
+                != Some(target.as_str())
+        {
+            break;
+        }
+        covered_until = later.end;
+        if (covered_until - next.start).num_milliseconds() >= minimum_ms {
+            return true;
+        }
+    }
+    false
+}
+
+fn returns_after_transient_surface(group: &[SceneItem], next: &SceneItem) -> bool {
+    let Some(trailing) = group.last() else {
+        return false;
+    };
+    let trailing_start = group
+        .iter()
+        .rposition(|scene| {
+            !same_foreground_context(
+                scene.scene.context.as_ref(),
+                trailing.scene.context.as_ref(),
+            )
+        })
+        .map_or(0, |index| index + 1);
+    if trailing_start == 0
+        || (trailing.end - group[trailing_start].start).num_milliseconds() > TRANSIENT_SCENE_MS
+    {
+        return false;
+    }
+    group[..trailing_start].iter().rev().any(|scene| {
+        same_foreground_context(scene.scene.context.as_ref(), next.scene.context.as_ref())
+    })
+}
+
+fn context_persists_for(next: &SceneItem, following: &[SceneItem], minimum_ms: i64) -> bool {
+    let mut covered_until = next.end;
+    if (covered_until - next.start).num_milliseconds() >= minimum_ms {
+        return true;
+    }
+    for later in following {
+        if later.scene.hard_boundary_before
+            || !same_foreground_context(later.scene.context.as_ref(), next.scene.context.as_ref())
+        {
+            break;
+        }
+        covered_until = later.end;
+        if (covered_until - next.start).num_milliseconds() >= minimum_ms {
+            return true;
+        }
+    }
+    false
+}
+
+fn semantics_persist_for(next: &SceneItem, following: &[SceneItem], minimum_ms: i64) -> bool {
+    let target = semantic_keywords(next);
+    let mut covered_until = next.end;
+    if (covered_until - next.start).num_milliseconds() >= minimum_ms {
+        return true;
+    }
+    for later in following {
+        if later.scene.hard_boundary_before
+            || !same_foreground_context(later.scene.context.as_ref(), next.scene.context.as_ref())
+            || keyword_overlap(&target, &semantic_keywords(later)) < SAME_SURFACE_CONTINUITY_OVERLAP
+        {
+            break;
+        }
+        covered_until = later.end;
+        if (covered_until - next.start).num_milliseconds() >= minimum_ms {
+            return true;
+        }
+    }
+    false
 }
 
 fn semantic_keywords(scene: &SceneItem) -> BTreeMap<String, usize> {
@@ -971,8 +1175,36 @@ fn keyword_overlap(left: &BTreeMap<String, usize>, right: &BTreeMap<String, usiz
     if left.is_empty() || right.is_empty() {
         return 0.0;
     }
-    let intersection = left.keys().filter(|key| right.contains_key(*key)).count();
+    let left = semantic_word_set(left);
+    let right = semantic_word_set(right);
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let intersection = left.intersection(&right).count();
     intersection as f32 / left.len().min(right.len()) as f32
+}
+
+fn strong_cross_surface_continuity(
+    left: &BTreeMap<String, usize>,
+    right: &BTreeMap<String, usize>,
+) -> bool {
+    let left = semantic_word_set(left);
+    let right = semantic_word_set(right);
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    let shared = left.intersection(&right).count();
+    let union = left.union(&right).count();
+    shared >= 2 && shared as f32 / union.max(1) as f32 >= 0.60
+}
+
+fn semantic_word_set(keywords: &BTreeMap<String, usize>) -> BTreeSet<String> {
+    keywords
+        .keys()
+        .flat_map(|keyword| keyword.split_whitespace())
+        .filter(|word| !generic_label_word(word) && plausible_label_word(word))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn chapter(group: Vec<SceneItem>) -> RewindChapter {
@@ -1099,16 +1331,18 @@ fn choose_label(group: &[SceneItem], contexts: &[ChapterContext], keywords: &[St
     }
     if let Some((title, _)) = title_duration
         .into_iter()
-        .filter(|(title, duration)| *duration >= 60_000 && title.len() <= 96)
+        .filter(|(title, duration)| *duration >= SCENE_SLICE_MS && title.len() <= 96)
         .max_by_key(|(_, duration)| *duration)
     {
         return title;
     }
     if !keywords.is_empty() {
-        return format!(
-            "Working on {}",
-            natural_keyword_list(&keywords.iter().take(3).cloned().collect::<Vec<_>>())
-        );
+        let displayed = if keywords[0].contains(' ') {
+            &keywords[..1]
+        } else {
+            &keywords[..keywords.len().min(3)]
+        };
+        return format!("Working on {}", natural_keyword_list(displayed));
     }
     contexts
         .iter()
@@ -1118,15 +1352,23 @@ fn choose_label(group: &[SceneItem], contexts: &[ChapterContext], keywords: &[St
 }
 
 fn top_label_keywords(counts: &BTreeMap<String, usize>, limit: usize) -> Vec<String> {
-    let filtered = counts
+    let weighted = counts
         .iter()
         .filter(|(keyword, count)| {
             let words = keyword.split_whitespace().collect::<Vec<_>>();
-            !words.iter().all(|word| generic_label_word(word)) && (words.len() == 1 || **count >= 2)
+            !words.iter().any(|word| generic_label_word(word))
+                && words.iter().all(|word| plausible_label_word(word))
+                && (words.len() == 1 || **count >= 2)
         })
-        .map(|(keyword, count)| (keyword.clone(), *count))
+        .map(|(keyword, count)| {
+            // Repeated clean phrases are more human than isolated words, but a
+            // fixed bonus prevents long OCR fragments from winning by length.
+            let words = keyword.split_whitespace().count();
+            let phrase_weight = if words > 1 { words + 2 } else { 1 };
+            (keyword.clone(), count.saturating_mul(phrase_weight))
+        })
         .collect::<BTreeMap<_, _>>();
-    let ranked = top_keywords(&filtered, filtered.len());
+    let ranked = top_keywords(&weighted, weighted.len());
     let mut selected = Vec::<String>::new();
     for candidate in ranked {
         let candidate_words = candidate.split_whitespace().collect::<BTreeSet<_>>();
@@ -1146,6 +1388,9 @@ fn top_label_keywords(counts: &BTreeMap<String, usize>, limit: usize) -> Vec<Str
 }
 
 fn generic_label_word(word: &str) -> bool {
+    if word.starts_with("ax") {
+        return true;
+    }
     LABEL_GENERIC_WORDS.iter().any(|generic| {
         word == *generic
             || (word.len() == generic.len()
@@ -1156,6 +1401,25 @@ fn generic_label_word(word: &str) -> bool {
                     .count()
                     <= 1)
     })
+}
+
+fn plausible_label_word(word: &str) -> bool {
+    if word.len() <= 5 {
+        return true;
+    }
+    let mut vowels = 0usize;
+    let mut consonant_run = 0usize;
+    let mut longest_consonant_run = 0usize;
+    for character in word.chars() {
+        if matches!(character, 'a' | 'e' | 'i' | 'o' | 'u') {
+            vowels += 1;
+            consonant_run = 0;
+        } else {
+            consonant_run += 1;
+            longest_consonant_run = longest_consonant_run.max(consonant_run);
+        }
+    }
+    vowels > 0 && longest_consonant_run <= 4
 }
 
 const LABEL_GENERIC_WORDS: &[&str] = &[
@@ -1430,6 +1694,123 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn multiple_short_foreground_interruptions_do_not_split_the_underlying_task() {
+        let segments = vec![
+            segment("before", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z"),
+            segment("maps", "2026-01-01T00:01:00Z", "2026-01-01T00:01:30Z"),
+            segment("message", "2026-01-01T00:01:30Z", "2026-01-01T00:02:00Z"),
+            segment("after", "2026-01-01T00:02:00Z", "2026-01-01T00:03:00Z"),
+        ];
+        let content = BTreeMap::from([
+            (
+                "before".into(),
+                signal_with(vec![evidence(
+                    "before",
+                    "ocr",
+                    "visual",
+                    "2026-01-01T00:00:10Z",
+                    &["capability", "catalog"],
+                )]),
+            ),
+            (
+                "maps".into(),
+                signal_with(vec![evidence(
+                    "maps",
+                    "ocr",
+                    "visual",
+                    "2026-01-01T00:01:05Z",
+                    &["franklin", "route"],
+                )]),
+            ),
+            (
+                "message".into(),
+                signal_with(vec![evidence(
+                    "message",
+                    "ocr",
+                    "visual",
+                    "2026-01-01T00:01:35Z",
+                    &["compose", "message"],
+                )]),
+            ),
+            (
+                "after".into(),
+                signal_with(vec![evidence(
+                    "after",
+                    "ocr",
+                    "visual",
+                    "2026-01-01T00:02:05Z",
+                    &["capability", "catalog"],
+                )]),
+            ),
+        ]);
+        let manifest = build_with_pending(
+            segments,
+            vec![
+                event("2026-01-01T00:00:01Z", "Browser"),
+                event("2026-01-01T00:01:01Z", "Maps"),
+                event("2026-01-01T00:01:31Z", "Messages"),
+                event("2026-01-01T00:02:01Z", "Browser"),
+            ],
+            BTreeSet::new(),
+            content,
+            Utc::now(),
+        );
+
+        assert_eq!(manifest.chapters.len(), 1, "{:#?}", manifest.chapters);
+    }
+
+    #[test]
+    fn window_title_churn_inside_one_foreground_app_does_not_make_micro_chapters() {
+        let mut long = segment("maps", "2026-01-01T00:00:00Z", "2026-01-01T00:03:00Z");
+        long.duration_ms = 180_000;
+        let mut first = event("2026-01-01T00:00:05Z", "Safari");
+        first.bundle_id = Some("com.apple.Safari".into());
+        first.window_title = Some("Franklin - Google Maps".into());
+        let mut second = event("2026-01-01T00:00:15Z", "Safari");
+        second.bundle_id = Some("com.apple.Safari".into());
+        second.window_title = Some("Directions to Franklin - Google Maps".into());
+        let mut third = event("2026-01-01T00:00:25Z", "Safari");
+        third.bundle_id = Some("com.apple.Safari".into());
+        third.window_title = Some("Fishers to Franklin - Google Maps".into());
+
+        let manifest = build(vec![long], vec![first, second, third], Utc::now());
+
+        assert_eq!(manifest.chapters.len(), 1, "{:#?}", manifest.chapters);
+    }
+
+    #[test]
+    fn first_observed_context_does_not_leave_a_tiny_open_edge_chapter() {
+        let mut long = segment("edge", "2026-01-01T00:00:00Z", "2026-01-01T00:03:00Z");
+        long.duration_ms = 180_000;
+
+        let manifest = build(
+            vec![long],
+            vec![event("2026-01-01T00:00:05Z", "Editor")],
+            Utc::now(),
+        );
+
+        assert_eq!(manifest.chapters.len(), 1, "{:#?}", manifest.chapters);
+    }
+
+    #[test]
+    fn bounded_audit_does_not_leave_a_tiny_first_context_chapter() {
+        let mut long = segment("edge", "2026-01-01T00:00:00Z", "2026-01-01T00:03:00Z");
+        long.duration_ms = 180_000;
+
+        let manifest = build(
+            vec![long],
+            vec![
+                event("2026-01-01T00:00:01Z", "Browser"),
+                event("2026-01-01T00:00:08Z", "Messages"),
+                event("2026-01-01T00:00:24Z", "Browser"),
+            ],
+            Utc::now(),
+        );
+
+        assert_eq!(manifest.chapters.len(), 1, "{:#?}", manifest.chapters);
+    }
     #[test]
     fn gaps_epochs_modes_and_tainted_segments_do_not_bridge() {
         let a = segment("a", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z");
@@ -1517,37 +1898,65 @@ mod tests {
 
         assert_eq!(
             top_label_keywords(&counts, 3),
-            vec!["account", "deploy", "preview"]
+            vec!["account passed provisioning", "deploy", "preview"]
         );
     }
 
     #[test]
-    fn same_app_semantic_change_splits_fixed_scenes() {
-        let mut long = segment("same-app", "2026-01-01T00:00:00Z", "2026-01-01T00:01:30Z");
-        long.duration_ms = 90_000;
-        let signal = signal_with(vec![
-            evidence(
-                "same-app",
-                "ocr",
-                "visual",
-                "2026-01-01T00:00:05Z",
-                &["custom", "blocks"],
+    fn accessibility_roles_and_ocr_garble_do_not_become_labels() {
+        let mut context = event("2026-01-01T00:00:00Z", "WhatsApp");
+        context.accessibility = Some(crate::accessibility::AccessibilityFingerprint {
+            document: Some(crate::accessibility::AccessibilitySemanticNode {
+                role: "AXWindow".into(),
+                title: Some("WhatsApp".into()),
+                description: None,
+                document: None,
+                url: None,
+                selected_text: None,
+            }),
+            focused: Some(crate::accessibility::AccessibilitySemanticNode {
+                role: "AXTextArea".into(),
+                title: None,
+                description: Some("Compose message".into()),
+                document: None,
+                url: None,
+                selected_text: None,
+            }),
+            visible_labels: vec![],
+        });
+        let keywords = accessibility_keywords(&context);
+        assert!(!keywords.contains_key("axwindow"));
+        assert!(!keywords.contains_key("axtextarea"));
+        assert!(keywords.contains_key("compose"));
+        assert_eq!(
+            top_label_keywords(
+                &BTreeMap::from([
+                    ("axtextarea".into(), 20),
+                    ("netltfy".into(), 18),
+                    ("capability catalog".into(), 3),
+                    ("catalog".into(), 8),
+                ]),
+                2,
             ),
-            evidence(
-                "same-app",
-                "ocr",
-                "visual",
-                "2026-01-01T00:00:35Z",
-                &["daily", "brief"],
-            ),
-            evidence(
-                "same-app",
-                "ocr",
-                "visual",
-                "2026-01-01T00:01:05Z",
-                &["daily", "brief"],
-            ),
-        ]);
+            vec!["capability catalog"]
+        );
+    }
+
+    #[test]
+    fn sustained_same_app_semantic_change_splits_fixed_scenes() {
+        let origin = parse_utc("2026-01-01T00:00:00Z").unwrap();
+        let mut long = segment("same-app", "2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z");
+        long.duration_ms = 300_000;
+        let mut references =
+            repeating_evidence("same-app", "visual", origin, 5, &["custom", "blocks"]);
+        references.extend(repeating_evidence(
+            "same-app",
+            "visual",
+            origin + Duration::seconds(150),
+            5,
+            &["daily", "brief"],
+        ));
+        let signal = signal_with(references);
         let manifest = build_with_pending(
             vec![long],
             vec![event("2026-01-01T00:00:01Z", "ChatGPT")],
@@ -1625,7 +2034,11 @@ mod tests {
             BTreeMap::from([("visual".into(), signal)]),
             Utc::now(),
         );
-        assert!(manifest.chapters[0].label.contains("blocks"));
+        assert!(
+            manifest.chapters[0].label.contains("blocks"),
+            "{}",
+            manifest.chapters[0].label
+        );
         assert!(!manifest.chapters[0].label.contains("dragons"));
         assert!(!manifest.chapters[0].keywords.contains(&"kingdom".into()));
     }
@@ -1973,16 +2386,32 @@ mod tests {
             .filter_map(|segment| parse_utc(&segment.ended_at))
             .max()
             .expect("at least one segment");
-        let cutoff = newest_end - Duration::minutes(minutes);
+        let audit_end = std::env::var("CLIPS_REWIND_AUDIT_END_AT")
+            .ok()
+            .and_then(|value| parse_utc(&value))
+            .unwrap_or(newest_end);
+        let cutoff = audit_end - Duration::minutes(minutes);
         all_segments.retain(|segment| {
-            parse_utc(&segment.ended_at).is_some_and(|ended_at| ended_at >= cutoff)
+            parse_utc(&segment.started_at).is_some_and(|started_at| started_at <= audit_end)
+                && parse_utc(&segment.ended_at).is_some_and(|ended_at| ended_at >= cutoff)
         });
+        for segment in &mut all_segments {
+            let started_at = parse_utc(&segment.started_at).unwrap_or(cutoff).max(cutoff);
+            let ended_at = parse_utc(&segment.ended_at)
+                .unwrap_or(audit_end)
+                .min(audit_end);
+            segment.started_at = started_at.to_rfc3339();
+            segment.ended_at = ended_at.to_rfc3339();
+            segment.duration_ms = (ended_at - started_at).num_milliseconds().max(0) as u128;
+        }
         let events = File::open(directory.join("events.jsonl"))
             .ok()
             .into_iter()
             .flat_map(|file| BufReader::new(file).lines().map_while(Result::ok))
             .filter_map(|line| serde_json::from_str::<ScreenMemoryEvent>(&line).ok())
-            .filter(|event| parse_utc(&event.captured_at).is_some_and(|at| at >= cutoff))
+            .filter(|event| {
+                parse_utc(&event.captured_at).is_some_and(|at| at >= cutoff && at <= audit_end)
+            })
             .collect::<Vec<_>>();
         let content = content_signals(&directory, &all_segments);
         let manifest =
