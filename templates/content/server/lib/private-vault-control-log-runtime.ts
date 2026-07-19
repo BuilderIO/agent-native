@@ -92,6 +92,12 @@ export async function authorizePrivateVaultGenesisCandidate(input: {
 export const privateVaultControlLogService =
   createPrivateVaultControlLogService({
     authorizeGenesis: authorizePrivateVaultGenesisCandidate,
+    // The host authenticates the active endpoint and ordered outer edge. It
+    // deliberately cannot authenticate the nested grant against plaintext
+    // capability scope; enrolled native clients do that before accepting the
+    // resulting head. Persisted replay therefore admits the already-committed,
+    // schema-bounded opaque envelope without pretending the server can read it.
+    verifyGrantRevocationAuthorization: async () => true,
     verifyRecoveryAuthorization: async ({ scope, commit, entry, current }) => {
       try {
         const [binding] = await getDb()

@@ -12,12 +12,16 @@ import {
   ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
   decodeAncV1ControlLogGenesisAppendReceipt,
   decodeAncV1ControlLogGenesisAppendRequest,
+  decodeAncV1ControlLogGrantRevocationAppendReceipt,
+  decodeAncV1ControlLogGrantRevocationAppendRequest,
   decodeAncV1ControlLogRotationAppendReceipt,
   decodeAncV1ControlLogRotationAppendRequest,
   decodeAncV1ControlLogRecoveryAppendReceipt,
   decodeAncV1ControlLogRecoveryAppendRequest,
   encodeAncV1ControlLogGenesisAppendReceipt,
   encodeAncV1ControlLogGenesisAppendRequest,
+  encodeAncV1ControlLogGrantRevocationAppendReceipt,
+  encodeAncV1ControlLogGrantRevocationAppendRequest,
   encodeAncV1ControlLogRotationAppendReceipt,
   encodeAncV1ControlLogRotationAppendRequest,
   encodeAncV1ControlLogRecoveryAppendReceipt,
@@ -66,6 +70,23 @@ const recoveryRequest = {
 const recoveryReceipt = {
   ...receipt,
   type: "control-log-recovery-append-receipt" as const,
+};
+
+const grantRevocationRequest = {
+  version: 1 as const,
+  suite: "anc/v1" as const,
+  type: "control-log-grant-revocation-append-request" as const,
+  signedEntry: request.signedEntry,
+};
+
+const grantRevocationReceipt = {
+  version: 1 as const,
+  suite: "anc/v1" as const,
+  type: "control-log-grant-revocation-append-receipt" as const,
+  vaultId: receipt.vaultId,
+  entryId: receipt.entryId,
+  sequence: receipt.sequence,
+  headHash: receipt.headHash,
 };
 
 function map(encoded: Uint8Array): Map<number, AncV1CanonicalValue> {
@@ -138,6 +159,32 @@ describe("anc/v1 control-log rotation append codec", () => {
       recoveryReceipt,
     );
     expect(() => decodeAncV1ControlLogRotationAppendRequest(encoded)).toThrow();
+  });
+
+  it("round-trips a type-distinct grant-revocation append without a recovery wrap", () => {
+    const encodedRequest = encodeAncV1ControlLogGrantRevocationAppendRequest(
+      grantRevocationRequest,
+    );
+    expect(
+      decodeAncV1ControlLogGrantRevocationAppendRequest(encodedRequest),
+    ).toEqual(grantRevocationRequest);
+    expect(map(encodedRequest).size).toBe(4);
+    expect(map(encodedRequest).has(5)).toBe(false);
+    const encodedReceipt = encodeAncV1ControlLogGrantRevocationAppendReceipt(
+      grantRevocationReceipt,
+    );
+    expect(
+      decodeAncV1ControlLogGrantRevocationAppendReceipt(encodedReceipt),
+    ).toEqual(grantRevocationReceipt);
+    expect(() =>
+      decodeAncV1ControlLogRotationAppendRequest(encodedRequest),
+    ).toThrow();
+    expect(() =>
+      encodeAncV1ControlLogGrantRevocationAppendReceipt({
+        ...grantRevocationReceipt,
+        sequence: 0,
+      }),
+    ).toThrow(/frozen anc\/v1 schema/);
   });
 
   it("rejects genesis and rotation type confusion and nonzero genesis sequence", () => {

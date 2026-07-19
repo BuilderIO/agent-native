@@ -1,6 +1,7 @@
 import {
   ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
   decodeAncV1ControlLogGenesisAppendRequest,
+  decodeAncV1ControlLogGrantRevocationAppendRequest,
   decodeAncV1ControlLogRotationAppendRequest,
   decodeAncV1ControlLogRecoveryAppendRequest,
   endpointRequestProofSchema,
@@ -15,6 +16,7 @@ import {
 import { readPrivateVaultBoundedBody } from "../../../../lib/private-vault-bounded-body.js";
 import {
   appendPrivateVaultControlLogGenesis,
+  appendPrivateVaultControlLogGrantRevocation,
   appendPrivateVaultControlLogRotation,
   appendPrivateVaultControlLogRecovery,
   PrivateVaultControlLogAppendError,
@@ -50,12 +52,18 @@ function parseProof(value: string) {
 
 function requestKind(
   body: Uint8Array,
-): "genesis" | "rotation" | "recovery" | null {
+): "genesis" | "grant-revocation" | "rotation" | "recovery" | null {
   try {
     decodeAncV1ControlLogRecoveryAppendRequest(body);
     return "recovery";
   } catch {
     // Continue through the two smaller, disjoint append envelopes.
+  }
+  try {
+    decodeAncV1ControlLogGrantRevocationAppendRequest(body);
+    return "grant-revocation";
+  } catch {
+    // Continue through the remaining disjoint append envelopes.
   }
   try {
     decodeAncV1ControlLogGenesisAppendRequest(body);
@@ -99,9 +107,11 @@ export default defineEventHandler(async (event) => {
   try {
     const receipt = await (kind === "genesis"
       ? appendPrivateVaultControlLogGenesis({ body, proof })
-      : kind === "recovery"
-        ? appendPrivateVaultControlLogRecovery({ body, proof })
-        : appendPrivateVaultControlLogRotation({ body, proof }));
+      : kind === "grant-revocation"
+        ? appendPrivateVaultControlLogGrantRevocation({ body, proof })
+        : kind === "recovery"
+          ? appendPrivateVaultControlLogRecovery({ body, proof })
+          : appendPrivateVaultControlLogRotation({ body, proof }));
     setResponseHeader(event, "Content-Type", REQUEST_TYPE);
     setResponseHeader(event, "Content-Length", String(receipt.byteLength));
     return receipt;

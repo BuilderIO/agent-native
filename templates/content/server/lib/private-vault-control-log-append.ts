@@ -6,10 +6,12 @@ import {
   ancV1LifecycleIdFromHex,
   CONTROL_LOG_ZERO_HASH,
   decodeAncV1ControlLogGenesisAppendRequest,
+  decodeAncV1ControlLogGrantRevocationAppendRequest,
   decodeAncV1ControlLogRotationAppendRequest,
   decodeAncV1ControlLogRecoveryAppendRequest,
   decodeSignedControlLogEntry,
   encodeAncV1ControlLogGenesisAppendReceipt,
+  encodeAncV1ControlLogGrantRevocationAppendReceipt,
   encodeAncV1ControlLogRotationAppendReceipt,
   encodeAncV1ControlLogRecoveryAppendReceipt,
   encodeAncV1RecoveryControlEvidence,
@@ -362,6 +364,35 @@ async function verifiedGenesisReceipt(input: {
   });
 }
 
+async function verifiedGrantRevocationReceipt(input: {
+  scope: { ownerEmail: string; orgId: string; vaultId: string };
+  signedEntry: Uint8Array;
+  entryId: string;
+  sequence: number;
+}): Promise<Uint8Array> {
+  const verified = await privateVaultControlLogService.loadVerifiedEntry(
+    input.scope,
+    input.signedEntry,
+  );
+  if (
+    verified.entry.envelopeId !== input.entryId ||
+    verified.entry.innerEnvelope.type !== "grant_revocation" ||
+    verified.state.sequence !== input.sequence ||
+    verified.state.headHash !== verified.entryHash
+  ) {
+    throw new PrivateVaultControlLogAppendError("unavailable");
+  }
+  return encodeAncV1ControlLogGrantRevocationAppendReceipt({
+    version: 1,
+    suite: "anc/v1",
+    type: "control-log-grant-revocation-append-receipt",
+    vaultId: input.scope.vaultId,
+    entryId: input.entryId,
+    sequence: input.sequence,
+    headHash: verified.entryHash,
+  });
+}
+
 async function verifiedRecoveryReceipt(input: {
   scope: { ownerEmail: string; orgId: string; vaultId: string };
   signedEntry: Uint8Array;
@@ -640,6 +671,108 @@ export async function appendPrivateVaultControlLogGenesis(input: {
     });
   }
   return verifiedGenesisReceipt(receiptInput);
+}
+
+export async function appendPrivateVaultControlLogGrantRevocation(input: {
+  body: Uint8Array;
+  proof: EndpointRequestProof;
+  now?: Date;
+}): Promise<Uint8Array> {
+  let request: ReturnType<
+    typeof decodeAncV1ControlLogGrantRevocationAppendRequest
+  >;
+  let entry: ReturnType<typeof decodeSignedControlLogEntry>;
+  try {
+    request = decodeAncV1ControlLogGrantRevocationAppendRequest(input.body);
+    entry = decodeSignedControlLogEntry(request.signedEntry);
+  } catch {
+    throw new PrivateVaultControlLogAppendError("invalid_request");
+  }
+  if (entry.sequence < 1 || entry.innerEnvelope.type !== "grant_revocation") {
+    throw new PrivateVaultControlLogAppendError("invalid_request");
+  }
+
+  const scope = await resolveActivePrivateVaultControlScope(entry.vaultId);
+  if (!scope) throw new PrivateVaultControlLogAppendError("not_found");
+  const current = await privateVaultControlLogService.loadVerifiedState(scope);
+  if (!current) throw new PrivateVaultControlLogAppendError("not_found");
+  const committed =
+    entry.sequence <= current.sequence
+      ? await privateVaultControlLogService
+          .loadVerifiedEntry(scope, request.signedEntry)
+          .catch(() => null)
+      : null;
+  if (entry.sequence <= current.sequence && !committed) {
+    throw new PrivateVaultControlLogAppendError("conflict");
+  }
+  if (!committed && entry.sequence !== current.sequence + 1) {
+    throw new PrivateVaultControlLogAppendError("conflict");
+  }
+  const signerAuthority = committed?.prior ?? current;
+  const signer = signerAuthority?.activeMembers.find(
+    (member) =>
+      member.endpointId === entry.signerEndpointId &&
+      member.role === "endpoint",
+  );
+  if (!signer) throw new PrivateVaultControlLogAppendError("unauthorized");
+
+  try {
+    const authenticated = await verifyEndpointRequestProofWithIdentity({
+      proof: input.proof,
+      expectedMethod: "POST",
+      expectedPath: PRIVATE_VAULT_CONTROL_LOG_APPEND_PATH,
+      body: input.body,
+      now: input.now ?? new Date(),
+      resolveAuthorizedEndpoint: async ({ vaultId, endpointId }) =>
+        vaultId === scope.vaultId && endpointId === signer.endpointId
+          ? {
+              vaultId,
+              endpointId,
+              state: "active" as const,
+              signingPublicKey: Uint8Array.from(
+                ancV1HexToBytes(signer.signingPublicKey),
+              ),
+            }
+          : null,
+      claimNonce: ({ vaultId, endpointId, nonce, expiresAt }) =>
+        sqlPrivateVaultEndpointRequestNonceStore.claimAuthorizedControlRequest({
+          ...scope,
+          vaultId,
+          endpointId,
+          nonce,
+          expiresAt,
+        }),
+    });
+    if (authenticated.endpointId !== entry.signerEndpointId) throw new Error();
+  } catch {
+    throw new PrivateVaultControlLogAppendError("unauthorized");
+  }
+
+  if (!committed) {
+    const expectedRevocation = entry.innerEnvelope.revocationEnvelope;
+    await privateVaultControlLogService.append(scope, {
+      entryBytes: request.signedEntry,
+      expectedHead: {
+        sequence: entry.sequence - 1,
+        hash: entry.previousHash,
+      },
+      verifyGrantRevocationAuthorization: async ({
+        entry: verifiedEntry,
+        current: verifiedCurrent,
+        revocationEnvelope,
+      }) =>
+        verifiedEntry.envelopeId === entry.envelopeId &&
+        verifiedCurrent.sequence === entry.sequence - 1 &&
+        verifiedCurrent.headHash === entry.previousHash &&
+        revocationEnvelope === expectedRevocation,
+    });
+  }
+  return verifiedGrantRevocationReceipt({
+    scope,
+    signedEntry: request.signedEntry,
+    entryId: entry.envelopeId,
+    sequence: entry.sequence,
+  });
 }
 
 export async function appendPrivateVaultControlLogRotation(input: {

@@ -13,8 +13,10 @@ import {
   createEndpointRequestProof,
   createSignedControlLogEntry,
   decodeAncV1ControlLogGenesisAppendReceipt,
+  decodeAncV1ControlLogGrantRevocationAppendReceipt,
   decodeAncV1ControlLogRotationAppendReceipt,
   encodeAncV1ControlLogGenesisAppendRequest,
+  encodeAncV1ControlLogGrantRevocationAppendRequest,
   encodeAncV1ControlLogRotationAppendRequest,
   encodeAncV1RecoveryWrap,
   encodeSignedControlLogEntry,
@@ -106,6 +108,7 @@ let getDb: (typeof import("../db/index.js"))["getDb"];
 let schema: typeof import("../db/schema.js");
 let controlLog: typeof import("./private-vault-control-log-runtime.js");
 let appendGenesis: (typeof import("./private-vault-control-log-append.js"))["appendPrivateVaultControlLogGenesis"];
+let appendGrantRevocation: (typeof import("./private-vault-control-log-append.js"))["appendPrivateVaultControlLogGrantRevocation"];
 let appendRotation: (typeof import("./private-vault-control-log-append.js"))["appendPrivateVaultControlLogRotation"];
 
 function member(
@@ -166,6 +169,7 @@ beforeAll(async () => {
   controlLog = await import("./private-vault-control-log-runtime.js");
   const append = await import("./private-vault-control-log-append.js");
   appendGenesis = append.appendPrivateVaultControlLogGenesis;
+  appendGrantRevocation = append.appendPrivateVaultControlLogGrantRevocation;
   appendRotation = append.appendPrivateVaultControlLogRotation;
 }, 60_000);
 
@@ -549,6 +553,56 @@ describe("Private Vault authenticated rotation append", () => {
       recoveryWrapHash,
       ciphertextByteLength: recoveryWrap.byteLength,
     });
+
+    const beforeRevocation =
+      await controlLog.privateVaultControlLogService.loadVerifiedState(scope);
+    expect(beforeRevocation).not.toBeNull();
+    const revocation = await createSignedControlLogEntry({
+      vaultId: VAULT_ID,
+      createdAt: "2026-07-17T01:04:00.000Z",
+      envelopeId: "15".repeat(16),
+      sequence: 5,
+      previousHash: beforeRevocation!.headHash,
+      innerEnvelope: {
+        suite: "anc/v1",
+        type: "grant_revocation",
+        vaultId: VAULT_ID,
+        revocationEnvelope: "ab".repeat(64),
+      },
+      signerEndpointId: SECONDARY_ID,
+      signingPrivateKey: secondarySigning.privateKey,
+    });
+    const revocationBody = encodeAncV1ControlLogGrantRevocationAppendRequest({
+      version: 1,
+      suite: "anc/v1",
+      type: "control-log-grant-revocation-append-request",
+      signedEntry: Uint8Array.from(encodeSignedControlLogEntry(revocation)),
+    });
+    const revocationProof = await createEndpointRequestProof({
+      vaultId: VAULT_ID,
+      endpointId: SECONDARY_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body: revocationBody,
+      issuedAt: new Date(requestTime.getTime() + 8_000).toISOString(),
+      nonce: "f1".repeat(16),
+      signingPrivateKey: secondarySigning.privateKey,
+    });
+    const revocationReceipt = decodeAncV1ControlLogGrantRevocationAppendReceipt(
+      await appendGrantRevocation({
+        body: revocationBody,
+        proof: revocationProof,
+        now: new Date(requestTime.getTime() + 9_000),
+      }),
+    );
+    expect(revocationReceipt).toMatchObject({
+      vaultId: VAULT_ID,
+      entryId: revocation.envelopeId,
+      sequence: 5,
+    });
+    expect(
+      await controlLog.privateVaultControlLogService.loadVerifiedState(scope),
+    ).toMatchObject({ sequence: 5, epoch: 3 });
   });
 });
 

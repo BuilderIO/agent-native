@@ -497,9 +497,14 @@ nested revocation in the encrypted grant/replay index before returning success.
 Attended native custody now also constructs the nested revocation and the next
 signed outer edge, then independently replays both against the authenticated
 prior state before releasing them. The full builder path and adversarial
-wrong-key, timestamp, and tamper cases pass on arm64 and x86_64. Hosted append
-and user-facing grant controls remain product work, but JavaScript never
-receives the endpoint signing seed or assembles the signed authority edge.
+wrong-key, timestamp, and tamper cases pass on arm64 and x86_64. The hosted
+control route now admits a separate canonical revocation append
+request, authenticates the signer and prior head, commits only the signed edge,
+and returns a content-free receipt. The host deliberately does not pretend it
+can authenticate that nested envelope against a plaintext grant; enrolled
+native clients retain that duty. Native receipt acceptance and user-facing
+grant controls remain product work, but JavaScript never receives the endpoint
+signing seed or assembles the signed authority edge.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact

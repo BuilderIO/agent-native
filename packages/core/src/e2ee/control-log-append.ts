@@ -125,6 +125,27 @@ export const controlLogRecoveryAppendReceiptSchema =
     type: z.literal("control-log-recovery-append-receipt"),
   });
 
+export const controlLogGrantRevocationAppendRequestSchema = z
+  .object({
+    version: z.literal(1),
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("control-log-grant-revocation-append-request"),
+    signedEntry: boundedBytes(ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES),
+  })
+  .strict();
+
+export const controlLogGrantRevocationAppendReceiptSchema = z
+  .object({
+    version: z.literal(1),
+    suite: z.literal(E2EE_SUITE_ID),
+    type: z.literal("control-log-grant-revocation-append-receipt"),
+    vaultId: opaqueIdSchema,
+    entryId: opaqueIdSchema,
+    sequence: safeSequenceSchema.refine((value) => value > 0),
+    headHash: lowerHashSchema,
+  })
+  .strict();
+
 export type ControlLogRotationAppendRequest = z.infer<
   typeof controlLogRotationAppendRequestSchema
 >;
@@ -142,6 +163,12 @@ export type ControlLogRecoveryAppendRequest = z.infer<
 >;
 export type ControlLogRecoveryAppendReceipt = z.infer<
   typeof controlLogRecoveryAppendReceiptSchema
+>;
+export type ControlLogGrantRevocationAppendRequest = z.infer<
+  typeof controlLogGrantRevocationAppendRequestSchema
+>;
+export type ControlLogGrantRevocationAppendReceipt = z.infer<
+  typeof controlLogGrantRevocationAppendReceiptSchema
 >;
 
 export class AncV1ControlLogAppendCodecError extends Error {
@@ -163,6 +190,12 @@ const RECOVERY_REQUEST = Object.freeze({
   currentSnapshot: 6,
   recoveryAuthorization: 7,
 });
+const GRANT_REVOCATION_REQUEST = Object.freeze({
+  suite: 1,
+  version: 2,
+  type: 3,
+  signedEntry: 4,
+});
 const RECEIPT = Object.freeze({
   suite: 1,
   version: 2,
@@ -173,6 +206,15 @@ const RECEIPT = Object.freeze({
   headHash: 7,
   recoveryWrapHash: 8,
   recoveryWrapByteLength: 9,
+});
+const GRANT_REVOCATION_RECEIPT = Object.freeze({
+  suite: 1,
+  version: 2,
+  type: 3,
+  vaultId: 4,
+  entryId: 5,
+  sequence: 6,
+  headHash: 7,
 });
 
 function fail(message: string): never {
@@ -479,6 +521,125 @@ export function decodeAncV1ControlLogRecoveryAppendReceipt(
       ),
     },
     "Control-log recovery append receipt",
+  );
+}
+
+export function encodeAncV1ControlLogGrantRevocationAppendRequest(
+  value: ControlLogGrantRevocationAppendRequest,
+): Uint8Array {
+  const parsed = parse(
+    controlLogGrantRevocationAppendRequestSchema,
+    value,
+    "Control-log grant-revocation append request",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [GRANT_REVOCATION_REQUEST.suite, parsed.suite],
+      [GRANT_REVOCATION_REQUEST.version, parsed.version],
+      [GRANT_REVOCATION_REQUEST.type, parsed.type],
+      [GRANT_REVOCATION_REQUEST.signedEntry, parsed.signedEntry],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES) {
+    fail(
+      "Control-log grant-revocation append request exceeds its canonical size cap",
+    );
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogGrantRevocationAppendRequest(
+  encoded: Uint8Array,
+): ControlLogGrantRevocationAppendRequest {
+  const map = envelope(
+    encoded,
+    Object.values(GRANT_REVOCATION_REQUEST),
+    ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
+  );
+  return parse(
+    controlLogGrantRevocationAppendRequestSchema,
+    {
+      suite: text(field(map, GRANT_REVOCATION_REQUEST.suite, "suite"), "suite"),
+      version: integer(
+        field(map, GRANT_REVOCATION_REQUEST.version, "version"),
+        "version",
+      ),
+      type: text(field(map, GRANT_REVOCATION_REQUEST.type, "type"), "type"),
+      signedEntry: bytes(
+        field(map, GRANT_REVOCATION_REQUEST.signedEntry, "signedEntry"),
+        ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
+        "signedEntry",
+      ),
+    },
+    "Control-log grant-revocation append request",
+  );
+}
+
+export function encodeAncV1ControlLogGrantRevocationAppendReceipt(
+  value: ControlLogGrantRevocationAppendReceipt,
+): Uint8Array {
+  const parsed = parse(
+    controlLogGrantRevocationAppendReceiptSchema,
+    value,
+    "Control-log grant-revocation append receipt",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [GRANT_REVOCATION_RECEIPT.suite, parsed.suite],
+      [GRANT_REVOCATION_RECEIPT.version, parsed.version],
+      [GRANT_REVOCATION_RECEIPT.type, parsed.type],
+      [GRANT_REVOCATION_RECEIPT.vaultId, parsed.vaultId],
+      [GRANT_REVOCATION_RECEIPT.entryId, parsed.entryId],
+      [GRANT_REVOCATION_RECEIPT.sequence, parsed.sequence],
+      [GRANT_REVOCATION_RECEIPT.headHash, ancV1HexToBytes(parsed.headHash)],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES) {
+    fail(
+      "Control-log grant-revocation append receipt exceeds its canonical size cap",
+    );
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogGrantRevocationAppendReceipt(
+  encoded: Uint8Array,
+): ControlLogGrantRevocationAppendReceipt {
+  const map = envelope(
+    encoded,
+    Object.values(GRANT_REVOCATION_RECEIPT),
+    ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
+  );
+  return parse(
+    controlLogGrantRevocationAppendReceiptSchema,
+    {
+      suite: text(field(map, GRANT_REVOCATION_RECEIPT.suite, "suite"), "suite"),
+      version: integer(
+        field(map, GRANT_REVOCATION_RECEIPT.version, "version"),
+        "version",
+      ),
+      type: text(field(map, GRANT_REVOCATION_RECEIPT.type, "type"), "type"),
+      vaultId: text(
+        field(map, GRANT_REVOCATION_RECEIPT.vaultId, "vaultId"),
+        "vaultId",
+      ),
+      entryId: text(
+        field(map, GRANT_REVOCATION_RECEIPT.entryId, "entryId"),
+        "entryId",
+      ),
+      sequence: integer(
+        field(map, GRANT_REVOCATION_RECEIPT.sequence, "sequence"),
+        "sequence",
+      ),
+      headHash: ancV1BytesToHex(
+        bytes(
+          field(map, GRANT_REVOCATION_RECEIPT.headHash, "headHash"),
+          32,
+          "headHash",
+        ),
+      ),
+    },
+    "Control-log grant-revocation append receipt",
   );
 }
 

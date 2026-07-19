@@ -731,9 +731,13 @@ projections. The inner envelope matches the frozen Core vector byte-for-byte,
 and the full genesis-to-grant-to-revoke path, wrong-key, mismatched-time, and
 tamper cases pass on arm64 and x86_64. Existing control-log replay applies the
 envelope to the rollback-fenced grant index before advancing the head, so
-post-replay jobs fail authorization. Product revocation still requires the
-hosted append ceremony and user-visible grant controls; native custody no
-longer leaves the signed outer edge to JavaScript.
+post-replay jobs fail authorization. The hosted append route now accepts a
+four-field, type-distinct revocation request, authenticates the active endpoint
+and ordered outer edge, atomically advances the opaque control head, and
+returns a content-free canonical receipt. SQLite integration proof covers the
+full admitted append and replay without teaching the host to validate or read
+the encrypted grant. Native receipt acceptance and user-visible grant controls
+remain; native custody no longer leaves the signed outer edge to JavaScript.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the

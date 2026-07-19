@@ -71,6 +71,17 @@ export interface PrivateVaultControlLogServiceOptions {
     entry: SignedControlLogEntry;
     current: ControlLogState;
   }): Promise<boolean>;
+  /**
+   * Authorizes a server-blind nested grant revocation after the outer entry
+   * signature and ordering have verified. The hosted plane cannot inspect the
+   * encrypted grant; enrolled native clients perform the nested verification.
+   */
+  verifyGrantRevocationAuthorization?(input: {
+    scope: PrivateVaultControlLogScope;
+    entry: SignedControlLogEntry;
+    current: ControlLogState;
+    revocationEnvelope: string;
+  }): Promise<boolean>;
   now?: () => Date;
 }
 
@@ -235,6 +246,7 @@ export function createPrivateVaultControlLogService(
     entry: SignedControlLogEntry,
     entryBytes: Uint8Array,
     verifyRecoveryAuthorization?: PrivateVaultControlLogServiceOptions["verifyRecoveryAuthorization"],
+    verifyGrantRevocationAuthorization?: PrivateVaultControlLogServiceOptions["verifyGrantRevocationAuthorization"],
   ): Promise<VerifiedReduction> {
     try {
       return await verifyAndReduceControlLogEntry({
@@ -273,6 +285,22 @@ export function createPrivateVaultControlLogService(
                 current: rotationCurrent,
               })
           : undefined,
+        verifyGrantRevocationAuthorization:
+          (verifyGrantRevocationAuthorization ??
+          options.verifyGrantRevocationAuthorization)
+            ? ({
+                revocation,
+                entry: revocationEntry,
+                current: revocationCurrent,
+              }) =>
+                (verifyGrantRevocationAuthorization ??
+                  options.verifyGrantRevocationAuthorization)!({
+                  scope,
+                  entry: revocationEntry,
+                  current: revocationCurrent,
+                  revocationEnvelope: revocation.revocationEnvelope,
+                })
+            : undefined,
       });
     } catch (error) {
       if (
@@ -464,6 +492,7 @@ export function createPrivateVaultControlLogService(
       ) => Promise<void>;
       /** Exact, request-bound verifier used for a newly submitted recovery edge. */
       verifyRecoveryAuthorization?: PrivateVaultControlLogServiceOptions["verifyRecoveryAuthorization"];
+      verifyGrantRevocationAuthorization?: PrivateVaultControlLogServiceOptions["verifyGrantRevocationAuthorization"];
     },
   ): Promise<{ state: ControlLogState; idempotent: boolean }> {
     const scope = normalizeScope(scopeInput);
@@ -524,6 +553,7 @@ export function createPrivateVaultControlLogService(
           candidate,
           input.entryBytes,
           input.verifyRecoveryAuthorization,
+          input.verifyGrantRevocationAuthorization,
         );
         const stored = rows[rows.length - 1];
         if (
@@ -546,6 +576,7 @@ export function createPrivateVaultControlLogService(
         candidate,
         input.entryBytes,
         input.verifyRecoveryAuthorization,
+        input.verifyGrantRevocationAuthorization,
       );
       if (reduced.idempotent) {
         throw new PrivateVaultControlLogError("invalid_entry");
@@ -638,6 +669,7 @@ export function createPrivateVaultControlLogService(
           append: PrivateVaultVerifiedControlAppend,
         ) => Promise<void>;
         verifyRecoveryAuthorization?: PrivateVaultControlLogServiceOptions["verifyRecoveryAuthorization"];
+        verifyGrantRevocationAuthorization?: PrivateVaultControlLogServiceOptions["verifyGrantRevocationAuthorization"];
       },
     ) {
       for (let attempt = 0; attempt < 2; attempt += 1) {

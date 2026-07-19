@@ -5,9 +5,13 @@ const readPrivateVaultBoundedBody = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
 const setResponseStatus = vi.hoisted(() => vi.fn());
 const decodeAncV1ControlLogGenesisAppendRequest = vi.hoisted(() => vi.fn());
+const decodeAncV1ControlLogGrantRevocationAppendRequest = vi.hoisted(() =>
+  vi.fn(),
+);
 const decodeAncV1ControlLogRotationAppendRequest = vi.hoisted(() => vi.fn());
 const decodeAncV1ControlLogRecoveryAppendRequest = vi.hoisted(() => vi.fn());
 const appendPrivateVaultControlLogGenesis = vi.hoisted(() => vi.fn());
+const appendPrivateVaultControlLogGrantRevocation = vi.hoisted(() => vi.fn());
 const appendPrivateVaultControlLogRotation = vi.hoisted(() => vi.fn());
 const appendPrivateVaultControlLogRecovery = vi.hoisted(() => vi.fn());
 
@@ -15,6 +19,8 @@ vi.mock("@agent-native/core/e2ee", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/e2ee")>()),
   decodeAncV1ControlLogGenesisAppendRequest: (...args: unknown[]) =>
     decodeAncV1ControlLogGenesisAppendRequest(...args),
+  decodeAncV1ControlLogGrantRevocationAppendRequest: (...args: unknown[]) =>
+    decodeAncV1ControlLogGrantRevocationAppendRequest(...args),
   decodeAncV1ControlLogRotationAppendRequest: (...args: unknown[]) =>
     decodeAncV1ControlLogRotationAppendRequest(...args),
   decodeAncV1ControlLogRecoveryAppendRequest: (...args: unknown[]) =>
@@ -33,6 +39,8 @@ vi.mock("../../../../lib/private-vault-bounded-body.js", () => ({
 vi.mock("../../../../lib/private-vault-control-log-append.js", () => ({
   appendPrivateVaultControlLogGenesis: (...args: unknown[]) =>
     appendPrivateVaultControlLogGenesis(...args),
+  appendPrivateVaultControlLogGrantRevocation: (...args: unknown[]) =>
+    appendPrivateVaultControlLogGrantRevocation(...args),
   appendPrivateVaultControlLogRotation: (...args: unknown[]) =>
     appendPrivateVaultControlLogRotation(...args),
   appendPrivateVaultControlLogRecovery: (...args: unknown[]) =>
@@ -80,11 +88,17 @@ describe("POST /api/private-vault/control-log/append", () => {
     decodeAncV1ControlLogRecoveryAppendRequest.mockImplementation(() => {
       throw new Error("not recovery");
     });
+    decodeAncV1ControlLogGrantRevocationAppendRequest.mockImplementation(() => {
+      throw new Error("not grant revocation");
+    });
     decodeAncV1ControlLogRotationAppendRequest.mockReturnValue({
       type: "control-log-rotation-append-request",
     });
     appendPrivateVaultControlLogGenesis.mockResolvedValue(
       new Uint8Array([8, 9]),
+    );
+    appendPrivateVaultControlLogGrantRevocation.mockResolvedValue(
+      new Uint8Array([7, 8]),
     );
     appendPrivateVaultControlLogRotation.mockResolvedValue(
       new Uint8Array([5, 6, 7]),
@@ -134,6 +148,18 @@ describe("POST /api/private-vault/control-log/append", () => {
     });
     await expect(handler({} as never)).resolves.toEqual(new Uint8Array([4, 5]));
     expect(appendPrivateVaultControlLogRecovery).toHaveBeenCalledWith({
+      body: new Uint8Array([1, 2, 3, 4]),
+      proof,
+    });
+    expect(appendPrivateVaultControlLogRotation).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a type-distinct grant revocation without treating it as rotation", async () => {
+    decodeAncV1ControlLogGrantRevocationAppendRequest.mockReturnValue({
+      type: "control-log-grant-revocation-append-request",
+    });
+    await expect(handler({} as never)).resolves.toEqual(new Uint8Array([7, 8]));
+    expect(appendPrivateVaultControlLogGrantRevocation).toHaveBeenCalledWith({
       body: new Uint8Array([1, 2, 3, 4]),
       proof,
     });
