@@ -86,6 +86,11 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) NSData *jobHash;
 @property(nonatomic) NSData *subjectEndpointId;
 @property(nonatomic) NSData *requesterBoxPublicKey;
+@property(nonatomic) NSData *resourceId;
+@property(nonatomic) NSString *operation;
+@property(nonatomic) NSString *provider;
+@property(nonatomic) NSString *status;
+@property(nonatomic) uint64_t expiresAt;
 @property(nonatomic) BOOL resultRecorded;
 @property(nonatomic) BOOL receiptAcknowledged;
 @property(nonatomic, nullable) NSString *resultState;
@@ -104,6 +109,11 @@ static AncPrivateVaultJobContext *JobContext(AncStoredJob *job) {
   context.jobHash = [job.jobHash copy];
   context.subjectEndpointId = [job.subjectEndpointId copy];
   context.requesterBoxPublicKey = [job.requesterBoxPublicKey copy];
+  context.resourceId = [job.resourceId copy];
+  context.operation = [job.operation copy];
+  context.provider = [job.provider copy];
+  context.status = [job.status copy];
+  context.expiresAt = job.expiresAt;
   context.resultRecorded = [job.status isEqualToString:@"result"] ||
       [job.status isEqualToString:@"delivered"];
   context.receiptAcknowledged = [job.status isEqualToString:@"delivered"];

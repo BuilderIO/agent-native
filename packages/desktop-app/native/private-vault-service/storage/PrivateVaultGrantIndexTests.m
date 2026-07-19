@@ -436,8 +436,13 @@ int main(void) {
     assert([index resolveJobId:Pattern(0x06, 16)
                           jobHash:authorizedJobHash vaultId:kVaultId
                           context:&jobBeforeRecovery] ==
-               AncPrivateVaultGrantIndexStatusOK &&
-           !jobBeforeRecovery.resultRecorded);
+           AncPrivateVaultGrantIndexStatusOK &&
+           !jobBeforeRecovery.resultRecorded &&
+           [jobBeforeRecovery.resourceId isEqualToData:Pattern(0x09, 16)] &&
+           [jobBeforeRecovery.operation isEqualToString:@"read"] &&
+           [jobBeforeRecovery.provider isEqualToString:@"content"] &&
+           [jobBeforeRecovery.status isEqualToString:@"claimed"] &&
+           jobBeforeRecovery.expiresAt > 1721111200);
     NSData *orphanedResultEnvelope = nil;
     assert([resultSpool loadEnvelopeForVaultId:Pattern(0x01, 16)
                                           jobId:Pattern(0x06, 16)

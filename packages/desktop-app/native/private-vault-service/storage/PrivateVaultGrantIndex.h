@@ -38,6 +38,11 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly) NSData *jobHash;
 @property(nonatomic, readonly) NSData *subjectEndpointId;
 @property(nonatomic, readonly) NSData *requesterBoxPublicKey;
+@property(nonatomic, readonly) NSData *resourceId;
+@property(nonatomic, readonly) NSString *operation;
+@property(nonatomic, readonly) NSString *provider;
+@property(nonatomic, readonly) NSString *status;
+@property(nonatomic, readonly) uint64_t expiresAt;
 @property(nonatomic, readonly) BOOL resultRecorded;
 @property(nonatomic, readonly) BOOL receiptAcknowledged;
 @property(nonatomic, readonly, nullable) NSString *resultState;
