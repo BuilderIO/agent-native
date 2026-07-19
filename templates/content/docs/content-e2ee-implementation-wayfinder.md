@@ -1212,6 +1212,14 @@ document revisions remain available for later encrypted history and rollback;
 the hosted plane still learns only that opaque manifest and object access
 occurred.
 
+The signed Desktop document runtime now exports the existing Content action
+names for the supported beta slice. Each strict handler binds vault-scoped
+list/search/create calls or object-scoped read/edit/move/delete calls to the
+resource identifier authenticated by native job opening. The registry is not
+yet attached to unattended broker custody: doing so requires broker-domain
+object open/seal operations rather than borrowing the attended endpoint's
+keys.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

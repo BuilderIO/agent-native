@@ -1,3 +1,4 @@
+import { createPrivateVaultContentActionRegistry } from "./content-action-registry.js";
 import {
   PRIVATE_VAULT_CONTENT_TYPE,
   PRIVATE_VAULT_MANIFEST_CONTENT_TYPE,
@@ -111,6 +112,20 @@ export class PrivateVaultContentDocumentRuntime {
   ) {
     this.#assertReady();
     return this.#mutations.updateDocument(vaultId, objectId, input);
+  }
+
+  async deleteDocument(vaultId: string, objectId: string) {
+    this.#assertReady();
+    return this.#mutations.deleteDocument(vaultId, objectId);
+  }
+
+  actionRegistry(vaultId: string) {
+    this.#assertReady();
+    return createPrivateVaultContentActionRegistry({
+      vaultId,
+      registry: this,
+      mutations: this,
+    });
   }
 
   close(): void {

@@ -32,6 +32,7 @@ function harness() {
         documents.set(`${document.id}:${revisionId}`, document);
       },
     ),
+    deleteDocument: vi.fn(async () => undefined),
   };
   const transport = { list: vi.fn(async () => []) };
   const objects = {
@@ -72,6 +73,9 @@ describe("PrivateVaultContentDocumentRuntime", () => {
     expect(listed.documents).toHaveLength(1);
     expect(read.content).toBe("No remote webview sees this.");
     expect(searched.documents[0]?.id).toBe(created.id);
+    expect(Object.keys(source.runtime.actionRegistry(vaultId))).toContain(
+      "edit-document",
+    );
   });
 
   it("fails closed before initialization and after close", async () => {
