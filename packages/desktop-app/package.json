@@ -25,7 +25,7 @@
     "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
     "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
-    "test:private-vault-packaging": "vitest run scripts/sign-private-vault.test.ts",
+    "test:private-vault-packaging": "vitest run scripts/sign-private-vault.test.ts scripts/verify-private-vault-signed-app.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

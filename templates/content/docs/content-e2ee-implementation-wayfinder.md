@@ -1442,6 +1442,25 @@ Scope:
 - In-product disclosure that beta ciphertext lengths, timing, network logs, and opaque access patterns remain visible; make no padding or traffic-analysis-resistance claim.
 - Independent cryptographic design and implementation review findings.
 
+Implementation checkpoint (2026-07-19): the dedicated Content E2EE assurance
+workflow now runs on every push to the fork integration branch as well as on
+matching pull requests. Its portable lane covers the complete frozen Core
+corpus, broker denial/retry behavior, hosted opaque-plane tests, signed-Desktop
+runtime tests, and all protected package typechecks. Its macOS lane builds and
+architecture-checks the universal native service and addon, runs the native
+request-framing and recovery-archive protocols plus the focused hostile corpus,
+and checks the Desktop packaging contract. The production macOS release remains
+draft unless the packaged app passes a post-signing verifier for exact nested
+placement, strict signatures, team identity, designated requirements, signed
+entitlements, universal native slices, and retained binary hashes. The
+executable preview, incident, migration, artifact, evidence-packet, claim, and
+promotion procedure is frozen in the
+[Private Vault Beta Runbook](./content-private-vault-beta-runbook.md). Remaining
+exit work is to execute that runbook on the deployed fork and production
+synthetic accounts and to close or explicitly bound independent review
+findings; repository construction alone cannot manufacture those external
+facts.
+
 Exit gate:
 
 - The beta is enabled only for exact synthetic/test accounts first.

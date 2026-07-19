@@ -92,6 +92,16 @@ jobs:
           SENTRY_DESKTOP_ENVIRONMENT: production
         run: pnpm build:native:mac && pnpm build && npx electron-builder --mac --config --publish always
 
+      - name: Verify signed Private Vault release boundary
+        working-directory: packages/desktop-app
+        run: |
+          verified_apps=0
+          while IFS= read -r -d '' app_bundle; do
+            bash scripts/verify-private-vault-signed-app.sh "$app_bundle"
+            verified_apps=$((verified_apps + 1))
+          done < <(find dist -type d -name 'Agent Native.app' -print0)
+          test "$verified_apps" -ge 1
+
   build-windows:
     needs: resolve-version
     runs-on: windows-latest

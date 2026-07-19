@@ -1,6 +1,22 @@
 name: Content E2EE assurance
 
 on:
+  push:
+    branches: [codex/content-e2ee-foundation]
+    paths:
+      - ".github/workflows/content-e2ee-assurance.yml"
+      - "packages/core/src/e2ee/**"
+      - "packages/private-vault-broker/**"
+      - "packages/desktop-app/native/private-vault-*/**"
+      - "packages/desktop-app/native/build-private-vault-*.sh"
+      - "packages/desktop-app/scripts/*private-vault*"
+      - "packages/desktop-app/src/main/private-vault/**"
+      - "packages/desktop-app/src/main/ipc/content-private-*.ts"
+      - "packages/desktop-app/src/preload/**"
+      - "packages/desktop-app/src/renderer/components/PrivateContentSurface*"
+      - "templates/content/actions/*private-vault*"
+      - "templates/content/server/**/*private-vault*"
+      - "templates/content/shared/*private-vault*"
   pull_request:
     branches: [main, codex/content-e2ee-foundation]
     paths:
@@ -9,6 +25,7 @@ on:
       - "packages/private-vault-broker/**"
       - "packages/desktop-app/native/private-vault-*/**"
       - "packages/desktop-app/native/build-private-vault-*.sh"
+      - "packages/desktop-app/scripts/*private-vault*"
       - "packages/desktop-app/src/main/private-vault/**"
       - "packages/desktop-app/src/main/ipc/content-private-*.ts"
       - "packages/desktop-app/src/preload/**"
@@ -86,12 +103,20 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Run signed release packaging boundary tests
+        run: pnpm --filter @agent-native/desktop-app test:private-vault-packaging
+
       - name: Build universal production service and signed-client addon
         run: |
           packages/desktop-app/native/build-private-vault-service.sh
           packages/desktop-app/native/build-private-vault-xpc-client.sh
           lipo packages/desktop-app/native/private-vault-service/build/com.agentnative.desktop.private-vault-service.xpc/Contents/MacOS/AgentNativePrivateVaultService -verify_arch arm64 x86_64
           lipo packages/desktop-app/native/private-vault-xpc-client/build/private-vault-xpc-client.node -verify_arch arm64 x86_64
+
+      - name: Run native request framing and recovery archive protocols
+        run: |
+          packages/desktop-app/native/private-vault-service/run-protocol-tests.sh
+          packages/desktop-app/native/private-vault-service/run-export-archive-tests.sh
 
       - name: Build focused native hostile corpus
         env:
