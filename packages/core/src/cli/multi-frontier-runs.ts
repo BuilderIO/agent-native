@@ -1,7 +1,11 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  appendUniqueJsonLineAtomically,
+  withFileLockSync,
+  writeJsonFileAtomically,
+} from "./atomic-json-file.js";
 import { codeAgentStoreRoot } from "./code-agent-runs.js";
 
 export type MultiFrontierPhase =
@@ -253,11 +257,10 @@ export function recoverStoredMultiFrontierRun(
   collaborationId: string,
   input: RecoverMultiFrontierRunInput,
 ): MultiFrontierStoredRun | null {
-  const current = getMultiFrontierRun(collaborationId);
-  if (!current) return null;
-  const recovered = recoverMultiFrontierRun(current, input);
-  if (recovered === current) return current;
-  return writeNextStoredRun(current, recovered, input.now);
+  return mutateStoredMultiFrontierRun(collaborationId, input.now, (current) => {
+    const recovered = recoverMultiFrontierRun(current, input);
+    return recovered === current ? current : recovered;
+  });
 }
 
 /**
@@ -376,10 +379,9 @@ export function activateStoredMultiFrontierDriver(
   now = new Date().toISOString(),
 ): MultiFrontierStoredRun | null {
   assertTimestamp(now, "activation time");
-  const current = getMultiFrontierRun(collaborationId);
-  if (!current) return null;
-  const activated = activateMultiFrontierDriver(current, participantId);
-  return activated ? writeNextStoredRun(current, activated, now) : null;
+  return mutateStoredMultiFrontierRun(collaborationId, now, (current) =>
+    activateMultiFrontierDriver(current, participantId),
+  );
 }
 
 /** Persist an explicit driver reactivation after the human-approved resume. */
@@ -389,10 +391,9 @@ export function reactivateStoredMultiFrontierDriver(
   now = new Date().toISOString(),
 ): MultiFrontierStoredRun | null {
   assertTimestamp(now, "reactivation time");
-  const current = getMultiFrontierRun(collaborationId);
-  if (!current) return null;
-  const reactivated = reactivateMultiFrontierDriver(current, participantId);
-  return reactivated ? writeNextStoredRun(current, reactivated, now) : null;
+  return mutateStoredMultiFrontierRun(collaborationId, now, (current) =>
+    reactivateMultiFrontierDriver(current, participantId),
+  );
 }
 
 /**
@@ -409,67 +410,73 @@ export function appendMultiFrontierParticipantEvent(
   const createdAt = input.createdAt ?? new Date().toISOString();
   assertTimestamp(createdAt, "event time");
 
-  const current = getMultiFrontierRun(input.collaborationId);
-  if (!current) return { accepted: false, reason: "missing-run", run: null };
-  const existing = listMultiFrontierParticipantEvents(
-    input.collaborationId,
-  ).find((event) => event.id === input.id);
-  if (existing) {
-    if (!isMatchingParticipantEvent(existing, input)) {
-      return { accepted: false, reason: "event-conflict", run: current };
+  const runPath = multiFrontierRunPath(input.collaborationId);
+  return withFileLockSync(runPath, () => {
+    const current = readStoredRun(runPath);
+    if (!current) return { accepted: false, reason: "missing-run", run: null };
+    const existing = listMultiFrontierParticipantEvents(
+      input.collaborationId,
+    ).find((event) => event.id === input.id);
+    if (existing) {
+      if (!isMatchingParticipantEvent(existing, input)) {
+        return { accepted: false, reason: "event-conflict", run: current };
+      }
+      return {
+        accepted: true,
+        deduplicated: true,
+        event: existing,
+        run: current,
+      };
     }
-    return {
-      accepted: true,
-      deduplicated: true,
-      event: existing,
-      run: current,
-    };
-  }
-  if (
-    !current.participants.some(
-      (candidate) => candidate.participantId === input.participantId,
-    )
-  ) {
-    return { accepted: false, reason: "missing-participant", run: current };
-  }
-  if (!canApplyMultiFrontierParticipantEvent(current, input)) {
-    return { accepted: false, reason: "stale-driver", run: current };
-  }
-  const participant = current.participants.find(
-    (candidate) => candidate.participantId === input.participantId,
-  );
-  if (
-    input.status !== undefined &&
-    (participant?.status === "completed" || participant?.status === "failed") &&
-    input.status !== participant.status
-  ) {
-    return { accepted: false, reason: "terminal-participant", run: current };
-  }
-
-  const event: PersistedMultiFrontierParticipantEvent = {
-    schemaVersion: 1,
-    id: input.id,
-    collaborationId: input.collaborationId,
-    participantId: input.participantId,
-    permission: input.permission,
-    createdAt,
-    ...(input.generation === undefined ? {} : { generation: input.generation }),
-    ...(input.status === undefined ? {} : { status: input.status }),
-  };
-  appendParticipantEvent(event);
-  const participants = input.status
-    ? current.participants.map((candidate) =>
-        candidate.participantId === input.participantId
-          ? { ...candidate, status: input.status }
-          : candidate,
+    if (
+      !current.participants.some(
+        (candidate) => candidate.participantId === input.participantId,
       )
-    : current.participants;
-  const run = writeNextStoredRun(
-    current,
-    { ...current, participants },
-    createdAt,
-  );
-  return { accepted: true, deduplicated: false, event, run };
+    ) {
+      return { accepted: false, reason: "missing-participant", run: current };
+    }
+    if (!canApplyMultiFrontierParticipantEvent(current, input)) {
+      return { accepted: false, reason: "stale-driver", run: current };
+    }
+    const participant = current.participants.find(
+      (candidate) => candidate.participantId === input.participantId,
+    );
+    if (
+      input.status !== undefined &&
+      (participant?.status === "completed" ||
+        participant?.status === "failed") &&
+      input.status !== participant.status
+    ) {
+      return { accepted: false, reason: "terminal-participant", run: current };
+    }
+
+    const event: PersistedMultiFrontierParticipantEvent = {
+      schemaVersion: 1,
+      id: input.id,
+      collaborationId: input.collaborationId,
+      participantId: input.participantId,
+      permission: input.permission,
+      createdAt,
+      ...(input.generation === undefined
+        ? {}
+        : { generation: input.generation }),
+      ...(input.status === undefined ? {} : { status: input.status }),
+    };
+    appendParticipantEvent(event);
+    const participants = input.status
+      ? current.participants.map((candidate) =>
+          candidate.participantId === input.participantId
+            ? { ...candidate, status: input.status }
+            : candidate,
+        )
+      : current.participants;
+    const run = writeNextStoredRun(
+      current,
+      { ...current, participants },
+      createdAt,
+    );
+    return { accepted: true, deduplicated: false, event, run };
+  });
 }
 
 export function listMultiFrontierParticipantEvents(
@@ -490,29 +497,19 @@ export function listMultiFrontierParticipantEvents(
 }
 
 function writeMultiFrontierRun(run: MultiFrontierStoredRun): void {
-  fs.mkdirSync(multiFrontierRunsDir(), { recursive: true });
-  writeFileAtomically(
-    multiFrontierRunPath(run.collaborationId),
-    `${JSON.stringify(run, null, 2)}\n`,
-  );
+  writeJsonFileAtomically(multiFrontierRunPath(run.collaborationId), run);
 }
 
 function writeNewMultiFrontierRun(run: MultiFrontierStoredRun): void {
-  fs.mkdirSync(multiFrontierRunsDir(), { recursive: true });
-  try {
-    fs.writeFileSync(
-      multiFrontierRunPath(run.collaborationId),
-      `${JSON.stringify(run, null, 2)}\n`,
-      { encoding: "utf-8", flag: "wx" },
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+  const filePath = multiFrontierRunPath(run.collaborationId);
+  withFileLockSync(filePath, () => {
+    if (fs.existsSync(filePath)) {
       throw new Error(
         `Multi-frontier run already exists: ${run.collaborationId}`,
       );
     }
-    throw error;
-  }
+    writeJsonFileAtomically(filePath, run);
+  });
 }
 
 function writeNextStoredRun(
@@ -532,11 +529,32 @@ function writeNextStoredRun(
 function appendParticipantEvent(
   event: PersistedMultiFrontierParticipantEvent,
 ): void {
-  fs.mkdirSync(multiFrontierParticipantEventsDir(), { recursive: true });
-  fs.appendFileSync(
+  appendUniqueJsonLineAtomically(
     multiFrontierParticipantEventsPath(event.collaborationId),
-    `${JSON.stringify(event)}\n`,
+    event,
+    readParticipantEventValue,
   );
+}
+
+function mutateStoredMultiFrontierRun(
+  collaborationId: string,
+  updatedAt: string,
+  mutate: (current: MultiFrontierStoredRun) => MultiFrontierRunState | null,
+): MultiFrontierStoredRun | null {
+  const filePath = multiFrontierRunPath(collaborationId);
+  return withFileLockSync(filePath, () => {
+    const current = readStoredRun(filePath);
+    if (!current) return null;
+    const nextState = mutate(current);
+    if (!nextState) return null;
+    const next: MultiFrontierStoredRun = {
+      ...nextState,
+      createdAt: current.createdAt,
+      updatedAt,
+    };
+    writeMultiFrontierRun(next);
+    return next;
+  });
 }
 
 function multiFrontierRunPath(collaborationId: string): string {
@@ -589,7 +607,16 @@ function readParticipantEvent(
   line: string,
 ): PersistedMultiFrontierParticipantEvent | null {
   try {
-    const raw = JSON.parse(line) as unknown;
+    return readParticipantEventValue(JSON.parse(line) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function readParticipantEventValue(
+  raw: unknown,
+): PersistedMultiFrontierParticipantEvent | null {
+  try {
     if (!raw || typeof raw !== "object") return null;
     const event = raw as Partial<PersistedMultiFrontierParticipantEvent>;
     if (
@@ -819,23 +846,5 @@ function assertSafeId(value: string, label: string): void {
 function assertTimestamp(value: string, label: string): void {
   if (Number.isNaN(Date.parse(value))) {
     throw new Error(`Invalid multi-frontier ${label}.`);
-  }
-}
-
-function writeFileAtomically(filePath: string, contents: string): void {
-  const directory = path.dirname(filePath);
-  const temporaryPath = path.join(
-    directory,
-    `.${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomUUID()}`,
-  );
-  try {
-    fs.writeFileSync(temporaryPath, contents, {
-      encoding: "utf-8",
-      flag: "wx",
-    });
-    fs.renameSync(temporaryPath, filePath);
-  } catch (error) {
-    fs.rmSync(temporaryPath, { force: true });
-    throw error;
   }
 }

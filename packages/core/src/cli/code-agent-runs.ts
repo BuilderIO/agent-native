@@ -4,6 +4,12 @@ import os from "os";
 import path from "path";
 
 import type { AgentPromptAttachment } from "../code-agents/prompt-attachments.js";
+import {
+  appendUniqueJsonLineAtomically,
+  updateJsonFileAtomically,
+  withFileLockSync,
+  writeJsonFileAtomically,
+} from "./atomic-json-file.js";
 
 export type CodeAgentRunStatus =
   | "queued"
@@ -247,11 +253,8 @@ export function normalizeCodeAgentPermissionMode(
 }
 
 export function writeCodeAgentRunRecord(record: CodeAgentRunRecord): void {
-  fs.mkdirSync(codeAgentRunsDir(), { recursive: true });
-  writeFileAtomically(
-    codeAgentRunRecordPath(record.id),
-    `${JSON.stringify(record, null, 2)}\n`,
-  );
+  const filePath = codeAgentRunRecordPath(record.id);
+  withFileLockSync(filePath, () => writeJsonFileAtomically(filePath, record));
 }
 
 export function getCodeAgentRunRecord(
@@ -266,20 +269,23 @@ export function updateCodeAgentRunRecord(
     | Partial<CodeAgentRunRecord>
     | ((record: CodeAgentRunRecord) => Partial<CodeAgentRunRecord>),
 ): CodeAgentRunRecord | null {
-  const record = getCodeAgentRunRecord(runId);
-  if (!record) return null;
-  const patch = typeof updates === "function" ? updates(record) : updates;
-  const next: CodeAgentRunRecord = {
-    ...record,
-    ...patch,
-    metadata: {
-      ...(record.metadata ?? {}),
-      ...(patch.metadata ?? {}),
+  return updateJsonFileAtomically(
+    codeAgentRunRecordPath(runId),
+    readRunValue,
+    (record) => {
+      if (!record) return null;
+      const patch = typeof updates === "function" ? updates(record) : updates;
+      return {
+        ...record,
+        ...patch,
+        metadata: {
+          ...(record.metadata ?? {}),
+          ...(patch.metadata ?? {}),
+        },
+        updatedAt: patch.updatedAt ?? new Date().toISOString(),
+      };
     },
-    updatedAt: patch.updatedAt ?? new Date().toISOString(),
-  };
-  writeCodeAgentRunRecord(next);
-  return next;
+  );
 }
 
 export function listCodeAgentRunRecords(goalId?: string): CodeAgentRunRecord[] {
@@ -304,13 +310,6 @@ export function appendCodeAgentTranscriptEvent(
   input: AppendCodeAgentTranscriptEventInput,
 ): CodeAgentTranscriptEvent {
   const requestedId = input.id?.trim();
-  if (requestedId) {
-    const existing = listCodeAgentTranscriptEvents(input.runId).find(
-      (event) => event.id === requestedId,
-    );
-    if (existing) return existing;
-  }
-
   const createdAt = input.createdAt ?? new Date().toISOString();
   const event: CodeAgentTranscriptEvent = {
     schemaVersion: 1,
@@ -325,13 +324,13 @@ export function appendCodeAgentTranscriptEvent(
     ...(input.signal ? { signal: input.signal } : {}),
   };
 
-  fs.mkdirSync(codeAgentTranscriptsDir(), { recursive: true });
-  fs.appendFileSync(
+  const persisted = appendUniqueJsonLineAtomically(
     codeAgentRunTranscriptPath(input.runId),
-    `${JSON.stringify(event)}\n`,
+    event,
+    readTranscriptValue,
   );
   touchCodeAgentRunRecord(input.runId, createdAt);
-  return event;
+  return persisted.value;
 }
 
 export function listCodeAgentTranscriptEvents(
@@ -400,32 +399,6 @@ function codeAgentRunRecordPath(runId: string): string {
   return path.join(codeAgentRunsDir(), `${runId}.json`);
 }
 
-function writeFileAtomically(filePath: string, contents: string): void {
-  const directory = path.dirname(filePath);
-  const temporaryPath = path.join(
-    directory,
-    `.${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomUUID()}`,
-  );
-  let mode: number | undefined;
-  try {
-    mode = fs.statSync(filePath).mode & 0o777;
-  } catch {
-    // A new run record uses the process umask.
-  }
-
-  try {
-    fs.writeFileSync(temporaryPath, contents, {
-      encoding: "utf-8",
-      flag: "wx",
-    });
-    if (mode !== undefined) fs.chmodSync(temporaryPath, mode);
-    fs.renameSync(temporaryPath, filePath);
-  } catch (error) {
-    fs.rmSync(temporaryPath, { force: true });
-    throw error;
-  }
-}
-
 function readPendingFollowUps(value: unknown): CodeAgentPendingFollowUp[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -458,14 +431,23 @@ function readPendingFollowUps(value: unknown): CodeAgentPendingFollowUp[] {
 }
 
 function touchCodeAgentRunRecord(runId: string, updatedAt: string): void {
-  const record = readRunFile(codeAgentRunRecordPath(runId));
-  if (!record) return;
-  writeCodeAgentRunRecord({ ...record, updatedAt });
+  updateJsonFileAtomically(
+    codeAgentRunRecordPath(runId),
+    readRunValue,
+    (record) => (record ? { ...record, updatedAt } : null),
+  );
 }
 
 function readRunFile(filePath: string): CodeAgentRunRecord | null {
   try {
-    const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    return readRunValue(JSON.parse(fs.readFileSync(filePath, "utf-8")));
+  } catch {
+    return null;
+  }
+}
+
+function readRunValue(raw: unknown): CodeAgentRunRecord | null {
+  try {
     if (!raw || typeof raw !== "object") return null;
     const record = raw as Partial<CodeAgentRunRecord>;
     if (
@@ -488,7 +470,14 @@ function readRunFile(filePath: string): CodeAgentRunRecord | null {
 
 function readTranscriptLine(line: string): CodeAgentTranscriptEvent | null {
   try {
-    const raw = JSON.parse(line) as unknown;
+    return readTranscriptValue(JSON.parse(line) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function readTranscriptValue(raw: unknown): CodeAgentTranscriptEvent | null {
+  try {
     if (!raw || typeof raw !== "object") return null;
     const event = raw as Partial<CodeAgentTranscriptEvent> & {
       type?: unknown;

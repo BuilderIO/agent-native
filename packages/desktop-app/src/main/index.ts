@@ -127,6 +127,12 @@ import {
   BUILDER_MODEL_CONFIG,
 } from "../../../core/src/agent/model-config.js";
 import {
+  appendUniqueJsonLineAtomically,
+  updateJsonFileAtomically,
+  withFileLockSync,
+  writeJsonFileAtomically,
+} from "../../../core/src/cli/atomic-json-file.js";
+import {
   getBackgroundAgentRun,
   listBackgroundAgentRuns,
   listBackgroundAgentTranscriptEvents,
@@ -142,7 +148,7 @@ import {
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
   CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
 } from "./code-agent-transcript-ipc.js";
-import { boundedCodeAgentTranscriptSnapshot } from "./code-agent-transcript-window.js";
+import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
   getCodexLoginLaunchSpec,
   spawnDetached,
@@ -1644,47 +1650,13 @@ function readRemoteDeviceConfig(): {
   }
 }
 
-function writeJsonFileAtomic(
-  filePath: string,
-  value: unknown,
-  options?: { mode?: number },
-): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
-  );
-  try {
-    const writeOptions =
-      options?.mode === undefined
-        ? "utf-8"
-        : { encoding: "utf-8" as const, mode: options.mode };
-    fs.writeFileSync(tempPath, JSON.stringify(value, null, 2), writeOptions);
-    fs.renameSync(tempPath, filePath);
-    if (options?.mode !== undefined) {
-      try {
-        fs.chmodSync(filePath, options.mode);
-      } catch {
-        // Best effort: this is still inside the user's local config directory.
-      }
-    }
-  } catch (err) {
-    try {
-      fs.unlinkSync(tempPath);
-    } catch {
-      // Ignore cleanup failures for a temp file in the config directory.
-    }
-    throw err;
-  }
-}
-
 function writeRemoteDeviceConfig(config: {
   token: string;
   relayUrl: string;
   deviceId?: string;
   deviceName?: string;
 }): void {
-  writeJsonFileAtomic(
+  writeJsonFileAtomically(
     remoteDeviceConfigPath(),
     {
       token: config.token,
@@ -2813,7 +2785,7 @@ function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
   const result = readAllCodeAgentTranscript(input);
   return {
     ...result,
-    events: boundedCodeAgentTranscriptSnapshot(result.events),
+    events: boundedCodeAgentTranscriptEvents(result.events, result.runId),
   };
 }
 
@@ -2890,7 +2862,10 @@ function initializeCodeAgentTranscriptSubscriptionKeys(
   );
   return {
     ...fullResult,
-    events: boundedCodeAgentTranscriptSnapshot(fullResult.events),
+    events: boundedCodeAgentTranscriptEvents(
+      fullResult.events,
+      fullResult.runId,
+    ),
   };
 }
 
@@ -2944,7 +2919,7 @@ function flushCodeAgentTranscriptSubscription(
       sendCodeAgentTranscriptSubscriptionBatch(subscription, {
         status: "ok",
         runId: subscription.runId,
-        events: newEvents,
+        events: boundedCodeAgentTranscriptEvents(newEvents, subscription.runId),
         eventFile: subscription.tailedFilePath,
         reason,
       });
@@ -2970,7 +2945,10 @@ function flushCodeAgentTranscriptSubscription(
   sendCodeAgentTranscriptSubscriptionBatch(subscription, {
     status: result.status,
     runId: result.runId ?? subscription.runId,
-    events,
+    events: boundedCodeAgentTranscriptEvents(
+      events,
+      result.runId ?? subscription.runId,
+    ),
     eventFile: result.eventFile,
     reason,
     error: result.error,
@@ -3058,16 +3036,17 @@ function appendCodeAgentTranscriptEvent(
 ): string {
   const eventFile = codeAgentEventFilePath(event.runId);
   if (!eventFile) throw new Error("Invalid run id.");
-  fs.mkdirSync(path.dirname(eventFile), { recursive: true });
-  fs.appendFileSync(
-    eventFile,
-    `${JSON.stringify({
-      schemaVersion: 1,
-      role: event.type,
-      ...event,
-      kind: event.type,
-      message: event.text,
-    })}\n`,
+  const persistedEvent = {
+    schemaVersion: 1,
+    role: event.type,
+    ...event,
+    kind: event.type,
+    message: event.text,
+  };
+  appendUniqueJsonLineAtomically(eventFile, persistedEvent, (value) =>
+    isObject(value) && typeof value.id === "string"
+      ? (value as typeof persistedEvent)
+      : null,
   );
   notifyCodeAgentTranscriptChanged(event.runId, "append");
   return eventFile;
@@ -3915,18 +3894,23 @@ function touchCodeAgentRunRecord(
   updates: Record<string, unknown>,
 ): void {
   const filePath = codeAgentRunFilePath(runId);
-  if (!filePath || !fs.existsSync(filePath)) return;
-  const record = readJsonObjectFile(filePath);
-  if (!record) return;
-  const metadata = isObject(record.metadata)
-    ? { ...(record.metadata as Record<string, unknown>) }
-    : {};
-  const updateMetadata = isObject(updates.metadata) ? updates.metadata : {};
-  writeJsonFileAtomic(filePath, {
-    ...record,
-    ...updates,
-    metadata: { ...metadata, ...updateMetadata },
-  });
+  if (!filePath) return;
+  updateJsonFileAtomically(
+    filePath,
+    (value) => (isObject(value) ? value : null),
+    (record) => {
+      if (!record) return null;
+      const metadata = isObject(record.metadata)
+        ? { ...(record.metadata as Record<string, unknown>) }
+        : {};
+      const updateMetadata = isObject(updates.metadata) ? updates.metadata : {};
+      return {
+        ...record,
+        ...updates,
+        metadata: { ...metadata, ...updateMetadata },
+      };
+    },
+  );
 }
 
 function titleFromPrompt(prompt: string): string {
@@ -4120,8 +4104,12 @@ async function createCodeAgentRun(
   }
 
   try {
-    fs.mkdirSync(path.dirname(runFile), { recursive: true });
-    writeJsonFileAtomic(runFile, record);
+    withFileLockSync(runFile, () => {
+      if (fs.existsSync(runFile)) {
+        throw new Error(`A Code Agent run already exists: ${runId}`);
+      }
+      writeJsonFileAtomically(runFile, record);
+    });
     const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id, {
       queue,
       steering,
@@ -4640,7 +4628,7 @@ function writeCodeAgentProjectsState(state: {
   selectedPath?: string;
   projects: CodeAgentProjectFolder[];
 }) {
-  writeJsonFileAtomic(codeAgentProjectsFile(), state);
+  writeJsonFileAtomically(codeAgentProjectsFile(), state);
 }
 
 function upsertCodeAgentProject(
@@ -5601,7 +5589,7 @@ function loadContentFilesStore(): ContentFilesStore {
 }
 
 function saveContentFilesStore(store: ContentFilesStore): void {
-  writeJsonFileAtomic(contentFilesStorePath(), store);
+  writeJsonFileAtomically(contentFilesStorePath(), store);
 }
 
 function contentFilesFolderInfo(
@@ -6281,7 +6269,7 @@ function loadPlanFilesStore(): PlanFilesStore {
 }
 
 function savePlanFilesStore(store: PlanFilesStore): void {
-  writeJsonFileAtomic(planFilesStorePath(), store);
+  writeJsonFileAtomically(planFilesStorePath(), store);
 }
 
 function isValidPlanFilePlanId(value: unknown): value is string {
