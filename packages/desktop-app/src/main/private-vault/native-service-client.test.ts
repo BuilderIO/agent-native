@@ -663,6 +663,48 @@ describe("Private Vault native service client", () => {
     ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
   });
 
+  it("opens a broker result only after native coordinate and signature checks", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const jobId = "ffeeddccbbaa99887766554433221100";
+    const jobHash = "ab".repeat(32);
+    const senderEndpointId = "11112222333344445555666677778888";
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "open_result",
+      state: "completed",
+      vaultId,
+      jobId,
+      jobHash,
+      resultPayload: Buffer.from('{"ok":true}'),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.openContentResult({
+        vaultId,
+        jobId,
+        jobHash,
+        senderEndpointId,
+        resultEnvelope: Buffer.from([0xa1, 1, 1]),
+      }),
+    ).resolves.toMatchObject({
+      operation: "open_result",
+      state: "completed",
+      vaultId,
+      jobId,
+      jobHash,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "open_result",
+      vaultId,
+      jobId,
+      jobHash,
+      senderEndpointId,
+      expect.any(Buffer),
+    );
+  });
+
   it("maps one encrypted broker job through the caller-independent authority boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const endpointId = "11112222333344445555666677778888";

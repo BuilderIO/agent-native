@@ -43,6 +43,7 @@ typedef struct {
     const char *jobHash;
     const char *grantRef;
     const char *recipientEndpointID;
+    const char *senderEndpointID;
     const char *algorithmID;
     const char *resultState;
     const char *decision;

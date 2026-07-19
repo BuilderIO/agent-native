@@ -128,6 +128,25 @@ int main(void) {
   assert(PVParseRequest(sealJob, &parsed) == PVRequestInvalid);
   xpc_release(sealJob);
 
+  xpc_object_t openResult =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "open_result", "request-open-result");
+  xpc_dictionary_set_string(openResult, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(openResult, "jobId",
+                            "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_string(
+      openResult, "jobHash",
+      "abababababababababababababababababababababababababababababababab");
+  xpc_dictionary_set_string(openResult, "senderEndpointId",
+                            "11112222333344445555666677778888");
+  xpc_dictionary_set_data(openResult, "resultPayload", requesterPayload,
+                          sizeof requesterPayload);
+  assert(PVParseRequest(openResult, &parsed) == PVRequestValid &&
+         strcmp(parsed.senderEndpointID,
+                "11112222333344445555666677778888") == 0 &&
+         parsed.resultPayloadLength == sizeof requesterPayload);
+  xpc_release(openResult);
+
   xpc_object_t sealResult =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_result", "request-seal-result");
   xpc_dictionary_set_string(sealResult, "vaultId",

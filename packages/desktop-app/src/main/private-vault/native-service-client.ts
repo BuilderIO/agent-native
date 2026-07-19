@@ -61,6 +61,7 @@ type NativeOperation =
   | "recover_status"
   | "create_grant"
   | "seal_job"
+  | "open_result"
   | "open_job"
   | "seal_result"
   | "complete_result"
@@ -99,6 +100,9 @@ export interface PrivateVaultNativeServiceClient
   sealContentJob(
     input: NativeSealContentJobInput,
   ): Promise<NativeSealedContentJobResult>;
+  openContentResult(
+    input: NativeOpenContentResultInput,
+  ): Promise<NativeOpenedContentResult>;
   openHostedJob(
     request: NativeOpenHostedJobRequest,
   ): Promise<NativeOpenHostedJobResult>;
@@ -204,6 +208,25 @@ export interface NativeSealedContentJobResult {
   readonly expiresAt: number;
   readonly algorithmId: "anc/v1";
   readonly jobEnvelope: Uint8Array;
+}
+
+export interface NativeOpenContentResultInput {
+  readonly vaultId: string;
+  readonly jobId: string;
+  readonly jobHash: string;
+  readonly senderEndpointId: string;
+  readonly resultEnvelope: Uint8Array;
+}
+
+export interface NativeOpenedContentResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "open_result";
+  readonly state: "completed" | "failed";
+  readonly vaultId: string;
+  readonly jobId: string;
+  readonly jobHash: string;
+  readonly resultPayload: Uint8Array;
 }
 
 export interface NativeSealContentObjectInput {
@@ -1182,6 +1205,44 @@ function parseSealedContentJob(
   });
 }
 
+function parseOpenedContentResult(
+  value: unknown,
+  input: NativeOpenContentResultInput,
+): NativeOpenedContentResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "jobId",
+      "jobHash",
+      "resultPayload",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "open_result" ||
+    (value.state !== "completed" && value.state !== "failed") ||
+    value.vaultId !== input.vaultId ||
+    value.jobId !== input.jobId ||
+    value.jobHash !== input.jobHash ||
+    !(value.resultPayload instanceof Uint8Array) ||
+    value.resultPayload.byteLength === 0 ||
+    value.resultPayload.byteLength > E2EE_SIZE_LIMITS.resultPayloadBytes
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "open_result",
+    state: value.state,
+    vaultId: input.vaultId,
+    jobId: input.jobId,
+    jobHash: input.jobHash,
+    resultPayload: Uint8Array.from(value.resultPayload),
+  });
+}
+
 function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
   if (
     !isRecord(value) ||
@@ -1534,6 +1595,42 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
         payload.fill(0);
+      }
+    });
+  }
+
+  openContentResult(
+    input: NativeOpenContentResultInput,
+  ): Promise<NativeOpenedContentResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.jobId, 32) ||
+      !isLowerHex(input.jobHash, 64) ||
+      !isLowerHex(input.senderEndpointId, 32) ||
+      !(input.resultEnvelope instanceof Uint8Array) ||
+      input.resultEnvelope.byteLength === 0 ||
+      input.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    const envelope = Buffer.from(input.resultEnvelope);
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseOpenedContentResult(
+          await addon.request(
+            "open_result",
+            input.vaultId,
+            input.jobId,
+            input.jobHash,
+            input.senderEndpointId,
+            envelope,
+          ),
+          input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        envelope.fill(0);
       }
     });
   }

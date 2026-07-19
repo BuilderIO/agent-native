@@ -1717,6 +1717,81 @@ static void PVSealContentJob(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVOpenContentResult(xpc_connection_t peer, xpc_object_t message,
+                                const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        NSData *jobId = PVLookupIDData(request->jobID);
+        NSData *jobHash = PVHashData(request->jobHash);
+        NSData *sender = PVLookupIDData(request->senderEndpointID);
+        NSData *envelope =
+            request->resultPayload == NULL
+                ? nil
+                : [NSData dataWithBytes:request->resultPayload
+                                 length:request->resultPayloadLength];
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *endpointId = nil;
+        AncPrivateVaultControlLogMember *endpointMember = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *agreement = nil;
+        BOOL contextOkay =
+            vaultBytes != nil && jobId != nil && jobHash != nil && sender != nil &&
+            envelope != nil &&
+            PVRequesterEndpointContext(vaultId, &state, &endpointId,
+                                       &endpointMember, &signing, &agreement);
+        AncPrivateVaultControlLogMember *broker =
+            contextOkay ? PVRequesterBroker(state, sender) : nil;
+        __block AncPrivateVaultOpenedResult *opened = nil;
+        __block AncPrivateVaultJobCodecStatus codecStatus =
+            AncPrivateVaultJobCodecStatusInvalid;
+        AncPrivateVaultGuardedMemoryStatus borrowed =
+            AncPrivateVaultGuardedMemoryStatusInvalid;
+        if (broker != nil && broker.signingPublicKey.length == 32) {
+            borrowed = [agreement borrow:^BOOL(uint8_t *seed, size_t length) {
+              uint8_t requesterPublic[32] = {0};
+              uint8_t requesterPrivate[32] = {0};
+              BOOL derived = length == ANC_PV_SEED_BYTES &&
+                  anc_pv_box_seed_keypair(requesterPublic, requesterPrivate,
+                                          seed) == ANC_PV_CRYPTO_OK;
+              if (derived) {
+                  opened = AncPrivateVaultOpenResultEnvelope(
+                      envelope, vaultBytes, jobId, jobHash, endpointId,
+                      broker.signingPublicKey.bytes,
+                      broker.keyAgreementPublicKey.bytes, requesterPrivate,
+                      &codecStatus);
+              }
+              anc_pv_zeroize(requesterPublic, sizeof requesterPublic);
+              anc_pv_zeroize(requesterPrivate, sizeof requesterPrivate);
+              return opened != nil;
+            }];
+        }
+        BOOL signingClosed = signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed = agreement != nil &&
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        if (borrowed != AncPrivateVaultGuardedMemoryStatusOK || opened == nil ||
+            !signingClosed || !agreementClosed) {
+            [opened close];
+            PVSendError(peer, message, "result_open_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) {
+            [opened close];
+            return;
+        }
+        xpc_dictionary_set_string(reply, "state", opened.state.UTF8String);
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "jobId", request->jobID);
+        xpc_dictionary_set_string(reply, "jobHash", request->jobHash);
+        xpc_dictionary_set_data(reply, "resultPayload", opened.payload.bytes,
+                                opened.payload.length);
+        [opened close];
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static AncPrivateVaultControlLogMember *PVObjectActiveBroker(
     AncPrivateVaultControlLogState *state,
     const AncPrivateVaultCustodySnapshot *snapshot) {
@@ -2650,6 +2725,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "seal_job") == 0) {
                 PVSealContentJob(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "open_result") == 0) {
+                PVOpenContentResult(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "seal_result") == 0) {

@@ -67,6 +67,7 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 strcmp(key, "algorithmId") == 0 ||
                 strcmp(key, "grantRef") == 0 ||
                 strcmp(key, "recipientEndpointId") == 0 ||
+                strcmp(key, "senderEndpointId") == 0 ||
                 strcmp(key, "expiresAt") == 0 ||
                 strcmp(key, "jobPayload") == 0 ||
                 strcmp(key, "objectId") == 0 ||
@@ -193,6 +194,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool openJob = strcmp(operation, "open_job") == 0;
     bool createGrant = strcmp(operation, "create_grant") == 0;
     bool sealJob = strcmp(operation, "seal_job") == 0;
+    bool openResult = strcmp(operation, "open_result") == 0;
     bool sealResult = strcmp(operation, "seal_result") == 0;
     bool completeResult = strcmp(operation, "complete_result") == 0;
     bool pendingResult = strcmp(operation, "pending_result") == 0;
@@ -213,7 +215,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
-        !openJob && !createGrant && !sealJob && !sealResult &&
+        !openJob && !createGrant && !sealJob && !openResult && !sealResult &&
         !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
@@ -225,7 +227,31 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (createGrant) {
+    if (openResult) {
+        xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
+        xpc_object_t senderValue =
+            xpc_dictionary_get_value(message, "senderEndpointId");
+        const char *sender =
+            senderValue != NULL && xpc_get_type(senderValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "senderEndpointId")
+                : NULL;
+        if (fieldCount != 8 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            jobIDValue == NULL || xpc_get_type(jobIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "jobId")) ||
+            !PVIsLowerHex(xpc_dictionary_get_string(message, "jobHash"), 64) ||
+            !PVIsLowerHex(sender, 32) ||
+            !PVReadBoundedData(message, "resultPayload",
+                               PV_JOB_ENVELOPE_MAXIMUM_BYTES,
+                               &request->resultPayload,
+                               &request->resultPayloadLength)) {
+            return PVRequestInvalid;
+        }
+        request->jobID = xpc_dictionary_get_string(message, "jobId");
+        request->jobHash = xpc_dictionary_get_string(message, "jobHash");
+        request->senderEndpointID = sender;
+    } else if (createGrant) {
         xpc_object_t recipientValue =
             xpc_dictionary_get_value(message, "recipientEndpointId");
         xpc_object_t expiresValue =
@@ -618,7 +644,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->requestID = requestID;
     request->vaultID =
         unlock || resumeRotation || recoverStatus || openJob || createGrant ||
-                sealJob || sealResult ||
+                sealJob || openResult || sealResult ||
                 completeResult || pendingResult || prepareEnrollment ||
                 challengeEnrollment || inspectEnrollment ||
                 authorizeEnrollment || activateEnrollment ||
