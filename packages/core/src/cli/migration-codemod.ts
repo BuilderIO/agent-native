@@ -142,6 +142,26 @@ const FRESH_RESOLVE_SCRIPT = [
   "}",
 ].join("\n");
 
+function nodeConditionArgs(): string[] {
+  const conditions: string[] = [];
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const argument = process.execArgv[index];
+    if (argument === "--conditions" || argument === "-C") {
+      const value = process.execArgv[index + 1];
+      if (value) {
+        conditions.push(argument, value);
+        index += 1;
+      }
+    } else if (
+      argument.startsWith("--conditions=") ||
+      argument.startsWith("-C=")
+    ) {
+      conditions.push(argument);
+    }
+  }
+  return conditions;
+}
+
 function createFreshMigrationTargetResolver(
   projectRoot: string,
 ): (specifier: string, sourceFile?: string) => boolean {
@@ -156,7 +176,13 @@ function createFreshMigrationTargetResolver(
     const resolved =
       spawnSync(
         process.execPath,
-        ["-e", FRESH_RESOLVE_SCRIPT, resolutionBase, specifier],
+        [
+          ...nodeConditionArgs(),
+          "-e",
+          FRESH_RESOLVE_SCRIPT,
+          resolutionBase,
+          specifier,
+        ],
         { stdio: "ignore" },
       ).status === 0;
     cache.set(key, resolved);

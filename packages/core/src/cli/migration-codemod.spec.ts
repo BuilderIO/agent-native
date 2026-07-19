@@ -299,6 +299,53 @@ describe("runMigrationCodemods", () => {
     );
   });
 
+  it("forwards custom export conditions to fresh target resolution", () => {
+    const { root, source } = fixture();
+    fs.writeFileSync(
+      source,
+      'import { Editor } from "@agent-native/core/client/editor";\nvoid Editor;\n',
+    );
+    const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkitDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkitDir, "package.json"),
+      `${JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: {
+          "./editor": {
+            "agent-native-test": "./editor.js",
+          },
+        },
+      })}\n`,
+    );
+    fs.writeFileSync(path.join(toolkitDir, "editor.js"), "export {};\n");
+    const originalExecArgv = [...process.execArgv];
+    process.execArgv.push("--conditions=agent-native-test");
+    try {
+      const result = runMigrationCodemods({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {
+              "@agent-native/core/client/editor": {
+                to: "@agent-native/toolkit/editor",
+              },
+            },
+          },
+        ],
+        apply: true,
+      });
+
+      expect(result.warnings).toEqual([]);
+      expect(fs.readFileSync(source, "utf-8")).toContain(
+        'from "@agent-native/toolkit/editor"',
+      );
+    } finally {
+      process.execArgv.splice(0, process.execArgv.length, ...originalExecArgv);
+    }
+  });
+
   it("skips a missing subpath when the target package is installed", () => {
     const { root, source } = fixture();
     fs.writeFileSync(
