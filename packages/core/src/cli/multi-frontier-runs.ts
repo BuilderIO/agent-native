@@ -89,6 +89,8 @@ export interface MultiFrontierRunState {
   round: number;
   proposalIds: string[];
   reviewIds: string[];
+  /** Opt-in policy; explicit GO remains the durable default. */
+  autoContinueAfterAgreement: boolean;
   recovery?: MultiFrontierRecovery;
 }
 
@@ -98,6 +100,7 @@ export interface CreateMultiFrontierRunInput {
   participants: MultiFrontierParticipantState[];
   approval?: MultiFrontierApproval;
   checkpointIds?: string[];
+  autoContinueAfterAgreement?: boolean;
 }
 
 export interface RecoverMultiFrontierRunInput {
@@ -300,6 +303,7 @@ export function createMultiFrontierRun(
     round: 1,
     proposalIds: [],
     reviewIds: [],
+    autoContinueAfterAgreement: input.autoContinueAfterAgreement ?? false,
     createdAt: now,
     updatedAt: now,
   };
@@ -975,7 +979,8 @@ function multiFrontierArtifactPath(
 function readStoredRun(filePath: string): MultiFrontierStoredRun | null {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
-    return isCompleteMultiFrontierStoredRun(raw) ? raw : null;
+    const normalized = normalizeStoredRunDefaults(raw);
+    return isCompleteMultiFrontierStoredRun(normalized) ? normalized : null;
   } catch {
     return null;
   }
@@ -1013,8 +1018,17 @@ function isCompleteMultiFrontierRunState(
     run.round >= 1 &&
     isStringArray(run.proposalIds) &&
     isStringArray(run.reviewIds) &&
+    typeof run.autoContinueAfterAgreement === "boolean" &&
     (run.recovery === undefined || isRecovery(run.recovery))
   );
+}
+
+function normalizeStoredRunDefaults(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  if (!Object.hasOwn(value, "autoContinueAfterAgreement")) {
+    return { ...value, autoContinueAfterAgreement: false };
+  }
+  return value;
 }
 
 function hasStoredRunTimestamps(

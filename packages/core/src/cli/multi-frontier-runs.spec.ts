@@ -62,6 +62,7 @@ describe("multi-frontier run store", () => {
         },
       ],
       checkpointIds: ["checkpoint-1"],
+      autoContinueAfterAgreement: true,
     });
 
     expect(multiFrontierRunsStoreRoot()).toBe(
@@ -75,6 +76,7 @@ describe("multi-frontier run store", () => {
       round: 1,
       proposalIds: [],
       reviewIds: [],
+      autoContinueAfterAgreement: true,
       participants: [
         {
           participantId: "codex",
@@ -94,6 +96,26 @@ describe("multi-frontier run store", () => {
           permission: "read_only",
         },
       ],
+    });
+  });
+
+  it("normalizes older stored runs to explicit-GO policy", () => {
+    const root = useTempCodeAgentsHome();
+    const created = createActiveRun();
+    const legacy = { ...created } as Partial<typeof created>;
+    delete legacy.autoContinueAfterAgreement;
+    fs.writeFileSync(
+      path.join(
+        root,
+        "multi-frontier",
+        "runs",
+        `${created.collaborationId}.json`,
+      ),
+      JSON.stringify(legacy),
+    );
+
+    expect(getMultiFrontierRun(created.collaborationId)).toMatchObject({
+      autoContinueAfterAgreement: false,
     });
   });
 
