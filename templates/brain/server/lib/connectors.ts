@@ -223,6 +223,10 @@ interface SlackUserInfoResponse {
   user?: { profile?: { email?: string } };
 }
 
+type SlackUserEmailCache = Map<string, string | null>;
+
+const SLACK_USER_LOOKUP_CONCURRENCY = 4;
+
 interface SlackPermalinkResponse {
   permalink?: string;
 }
@@ -999,6 +1003,7 @@ async function slackPermalink(
 async function slackPrivateChannelMemberEmails(
   token: string,
   channelId: string,
+  userEmailCache: SlackUserEmailCache,
 ): Promise<string[] | null> {
   const response = await slackApi<SlackMembersResponse>(
     token,
@@ -1009,13 +1014,43 @@ async function slackPrivateChannelMemberEmails(
     new Set((response.members ?? []).filter((value) => Boolean(value))),
   );
   if (!userIds.length) return null;
+  if (
+    userIds.some(
+      (userId) => userEmailCache.has(userId) && !userEmailCache.get(userId),
+    )
+  ) {
+    return null;
+  }
+
+  const uncachedUserIds = userIds.filter(
+    (userId) => !userEmailCache.has(userId),
+  );
+  for (
+    let offset = 0;
+    offset < uncachedUserIds.length;
+    offset += SLACK_USER_LOOKUP_CONCURRENCY
+  ) {
+    const batch = uncachedUserIds.slice(
+      offset,
+      offset + SLACK_USER_LOOKUP_CONCURRENCY,
+    );
+    await Promise.all(
+      batch.map(async (userId) => {
+        const user = await slackApi<SlackUserInfoResponse>(
+          token,
+          "users.info",
+          { user: userId },
+        );
+        const email = user.user?.profile?.email?.trim().toLowerCase() ?? null;
+        userEmailCache.set(userId, email || null);
+      }),
+    );
+    if (batch.some((userId) => !userEmailCache.get(userId))) return null;
+  }
 
   const emails: string[] = [];
   for (const userId of userIds) {
-    const user = await slackApi<SlackUserInfoResponse>(token, "users.info", {
-      user: userId,
-    });
-    const email = user.user?.profile?.email?.trim().toLowerCase();
+    const email = userEmailCache.get(userId);
     if (!email) return null;
     emails.push(email);
   }
@@ -2199,6 +2234,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     }
     const channels = [...channelsById.values()];
     stats.eligibleChannels = channels.length;
+    const userEmailCache: SlackUserEmailCache = new Map();
 
     const channelsToScan = includePublicChannels
       ? (() => {
@@ -2222,7 +2258,11 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
 
     for (const channel of channelsToScan) {
       const privateMemberEmails = channel.is_private
-        ? await slackPrivateChannelMemberEmails(token, channel.id)
+        ? await slackPrivateChannelMemberEmails(
+            token,
+            channel.id,
+            userEmailCache,
+          )
         : null;
       if (channel.is_private && !privateMemberEmails?.length) {
         stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
@@ -2440,7 +2480,7 @@ export async function refreshSlackThreadCapture(
       );
     }
     const memberEmails = channel.is_private
-      ? await slackPrivateChannelMemberEmails(token, channel.id)
+      ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
       : null;
     if (channel.is_private && !memberEmails?.length) {
       throw new Error(

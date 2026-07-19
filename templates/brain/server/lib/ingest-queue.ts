@@ -74,12 +74,7 @@ export async function enqueueCaptureInvalidation(
     invalidation.next?.contentHash ??
     invalidation.previous?.contentHash ??
     "deleted";
-  const operation =
-    invalidation.reason === "content-changed" && invalidation.next
-      ? "search-index"
-      : invalidation.reason === "access-changed" && invalidation.next
-        ? "search-index"
-        : "search-unindex";
+  const operation = invalidation.next ? "search-index" : "search-unindex";
   return enqueueBrainOperation({
     operation,
     dedupeKey: `${operation}:${invalidation.captureId}:${version}`,

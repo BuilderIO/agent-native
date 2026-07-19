@@ -44,6 +44,13 @@ export async function computeAudienceAclHash(
   return sha256(`${kind}:${principalKey}`);
 }
 
+export function audienceMembershipNeedsReplace(
+  previousAclHash: string | undefined,
+  nextAclHash: string,
+) {
+  return previousAclHash !== nextAclHash;
+}
+
 export async function computeCaptureAudienceId(input: {
   sourceId: string;
   kind: BrainAudienceAssignment["kind"];
@@ -134,7 +141,9 @@ export async function ensureCaptureAudience(input: {
       principalId: normalizeEmail(input.source.ownerEmail),
       syncedAt: now,
     });
-  } else {
+  } else if (
+    audienceMembershipNeedsReplace(previousAudience?.aclHash, aclHash)
+  ) {
     await replaceAudienceUserMembers(
       audienceId,
       members.map((email) => ({ email })),

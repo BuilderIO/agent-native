@@ -799,16 +799,20 @@ export async function createCapture(values: {
     .from(schema.brainRawCaptures)
     .where(eq(schema.brainRawCaptures.id, captureId))
     .limit(1);
+  const invalidationReason =
+    !existing || existing.contentHash !== nextContentHash
+      ? "content-changed"
+      : existing.audienceAclHash !== audience.aclHash
+        ? "access-changed"
+        : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
+          ? "sensitivity-changed"
+          : null;
+  if (!invalidationReason) return capture;
   try {
     await enqueueCaptureInvalidation({
       captureId,
       sourceId: source.id,
-      reason:
-        existing?.contentHash !== nextContentHash
-          ? "content-changed"
-          : existing?.audienceAclHash !== audience.aclHash
-            ? "access-changed"
-            : "sensitivity-changed",
+      reason: invalidationReason,
       previous: existing
         ? {
             contentHash: existing.contentHash ?? undefined,

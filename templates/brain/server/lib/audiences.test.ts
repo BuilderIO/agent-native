@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertSingleEvidenceTenant,
+  audienceMembershipNeedsReplace,
   computeAudienceAclHash,
   computeCaptureAudienceId,
   filterAudienceIdsByDependencies,
@@ -10,6 +11,14 @@ import {
 } from "./audiences.js";
 
 describe("audience ACL hashes", () => {
+  it("only replaces members when the ACL hash changes", () => {
+    expect(audienceMembershipNeedsReplace("acl-stable", "acl-stable")).toBe(
+      false,
+    );
+    expect(audienceMembershipNeedsReplace("acl-old", "acl-new")).toBe(true);
+    expect(audienceMembershipNeedsReplace(undefined, "acl-new")).toBe(true);
+  });
+
   it("is stable when a non-restricted audience resyncs unchanged members", async () => {
     const original = await computeAudienceAclHash("slack-private-channel", [
       "person-b@example.com",

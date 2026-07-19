@@ -708,6 +708,7 @@ import {
   testSlackConnection,
 } from "./connectors.js";
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
+import { enqueueCaptureInvalidation } from "./ingest-queue.js";
 
 function resetMocks() {
   vi.clearAllMocks();
@@ -1122,6 +1123,29 @@ describe("Brain knowledge quality gates", () => {
       await sha256Hex("Decision: ship the beta on May 20."),
     );
     expect(String(capture.contentHash)).toHaveLength(64);
+  });
+
+  it("does not requeue an unchanged allowed capture", async () => {
+    seedSource();
+    const enqueue = vi.mocked(enqueueCaptureInvalidation);
+
+    const input = {
+      sourceId: "source-1",
+      externalId: "capture-ext-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    } as const;
+    await createCapture(input);
+    await createCapture(input);
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "content-changed",
+        next: expect.any(Object),
+      }),
+    );
   });
 
   it("sanitizes transcript captures and strips raw metadata before storage", async () => {
@@ -2536,6 +2560,101 @@ describe("Brain connector smoke coverage", () => {
     expect(JSON.stringify(result.captures[0]?.metadata)).not.toContain(
       "ada@example.test",
     );
+  });
+
+  it("caches private Slack member emails and bounds concurrent user lookups within a sync", async () => {
+    let activeUserLookups = 0;
+    let maxActiveUserLookups = 0;
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const channelId = url.searchParams.get("channel") ?? "G123";
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: channelId,
+            name: channelId === "G123" ? "leadership" : "strategy",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({
+          ok: true,
+          members:
+            channelId === "G123"
+              ? ["USHARED", "U1", "U2", "U3", "U4", "U5"]
+              : ["USHARED", "U6"],
+        });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        activeUserLookups += 1;
+        maxActiveUserLookups = Math.max(
+          maxActiveUserLookups,
+          activeUserLookups,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        activeUserLookups -= 1;
+        return Response.json({
+          ok: true,
+          user: {
+            profile: {
+              email: `${url.searchParams.get("user")?.toLowerCase()}@example.test`,
+            },
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Decision: publish the roadmap next week.",
+              ts: "1770919200.000100",
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Decision: publish the roadmap next week.",
+              ts: "1770919200.000100",
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/chat.getPermalink")) {
+        return Response.json({
+          ok: true,
+          permalink: `https://example.slack.com/archives/${channelId}/p1770919200000100`,
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-cache-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123", "G456"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 2 });
+    expect(
+      fetchSpy.mock.calls.filter((call) =>
+        String(call[0]).includes("users.info"),
+      ),
+    ).toHaveLength(7);
+    expect(maxActiveUserLookups).toBeGreaterThan(1);
+    expect(maxActiveUserLookups).toBeLessThanOrEqual(4);
   });
 
   it("discovers every paginated public channel while applying workspace exclusions", async () => {
