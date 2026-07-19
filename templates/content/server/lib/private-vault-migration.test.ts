@@ -32,7 +32,12 @@ function documents(): PrivateVaultMigrationSourceDocument[] {
       parentId: null,
       title: "Private title sentinel",
       content: "Private body sentinel",
+      description: "",
+      icon: null,
       position: 0,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-07-19T04:00:00.000Z",
       updatedAt: "2026-07-19T05:00:00.000Z",
     },
     {
@@ -40,7 +45,12 @@ function documents(): PrivateVaultMigrationSourceDocument[] {
       parentId: "root",
       title: "Child",
       content: "Nested body",
+      description: "",
+      icon: null,
       position: 0,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-07-19T04:01:00.000Z",
       updatedAt: "2026-07-19T05:01:00.000Z",
     },
   ];
@@ -50,9 +60,11 @@ class MemorySource implements PrivateVaultMigrationSource {
   readonly values = new Map(
     documents().map((document) => [document.id, document]),
   );
-  readonly cleanup = vi.fn(async (_scope, ids: readonly string[]) => {
-    for (const id of ids) this.values.delete(id);
-  });
+  readonly cleanup = vi.fn(
+    async (_scope, sources: readonly { sourceDocumentId: string }[]) => {
+      for (const source of sources) this.values.delete(source.sourceDocumentId);
+    },
+  );
 
   async freeze(_scope: PrivateVaultMigrationScope, ids: readonly string[]) {
     return ids.flatMap((id) => {
@@ -291,7 +303,13 @@ describe("Private Vault resumable migration coordinator", () => {
     await expect(
       coordinator.cleanup(scope, ledger.migrationId),
     ).resolves.toMatchObject({ state: "cleaned", cleanupAt: now });
-    expect(source.cleanup).toHaveBeenCalledWith(scope, ["root", "child"]);
+    expect(source.cleanup).toHaveBeenCalledWith(
+      scope,
+      expect.arrayContaining([
+        expect.objectContaining({ sourceDocumentId: "root" }),
+        expect.objectContaining({ sourceDocumentId: "child" }),
+      ]),
+    );
     expect(store.items.every((item) => item.state === "cleaned")).toBe(true);
   });
 

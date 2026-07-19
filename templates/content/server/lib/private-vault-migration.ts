@@ -24,7 +24,12 @@ export interface PrivateVaultMigrationSourceDocument {
   readonly parentId: string | null;
   readonly title: string;
   readonly content: string;
+  readonly description: string;
+  readonly icon: string | null;
   readonly position: number;
+  readonly isFavorite: boolean;
+  readonly hideFromSearch: boolean;
+  readonly createdAt: string;
   readonly updatedAt: string;
 }
 
@@ -39,7 +44,10 @@ export interface PrivateVaultMigrationSource {
   ): Promise<PrivateVaultMigrationSourceDocument | null>;
   cleanup(
     scope: PrivateVaultMigrationScope,
-    sourceDocumentIds: readonly string[],
+    sources: readonly Pick<
+      PrivateVaultMigrationItem,
+      "sourceDocumentId" | "sourceDigest"
+    >[],
   ): Promise<void>;
 }
 
@@ -123,7 +131,12 @@ export function encodePrivateVaultMigrationSource(
       source.parentId,
       source.title,
       source.content,
+      source.description,
+      source.icon,
       source.position,
+      source.isFavorite,
+      source.hideFromSearch,
+      source.createdAt,
       source.updatedAt,
     ]),
   );
@@ -389,12 +402,15 @@ export class PrivateVaultMigrationCoordinator {
   ): Promise<PrivateVaultMigrationLedger> {
     const current = await this.require(scope, migrationId);
     if (current.ledger.state !== "cleanup_eligible") fail();
-    const sourceIds = current.items.map((item) => item.sourceDocumentId);
-    await this.source.cleanup(scope, sourceIds);
+    const sources = current.items.map((item) => ({
+      sourceDocumentId: item.sourceDocumentId,
+      sourceDigest: item.sourceDigest,
+    }));
+    await this.source.cleanup(scope, sources);
     return this.store.markCleaned({
       scope,
       previous: current.ledger,
-      itemIds: sourceIds,
+      itemIds: sources.map((item) => item.sourceDocumentId),
       cleanedAt: this.now(),
     });
   }
