@@ -163,6 +163,45 @@ export class PrivateVaultContentRequesterTransport {
     }
   }
 
+  async revokeGrant(input: { vaultId: string; grantId: string }) {
+    if (!lowerHex(input.vaultId, 16) || !lowerHex(input.grantId, 16))
+      throw new PrivateVaultContentRequesterTransportError();
+    try {
+      const url = `${this.#origin}/api/private-vault/grants/${input.grantId}`;
+      const response = await this.#session.fetch(url, {
+        method: "DELETE",
+        redirect: "error",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-store",
+          "X-Agent-Native-CSRF": "1",
+          "X-ANC-Vault-Id": input.vaultId,
+        },
+      });
+      if (!response.ok)
+        throw new PrivateVaultContentRequesterTransportError(response.status);
+      const result = await exactJson(response, url);
+      if (
+        Object.keys(result).sort().join("\0") !== "grantId\0state\0vaultId" ||
+        result.vaultId !== input.vaultId ||
+        result.grantId !== input.grantId ||
+        result.state !== "revoked"
+      )
+        throw new Error();
+      return Object.freeze({
+        vaultId: input.vaultId,
+        grantId: input.grantId,
+        state: "revoked" as const,
+      });
+    } catch (error) {
+      if (error instanceof PrivateVaultContentRequesterTransportError)
+        throw error;
+      throw new PrivateVaultContentRequesterTransportError();
+    }
+  }
+
   async putJob(input: {
     vaultId: string;
     jobId: string;

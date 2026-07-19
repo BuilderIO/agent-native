@@ -45,7 +45,11 @@ describe("Private Vault grant service", () => {
         reconcileExpired: vi.fn(),
       },
       put,
-      store: { authorize: vi.fn(async () => true), persist },
+      store: {
+        authorize: vi.fn(async () => true),
+        persist,
+        revoke: vi.fn(),
+      },
     });
     await expect(service.create(scope, input)).resolves.toMatchObject({
       grantId: input.grantId,
@@ -71,7 +75,11 @@ describe("Private Vault grant service", () => {
         reconcileExpired: vi.fn(),
       },
       put,
-      store: { authorize: vi.fn(async () => false), persist: vi.fn() },
+      store: {
+        authorize: vi.fn(async () => false),
+        persist: vi.fn(),
+        revoke: vi.fn(),
+      },
     });
     await expect(service.create(scope, input)).rejects.toEqual(
       new PrivateVaultGrantNotFoundError(),
@@ -84,5 +92,32 @@ describe("Private Vault grant service", () => {
     ).rejects.toEqual(new PrivateVaultGrantNotFoundError());
     expect(stage).not.toHaveBeenCalled();
     expect(put).not.toHaveBeenCalled();
+  });
+
+  it("removes scoped authorization before deleting opaque grant bytes", async () => {
+    const calls: string[] = [];
+    const revoke = vi.fn(async () => {
+      calls.push("revoke");
+    });
+    const remove = vi.fn(async () => {
+      calls.push("remove");
+      return { deleted: true, provider: "test" };
+    });
+    const service = createPrivateVaultGrantService({
+      remove,
+      store: { authorize: vi.fn(), persist: vi.fn(), revoke },
+    });
+    await expect(service.revoke(scope, input.grantId)).resolves.toEqual({
+      vaultId: scope.vaultId,
+      grantId: input.grantId,
+      state: "revoked",
+    });
+    expect(calls).toEqual(["revoke", "remove"]);
+    expect(revoke).toHaveBeenCalledWith(scope, input.grantId);
+    expect(remove).toHaveBeenCalledWith({
+      kind: "grant",
+      vaultId: scope.vaultId,
+      grantId: input.grantId,
+    });
   });
 });

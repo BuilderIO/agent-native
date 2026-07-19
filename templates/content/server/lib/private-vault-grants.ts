@@ -1,5 +1,6 @@
 import { E2EE_SIZE_LIMITS, opaqueIdSchema } from "@agent-native/core/e2ee";
 import {
+  deleteProtectedCiphertextAt,
   putProtectedCiphertext,
   type ProtectedCiphertextPutResult,
 } from "@agent-native/core/protected-ciphertext";
@@ -110,6 +111,7 @@ export interface PrivateVaultGrantStore {
     grant: PrivateVaultGrantMetadata,
     stage: PrivateVaultCiphertextStage,
   ): Promise<PrivateVaultGrantMetadata>;
+  revoke(scope: PrivateVaultJobScope, grantId: string): Promise<void>;
 }
 
 export const sqlPrivateVaultGrantStore: PrivateVaultGrantStore = {
@@ -186,6 +188,18 @@ export const sqlPrivateVaultGrantStore: PrivateVaultGrantStore = {
       return stored;
     });
   },
+  revoke: async (scope, grantId) => {
+    await getDb()
+      .delete(schema.contentEncryptedVaultGrants)
+      .where(
+        and(
+          eq(schema.contentEncryptedVaultGrants.grantId, grantId),
+          eq(schema.contentEncryptedVaultGrants.vaultId, scope.vaultId),
+          eq(schema.contentEncryptedVaultGrants.ownerEmail, scope.ownerEmail),
+          eq(schema.contentEncryptedVaultGrants.orgId, scope.orgId),
+        ),
+      );
+  },
 };
 
 export function createPrivateVaultGrantService(
@@ -198,12 +212,14 @@ export function createPrivateVaultGrantService(
     }) => Promise<ProtectedCiphertextPutResult>;
     stage?: typeof privateVaultCiphertextStagingService;
     now?: () => Date;
+    remove?: typeof deleteProtectedCiphertextAt;
   } = {},
 ) {
   const store = options.store ?? sqlPrivateVaultGrantStore;
   const put = options.put ?? putProtectedCiphertext;
   const staging = options.stage ?? privateVaultCiphertextStagingService;
   const now = options.now ?? (() => new Date());
+  const remove = options.remove ?? deleteProtectedCiphertextAt;
   return {
     async authorize(
       scope: PrivateVaultJobScope,
@@ -257,6 +273,23 @@ export function createPrivateVaultGrantService(
         ...(scope.orgId ? { orgId: scope.orgId } : {}),
       });
       return stored;
+    },
+    async revoke(scope: PrivateVaultJobScope, rawGrantId: string) {
+      const grantId = opaqueIdSchema.parse(rawGrantId);
+      await store.revoke(scope, grantId);
+      await remove(coordinate(scope.vaultId, grantId));
+      recordChange({
+        source: "private-vault",
+        type: "grant.revoked",
+        key: grantId,
+        owner: scope.ownerEmail,
+        ...(scope.orgId ? { orgId: scope.orgId } : {}),
+      });
+      return Object.freeze({
+        vaultId: scope.vaultId,
+        grantId,
+        state: "revoked" as const,
+      });
     },
   };
 }

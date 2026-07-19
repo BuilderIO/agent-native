@@ -132,6 +132,26 @@ describe("Content requester transport", () => {
     );
   });
 
+  it("revokes an opaque grant through its authenticated coordinate", async () => {
+    const url = `https://content.example.test/api/private-vault/grants/${grantId}`;
+    const fetch = vi.fn(async () =>
+      jsonResponse(url, { vaultId, grantId, state: "revoked" }),
+    );
+    const transport = new PrivateVaultContentRequesterTransport({
+      origin: "https://content.example.test",
+      session: { fetch },
+    });
+    await expect(transport.revokeGrant({ vaultId, grantId })).resolves.toEqual({
+      vaultId,
+      grantId,
+      state: "revoked",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ method: "DELETE", credentials: "include" }),
+    );
+  });
+
   it("preserves a hosted not-found status for bounded result polling", async () => {
     const fetch = vi.fn(
       async () =>
