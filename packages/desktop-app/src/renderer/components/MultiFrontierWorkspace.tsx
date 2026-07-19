@@ -1,0 +1,962 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import { Progress } from "@agent-native/toolkit/ui/progress";
+import { Separator } from "@agent-native/toolkit/ui/separator";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import {
+  IconAlertTriangle,
+  IconArrowsExchange,
+  IconBolt,
+  IconChartBar,
+  IconDots,
+  IconLock,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlayerSkipForward,
+  IconRefresh,
+} from "@tabler/icons-react";
+import { useState } from "react";
+
+import type {
+  MultiFrontierProviderId,
+  MultiFrontierRendererParticipant,
+  MultiFrontierRendererState,
+} from "../../../shared/multi-frontier-ipc.js";
+import type {
+  SubscriptionRateLimitMeter,
+  SubscriptionStatus,
+} from "../../../shared/subscription-status.js";
+
+const PROVIDERS: readonly MultiFrontierProviderId[] = ["codex", "claude"];
+
+const PROVIDER_COPY: Record<
+  MultiFrontierProviderId,
+  { label: string; subscription: string; accent: string }
+> = {
+  codex: {
+    label: "Codex",
+    subscription: "ChatGPT subscription",
+    accent: "bg-sky-500",
+  },
+  claude: {
+    label: "Claude",
+    subscription: "Claude subscription",
+    accent: "bg-orange-500",
+  },
+};
+
+export interface MultiFrontierNotice {
+  id: string;
+  kind: "recovery" | "failure" | "info";
+  message: string;
+}
+
+export interface MultiFrontierCreateInput {
+  prompt: string;
+  autoContinueAfterAgreement: boolean;
+}
+
+export function createMultiFrontierInput(
+  prompt: string,
+  autoContinueAfterAgreement = false,
+): MultiFrontierCreateInput {
+  return { prompt, autoContinueAfterAgreement };
+}
+
+export type MultiFrontierSecondaryAction =
+  | "pause"
+  | "resume"
+  | "cancel"
+  | "role-swap";
+
+export interface MultiFrontierSecondaryActionInput {
+  action: MultiFrontierSecondaryAction;
+  collaborationId: string;
+  nextDriverParticipantId?: string;
+}
+
+export interface MultiFrontierWorkspaceProps {
+  state?: MultiFrontierRendererState;
+  subscriptions?: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
+  notices?: readonly MultiFrontierNotice[];
+  busy?: boolean;
+  autoContinueAfterAgreement?: boolean;
+  defaultAutoContinueAfterAgreement?: boolean;
+  onConnectSubscription?: (providerId: MultiFrontierProviderId) => void;
+  onRefreshSubscription?: (providerId: MultiFrontierProviderId) => void;
+  onAutoContinueAfterAgreementChange?: (value: boolean) => void;
+  onDefaultAutoContinueAfterAgreementChange?: (value: boolean) => void;
+  onStart?: (collaborationId: string) => void;
+  onGo?: (collaborationId: string) => void;
+  onSecondaryAction?: (input: MultiFrontierSecondaryActionInput) => void;
+}
+
+export interface MultiFrontierControlState {
+  canStart: boolean;
+  canGo: boolean;
+  canPause: boolean;
+  canResume: boolean;
+  canCancel: boolean;
+  canSwap: boolean;
+}
+
+export function agreementPolicyForWorkspace(
+  state:
+    | Pick<MultiFrontierRendererState, "autoContinueAfterAgreement">
+    | undefined,
+  draftAutoContinueAfterAgreement: boolean,
+): { autoContinueAfterAgreement: boolean; isReadOnly: boolean } {
+  return {
+    autoContinueAfterAgreement:
+      state?.autoContinueAfterAgreement ?? draftAutoContinueAfterAgreement,
+    isReadOnly: state !== undefined,
+  };
+}
+
+export function controlsForState(
+  state?: Pick<
+    MultiFrontierRendererState,
+    "phase" | "approvalState" | "autoContinueAfterAgreement"
+  >,
+): MultiFrontierControlState {
+  if (!state) {
+    return {
+      canStart: false,
+      canGo: false,
+      canPause: false,
+      canResume: false,
+      canCancel: false,
+      canSwap: false,
+    };
+  }
+
+  const terminal = ["completed", "failed", "canceled"].includes(state.phase);
+  return {
+    canStart: state.phase === "proposing",
+    canGo:
+      state.phase === "awaiting_go" &&
+      state.approvalState !== "rejected" &&
+      state.autoContinueAfterAgreement !== true,
+    canPause: !terminal && state.phase !== "paused",
+    canResume: state.phase === "paused",
+    canCancel: !terminal,
+    canSwap:
+      state.phase === "awaiting_go" || state.phase === "checkpoint_review",
+  };
+}
+
+export function usageSummary(status?: SubscriptionStatus): string {
+  if (!status) return "Status unavailable";
+  if (status.connectionState !== "connected") {
+    return status.connectionMessage ?? "Sign in to use this participant";
+  }
+  if (
+    status.providerId === "claude" &&
+    status.telemetry.state === "unsupported"
+  ) {
+    return "Live plan usage is unavailable in non-interactive Claude sessions.";
+  }
+  if (status.telemetry.state === "stale")
+    return "Usage data may be out of date";
+  if (status.telemetry.state === "error") {
+    return status.telemetry.error?.message ?? "Usage data could not be read";
+  }
+  return status.telemetry.capabilities.rateLimits
+    ? "Usage is updating from the connected subscription"
+    : "Plan connected";
+}
+
+export function MultiFrontierWorkspace({
+  state,
+  subscriptions,
+  notices = [],
+  busy = false,
+  autoContinueAfterAgreement = false,
+  defaultAutoContinueAfterAgreement = false,
+  onConnectSubscription,
+  onRefreshSubscription,
+  onAutoContinueAfterAgreementChange,
+  onDefaultAutoContinueAfterAgreementChange,
+  onStart,
+  onGo,
+  onSecondaryAction,
+}: MultiFrontierWorkspaceProps) {
+  const statusByProvider = subscriptions ?? state?.subscriptions ?? {};
+  const allConnected = PROVIDERS.every(
+    (providerId) =>
+      statusByProvider[providerId]?.connectionState === "connected",
+  );
+  const controls = controlsForState(state);
+  const isEmpty = !state;
+  const agreementPolicy = agreementPolicyForWorkspace(
+    state,
+    autoContinueAfterAgreement,
+  );
+
+  return (
+    <section
+      aria-labelledby="multi-frontier-heading"
+      className="flex w-full max-w-3xl flex-col gap-4"
+    >
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <p id="multi-frontier-heading" className="text-sm font-medium">
+            Multi-Frontier
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Codex and Claude converge on one reviewed change.
+          </p>
+        </div>
+        {state ? <PhaseStatus phase={state.phase} round={state.round} /> : null}
+      </header>
+
+      <SubscriptionSummary
+        statuses={statusByProvider}
+        allConnected={allConnected}
+        busy={busy}
+        onConnect={onConnectSubscription}
+        onRefresh={onRefreshSubscription}
+        autoContinueAfterAgreement={agreementPolicy.autoContinueAfterAgreement}
+        defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
+        onAutoContinueAfterAgreementChange={
+          agreementPolicy.isReadOnly
+            ? undefined
+            : onAutoContinueAfterAgreementChange
+        }
+        onDefaultAutoContinueAfterAgreementChange={
+          onDefaultAutoContinueAfterAgreementChange
+        }
+      />
+
+      {notices.length > 0 ? (
+        <section aria-label="Collaboration notices" className="space-y-2">
+          {notices.map((notice) => (
+            <Notice key={notice.id} notice={notice} />
+          ))}
+        </section>
+      ) : null}
+
+      {isEmpty ? (
+        <SetupPanel allConnected={allConnected} />
+      ) : (
+        <CollaborationPanel
+          state={state}
+          controls={controls}
+          busy={busy}
+          onStart={onStart}
+          onGo={onGo}
+          onSecondaryAction={onSecondaryAction}
+        />
+      )}
+    </section>
+  );
+}
+
+function SubscriptionSummary({
+  statuses,
+  allConnected,
+  busy,
+  onConnect,
+  onRefresh,
+  autoContinueAfterAgreement,
+  defaultAutoContinueAfterAgreement,
+  onAutoContinueAfterAgreementChange,
+  onDefaultAutoContinueAfterAgreementChange,
+}: {
+  statuses: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
+  allConnected: boolean;
+  busy: boolean;
+  onConnect?: (providerId: MultiFrontierProviderId) => void;
+  onRefresh?: (providerId: MultiFrontierProviderId) => void;
+  autoContinueAfterAgreement: boolean;
+  defaultAutoContinueAfterAgreement: boolean;
+  onAutoContinueAfterAgreementChange?: (value: boolean) => void;
+  onDefaultAutoContinueAfterAgreementChange?: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">
+        {allConnected
+          ? "Both subscription participants are ready."
+          : "Connect both subscription participants to continue."}
+      </p>
+      <MultiFrontierParticipantSettings
+        statuses={statuses}
+        busy={busy}
+        autoContinueAfterAgreement={autoContinueAfterAgreement}
+        defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
+        onConnect={onConnect}
+        onRefresh={onRefresh}
+        onAutoContinueAfterAgreementChange={onAutoContinueAfterAgreementChange}
+        onDefaultAutoContinueAfterAgreementChange={
+          onDefaultAutoContinueAfterAgreementChange
+        }
+      />
+    </div>
+  );
+}
+
+export function MultiFrontierParticipantSettings({
+  statuses,
+  busy,
+  autoContinueAfterAgreement,
+  defaultAutoContinueAfterAgreement,
+  onConnect,
+  onRefresh,
+  onAutoContinueAfterAgreementChange,
+  onDefaultAutoContinueAfterAgreementChange,
+}: {
+  statuses: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
+  busy: boolean;
+  autoContinueAfterAgreement: boolean;
+  defaultAutoContinueAfterAgreement: boolean;
+  onConnect?: (providerId: MultiFrontierProviderId) => void;
+  onRefresh?: (providerId: MultiFrontierProviderId) => void;
+  onAutoContinueAfterAgreementChange?: (value: boolean) => void;
+  onDefaultAutoContinueAfterAgreementChange?: (value: boolean) => void;
+}) {
+  const allConnected = PROVIDERS.every(
+    (providerId) => statuses[providerId]?.connectionState === "connected",
+  );
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="shrink-0">
+          {allConnected ? "Participants" : "Connect"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-[min(32rem,calc(100vw-2rem))] p-3"
+      >
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Subscription participants</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Sign in locally. No API key is needed.
+            </p>
+          </div>
+          <div className="grid gap-3">
+            {PROVIDERS.map((providerId) => (
+              <SubscriptionCard
+                key={providerId}
+                providerId={providerId}
+                status={statuses[providerId]}
+                busy={busy}
+                onConnect={onConnect}
+                onRefresh={onRefresh}
+              />
+            ))}
+          </div>
+          <Separator />
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Continue after agreement</Label>
+              <p className="text-xs text-muted-foreground">
+                {autoContinueAfterAgreement
+                  ? "Implementation starts after agreement."
+                  : "You will explicitly approve GO before implementation."}
+              </p>
+            </div>
+            {onAutoContinueAfterAgreementChange ? (
+              <Switch
+                checked={autoContinueAfterAgreement}
+                disabled={busy}
+                onCheckedChange={onAutoContinueAfterAgreementChange}
+                aria-label="Continue automatically after agreement"
+              />
+            ) : (
+              <span className="text-xs font-medium">
+                {autoContinueAfterAgreement ? "On" : "Explicit GO"}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+            <Label className="text-xs">Use for new runs by default</Label>
+            <Switch
+              checked={defaultAutoContinueAfterAgreement}
+              disabled={busy || !onDefaultAutoContinueAfterAgreementChange}
+              onCheckedChange={onDefaultAutoContinueAfterAgreementChange}
+              aria-label="Continue automatically after agreement by default"
+            />
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SubscriptionCard({
+  providerId,
+  status,
+  busy,
+  onConnect,
+  onRefresh,
+}: {
+  providerId: MultiFrontierProviderId;
+  status?: SubscriptionStatus;
+  busy: boolean;
+  onConnect?: (providerId: MultiFrontierProviderId) => void;
+  onRefresh?: (providerId: MultiFrontierProviderId) => void;
+}) {
+  const copy = PROVIDER_COPY[providerId];
+  const connected = status?.connectionState === "connected";
+  const plan = status?.plan?.label ?? status?.plan?.type;
+
+  return (
+    <Card className="overflow-hidden shadow-none">
+      <CardHeader className="gap-2 p-4 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              className={`size-2 shrink-0 rounded-full ${copy.accent}`}
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <CardTitle className="text-sm">{copy.label}</CardTitle>
+              <CardDescription className="mt-0.5 text-xs">
+                {copy.subscription}
+              </CardDescription>
+            </div>
+          </div>
+          <ConnectionBadge status={status} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 p-4 pt-0">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">Plan</span>
+          <span className="truncate font-medium">
+            {plan ?? "Not connected"}
+          </span>
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {usageSummary(status)}
+        </p>
+        <div className="flex items-center justify-between gap-2">
+          {connected ? (
+            <UsagePopover providerId={providerId} status={status} />
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Sign in locally; no API key needed.
+            </span>
+          )}
+          <div className="ml-auto flex shrink-0 gap-1.5">
+            {connected ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy || !onRefresh}
+                onClick={() => onRefresh?.(providerId)}
+                aria-label={`Refresh ${copy.label} subscription status`}
+              >
+                <IconRefresh aria-hidden="true" />
+                Refresh
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy || !onConnect}
+                onClick={() => onConnect?.(providerId)}
+              >
+                Connect
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function UsagePopover({
+  providerId,
+  status,
+}: {
+  providerId: MultiFrontierProviderId;
+  status: SubscriptionStatus;
+}) {
+  const telemetry = status.telemetry;
+  const isClaudeDegraded =
+    providerId === "claude" && telemetry.state === "unsupported";
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          aria-label={`View ${PROVIDER_COPY[providerId].label} usage`}
+        >
+          <IconChartBar aria-hidden="true" />
+          Usage
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={8} className="w-80 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">
+              {PROVIDER_COPY[providerId].label} plan usage
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {telemetry.state === "live"
+                ? "Live subscription telemetry"
+                : usageSummary(status)}
+            </p>
+          </div>
+          {telemetry.state === "stale" ? (
+            <Badge variant="outline">Stale</Badge>
+          ) : null}
+        </div>
+        <Separator className="my-3" />
+        {isClaudeDegraded ? (
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm leading-5 text-muted-foreground">
+            Claude is connected and ready to participate. Live plan usage is not
+            exposed to non-interactive Claude Code sessions.
+          </div>
+        ) : telemetry.meters.length > 0 ? (
+          <div className="space-y-3">
+            {telemetry.meters.map((meter) => (
+              <UsageMeter key={meter.id} meter={meter} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No usage meter is available for this connection.
+          </p>
+        )}
+        {telemetry.contextWindow?.state === "available" ? (
+          <div className="mt-3 border-t border-border pt-3">
+            <UsageMeter
+              meter={{
+                id: "context-window",
+                kind: "five-hour",
+                label: "Context window",
+                state: "available",
+                usedPercent: telemetry.contextWindow.usedPercent,
+                message: telemetry.contextWindow.message,
+              }}
+            />
+          </div>
+        ) : null}
+        {telemetry.credits ? <Credits credits={telemetry.credits} /> : null}
+        {telemetry.updatedAt ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Updated {formatTimestamp(telemetry.updatedAt)}
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function UsageMeter({ meter }: { meter: SubscriptionRateLimitMeter }) {
+  const label = meter.label ?? meterLabel(meter);
+  const usedPercent = meter.usedPercent;
+  if (meter.state !== "available" || usedPercent === undefined) {
+    return (
+      <div className="space-y-1.5" role="status">
+        <div className="flex items-baseline justify-between gap-3 text-xs">
+          <span className="min-w-0 truncate font-medium text-foreground">
+            {label}
+          </span>
+          <span className="shrink-0 text-muted-foreground">
+            {meter.message ?? "Not reported"}
+          </span>
+        </div>
+        <div
+          className="h-1.5 rounded-full bg-muted"
+          aria-label={`${label}: ${meter.message ?? "not reported"}`}
+        />
+        {meter.resetsAt ? (
+          <p className="text-[11px] text-muted-foreground">
+            Resets {formatTimestamp(meter.resetsAt)}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="min-w-0 truncate font-medium text-foreground">
+          {label}
+        </span>
+        <span className="shrink-0 text-muted-foreground">
+          {`${Math.round(usedPercent)}% used`}
+        </span>
+      </div>
+      <Progress
+        value={usedPercent}
+        aria-label={`${label}: ${Math.round(usedPercent)} percent used`}
+        className="h-1.5"
+      />
+      {meter.resetsAt ? (
+        <p className="text-[11px] text-muted-foreground">
+          Resets {formatTimestamp(meter.resetsAt)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function Credits({
+  credits,
+}: {
+  credits: NonNullable<SubscriptionStatus["telemetry"]["credits"]>;
+}) {
+  const value = credits.unlimited
+    ? "Unlimited"
+    : credits.balance !== undefined
+      ? `${credits.balance}${credits.unit ? ` ${credits.unit}` : ""}`
+      : (credits.message ?? "Unavailable");
+  return (
+    <div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-xs">
+      <span className="text-muted-foreground">Usage credits</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
+function SetupPanel({ allConnected }: { allConnected: boolean }) {
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      {!allConnected ? (
+        <div className="flex items-start gap-2 text-sm text-muted-foreground">
+          <IconLock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p>
+            Connect both subscriptions above before starting a collaboration.
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Describe the change in the composer above to start a collaboration.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CollaborationPanel({
+  state,
+  controls,
+  busy,
+  onStart,
+  onGo,
+  onSecondaryAction,
+}: {
+  state: MultiFrontierRendererState;
+  controls: MultiFrontierControlState;
+  busy: boolean;
+  onStart?: (id: string) => void;
+  onGo?: (id: string) => void;
+  onSecondaryAction?: (input: MultiFrontierSecondaryActionInput) => void;
+}) {
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const invokeSecondaryAction = (
+    action: MultiFrontierSecondaryAction,
+    nextDriverParticipantId?: string,
+  ) =>
+    onSecondaryAction?.({
+      action,
+      collaborationId: state.collaborationId,
+      ...(nextDriverParticipantId ? { nextDriverParticipantId } : {}),
+    });
+  const swappableParticipants = state.participants.filter(
+    (participant) => participant.participantId !== state.driverParticipantId,
+  );
+
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ParticipantBadges participants={state.participants} />
+        <div className="flex items-center gap-1.5">
+          {controls.canStart ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !onStart}
+              onClick={() => onStart?.(state.collaborationId)}
+            >
+              <IconPlayerPlay aria-hidden="true" />
+              Start review
+            </Button>
+          ) : null}
+          {controls.canGo ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !onGo}
+              onClick={() => onGo?.(state.collaborationId)}
+            >
+              <IconBolt aria-hidden="true" />
+              GO — implement
+            </Button>
+          ) : null}
+          {controls.canResume ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !onSecondaryAction}
+              onClick={() => invokeSecondaryAction("resume")}
+            >
+              <IconPlayerPlay aria-hidden="true" />
+              Resume
+            </Button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={busy || !onSecondaryAction}
+                aria-label="More collaboration actions"
+              >
+                <IconDots aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {controls.canPause ? (
+                <DropdownMenuItem
+                  onSelect={() => invokeSecondaryAction("pause")}
+                >
+                  <IconPlayerPause aria-hidden="true" />
+                  Pause collaboration
+                </DropdownMenuItem>
+              ) : null}
+              {controls.canSwap
+                ? swappableParticipants.map((participant) => (
+                    <DropdownMenuItem
+                      key={participant.participantId}
+                      onSelect={() =>
+                        invokeSecondaryAction(
+                          "role-swap",
+                          participant.participantId,
+                        )
+                      }
+                    >
+                      <IconArrowsExchange aria-hidden="true" />
+                      Make {PROVIDER_COPY[participant.providerId].label} driver
+                    </DropdownMenuItem>
+                  ))
+                : null}
+              {(controls.canPause || controls.canSwap) && controls.canCancel ? (
+                <DropdownMenuSeparator />
+              ) : null}
+              {controls.canCancel ? (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => setCancelOpen(true)}
+                >
+                  Cancel collaboration
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+      {state.phase === "failed" ? (
+        <p role="alert" className="text-xs text-destructive">
+          This collaboration stopped with a failure. Review its evidence before
+          recovering or starting another run.
+        </p>
+      ) : null}
+      {state.phase === "paused" ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          Work is paused and can be resumed without replaying edits.
+        </p>
+      ) : null}
+      <Collapsible open={artifactsOpen} onOpenChange={setArtifactsOpen}>
+        <CollapsibleTrigger asChild>
+          <Button type="button" size="sm" variant="ghost" className="-ml-2">
+            Evidence · {state.artifacts.length}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          {state.artifacts.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Evidence will appear as the participants propose, review, and
+              checkpoint work.
+            </p>
+          ) : (
+            <ol className="space-y-2" aria-label="Collaboration evidence">
+              {state.artifacts.map((artifact) => (
+                <li key={artifact.id} className="text-xs">
+                  <span className="font-medium capitalize">
+                    {artifact.kind}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {artifact.summary}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this collaboration?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This ends the collaboration and records a terminal cancellation.
+              Start a new collaboration to continue work.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep collaboration</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={busy || !onSecondaryAction}
+              onClick={() => invokeSecondaryAction("cancel")}
+            >
+              Cancel collaboration
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function ParticipantBadges({
+  participants,
+}: {
+  participants: readonly MultiFrontierRendererParticipant[];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {participants.map((participant) => (
+        <Badge
+          key={participant.participantId}
+          variant="outline"
+          className="gap-1 px-1.5 py-0 text-[10px]"
+        >
+          <span
+            className={`size-1.5 rounded-full ${PROVIDER_COPY[participant.providerId].accent}`}
+            aria-hidden="true"
+          />
+          {PROVIDER_COPY[participant.providerId].label} · {participant.role}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function Notice({ notice }: { notice: MultiFrontierNotice }) {
+  const destructive = notice.kind === "failure";
+  return (
+    <div
+      role={destructive ? "alert" : "status"}
+      aria-live={destructive ? "assertive" : "polite"}
+      className={`flex items-start gap-2 rounded-md border p-3 text-sm ${destructive ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-border bg-muted/40 text-muted-foreground"}`}
+    >
+      {destructive ? (
+        <IconAlertTriangle
+          className="mt-0.5 size-4 shrink-0"
+          aria-hidden="true"
+        />
+      ) : (
+        <IconPlayerSkipForward
+          className="mt-0.5 size-4 shrink-0"
+          aria-hidden="true"
+        />
+      )}
+      <p>{notice.message}</p>
+    </div>
+  );
+}
+
+function ConnectionBadge({ status }: { status?: SubscriptionStatus }) {
+  const connected = status?.connectionState === "connected";
+  const text = connected
+    ? "Connected"
+    : status?.connectionState === "needs-sign-in"
+      ? "Sign in"
+      : "Unavailable";
+  return (
+    <Badge
+      variant={connected ? "secondary" : "outline"}
+      className="shrink-0 px-1.5 py-0 text-[10px]"
+    >
+      {text}
+    </Badge>
+  );
+}
+
+function PhaseStatus({
+  phase,
+  round,
+}: {
+  phase: MultiFrontierRendererState["phase"];
+  round: number;
+}) {
+  return (
+    <p className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span
+        className="size-1.5 rounded-full bg-foreground/70"
+        aria-hidden="true"
+      />
+      {phaseLabel(phase)} · Round {round}
+    </p>
+  );
+}
+
+function phaseLabel(phase: MultiFrontierRendererState["phase"]): string {
+  return phase.replaceAll("_", " ");
+}
+
+function meterLabel(meter: SubscriptionRateLimitMeter): string {
+  if (meter.kind === "five-hour") return "5-hour window";
+  if (meter.kind === "weekly") return "Weekly window";
+  return meter.modelTier ? `${meter.modelTier} weekly` : "Model tier weekly";
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "at an unknown time"
+    : date.toLocaleString();
+}

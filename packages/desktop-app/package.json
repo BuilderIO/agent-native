@@ -25,7 +25,7 @@
     "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && pnpm build && electron-builder --mac --config",
     "preview": "electron-vite preview",
     "smoke:packaged-code-runner": "tsx scripts/smoke-packaged-code-runner.ts",
-    "test": "vitest run src/main shared --exclude \"**/*.test.ts\"",
+    "test": "vitest run src/main src/renderer shared --exclude \"**/*.test.ts\"",
     "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -33,6 +33,7 @@
     "@agent-native/code-agents-ui": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",

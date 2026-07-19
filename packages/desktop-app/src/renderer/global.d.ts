@@ -612,6 +612,26 @@ type DesktopAppRuntimeStatus = {
   message?: string;
 };
 
+type MultiFrontierSettings = {
+  autoContinueAfterAgreement: boolean;
+};
+
+type MultiFrontierCreateIntent = {
+  prompt: string;
+  cwd?: string;
+  autoContinueAfterAgreement: boolean;
+};
+
+type MultiFrontierActionResult = {
+  snapshot?: import("../../shared/multi-frontier-ipc.js").MultiFrontierRendererState;
+  error?: { message: string };
+};
+
+type MultiFrontierSubscriptionResult = {
+  status?: import("../../shared/subscription-status.js").SubscriptionStatus;
+  error?: { message: string };
+};
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -749,6 +769,43 @@ interface ElectronAPI {
     ): Promise<CodeAgentProviderSettingsUpdateResult>;
     connectBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
+  };
+
+  multiFrontier?: {
+    getSettings(): Promise<MultiFrontierSettings>;
+    updateSettings(
+      settings: Partial<MultiFrontierSettings>,
+    ): Promise<MultiFrontierSettings>;
+    getProviderStatus(
+      providerId: import("../../shared/multi-frontier-ipc.js").MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult>;
+    beginProviderLogin(
+      providerId: import("../../shared/multi-frontier-ipc.js").MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult>;
+    refreshProviderStatus(
+      providerId: import("../../shared/multi-frontier-ipc.js").MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult>;
+    list(): Promise<
+      import("../../shared/multi-frontier-ipc.js").MultiFrontierRendererState[]
+    >;
+    create(
+      input: MultiFrontierCreateIntent,
+    ): Promise<MultiFrontierActionResult>;
+    start(collaborationId: string): Promise<MultiFrontierActionResult>;
+    go(collaborationId: string): Promise<MultiFrontierActionResult>;
+    pause(collaborationId: string): Promise<MultiFrontierActionResult>;
+    resume(collaborationId: string): Promise<MultiFrontierActionResult>;
+    cancel(collaborationId: string): Promise<MultiFrontierActionResult>;
+    roleSwap(
+      collaborationId: string,
+      nextDriverParticipantId: string,
+    ): Promise<MultiFrontierActionResult>;
+    subscribe(
+      collaborationId: string,
+      callback: (
+        event: import("../../shared/multi-frontier-ipc.js").MultiFrontierIpcEvent,
+      ) => void,
+    ): () => void;
   };
 
   appConfig: {

@@ -2,22 +2,53 @@ import {
   CodeAgentsApp,
   type CodeAgentComputerSetupAction,
   type CodeAgentModelListResult,
+  type CodeAgentPermissionMode,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
   type CodeAgentsHost,
+  type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type {
+  MultiFrontierIpcEvent,
+  MultiFrontierProviderId,
+  MultiFrontierRendererState,
+} from "../../../shared/multi-frontier-ipc.js";
+import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import AppWebview from "./AppWebview.js";
+import {
+  initialMultiFrontierRunAutoContinue,
+  locksMultiFrontierMode,
+  providerOperationFailureNotice,
+  readNewerMultiFrontierSnapshot,
+} from "./multi-frontier-renderer-state.js";
+import {
+  MultiFrontierParticipantSettings,
+  MultiFrontierWorkspace,
+  type MultiFrontierNotice,
+  type MultiFrontierSecondaryActionInput,
+} from "./MultiFrontierWorkspace.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
   import.meta.url,
 ).href;
 const codeAgentsQueryClient = createAgentNativeQueryClient();
+const MULTI_FRONTIER_PROVIDERS: readonly MultiFrontierProviderId[] = [
+  "codex",
+  "claude",
+];
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
@@ -51,6 +82,412 @@ export default function CodeAgentsHub({
   refreshKey = 0,
   onOpenSettings,
 }: CodeAgentsHubProps) {
+  const [multiFrontierMode, setMultiFrontierMode] = useState(false);
+  const [multiFrontierState, setMultiFrontierState] =
+    useState<MultiFrontierRendererState>();
+  const [multiFrontierSubscriptions, setMultiFrontierSubscriptions] = useState<
+    Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>
+  >({});
+  const [multiFrontierDefaultSettings, setMultiFrontierDefaultSettings] =
+    useState<MultiFrontierSettings>({ autoContinueAfterAgreement: false });
+  const [multiFrontierRunAutoContinue, setMultiFrontierRunAutoContinue] =
+    useState(false);
+  const [multiFrontierBusy, setMultiFrontierBusy] = useState(false);
+  const [multiFrontierNotices, setMultiFrontierNotices] = useState<
+    MultiFrontierNotice[]
+  >([]);
+  const [multiFrontierOpenDetailRequest, setMultiFrontierOpenDetailRequest] =
+    useState<{ detailId: string; nonce: number }>();
+  const multiFrontierSequence = useRef(-1);
+  const multiFrontierSettingsHydrated = useRef(false);
+  const multiFrontierDetailNonce = useRef(0);
+  const multiFrontierNoticeNonce = useRef(0);
+  const activeMultiFrontierCollaborationId =
+    multiFrontierState?.collaborationId;
+  const multiFrontierModeLocked = locksMultiFrontierMode(multiFrontierState);
+
+  const appendMultiFrontierNotice = useCallback(
+    (notice: MultiFrontierNotice) => {
+      setMultiFrontierNotices((current) =>
+        [
+          ...current.filter((currentNotice) => currentNotice.id !== notice.id),
+          notice,
+        ].slice(-8),
+      );
+    },
+    [],
+  );
+
+  const appendProviderOperationFailure = useCallback(
+    (
+      providerId: MultiFrontierProviderId,
+      operation: "connect" | "refresh" | "load",
+    ) => {
+      multiFrontierNoticeNonce.current += 1;
+      appendMultiFrontierNotice(
+        providerOperationFailureNotice(
+          providerId,
+          operation,
+          `subscription:${providerId}:${operation}:${multiFrontierNoticeNonce.current}`,
+        ),
+      );
+    },
+    [appendMultiFrontierNotice],
+  );
+
+  const applyMultiFrontierSnapshot = useCallback(
+    (snapshot: MultiFrontierRendererState | undefined) => {
+      if (!snapshot) return;
+      setMultiFrontierState(snapshot);
+      setMultiFrontierSubscriptions((current) => ({
+        ...current,
+        ...snapshot.subscriptions,
+      }));
+    },
+    [],
+  );
+
+  const applyMultiFrontierEvent = useCallback(
+    (event: MultiFrontierIpcEvent) => {
+      const collaborationId = activeMultiFrontierCollaborationId;
+      if (!collaborationId) return;
+      const next = readNewerMultiFrontierSnapshot(
+        collaborationId,
+        multiFrontierSequence.current,
+        event,
+      );
+      if (!next) return;
+      multiFrontierSequence.current = next.sequence;
+      applyMultiFrontierSnapshot(next.snapshot);
+      if (next.notice) {
+        appendMultiFrontierNotice(next.notice);
+      }
+    },
+    [
+      appendMultiFrontierNotice,
+      applyMultiFrontierSnapshot,
+      activeMultiFrontierCollaborationId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isActive) return;
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    let disposed = false;
+    void api
+      .getSettings()
+      .then((settings) => {
+        if (disposed) return;
+        setMultiFrontierDefaultSettings(settings);
+        if (!multiFrontierSettingsHydrated.current) {
+          multiFrontierSettingsHydrated.current = true;
+          setMultiFrontierRunAutoContinue(
+            initialMultiFrontierRunAutoContinue(settings),
+          );
+        }
+      })
+      .catch(() => undefined);
+    for (const providerId of MULTI_FRONTIER_PROVIDERS) {
+      void api
+        .getProviderStatus(providerId)
+        .then((result) => {
+          if (disposed) return;
+          if (result.error || !result.status) {
+            appendProviderOperationFailure(providerId, "load");
+            return;
+          }
+          setMultiFrontierSubscriptions((current) => ({
+            ...current,
+            [providerId]: result.status!,
+          }));
+        })
+        .catch(() => {
+          if (!disposed) appendProviderOperationFailure(providerId, "load");
+        });
+    }
+    void api
+      .list()
+      .then((snapshots) => {
+        if (disposed) return;
+        const recovered = snapshots.find(
+          (snapshot) => snapshot.phase === "paused",
+        );
+        if (!recovered) return;
+        applyMultiFrontierSnapshot(recovered);
+        multiFrontierSettingsHydrated.current = true;
+        setMultiFrontierRunAutoContinue(
+          recovered.autoContinueAfterAgreement ?? false,
+        );
+        setMultiFrontierMode(true);
+        multiFrontierDetailNonce.current += 1;
+        setMultiFrontierOpenDetailRequest({
+          detailId: recovered.collaborationId,
+          nonce: multiFrontierDetailNonce.current,
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [appendProviderOperationFailure, applyMultiFrontierSnapshot, isActive]);
+
+  useEffect(() => {
+    if (!isActive || !activeMultiFrontierCollaborationId) return;
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    multiFrontierSequence.current = -1;
+    setMultiFrontierNotices([]);
+    return api.subscribe(
+      activeMultiFrontierCollaborationId,
+      applyMultiFrontierEvent,
+    );
+  }, [activeMultiFrontierCollaborationId, applyMultiFrontierEvent, isActive]);
+
+  const refreshMultiFrontierSubscription = useCallback(
+    async (providerId: MultiFrontierProviderId) => {
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      setMultiFrontierBusy(true);
+      try {
+        const result = await api.refreshProviderStatus(providerId);
+        if (result.error || !result.status) {
+          appendProviderOperationFailure(providerId, "refresh");
+          return;
+        }
+        setMultiFrontierSubscriptions((current) => ({
+          ...current,
+          [providerId]: result.status!,
+        }));
+      } catch {
+        appendProviderOperationFailure(providerId, "refresh");
+      } finally {
+        setMultiFrontierBusy(false);
+      }
+    },
+    [appendProviderOperationFailure],
+  );
+
+  const connectMultiFrontierSubscription = useCallback(
+    async (providerId: MultiFrontierProviderId) => {
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      setMultiFrontierBusy(true);
+      try {
+        const result = await api.beginProviderLogin(providerId);
+        if (result.status) {
+          setMultiFrontierSubscriptions((current) => ({
+            ...current,
+            [providerId]: result.status!,
+          }));
+        }
+        if (result.error || !result.status) {
+          appendProviderOperationFailure(providerId, "connect");
+        }
+      } catch {
+        appendProviderOperationFailure(providerId, "connect");
+      } finally {
+        setMultiFrontierBusy(false);
+      }
+    },
+    [appendProviderOperationFailure],
+  );
+
+  const updateMultiFrontierDefaultSettings = useCallback(
+    async (autoContinueAfterAgreement: boolean) => {
+      const previous = multiFrontierDefaultSettings;
+      const next = { autoContinueAfterAgreement };
+      setMultiFrontierDefaultSettings(next);
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      try {
+        setMultiFrontierDefaultSettings(await api.updateSettings(next));
+      } catch {
+        setMultiFrontierDefaultSettings(previous);
+      }
+    },
+    [multiFrontierDefaultSettings],
+  );
+
+  const runMultiFrontierAction = useCallback(
+    async (
+      action: "start" | "go" | "pause" | "resume" | "cancel" | "role-swap",
+      collaborationId: string,
+      nextDriverParticipantId?: string,
+    ) => {
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      setMultiFrontierBusy(true);
+      try {
+        const result =
+          action === "role-swap"
+            ? await api.roleSwap(collaborationId, nextDriverParticipantId ?? "")
+            : await api[action](collaborationId);
+        applyMultiFrontierSnapshot(result.snapshot);
+      } finally {
+        setMultiFrontierBusy(false);
+      }
+    },
+    [applyMultiFrontierSnapshot],
+  );
+
+  const multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
+    () => ({
+      active: multiFrontierMode,
+      disabled: multiFrontierBusy,
+      renderModeControl({ permissionMode, onPermissionModeChange }) {
+        return (
+          <MultiFrontierModeControl
+            active={multiFrontierMode}
+            permissionMode={permissionMode}
+            subscriptions={multiFrontierSubscriptions}
+            busy={multiFrontierBusy}
+            modeLocked={multiFrontierModeLocked}
+            autoContinueAfterAgreement={multiFrontierRunAutoContinue}
+            defaultAutoContinueAfterAgreement={
+              multiFrontierDefaultSettings.autoContinueAfterAgreement
+            }
+            onModeChange={(mode) => {
+              if (mode === "multi-frontier") {
+                if (!multiFrontierMode) {
+                  setMultiFrontierRunAutoContinue(
+                    initialMultiFrontierRunAutoContinue(
+                      multiFrontierDefaultSettings,
+                    ),
+                  );
+                }
+                setMultiFrontierMode(true);
+                return;
+              }
+              if (multiFrontierModeLocked) return;
+              setMultiFrontierMode(false);
+              onPermissionModeChange(
+                mode === "plan" ? "read-only" : "full-auto",
+              );
+            }}
+            onConnectSubscription={(providerId) =>
+              void connectMultiFrontierSubscription(providerId)
+            }
+            onRefreshSubscription={(providerId) =>
+              void refreshMultiFrontierSubscription(providerId)
+            }
+            onAutoContinueAfterAgreementChange={(value) =>
+              setMultiFrontierRunAutoContinue(value)
+            }
+            onDefaultAutoContinueAfterAgreementChange={(value) =>
+              void updateMultiFrontierDefaultSettings(value)
+            }
+          />
+        );
+      },
+      async submit({ prompt, cwd, attachments }) {
+        if (attachments.length > 0) {
+          return {
+            ok: false,
+            message: "Multi-Frontier does not accept attachments yet.",
+          };
+        }
+        const api = window.electronAPI?.multiFrontier;
+        if (!api) {
+          return {
+            ok: false,
+            message: "Multi-Frontier is not available in this desktop build.",
+          };
+        }
+        const allConnected = MULTI_FRONTIER_PROVIDERS.every(
+          (providerId) =>
+            multiFrontierSubscriptions[providerId]?.connectionState ===
+            "connected",
+        );
+        if (!allConnected) {
+          return {
+            ok: false,
+            message: "Connect both subscription participants before starting.",
+          };
+        }
+        setMultiFrontierBusy(true);
+        try {
+          const result = await api.create({
+            prompt,
+            ...(cwd ? { cwd } : {}),
+            autoContinueAfterAgreement: multiFrontierRunAutoContinue,
+          });
+          applyMultiFrontierSnapshot(result.snapshot);
+          if (!result.snapshot) {
+            return {
+              ok: false,
+              message:
+                result.error?.message ?? "Could not start collaboration.",
+            };
+          }
+          return { ok: true, detailId: result.snapshot.collaborationId };
+        } finally {
+          setMultiFrontierBusy(false);
+        }
+      },
+      renderDetail({ detailId }: { detailId: string }) {
+        const state =
+          multiFrontierState?.collaborationId === detailId
+            ? multiFrontierState
+            : undefined;
+        return (
+          <MultiFrontierWorkspace
+            state={state}
+            subscriptions={multiFrontierSubscriptions}
+            notices={multiFrontierNotices}
+            busy={multiFrontierBusy}
+            autoContinueAfterAgreement={multiFrontierRunAutoContinue}
+            defaultAutoContinueAfterAgreement={
+              multiFrontierDefaultSettings.autoContinueAfterAgreement
+            }
+            onConnectSubscription={(providerId) =>
+              void connectMultiFrontierSubscription(providerId)
+            }
+            onRefreshSubscription={(providerId) =>
+              void refreshMultiFrontierSubscription(providerId)
+            }
+            onAutoContinueAfterAgreementChange={
+              state
+                ? undefined
+                : (value) => setMultiFrontierRunAutoContinue(value)
+            }
+            onDefaultAutoContinueAfterAgreementChange={(value) =>
+              void updateMultiFrontierDefaultSettings(value)
+            }
+            onStart={(collaborationId) =>
+              void runMultiFrontierAction("start", collaborationId)
+            }
+            onGo={(collaborationId) =>
+              void runMultiFrontierAction("go", collaborationId)
+            }
+            onSecondaryAction={(input: MultiFrontierSecondaryActionInput) =>
+              void runMultiFrontierAction(
+                input.action,
+                input.collaborationId,
+                input.nextDriverParticipantId,
+              )
+            }
+          />
+        );
+      },
+    }),
+    [
+      applyMultiFrontierSnapshot,
+      connectMultiFrontierSubscription,
+      multiFrontierBusy,
+      multiFrontierDefaultSettings.autoContinueAfterAgreement,
+      multiFrontierModeLocked,
+      multiFrontierMode,
+      multiFrontierNotices,
+      multiFrontierRunAutoContinue,
+      multiFrontierState,
+      multiFrontierSubscriptions,
+      refreshMultiFrontierSubscription,
+      runMultiFrontierAction,
+      updateMultiFrontierDefaultSettings,
+    ],
+  );
+
   const host = useMemo<CodeAgentsHostWithTranscriptSubscription>(
     () => ({
       async listRuns(goalId?: string) {
@@ -325,6 +762,8 @@ export default function CodeAgentsHub({
         refreshKey={refreshKey}
         brandIconUrl={agentNativeIconUrl}
         onOpenSettings={onOpenSettings}
+        newSessionExtension={multiFrontierExtension}
+        openDetailRequest={multiFrontierOpenDetailRequest}
         renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
           <div className="code-agents-embedded-app-surface">
             <AppWebview
@@ -338,5 +777,72 @@ export default function CodeAgentsHub({
         )}
       />
     </QueryClientProvider>
+  );
+}
+
+function MultiFrontierModeControl({
+  active,
+  permissionMode,
+  subscriptions,
+  busy,
+  modeLocked,
+  autoContinueAfterAgreement,
+  defaultAutoContinueAfterAgreement,
+  onModeChange,
+  onConnectSubscription,
+  onRefreshSubscription,
+  onAutoContinueAfterAgreementChange,
+  onDefaultAutoContinueAfterAgreementChange,
+}: {
+  active: boolean;
+  permissionMode: CodeAgentPermissionMode;
+  subscriptions: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
+  busy: boolean;
+  modeLocked: boolean;
+  autoContinueAfterAgreement: boolean;
+  defaultAutoContinueAfterAgreement: boolean;
+  onModeChange: (mode: "plan" | "auto" | "multi-frontier") => void;
+  onConnectSubscription: (providerId: MultiFrontierProviderId) => void;
+  onRefreshSubscription: (providerId: MultiFrontierProviderId) => void;
+  onAutoContinueAfterAgreementChange: (value: boolean) => void;
+  onDefaultAutoContinueAfterAgreementChange: (value: boolean) => void;
+}) {
+  const value = active
+    ? "multi-frontier"
+    : permissionMode === "read-only"
+      ? "plan"
+      : "auto";
+  return (
+    <div className="flex items-center gap-1.5">
+      <Select
+        value={value}
+        disabled={busy || modeLocked}
+        onValueChange={onModeChange}
+      >
+        <SelectTrigger
+          className="code-agents-mode-select"
+          aria-label="Run mode"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="code-agents-mode-menu">
+          <SelectItem value="plan">Plan</SelectItem>
+          <SelectItem value="auto">Auto</SelectItem>
+          <SelectItem value="multi-frontier">Multi-Frontier</SelectItem>
+        </SelectContent>
+      </Select>
+      <MultiFrontierParticipantSettings
+        statuses={subscriptions}
+        busy={busy}
+        autoContinueAfterAgreement={autoContinueAfterAgreement}
+        defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
+        onConnect={onConnectSubscription}
+        onRefresh={onRefreshSubscription}
+        onAutoContinueAfterAgreementChange={onAutoContinueAfterAgreementChange}
+        onDefaultAutoContinueAfterAgreementChange={
+          onDefaultAutoContinueAfterAgreementChange
+        }
+      />
+    </div>
   );
 }

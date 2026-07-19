@@ -1,0 +1,182 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import type { MultiFrontierRendererState } from "../../../shared/multi-frontier-ipc.js";
+import {
+  agreementPolicyForWorkspace,
+  createMultiFrontierInput,
+  controlsForState,
+  MultiFrontierWorkspace,
+  usageSummary,
+  UsageMeter,
+} from "./MultiFrontierWorkspace.js";
+
+describe("MultiFrontierWorkspace presentation helpers", () => {
+  it("only exposes GO after convergence is awaiting explicit approval", () => {
+    expect(
+      controlsForState({ phase: "awaiting_go", approvalState: "pending" }),
+    ).toMatchObject({ canGo: true, canPause: true, canCancel: true });
+    expect(
+      controlsForState({ phase: "awaiting_go", approvalState: "rejected" }),
+    ).toMatchObject({ canGo: false });
+    expect(
+      controlsForState({
+        phase: "awaiting_go",
+        approvalState: "pending",
+        autoContinueAfterAgreement: true,
+      }),
+    ).toMatchObject({ canGo: false });
+  });
+
+  it("does not expose controls for terminal collaborations", () => {
+    expect(
+      controlsForState({ phase: "completed", approvalState: "not_required" }),
+    ).toEqual({
+      canStart: false,
+      canGo: false,
+      canPause: false,
+      canResume: false,
+      canCancel: false,
+      canSwap: false,
+    });
+  });
+
+  it("only permits role swaps at reviewed handoff boundaries", () => {
+    expect(
+      controlsForState({ phase: "awaiting_go", approvalState: "approved" }),
+    ).toMatchObject({ canSwap: true });
+    expect(
+      controlsForState({
+        phase: "checkpoint_review",
+        approvalState: "not_required",
+      }),
+    ).toMatchObject({ canSwap: true });
+    expect(
+      controlsForState({ phase: "implementing", approvalState: "approved" }),
+    ).toMatchObject({ canSwap: false });
+    expect(
+      controlsForState({ phase: "proposing", approvalState: "not_required" }),
+    ).toMatchObject({ canSwap: false });
+  });
+
+  it("makes the Claude live-usage degradation explicit", () => {
+    expect(
+      usageSummary({
+        schemaVersion: 1,
+        providerId: "claude",
+        connectionState: "connected",
+        telemetry: {
+          state: "unsupported",
+          source: "connection-only",
+          capabilities: {
+            account: false,
+            plan: true,
+            rateLimits: false,
+            modelTierRateLimits: false,
+            contextWindow: false,
+            credits: false,
+            liveUpdates: false,
+          },
+          meters: [],
+        },
+      }),
+    ).toContain("non-interactive Claude sessions");
+  });
+
+  it("never represents unreported usage as a zero-percent progress bar", () => {
+    const markup = renderToStaticMarkup(
+      createElement(UsageMeter, {
+        meter: {
+          id: "weekly",
+          kind: "weekly",
+          state: "unsupported",
+          message: "Not reported by this provider",
+        },
+      }),
+    );
+
+    expect(markup).toContain("Not reported by this provider");
+    expect(markup).not.toContain('role="progressbar"');
+    expect(markup).not.toContain('aria-valuenow="0"');
+  });
+
+  it("renders live notices and an accessible cancellation confirmation", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MultiFrontierWorkspace, {
+        state: rendererState("awaiting_go"),
+        notices: [
+          { id: "recovery", kind: "recovery", message: "Recovered safely." },
+          { id: "failure", kind: "failure", message: "A participant failed." },
+        ],
+        onSecondaryAction: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("More collaboration actions");
+    expect(markup).toContain("Evidence · 0");
+  });
+
+  it("defaults each run to explicit GO", () => {
+    expect(createMultiFrontierInput("Review this change")).toEqual({
+      prompt: "Review this change",
+      autoContinueAfterAgreement: false,
+    });
+  });
+
+  it("keeps prompt entry in the existing code-agent composer", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MultiFrontierWorkspace, {
+        subscriptions: {},
+        autoContinueAfterAgreement: false,
+      }),
+    );
+
+    expect(markup).toContain("Connect both subscriptions above");
+    expect(markup).not.toContain("textarea");
+  });
+
+  it("uses an existing run's persisted agreement policy rather than the new-run draft", () => {
+    expect(
+      agreementPolicyForWorkspace({ autoContinueAfterAgreement: true }, false),
+    ).toEqual({ autoContinueAfterAgreement: true, isReadOnly: true });
+    expect(agreementPolicyForWorkspace(undefined, false)).toEqual({
+      autoContinueAfterAgreement: false,
+      isReadOnly: false,
+    });
+  });
+});
+
+function rendererState(
+  phase: MultiFrontierRendererState["phase"],
+): MultiFrontierRendererState {
+  return {
+    rendererStateIsAuthoritative: false,
+    collaborationId: "collaboration-1",
+    phase,
+    round: 1,
+    participants: [
+      {
+        participantId: "codex-1",
+        providerId: "codex",
+        role: "watchdog",
+        permission: "read_only",
+        status: "waiting",
+        capabilities: ["read-only"],
+      },
+      {
+        participantId: "claude-1",
+        providerId: "claude",
+        role: "watchdog",
+        permission: "read_only",
+        status: "waiting",
+        capabilities: ["read-only"],
+      },
+    ],
+    approvalState: "pending",
+    artifacts: [],
+    subscriptions: {},
+  };
+}
