@@ -196,6 +196,17 @@ function harness() {
 }
 
 describe("Private Vault resumable migration coordinator", () => {
+  it("rejects a frozen document hierarchy with a parent cycle", async () => {
+    const { coordinator, source } = harness();
+    source.values.set("root", {
+      ...source.values.get("root")!,
+      parentId: "child",
+    });
+    await expect(
+      coordinator.preflight(scope, ["root", "child"]),
+    ).rejects.toBeInstanceOf(PrivateVaultMigrationError);
+  });
+
   it("freezes a hierarchy and refuses changed plaintext before disclosure or verification", async () => {
     const { coordinator, source, store } = harness();
     const ledger = await coordinator.preflight(scope, ["root", "child"]);

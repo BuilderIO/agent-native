@@ -147,12 +147,15 @@ export function encodePrivateVaultMigrationSource(
 export function hashPrivateVaultMigrationSource(
   source: PrivateVaultMigrationSourceDocument,
 ): string {
-  return createHash("sha256")
-    .update(encodePrivateVaultMigrationSource(source))
-    .digest("hex");
+  const encoded = encodePrivateVaultMigrationSource(source);
+  try {
+    return createHash("sha256").update(encoded).digest("hex");
+  } finally {
+    encoded.fill(0);
+  }
 }
 
-function sourceSnapshotHash(
+export function hashPrivateVaultMigrationSnapshot(
   items: readonly Pick<
     PrivateVaultMigrationItem,
     "sourceDocumentId" | "sourceDigest" | "objectId"
@@ -160,7 +163,11 @@ function sourceSnapshotHash(
 ): string {
   const canonical = [...items]
     .sort((left, right) =>
-      left.sourceDocumentId.localeCompare(right.sourceDocumentId),
+      left.sourceDocumentId < right.sourceDocumentId
+        ? -1
+        : left.sourceDocumentId > right.sourceDocumentId
+          ? 1
+          : 0,
     )
     .map((item) => [item.sourceDocumentId, item.sourceDigest, item.objectId]);
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
@@ -214,12 +221,23 @@ export class PrivateVaultMigrationCoordinator {
         !itemBySource.has(item.parentSourceDocumentId)
       )
         fail();
+    for (const item of itemBySource.values()) {
+      const seen = new Set<string>();
+      let cursor: PrivateVaultMigrationItem | undefined = item;
+      while (cursor) {
+        if (seen.has(cursor.sourceDocumentId)) fail();
+        seen.add(cursor.sourceDocumentId);
+        cursor = cursor.parentSourceDocumentId
+          ? itemBySource.get(cursor.parentSourceDocumentId)
+          : undefined;
+      }
+    }
     const items = [...itemBySource.values()];
     const ledger = privateVaultMigrationLedgerSchema.parse({
       migrationId,
       vaultId: scope.vaultId,
       state: "preflight",
-      sourceSnapshotHash: sourceSnapshotHash(items),
+      sourceSnapshotHash: hashPrivateVaultMigrationSnapshot(items),
       sourceCount: items.length,
       verifiedCount: 0,
       exportBundleHash: null,

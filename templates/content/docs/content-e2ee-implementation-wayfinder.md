@@ -1353,9 +1353,13 @@ imports, accepts the phrase only through hidden TTY bytes (never arguments,
 environment, or a pipe), derives the root locally, authenticates the archive,
 and atomically creates a non-overwriting mode-0600 plaintext file. Its synthetic
 round trip, invalid checksum, existing-file, and output-symlink cases are
-executable tests. The canonical migration payload and export-before-cleanup
-wiring remain part of this milestone; the existence of the decryptor alone is
-not migration proof.
+executable tests. The Content payload inside that archive is now frozen too: it
+canonically binds every supported document field, hierarchy edge, source
+digest, encrypted object ID, revision ID, and ciphertext hash to the migration
+ledger, rejects unknown or noncanonical JSON and cyclic trees, and has a fixed
+source vector. Signed-Desktop export ceremony wiring and the full
+export-before-cleanup drill remain part of this milestone; the existence of the
+format and decryptor alone is not migration proof.
 
 Exit gate:
 
