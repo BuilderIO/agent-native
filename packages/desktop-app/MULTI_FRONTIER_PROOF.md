@@ -371,6 +371,8 @@ Helper record:
 | Packet #7 anti-anchoring and credential regressions      | `gpt-5.6-terra` | `gpt-5.6-terra`               |
 | Live provider-status event and verification matrix       | `gpt-5.6-terra` | `gpt-5.6-terra`               |
 | Lifecycle concurrency fix and final re-audit             | `gpt-5.6-terra` | `gpt-5.6-terra`               |
+| Composer control layout polish                           | `gpt-5.6-terra` | Not exposed by worker runtime |
+| Progressive-disclosure workspace polish                  | `gpt-5.6-terra` | Not exposed by worker runtime |
 
 ## Hosted v2 prerequisite
 
