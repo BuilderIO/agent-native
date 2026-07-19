@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deletePrivateVaultCiphertextObject,
   getPrivateVaultCiphertextRevision,
+  listPrivateVaultCiphertextObjects,
   PrivateVaultTransportError,
   uploadPrivateVaultCiphertextRevision,
 } from "./private-vault-client.js";
@@ -228,6 +229,64 @@ describe("Private Vault named ciphertext client", () => {
       }),
     ).rejects.toBeInstanceOf(PrivateVaultTransportError);
     expect(pulls).toBeLessThanOrEqual(1);
+  });
+
+  it("lists only strictly bound content-free object coordinates", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            objects: [
+              {
+                objectId: uploadResponse.objectId,
+                objectType: uploadResponse.objectType,
+                latestRevision: uploadResponse,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      listPrivateVaultCiphertextObjects({ vaultId: uploadResponse.vaultId }),
+    ).resolves.toEqual([
+      expect.objectContaining({ objectId: uploadResponse.objectId }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/private-vault/objects"),
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+        headers: { "X-ANC-Vault-Id": uploadResponse.vaultId },
+      }),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              objects: [
+                {
+                  objectId: uploadResponse.objectId,
+                  objectType: uploadResponse.objectType,
+                  latestRevision: {
+                    ...uploadResponse,
+                    objectId: "object:substituted-0001",
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    await expect(
+      listPrivateVaultCiphertextObjects({ vaultId: uploadResponse.vaultId }),
+    ).rejects.toBeInstanceOf(PrivateVaultTransportError);
   });
 
   it("uses the named delete helper with CSRF and vault scope", async () => {

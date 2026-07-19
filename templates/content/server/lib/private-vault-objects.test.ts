@@ -76,6 +76,20 @@ function fixture(
       return metadata;
     }),
     listRevisions: vi.fn(async () => [...revisions.values()]),
+    listObjects: vi.fn(async () => {
+      if (!object) return [];
+      const values = [...revisions.values()];
+      const latestRevision = values[values.length - 1];
+      return latestRevision
+        ? [
+            {
+              objectId: object.objectId,
+              objectType: object.objectType,
+              latestRevision,
+            },
+          ]
+        : [];
+    }),
     beginDelete: vi.fn(async () => {
       if (!object) return null;
       if (object.objectState === "active")
@@ -236,6 +250,31 @@ describe("Private Vault object service", () => {
       }),
     ).rejects.toThrow("ciphertext collision");
     expect(subject.staging.stage).toHaveBeenCalledOnce();
+  });
+
+  it("lists only content-free active object coordinates", async () => {
+    const subject = fixture();
+    await subject.service.putRevision(scope, {
+      ...revision,
+      ciphertext: new Uint8Array([1, 2, 3, 4]),
+    });
+    await expect(subject.service.listObjects(scope)).resolves.toEqual([
+      {
+        objectId: revision.objectId,
+        objectType: revision.objectType,
+        latestRevision: expect.objectContaining({
+          revisionId: revision.revisionId,
+          ciphertextByteLength: 4,
+        }),
+      },
+    ]);
+    const serialized = JSON.stringify(await subject.service.listObjects(scope));
+    expect(serialized).not.toContain('"ciphertext":');
+    expect(serialized).not.toContain("title");
+
+    await expect(
+      subject.service.listObjects({ ...scope, vaultId: "vault:other-0001" }),
+    ).rejects.toBeInstanceOf(PrivateVaultObjectNotFoundError);
   });
 
   it("compensates a newly-created blob after metadata persistence failure", async () => {

@@ -34,6 +34,16 @@ const objectRevisionMetadataSchema = z
     serverReceivedAt: protocolTimestampSchema.optional(),
   })
   .strict();
+const objectIndexEntrySchema = z
+  .object({
+    objectId: opaqueIdSchema,
+    objectType: objectTypeSchema,
+    latestRevision: objectRevisionMetadataSchema,
+  })
+  .strict();
+const objectIndexResponseSchema = z
+  .object({ objects: z.array(objectIndexEntrySchema).max(10_000) })
+  .strict();
 
 export interface PrivateVaultCiphertextRevisionInput {
   vaultId: string;
@@ -56,6 +66,12 @@ export interface PrivateVaultCiphertextRevisionMetadata {
   parentRevisionIds: string[];
   ciphertextByteLength: number;
   serverReceivedAt?: string;
+}
+
+export interface PrivateVaultCiphertextObjectIndexEntry {
+  objectId: string;
+  objectType: string;
+  latestRevision: PrivateVaultCiphertextRevisionMetadata;
 }
 
 export class PrivateVaultTransportError extends Error {
@@ -174,6 +190,35 @@ export async function uploadPrivateVaultCiphertextRevision(
     throw invalidTransportResponse();
   }
   return parsed.data;
+}
+
+export async function listPrivateVaultCiphertextObjects(
+  input: { vaultId: string },
+  options: { signal?: AbortSignal } = {},
+): Promise<PrivateVaultCiphertextObjectIndexEntry[]> {
+  const vaultId = opaqueIdSchema.parse(input.vaultId);
+  const response = await fetch(agentNativePath("/api/private-vault/objects"), {
+    method: "GET",
+    credentials: "same-origin",
+    signal: options.signal,
+    headers: { "X-ANC-Vault-Id": vaultId },
+  });
+  if (!response.ok) throw new PrivateVaultTransportError(response.status);
+  const parsed = objectIndexResponseSchema.safeParse(
+    await parseJsonResponse(response),
+  );
+  if (
+    !parsed.success ||
+    parsed.data.objects.some(
+      (entry) =>
+        entry.latestRevision.vaultId !== vaultId ||
+        entry.latestRevision.objectId !== entry.objectId ||
+        entry.latestRevision.objectType !== entry.objectType,
+    )
+  ) {
+    throw invalidTransportResponse();
+  }
+  return parsed.data.objects;
 }
 
 export async function getPrivateVaultCiphertextRevision(

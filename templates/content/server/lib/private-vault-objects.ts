@@ -103,6 +103,12 @@ export interface PrivateVaultRevisionMetadata extends PrivateVaultObjectRevision
   serverReceivedAt: string;
 }
 
+export interface PrivateVaultObjectIndexEntry {
+  objectId: string;
+  objectType: string;
+  latestRevision: PrivateVaultRevisionMetadata;
+}
+
 interface StoredObject {
   objectId: string;
   objectType: string;
@@ -130,6 +136,9 @@ export interface PrivateVaultObjectStore {
     scope: PrivateVaultScope,
     objectId: string,
   ): Promise<PrivateVaultRevisionMetadata[]>;
+  listObjects(
+    scope: PrivateVaultScope,
+  ): Promise<PrivateVaultObjectIndexEntry[]>;
   beginDelete(
     scope: PrivateVaultScope,
     objectId: string,
@@ -596,6 +605,68 @@ export const sqlPrivateVaultObjectStore: PrivateVaultObjectStore = {
       );
     return rows.map((row) => rowMetadata(row, object.objectType));
   },
+  listObjects: async (scope) => {
+    const objects = await getDb()
+      .select({
+        objectId: schema.contentEncryptedVaultObjects.objectId,
+        objectType: schema.contentEncryptedVaultObjects.objectType,
+      })
+      .from(schema.contentEncryptedVaultObjects)
+      .where(
+        and(
+          eq(schema.contentEncryptedVaultObjects.vaultId, scope.vaultId),
+          eq(schema.contentEncryptedVaultObjects.ownerEmail, scope.ownerEmail),
+          eq(schema.contentEncryptedVaultObjects.orgId, scope.orgId),
+          eq(schema.contentEncryptedVaultObjects.objectState, "active"),
+        ),
+      )
+      .orderBy(asc(schema.contentEncryptedVaultObjects.objectId))
+      .limit(10_001);
+    if (objects.length > 10_000) {
+      throw new PrivateVaultObjectConflictError(
+        "Private Vault object index requires pagination",
+      );
+    }
+    const revisions = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultObjectRevisions)
+      .where(
+        and(
+          eq(
+            schema.contentEncryptedVaultObjectRevisions.vaultId,
+            scope.vaultId,
+          ),
+          eq(
+            schema.contentEncryptedVaultObjectRevisions.ownerEmail,
+            scope.ownerEmail,
+          ),
+          eq(schema.contentEncryptedVaultObjectRevisions.orgId, scope.orgId),
+        ),
+      )
+      .orderBy(
+        asc(schema.contentEncryptedVaultObjectRevisions.objectId),
+        asc(schema.contentEncryptedVaultObjectRevisions.serverReceivedAt),
+        asc(schema.contentEncryptedVaultObjectRevisions.revisionId),
+      )
+      .limit(100_001);
+    if (revisions.length > 100_000) {
+      throw new PrivateVaultObjectConflictError(
+        "Private Vault revision index requires pagination",
+      );
+    }
+    const objectTypes = new Map(
+      objects.map((object) => [object.objectId, object.objectType]),
+    );
+    const latest = new Map<string, PrivateVaultRevisionMetadata>();
+    for (const row of revisions) {
+      const objectType = objectTypes.get(row.objectId);
+      if (objectType) latest.set(row.objectId, rowMetadata(row, objectType));
+    }
+    return objects.flatMap((object) => {
+      const latestRevision = latest.get(object.objectId);
+      return latestRevision ? [{ ...object, latestRevision }] : [];
+    });
+  },
   beginDelete: async (scope, objectId, eventId, serverReceivedAt) => {
     return getDb().transaction(async (tx) => {
       const [object] = await tx
@@ -915,6 +986,14 @@ export function createPrivateVaultObjectService(
         throw new PrivateVaultObjectNotFoundError();
       }
       return store.listRevisions(scope, objectId);
+    },
+
+    async listObjects(scopeInput: PrivateVaultScope) {
+      const scope = normalizeScope(scopeInput);
+      if (!(await store.requireActiveVault(scope))) {
+        throw new PrivateVaultObjectNotFoundError();
+      }
+      return store.listObjects(scope);
     },
 
     async deleteObject(scopeInput: PrivateVaultScope, objectIdInput: string) {
