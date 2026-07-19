@@ -17,6 +17,7 @@
 #define PV_GENESIS_RECEIPT_MAXIMUM_BYTES 2048
 #define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
 #define PV_JOB_ENVELOPE_MAXIMUM_BYTES (16 * 1024 * 1024 + 64 * 1024)
+#define PV_JOB_PAYLOAD_MAXIMUM_BYTES (16 * 1024 * 1024)
 #define PV_ENDPOINT_PROOF_MAXIMUM_BYTES (64 * 1024)
 #define PV_ENROLLMENT_OFFER_MAXIMUM_BYTES 1024
 #define PV_ENROLLMENT_CANDIDATE_PROOF_BYTES 64
@@ -40,6 +41,8 @@ typedef struct {
     const char *lookupID;
     const char *jobID;
     const char *jobHash;
+    const char *grantRef;
+    const char *recipientEndpointID;
     const char *algorithmID;
     const char *resultState;
     const char *decision;
@@ -49,6 +52,7 @@ typedef struct {
     uint64_t objectRevision;
     uint64_t hostedEpoch;
     uint64_t hostedRetryCount;
+    uint64_t expiresAt;
     const void *recoveryConfirmation;
     size_t recoveryConfirmationLength;
     const void *bootstrapTranscript;
@@ -65,6 +69,8 @@ typedef struct {
     size_t bootstrapFrameLength;
     const void *jobEnvelope;
     size_t jobEnvelopeLength;
+    const void *jobPayload;
+    size_t jobPayloadLength;
     const void *resultPayload;
     size_t resultPayloadLength;
     const void *unsignedProof;

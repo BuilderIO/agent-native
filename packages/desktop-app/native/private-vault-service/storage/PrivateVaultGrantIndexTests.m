@@ -243,6 +243,62 @@ int main(void) {
                          resourceId:Pattern(0x04, 16) operation:@"read"
                            provider:@"synthetic-provider"] ==
            AncPrivateVaultGrantIndexStatusUnauthorized);
+
+    uint8_t contentGrantSeed[32];
+    memset(contentGrantSeed, 0x11, sizeof contentGrantSeed);
+    uint8_t contentGrantPublicKey[32] = {0};
+    uint8_t contentGrantPrivateKey[64] = {0};
+    assert(anc_pv_ed25519_seed_keypair(contentGrantPublicKey,
+                                       contentGrantPrivateKey,
+                                       contentGrantSeed) ==
+           ANC_PV_CRYPTO_OK);
+    AncPrivateVaultGrantCodecStatus contentGrantStatus =
+        AncPrivateVaultGrantCodecStatusInvalid;
+    NSData *contentVaultGrant = AncPrivateVaultSealGrantEnvelope(
+        Pattern(0x01, 16), Pattern(0xa1, 16), 1721111111,
+        Pattern(0xa2, 16), Pattern(0x02, 16), Pattern(0xa3, 16),
+        Pattern(0x03, 16), nil, @[Pattern(0x01, 16)],
+        @[@"get-document"], @[@"content"], 1721111111, 1721114711,
+        Pattern(0xa4, 16), contentGrantSeed, &contentGrantStatus);
+    AncPrivateVaultVerifiedGrant *verifiedContentVaultGrant =
+        AncPrivateVaultVerifyGrantEnvelope(
+            contentVaultGrant, Pattern(0x01, 16), 1721111112,
+            Pattern(0x02, 16), contentGrantPublicKey, &contentGrantStatus);
+    assert(contentGrantStatus == AncPrivateVaultGrantCodecStatusOK &&
+           verifiedContentVaultGrant != nil);
+    NSData *contentGrantSigningKey =
+        [NSData dataWithBytes:contentGrantPublicKey length:32];
+    assert([index storeGrantEnvelope:contentVaultGrant vaultId:kVaultId
+                          nowSeconds:1721111112
+                    issuerEndpointId:Pattern(0x02, 16)
+             issuerControlEndpointId:@"endpoint:index-owner"
+              issuerSigningPublicKey:contentGrantSigningKey] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index authorizeGrantRef:verifiedContentVaultGrant.grantRef
+                             vaultId:kVaultId nowSeconds:1721111112
+                    subjectAccountId:Pattern(0xa3, 16)
+                   subjectEndpointId:Pattern(0x03, 16)
+                      subjectAgentId:nil resourceId:Pattern(0x77, 16)
+                           operation:@"get-document" provider:@"content"] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index authorizeGrantRef:verifiedContentVaultGrant.grantRef
+                             vaultId:kVaultId nowSeconds:1721111112
+                    subjectAccountId:Pattern(0xa3, 16)
+                   subjectEndpointId:Pattern(0x03, 16)
+                      subjectAgentId:nil resourceId:Pattern(0x77, 16)
+                           operation:@"publish-document"
+                            provider:@"content"] ==
+           AncPrivateVaultGrantIndexStatusUnauthorized);
+    assert([index authorizeGrantRef:verifiedContentVaultGrant.grantRef
+                             vaultId:kVaultId nowSeconds:1721111112
+                    subjectAccountId:Pattern(0xa3, 16)
+                   subjectEndpointId:Pattern(0x03, 16)
+                      subjectAgentId:nil resourceId:Pattern(0x77, 16)
+                           operation:@"get-document"
+                            provider:@"mail"] ==
+           AncPrivateVaultGrantIndexStatusUnauthorized);
+    anc_pv_zeroize(contentGrantSeed, sizeof contentGrantSeed);
+    anc_pv_zeroize(contentGrantPrivateKey, sizeof contentGrantPrivateKey);
     NSData *jobId = Pattern(0x12, 16);
     NSData *jobHash = Pattern(0x13, 32);
     NSData *resultHash = Pattern(0x14, 32);
@@ -539,7 +595,7 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 10 && snapshot.grantCount == 2 &&
+    assert(snapshot.generation == 11 && snapshot.grantCount == 3 &&
            snapshot.revocationCount == 1 && snapshot.jobCount == 2);
     AncPrivateVaultJobProcessor *restartedProcessor =
         [[AncPrivateVaultJobProcessor alloc]

@@ -1313,6 +1313,304 @@ static BOOL PVObjectEndpointContext(
     return YES;
 }
 
+static BOOL PVRequesterEndpointContext(
+    NSString *vaultId, AncPrivateVaultControlLogState **state,
+    NSData **endpointId, AncPrivateVaultControlLogMember **endpointMember,
+    AncPrivateVaultGuardedMemory **signingSeed,
+    AncPrivateVaultGuardedMemory **agreementSeed) {
+    if (state == NULL || endpointId == NULL || endpointMember == NULL ||
+        signingSeed == NULL || agreementSeed == NULL)
+        return NO;
+    *state = nil;
+    *endpointId = nil;
+    *endpointMember = nil;
+    *signingSeed = nil;
+    *agreementSeed = nil;
+    AncPrivateVaultControlLogState *authenticated = nil;
+    NSData *localEndpointId = nil;
+    AncPrivateVaultGuardedMemory *signing = nil;
+    AncPrivateVaultGuardedMemory *epoch = nil;
+    if (!PVObjectEndpointContext(vaultId, &authenticated, &localEndpointId,
+                                 &signing, &epoch))
+        return NO;
+    AncPrivateVaultGuardedMemory *duplicateSigning = nil;
+    AncPrivateVaultGuardedMemory *agreement = nil;
+    AncPrivateVaultGuardedMemory *duplicateEpoch = nil;
+    BOOL copiedAgreement = PVEnrollmentEndpointSecrets(
+        vaultId, authenticated.epoch, YES, &duplicateSigning, &agreement,
+        &duplicateEpoch);
+    BOOL duplicateSigningClosed =
+        duplicateSigning != nil &&
+        [duplicateSigning close] == AncPrivateVaultGuardedMemoryStatusOK;
+    BOOL duplicateEpochClosed =
+        duplicateEpoch != nil &&
+        [duplicateEpoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+    BOOL epochClosed =
+        epoch != nil &&
+        [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+    NSMutableString *endpointHex = [NSMutableString stringWithCapacity:32];
+    const uint8_t *endpointBytes = localEndpointId.bytes;
+    for (NSUInteger index = 0; index < localEndpointId.length; index += 1)
+        [endpointHex appendFormat:@"%02x", endpointBytes[index]];
+    AncPrivateVaultControlLogMember *member = nil;
+    BOOL duplicateMember = NO;
+    for (AncPrivateVaultControlLogMember *candidate in
+         authenticated.activeMembers) {
+        if ([candidate.endpointId isEqualToString:endpointHex]) {
+            if (member != nil) duplicateMember = YES;
+            else member = candidate;
+        }
+    }
+    __block BOOL agreementMatches = NO;
+    AncPrivateVaultGuardedMemoryStatus agreementBorrowed =
+        AncPrivateVaultGuardedMemoryStatusInvalid;
+    if (copiedAgreement && agreement != nil && member != nil &&
+        !duplicateMember) {
+        agreementBorrowed = [agreement borrow:^BOOL(uint8_t *seed,
+                                                     size_t length) {
+          uint8_t publicKey[ANC_PV_BOX_PUBLIC_KEY_BYTES] = {0};
+          uint8_t privateKey[ANC_PV_BOX_PRIVATE_KEY_BYTES] = {0};
+          BOOL derived = length == ANC_PV_SEED_BYTES &&
+              anc_pv_box_seed_keypair(publicKey, privateKey, seed) ==
+                  ANC_PV_CRYPTO_OK;
+          agreementMatches =
+              derived && member.keyAgreementPublicKey.length == 32 &&
+              anc_pv_memcmp(publicKey, member.keyAgreementPublicKey.bytes,
+                            sizeof publicKey) == 0;
+          anc_pv_zeroize(publicKey, sizeof publicKey);
+          anc_pv_zeroize(privateKey, sizeof privateKey);
+          return agreementMatches;
+        }];
+    }
+    if (!copiedAgreement || !duplicateSigningClosed ||
+        !duplicateEpochClosed || !epochClosed ||
+        agreementBorrowed != AncPrivateVaultGuardedMemoryStatusOK ||
+        !agreementMatches || duplicateMember || member == nil ||
+        ![member.role isEqualToString:@"endpoint"] ||
+        member.unattended) {
+        if (signing != nil) [signing close];
+        if (agreement != nil) [agreement close];
+        return NO;
+    }
+    *state = authenticated;
+    *endpointId = localEndpointId;
+    *endpointMember = member;
+    *signingSeed = signing;
+    *agreementSeed = agreement;
+    return YES;
+}
+
+static AncPrivateVaultControlLogMember *PVRequesterBroker(
+    AncPrivateVaultControlLogState *state, NSData *recipientEndpointId) {
+    if (state == nil || recipientEndpointId.length != 16) return nil;
+    NSMutableString *recipientHex = [NSMutableString stringWithCapacity:32];
+    const uint8_t *bytes = recipientEndpointId.bytes;
+    for (NSUInteger index = 0; index < recipientEndpointId.length; index += 1)
+        [recipientHex appendFormat:@"%02x", bytes[index]];
+    AncPrivateVaultControlLogMember *match = nil;
+    for (AncPrivateVaultControlLogMember *member in state.activeMembers) {
+        if ([member.endpointId isEqualToString:recipientHex]) {
+            if (match != nil) return nil;
+            match = member;
+        }
+    }
+    return match != nil && [match.role isEqualToString:@"broker"] &&
+                   match.unattended && match.keyAgreementPublicKey.length == 32
+               ? match
+               : nil;
+}
+
+static void PVCreateContentGrant(xpc_connection_t peer, xpc_object_t message,
+                                 const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        NSData *recipient = PVLookupIDData(request->recipientEndpointID);
+        uint64_t nowMilliseconds = 0;
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *endpointId = nil;
+        AncPrivateVaultControlLogMember *endpointMember = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *agreement = nil;
+        BOOL contextOkay =
+            vaultBytes != nil && recipient != nil &&
+            [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
+            nowMilliseconds >= 1000 &&
+            nowMilliseconds / 1000 <= UINT64_C(9007199254740991) &&
+            request->expiresAt > nowMilliseconds / 1000 &&
+            request->expiresAt - nowMilliseconds / 1000 <= 30 * 24 * 60 * 60 &&
+            PVRequesterEndpointContext(vaultId, &state, &endpointId,
+                                       &endpointMember, &signing, &agreement) &&
+            PVRequesterBroker(state, recipient) != nil;
+        NSData *envelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *grantId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *accountId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *revocationRef = contextOkay ? PVEnrollmentRandom(16) : nil;
+        __block NSData *grant = nil;
+        __block AncPrivateVaultGrantCodecStatus codecStatus =
+            AncPrivateVaultGrantCodecStatusInvalid;
+        if (envelopeId != nil && grantId != nil && accountId != nil &&
+            revocationRef != nil) {
+            [signing borrow:^BOOL(uint8_t *seed, size_t length) {
+              if (length != ANC_PV_SEED_BYTES) return NO;
+              grant = AncPrivateVaultSealGrantEnvelope(
+                  vaultBytes, envelopeId, nowMilliseconds / 1000, grantId,
+                  endpointId, accountId, endpointId, nil, @[vaultBytes],
+                  @[@"create-document", @"delete-document", @"edit-document",
+                    @"get-document", @"list-document-versions",
+                    @"list-documents", @"move-document", @"pull-document",
+                    @"restore-document-version", @"search-documents",
+                    @"update-document"],
+                  @[@"content"], nowMilliseconds / 1000, request->expiresAt,
+                  revocationRef, seed, &codecStatus);
+              return grant != nil;
+            }];
+        }
+        BOOL signingClosed = signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed = agreement != nil &&
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        AncPrivateVaultGrantIndexStatus stored =
+            grant == nil || !signingClosed || !agreementClosed
+                ? AncPrivateVaultGrantIndexStatusInvalid
+                : [gGrantIndex storeGrantEnvelope:grant vaultId:vaultId
+                        nowSeconds:nowMilliseconds / 1000
+                  issuerEndpointId:endpointId
+           issuerControlEndpointId:endpointMember.endpointId
+            issuerSigningPublicKey:endpointMember.signingPublicKey];
+        AncPrivateVaultVerifiedGrant *verified =
+            stored == AncPrivateVaultGrantIndexStatusOK
+                ? AncPrivateVaultVerifyGrantEnvelope(
+                      grant, vaultBytes, nowMilliseconds / 1000, endpointId,
+                      endpointMember.signingPublicKey.bytes, &codecStatus)
+                : nil;
+        if (verified == nil || !signingClosed || !agreementClosed) {
+            PVSendError(peer, message, "grant_create_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "created");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "recipientEndpointId",
+                                  request->recipientEndpointID);
+        xpc_dictionary_set_data(reply, "grantId", verified.grantId.bytes,
+                                verified.grantId.length);
+        xpc_dictionary_set_data(reply, "grantRef", verified.grantRef.bytes,
+                                verified.grantRef.length);
+        xpc_dictionary_set_uint64(reply, "issuedAt", verified.issuedAt);
+        xpc_dictionary_set_uint64(reply, "expiresAt", verified.expiresAt);
+        xpc_dictionary_set_data(reply, "grantEnvelope", grant.bytes,
+                                grant.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVSealContentJob(xpc_connection_t peer, xpc_object_t message,
+                             const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        NSData *jobId = PVLookupIDData(request->jobID);
+        NSData *grantRef = PVHashData(request->grantRef);
+        NSData *recipient = PVLookupIDData(request->recipientEndpointID);
+        NSData *payload = [NSData dataWithBytes:request->jobPayload
+                                         length:request->jobPayloadLength];
+        uint64_t nowMilliseconds = 0;
+        __block AncPrivateVaultJobCodecStatus codecStatus =
+            AncPrivateVaultJobCodecStatusInvalid;
+        AncPrivateVaultSemanticJobPayload *semantic =
+            AncPrivateVaultDecodeSemanticJobPayload(payload, &codecStatus);
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *endpointId = nil;
+        AncPrivateVaultControlLogMember *endpointMember = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *agreement = nil;
+        BOOL contextOkay =
+            vaultBytes != nil && jobId != nil && grantRef != nil &&
+            recipient != nil && semantic != nil &&
+            [semantic.provider isEqualToString:@"content"] &&
+            [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
+            nowMilliseconds >= 1000 &&
+            request->expiresAt > nowMilliseconds / 1000 &&
+            request->expiresAt - nowMilliseconds / 1000 <= 15 * 60 &&
+            PVRequesterEndpointContext(vaultId, &state, &endpointId,
+                                       &endpointMember, &signing, &agreement);
+        AncPrivateVaultControlLogMember *broker =
+            contextOkay ? PVRequesterBroker(state, recipient) : nil;
+        AncPrivateVaultGrantContext *grantContext = nil;
+        AncPrivateVaultGrantIndexStatus grantStatus =
+            broker == nil
+                ? AncPrivateVaultGrantIndexStatusUnauthorized
+                : [gGrantIndex resolveGrantRef:grantRef vaultId:vaultId
+                                    nowSeconds:nowMilliseconds / 1000
+                                       context:&grantContext];
+        if (grantStatus == AncPrivateVaultGrantIndexStatusOK) {
+            grantStatus = [gGrantIndex
+                authorizeGrantRef:grantRef vaultId:vaultId
+                nowSeconds:nowMilliseconds / 1000
+                subjectAccountId:grantContext.subjectAccountId
+                subjectEndpointId:grantContext.subjectEndpointId
+                subjectAgentId:grantContext.subjectAgentId
+                resourceId:semantic.resourceId operation:semantic.operation
+                provider:semantic.provider];
+        }
+        BOOL subjectMatches = grantContext != nil &&
+            [grantContext.subjectEndpointId isEqualToData:endpointId];
+        NSData *envelopeId =
+            grantStatus == AncPrivateVaultGrantIndexStatusOK && subjectMatches
+                ? PVEnrollmentRandom(16)
+                : nil;
+        NSData *nonce = envelopeId != nil ? PVEnrollmentRandom(24) : nil;
+        __block NSData *sealed = nil;
+        if (nonce != nil) {
+            [signing borrow:^BOOL(uint8_t *signingSeed, size_t signingLength) {
+              if (signingLength != ANC_PV_SEED_BYTES) return NO;
+              return [agreement borrow:^BOOL(uint8_t *agreementSeed,
+                                              size_t agreementLength) {
+                uint8_t senderPublic[32] = {0};
+                uint8_t senderPrivate[32] = {0};
+                BOOL derived = agreementLength == ANC_PV_SEED_BYTES &&
+                    anc_pv_box_seed_keypair(senderPublic, senderPrivate,
+                                            agreementSeed) == ANC_PV_CRYPTO_OK;
+                if (derived) {
+                    sealed = AncPrivateVaultSealJobEnvelope(
+                        vaultBytes, envelopeId, nowMilliseconds / 1000, jobId,
+                        grantRef, nowMilliseconds / 1000, request->expiresAt,
+                        recipient, payload, nonce, signingSeed, senderPrivate,
+                        broker.keyAgreementPublicKey.bytes, &codecStatus);
+                }
+                anc_pv_zeroize(senderPublic, sizeof senderPublic);
+                anc_pv_zeroize(senderPrivate, sizeof senderPrivate);
+                return sealed != nil;
+              }] == AncPrivateVaultGuardedMemoryStatusOK && sealed != nil;
+            }];
+        }
+        BOOL signingClosed = signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed = agreement != nil &&
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        if (sealed == nil || !signingClosed || !agreementClosed) {
+            PVSendError(peer, message, "job_seal_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "sealed");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "jobId", request->jobID);
+        xpc_dictionary_set_string(reply, "recipientEndpointId",
+                                  request->recipientEndpointID);
+        xpc_dictionary_set_uint64(reply, "epoch", state.epoch);
+        xpc_dictionary_set_uint64(reply, "issuedAt", nowMilliseconds / 1000);
+        xpc_dictionary_set_uint64(reply, "expiresAt", request->expiresAt);
+        xpc_dictionary_set_string(reply, "algorithmId", "anc/v1");
+        xpc_dictionary_set_data(reply, "jobEnvelope", sealed.bytes,
+                                sealed.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static AncPrivateVaultControlLogMember *PVObjectActiveBroker(
     AncPrivateVaultControlLogState *state,
     const AncPrivateVaultCustodySnapshot *snapshot) {
@@ -2228,6 +2526,14 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "open_job") == 0) {
                 PVOpenJob(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "create_grant") == 0) {
+                PVCreateContentGrant(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "seal_job") == 0) {
+                PVSealContentJob(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "seal_result") == 0) {

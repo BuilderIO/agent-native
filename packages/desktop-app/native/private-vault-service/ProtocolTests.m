@@ -89,6 +89,45 @@ int main(void) {
   assert(!PVRequestCanRun(&parsed, false) && PVRequestCanRun(&parsed, true));
   xpc_release(openJob);
 
+  xpc_object_t createGrant =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "create_grant", "request-grant");
+  xpc_dictionary_set_string(createGrant, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(createGrant, "recipientEndpointId",
+                            "11112222333344445555666677778888");
+  xpc_dictionary_set_int64(createGrant, "expiresAt", 1721114711);
+  assert(PVParseRequest(createGrant, &parsed) == PVRequestValid &&
+         strcmp(parsed.recipientEndpointID,
+                "11112222333344445555666677778888") == 0 &&
+         parsed.expiresAt == 1721114711);
+  xpc_release(createGrant);
+
+  const uint8_t requesterPayload[] = {'{', '}', '\n'};
+  xpc_object_t sealJob =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_job", "request-seal-job");
+  xpc_dictionary_set_string(sealJob, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(sealJob, "jobId",
+                            "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_string(
+      sealJob, "grantRef",
+      "abababababababababababababababababababababababababababababababab");
+  xpc_dictionary_set_string(sealJob, "recipientEndpointId",
+                            "11112222333344445555666677778888");
+  xpc_dictionary_set_int64(sealJob, "expiresAt", 1721111711);
+  xpc_dictionary_set_data(sealJob, "jobPayload", requesterPayload,
+                          sizeof requesterPayload);
+  assert(PVParseRequest(sealJob, &parsed) == PVRequestValid &&
+         strcmp(parsed.jobID, "ffeeddccbbaa99887766554433221100") == 0 &&
+         strcmp(parsed.grantRef,
+                "abababababababababababababababababababababababababababababababab") == 0 &&
+         parsed.jobPayloadLength == sizeof requesterPayload &&
+         parsed.expiresAt == 1721111711);
+  xpc_dictionary_set_string(sealJob, "grantRef",
+                            "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB");
+  assert(PVParseRequest(sealJob, &parsed) == PVRequestInvalid);
+  xpc_release(sealJob);
+
   xpc_object_t sealResult =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_result", "request-seal-result");
   xpc_dictionary_set_string(sealResult, "vaultId",

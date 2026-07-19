@@ -65,6 +65,10 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 strcmp(key, "epoch") == 0 ||
                 strcmp(key, "retryCount") == 0 ||
                 strcmp(key, "algorithmId") == 0 ||
+                strcmp(key, "grantRef") == 0 ||
+                strcmp(key, "recipientEndpointId") == 0 ||
+                strcmp(key, "expiresAt") == 0 ||
+                strcmp(key, "jobPayload") == 0 ||
                 strcmp(key, "objectId") == 0 ||
                 strcmp(key, "revision") == 0 ||
                 strcmp(key, "contentType") == 0 ||
@@ -187,6 +191,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool recoverPage = strcmp(operation, "recover_page") == 0;
     bool recoverStatus = strcmp(operation, "recover_status") == 0;
     bool openJob = strcmp(operation, "open_job") == 0;
+    bool createGrant = strcmp(operation, "create_grant") == 0;
+    bool sealJob = strcmp(operation, "seal_job") == 0;
     bool sealResult = strcmp(operation, "seal_result") == 0;
     bool completeResult = strcmp(operation, "complete_result") == 0;
     bool pendingResult = strcmp(operation, "pending_result") == 0;
@@ -206,7 +212,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
-        !openJob && !sealResult && !completeResult && !pendingResult &&
+        !openJob && !createGrant && !sealJob && !sealResult &&
+        !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
         !activateEnrollment && !sealObject && !openObject && !sealJobObject &&
@@ -216,7 +223,67 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (sealObject || openObject || sealJobObject || openJobObject) {
+    if (createGrant) {
+        xpc_object_t recipientValue =
+            xpc_dictionary_get_value(message, "recipientEndpointId");
+        xpc_object_t expiresValue =
+            xpc_dictionary_get_value(message, "expiresAt");
+        const char *recipient =
+            recipientValue != NULL &&
+                    xpc_get_type(recipientValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "recipientEndpointId")
+                : NULL;
+        int64_t expires =
+            expiresValue != NULL && xpc_get_type(expiresValue) == XPC_TYPE_INT64
+                ? xpc_dictionary_get_int64(message, "expiresAt")
+                : 0;
+        if (fieldCount != 6 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVIsLowerHex(recipient, 32) || expires <= 0 ||
+            expires > INT64_C(9007199254740991)) {
+            return PVRequestInvalid;
+        }
+        request->recipientEndpointID = recipient;
+        request->expiresAt = (uint64_t)expires;
+    } else if (sealJob) {
+        xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
+        xpc_object_t grantValue = xpc_dictionary_get_value(message, "grantRef");
+        xpc_object_t recipientValue =
+            xpc_dictionary_get_value(message, "recipientEndpointId");
+        xpc_object_t expiresValue =
+            xpc_dictionary_get_value(message, "expiresAt");
+        const char *grantRef =
+            grantValue != NULL && xpc_get_type(grantValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "grantRef")
+                : NULL;
+        const char *recipient =
+            recipientValue != NULL &&
+                    xpc_get_type(recipientValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "recipientEndpointId")
+                : NULL;
+        int64_t expires =
+            expiresValue != NULL && xpc_get_type(expiresValue) == XPC_TYPE_INT64
+                ? xpc_dictionary_get_int64(message, "expiresAt")
+                : 0;
+        if (fieldCount != 9 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            jobIDValue == NULL || xpc_get_type(jobIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "jobId")) ||
+            !PVIsLowerHex(grantRef, 64) || !PVIsLowerHex(recipient, 32) ||
+            expires <= 0 || expires > INT64_C(9007199254740991) ||
+            !PVReadBoundedDataRange(message, "jobPayload", 0,
+                                    PV_JOB_PAYLOAD_MAXIMUM_BYTES,
+                                    &request->jobPayload,
+                                    &request->jobPayloadLength)) {
+            return PVRequestInvalid;
+        }
+        request->jobID = xpc_dictionary_get_string(message, "jobId");
+        request->grantRef = grantRef;
+        request->recipientEndpointID = recipient;
+        request->expiresAt = (uint64_t)expires;
+    } else if (sealObject || openObject || sealJobObject || openJobObject) {
         bool sealing = sealObject || sealJobObject;
         bool jobBound = sealJobObject || openJobObject;
         xpc_object_t objectIDValue =
@@ -538,7 +605,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->operation = operation;
     request->requestID = requestID;
     request->vaultID =
-        unlock || resumeRotation || recoverStatus || openJob || sealResult ||
+        unlock || resumeRotation || recoverStatus || openJob || createGrant ||
+                sealJob || sealResult ||
                 completeResult || pendingResult || prepareEnrollment ||
                 challengeEnrollment || inspectEnrollment ||
                 authorizeEnrollment || activateEnrollment || sealObject ||

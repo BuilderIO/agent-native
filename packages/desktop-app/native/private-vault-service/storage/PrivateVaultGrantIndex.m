@@ -588,10 +588,25 @@ static AncPrivateVaultGrantIndexStatus AuthorizeRecord(
   BOOL agentMatches =
       (verified.subjectAgentId == nil && subjectAgentId == nil) ||
       [verified.subjectAgentId isEqualToData:subjectAgentId];
+  static NSSet<NSString *> *contentVaultOperations;
+  static dispatch_once_t contentVaultOperationsOnce;
+  dispatch_once(&contentVaultOperationsOnce, ^{
+    contentVaultOperations = [NSSet setWithArray:@[
+      @"create-document", @"delete-document", @"edit-document",
+      @"get-document", @"list-document-versions", @"list-documents",
+      @"move-document", @"pull-document", @"restore-document-version",
+      @"search-documents", @"update-document"
+    ]];
+  });
+  BOOL exactResource = [verified.resourceIds containsObject:resourceId];
+  BOOL contentVaultResource =
+      [provider isEqualToString:@"content"] &&
+      [contentVaultOperations containsObject:operation] &&
+      [verified.resourceIds containsObject:vaultBytes];
   return verified != nil &&
           [verified.subjectAccountId isEqualToData:subjectAccountId] &&
           [verified.subjectEndpointId isEqualToData:subjectEndpointId] &&
-          agentMatches && [verified.resourceIds containsObject:resourceId] &&
+          agentMatches && (exactResource || contentVaultResource) &&
           [verified.operations containsObject:operation] &&
           [verified.providers containsObject:provider]
       ? AncPrivateVaultGrantIndexStatusOK
