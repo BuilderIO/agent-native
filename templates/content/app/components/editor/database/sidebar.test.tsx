@@ -272,5 +272,6 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain('aria-label="More actions for Project"');
     expect(markup).toContain('aria-label="Add child to');
     expect(markup).toContain("group-hover:opacity-100");
+    expect(markup).not.toContain("pointer-events-none");
   });
 });
