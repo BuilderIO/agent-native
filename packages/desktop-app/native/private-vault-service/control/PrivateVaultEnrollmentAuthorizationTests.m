@@ -516,6 +516,86 @@ int main(void) {
            activation.nextSnapshot.targetCustodyGeneration == 3 &&
            activation.nextSnapshot.previousCustodyGeneration == 2 &&
            activation.nextSnapshot.sequence == verified.replay.state.sequence);
+    AncPrivateVaultGuardedMemory *authorizationSigningGuard =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    AncPrivateVaultGuardedMemory *authorizationAgreementGuard =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    AncPrivateVaultGuardedMemory *authorizationEpochGuard =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    AncPrivateVaultEnrollmentSasReceipt *builderReceipt =
+        AncPrivateVaultEnrollmentSasReceiptBuild(
+            preparedChallenge.verifiedChallenge, Repeated(0x5a, 16),
+            1721111140, AncPrivateVaultEnrollmentSasDecisionConfirmed,
+            candidateSigningSeed, &sasReceiptStatus);
+    const uint8_t *authorizationSigningSeedBytes = authorizerSigningSeed;
+    const uint8_t *authorizationBoxSeedBytes = authorizerBoxSeed;
+    assert(authorizationSigningGuard != nil &&
+           authorizationAgreementGuard != nil &&
+           authorizationEpochGuard != nil && builderReceipt != nil &&
+           [authorizationSigningGuard
+               borrow:^BOOL(uint8_t *bytes, size_t length) {
+                 assert(length == 32);
+                 memcpy(bytes, authorizationSigningSeedBytes, 32);
+                 return YES;
+               }] == AncPrivateVaultGuardedMemoryStatusOK &&
+           [authorizationAgreementGuard
+               borrow:^BOOL(uint8_t *bytes, size_t length) {
+                 assert(length == 32);
+                 memcpy(bytes, authorizationBoxSeedBytes, 32);
+                 return YES;
+               }] == AncPrivateVaultGuardedMemoryStatusOK &&
+           [authorizationEpochGuard
+               borrow:^BOOL(uint8_t *bytes, size_t length) {
+                 assert(length == 32);
+                 memset(bytes, 0x44, 32);
+                 return YES;
+               }] == AncPrivateVaultGuardedMemoryStatusOK);
+    AncPrivateVaultPreparedEnrollmentAuthorization *preparedAuthorization =
+        AncPrivateVaultBuildEnrollmentAuthorization(
+            offer.encodedOffer, preparedChallenge.verifiedChallenge,
+            builderReceipt, State(authorizerSigning, authorizerAgreement),
+            authorizationSigningGuard, authorizationAgreementGuard,
+            authorizationEpochGuard, authorizationId, Repeated(0x20, 16),
+            Repeated(0x21, 16), Repeated(0x91, 24), Repeated(0x30, 16),
+            1721111160, 1721111100, 1721111150, 1721111750,
+            &authorizerStatus);
+    assert(authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusOK &&
+           preparedAuthorization != nil &&
+           preparedAuthorization.verifiedAuthorization.replay.state.sequence ==
+               10);
+    AncPrivateVaultEnrollmentSasReceipt *builderMismatchReceipt =
+        AncPrivateVaultEnrollmentSasReceiptBuild(
+            preparedChallenge.verifiedChallenge, Repeated(0x59, 16),
+            1721111141, AncPrivateVaultEnrollmentSasDecisionMismatch,
+            candidateSigningSeed, &sasReceiptStatus);
+    assert(builderMismatchReceipt != nil &&
+           AncPrivateVaultBuildEnrollmentAuthorization(
+               offer.encodedOffer, preparedChallenge.verifiedChallenge,
+               builderMismatchReceipt,
+               State(authorizerSigning, authorizerAgreement),
+               authorizationSigningGuard, authorizationAgreementGuard,
+               authorizationEpochGuard, authorizationId, Repeated(0x20, 16),
+               Repeated(0x21, 16), Repeated(0x91, 24), Repeated(0x30, 16),
+               1721111160, 1721111100, 1721111150, 1721111750,
+               &authorizerStatus) == nil &&
+           authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusConflict);
+    AncPrivateVaultEnrollmentChallengeResult *forgedBuilderChallenge =
+        class_createInstance(AncPrivateVaultEnrollmentChallengeResult.class, 0);
+    assert(AncPrivateVaultBuildEnrollmentAuthorization(
+               offer.encodedOffer, forgedBuilderChallenge, builderReceipt,
+               State(authorizerSigning, authorizerAgreement),
+               authorizationSigningGuard, authorizationAgreementGuard,
+               authorizationEpochGuard, authorizationId, Repeated(0x20, 16),
+               Repeated(0x21, 16), Repeated(0x91, 24), Repeated(0x30, 16),
+               1721111160, 1721111100, 1721111150, 1721111750,
+               &authorizerStatus) == nil &&
+           authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusConflict &&
+           [authorizationSigningGuard close] ==
+               AncPrivateVaultGuardedMemoryStatusOK &&
+           [authorizationAgreementGuard close] ==
+               AncPrivateVaultGuardedMemoryStatusOK &&
+           [authorizationEpochGuard close] ==
+               AncPrivateVaultGuardedMemoryStatusOK);
     AncPrivateVaultEnrollmentSasReceipt *mismatchReceipt =
         AncPrivateVaultEnrollmentSasReceiptBuild(
             verified.challenge, Repeated(0x5c, 16), 1721111163,

@@ -14,6 +14,7 @@
 #import "PrivateVaultControlLog.h"
 #import "PrivateVaultControlLogInternal.h"
 #import "PrivateVaultEnrollmentChallenge.h"
+#import "PrivateVaultEnrollmentAuthorizer.h"
 #import "PrivateVaultEnrollmentAuthorization.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisAccountAdmission.h"
@@ -67,6 +68,7 @@ static AncPrivateVaultAuthorityStore *gEndpointAuthorityStore = nil;
 static AncPrivateVaultControlLog *gControlLog = nil;
 static AncPrivateVaultEnrollmentOfferArtifactStore *gEnrollmentArtifactStore =
     nil;
+static AncPrivateVaultEnrollmentSasReceiptStore *gEnrollmentReceiptStore = nil;
 static AncPrivateVaultEnrollmentCoordinator *gEnrollmentCoordinator = nil;
 static NSMutableDictionary<NSString *, id> *gEnrollmentInspections = nil;
 static NSLock *gEnrollmentInspectionLock = nil;
@@ -1068,6 +1070,228 @@ static BOOL PVEnrollmentContext(
     return *signedAtSeconds > 0;
 }
 
+static NSData *PVEnrollmentRandom(NSUInteger length) {
+    NSMutableData *value = [NSMutableData dataWithLength:length];
+    if (value == nil ||
+        SecRandomCopyBytes(kSecRandomDefault, length, value.mutableBytes) !=
+            errSecSuccess) {
+        if (value != nil) anc_pv_zeroize(value.mutableBytes, value.length);
+        return nil;
+    }
+    return [NSData dataWithData:value];
+}
+
+static BOOL PVEnrollmentEndpointSecrets(
+    NSString *vaultId, uint64_t expectedEpoch, BOOL includeEpoch,
+    AncPrivateVaultGuardedMemory **signingSeed,
+    AncPrivateVaultGuardedMemory **agreementSeed,
+    AncPrivateVaultGuardedMemory **epochKey) {
+    if (signingSeed == NULL || agreementSeed == NULL || epochKey == NULL ||
+        vaultId.length != 32 || gCustodyRepository == nil) {
+        return NO;
+    }
+    *signingSeed = nil;
+    *agreementSeed = nil;
+    *epochKey = nil;
+    AncPrivateVaultCustodySnapshot snapshot = {0};
+    AncPrivateVaultCustodyHandle *handle = nil;
+    if ([gCustodyRepository readVaultId:vaultId
+                                snapshot:&snapshot
+                                  handle:&handle] !=
+            AncPrivateVaultCustodyRepositoryStatusOK ||
+        handle == nil ||
+        snapshot.lifecycle != ANC_PV_CUSTODY_LIFECYCLE_ACTIVE ||
+        snapshot.role != ANC_PV_CUSTODY_ROLE_ENDPOINT ||
+        snapshot.pending_kind != ANC_PV_CUSTODY_PENDING_NONE ||
+        snapshot.active_epoch != expectedEpoch) {
+        if (handle != nil) [handle close];
+        anc_pv_custody_snapshot_zero(&snapshot);
+        return NO;
+    }
+    AncPrivateVaultGuardedMemoryStatus memoryStatus;
+    AncPrivateVaultGuardedMemory *signing =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    AncPrivateVaultGuardedMemory *agreement =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    AncPrivateVaultGuardedMemory *epoch =
+        includeEpoch
+            ? [AncPrivateVaultGuardedMemory memoryWithLength:32
+                                                     status:&memoryStatus]
+            : nil;
+    __block BOOL copied = NO;
+    AncPrivateVaultCustodyRepositoryStatus borrowed =
+        signing == nil || agreement == nil || (includeEpoch && epoch == nil)
+            ? AncPrivateVaultCustodyRepositoryStatusFailed
+            : [handle borrow:^BOOL(
+                          const AncPrivateVaultCustodySecretInputs *secrets) {
+                return [signing borrow:^BOOL(uint8_t *bytes, size_t length) {
+                    if (length != 32) return NO;
+                    memcpy(bytes, secrets->signing_seed, 32);
+                    return [agreement
+                               borrow:^BOOL(uint8_t *agreementBytes,
+                                            size_t agreementLength) {
+                        if (agreementLength != 32) return NO;
+                        memcpy(agreementBytes, secrets->box_seed, 32);
+                        if (!includeEpoch) {
+                            copied = YES;
+                            return YES;
+                        }
+                        return [epoch
+                                   borrow:^BOOL(uint8_t *epochBytes,
+                                                size_t epochLength) {
+                            if (epochLength != 32) return NO;
+                            memcpy(epochBytes, secrets->active_epoch_key, 32);
+                            copied = YES;
+                            return YES;
+                        }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+                    }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+                }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+            }];
+    AncPrivateVaultCustodyRepositoryStatus closed = [handle close];
+    anc_pv_custody_snapshot_zero(&snapshot);
+    if (borrowed != AncPrivateVaultCustodyRepositoryStatusOK || !copied ||
+        closed != AncPrivateVaultCustodyRepositoryStatusOK) {
+        if (signing != nil) [signing close];
+        if (agreement != nil) [agreement close];
+        if (epoch != nil) [epoch close];
+        return NO;
+    }
+    *signingSeed = signing;
+    *agreementSeed = agreement;
+    *epochKey = epoch;
+    return YES;
+}
+
+static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
+                                  const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        AncPrivateVaultControlLogState *state = nil;
+        uint64_t signedAt = 0;
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        AncPrivateVaultGuardedMemory *signing = nil, *agreement = nil,
+                                             *unusedEpoch = nil;
+        NSData *envelope = PVEnrollmentRandom(16);
+        NSData *nonce = PVEnrollmentRandom(32);
+        uint64_t expires = now > UINT64_MAX - 600 ? 0 : now + 600;
+        if (!PVEnrollmentContext(vaultId, &artifact, &state, &signedAt)) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        if (signedAt <= UINT64_MAX - 900 && expires > signedAt + 900)
+            expires = signedAt + 900;
+        if (now == 0 || expires <= now || envelope == nil || nonce == nil ||
+            !PVEnrollmentEndpointSecrets(vaultId, state.epoch, NO, &signing,
+                                         &agreement, &unusedEpoch)) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        AncPrivateVaultEnrollmentAuthorizerStatus status;
+        AncPrivateVaultPreparedEnrollmentChallenge *prepared =
+            AncPrivateVaultBuildEnrollmentChallenge(
+                artifact.encodedOffer, artifact.candidateKeyProof, state,
+                signing, agreement, envelope, nonce, signedAt, now, expires,
+                &status);
+        BOOL signingClosed =
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed =
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL closed = signingClosed && agreementClosed;
+        if (prepared == nil || !closed) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "challenged");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_data(reply, "challenge",
+                                prepared.encodedChallenge.bytes,
+                                prepared.encodedChallenge.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVAuthorizeEnrollment(xpc_connection_t peer, xpc_object_t message,
+                                  const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *challengeBytes =
+            request->enrollmentChallenge == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentChallenge
+                                  length:request->enrollmentChallengeLength];
+        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        AncPrivateVaultControlLogState *state = nil;
+        uint64_t signedAt = 0;
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        AncPrivateVaultEnrollmentChallengeStatus challengeStatus;
+        AncPrivateVaultEnrollmentChallengeResult *challenge = nil;
+        if (!PVEnrollmentContext(vaultId, &artifact, &state, &signedAt) ||
+            challengeBytes == nil || now == 0 ||
+            gEnrollmentReceiptStore == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        challenge = AncPrivateVaultEnrollmentChallengeVerify(
+            artifact.encodedOffer, challengeBytes, state, signedAt, now,
+            &challengeStatus);
+        AncPrivateVaultEnrollmentSasReceipt *receipt = nil;
+        if (challenge == nil ||
+            [gEnrollmentReceiptStore readChallenge:challenge
+                                            receipt:&receipt] !=
+                AncPrivateVaultEnrollmentSasReceiptStoreStatusOK ||
+            receipt.decision != AncPrivateVaultEnrollmentSasDecisionConfirmed) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        AncPrivateVaultGuardedMemory *signing = nil, *agreement = nil,
+                                             *epoch = nil;
+        if (!PVEnrollmentEndpointSecrets(vaultId, state.epoch, YES, &signing,
+                                         &agreement, &epoch)) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        NSData *authorizationId = PVEnrollmentRandom(16);
+        NSData *endpointId = PVEnrollmentRandom(16);
+        NSData *wrapId = PVEnrollmentRandom(16);
+        NSData *wrapNonce = PVEnrollmentRandom(24);
+        NSData *entryId = PVEnrollmentRandom(16);
+        uint64_t expires = now > UINT64_MAX - 600 ? 0 : now + 600;
+        if (signedAt <= UINT64_MAX - 900 && expires > signedAt + 900) {
+            expires = signedAt + 900;
+        }
+        AncPrivateVaultEnrollmentAuthorizerStatus status;
+        AncPrivateVaultPreparedEnrollmentAuthorization *prepared =
+            authorizationId == nil || endpointId == nil || wrapId == nil ||
+                    wrapNonce == nil || entryId == nil || expires <= now
+                ? nil
+                : AncPrivateVaultBuildEnrollmentAuthorization(
+                      artifact.encodedOffer, challenge, receipt, state, signing,
+                      agreement, epoch, authorizationId, endpointId, wrapId,
+                      wrapNonce, entryId, now, signedAt, now, expires, &status);
+        BOOL signingClosed =
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed =
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL epochClosed = [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL closed = signingClosed && agreementClosed && epochClosed;
+        if (prepared == nil || !closed) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "authorized");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_data(reply, "authorization",
+                                prepared.encodedAuthorization.bytes,
+                                prepared.encodedAuthorization.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVPrepareEnrollment(xpc_connection_t peer, xpc_object_t message,
                                 const PVRequest *request) {
     @autoreleasepool {
@@ -1435,12 +1659,20 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVPrepareEnrollment(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "challenge_enroll") == 0) {
+                PVChallengeEnrollment(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "inspect_enroll") == 0) {
                 PVInspectEnrollment(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "decide_enroll") == 0) {
                 PVDecideEnrollment(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "authorize_enroll") == 0) {
+                PVAuthorizeEnrollment(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "activate_enroll") == 0) {
@@ -1580,6 +1812,7 @@ int main(void) {
             [[AncPrivateVaultEnrollmentSasReceiptStore alloc]
                 initWithKeychain:keychain
                          recordId:@"broker-enrollment-sas-v1"];
+        gEnrollmentReceiptStore = enrollmentReceiptStore;
         gEnrollmentCoordinator = [[AncPrivateVaultEnrollmentCoordinator alloc]
             initWithBrokerCustodyRepository:gBrokerCustodyRepository
                                artifactStore:gEnrollmentArtifactStore

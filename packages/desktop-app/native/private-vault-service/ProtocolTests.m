@@ -366,6 +366,13 @@ int main(void) {
          strcmp(parsed.vaultID, enrollmentVault) == 0);
   xpc_release(prepareEnrollment);
 
+  xpc_object_t challengeEnrollment = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "challenge_enroll", "request-challenge-enroll");
+  xpc_dictionary_set_string(challengeEnrollment, "vaultId", enrollmentVault);
+  assert(PVParseRequest(challengeEnrollment, &parsed) == PVRequestValid &&
+         strcmp(parsed.vaultID, enrollmentVault) == 0);
+  xpc_release(challengeEnrollment);
+
   xpc_object_t inspectEnrollment = PVMakeRequest(
       PV_PROTOCOL_VERSION, "inspect_enroll", "request-inspect-enroll");
   xpc_dictionary_set_string(inspectEnrollment, "vaultId", enrollmentVault);
@@ -375,6 +382,16 @@ int main(void) {
   assert(PVParseRequest(inspectEnrollment, &parsed) == PVRequestValid &&
          parsed.enrollmentChallengeLength == sizeof enrollmentChallenge);
   xpc_release(inspectEnrollment);
+
+  xpc_object_t authorizeEnrollment = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "authorize_enroll", "request-authorize-enroll");
+  xpc_dictionary_set_string(authorizeEnrollment, "vaultId", enrollmentVault);
+  xpc_dictionary_set_data(authorizeEnrollment, "challenge",
+                          enrollmentChallenge,
+                          sizeof enrollmentChallenge);
+  assert(PVParseRequest(authorizeEnrollment, &parsed) == PVRequestValid &&
+         parsed.enrollmentChallengeLength == sizeof enrollmentChallenge);
+  xpc_release(authorizeEnrollment);
 
   for (size_t index = 0; index < 2; index += 1) {
     xpc_object_t decideEnrollment = PVMakeRequest(

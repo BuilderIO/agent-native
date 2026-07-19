@@ -587,8 +587,11 @@ append and activation receipt commit atomically. A retry must reproduce the
 same bytes, and a first-broker offer is rejected whenever replayed authority
 already contains an active broker. Candidate-side native preparation, attended
 SAS confirmation, custody activation, and mismatch destruction are executable.
-The remaining lifecycle gate is authorizer-side native challenge/authorization
-production, hosted/Desktop ceremony orchestration, broker replacement, and the
+The same-device first-beta ceremony now also constructs and self-verifies the
+authorizer challenge and confirmed-receipt-bound authorization inside endpoint
+custody, then moves only their public bytes through the typed XPC, Desktop, and
+hosted transcript surfaces. The remaining lifecycle gates are broker
+replacement, cross-device ceremony transport beyond the first beta, and the
 encrypted Content action registry. The canonical
 Content action executor, native-bound semantic operation/resource coordinates,
 cookie-free signed transport, authenticated runtime discovery, OS-encrypted

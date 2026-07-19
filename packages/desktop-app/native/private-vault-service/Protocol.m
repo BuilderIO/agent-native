@@ -174,8 +174,10 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool pendingResult = strcmp(operation, "pending_result") == 0;
     bool signRequest = strcmp(operation, "sign_request") == 0;
     bool prepareEnrollment = strcmp(operation, "prepare_enroll") == 0;
+    bool challengeEnrollment = strcmp(operation, "challenge_enroll") == 0;
     bool inspectEnrollment = strcmp(operation, "inspect_enroll") == 0;
     bool decideEnrollment = strcmp(operation, "decide_enroll") == 0;
+    bool authorizeEnrollment = strcmp(operation, "authorize_enroll") == 0;
     bool activateEnrollment = strcmp(operation, "activate_enroll") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
@@ -183,20 +185,21 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
         !openJob && !sealResult && !completeResult && !pendingResult &&
-        !signRequest && !prepareEnrollment && !inspectEnrollment &&
-        !decideEnrollment && !activateEnrollment) {
+        !signRequest && !prepareEnrollment && !challengeEnrollment &&
+        !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
+        !activateEnrollment) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (prepareEnrollment) {
+    if (prepareEnrollment || challengeEnrollment) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
             return PVRequestInvalid;
         }
-    } else if (inspectEnrollment) {
+    } else if (inspectEnrollment || authorizeEnrollment) {
         if (fieldCount != 5 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
@@ -419,7 +422,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->vaultID =
         unlock || resumeRotation || recoverStatus || openJob || sealResult ||
                 completeResult || pendingResult || prepareEnrollment ||
-                inspectEnrollment || activateEnrollment
+                challengeEnrollment || inspectEnrollment ||
+                authorizeEnrollment || activateEnrollment
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =

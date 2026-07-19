@@ -63,7 +63,9 @@ enum class PVOperation {
   PendingResult,
   SignRequest,
   PrepareEnrollment,
+  ChallengeEnrollment,
   ConfirmEnrollment,
+  AuthorizeEnrollment,
   ActivateEnrollment,
 };
 enum class PVFailure {
@@ -690,6 +692,37 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     return parsed;
   }
 
+  if (operation == PVOperation::ChallengeEnrollment ||
+      operation == PVOperation::AuthorizeEnrollment) {
+    const bool challenge = operation == PVOperation::ChallengeEnrollment;
+    const char *const challengeKeys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "challenge",
+    };
+    const char *const authorizationKeys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "authorization",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    if (!PVHasExactKeys(reply,
+                        challenge ? challengeKeys : authorizationKeys, 6) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, challenge ? "challenged" : "authorized") != 0 ||
+        !PVIsLowerHex(vaultID, 32) || expectedVaultID == nullptr ||
+        strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVCopyBoundedData(reply,
+                           challenge ? "challenge" : "authorization",
+                           challenge ? PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES
+                                     : PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES,
+                           parsed.body)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
   if (operation == PVOperation::ActivateEnrollment) {
     const char *const keys[] = {
         "version", "ok", "requestId", "state", "vaultId",
@@ -1253,6 +1286,10 @@ void PVExecute(napi_env env, void *data) {
                               ? "sign_request"
                           : request->operation == PVOperation::PrepareEnrollment
                               ? "prepare_enroll"
+                          : request->operation == PVOperation::ChallengeEnrollment
+                              ? "challenge_enroll"
+                          : request->operation == PVOperation::AuthorizeEnrollment
+                              ? "authorize_enroll"
                           : request->operation == PVOperation::ActivateEnrollment
                               ? "activate_enroll"
                               : "finalize_genesis";
@@ -1303,11 +1340,16 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::CompleteResult ||
       request->operation == PVOperation::PendingResult ||
       request->operation == PVOperation::PrepareEnrollment ||
+      request->operation == PVOperation::ChallengeEnrollment ||
+      request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
-  if (request->operation == PVOperation::ActivateEnrollment) {
+  if (request->operation == PVOperation::AuthorizeEnrollment ||
+      request->operation == PVOperation::ActivateEnrollment) {
     xpc_dictionary_set_data(message, "challenge", request->challenge.data(),
                             request->challenge.size());
+  }
+  if (request->operation == PVOperation::ActivateEnrollment) {
     xpc_dictionary_set_data(message, "authorization",
                             request->authorization.data(),
                             request->authorization.size());
@@ -1407,6 +1449,8 @@ void PVExecute(napi_env env, void *data) {
         : request->operation == PVOperation::FinalizeGenesis
             ? request->lookupID
         : request->operation == PVOperation::PrepareEnrollment ||
+                request->operation == PVOperation::ChallengeEnrollment ||
+                request->operation == PVOperation::AuthorizeEnrollment ||
                 request->operation == PVOperation::ActivateEnrollment
             ? request->vaultID
             : nullptr;
@@ -1554,8 +1598,12 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "sign_request"
                 : request->operation == PVOperation::PrepareEnrollment
                     ? "prepare_enroll"
+                : request->operation == PVOperation::ChallengeEnrollment
+                    ? "challenge_enroll"
                 : request->operation == PVOperation::ConfirmEnrollment
                     ? "confirm_enroll"
+                : request->operation == PVOperation::AuthorizeEnrollment
+                    ? "authorize_enroll"
                 : request->operation == PVOperation::ActivateEnrollment
                     ? "activate_enroll"
                     : "finalize_genesis");
@@ -1586,6 +1634,24 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       if (!PVSetBuffer(env, result, "offer", request->body) ||
           !PVSetBuffer(env, result, "candidateKeyProof",
                        request->resourceID)) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::ChallengeEnrollment ||
+               request->operation == PVOperation::AuthorizeEnrollment) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      if (!PVSetBuffer(env, result,
+                       request->operation == PVOperation::ChallengeEnrollment
+                           ? "challenge"
+                           : "authorization",
+                       request->body)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",
@@ -1831,8 +1897,12 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::SignRequest;
   } else if (strcmp(operation, "prepare_enroll") == 0) {
     request->operation = PVOperation::PrepareEnrollment;
+  } else if (strcmp(operation, "challenge_enroll") == 0) {
+    request->operation = PVOperation::ChallengeEnrollment;
   } else if (strcmp(operation, "confirm_enroll") == 0) {
     request->operation = PVOperation::ConfirmEnrollment;
+  } else if (strcmp(operation, "authorize_enroll") == 0) {
+    request->operation = PVOperation::AuthorizeEnrollment;
   } else if (strcmp(operation, "activate_enroll") == 0) {
     request->operation = PVOperation::ActivateEnrollment;
   } else {
@@ -1861,7 +1931,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::PendingResult ? 2
       : request->operation == PVOperation::SignRequest ? 2
       : request->operation == PVOperation::PrepareEnrollment ? 2
+      : request->operation == PVOperation::ChallengeEnrollment ? 2
       : request->operation == PVOperation::ConfirmEnrollment ? 3
+      : request->operation == PVOperation::AuthorizeEnrollment ? 3
       : request->operation == PVOperation::ActivateEnrollment ? 4
           : 1;
   if (argc != expectedArgumentCount) {
@@ -1878,7 +1950,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::CompleteResult ||
       request->operation == PVOperation::PendingResult ||
       request->operation == PVOperation::PrepareEnrollment ||
+      request->operation == PVOperation::ChallengeEnrollment ||
       request->operation == PVOperation::ConfirmEnrollment ||
+      request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
@@ -1969,6 +2043,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   const uint8_t *enrollmentAuthorization = nullptr;
   size_t enrollmentAuthorizationLength = 0;
   if (request->operation == PVOperation::ConfirmEnrollment ||
+      request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
     void *bytes = nullptr;
     bool isBuffer = false;
@@ -2169,6 +2244,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   }
 
   if (request->operation == PVOperation::ConfirmEnrollment ||
+      request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
     try {
       request->challenge.assign(

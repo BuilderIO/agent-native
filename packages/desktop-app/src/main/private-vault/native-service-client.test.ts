@@ -164,8 +164,26 @@ describe("Private Vault native service client", () => {
           candidateKeyProof: Buffer.alloc(64, 3),
         };
       }
+      if (operation === "challenge_enroll") {
+        return {
+          version: 3,
+          operation,
+          state: "challenged",
+          vaultId,
+          challenge: Buffer.from(challenge),
+        };
+      }
       if (operation === "confirm_enroll") {
         return { version: 3, operation, state: "confirmed" };
+      }
+      if (operation === "authorize_enroll") {
+        return {
+          version: 3,
+          operation,
+          state: "authorized",
+          vaultId,
+          authorization: Buffer.from(authorization),
+        };
       }
       return {
         version: 3,
@@ -190,6 +208,9 @@ describe("Private Vault native service client", () => {
       vaultId,
     });
     await expect(
+      client.buildBrokerEnrollmentChallenge({ vaultId }),
+    ).resolves.toEqual({ encoded: challenge });
+    await expect(
       client.confirmBrokerEnrollment(vaultId, challenge),
     ).resolves.toEqual({
       version: 1,
@@ -197,6 +218,9 @@ describe("Private Vault native service client", () => {
       operation: "confirm_enroll",
       state: "confirmed",
     });
+    await expect(
+      client.buildBrokerEnrollmentAuthorization({ vaultId, challenge }),
+    ).resolves.toEqual({ encoded: authorization });
     await expect(
       client.activateBrokerEnrollment(vaultId, challenge, authorization),
     ).resolves.toMatchObject({
@@ -207,13 +231,17 @@ describe("Private Vault native service client", () => {
 
     expect(request.mock.calls.map(([operation]) => operation)).toEqual([
       "prepare_enroll",
+      "challenge_enroll",
       "confirm_enroll",
+      "authorize_enroll",
       "activate_enroll",
     ]);
     expect(nativeSource).toContain('"inspect_enroll"');
     expect(nativeSource).toContain('"decide_enroll"');
     expect(wrapperSource).not.toContain('addon.request("inspect_enroll"');
     expect(wrapperSource).not.toContain('addon.request("decide_enroll"');
+    expect(wrapperSource).toContain('addon.request("challenge_enroll"');
+    expect(wrapperSource).toContain('"authorize_enroll",');
   });
 
   it("maps one encrypted broker job through the caller-independent authority boundary", async () => {

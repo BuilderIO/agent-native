@@ -65,7 +65,9 @@ type NativeOperation =
   | "pending_result"
   | "sign_request"
   | "prepare_enroll"
+  | "challenge_enroll"
   | "confirm_enroll"
+  | "authorize_enroll"
   | "activate_enroll";
 
 interface NativeAddon {
@@ -109,15 +111,26 @@ export interface PrivateVaultNativeServiceClient
   prepareBrokerEnrollment(
     vaultId: string,
   ): Promise<NativePrepareEnrollmentResult>;
+  buildBrokerEnrollmentChallenge(input: {
+    readonly vaultId: string;
+  }): Promise<NativeEnrollmentAuthorizerResult>;
   confirmBrokerEnrollment(
     vaultId: string,
     challenge: Uint8Array,
   ): Promise<NativeConfirmEnrollmentResult>;
+  buildBrokerEnrollmentAuthorization(input: {
+    readonly vaultId: string;
+    readonly challenge: Uint8Array;
+  }): Promise<NativeEnrollmentAuthorizerResult>;
   activateBrokerEnrollment(
     vaultId: string,
     challenge: Uint8Array,
     authorization: Uint8Array,
   ): Promise<NativeActivateEnrollmentResult>;
+}
+
+export interface NativeEnrollmentAuthorizerResult {
+  readonly encoded: Uint8Array;
 }
 
 export interface NativePrepareEnrollmentResult {
@@ -420,6 +433,33 @@ function parseConfirmEnrollment(value: unknown): NativeConfirmEnrollmentResult {
     suite: SERVICE_SUITE,
     operation: "confirm_enroll",
     state: value.state,
+  });
+}
+
+function parseEnrollmentAuthorizerResult(
+  value: unknown,
+  operation: "challenge_enroll" | "authorize_enroll",
+  expectedVaultId: string,
+): NativeEnrollmentAuthorizerResult {
+  const field =
+    operation === "challenge_enroll" ? "challenge" : "authorization";
+  const state = operation === "challenge_enroll" ? "challenged" : "authorized";
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state", "vaultId", field]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== operation ||
+    value.state !== state ||
+    value.vaultId !== expectedVaultId ||
+    !isLowerHex(value.vaultId, 32)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    encoded: copyBoundedBytes(
+      value[field],
+      operation === "challenge_enroll" ? 64 * 1024 : 256 * 1024,
+    ),
   });
 }
 
@@ -1226,6 +1266,25 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
     });
   }
 
+  buildBrokerEnrollmentChallenge(input: {
+    readonly vaultId: string;
+  }): Promise<NativeEnrollmentAuthorizerResult> {
+    if (!isLowerHex(input.vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseEnrollmentAuthorizerResult(
+          await addon.request("challenge_enroll", input.vaultId),
+          "challenge_enroll",
+          input.vaultId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
   confirmBrokerEnrollment(
     vaultId: string,
     challenge: Uint8Array,
@@ -1243,6 +1302,34 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         const addon = await this.#addon;
         return parseConfirmEnrollment(
           await addon.request("confirm_enroll", vaultId, challengeCopy),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        challengeCopy.fill(0);
+      }
+    });
+  }
+
+  buildBrokerEnrollmentAuthorization(input: {
+    readonly vaultId: string;
+    readonly challenge: Uint8Array;
+  }): Promise<NativeEnrollmentAuthorizerResult> {
+    if (!isLowerHex(input.vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let challengeCopy: Buffer;
+    try {
+      challengeCopy = Buffer.from(copyBoundedBytes(input.challenge, 64 * 1024));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseEnrollmentAuthorizerResult(
+          await addon.request("authorize_enroll", input.vaultId, challengeCopy),
+          "authorize_enroll",
+          input.vaultId,
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();
