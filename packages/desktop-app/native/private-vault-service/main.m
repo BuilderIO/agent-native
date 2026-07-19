@@ -1356,8 +1356,8 @@ static void PVSealObject(xpc_connection_t peer, xpc_object_t message,
                                 sealed.revisionId.length);
         xpc_dictionary_set_string(reply, "contentType",
                                   sealed.contentType.UTF8String);
-        xpc_dictionary_set_int64(reply, "plaintextLength",
-                                 (int64_t)sealed.plaintextLength);
+        xpc_dictionary_set_uint64(reply, "plaintextLength",
+                                  sealed.plaintextLength);
         xpc_dictionary_set_data(reply, "objectPayload",
                                 sealed.encodedRevision.bytes,
                                 sealed.encodedRevision.length);

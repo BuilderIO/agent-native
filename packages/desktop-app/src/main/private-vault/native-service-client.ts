@@ -68,7 +68,9 @@ type NativeOperation =
   | "challenge_enroll"
   | "confirm_enroll"
   | "authorize_enroll"
-  | "activate_enroll";
+  | "activate_enroll"
+  | "seal_object"
+  | "open_object";
 
 interface NativeAddon {
   request(
@@ -127,6 +129,51 @@ export interface PrivateVaultNativeServiceClient
     challenge: Uint8Array,
     authorization: Uint8Array,
   ): Promise<NativeActivateEnrollmentResult>;
+  sealContentObjectRevision(
+    input: NativeSealContentObjectInput,
+  ): Promise<NativeSealedContentObjectResult>;
+  openContentObjectRevision(
+    input: NativeOpenContentObjectInput,
+  ): Promise<NativeOpenedContentObjectResult>;
+}
+
+export interface NativeSealContentObjectInput {
+  readonly vaultId: string;
+  readonly objectId: string;
+  readonly revision: number;
+  readonly plaintext: Uint8Array;
+}
+
+export interface NativeOpenContentObjectInput {
+  readonly vaultId: string;
+  readonly objectId: string;
+  readonly revision: number;
+  readonly encodedRevision: Uint8Array;
+}
+
+interface NativeContentObjectResultBase {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly vaultId: string;
+  readonly objectId: string;
+  readonly revision: number;
+  readonly epoch: number;
+  readonly revisionId: Uint8Array;
+  readonly contentType: "application/vnd.agent-native.content-document+json";
+  readonly plaintextLength: number;
+}
+
+export interface NativeSealedContentObjectResult extends NativeContentObjectResultBase {
+  readonly operation: "seal_object";
+  readonly state: "sealed";
+  readonly encodedRevision: Uint8Array;
+}
+
+export interface NativeOpenedContentObjectResult extends NativeContentObjectResultBase {
+  readonly operation: "open_object";
+  readonly state: "opened";
+  readonly writerEndpointId: Uint8Array;
+  readonly plaintext: Uint8Array;
 }
 
 export interface NativeEnrollmentAuthorizerResult {
@@ -502,6 +549,89 @@ function parseActivateEnrollment(
     sequence: value.sequence,
     headHash: value.headHash,
   });
+}
+
+const CONTENT_OBJECT_TYPE =
+  "application/vnd.agent-native.content-document+json" as const;
+
+function parseContentObjectResult(
+  value: unknown,
+  operation: "seal_object" | "open_object",
+  expected: {
+    readonly vaultId: string;
+    readonly objectId: string;
+    readonly revision: number;
+  },
+): NativeSealedContentObjectResult | NativeOpenedContentObjectResult {
+  const opened = operation === "open_object";
+  const keys = [
+    "version",
+    "operation",
+    "state",
+    "vaultId",
+    "objectId",
+    "contentType",
+    "revision",
+    "epoch",
+    "plaintextLength",
+    "revisionId",
+    "objectPayload",
+    ...(opened ? ["writerEndpointId"] : []),
+  ];
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, keys) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== operation ||
+    value.state !== (opened ? "opened" : "sealed") ||
+    value.vaultId !== expected.vaultId ||
+    value.objectId !== expected.objectId ||
+    value.revision !== expected.revision ||
+    !isLowerHex(value.vaultId, 32) ||
+    !isLowerHex(value.objectId, 32) ||
+    value.contentType !== CONTENT_OBJECT_TYPE ||
+    !isSafeInteger(value.revision, true) ||
+    !isSafeInteger(value.epoch, true) ||
+    !isSafeInteger(value.plaintextLength, true) ||
+    !(value.revisionId instanceof Uint8Array) ||
+    value.revisionId.byteLength !== 32 ||
+    (opened &&
+      (!(value.writerEndpointId instanceof Uint8Array) ||
+        value.writerEndpointId.byteLength !== 16))
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  const objectPayload = copyBoundedBytes(
+    value.objectPayload,
+    opened ? 1024 * 1024 : 1024 * 1024 + 64 * 1024,
+  );
+  if (opened && objectPayload.byteLength !== value.plaintextLength)
+    throw new PrivateVaultNativeServiceClientError();
+  const base = {
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    vaultId: value.vaultId,
+    objectId: value.objectId,
+    revision: value.revision,
+    epoch: value.epoch,
+    revisionId: copyBoundedBytes(value.revisionId, 32),
+    contentType: CONTENT_OBJECT_TYPE,
+    plaintextLength: value.plaintextLength,
+  } as const;
+  return opened
+    ? Object.freeze({
+        ...base,
+        operation: "open_object" as const,
+        state: "opened" as const,
+        writerEndpointId: copyBoundedBytes(value.writerEndpointId, 16),
+        plaintext: objectPayload,
+      })
+    : Object.freeze({
+        ...base,
+        operation: "seal_object" as const,
+        state: "sealed" as const,
+        encodedRevision: objectPayload,
+      });
 }
 
 function parseCommitGenesis(value: unknown): NativeCommitGenesisResult {
@@ -1377,6 +1507,83 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       } finally {
         safeChallenge.fill(0);
         safeAuthorization.fill(0);
+      }
+    });
+  }
+
+  sealContentObjectRevision(
+    input: NativeSealContentObjectInput,
+  ): Promise<NativeSealedContentObjectResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.objectId, 32) ||
+      !isSafeInteger(input.revision, true)
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let plaintext: Buffer;
+    try {
+      plaintext = Buffer.from(copyBoundedBytes(input.plaintext, 1024 * 1024));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseContentObjectResult(
+          await addon.request(
+            "seal_object",
+            input.vaultId,
+            input.objectId,
+            input.revision,
+            CONTENT_OBJECT_TYPE,
+            plaintext,
+          ),
+          "seal_object",
+          input,
+        ) as NativeSealedContentObjectResult;
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        plaintext.fill(0);
+      }
+    });
+  }
+
+  openContentObjectRevision(
+    input: NativeOpenContentObjectInput,
+  ): Promise<NativeOpenedContentObjectResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.objectId, 32) ||
+      !isSafeInteger(input.revision, true)
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let encoded: Buffer;
+    try {
+      encoded = Buffer.from(
+        copyBoundedBytes(input.encodedRevision, 1024 * 1024 + 64 * 1024),
+      );
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseContentObjectResult(
+          await addon.request(
+            "open_object",
+            input.vaultId,
+            input.objectId,
+            input.revision,
+            encoded,
+          ),
+          "open_object",
+          input,
+        ) as NativeOpenedContentObjectResult;
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        encoded.fill(0);
       }
     });
   }

@@ -244,6 +244,155 @@ describe("Private Vault native service client", () => {
     expect(wrapperSource).toContain('"authorize_enroll",');
   });
 
+  it("seals and opens Content revisions only through the native endpoint boundary", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const objectId = "11223344556677889900aabbccddeeff";
+    const revisionId = Buffer.alloc(32, 7);
+    const writerEndpointId = Buffer.alloc(16, 8);
+    const ciphertext = Buffer.from([0xa4, 0x01, 0x02, 0x03]);
+    const plaintext = Uint8Array.from(Buffer.from('{"title":"Moon"}'));
+    const transferred: Buffer[] = [];
+    const request = vi.fn(
+      async (
+        operation: string,
+        ...arguments_: Array<string | number | Buffer>
+      ) => {
+        transferred.push(arguments_.at(-1) as Buffer);
+        if (operation === "seal_object") {
+          return {
+            version: 3,
+            operation,
+            state: "sealed",
+            vaultId,
+            objectId,
+            contentType: "application/vnd.agent-native.content-document+json",
+            revision: 3,
+            epoch: 7,
+            plaintextLength: plaintext.byteLength,
+            revisionId,
+            objectPayload: ciphertext,
+          };
+        }
+        return {
+          version: 3,
+          operation: "open_object",
+          state: "opened",
+          vaultId,
+          objectId,
+          contentType: "application/vnd.agent-native.content-document+json",
+          revision: 3,
+          epoch: 7,
+          plaintextLength: plaintext.byteLength,
+          revisionId,
+          writerEndpointId,
+          objectPayload: Buffer.from(plaintext),
+        };
+      },
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    const sealed = await client.sealContentObjectRevision({
+      vaultId,
+      objectId,
+      revision: 3,
+      plaintext,
+    });
+    expect(sealed).toMatchObject({
+      operation: "seal_object",
+      state: "sealed",
+      vaultId,
+      objectId,
+      revision: 3,
+      epoch: 7,
+      plaintextLength: plaintext.byteLength,
+    });
+    expect(sealed.encodedRevision).toEqual(Uint8Array.from(ciphertext));
+    const opened = await client.openContentObjectRevision({
+      vaultId,
+      objectId,
+      revision: 3,
+      encodedRevision: ciphertext,
+    });
+    expect(opened).toMatchObject({
+      operation: "open_object",
+      state: "opened",
+    });
+    expect(opened.writerEndpointId).toEqual(Uint8Array.from(writerEndpointId));
+    expect(opened.plaintext).toEqual(plaintext);
+    expect(request.mock.calls[0]).toEqual([
+      "seal_object",
+      vaultId,
+      objectId,
+      3,
+      "application/vnd.agent-native.content-document+json",
+      expect.any(Buffer),
+    ]);
+    expect(request.mock.calls[1]).toEqual([
+      "open_object",
+      vaultId,
+      objectId,
+      3,
+      expect.any(Buffer),
+    ]);
+    expect(
+      transferred.every((value) => value.every((byte) => byte === 0)),
+    ).toBe(true);
+    expect(plaintext).toEqual(Uint8Array.from(Buffer.from('{"title":"Moon"}')));
+
+    await expect(
+      client.sealContentObjectRevision({
+        vaultId: vaultId.toUpperCase(),
+        objectId,
+        revision: 3,
+        plaintext,
+      }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    await expect(
+      client.openContentObjectRevision({
+        vaultId,
+        objectId,
+        revision: Number.MAX_SAFE_INTEGER + 1,
+        encodedRevision: ciphertext,
+      }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    expect(request).toHaveBeenCalledTimes(2);
+
+    for (const mutation of [
+      { objectId: "22".repeat(16) },
+      { revision: 4 },
+      { contentType: "text/plain" },
+      { revisionId: Buffer.alloc(31) },
+      { plaintextLength: plaintext.byteLength + 1 },
+      { extra: true },
+    ]) {
+      const hostile = clientFor({
+        version: 3,
+        operation: "open_object",
+        state: "opened",
+        vaultId,
+        objectId,
+        contentType: "application/vnd.agent-native.content-document+json",
+        revision: 3,
+        epoch: 7,
+        plaintextLength: plaintext.byteLength,
+        revisionId,
+        writerEndpointId,
+        objectPayload: Buffer.from(plaintext),
+        ...mutation,
+      });
+      await expect(
+        hostile.openContentObjectRevision({
+          vaultId,
+          objectId,
+          revision: 3,
+          encodedRevision: ciphertext,
+        }),
+      ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    }
+  });
+
   it("maps one encrypted broker job through the caller-independent authority boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const endpointId = "11112222333344445555666677778888";

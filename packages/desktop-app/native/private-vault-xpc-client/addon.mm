@@ -36,6 +36,8 @@
 #define PV_JOB_PAYLOAD_MAXIMUM_BYTES (16 * 1024 * 1024)
 #define PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES (64 * 1024)
 #define PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
+#define PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES (1024 * 1024)
+#define PV_OBJECT_REVISION_MAXIMUM_BYTES (1024 * 1024 + 64 * 1024)
 #define PV_REQUEST_TIMEOUT_NANOSECONDS (2LL * NSEC_PER_SEC)
 
 namespace {
@@ -67,6 +69,8 @@ enum class PVOperation {
   ConfirmEnrollment,
   AuthorizeEnrollment,
   ActivateEnrollment,
+  SealObject,
+  OpenObject,
 };
 enum class PVFailure {
   None,
@@ -110,6 +114,8 @@ struct PVParsedReply {
   char operationName[121] = {0};
   char candidateEndpointID[33] = {0};
   char offerHash[65] = {0};
+  char objectID[33] = {0};
+  char contentType[121] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
@@ -118,9 +124,13 @@ struct PVParsedReply {
   uint64_t headSequence = 0;
   uint64_t hostedEpoch = 0;
   uint64_t hostedRetryCount = 0;
+  uint64_t objectRevision = 0;
+  uint64_t plaintextLength = 0;
   bool complete = false;
   std::vector<uint8_t> body;
   std::vector<uint8_t> resourceID;
+  std::vector<uint8_t> writerEndpointID;
+  std::vector<uint8_t> revisionID;
   std::vector<PVCandidate> candidates;
 };
 
@@ -219,6 +229,8 @@ struct PVAsyncRequest {
   char operationName[121] = {0};
   char candidateEndpointID[33] = {0};
   char offerHash[65] = {0};
+  char objectID[33] = {0};
+  char contentType[121] = {0};
   char accountID[161] = {0};
   char workspaceID[161] = {0};
   char endpointID[33] = {0};
@@ -232,6 +244,8 @@ struct PVAsyncRequest {
   uint64_t headSequence = 0;
   uint64_t hostedEpoch = 0;
   uint64_t hostedRetryCount = 0;
+  uint64_t objectRevision = 0;
+  uint64_t plaintextLength = 0;
   bool complete = false;
   std::vector<uint8_t> recoveryConfirmation;
   std::vector<uint8_t> bootstrapTranscript;
@@ -244,6 +258,9 @@ struct PVAsyncRequest {
   std::vector<uint8_t> jobEnvelope;
   std::vector<uint8_t> resultPayload;
   std::vector<uint8_t> resourceID;
+  std::vector<uint8_t> objectPayload;
+  std::vector<uint8_t> writerEndpointID;
+  std::vector<uint8_t> revisionID;
   std::vector<PVCandidate> candidates;
 
   ~PVAsyncRequest() {
@@ -269,6 +286,12 @@ struct PVAsyncRequest {
       PVClearBytes(resultPayload);
     if (!resourceID.empty())
       PVClearBytes(resourceID);
+    if (!objectPayload.empty())
+      PVClearBytes(objectPayload);
+    if (!writerEndpointID.empty())
+      PVClearBytes(writerEndpointID);
+    if (!revisionID.empty())
+      PVClearBytes(revisionID);
     for (auto &candidate : candidates)
       PVClearBytes(candidate.candidate);
   }
@@ -660,6 +683,79 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       return parsed;
     }
     parsed.failure = PVFailure::ServiceError;
+    return parsed;
+  }
+
+  if (operation == PVOperation::SealObject ||
+      operation == PVOperation::OpenObject) {
+    const bool sealing = operation == PVOperation::SealObject;
+    const char *const sealKeys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "objectId",
+        "revision", "epoch", "revisionId", "contentType",
+        "plaintextLength", "objectPayload",
+    };
+    const char *const openKeys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "objectId",
+        "revision", "epoch", "revisionId", "writerEndpointId",
+        "contentType", "objectPayload",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *objectID = PVGetString(reply, "objectId");
+    const char *contentType = PVGetString(reply, "contentType");
+    xpc_object_t revision = xpc_dictionary_get_value(reply, "revision");
+    xpc_object_t epoch = xpc_dictionary_get_value(reply, "epoch");
+    xpc_object_t plaintextLength =
+        xpc_dictionary_get_value(reply, "plaintextLength");
+    const uint64_t parsedRevision =
+        revision != nullptr && xpc_get_type(revision) == XPC_TYPE_UINT64
+            ? xpc_dictionary_get_uint64(reply, "revision")
+            : 0;
+    const uint64_t parsedEpoch =
+        epoch != nullptr && xpc_get_type(epoch) == XPC_TYPE_UINT64
+            ? xpc_dictionary_get_uint64(reply, "epoch")
+            : 0;
+    const uint64_t parsedPlaintextLength =
+        plaintextLength != nullptr &&
+                xpc_get_type(plaintextLength) == XPC_TYPE_UINT64
+            ? xpc_dictionary_get_uint64(reply, "plaintextLength")
+            : 0;
+    if (!PVHasExactKeys(reply, sealing ? sealKeys : openKeys, 12) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, sealing ? "sealed" : "opened") != 0 ||
+        !PVIsLowerHex(vaultID, 32) || expectedVaultID == nullptr ||
+        strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(objectID, 32) || parsedRevision == 0 ||
+        parsedRevision > UINT64_C(9007199254740991) || parsedEpoch == 0 ||
+        parsedEpoch > UINT64_C(9007199254740991) || contentType == nullptr ||
+        strcmp(contentType,
+               "application/vnd.agent-native.content-document+json") != 0 ||
+        (sealing &&
+         (parsedPlaintextLength == 0 ||
+          parsedPlaintextLength > PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES)) ||
+        (!sealing && plaintextLength != nullptr) ||
+        !PVCopyBoundedData(reply, "revisionId", 32, parsed.revisionID) ||
+        parsed.revisionID.size() != 32 ||
+        (!sealing &&
+         (!PVCopyBoundedData(reply, "writerEndpointId", 16,
+                             parsed.writerEndpointID) ||
+          parsed.writerEndpointID.size() != 16)) ||
+        !PVCopyBoundedData(reply, "objectPayload",
+                           sealing ? PV_OBJECT_REVISION_MAXIMUM_BYTES
+                                   : PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES,
+                           parsed.body)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.objectID, objectID, 33);
+    memcpy(parsed.contentType, contentType, strlen(contentType) + 1);
+    parsed.objectRevision = parsedRevision;
+    parsed.activeEpoch = parsedEpoch;
+    parsed.plaintextLength =
+        sealing ? parsedPlaintextLength : parsed.body.size();
+    parsed.failure = PVFailure::None;
     return parsed;
   }
 
@@ -1292,6 +1388,10 @@ void PVExecute(napi_env env, void *data) {
                               ? "authorize_enroll"
                           : request->operation == PVOperation::ActivateEnrollment
                               ? "activate_enroll"
+                          : request->operation == PVOperation::SealObject
+                              ? "seal_object"
+                          : request->operation == PVOperation::OpenObject
+                              ? "open_object"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -1342,8 +1442,21 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::PrepareEnrollment ||
       request->operation == PVOperation::ChallengeEnrollment ||
       request->operation == PVOperation::AuthorizeEnrollment ||
-      request->operation == PVOperation::ActivateEnrollment)
+      request->operation == PVOperation::ActivateEnrollment ||
+      request->operation == PVOperation::SealObject ||
+      request->operation == PVOperation::OpenObject)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
+  if (request->operation == PVOperation::SealObject ||
+      request->operation == PVOperation::OpenObject) {
+    xpc_dictionary_set_string(message, "objectId", request->objectID);
+    xpc_dictionary_set_int64(
+        message, "revision", static_cast<int64_t>(request->objectRevision));
+    if (request->operation == PVOperation::SealObject)
+      xpc_dictionary_set_string(message, "contentType", request->contentType);
+    xpc_dictionary_set_data(message, "objectPayload",
+                            request->objectPayload.data(),
+                            request->objectPayload.size());
+  }
   if (request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment) {
     xpc_dictionary_set_data(message, "challenge", request->challenge.data(),
@@ -1451,13 +1564,23 @@ void PVExecute(napi_env env, void *data) {
         : request->operation == PVOperation::PrepareEnrollment ||
                 request->operation == PVOperation::ChallengeEnrollment ||
                 request->operation == PVOperation::AuthorizeEnrollment ||
-                request->operation == PVOperation::ActivateEnrollment
+                request->operation == PVOperation::ActivateEnrollment ||
+                request->operation == PVOperation::SealObject ||
+                request->operation == PVOperation::OpenObject
             ? request->vaultID
             : nullptr;
     PVParsedReply parsed =
         PVParseReply(reply, request->operation, requestID, expectedID);
     if (reply != nullptr)
       xpc_release(reply);
+    if (parsed.failure == PVFailure::None &&
+        (request->operation == PVOperation::SealObject ||
+         request->operation == PVOperation::OpenObject) &&
+        (strcmp(parsed.objectID, request->objectID) != 0 ||
+         parsed.objectRevision != request->objectRevision ||
+         (request->operation == PVOperation::SealObject &&
+          parsed.plaintextLength != request->objectPayload.size())))
+      parsed.failure = PVFailure::MalformedReply;
     request->failure = parsed.failure;
     request->available = parsed.available;
     memcpy(request->state, parsed.state, sizeof(request->state));
@@ -1497,8 +1620,15 @@ void PVExecute(napi_env env, void *data) {
     memcpy(request->candidateEndpointID, parsed.candidateEndpointID,
            sizeof(request->candidateEndpointID));
     memcpy(request->offerHash, parsed.offerHash, sizeof(request->offerHash));
+    memcpy(request->objectID, parsed.objectID, sizeof(request->objectID));
+    memcpy(request->contentType, parsed.contentType,
+           sizeof(request->contentType));
     request->hostedEpoch = parsed.hostedEpoch;
     request->hostedRetryCount = parsed.hostedRetryCount;
+    request->objectRevision = parsed.objectRevision;
+    request->plaintextLength = parsed.plaintextLength;
+    request->revisionID = std::move(parsed.revisionID);
+    request->writerEndpointID = std::move(parsed.writerEndpointID);
     request->candidates = std::move(parsed.candidates);
   }
 
@@ -1606,6 +1736,10 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "authorize_enroll"
                 : request->operation == PVOperation::ActivateEnrollment
                     ? "activate_enroll"
+                : request->operation == PVOperation::SealObject
+                    ? "seal_object"
+                : request->operation == PVOperation::OpenObject
+                    ? "open_object"
                     : "finalize_genesis");
     if (request->operation != PVOperation::OpenJob &&
         request->operation != PVOperation::SealResult &&
@@ -1669,6 +1803,30 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                        request->custodyGeneration);
       PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
       PVSetSafeInteger(env, result, "sequence", request->sequence);
+    } else if (request->operation == PVOperation::SealObject ||
+               request->operation == PVOperation::OpenObject) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "objectId", request->objectID);
+      PVSetString(env, result, "contentType", request->contentType);
+      PVSetSafeInteger(env, result, "revision", request->objectRevision);
+      PVSetSafeInteger(env, result, "epoch", request->activeEpoch);
+      PVSetSafeInteger(env, result, "plaintextLength",
+                       request->plaintextLength);
+      if (!PVSetBuffer(env, result, "revisionId", request->revisionID) ||
+          !PVSetBuffer(env, result, "objectPayload", request->body) ||
+          (request->operation == PVOperation::OpenObject &&
+           !PVSetBuffer(env, result, "writerEndpointId",
+                        request->writerEndpointID))) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
     } else if (request->operation == PVOperation::OpenJob) {
       PVSetString(env, result, "jobHash", request->jobHash);
       PVSetString(env, result, "operationName", request->operationName);
@@ -1905,6 +2063,10 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::AuthorizeEnrollment;
   } else if (strcmp(operation, "activate_enroll") == 0) {
     request->operation = PVOperation::ActivateEnrollment;
+  } else if (strcmp(operation, "seal_object") == 0) {
+    request->operation = PVOperation::SealObject;
+  } else if (strcmp(operation, "open_object") == 0) {
+    request->operation = PVOperation::OpenObject;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1935,6 +2097,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::ConfirmEnrollment ? 3
       : request->operation == PVOperation::AuthorizeEnrollment ? 3
       : request->operation == PVOperation::ActivateEnrollment ? 4
+      : request->operation == PVOperation::SealObject ? 6
+      : request->operation == PVOperation::OpenObject ? 5
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -1953,7 +2117,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::ChallengeEnrollment ||
       request->operation == PVOperation::ConfirmEnrollment ||
       request->operation == PVOperation::AuthorizeEnrollment ||
-      request->operation == PVOperation::ActivateEnrollment) {
+      request->operation == PVOperation::ActivateEnrollment ||
+      request->operation == PVOperation::SealObject ||
+      request->operation == PVOperation::OpenObject) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||
@@ -1966,6 +2132,57 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
                             "Private Vault native service request failed");
       return nullptr;
     }
+  }
+  const uint8_t *objectPayload = nullptr;
+  size_t objectPayloadLength = 0;
+  if (request->operation == PVOperation::SealObject ||
+      request->operation == PVOperation::OpenObject) {
+    size_t objectLength = 0;
+    double revision = 0;
+    void *bytes = nullptr;
+    bool isBuffer = false;
+    const size_t payloadIndex =
+        request->operation == PVOperation::SealObject ? 5 : 4;
+    const size_t maximum =
+        request->operation == PVOperation::SealObject
+            ? PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES
+            : PV_OBJECT_REVISION_MAXIMUM_BYTES;
+    bool valid =
+        napi_typeof(env, argv[2], &argumentType) == napi_ok &&
+        argumentType == napi_string &&
+        napi_get_value_string_utf8(env, argv[2], request->objectID,
+                                   sizeof(request->objectID),
+                                   &objectLength) == napi_ok &&
+        objectLength == 32 && PVIsLowerHex(request->objectID, 32) &&
+        napi_get_value_double(env, argv[3], &revision) == napi_ok &&
+        std::isfinite(revision) && std::floor(revision) == revision &&
+        revision >= 1 && revision <= 9007199254740991.0;
+    if (valid && request->operation == PVOperation::SealObject) {
+      size_t contentTypeLength = 0;
+      valid = napi_typeof(env, argv[4], &argumentType) == napi_ok &&
+              argumentType == napi_string &&
+              napi_get_value_string_utf8(
+                  env, argv[4], request->contentType,
+                  sizeof(request->contentType), &contentTypeLength) == napi_ok &&
+              strcmp(request->contentType,
+                     "application/vnd.agent-native.content-document+json") ==
+                  0;
+    }
+    valid = valid &&
+            napi_is_buffer(env, argv[payloadIndex], &isBuffer) == napi_ok &&
+            isBuffer &&
+            napi_get_buffer_info(env, argv[payloadIndex], &bytes,
+                                 &objectPayloadLength) == napi_ok &&
+            bytes != nullptr && objectPayloadLength > 0 &&
+            objectPayloadLength <= maximum;
+    if (!valid) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    request->objectRevision = static_cast<uint64_t>(revision);
+    objectPayload = static_cast<const uint8_t *>(bytes);
   }
   const uint8_t *jobEnvelope = nullptr;
   size_t jobEnvelopeLength = 0;
@@ -2241,6 +2458,20 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     napi_reject_deferred(env, deferred, error);
     delete request;
     return promise;
+  }
+
+  if (request->operation == PVOperation::SealObject ||
+      request->operation == PVOperation::OpenObject) {
+    try {
+      request->objectPayload.assign(objectPayload,
+                                    objectPayload + objectPayloadLength);
+    } catch (...) {
+      gRequestGate.release();
+      delete request;
+      napi_throw_error(env, nullptr,
+                       "Private Vault native service request failed");
+      return nullptr;
+    }
   }
 
   if (request->operation == PVOperation::ConfirmEnrollment ||
