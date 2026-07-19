@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.112.0
+
+### Minor Changes
+
+- 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+
+### Patch Changes
+
+- 6acaad0: Add durable, fenced local state for compound multi-frontier runs.
+- 6acaad0: Harden local Code run persistence and cancellation for the packaged desktop runner.
+
 ## 0.111.4
 
 ### Patch Changes
