@@ -567,8 +567,6 @@ CustodyStatus(AncPrivateVaultCustodyRepositoryStatus status) {
       current.role == ANC_PV_CUSTODY_ROLE_BROKER &&
       [SnapshotId(current.endpoint_id, current.endpoint_id_length)
           isEqualToString:Hex(candidateBytes)] &&
-      [SnapshotId(current.ceremony_id, current.ceremony_id_length)
-          isEqualToString:Hex(ceremonyBytes)] &&
       anc_pv_memcmp(current.signing_public_key, candidateSigningKey.bytes,
                     32) == ANC_PV_CRYPTO_OK &&
       anc_pv_memcmp(current.box_public_key, candidateAgreementKey.bytes, 32) ==
@@ -579,6 +577,8 @@ CustodyStatus(AncPrivateVaultCustodyRepositoryStatus status) {
       current.pending_kind == ANC_PV_CUSTODY_PENDING_ADD_BROKER &&
       current.enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING &&
       !current.authority_anchor_present && !current.expected_edge_present &&
+      [SnapshotId(current.ceremony_id, current.ceremony_id_length)
+          isEqualToString:Hex(ceremonyBytes)] &&
       anc_pv_memcmp(current.pending_transcript_digest, offerHash.bytes, 32) ==
           ANC_PV_CRYPTO_OK;
   BOOL generationTwo =
@@ -586,9 +586,15 @@ CustodyStatus(AncPrivateVaultCustodyRepositoryStatus status) {
       current.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
       current.pending_kind == ANC_PV_CUSTODY_PENDING_ADD_BROKER &&
       current.enrollment_phase ==
-          ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED;
+          ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED &&
+      [SnapshotId(current.ceremony_id, current.ceremony_id_length)
+          isEqualToString:Hex(ceremonyBytes)];
   BOOL generationThree = current.custody_generation == 3 &&
-                         current.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
+                         current.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+                         current.pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+                         current.enrollment_phase ==
+                             ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+                         current.ceremony_id_length == 0;
   if (!candidateMatches ||
       (!generationOne && !generationTwo && !generationThree)) {
     AncPrivateVaultCustodyRepositoryStatus closed = [handle close];

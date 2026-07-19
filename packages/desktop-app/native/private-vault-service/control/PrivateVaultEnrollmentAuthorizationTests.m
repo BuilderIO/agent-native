@@ -552,6 +552,28 @@ int main(void) {
                                   receipt:&durableReceipt] ==
             AncPrivateVaultEnrollmentCoordinatorStatusOK &&
         durableReceipt != nil);
+    AncPrivateVaultAuthoritySetFaultHookForTesting(
+        ^BOOL(AncPrivateVaultAuthorityFaultPoint point) {
+          return point == AncPrivateVaultAuthorityFaultAfterStageVerification;
+        });
+    AncPrivateVaultAuthorityCheckpoint *interruptedCheckpoint = nil;
+    assert([coordinator activateAuthorization:verified
+                                 verifiedAtMs:UINT64_C(1721111162000)
+                                   checkpoint:&interruptedCheckpoint] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusFailed &&
+           interruptedCheckpoint == nil);
+    AncPrivateVaultAuthoritySetFaultHookForTesting(nil);
+    AncPrivateVaultCustodySnapshot authorizedBroker;
+    AncPrivateVaultCustodyHandle *authorizedHandle = nil;
+    assert([brokerRepository readVaultId:Hex(vault)
+                                snapshot:&authorizedBroker
+                                  handle:&authorizedHandle] ==
+               AncPrivateVaultCustodyRepositoryStatusOK &&
+           authorizedBroker.custody_generation == 2 &&
+           authorizedBroker.enrollment_phase ==
+               ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED &&
+           [authorizedHandle close] ==
+               AncPrivateVaultCustodyRepositoryStatusOK);
     AncPrivateVaultAuthorityCheckpoint *coordinatorCheckpoint = nil;
     assert([coordinator activateAuthorization:verified
                                  verifiedAtMs:UINT64_C(1721111162000)
@@ -561,10 +583,14 @@ int main(void) {
            coordinatorCheckpoint.snapshot.sequence ==
                verified.replay.state.sequence);
     AncPrivateVaultAuthorityCheckpoint *retryCheckpoint = nil;
-    assert([coordinator activateAuthorization:verified
-                                 verifiedAtMs:UINT64_C(1721111163000)
-                                   checkpoint:&retryCheckpoint] ==
-               AncPrivateVaultEnrollmentCoordinatorStatusOK &&
+    AncPrivateVaultEnrollmentCoordinatorStatus retryStatus =
+        [coordinator activateAuthorization:verified
+                              verifiedAtMs:UINT64_C(1721111163000)
+                                checkpoint:&retryCheckpoint];
+    if (retryStatus != AncPrivateVaultEnrollmentCoordinatorStatusOK)
+      fprintf(stderr, "completed enrollment retry status: %ld\n",
+              (long)retryStatus);
+    assert(retryStatus == AncPrivateVaultEnrollmentCoordinatorStatusOK &&
            [retryCheckpoint.frameDigest
                isEqualToData:coordinatorCheckpoint.frameDigest]);
     AncPrivateVaultCustodySnapshot activeBroker;
