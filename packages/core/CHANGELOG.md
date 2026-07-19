@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.111.2
+
+### Patch Changes
+
+- 736d8b0: Trim non-English reference locales from the published source corpus.
+
 ## 0.111.1
 
 ### Patch Changes
