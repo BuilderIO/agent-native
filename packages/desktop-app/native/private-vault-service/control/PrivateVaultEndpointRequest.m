@@ -34,6 +34,17 @@ static const uint8_t kRequestSignatureDomain[] = "anc/v1/endpoint-request";
 - (instancetype)initPrivate { return [super init]; }
 @end
 
+@interface AncPrivateVaultContinuityHostedAppendReceipt ()
+@property(nonatomic) NSString *vaultId;
+@property(nonatomic) NSString *entryId;
+@property(nonatomic) uint64_t sequence;
+@property(nonatomic) NSData *headHash;
+- (instancetype)initPrivate;
+@end
+@implementation AncPrivateVaultContinuityHostedAppendReceipt
+- (instancetype)initPrivate { return [super init]; }
+@end
+
 static void
 AncEndpointRequestSetStatus(AncPrivateVaultEndpointRequestStatus *status,
                             AncPrivateVaultEndpointRequestStatus value) {
@@ -144,8 +155,9 @@ NSData *AncPrivateVaultControlLogAppendRequestEncode(
   return encoded;
 }
 
-NSData *AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
-    NSData *signedEntry, AncPrivateVaultEndpointRequestStatus *status) {
+static NSData *AncPrivateVaultControlLogSmallAppendRequestEncode(
+    NSData *signedEntry, NSString *type,
+    AncPrivateVaultEndpointRequestStatus *status) {
   AncEndpointRequestSetStatus(status,
                               AncPrivateVaultEndpointRequestStatusInvalid);
   if (![signedEntry isKindOfClass:NSData.class] || signedEntry.length == 0 ||
@@ -160,8 +172,7 @@ NSData *AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
       [AncPrivateVaultCanonicalValue map:@{
         @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
         @2 : [AncPrivateVaultCanonicalValue integer:1],
-        @3 : [AncPrivateVaultCanonicalValue
-            text:@"control-log-grant-revocation-append-request"],
+        @3 : [AncPrivateVaultCanonicalValue text:type],
         @4 : [AncPrivateVaultCanonicalValue bytes:[signedEntry copy]],
       }],
       &canonicalStatus);
@@ -177,8 +188,20 @@ NSData *AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
   return encoded;
 }
 
-AncPrivateVaultGrantRevocationHostedAppendReceipt *
-AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(NSData *encoded) {
+NSData *AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
+    NSData *signedEntry, AncPrivateVaultEndpointRequestStatus *status) {
+  return AncPrivateVaultControlLogSmallAppendRequestEncode(
+      signedEntry, @"control-log-grant-revocation-append-request", status);
+}
+
+NSData *AncPrivateVaultControlLogContinuityAppendRequestEncode(
+    NSData *signedEntry, AncPrivateVaultEndpointRequestStatus *status) {
+  return AncPrivateVaultControlLogSmallAppendRequestEncode(
+      signedEntry, @"control-log-continuity-append-request", status);
+}
+
+static NSDictionary *AncPrivateVaultControlLogSmallAppendReceiptFields(
+    NSData *encoded, NSString *expectedType) {
   if (![encoded isKindOfClass:NSData.class] || encoded.length == 0 ||
       encoded.length > 1024)
     return nil;
@@ -203,8 +226,7 @@ AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(NSData *encoded) {
       ![suite.textValue isEqualToString:@"anc/v1"] ||
       version.type != AncPrivateVaultCanonicalTypeInteger ||
       version.integerValue != 1 || type.type != AncPrivateVaultCanonicalTypeText ||
-      ![type.textValue
-          isEqualToString:@"control-log-grant-revocation-append-receipt"] ||
+      ![type.textValue isEqualToString:expectedType] ||
       vault.type != AncPrivateVaultCanonicalTypeText ||
       !AncEndpointRequestOpaqueId(vault.textValue) ||
       entry.type != AncPrivateVaultCanonicalTypeText ||
@@ -214,12 +236,39 @@ AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(NSData *encoded) {
       head.type != AncPrivateVaultCanonicalTypeBytes ||
       head.bytesValue.length != 32)
     return nil;
+  return @{
+    @"vault" : vault.textValue,
+    @"entry" : entry.textValue,
+    @"sequence" : @(sequence.integerValue),
+    @"head" : head.bytesValue,
+  };
+}
+
+AncPrivateVaultGrantRevocationHostedAppendReceipt *
+AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(NSData *encoded) {
+  NSDictionary *fields = AncPrivateVaultControlLogSmallAppendReceiptFields(
+      encoded, @"control-log-grant-revocation-append-receipt");
+  if (fields == nil) return nil;
   AncPrivateVaultGrantRevocationHostedAppendReceipt *receipt =
       [[AncPrivateVaultGrantRevocationHostedAppendReceipt alloc] initPrivate];
-  receipt.vaultId = [vault.textValue copy];
-  receipt.entryId = [entry.textValue copy];
-  receipt.sequence = (uint64_t)sequence.integerValue;
-  receipt.headHash = [head.bytesValue copy];
+  receipt.vaultId = [fields[@"vault"] copy];
+  receipt.entryId = [fields[@"entry"] copy];
+  receipt.sequence = [fields[@"sequence"] unsignedLongLongValue];
+  receipt.headHash = [fields[@"head"] copy];
+  return receipt;
+}
+
+AncPrivateVaultContinuityHostedAppendReceipt *
+AncPrivateVaultControlLogContinuityAppendReceiptDecode(NSData *encoded) {
+  NSDictionary *fields = AncPrivateVaultControlLogSmallAppendReceiptFields(
+      encoded, @"control-log-continuity-append-receipt");
+  if (fields == nil) return nil;
+  AncPrivateVaultContinuityHostedAppendReceipt *receipt =
+      [[AncPrivateVaultContinuityHostedAppendReceipt alloc] initPrivate];
+  receipt.vaultId = [fields[@"vault"] copy];
+  receipt.entryId = [fields[@"entry"] copy];
+  receipt.sequence = [fields[@"sequence"] unsignedLongLongValue];
+  receipt.headHash = [fields[@"head"] copy];
   return receipt;
 }
 

@@ -34,6 +34,8 @@ NSString *const AncPrivateVaultEnrollmentOfferService =
     @"com.agentnative.desktop.private-vault.anc-v1.enrollment-offer";
 NSString *const AncPrivateVaultEnrollmentSasReceiptService =
     @"com.agentnative.desktop.private-vault.anc-v1.enrollment-sas-receipt";
+NSString *const AncPrivateVaultContinuityPendingService =
+    @"com.agentnative.desktop.private-vault.anc-v1.continuity-pending";
 NSString *const AncPrivateVaultKeychainAccessGroup =
     @"W3PMF2T3MW.com.agentnative.desktop.private-vault";
 NSString *const AncPrivateVaultKeychainStorageDomain =
@@ -286,7 +288,8 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
       ![service isEqualToString:AncPrivateVaultTrustedTimeHighWaterService] &&
       ![service isEqualToString:AncPrivateVaultRecoveryPreparationService] &&
       ![service isEqualToString:AncPrivateVaultEnrollmentOfferService] &&
-      ![service isEqualToString:AncPrivateVaultEnrollmentSasReceiptService]) {
+      ![service isEqualToString:AncPrivateVaultEnrollmentSasReceiptService] &&
+      ![service isEqualToString:AncPrivateVaultContinuityPendingService]) {
     return nil;
   }
   NSString *account = AncAccount(service, vaultId, recordId);

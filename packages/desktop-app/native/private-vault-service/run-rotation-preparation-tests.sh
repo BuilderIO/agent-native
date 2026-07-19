@@ -12,6 +12,7 @@ FIXTURE="$ROOT/../core/src/e2ee/fixtures/anc-v1-native-rotation-preparation-vect
 for architecture in arm64 x86_64; do
   DIRECTORY="$OUTPUT/.rotation-preparation-tests"
   if [[ "$architecture" == arm64 ]]; then
+    "$DIRECTORY/private-vault-endpoint-removal-builder-tests-$architecture"
     "$DIRECTORY/private-vault-rotation-record-tests-$architecture" "$FIXTURE"
     pnpm --dir "$ROOT/.." --filter @agent-native/core exec tsx \
       scripts/materialize-native-rotation-preparation-vectors.ts \
@@ -23,6 +24,7 @@ for architecture in arm64 x86_64; do
       --ephemeral-material-stdout --fixture "$FIXTURE" | \
       "$DIRECTORY/private-vault-rotation-coordinator-tests-$architecture"
   else
+    arch -x86_64 "$DIRECTORY/private-vault-endpoint-removal-builder-tests-$architecture"
     arch -x86_64 "$DIRECTORY/private-vault-rotation-record-tests-$architecture" "$FIXTURE"
     pnpm --dir "$ROOT/.." --filter @agent-native/core exec tsx \
       scripts/materialize-native-rotation-preparation-vectors.ts \

@@ -76,6 +76,15 @@ function harness() {
   const migrationEvidence = {
     exportEvidence: vi.fn(async () => ({ exportId: "44".repeat(16) })),
   };
+  const authority = { refresh: vi.fn(async () => ({ sequence: 9 })) };
+  const scheduled: Array<() => void> = [];
+  const authorityScheduler = {
+    every: vi.fn((_milliseconds: number, callback: () => void) => {
+      scheduled.push(callback);
+      return callback;
+    }),
+    clear: vi.fn(),
+  };
   return {
     actions,
     broker,
@@ -88,6 +97,9 @@ function harness() {
     migrationExport,
     migrationRecovery,
     migrationEvidence,
+    authority,
+    authorityScheduler,
+    scheduled,
     runtime: new PrivateVaultContentRuntime({
       descriptor: { read: vi.fn(async () => ({ vaultId })) },
       documents: documents as never,
@@ -99,6 +111,8 @@ function harness() {
       migrationExport,
       migrationRecovery,
       migrationEvidence,
+      authority,
+      authorityScheduler,
     }),
   };
 }
@@ -185,6 +199,22 @@ describe("PrivateVaultContentRuntime", () => {
     await source.runtime.stop();
     expect(source.broker.stop).toHaveBeenCalledOnce();
     expect(source.documents.close).toHaveBeenCalledOnce();
+  });
+
+  it("renews endpoint-witnessed authority at startup and on a five-minute cadence", async () => {
+    const source = harness();
+    await source.runtime.start();
+    expect(source.authority.refresh).toHaveBeenCalledWith(vaultId);
+    expect(source.authorityScheduler.every).toHaveBeenCalledWith(
+      5 * 60 * 1000,
+      expect.any(Function),
+    );
+    source.scheduled[0]!();
+    await vi.waitFor(() =>
+      expect(source.authority.refresh).toHaveBeenCalledTimes(2),
+    );
+    await source.runtime.stop();
+    expect(source.authorityScheduler.clear).toHaveBeenCalledOnce();
   });
 
   it("keeps endpoint documents open while a failed broker stays offline", async () => {

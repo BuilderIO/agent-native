@@ -1995,6 +1995,32 @@ int main(int argc, const char *argv[]) {
     RotationKeyMaterial keys;
     assert(ReadMaterial(&material));
     assert(DeriveKeys(&keys));
+    {
+      AncPrivateVaultRotationPreparationSnapshot prepared = {0};
+      prepared.phase = ANC_PV_ROTATION_PREPARATION_PHASE_PREPARED;
+      uint8_t requestKey[32];
+      memset(requestKey, 0x91, sizeof requestKey);
+      NSData *frame = Bytes(0x92, 32);
+      NSData *target = Bytes(0x93, 16);
+      NSMutableData *binding = [NSMutableData dataWithData:frame];
+      [binding appendData:target];
+      uint8_t digest[32] = {0};
+      NSMutableData *derivation = [NSMutableData
+          dataWithBytes:"endpoint-removal/ceremony"
+                 length:sizeof "endpoint-removal/ceremony"];
+      [derivation appendBytes:requestKey length:sizeof requestKey];
+      [derivation appendData:binding];
+      assert(anc_pv_blake2b_256(digest, derivation.bytes,
+                                derivation.length) == ANC_PV_CRYPTO_OK);
+      memcpy(prepared.ceremony_id, digest, 16);
+      assert(AncPrivateVaultRotationEndpointRemovalTargetMatchesPreparedForTesting(
+          &prepared, target, frame, requestKey));
+      assert(!AncPrivateVaultRotationEndpointRemovalTargetMatchesPreparedForTesting(
+          &prepared, Bytes(0x94, 16), frame, requestKey));
+      anc_pv_zeroize(digest, sizeof digest);
+      anc_pv_zeroize(requestKey, sizeof requestKey);
+      anc_pv_rotation_preparation_snapshot_zero(&prepared);
+    }
     RunHappyPath(&material, &keys);
     RunHostedAppendCleanup(&material, &keys);
     RunCoordinatorCrashRetries(&material, &keys);

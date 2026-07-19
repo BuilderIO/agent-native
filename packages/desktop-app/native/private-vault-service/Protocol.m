@@ -204,6 +204,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool listMembers = strcmp(operation, "list_members") == 0;
     bool brokerKey = strcmp(operation, "broker_key") == 0;
     bool revokeGrant = strcmp(operation, "revoke_grant") == 0;
+    bool refreshAuthority = strcmp(operation, "refresh_head") == 0;
     bool sealJob = strcmp(operation, "seal_job") == 0;
     bool openResult = strcmp(operation, "open_result") == 0;
     bool sealResult = strcmp(operation, "seal_result") == 0;
@@ -229,7 +230,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
         !openJob && !createGrant && !listGrants && !listMembers && !brokerKey &&
-        !revokeGrant && !sealJob && !openResult && !sealResult &&
+        !revokeGrant && !refreshAuthority && !sealJob && !openResult && !sealResult &&
         !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
@@ -329,7 +330,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         request->jobID = xpc_dictionary_get_string(message, "jobId");
         request->jobHash = xpc_dictionary_get_string(message, "jobHash");
         request->senderEndpointID = sender;
-    } else if (listGrants || listMembers || brokerKey) {
+    } else if (listGrants || listMembers || brokerKey || refreshAuthority) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
@@ -755,7 +756,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                 challengeEnrollment || inspectEnrollment ||
                 authorizeEnrollment || activateEnrollment ||
                 enrollmentBootstrap || listGrants || listMembers || brokerKey ||
-                revokeGrant || sealObject ||
+                revokeGrant || refreshAuthority || sealObject ||
                 openObject || sealExport || openExport
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;

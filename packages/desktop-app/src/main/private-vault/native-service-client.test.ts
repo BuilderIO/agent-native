@@ -636,6 +636,40 @@ describe("Private Vault native service client", () => {
     ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
   });
 
+  it("refreshes endpoint-witnessed authority without exposing signed log bytes", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "refresh_head",
+      state: "refreshed",
+      vaultId,
+      sequence: 9,
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(client.refreshAuthority(vaultId)).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "refresh_authority",
+      state: "refreshed",
+      vaultId,
+      sequence: 9,
+    });
+    expect(request).toHaveBeenCalledWith("refresh_head", vaultId);
+
+    request.mockResolvedValueOnce({
+      version: 3,
+      operation: "refresh_head",
+      state: "refreshed",
+      vaultId,
+      sequence: 0,
+    });
+    await expect(client.refreshAuthority(vaultId)).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+  });
+
   it("lists only content-free grant summaries through the native boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const grantRef = "ab".repeat(32);

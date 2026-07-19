@@ -61,6 +61,7 @@ type NativeOperation =
   | "recover_status"
   | "create_grant"
   | "revoke_grant"
+  | "refresh_head"
   | "list_grants"
   | "list_members"
   | "broker_key"
@@ -106,6 +107,7 @@ export interface PrivateVaultNativeServiceClient
   revokeContentGrant(
     input: NativeRevokeContentGrantInput,
   ): Promise<NativeRevokedContentGrantResult>;
+  refreshAuthority(vaultId: string): Promise<NativeRefreshedAuthorityResult>;
   listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult>;
   listVaultMembers(vaultId: string): Promise<NativeListedVaultMembersResult>;
   brokerVerificationKey(
@@ -220,6 +222,15 @@ export interface NativeRevokedContentGrantResult {
   readonly state: "revoked";
   readonly vaultId: string;
   readonly grantRef: string;
+}
+
+export interface NativeRefreshedAuthorityResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "refresh_authority";
+  readonly state: "refreshed";
+  readonly vaultId: string;
+  readonly sequence: number;
 }
 
 export interface NativeContentGrantSummary {
@@ -1311,6 +1322,37 @@ function parseRevokedContentGrant(
   });
 }
 
+function parseRefreshedAuthority(
+  value: unknown,
+  vaultId: string,
+): NativeRefreshedAuthorityResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "sequence",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "refresh_head" ||
+    value.state !== "refreshed" ||
+    value.vaultId !== vaultId ||
+    !Number.isSafeInteger(value.sequence) ||
+    (value.sequence as number) <= 0
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "refresh_authority" as const,
+    state: "refreshed" as const,
+    vaultId,
+    sequence: value.sequence as number,
+  });
+}
+
 function parseListedContentGrants(
   value: unknown,
   vaultId: string,
@@ -2067,6 +2109,22 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         return parseRevokedContentGrant(
           await addon.request("revoke_grant", input.vaultId, input.grantRef),
           input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  refreshAuthority(vaultId: string): Promise<NativeRefreshedAuthorityResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseRefreshedAuthority(
+          await addon.request("refresh_head", vaultId),
+          vaultId,
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();

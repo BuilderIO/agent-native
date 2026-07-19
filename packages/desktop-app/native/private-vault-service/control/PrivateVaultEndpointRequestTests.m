@@ -52,6 +52,20 @@ int main(void) {
         isEqualToData:
             Hex(@"a40166616e632f7631020103782b636f6e74726f6c2d6c6f672d6772616e742"
                 @"d7265766f636174696f6e2d617070656e642d726571756573740443010203")]);
+    NSData *continuityBody =
+        AncPrivateVaultControlLogContinuityAppendRequestEncode(signedEntry,
+                                                               &status);
+    assert(status == AncPrivateVaultEndpointRequestStatusOK);
+    AncPrivateVaultCanonicalStatus continuityStatus;
+    AncPrivateVaultCanonicalValue *continuityEnvelope =
+        AncPrivateVaultCanonicalDecode(continuityBody, 1024,
+                                       &continuityStatus);
+    assert(continuityStatus == AncPrivateVaultCanonicalStatusOK &&
+           continuityEnvelope.type == AncPrivateVaultCanonicalTypeMap &&
+           continuityEnvelope.mapValue.count == 4 &&
+           [((AncPrivateVaultCanonicalValue *)continuityEnvelope.mapValue[@3])
+               .textValue
+               isEqualToString:@"control-log-continuity-append-request"]);
     NSData *revocationReceiptBytes =
         Hex(@"a70166616e632f7631020103782b636f6e74726f6c2d6c6f672d6772616e742d7265766f636174696f6e2d617070656e642d726563656970740478203231323132313231323132313231323132313231323132313231323132313231057820333933393339333933393339333933393339333933393339333933393339333906010758204444444444444444444444444444444444444444444444444444444444444444");
     AncPrivateVaultGrantRevocationHostedAppendReceipt *revocationReceipt =
@@ -63,6 +77,28 @@ int main(void) {
            [revocationReceipt.entryId
                isEqualToString:@"39393939393939393939393939393939"] &&
            revocationReceipt.headHash.length == 32);
+    NSData *continuityReceiptBytes = AncPrivateVaultCanonicalEncode(
+        [AncPrivateVaultCanonicalValue map:@{
+          @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+          @2 : [AncPrivateVaultCanonicalValue integer:1],
+          @3 : [AncPrivateVaultCanonicalValue
+              text:@"control-log-continuity-append-receipt"],
+          @4 : [AncPrivateVaultCanonicalValue
+              text:@"21212121212121212121212121212121"],
+          @5 : [AncPrivateVaultCanonicalValue
+              text:@"39393939393939393939393939393939"],
+          @6 : [AncPrivateVaultCanonicalValue integer:1],
+          @7 : [AncPrivateVaultCanonicalValue bytes:
+              [NSData dataWithBytes:(uint8_t[32]){0x44} length:32]],
+        }],
+        &continuityStatus);
+    AncPrivateVaultContinuityHostedAppendReceipt *continuityReceipt =
+        AncPrivateVaultControlLogContinuityAppendReceiptDecode(
+            continuityReceiptBytes);
+    assert(continuityReceipt != nil && continuityReceipt.sequence == 1 &&
+           continuityReceipt.headHash.length == 32);
+    assert(AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(
+               continuityReceiptBytes) == nil);
     AncPrivateVaultCanonicalStatus canonicalStatus;
     NSData *receiptBytes = AncPrivateVaultCanonicalEncode(
         [AncPrivateVaultCanonicalValue map:@{
@@ -160,6 +196,9 @@ int main(void) {
     assert(status == AncPrivateVaultEndpointRequestStatusTooLarge);
     assert(AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
                NSData.data, &status) == nil);
+    assert(AncPrivateVaultControlLogContinuityAppendRequestEncode(NSData.data,
+                                                                  &status) ==
+           nil);
     NSMutableData *wrongReceipt = [revocationReceiptBytes mutableCopy];
     [wrongReceipt appendBytes:(uint8_t[]){0} length:1];
     assert(AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(

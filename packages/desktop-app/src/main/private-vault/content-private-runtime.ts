@@ -91,6 +91,17 @@ interface DisclosureSurface {
   ): Promise<readonly PrivateVaultVerifiedDisclosureActivity[]>;
 }
 
+interface AuthorityContinuitySurface {
+  refresh(vaultId: string): Promise<unknown>;
+}
+
+interface AuthorityContinuityScheduler {
+  every(milliseconds: number, callback: () => void): unknown;
+  clear(handle: unknown): void;
+}
+
+const AUTHORITY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 type PrivateContentDocuments = DocumentLifecycle &
   Pick<
     PrivateVaultContentDocumentRuntime,
@@ -130,6 +141,10 @@ export class PrivateVaultContentRuntime {
   readonly #migrationExport: MigrationExportSurface;
   readonly #migrationRecovery: MigrationRecoverySurface;
   readonly #migrationEvidence: MigrationEvidenceSurface;
+  readonly #authority: AuthorityContinuitySurface;
+  readonly #authorityScheduler: AuthorityContinuityScheduler;
+  #authorityRefreshHandle: unknown | null = null;
+  #authorityRefreshInFlight = false;
   #active: {
     vaultId: string;
     broker: BrokerLifecycle | null;
@@ -152,6 +167,8 @@ export class PrivateVaultContentRuntime {
     migrationExport: MigrationExportSurface;
     migrationRecovery: MigrationRecoverySurface;
     migrationEvidence: MigrationEvidenceSurface;
+    authority: AuthorityContinuitySurface;
+    authorityScheduler: AuthorityContinuityScheduler;
   }) {
     this.#descriptor = input.descriptor;
     this.#documents = input.documents;
@@ -163,6 +180,8 @@ export class PrivateVaultContentRuntime {
     this.#migrationExport = input.migrationExport;
     this.#migrationRecovery = input.migrationRecovery;
     this.#migrationEvidence = input.migrationEvidence;
+    this.#authority = input.authority;
+    this.#authorityScheduler = input.authorityScheduler;
   }
 
   start(): Promise<void> {
@@ -183,6 +202,10 @@ export class PrivateVaultContentRuntime {
 
   async stop(): Promise<void> {
     await this.#transition;
+    if (this.#authorityRefreshHandle !== null) {
+      this.#authorityScheduler.clear(this.#authorityRefreshHandle);
+      this.#authorityRefreshHandle = null;
+    }
     const active = this.#active;
     this.#active = null;
     this.#applicationState = Object.freeze({ view: "list" });
@@ -366,6 +389,7 @@ export class PrivateVaultContentRuntime {
   async #start(): Promise<void> {
     try {
       const descriptor = await this.#descriptor.read();
+      await this.#authority.refresh(descriptor.vaultId).catch(() => undefined);
       await this.#documents.initialize(descriptor.vaultId);
       let broker: BrokerLifecycle | null = null;
       try {
@@ -382,10 +406,28 @@ export class PrivateVaultContentRuntime {
         vaultId: descriptor.vaultId,
         broker,
       };
+      this.#authorityRefreshHandle = this.#authorityScheduler.every(
+        AUTHORITY_REFRESH_INTERVAL_MS,
+        () => void this.#refreshAuthority(),
+      );
       this.#applicationState = Object.freeze({ view: "list" });
     } catch {
       this.#documents.close();
       throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
+  async #refreshAuthority(): Promise<void> {
+    const active = this.#active;
+    if (!active || this.#authorityRefreshInFlight) return;
+    this.#authorityRefreshInFlight = true;
+    try {
+      await this.#authority.refresh(active.vaultId);
+    } catch {
+      // A missed witness fails broker authorization closed; the next interval
+      // retries without moving plaintext or inventing hosted authority.
+    } finally {
+      this.#authorityRefreshInFlight = false;
     }
   }
 }
@@ -473,5 +515,10 @@ export function createPrivateVaultContentRuntime(input: {
     migrationExport,
     migrationRecovery,
     migrationEvidence: migrationHosted,
+    authority: { refresh: (vaultId) => native.refreshAuthority(vaultId) },
+    authorityScheduler: {
+      every: (milliseconds, callback) => setInterval(callback, milliseconds),
+      clear: (handle) => clearInterval(handle as NodeJS.Timeout),
+    },
   });
 }

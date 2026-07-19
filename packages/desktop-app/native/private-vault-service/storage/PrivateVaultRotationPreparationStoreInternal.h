@@ -31,6 +31,19 @@ typedef BOOL (^AncPrivateVaultConsumedHostedAppendConsumer)(
     NSData *signingPublicKey);
 
 @interface AncPrivateVaultRotationPreparationStore (CoordinatorInternal)
+/* Starts the first ceremony or CASes a fully cleaned tombstone to the next
+ * PREPARED generation. The coordinator must supply an authenticated fresh base
+ * tuple; the record transition independently enforces a changed ceremony and
+ * distinct nonzero pending key. */
+- (AncPrivateVaultRotationPreparationStoreStatus)
+    createPrepared:
+        (const AncPrivateVaultRotationPreparationSnapshot *_Nonnull)snapshot
+          pendingEpochKey:(const uint8_t *_Nonnull)pendingEpochKey
+       expectedCheckpoint:
+           (AncPrivateVaultRotationPreparationCheckpoint *_Nullable)expected
+               checkpoint:(AncPrivateVaultRotationPreparationCheckpoint
+                               *_Nullable *_Nullable)checkpoint;
+
 /* This capability is deliberately absent from the public store API. It does
  * not trust its caller: before clearing the duplicate pending key it performs
  * its own exact official successor reread, tuple validation, and active-key

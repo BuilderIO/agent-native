@@ -1387,6 +1387,41 @@ AncRotationPreparationTransitionValidate(
 }
 
 - (AncPrivateVaultRotationPreparationStoreStatus)
+    createPrepared:
+        (const AncPrivateVaultRotationPreparationSnapshot *)snapshot
+          pendingEpochKey:(const uint8_t[32])pendingEpochKey
+       expectedCheckpoint:
+           (AncPrivateVaultRotationPreparationCheckpoint *)expected
+               checkpoint:
+                   (AncPrivateVaultRotationPreparationCheckpoint **)checkpoint {
+  if (checkpoint != NULL)
+    *checkpoint = nil;
+  if (AncRotationPreparationInBorrowScope())
+    return AncPrivateVaultRotationPreparationStoreStatusConflict;
+  if (snapshot == NULL || pendingEpochKey == NULL ||
+      snapshot->phase != ANC_PV_ROTATION_PREPARATION_PHASE_PREPARED)
+    return AncPrivateVaultRotationPreparationStoreStatusInvalid;
+  AncPrivateVaultGuardedRecord *candidate =
+      [self encodeSnapshot:snapshot keyHandle:nil directKey:pendingEpochKey];
+  if (candidate == nil)
+    return AncPrivateVaultRotationPreparationStoreStatusInvalid;
+  __block AncPrivateVaultRotationPreparationStoreStatus status;
+  __block AncPrivateVaultRotationPreparationCheckpoint *result = nil;
+  dispatch_sync(self.queue, ^{
+    status = [self commitCandidate:candidate
+                           vaultId:snapshot->vault_id
+                expectedCheckpoint:expected
+                     allowCreation:expected == nil
+                     outCheckpoint:&result];
+  });
+  AncRotationPreparationClearRecord(candidate);
+  if (checkpoint != NULL &&
+      status == AncPrivateVaultRotationPreparationStoreStatusOK)
+    *checkpoint = result;
+  return status;
+}
+
+- (AncPrivateVaultRotationPreparationStoreStatus)
         advanceVaultId:(const uint8_t[16])vaultId
     expectedCheckpoint:(AncPrivateVaultRotationPreparationCheckpoint *)expected
                toPhase:(AncPrivateVaultRotationPreparationPhase)phase

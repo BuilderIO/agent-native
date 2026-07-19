@@ -119,6 +119,15 @@ int main(void) {
              0);
   xpc_release(revokeGrant);
 
+  xpc_object_t refreshAuthority = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "refresh_head", "request-refresh-authority");
+  xpc_dictionary_set_string(refreshAuthority, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(refreshAuthority, &parsed) == PVRequestValid &&
+         strcmp(parsed.operation, "refresh_head") == 0 &&
+         strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  xpc_release(refreshAuthority);
+
   xpc_object_t listGrants =
       PVMakeRequest(PV_PROTOCOL_VERSION, "list_grants", "request-list-grants");
   xpc_dictionary_set_string(listGrants, "vaultId",

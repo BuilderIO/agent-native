@@ -43,6 +43,7 @@
 #import "PrivateVaultRecoveryPreparationStore.h"
 #import "PrivateVaultGrantIndex.h"
 #import "PrivateVaultGrantRevocationCoordinator.h"
+#import "PrivateVaultContinuityCoordinator.h"
 #import "PrivateVaultJobProcessor.h"
 #import "PrivateVaultEnrollmentOfferArtifactStore.h"
 #import "PrivateVaultEnrollmentSasReceiptStore.h"
@@ -69,6 +70,7 @@ static NSLock *gRecoveryStatusLock = nil;
 static bool gStartupComplete = false;
 static AncPrivateVaultGrantIndex *gGrantIndex = nil;
 static AncPrivateVaultGrantRevocationCoordinator *gGrantRevocationCoordinator = nil;
+static AncPrivateVaultContinuityCoordinator *gContinuityCoordinator = nil;
 static AncPrivateVaultJobProcessor *gJobProcessor = nil;
 static AncPrivateVaultAuthorityStore *gEndpointAuthorityStore = nil;
 static AncPrivateVaultAuthorityStore *gBrokerAuthorityStore = nil;
@@ -1782,6 +1784,110 @@ static void PVRevokeContentGrant(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVRefreshAuthority(xpc_connection_t peer, xpc_object_t message,
+                               const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        uint64_t nowMilliseconds = 0;
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *endpointIdData = nil;
+        AncPrivateVaultControlLogMember *endpointMember = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *agreement = nil;
+        BOOL contextOkay = gContinuityCoordinator != nil &&
+            gHostedAppendTransport != nil &&
+            [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
+            nowMilliseconds >= 1000 &&
+            PVRequesterEndpointContext(vaultId, &state, &endpointIdData,
+                                       &endpointMember, &signing, &agreement);
+        NSData *logId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *nonceData = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSString *endpointId = PVVaultIDHex(endpointIdData);
+        NSString *nonce = PVVaultIDHex(nonceData);
+        NSString *logEnvelopeId = logId == nil
+            ? nil
+            : [@"log-entry:continuity-" stringByAppendingString:
+                                              PVVaultIDHex(logId)];
+        NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
+        formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime |
+                                  NSISO8601DateFormatWithFractionalSeconds;
+        NSString *createdAt = contextOkay
+            ? [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:
+                    (NSTimeInterval)(nowMilliseconds / 1000)]]
+            : nil;
+        __block AncPrivateVaultPreparedContinuity *prepared = nil;
+        __block AncPrivateVaultContinuityCoordinatorStatus prepareStatus =
+            AncPrivateVaultContinuityCoordinatorStatusInvalid;
+        AncPrivateVaultGuardedMemoryStatus borrowed =
+            signing == nil ? AncPrivateVaultGuardedMemoryStatusInvalid
+                           : [signing borrow:^BOOL(uint8_t *seed, size_t length) {
+              if (length != ANC_PV_SEED_BYTES) return NO;
+              prepareStatus = [gContinuityCoordinator
+                  prepareVaultId:vaultId
+                   logEnvelopeId:logEnvelopeId
+                  entryCreatedAt:createdAt
+                   proofIssuedAt:createdAt
+                           nonce:nonce
+                      endpointId:endpointId
+                     signingSeed:seed
+        expectedSigningPublicKey:endpointMember.signingPublicKey
+                          result:&prepared];
+              return prepareStatus ==
+                  AncPrivateVaultContinuityCoordinatorStatusOK;
+            }];
+        BOOL signingClosed = signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed = agreement != nil &&
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        if (!contextOkay || logId == nil || nonceData == nil ||
+            createdAt == nil ||
+            borrowed != AncPrivateVaultGuardedMemoryStatusOK ||
+            prepareStatus != AncPrivateVaultContinuityCoordinatorStatusOK ||
+            prepared == nil || !signingClosed || !agreementClosed) {
+            PVSendError(peer, message, "authority_refresh_failed");
+            return;
+        }
+
+        PVRequest requestCopy = *request;
+        xpc_connection_t callbackPeer = peer;
+        xpc_object_t callbackMessage = message;
+        [gHostedAppendTransport
+            appendBody:prepared.requestBody
+             proofHeader:prepared.proofHeader
+              completion:^(AncPrivateVaultHostedAppendTransportStatus status,
+                           NSData *receipt) {
+                @autoreleasepool {
+                    uint64_t verifiedAtMs = 0;
+                    BOOL finalized =
+                        status == AncPrivateVaultHostedAppendTransportStatusOK &&
+                        receipt != nil &&
+                        [gTrustedClock readNowMilliseconds:&verifiedAtMs] &&
+                        [gContinuityCoordinator
+                            finalizeVaultId:vaultId
+                                   receipt:receipt
+                              verifiedAtMs:verifiedAtMs] ==
+                            AncPrivateVaultContinuityCoordinatorStatusOK;
+                    if (!finalized) {
+                        PVSendError(callbackPeer, callbackMessage,
+                                    "authority_refresh_failed");
+                    } else {
+                        xpc_object_t reply =
+                            PVCreateReply(callbackMessage, &requestCopy);
+                        if (reply != NULL) {
+                            xpc_dictionary_set_string(reply, "state",
+                                                      "refreshed");
+                            xpc_dictionary_set_string(reply, "vaultId",
+                                                      requestCopy.vaultID);
+                            xpc_dictionary_set_uint64(reply, "sequence",
+                                                      prepared.sequence);
+                            xpc_connection_send_message(callbackPeer, reply);
+                        }
+                    }
+                }
+              }];
+    }
+}
+
 static void PVListContentGrants(xpc_connection_t peer, xpc_object_t message,
                                 const PVRequest *request) {
     @autoreleasepool {
@@ -3242,6 +3348,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVRevokeContentGrant(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "refresh_head") == 0) {
+                PVRefreshAuthority(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "seal_export") == 0) {
                 PVSealExportArchive(peer, message, &request);
                 return;
@@ -3371,6 +3481,10 @@ int main(void) {
                 initWithGrantIndex:gGrantIndex
                     authorityStore:authority
                         controlLog:controlLog];
+        gContinuityCoordinator = [[AncPrivateVaultContinuityCoordinator alloc]
+            initWithAuthorityStore:authority
+                          keychain:keychain
+                        controlLog:controlLog];
         gEnrollmentArtifactStore =
             [[AncPrivateVaultEnrollmentOfferArtifactStore alloc]
                 initWithKeychain:keychain
@@ -3470,6 +3584,7 @@ int main(void) {
             brokerAuthority == nil || gGrantIndex == nil ||
             gJobProcessor == nil ||
             gGrantRevocationCoordinator == nil ||
+            gContinuityCoordinator == nil ||
             gEndpointAuthorityStore == nil || gBrokerAuthorityStore == nil ||
             gControlLog == nil ||
             gEnrollmentArtifactStore == nil || enrollmentReceiptStore == nil ||

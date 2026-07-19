@@ -77,6 +77,7 @@ enum class PVOperation {
   ListMembers,
   BrokerKey,
   RevokeGrant,
+  RefreshAuthority,
   SealJob,
   OpenResult,
   OpenJob,
@@ -927,6 +928,28 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     memcpy(parsed.state, state, strlen(state) + 1);
     memcpy(parsed.vaultID, vaultID, 33);
     memcpy(parsed.grantRef, grantRef, 65);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
+  if (operation == PVOperation::RefreshAuthority) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "sequence",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    uint64_t sequence = xpc_dictionary_get_uint64(reply, "sequence");
+    if (!PVHasExactKeys(reply, keys, 6) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "refreshed") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        sequence == 0 || sequence > UINT64_C(9007199254740991)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    parsed.sequence = sequence;
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -1999,6 +2022,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "create_grant"
                           : request->operation == PVOperation::RevokeGrant
                               ? "revoke_grant"
+                          : request->operation == PVOperation::RefreshAuthority
+                              ? "refresh_head"
                           : request->operation == PVOperation::ListGrants
                               ? "list_grants"
                           : request->operation == PVOperation::ListMembers
@@ -2084,6 +2109,7 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::Unlock ||
       request->operation == PVOperation::CreateGrant ||
       request->operation == PVOperation::RevokeGrant ||
+      request->operation == PVOperation::RefreshAuthority ||
       request->operation == PVOperation::ListGrants ||
       request->operation == PVOperation::ListMembers ||
       request->operation == PVOperation::BrokerKey ||
@@ -2294,6 +2320,8 @@ void PVExecute(napi_env env, void *data) {
           ? 60LL * NSEC_PER_SEC
       : request->operation == PVOperation::RevokeGrant
           ? 22LL * NSEC_PER_SEC
+      : request->operation == PVOperation::RefreshAuthority
+          ? 22LL * NSEC_PER_SEC
           : PV_REQUEST_TIMEOUT_NANOSECONDS;
   const long waitResult = dispatch_semaphore_wait(
       state->semaphore(),
@@ -2318,6 +2346,7 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::OpenObject ||
                 request->operation == PVOperation::CreateGrant ||
                 request->operation == PVOperation::RevokeGrant ||
+                request->operation == PVOperation::RefreshAuthority ||
                 request->operation == PVOperation::ListGrants ||
                 request->operation == PVOperation::ListMembers ||
                 request->operation == PVOperation::BrokerKey ||
@@ -2545,6 +2574,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "create_grant"
                 : request->operation == PVOperation::RevokeGrant
                     ? "revoke_grant"
+                : request->operation == PVOperation::RefreshAuthority
+                    ? "refresh_head"
                 : request->operation == PVOperation::ListGrants
                     ? "list_grants"
                 : request->operation == PVOperation::ListMembers
@@ -2652,6 +2683,9 @@ void PVComplete(napi_env env, napi_status status, void *data) {
     } else if (request->operation == PVOperation::RevokeGrant) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "grantRef", request->grantRef);
+    } else if (request->operation == PVOperation::RefreshAuthority) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetSafeInteger(env, result, "sequence", request->sequence);
     } else if (request->operation == PVOperation::ListGrants) {
       PVSetString(env, result, "vaultId", request->vaultID);
       napi_value grants;
@@ -3083,7 +3117,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
-  char operation[17] = {0};
+  char operation[33] = {0};
   if (napi_get_value_string_utf8(env, argv[0], operation, sizeof(operation),
                                  &length) != napi_ok) {
     delete request;
@@ -3125,6 +3159,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::CreateGrant;
   } else if (strcmp(operation, "revoke_grant") == 0) {
     request->operation = PVOperation::RevokeGrant;
+  } else if (strcmp(operation, "refresh_head") == 0) {
+    request->operation = PVOperation::RefreshAuthority;
   } else if (strcmp(operation, "list_grants") == 0) {
     request->operation = PVOperation::ListGrants;
   } else if (strcmp(operation, "list_members") == 0) {
@@ -3190,6 +3226,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::EnrollmentBootstrap ? 3
       : request->operation == PVOperation::CreateGrant ? 5
       : request->operation == PVOperation::RevokeGrant ? 3
+      : request->operation == PVOperation::RefreshAuthority ? 2
       : request->operation == PVOperation::ListGrants ? 2
       : request->operation == PVOperation::ListMembers ? 2
       : request->operation == PVOperation::BrokerKey ? 2
@@ -3224,6 +3261,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::EnrollmentBootstrap ||
       request->operation == PVOperation::CreateGrant ||
       request->operation == PVOperation::RevokeGrant ||
+      request->operation == PVOperation::RefreshAuthority ||
       request->operation == PVOperation::ListGrants ||
       request->operation == PVOperation::ListMembers ||
       request->operation == PVOperation::BrokerKey ||

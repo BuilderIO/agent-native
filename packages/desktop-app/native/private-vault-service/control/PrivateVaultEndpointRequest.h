@@ -24,6 +24,15 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultEndpointRequestStatus) {
 + (instancetype)new NS_UNAVAILABLE;
 @end
 
+@interface AncPrivateVaultContinuityHostedAppendReceipt : NSObject
+@property(nonatomic, readonly) NSString *vaultId;
+@property(nonatomic, readonly) NSString *entryId;
+@property(nonatomic, readonly) uint64_t sequence;
+@property(nonatomic, readonly) NSData *headHash;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+@end
+
 /* Canonical anc/v1 binary body for the one hosted rotation-append route. */
 FOUNDATION_EXPORT NSData
     *_Nullable AncPrivateVaultControlLogAppendRequestEncode(
@@ -39,6 +48,15 @@ AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
 /* Strict content-free receipt for the exact committed revocation edge. */
 FOUNDATION_EXPORT AncPrivateVaultGrantRevocationHostedAppendReceipt *_Nullable
 AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(NSData *encoded);
+
+/* Canonical anc/v1 body and strict receipt for an endpoint-witnessed
+ * continuity edge. No protected artifact bytes are admitted. */
+FOUNDATION_EXPORT NSData *_Nullable
+AncPrivateVaultControlLogContinuityAppendRequestEncode(
+    NSData *signedEntry,
+    AncPrivateVaultEndpointRequestStatus *_Nullable status);
+FOUNDATION_EXPORT AncPrivateVaultContinuityHostedAppendReceipt *_Nullable
+AncPrivateVaultControlLogContinuityAppendReceiptDecode(NSData *encoded);
 
 /* Canonical anc/v1 body for the recovery append route variant. */
 FOUNDATION_EXPORT NSData

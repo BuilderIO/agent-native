@@ -5,6 +5,8 @@
 #import "PrivateVaultCustodyRepository.h"
 #import "PrivateVaultRotationPreparationStore.h"
 
+@class AncPrivateVaultPreparedEndpointRemoval;
+
 NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
@@ -84,6 +86,20 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
            result:
                (AncPrivateVaultRotationCoordinatorResult *_Nullable *_Nullable)
                    result;
+
+/* Authenticates live authority and custody, rejects every target except a
+ * distinct active attended endpoint, builds and replays the removal artifacts
+ * while custody secrets are borrowed, then crash-safely persists PREPARED.
+ * Repeating the same request returns the same preparation checkpoint. */
+- (AncPrivateVaultRotationCoordinatorStatus)
+    startEndpointRemovalVaultId:(const uint8_t *_Nullable)vaultId
+               targetEndpointId:(NSData *)targetEndpointId
+                        prepared:
+                            (AncPrivateVaultPreparedEndpointRemoval *_Nullable
+                                 *_Nullable)prepared
+                      checkpoint:
+                          (AncPrivateVaultRotationPreparationCheckpoint
+                               *_Nullable *_Nullable)checkpoint;
 
 /* Trusted Desktop main calls this only after an exact hosted append receipt.
  * The receipt is bound to the final official sequence/head and durably reread

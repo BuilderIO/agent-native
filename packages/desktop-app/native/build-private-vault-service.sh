@@ -10,7 +10,9 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m"
   "$SOURCE_ROOT/control/PrivateVaultControlLog.m"
   "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m"
+  "$SOURCE_ROOT/control/PrivateVaultContinuityBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
+  "$SOURCE_ROOT/control/PrivateVaultEndpointRemovalBuilder.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorizer.m"
@@ -47,6 +49,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultTrustedTimeStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m"
+  "$SOURCE_ROOT/storage/PrivateVaultContinuityCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultSession.m"
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRecoveryCoordinator.m"
@@ -463,6 +466,37 @@ case "${PRIVATE_VAULT_BUILD_GRANT_REVOCATION_BUILDER_TESTS:-}" in
     build_grant_revocation_builder_tests x86_64
   fi
   ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_CONTINUITY_BUILDER_TESTS:-}" in
+  "") ;;
+  1 | true | TRUE | yes | YES)
+  CONTINUITY_BUILDER_TEST_OUTPUT="$OUTPUT_ROOT/.continuity-builder-tests"
+  rm -rf "$CONTINUITY_BUILDER_TEST_OUTPUT"
+  mkdir -p "$CONTINUITY_BUILDER_TEST_OUTPUT"
+  build_continuity_builder_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$CONTINUITY_BUILDER_TEST_OUTPUT/private-vault-continuity-builder-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultContinuityBuilder.m" \
+      "$SOURCE_ROOT/control/PrivateVaultContinuityBuilderTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_continuity_builder_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_continuity_builder_tests x86_64
+  fi
+  ;;
+  *) echo "Invalid Private Vault continuity-builder-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_RESULT_SPOOL_TESTS:-}" in
@@ -1571,9 +1605,19 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       -DANC_PRIVATE_VAULT_TESTING=1
       -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture"
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" -I"$SOURCE_ROOT/storage"
+      -I"$SOURCE_ROOT/transport" -I"$SOURCE_ROOT/recovery"
       -I"$sodium_root/include"
       -framework Foundation -framework Security -framework LocalAuthentication
     )
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRemovalBuilder.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRemovalBuilderTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$ROTATION_TEST_OUTPUT/private-vault-endpoint-removal-builder-tests-$architecture"
     xcrun clang "${common[@]}" \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m" \
@@ -1603,6 +1647,7 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationTestLinkStubs.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStoreTests.m" \
       "$sodium_root/lib/libsodium.a" \
       -o "$ROTATION_TEST_OUTPUT/private-vault-rotation-store-tests-$architecture"
@@ -1612,6 +1657,7 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRemovalBuilder.m" \
       "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
@@ -1624,11 +1670,14 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationTestLinkStubs.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinatorTests.m" \
       "$sodium_root/lib/libsodium.a" \
       -o "$ROTATION_TEST_OUTPUT/private-vault-rotation-coordinator-tests-$architecture"
     lipo "$ROTATION_TEST_OUTPUT/private-vault-rotation-record-tests-$architecture" \
+      -verify_arch "$architecture"
+    lipo "$ROTATION_TEST_OUTPUT/private-vault-endpoint-removal-builder-tests-$architecture" \
       -verify_arch "$architecture"
     lipo "$ROTATION_TEST_OUTPUT/private-vault-rotation-spool-tests-$architecture" \
       -verify_arch "$architecture"
@@ -1638,7 +1687,9 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       -verify_arch "$architecture"
   }
   compile_rotation_test_slice arm64 "$ARM64_SODIUM"
-  compile_rotation_test_slice x86_64 "$X86_64_SODIUM"
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    compile_rotation_test_slice x86_64 "$X86_64_SODIUM"
+  fi
   ;;
   *)
     echo "Invalid Private Vault rotation-preparation-test build mode" >&2
