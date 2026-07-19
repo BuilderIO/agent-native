@@ -238,6 +238,8 @@ Read the relevant skill before making changes in that area:
 - `visual-answer` for code/product questions answered as visual Plan artifacts.
 - `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
   Cursor, or Mastra.
+- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
+  collaboration workflow, subscription metering, checkpoints, and recovery.
 - `self-modifying-code` for source edits by the agent.
 - `upgrade-agent-native` for bringing an older app/workspace to current
   `@agent-native/*` packages without patching core/dispatch.

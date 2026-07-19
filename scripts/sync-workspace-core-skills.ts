@@ -208,6 +208,7 @@ const requiredActionGuidance = [
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "multi-frontier-desktop",
   "new-branch",
   "ship",
   "ship-desktop",
