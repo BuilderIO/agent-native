@@ -19,6 +19,8 @@ packages/*
 !packages/migrate/**
 !packages/pinpoint/
 !packages/pinpoint/**
+!packages/private-vault-broker/
+!packages/private-vault-broker/**
 !packages/scheduling/
 !packages/scheduling/**
 !packages/embedding/
