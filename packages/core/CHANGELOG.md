@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.111.3
+
+### Patch Changes
+
+- 7843f92: Apply active import migrations to starter-owned source and install newly introduced migration dependencies before rewriting imports.
+
 ## 0.111.2
 
 ### Patch Changes
