@@ -64,6 +64,64 @@ AllocateGuarded(size_t length, AncPrivateVaultRecoveryAuthorityStatus *status) {
   return memory;
 }
 
+AncPrivateVaultGuardedMemory *AncPrivateVaultDeriveRecoveryRoot(
+    AncPrivateVaultGuardedMemory *recoveryEntropy, NSData *vaultId,
+    AncPrivateVaultRecoveryAuthorityStatus *status) {
+  SetStatus(status, AncPrivateVaultRecoveryAuthorityStatusInvalidArgument);
+  if (recoveryEntropy == nil || recoveryEntropy.length != 32 ||
+      recoveryEntropy.isClosed || vaultId == nil)
+    return nil;
+  if (anc_pv_crypto_init() != ANC_PV_CRYPTO_OK) {
+    SetStatus(status, AncPrivateVaultRecoveryAuthorityStatusCryptoFailed);
+    return nil;
+  }
+  uint8_t vaultSnapshot[16] = {0};
+  @try {
+    NSUInteger observedLength = vaultId.length;
+    if (observedLength != sizeof vaultSnapshot) return nil;
+    [vaultId getBytes:vaultSnapshot range:NSMakeRange(0, observedLength)];
+    if (vaultId.length != observedLength) {
+      anc_pv_zeroize(vaultSnapshot, sizeof vaultSnapshot);
+      return nil;
+    }
+  } @catch (__unused NSException *exception) {
+    anc_pv_zeroize(vaultSnapshot, sizeof vaultSnapshot);
+    return nil;
+  }
+  uint8_t *vaultSnapshotBytes = vaultSnapshot;
+  AncPrivateVaultGuardedMemory *root = AllocateGuarded(32, status);
+  __block BOOL derived = NO;
+  AncPrivateVaultGuardedMemoryStatus rootStatus =
+      root == nil
+          ? AncPrivateVaultGuardedMemoryStatusAllocationFailed
+          : [root borrow:^BOOL(uint8_t *rootBytes, size_t rootLength) {
+              if (rootLength != 32) return NO;
+              AncPrivateVaultGuardedMemoryStatus entropyStatus =
+                  [recoveryEntropy borrow:^BOOL(uint8_t *entropyBytes,
+                                                 size_t entropyLength) {
+                    derived = entropyLength == 32 &&
+                              anc_pv_argon2id(rootBytes, entropyBytes,
+                                              entropyLength,
+                                              vaultSnapshotBytes) ==
+                                  ANC_PV_CRYPTO_OK;
+                    return derived;
+                  }];
+              return entropyStatus == AncPrivateVaultGuardedMemoryStatusOK &&
+                     derived;
+            }];
+  anc_pv_zeroize(vaultSnapshot, sizeof vaultSnapshot);
+  if (rootStatus != AncPrivateVaultGuardedMemoryStatusOK || !derived) {
+    BOOL closed = root == nil ||
+                  [root close] == AncPrivateVaultGuardedMemoryStatusOK;
+    SetStatus(status, closed
+                          ? AncPrivateVaultRecoveryAuthorityStatusCryptoFailed
+                          : AncPrivateVaultRecoveryAuthorityStatusMemoryFailed);
+    return nil;
+  }
+  SetStatus(status, AncPrivateVaultRecoveryAuthorityStatusOK);
+  return root;
+}
+
 typedef struct AncRecoveryCbor {
   uint8_t bytes[128];
   size_t length;

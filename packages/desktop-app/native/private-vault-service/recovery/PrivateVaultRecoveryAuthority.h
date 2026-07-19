@@ -24,6 +24,13 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRecoveryAuthorityStatus) {
     AncPrivateVaultGuardedMemory *keyAgreementPrivateKey;
 @end
 
+/* Derives only the guarded Argon2id recovery root for backup/export use. The
+ * caller owns the returned guarded memory and must close it. */
+FOUNDATION_EXPORT AncPrivateVaultGuardedMemory *_Nullable
+AncPrivateVaultDeriveRecoveryRoot(
+    AncPrivateVaultGuardedMemory *recoveryEntropy, NSData *vaultId,
+    AncPrivateVaultRecoveryAuthorityStatus *status);
+
 FOUNDATION_EXPORT AncPrivateVaultRecoveryAuthority
     *_Nullable AncPrivateVaultDeriveRecoveryAuthority(
         AncPrivateVaultGuardedMemory *recoveryEntropy, NSData *vaultId,

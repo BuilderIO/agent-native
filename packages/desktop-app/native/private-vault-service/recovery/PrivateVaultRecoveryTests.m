@@ -283,6 +283,24 @@ static int RunTests(NSData *oracleFrame) {
                                                &authorityStatus) == nil);
   CHECK(racingVault->_getBytesCalls == 1 &&
         racingVault->_requestedBytes == 16 && racingVault->_copyCalls == 0);
+  AncPrivateVaultGuardedMemory *root = AncPrivateVaultDeriveRecoveryRoot(
+      entropy, [NSData dataWithBytes:vaultBytes length:16], &authorityStatus);
+  CHECK(root != nil &&
+        authorityStatus == AncPrivateVaultRecoveryAuthorityStatusOK);
+  NSMutableData *rootCommitment = [NSMutableData dataWithLength:32];
+  static const uint8_t recoveryDomain[] = "anc/v1/recovery";
+  CHECK([root borrow:^BOOL(uint8_t *bytes, size_t length) {
+          return length == 32 &&
+                 anc_pv_blake2b_256_two_part(
+                     rootCommitment.mutableBytes, recoveryDomain,
+                     sizeof recoveryDomain,
+                     bytes, length) == ANC_PV_CRYPTO_OK;
+        }] == AncPrivateVaultGuardedMemoryStatusOK);
+  CHECK([rootCommitment
+      isEqualToData:DataFromHex(@"77688ed409de8bea839eaffd177714784b5900a9fccbd"
+                                @"c5b4be2a1a8b66171bc")]);
+  anc_pv_zeroize(rootCommitment.mutableBytes, rootCommitment.length);
+  CHECK([root close] == AncPrivateVaultGuardedMemoryStatusOK);
   NSMutableData *mutableVault = [NSMutableData dataWithBytes:vaultBytes
                                                       length:16];
   AncPrivateVaultRecoveryAuthority *authority =
