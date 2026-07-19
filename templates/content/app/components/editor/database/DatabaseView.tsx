@@ -8401,6 +8401,7 @@ function SourcesListView({
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
+  const t = useT();
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
@@ -8479,7 +8480,7 @@ function SourcesListView({
         {showLocalFolder ? (
           <DatabaseSettingsRow
             icon={<IconFolder className="size-4" />}
-            label="Local folder"
+            label={t("sidebar.localFolder")}
             onClick={onOpenLocalFolder}
           />
         ) : null}

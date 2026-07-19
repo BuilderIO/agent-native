@@ -175,7 +175,7 @@ export function FavoriteDocumentItem({
                   }}
                 >
                   <IconStar size={14} className="me-2 fill-current" />
-                  Remove from favorites
+                  {t("sidebar.removeFromFavorites")}
                 </DropdownMenuItem>
               )}
               {canEdit && canManage && <DropdownMenuSeparator />}

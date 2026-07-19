@@ -337,6 +337,7 @@ export async function filesSystemPropertyProjection(args: {
           and(
             inArray(schema.documents.id, parentIds),
             filesVisibilityFilter(args.database),
+            accessFilter(schema.documents, schema.documentShares),
           ),
         )
     : [];

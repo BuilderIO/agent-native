@@ -3117,6 +3117,7 @@ const enUS = {
     failedPermanentDeleteDatabase: "Failed to permanently delete database",
     failedMovePage: "Failed to move page",
     failedUpdateFavorite: "Could not update favorite",
+    removeFromFavorites: "Remove from favorites",
     failedRemoveLocalFiles: "Failed to remove local files",
     failedRestoreDatabase: "Failed to restore database",
     deletePageDescription:
@@ -10401,6 +10402,29 @@ export const messagesByLocale = {
 } satisfies Record<LocaleCode, Messages>;
 
 const contentExactEnglishTranslations = {
+  "zh-TW": {
+    editor: {
+      toolbar: {
+        info: "資訊",
+        closeUtilityPanel: "關閉面板",
+      },
+    },
+    comments: {
+      title: "評論",
+      empty: "尚無評論。",
+    },
+    sidebar: {
+      addWorkspace: "新增工作區",
+      failedCreateWorkspace: "無法建立工作區",
+      failedUpdateFavorite: "無法更新收藏",
+      removeFromFavorites: "從收藏中移除",
+      localFolder: "本機資料夾",
+      newWorkspace: "新增工作區",
+      newWorkspaceDescription: "建立一個擁有專屬 Files 資料庫的私人工作區。",
+      workspaceName: "工作區名稱",
+      createWorkspace: "建立工作區",
+    },
+  },
   "zh-CN": {
     editor: {
       failedToCreatePage: "创建页面失败",
@@ -10420,6 +10444,8 @@ const contentExactEnglishTranslations = {
         equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
       },
       toolbar: {
+        info: "信息",
+        closeUtilityPanel: "关闭面板",
         copiedPageLink: "已复制页面链接",
         copyPageLink: "复制页面链接",
         couldNotCopyLink: "无法复制链接",
@@ -10427,6 +10453,21 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "页面面包屑",
       },
       versionRestoreQuestion: "恢复此版本？",
+    },
+    comments: {
+      title: "评论",
+      empty: "暂无评论。",
+    },
+    sidebar: {
+      addWorkspace: "添加工作区",
+      failedCreateWorkspace: "无法创建工作区",
+      failedUpdateFavorite: "无法更新收藏",
+      removeFromFavorites: "从收藏中移除",
+      localFolder: "本地文件夹",
+      newWorkspace: "新建工作区",
+      newWorkspaceDescription: "创建一个拥有专属 Files 数据库的私有工作区。",
+      workspaceName: "工作区名称",
+      createWorkspace: "创建工作区",
     },
   },
   "es-ES": {
@@ -10450,6 +10491,8 @@ const contentExactEnglishTranslations = {
           "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
       },
       toolbar: {
+        info: "Información",
+        closeUtilityPanel: "Cerrar panel",
         copiedPageLink: "Enlace de página copiado",
         copyPageLink: "Copiar enlace de página",
         couldNotCopyLink: "No se pudo copiar el enlace",
@@ -10458,6 +10501,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Ruta de la página",
       },
       versionRestoreQuestion: "¿Restaurar esta versión?",
+    },
+    comments: {
+      title: "Comentarios",
+      empty: "Aún no hay comentarios.",
+    },
+    sidebar: {
+      addWorkspace: "Añadir espacio de trabajo",
+      failedCreateWorkspace: "No se pudo crear el espacio de trabajo",
+      failedUpdateFavorite: "No se pudo actualizar el favorito",
+      removeFromFavorites: "Quitar de favoritos",
+      localFolder: "Carpeta local",
+      newWorkspace: "Nuevo espacio de trabajo",
+      newWorkspaceDescription:
+        "Crea un espacio privado con su propia base de datos de Archivos.",
+      workspaceName: "Nombre del espacio de trabajo",
+      createWorkspace: "Crear espacio de trabajo",
     },
   },
   "fr-FR": {
@@ -10481,6 +10540,8 @@ const contentExactEnglishTranslations = {
           "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
       },
       toolbar: {
+        info: "Informations",
+        closeUtilityPanel: "Fermer le panneau",
         copiedPageLink: "Lien de la page copié",
         copyPageLink: "Copier le lien de la page",
         couldNotCopyLink: "Impossible de copier le lien",
@@ -10489,6 +10550,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Fil d'Ariane de la page",
       },
       versionRestoreQuestion: "Restaurer cette version ?",
+    },
+    comments: {
+      title: "Commentaires",
+      empty: "Aucun commentaire pour le moment.",
+    },
+    sidebar: {
+      addWorkspace: "Ajouter un espace de travail",
+      failedCreateWorkspace: "Impossible de créer l’espace de travail",
+      failedUpdateFavorite: "Impossible de mettre à jour le favori",
+      removeFromFavorites: "Retirer des favoris",
+      localFolder: "Dossier local",
+      newWorkspace: "Nouvel espace de travail",
+      newWorkspaceDescription:
+        "Créez un espace privé avec sa propre base de données Fichiers.",
+      workspaceName: "Nom de l’espace de travail",
+      createWorkspace: "Créer l’espace de travail",
     },
   },
   "de-DE": {
@@ -10513,6 +10590,8 @@ const contentExactEnglishTranslations = {
           "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
       },
       toolbar: {
+        info: "Informationen",
+        closeUtilityPanel: "Bereich schließen",
         copiedPageLink: "Seitenlink kopiert",
         copyPageLink: "Seitenlink kopieren",
         couldNotCopyLink: "Link konnte nicht kopiert werden",
@@ -10521,6 +10600,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Seitenpfad",
       },
       versionRestoreQuestion: "Diese Version wiederherstellen?",
+    },
+    comments: {
+      title: "Kommentare",
+      empty: "Noch keine Kommentare.",
+    },
+    sidebar: {
+      addWorkspace: "Arbeitsbereich hinzufügen",
+      failedCreateWorkspace: "Arbeitsbereich konnte nicht erstellt werden",
+      failedUpdateFavorite: "Favorit konnte nicht aktualisiert werden",
+      removeFromFavorites: "Aus Favoriten entfernen",
+      localFolder: "Lokaler Ordner",
+      newWorkspace: "Neuer Arbeitsbereich",
+      newWorkspaceDescription:
+        "Erstellen Sie einen privaten Arbeitsbereich mit eigener Dateien-Datenbank.",
+      workspaceName: "Name des Arbeitsbereichs",
+      createWorkspace: "Arbeitsbereich erstellen",
     },
   },
   "ja-JP": {
@@ -10544,6 +10639,8 @@ const contentExactEnglishTranslations = {
           "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
       },
       toolbar: {
+        info: "情報",
+        closeUtilityPanel: "パネルを閉じる",
         copiedPageLink: "ページリンクをコピーしました",
         copyPageLink: "ページリンクをコピー",
         couldNotCopyLink: "リンクをコピーできませんでした",
@@ -10552,6 +10649,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "ページのパンくずリスト",
       },
       versionRestoreQuestion: "このバージョンを復元しますか？",
+    },
+    comments: {
+      title: "コメント",
+      empty: "コメントはまだありません。",
+    },
+    sidebar: {
+      addWorkspace: "ワークスペースを追加",
+      failedCreateWorkspace: "ワークスペースを作成できませんでした",
+      failedUpdateFavorite: "お気に入りを更新できませんでした",
+      removeFromFavorites: "お気に入りから削除",
+      localFolder: "ローカルフォルダー",
+      newWorkspace: "新しいワークスペース",
+      newWorkspaceDescription:
+        "専用の Files データベースを持つプライベートワークスペースを作成します。",
+      workspaceName: "ワークスペース名",
+      createWorkspace: "ワークスペースを作成",
     },
   },
   "ko-KR": {
@@ -10574,6 +10687,8 @@ const contentExactEnglishTranslations = {
           "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
       },
       toolbar: {
+        info: "정보",
+        closeUtilityPanel: "패널 닫기",
         copiedPageLink: "페이지 링크를 복사했습니다",
         copyPageLink: "페이지 링크 복사",
         couldNotCopyLink: "링크를 복사하지 못했습니다",
@@ -10582,6 +10697,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "페이지 이동 경로",
       },
       versionRestoreQuestion: "이 버전을 복원할까요?",
+    },
+    comments: {
+      title: "댓글",
+      empty: "아직 댓글이 없습니다.",
+    },
+    sidebar: {
+      addWorkspace: "워크스페이스 추가",
+      failedCreateWorkspace: "워크스페이스를 만들지 못했습니다",
+      failedUpdateFavorite: "즐겨찾기를 업데이트하지 못했습니다",
+      removeFromFavorites: "즐겨찾기에서 제거",
+      localFolder: "로컬 폴더",
+      newWorkspace: "새 워크스페이스",
+      newWorkspaceDescription:
+        "자체 Files 데이터베이스가 있는 비공개 워크스페이스를 만듭니다.",
+      workspaceName: "워크스페이스 이름",
+      createWorkspace: "워크스페이스 만들기",
     },
   },
   "pt-BR": {
@@ -10605,6 +10736,8 @@ const contentExactEnglishTranslations = {
           "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
       },
       toolbar: {
+        info: "Informações",
+        closeUtilityPanel: "Fechar painel",
         copiedPageLink: "Link da página copiado",
         copyPageLink: "Copiar link da página",
         couldNotCopyLink: "Não foi possível copiar o link",
@@ -10613,6 +10746,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Caminho da página",
       },
       versionRestoreQuestion: "Restaurar esta versão?",
+    },
+    comments: {
+      title: "Comentários",
+      empty: "Ainda não há comentários.",
+    },
+    sidebar: {
+      addWorkspace: "Adicionar espaço de trabalho",
+      failedCreateWorkspace: "Não foi possível criar o espaço de trabalho",
+      failedUpdateFavorite: "Não foi possível atualizar o favorito",
+      removeFromFavorites: "Remover dos favoritos",
+      localFolder: "Pasta local",
+      newWorkspace: "Novo espaço de trabalho",
+      newWorkspaceDescription:
+        "Crie um espaço privado com seu próprio banco de dados de Arquivos.",
+      workspaceName: "Nome do espaço de trabalho",
+      createWorkspace: "Criar espaço de trabalho",
     },
   },
   "hi-IN": {
@@ -10635,6 +10784,8 @@ const contentExactEnglishTranslations = {
           "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
       },
       toolbar: {
+        info: "जानकारी",
+        closeUtilityPanel: "पैनल बंद करें",
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
         couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
@@ -10642,6 +10793,21 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "पेज ब्रेडक्रंब",
       },
       versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",
+    },
+    comments: {
+      title: "टिप्पणियाँ",
+      empty: "अभी तक कोई टिप्पणी नहीं है।",
+    },
+    sidebar: {
+      addWorkspace: "वर्कस्पेस जोड़ें",
+      failedCreateWorkspace: "वर्कस्पेस नहीं बनाया जा सका",
+      failedUpdateFavorite: "पसंदीदा अपडेट नहीं किया जा सका",
+      removeFromFavorites: "पसंदीदा से हटाएँ",
+      localFolder: "स्थानीय फ़ोल्डर",
+      newWorkspace: "नया वर्कस्पेस",
+      newWorkspaceDescription: "अपने Files डेटाबेस के साथ एक निजी वर्कस्पेस बनाएँ।",
+      workspaceName: "वर्कस्पेस का नाम",
+      createWorkspace: "वर्कस्पेस बनाएँ",
     },
   },
   "ar-SA": {
@@ -10664,6 +10830,8 @@ const contentExactEnglishTranslations = {
           "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
       },
       toolbar: {
+        info: "معلومات",
+        closeUtilityPanel: "إغلاق اللوحة",
         copiedPageLink: "تم نسخ رابط الصفحة",
         copyPageLink: "نسخ رابط الصفحة",
         couldNotCopyLink: "تعذر نسخ الرابط",
@@ -10672,6 +10840,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "مسار الصفحة",
       },
       versionRestoreQuestion: "استعادة هذا الإصدار؟",
+    },
+    comments: {
+      title: "التعليقات",
+      empty: "لا توجد تعليقات بعد.",
+    },
+    sidebar: {
+      addWorkspace: "إضافة مساحة عمل",
+      failedCreateWorkspace: "تعذر إنشاء مساحة العمل",
+      failedUpdateFavorite: "تعذر تحديث المفضلة",
+      removeFromFavorites: "إزالة من المفضلة",
+      localFolder: "مجلد محلي",
+      newWorkspace: "مساحة عمل جديدة",
+      newWorkspaceDescription:
+        "أنشئ مساحة عمل خاصة بقاعدة بيانات Files خاصة بها.",
+      workspaceName: "اسم مساحة العمل",
+      createWorkspace: "إنشاء مساحة عمل",
     },
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;

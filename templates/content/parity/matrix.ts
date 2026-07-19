@@ -51,6 +51,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "backfill-content-files",
+      "create-content-space",
       "ensure-content-spaces",
       "list-content-spaces",
     ],
