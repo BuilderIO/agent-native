@@ -147,6 +147,23 @@ function shouldSkipRelativePath(relativePath) {
   return shouldSkipFile(name);
 }
 
+export function shouldIncludeCorpusSourceFile(rootRel, sourcePath) {
+  const normalizedPath = sourcePath.split("\\").join("/");
+  if (
+    rootRel === "packages/core" &&
+    normalizedPath.startsWith("packages/core/docs/content/locales/")
+  ) {
+    return false;
+  }
+  if (rootRel !== "templates") return true;
+
+  const localeCatalog =
+    /^templates\/[^/]+\/app\/i18n\/([a-z]{2,3}-[A-Z]{2,4})\.[cm]?[jt]sx?$/.exec(
+      normalizedPath,
+    );
+  return !localeCatalog || localeCatalog[1] === "en-US";
+}
+
 function hasTextLikeName(relativePath) {
   const name = basename(relativePath);
   if (textFileNames.has(name)) return true;
@@ -227,7 +244,10 @@ function sourceFilesFor(rootRel) {
     tracked ?? listFilesystemFiles(join(repoRoot, rootRel), rootRel);
   return files
     .filter(
-      (file) => !shouldSkipRelativePath(file) && shouldIncludeSourceFile(file),
+      (file) =>
+        shouldIncludeCorpusSourceFile(rootRel, file) &&
+        !shouldSkipRelativePath(file) &&
+        shouldIncludeSourceFile(file),
     )
     .sort();
 }
