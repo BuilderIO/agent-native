@@ -22,6 +22,8 @@ describe("loadMcpConfig", () => {
   let originalDesktopChild: string | undefined;
   let originalDesktopUrl: string | undefined;
   let originalDesktopToken: string | undefined;
+  let originalPrivateContentUrl: string | undefined;
+  let originalPrivateContentToken: string | undefined;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -29,10 +31,16 @@ describe("loadMcpConfig", () => {
     originalDesktopChild = process.env.AGENT_NATIVE_DESKTOP_CHILD;
     originalDesktopUrl = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
     originalDesktopToken = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
+    originalPrivateContentUrl =
+      process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_URL;
+    originalPrivateContentToken =
+      process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_TOKEN;
     delete process.env.MCP_SERVERS;
     delete process.env.AGENT_NATIVE_DESKTOP_CHILD;
     delete process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
     delete process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
+    delete process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_URL;
+    delete process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_TOKEN;
     tmpRoot = mkdtemp("mcp-config-");
   });
 
@@ -43,6 +51,14 @@ describe("loadMcpConfig", () => {
     restoreEnv("AGENT_NATIVE_DESKTOP_CHILD", originalDesktopChild);
     restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL", originalDesktopUrl);
     restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN", originalDesktopToken);
+    restoreEnv(
+      "AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_URL",
+      originalPrivateContentUrl,
+    );
+    restoreEnv(
+      "AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_TOKEN",
+      originalPrivateContentToken,
+    );
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     } catch {
@@ -222,6 +238,22 @@ describe("loadMcpConfig", () => {
       "agent-native-desktop-computer": {
         type: "stdio",
         command: "user-owned",
+      },
+    });
+  });
+
+  it("adds the separately authenticated private Content bridge", () => {
+    const appDir = path.join(tmpRoot, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_URL =
+      "http://127.0.0.1:43124/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_TOKEN = "y".repeat(43);
+    expect(loadMcpConfig(appDir)?.servers).toMatchObject({
+      "agent-native-private-content": {
+        type: "http",
+        url: "http://127.0.0.1:43124/mcp",
+        headers: { Authorization: `Bearer ${"y".repeat(43)}` },
       },
     });
   });

@@ -37,7 +37,7 @@ const updateSchema = createSchema
 
 type RuntimeSurface = Pick<
   PrivateVaultContentRuntime,
-  "start" | "stop" | "health"
+  "ensureStarted" | "stop" | "health"
 > & {
   documents(): {
     listDocuments(vaultId: string): Promise<unknown>;
@@ -98,7 +98,7 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
       result(async () => {
         exactNoArguments(arguments_);
         const value = runtime(event);
-        await value.start();
+        await value.ensureStarted();
         return value.health();
       }),
     stop: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>

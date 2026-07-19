@@ -1,6 +1,6 @@
 import fs from "fs";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -174,6 +174,7 @@ import { registerWindowIpc } from "./ipc/window";
 import { createPrivateVaultContentEnrollmentRuntime } from "./private-vault/content-enrollment-runtime";
 import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
 import { createPrivateVaultContentJobActionRegistry } from "./private-vault/content-job-action-registry";
+import { PrivateVaultContentMcpBridge } from "./private-vault/content-mcp-server";
 import {
   createPrivateVaultContentRuntime,
   type PrivateVaultContentRuntime,
@@ -249,6 +250,7 @@ let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
+let desktopPrivateContentMcpBridge: PrivateVaultContentMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
@@ -3178,8 +3180,47 @@ function desktopComputerChildEnv(
   }
 }
 
+function privateContentSubjectAgentId(
+  runRecord: Record<string, unknown> | null | undefined,
+): string {
+  const metadata = isObject(runRecord?.metadata)
+    ? runRecord.metadata
+    : undefined;
+  const steering = isObject(metadata?.steering) ? metadata.steering : metadata;
+  const identity = JSON.stringify([
+    getRecordString(steering, "engine") ?? "auto",
+    getRecordString(steering, "model") ?? "auto",
+  ]);
+  return createHash("sha256")
+    .update("agent-native/private-vault/desktop-agent-subject/v1\0")
+    .update(identity)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function desktopPrivateContentChildEnv(
+  runId: string,
+  runRecord: Record<string, unknown> | null | undefined,
+): NodeJS.ProcessEnv {
+  if (!desktopPrivateContentMcpBridge) return {};
+  try {
+    const registration = desktopPrivateContentMcpBridge.registerRun(
+      runId,
+      privateContentSubjectAgentId(runRecord),
+    );
+    return {
+      AGENT_NATIVE_DESKTOP_CHILD: "1",
+      AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_URL: registration.url,
+      AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_TOKEN: registration.bearerToken,
+    };
+  } catch {
+    return {};
+  }
+}
+
 function revokeDesktopComputerRun(runId: string): void {
   void desktopComputerMcpBridge?.revokeRun(runId).catch(() => undefined);
+  desktopPrivateContentMcpBridge?.revokeRun(runId);
 }
 
 function remoteConnectorComputerEnv(): NodeJS.ProcessEnv {
@@ -3309,6 +3350,7 @@ function spawnCodeAgentRunner(
       runId,
       normalizedPermissionMode,
     );
+    const privateContentEnv = desktopPrivateContentChildEnv(runId, runRecord);
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3318,6 +3360,7 @@ function spawnCodeAgentRunner(
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
         ...computerEnv,
+        ...privateContentEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3466,6 +3509,7 @@ function spawnCodeAgentApprovalRunner(
       runId,
       normalizedPermissionMode,
     );
+    const privateContentEnv = desktopPrivateContentChildEnv(runId, runRecord);
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3475,6 +3519,7 @@ function spawnCodeAgentApprovalRunner(
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
         ...computerEnv,
+        ...privateContentEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -5725,13 +5770,7 @@ let privateVaultContentRuntime: {
   runtime: PrivateVaultContentRuntime;
 } | null = null;
 
-function contentPrivateRuntimeForEvent(event: IpcMainInvokeEvent) {
-  if (
-    !mainWindow ||
-    event.sender !== mainWindow.webContents ||
-    event.senderFrame !== mainWindow.webContents.mainFrame
-  )
-    return null;
+function resolvePrivateVaultContentRuntime() {
   const contentApp = loadAppsForAuthContext().find(
     (candidate) => candidate.id === "content" && candidate.enabled !== false,
   );
@@ -5761,6 +5800,34 @@ function contentPrivateRuntimeForEvent(event: IpcMainInvokeEvent) {
     return privateVaultContentRuntime.runtime;
   } catch {
     return null;
+  }
+}
+
+function contentPrivateRuntimeForEvent(event: IpcMainInvokeEvent) {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return null;
+  return resolvePrivateVaultContentRuntime();
+}
+
+async function initializePrivateContentMcpBridge(): Promise<void> {
+  if (process.platform !== "darwin" || desktopPrivateContentMcpBridge) return;
+  const bridge = new PrivateVaultContentMcpBridge({
+    runAction: async (input) => {
+      const runtime = resolvePrivateVaultContentRuntime();
+      if (!runtime) throw new Error("Private Content action unavailable");
+      await runtime.ensureStarted();
+      return runtime.runAgentAction(input);
+    },
+  });
+  try {
+    await bridge.start();
+    desktopPrivateContentMcpBridge = bridge;
+  } catch {
+    await bridge.close().catch(() => undefined);
   }
 }
 
@@ -9116,6 +9183,7 @@ function configurePermissionHandlers(
 
 app.whenReady().then(async () => {
   await initializeDesktopComputerMcpBridge();
+  await initializePrivateContentMcpBridge();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -9339,6 +9407,8 @@ app.on("before-quit", () => {
   remoteConnectorProcess = null;
   void desktopComputerMcpBridge?.close();
   desktopComputerMcpBridge = null;
+  void desktopPrivateContentMcpBridge?.close();
+  desktopPrivateContentMcpBridge = null;
   desktopBrowserControlBridge = null;
 });
 

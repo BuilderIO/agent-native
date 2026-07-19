@@ -72,6 +72,7 @@ export interface McpConfig {
 }
 
 const DESKTOP_COMPUTER_SERVER_ID = "agent-native-desktop-computer";
+const DESKTOP_PRIVATE_CONTENT_SERVER_ID = "agent-native-private-content";
 
 function isNode(): boolean {
   return (
@@ -150,7 +151,7 @@ export function loadMcpConfig(startDir?: string): McpConfig | null {
     }
   }
 
-  return mergeDesktopChildComputerConfig(fileConfig ?? envConfig);
+  return mergeDesktopChildConfig(fileConfig ?? envConfig);
 }
 
 /**
@@ -159,43 +160,67 @@ export function loadMcpConfig(startDir?: string): McpConfig | null {
  * the explicit child gate, loopback URL, and strong per-run bearer are all
  * required. Existing user servers always win on key collisions.
  */
-function mergeDesktopChildComputerConfig(
-  base: McpConfig | null,
-): McpConfig | null {
+function mergeDesktopChildConfig(base: McpConfig | null): McpConfig | null {
   if (process.env.AGENT_NATIVE_DESKTOP_CHILD !== "1") return base;
-  const url = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL?.trim();
-  const token = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN?.trim();
-  if (!url || !token || !/^[A-Za-z0-9_-]{32,}$/.test(token)) return base;
-  try {
-    const parsed = new URL(url);
-    if (
-      parsed.protocol !== "http:" ||
-      parsed.hostname !== "127.0.0.1" ||
-      parsed.pathname !== "/mcp" ||
-      parsed.username ||
-      parsed.password
-    ) {
-      return base;
-    }
-  } catch {
-    return base;
-  }
   const servers = { ...(base?.servers ?? {}) };
-  let serverId = DESKTOP_COMPUTER_SERVER_ID;
-  for (let suffix = 2; servers[serverId]; suffix += 1) {
-    serverId = `${DESKTOP_COMPUTER_SERVER_ID}-${suffix}`;
+  const candidates = [
+    {
+      serverId: DESKTOP_COMPUTER_SERVER_ID,
+      url: process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL?.trim(),
+      token: process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN?.trim(),
+      description:
+        "Authenticated computer control for this Agent Native desktop task",
+    },
+    {
+      serverId: DESKTOP_PRIVATE_CONTENT_SERVER_ID,
+      url: process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_URL?.trim(),
+      token: process.env.AGENT_NATIVE_DESKTOP_PRIVATE_CONTENT_MCP_TOKEN?.trim(),
+      description:
+        "Authenticated end-to-end encrypted Content for this Agent Native desktop task",
+    },
+  ];
+  let added = false;
+  for (const candidate of candidates) {
+    if (
+      !candidate.url ||
+      !candidate.token ||
+      !/^[A-Za-z0-9_-]{32,}$/.test(candidate.token) ||
+      !isDesktopLoopbackMcpUrl(candidate.url)
+    )
+      continue;
+    let serverId = candidate.serverId;
+    for (let suffix = 2; servers[serverId]; suffix += 1)
+      serverId = `${candidate.serverId}-${suffix}`;
+    servers[serverId] = {
+      type: "http",
+      url: candidate.url,
+      headers: { Authorization: `Bearer ${candidate.token}` },
+      description: candidate.description,
+    };
+    added = true;
   }
-  servers[serverId] = {
-    type: "http",
-    url,
-    headers: { Authorization: `Bearer ${token}` },
-    description:
-      "Authenticated computer control for this Agent Native desktop task",
-  };
+  if (!added) return base;
   return {
     servers,
     source: base?.source ? `${base.source}+desktop-child` : "desktop-child",
   };
+}
+
+function isDesktopLoopbackMcpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "http:" &&
+      parsed.hostname === "127.0.0.1" &&
+      parsed.pathname === "/mcp" &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash
+    );
+  } catch {
+    return false;
+  }
 }
 
 function readEnvConfig(): McpConfig | null {

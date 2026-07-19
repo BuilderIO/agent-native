@@ -17,7 +17,7 @@ function fixture(allowed = true) {
     restoreDocumentVersion: vi.fn(async () => ({ id: documentId })),
   };
   const runtime = {
-    start: vi.fn(async () => undefined),
+    ensureStarted: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     health: vi.fn(() => ({ vaultId, brokerState: "offline", broker: null })),
     documents: vi.fn(() => documents),

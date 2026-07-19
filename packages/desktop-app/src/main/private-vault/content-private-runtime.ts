@@ -101,6 +101,12 @@ export class PrivateVaultContentRuntime {
     });
   }
 
+  ensureStarted(): Promise<void> {
+    if (this.#active) return Promise.resolve();
+    if (this.#transition) return this.#transition;
+    return this.start();
+  }
+
   async stop(): Promise<void> {
     await this.#transition;
     const active = this.#active;

@@ -83,6 +83,15 @@ describe("PrivateVaultContentRuntime", () => {
     await first;
   });
 
+  it("lets trusted agent and UI startup converge on one transition", async () => {
+    const source = harness();
+    const first = source.runtime.ensureStarted();
+    const second = source.runtime.ensureStarted();
+    await Promise.all([first, second]);
+    await source.runtime.ensureStarted();
+    expect(source.documents.initialize).toHaveBeenCalledOnce();
+  });
+
   it("keeps agent jobs behind the active signed runtime lifecycle", async () => {
     const source = harness();
     await expect(
