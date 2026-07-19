@@ -147,6 +147,75 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("keeps enrollment decisions inside the trusted native operation", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const challenge = new Uint8Array([0xa1, 0x01, 0x03]);
+    const authorization = new Uint8Array([0xa1, 0x01, 0x04]);
+    const request = vi.fn(async (operation: string) => {
+      if (operation === "prepare_enroll") {
+        return {
+          version: 3,
+          operation,
+          state: "offered",
+          vaultId,
+          candidateEndpointId: "11".repeat(16),
+          offerHash: "22".repeat(32),
+          offer: Buffer.from([0xa1, 0x01, 0x01]),
+          candidateKeyProof: Buffer.alloc(64, 3),
+        };
+      }
+      if (operation === "confirm_enroll") {
+        return { version: 3, operation, state: "confirmed" };
+      }
+      return {
+        version: 3,
+        operation: "activate_enroll",
+        state: "active",
+        vaultId,
+        custodyGeneration: 3,
+        activeEpoch: 1,
+        sequence: 1,
+        headHash: "44".repeat(32),
+      };
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    await expect(
+      client.prepareBrokerEnrollment(vaultId),
+    ).resolves.toMatchObject({
+      operation: "prepare_enroll",
+      state: "offered",
+      vaultId,
+    });
+    await expect(
+      client.confirmBrokerEnrollment(vaultId, challenge),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "confirm_enroll",
+      state: "confirmed",
+    });
+    await expect(
+      client.activateBrokerEnrollment(vaultId, challenge, authorization),
+    ).resolves.toMatchObject({
+      operation: "activate_enroll",
+      state: "active",
+      custodyGeneration: 3,
+    });
+
+    expect(request.mock.calls.map(([operation]) => operation)).toEqual([
+      "prepare_enroll",
+      "confirm_enroll",
+      "activate_enroll",
+    ]);
+    expect(nativeSource).toContain('"inspect_enroll"');
+    expect(nativeSource).toContain('"decide_enroll"');
+    expect(wrapperSource).not.toContain('addon.request("inspect_enroll"');
+    expect(wrapperSource).not.toContain('addon.request("decide_enroll"');
+  });
+
   it("maps one encrypted broker job through the caller-independent authority boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const endpointId = "11112222333344445555666677778888";
@@ -1063,6 +1132,20 @@ describe("Private Vault native service client", () => {
     expect(() => addon.request("unknown")).toThrow(
       "Private Vault native service request failed",
     );
+    expect(() =>
+      addon.request(
+        "inspect_enroll",
+        "00112233445566778899aabbccddeeff",
+        Buffer.from([1]),
+      ),
+    ).toThrow("Private Vault native service request failed");
+    expect(() =>
+      addon.request(
+        "decide_enroll",
+        "ffeeddccbbaa00998877665544332211",
+        "confirmed",
+      ),
+    ).toThrow("Private Vault native service request failed");
     expect(() => addon.request("x".repeat(17))).toThrow(
       "Private Vault native service request failed",
     );

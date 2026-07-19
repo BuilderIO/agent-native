@@ -12,6 +12,7 @@
 
 #include "RequestGate.h"
 #include "TrustedGenesisUI.h"
+#include "TrustedEnrollmentUI.h"
 
 #define PV_SERVICE_IDENTIFIER "com.agentnative.desktop.private-vault-service"
 #define PV_SERVICE_TEAM_IDENTIFIER "W3PMF2T3MW"
@@ -33,6 +34,8 @@
 #define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
 #define PV_JOB_ENVELOPE_MAXIMUM_BYTES (16 * 1024 * 1024 + 64 * 1024)
 #define PV_JOB_PAYLOAD_MAXIMUM_BYTES (16 * 1024 * 1024)
+#define PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES (64 * 1024)
+#define PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
 #define PV_REQUEST_TIMEOUT_NANOSECONDS (2LL * NSEC_PER_SEC)
 
 namespace {
@@ -59,6 +62,9 @@ enum class PVOperation {
   CompleteResult,
   PendingResult,
   SignRequest,
+  PrepareEnrollment,
+  ConfirmEnrollment,
+  ActivateEnrollment,
 };
 enum class PVFailure {
   None,
@@ -100,6 +106,8 @@ struct PVParsedReply {
   char resultState[10] = {0};
   char algorithmID[161] = {0};
   char operationName[121] = {0};
+  char candidateEndpointID[33] = {0};
+  char offerHash[65] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
@@ -207,6 +215,8 @@ struct PVAsyncRequest {
   char resultState[10] = {0};
   char algorithmID[161] = {0};
   char operationName[121] = {0};
+  char candidateEndpointID[33] = {0};
+  char offerHash[65] = {0};
   char accountID[161] = {0};
   char workspaceID[161] = {0};
   char endpointID[33] = {0};
@@ -501,6 +511,123 @@ bool PVInspectTrustedBootstrap(PVAsyncRequest *request) {
   return true;
 }
 
+bool PVConfirmTrustedEnrollment(PVAsyncRequest *request) {
+  char inspectRequestID[37] = {0};
+  if (request == nullptr || !PVIsLowerHex(request->vaultID, 32) ||
+      request->challenge.empty() ||
+      request->challenge.size() > PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES ||
+      !PVGenerateRequestID(inspectRequestID))
+    return false;
+
+  xpc_object_t inspect = xpc_dictionary_create(nullptr, nullptr, 0);
+  xpc_dictionary_set_int64(inspect, "version", PV_PROTOCOL_VERSION);
+  xpc_dictionary_set_string(inspect, "operation", "inspect_enroll");
+  xpc_dictionary_set_string(inspect, "requestId", inspectRequestID);
+  xpc_dictionary_set_string(inspect, "vaultId", request->vaultID);
+  xpc_dictionary_set_data(inspect, "challenge", request->challenge.data(),
+                          request->challenge.size());
+  xpc_object_t inspectReply = PVCopySynchronousReply(inspect);
+  xpc_release(inspect);
+  if (inspectReply == nullptr ||
+      xpc_get_type(inspectReply) != XPC_TYPE_DICTIONARY) {
+    if (inspectReply != nullptr)
+      xpc_release(inspectReply);
+    return false;
+  }
+  const char *const inspectKeys[] = {
+      "version",          "ok",             "requestId", "state",
+      "ceremonyToken",    "sasCode",        "candidateEndpointId",
+      "membershipRole",   "unattended",     "sasTranscriptHash",
+  };
+  const char *state = PVGetString(inspectReply, "state");
+  const char *token = PVGetString(inspectReply, "ceremonyToken");
+  const char *sasCode = PVGetString(inspectReply, "sasCode");
+  const char *candidate = PVGetString(inspectReply, "candidateEndpointId");
+  const char *role = PVGetString(inspectReply, "membershipRole");
+  xpc_object_t version = xpc_dictionary_get_value(inspectReply, "version");
+  xpc_object_t ok = xpc_dictionary_get_value(inspectReply, "ok");
+  xpc_object_t unattended =
+      xpc_dictionary_get_value(inspectReply, "unattended");
+  std::vector<uint8_t> transcriptHash;
+  const bool inspected =
+      PVHasExactKeys(inspectReply, inspectKeys, 10) && version != nullptr &&
+      xpc_get_type(version) == XPC_TYPE_INT64 &&
+      xpc_dictionary_get_int64(inspectReply, "version") ==
+          PV_PROTOCOL_VERSION &&
+      ok != nullptr && xpc_get_type(ok) == XPC_TYPE_BOOL &&
+      xpc_dictionary_get_bool(inspectReply, "ok") &&
+      PVRequestIDMatches(inspectReply, inspectRequestID) && state != nullptr &&
+      strcmp(state, "inspected") == 0 && PVIsLowerHex(token, 32) &&
+      PVIsLowerHex(candidate, 32) && role != nullptr &&
+      strcmp(role, "broker") == 0 && unattended != nullptr &&
+      xpc_get_type(unattended) == XPC_TYPE_BOOL &&
+      xpc_dictionary_get_bool(inspectReply, "unattended") &&
+      PVCopyBoundedData(inspectReply, "sasTranscriptHash", 32,
+                        transcriptHash) &&
+      transcriptHash.size() == 32 &&
+      PVTrustedEnrollmentValidateInput(sasCode, candidate, role, true,
+                                       transcriptHash.data(),
+                                       transcriptHash.size());
+  char tokenCopy[33] = {0};
+  char sasCopy[12] = {0};
+  char candidateCopy[33] = {0};
+  if (inspected) {
+    memcpy(tokenCopy, token, sizeof tokenCopy);
+    memcpy(sasCopy, sasCode, sizeof sasCopy);
+    memcpy(candidateCopy, candidate, sizeof candidateCopy);
+  }
+  xpc_release(inspectReply);
+  if (!inspected) {
+    PVClearBytes(transcriptHash);
+    return false;
+  }
+
+  const PVTrustedEnrollmentDecision decision = PVTrustedEnrollmentConfirmSAS(
+      sasCopy, candidateCopy, "broker", true, transcriptHash.data(),
+      transcriptHash.size());
+  PVClearBytes(transcriptHash);
+  if (decision == PVTrustedEnrollmentDecision::Cancelled)
+    return false;
+
+  char decideRequestID[37] = {0};
+  if (!PVGenerateRequestID(decideRequestID))
+    return false;
+  const char *decisionName =
+      decision == PVTrustedEnrollmentDecision::Confirmed ? "confirmed"
+                                                         : "mismatch";
+  xpc_object_t decide = xpc_dictionary_create(nullptr, nullptr, 0);
+  xpc_dictionary_set_int64(decide, "version", PV_PROTOCOL_VERSION);
+  xpc_dictionary_set_string(decide, "operation", "decide_enroll");
+  xpc_dictionary_set_string(decide, "requestId", decideRequestID);
+  xpc_dictionary_set_string(decide, "ceremonyToken", tokenCopy);
+  xpc_dictionary_set_string(decide, "decision", decisionName);
+  xpc_object_t decideReply = PVCopySynchronousReply(decide);
+  xpc_release(decide);
+  if (decideReply == nullptr ||
+      xpc_get_type(decideReply) != XPC_TYPE_DICTIONARY) {
+    if (decideReply != nullptr)
+      xpc_release(decideReply);
+    return false;
+  }
+  const char *const decideKeys[] = {"version", "ok", "requestId", "state"};
+  const char *decidedState = PVGetString(decideReply, "state");
+  version = xpc_dictionary_get_value(decideReply, "version");
+  ok = xpc_dictionary_get_value(decideReply, "ok");
+  const bool decided =
+      PVHasExactKeys(decideReply, decideKeys, 4) && version != nullptr &&
+      xpc_get_type(version) == XPC_TYPE_INT64 &&
+      xpc_dictionary_get_int64(decideReply, "version") ==
+          PV_PROTOCOL_VERSION &&
+      ok != nullptr && xpc_get_type(ok) == XPC_TYPE_BOOL &&
+      xpc_dictionary_get_bool(decideReply, "ok") &&
+      PVRequestIDMatches(decideReply, decideRequestID) &&
+      decidedState != nullptr && strcmp(decidedState, decisionName) == 0;
+  if (decided)
+    memcpy(request->state, decidedState, strlen(decidedState) + 1);
+  xpc_release(decideReply);
+  return decided;
+}
+
 PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
                            const char *requestID, const char *expectedVaultID) {
   PVParsedReply parsed;
@@ -531,6 +658,71 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       return parsed;
     }
     parsed.failure = PVFailure::ServiceError;
+    return parsed;
+  }
+
+  if (operation == PVOperation::PrepareEnrollment) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId",
+        "candidateEndpointId", "offerHash", "offer", "candidateKeyProof",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *candidate = PVGetString(reply, "candidateEndpointId");
+    const char *offerHash = PVGetString(reply, "offerHash");
+    if (!PVHasExactKeys(reply, keys, 9) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "offered") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(candidate, 32) || !PVIsLowerHex(offerHash, 64) ||
+        !PVCopyBoundedData(reply, "offer", 1024, parsed.body) ||
+        !PVCopyBoundedData(reply, "candidateKeyProof", 64,
+                           parsed.resourceID) ||
+        parsed.resourceID.size() != 64) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.candidateEndpointID, candidate, 33);
+    memcpy(parsed.offerHash, offerHash, 65);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
+  if (operation == PVOperation::ActivateEnrollment) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId",
+        "custodyGeneration", "activeEpoch", "sequence", "headHash",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *headHash = PVGetString(reply, "headHash");
+    xpc_object_t custody =
+        xpc_dictionary_get_value(reply, "custodyGeneration");
+    xpc_object_t epoch = xpc_dictionary_get_value(reply, "activeEpoch");
+    xpc_object_t sequence = xpc_dictionary_get_value(reply, "sequence");
+    if (!PVHasExactKeys(reply, keys, 9) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "active") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(headHash, 64) || custody == nullptr ||
+        xpc_get_type(custody) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "custodyGeneration") != 3 ||
+        epoch == nullptr || xpc_get_type(epoch) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "activeEpoch") == 0 ||
+        sequence == nullptr || xpc_get_type(sequence) != XPC_TYPE_UINT64) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.headHash, headHash, 65);
+    parsed.custodyGeneration =
+        xpc_dictionary_get_uint64(reply, "custodyGeneration");
+    parsed.activeEpoch = xpc_dictionary_get_uint64(reply, "activeEpoch");
+    parsed.sequence = xpc_dictionary_get_uint64(reply, "sequence");
+    parsed.failure = PVFailure::None;
     return parsed;
   }
 
@@ -1019,6 +1211,10 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
 void PVExecute(napi_env env, void *data) {
   (void)env;
   auto *request = static_cast<PVAsyncRequest *>(data);
+  if (request->operation == PVOperation::ConfirmEnrollment) {
+    request->failure = PVFailure::None;
+    return;
+  }
   const char *operation = request->operation == PVOperation::Health
                               ? "health"
                           : request->operation == PVOperation::Lock
@@ -1055,6 +1251,10 @@ void PVExecute(napi_env env, void *data) {
                               ? "pending_result"
                           : request->operation == PVOperation::SignRequest
                               ? "sign_request"
+                          : request->operation == PVOperation::PrepareEnrollment
+                              ? "prepare_enroll"
+                          : request->operation == PVOperation::ActivateEnrollment
+                              ? "activate_enroll"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -1101,8 +1301,17 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::OpenJob ||
       request->operation == PVOperation::SealResult ||
       request->operation == PVOperation::CompleteResult ||
-      request->operation == PVOperation::PendingResult)
+      request->operation == PVOperation::PendingResult ||
+      request->operation == PVOperation::PrepareEnrollment ||
+      request->operation == PVOperation::ActivateEnrollment)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
+  if (request->operation == PVOperation::ActivateEnrollment) {
+    xpc_dictionary_set_data(message, "challenge", request->challenge.data(),
+                            request->challenge.size());
+    xpc_dictionary_set_data(message, "authorization",
+                            request->authorization.data(),
+                            request->authorization.size());
+  }
   if (request->operation == PVOperation::OpenJob) {
     xpc_dictionary_set_string(message, "jobId", request->jobID);
     xpc_dictionary_set_int64(message, "epoch",
@@ -1197,6 +1406,9 @@ void PVExecute(napi_env env, void *data) {
             ? request->vaultID
         : request->operation == PVOperation::FinalizeGenesis
             ? request->lookupID
+        : request->operation == PVOperation::PrepareEnrollment ||
+                request->operation == PVOperation::ActivateEnrollment
+            ? request->vaultID
             : nullptr;
     PVParsedReply parsed =
         PVParseReply(reply, request->operation, requestID, expectedID);
@@ -1238,6 +1450,9 @@ void PVExecute(napi_env env, void *data) {
            sizeof(request->algorithmID));
     memcpy(request->operationName, parsed.operationName,
            sizeof(request->operationName));
+    memcpy(request->candidateEndpointID, parsed.candidateEndpointID,
+           sizeof(request->candidateEndpointID));
+    memcpy(request->offerHash, parsed.offerHash, sizeof(request->offerHash));
     request->hostedEpoch = parsed.hostedEpoch;
     request->hostedRetryCount = parsed.hostedRetryCount;
     request->candidates = std::move(parsed.candidates);
@@ -1337,6 +1552,12 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "pending_result"
                 : request->operation == PVOperation::SignRequest
                     ? "sign_request"
+                : request->operation == PVOperation::PrepareEnrollment
+                    ? "prepare_enroll"
+                : request->operation == PVOperation::ConfirmEnrollment
+                    ? "confirm_enroll"
+                : request->operation == PVOperation::ActivateEnrollment
+                    ? "activate_enroll"
                     : "finalize_genesis");
     if (request->operation != PVOperation::OpenJob &&
         request->operation != PVOperation::SealResult &&
@@ -1357,6 +1578,31 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       PVSetSafeInteger(env, result, "sequence", request->sequence);
     } else if (request->operation == PVOperation::RecoverStatus) {
       PVSetString(env, result, "vaultId", request->vaultID);
+    } else if (request->operation == PVOperation::PrepareEnrollment) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "candidateEndpointId",
+                  request->candidateEndpointID);
+      PVSetString(env, result, "offerHash", request->offerHash);
+      if (!PVSetBuffer(env, result, "offer", request->body) ||
+          !PVSetBuffer(env, result, "candidateKeyProof",
+                       request->resourceID)) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::ActivateEnrollment) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "headHash", request->headHash);
+      PVSetSafeInteger(env, result, "custodyGeneration",
+                       request->custodyGeneration);
+      PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
+      PVSetSafeInteger(env, result, "sequence", request->sequence);
     } else if (request->operation == PVOperation::OpenJob) {
       PVSetString(env, result, "jobHash", request->jobHash);
       PVSetString(env, result, "operationName", request->operationName);
@@ -1583,6 +1829,12 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::PendingResult;
   } else if (strcmp(operation, "sign_request") == 0) {
     request->operation = PVOperation::SignRequest;
+  } else if (strcmp(operation, "prepare_enroll") == 0) {
+    request->operation = PVOperation::PrepareEnrollment;
+  } else if (strcmp(operation, "confirm_enroll") == 0) {
+    request->operation = PVOperation::ConfirmEnrollment;
+  } else if (strcmp(operation, "activate_enroll") == 0) {
+    request->operation = PVOperation::ActivateEnrollment;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -1608,6 +1860,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::CompleteResult ? 5
       : request->operation == PVOperation::PendingResult ? 2
       : request->operation == PVOperation::SignRequest ? 2
+      : request->operation == PVOperation::PrepareEnrollment ? 2
+      : request->operation == PVOperation::ConfirmEnrollment ? 3
+      : request->operation == PVOperation::ActivateEnrollment ? 4
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -1621,7 +1876,10 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::OpenJob ||
       request->operation == PVOperation::SealResult ||
       request->operation == PVOperation::CompleteResult ||
-      request->operation == PVOperation::PendingResult) {
+      request->operation == PVOperation::PendingResult ||
+      request->operation == PVOperation::PrepareEnrollment ||
+      request->operation == PVOperation::ConfirmEnrollment ||
+      request->operation == PVOperation::ActivateEnrollment) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||
@@ -1705,6 +1963,42 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       return nullptr;
     }
     resultPayload = static_cast<const uint8_t *>(bytes);
+  }
+  const uint8_t *enrollmentChallenge = nullptr;
+  size_t enrollmentChallengeLength = 0;
+  const uint8_t *enrollmentAuthorization = nullptr;
+  size_t enrollmentAuthorizationLength = 0;
+  if (request->operation == PVOperation::ConfirmEnrollment ||
+      request->operation == PVOperation::ActivateEnrollment) {
+    void *bytes = nullptr;
+    bool isBuffer = false;
+    if (napi_is_buffer(env, argv[2], &isBuffer) != napi_ok || !isBuffer ||
+        napi_get_buffer_info(env, argv[2], &bytes,
+                             &enrollmentChallengeLength) != napi_ok ||
+        bytes == nullptr || enrollmentChallengeLength == 0 ||
+        enrollmentChallengeLength > PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    enrollmentChallenge = static_cast<const uint8_t *>(bytes);
+  }
+  if (request->operation == PVOperation::ActivateEnrollment) {
+    void *bytes = nullptr;
+    bool isBuffer = false;
+    if (napi_is_buffer(env, argv[3], &isBuffer) != napi_ok || !isBuffer ||
+        napi_get_buffer_info(env, argv[3], &bytes,
+                             &enrollmentAuthorizationLength) != napi_ok ||
+        bytes == nullptr || enrollmentAuthorizationLength == 0 ||
+        enrollmentAuthorizationLength >
+            PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    enrollmentAuthorization = static_cast<const uint8_t *>(bytes);
   }
   if (request->operation == PVOperation::SignRequest) {
     void *bytes = nullptr;
@@ -1874,6 +2168,25 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     return promise;
   }
 
+  if (request->operation == PVOperation::ConfirmEnrollment ||
+      request->operation == PVOperation::ActivateEnrollment) {
+    try {
+      request->challenge.assign(
+          enrollmentChallenge,
+          enrollmentChallenge + enrollmentChallengeLength);
+      if (request->operation == PVOperation::ActivateEnrollment)
+        request->authorization.assign(
+            enrollmentAuthorization,
+            enrollmentAuthorization + enrollmentAuthorizationLength);
+    } catch (...) {
+      gRequestGate.release();
+      delete request;
+      napi_throw_error(env, nullptr,
+                       "Private Vault native service request failed");
+      return nullptr;
+    }
+  }
+
   if (request->operation == PVOperation::CommitGenesis) {
     std::vector<uint8_t> *outputs[] = {
         &request->recoveryConfirmation,
@@ -1967,6 +2280,14 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       return nullptr;
     }
     request->recoveryMnemonic = std::move(confirmation);
+  }
+  if (request->operation == PVOperation::ConfirmEnrollment &&
+      !PVConfirmTrustedEnrollment(request)) {
+    gRequestGate.release();
+    delete request;
+    napi_throw_error(env, nullptr,
+                     "Private Vault native service request failed");
+    return nullptr;
   }
   if (request->operation == PVOperation::AuthorizeAdmission &&
       (!PVInspectTrustedAdmission(request) ||

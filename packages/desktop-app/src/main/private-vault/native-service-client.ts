@@ -63,7 +63,10 @@ type NativeOperation =
   | "seal_result"
   | "complete_result"
   | "pending_result"
-  | "sign_request";
+  | "sign_request"
+  | "prepare_enroll"
+  | "confirm_enroll"
+  | "activate_enroll";
 
 interface NativeAddon {
   request(
@@ -103,6 +106,49 @@ export interface PrivateVaultNativeServiceClient
   parseBootstrapFrame(
     encoded: Uint8Array,
   ): Promise<NativeParsedBootstrapFrameResult>;
+  prepareBrokerEnrollment(
+    vaultId: string,
+  ): Promise<NativePrepareEnrollmentResult>;
+  confirmBrokerEnrollment(
+    vaultId: string,
+    challenge: Uint8Array,
+  ): Promise<NativeConfirmEnrollmentResult>;
+  activateBrokerEnrollment(
+    vaultId: string,
+    challenge: Uint8Array,
+    authorization: Uint8Array,
+  ): Promise<NativeActivateEnrollmentResult>;
+}
+
+export interface NativePrepareEnrollmentResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "prepare_enroll";
+  readonly state: "offered";
+  readonly vaultId: string;
+  readonly candidateEndpointId: string;
+  readonly offerHash: string;
+  readonly offer: Uint8Array;
+  readonly candidateKeyProof: Uint8Array;
+}
+
+export interface NativeConfirmEnrollmentResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "confirm_enroll";
+  readonly state: "confirmed" | "mismatch";
+}
+
+export interface NativeActivateEnrollmentResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "activate_enroll";
+  readonly state: "active";
+  readonly vaultId: string;
+  readonly custodyGeneration: 3;
+  readonly activeEpoch: number;
+  readonly sequence: number;
+  readonly headHash: string;
 }
 
 export interface NativeParsedBootstrapFrameResult {
@@ -312,6 +358,106 @@ function parseResumeRotation(
     state: "consumed",
     vaultId: value.vaultId,
     custodyGeneration: value.custodyGeneration,
+    activeEpoch: value.activeEpoch,
+    sequence: value.sequence,
+    headHash: value.headHash,
+  });
+}
+
+function parsePrepareEnrollment(
+  value: unknown,
+  expectedVaultId: string,
+): NativePrepareEnrollmentResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "candidateEndpointId",
+      "offerHash",
+      "offer",
+      "candidateKeyProof",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "prepare_enroll" ||
+    value.state !== "offered" ||
+    value.vaultId !== expectedVaultId ||
+    !isLowerHex(value.vaultId, 32) ||
+    !isLowerHex(value.candidateEndpointId, 32) ||
+    !isLowerHex(value.offerHash, 64) ||
+    !(value.candidateKeyProof instanceof Uint8Array) ||
+    value.candidateKeyProof.byteLength !== 64
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "prepare_enroll",
+    state: "offered",
+    vaultId: value.vaultId,
+    candidateEndpointId: value.candidateEndpointId,
+    offerHash: value.offerHash,
+    offer: copyBoundedBytes(value.offer, 1024),
+    candidateKeyProof: copyBoundedBytes(value.candidateKeyProof, 64),
+  });
+}
+
+function parseConfirmEnrollment(value: unknown): NativeConfirmEnrollmentResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["version", "operation", "state"]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "confirm_enroll" ||
+    (value.state !== "confirmed" && value.state !== "mismatch")
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "confirm_enroll",
+    state: value.state,
+  });
+}
+
+function parseActivateEnrollment(
+  value: unknown,
+  expectedVaultId: string,
+): NativeActivateEnrollmentResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "custodyGeneration",
+      "activeEpoch",
+      "sequence",
+      "headHash",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "activate_enroll" ||
+    value.state !== "active" ||
+    value.vaultId !== expectedVaultId ||
+    !isLowerHex(value.vaultId, 32) ||
+    value.custodyGeneration !== 3 ||
+    !isSafeInteger(value.activeEpoch, true) ||
+    !isSafeInteger(value.sequence, false) ||
+    !isLowerHex(value.headHash, 64)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "activate_enroll",
+    state: "active",
+    vaultId: value.vaultId,
+    custodyGeneration: 3,
     activeEpoch: value.activeEpoch,
     sequence: value.sequence,
     headHash: value.headHash,
@@ -1058,6 +1204,92 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
         proof.fill(0);
+      }
+    });
+  }
+
+  prepareBrokerEnrollment(
+    vaultId: string,
+  ): Promise<NativePrepareEnrollmentResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parsePrepareEnrollment(
+          await addon.request("prepare_enroll", vaultId),
+          vaultId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  confirmBrokerEnrollment(
+    vaultId: string,
+    challenge: Uint8Array,
+  ): Promise<NativeConfirmEnrollmentResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let challengeCopy: Buffer;
+    try {
+      challengeCopy = Buffer.from(copyBoundedBytes(challenge, 64 * 1024));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseConfirmEnrollment(
+          await addon.request("confirm_enroll", vaultId, challengeCopy),
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        challengeCopy.fill(0);
+      }
+    });
+  }
+
+  activateBrokerEnrollment(
+    vaultId: string,
+    challenge: Uint8Array,
+    authorization: Uint8Array,
+  ): Promise<NativeActivateEnrollmentResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let challengeCopy: Buffer | null = null;
+    let authorizationCopy: Buffer | null = null;
+    try {
+      challengeCopy = Buffer.from(copyBoundedBytes(challenge, 64 * 1024));
+      authorizationCopy = Buffer.from(
+        copyBoundedBytes(authorization, 256 * 1024),
+      );
+    } catch {
+      challengeCopy?.fill(0);
+      authorizationCopy?.fill(0);
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    const safeChallenge = challengeCopy;
+    const safeAuthorization = authorizationCopy;
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseActivateEnrollment(
+          await addon.request(
+            "activate_enroll",
+            vaultId,
+            safeChallenge,
+            safeAuthorization,
+          ),
+          vaultId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        safeChallenge.fill(0);
+        safeAuthorization.fill(0);
       }
     });
   }

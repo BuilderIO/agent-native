@@ -12,6 +12,9 @@
 #import "PrivateVaultSession.h"
 #import "PrivateVaultAuthorityStore.h"
 #import "PrivateVaultControlLog.h"
+#import "PrivateVaultControlLogInternal.h"
+#import "PrivateVaultEnrollmentChallenge.h"
+#import "PrivateVaultEnrollmentAuthorization.h"
 #import "PrivateVaultGenesisBootstrap.h"
 #import "PrivateVaultGenesisAccountAdmission.h"
 #import "PrivateVaultKeychain.h"
@@ -39,6 +42,9 @@
 #import "PrivateVaultRecoveryPreparationStore.h"
 #import "PrivateVaultGrantIndex.h"
 #import "PrivateVaultJobProcessor.h"
+#import "PrivateVaultEnrollmentOfferArtifactStore.h"
+#import "PrivateVaultEnrollmentSasReceiptStore.h"
+#import "PrivateVaultEnrollmentCoordinator.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -57,6 +63,21 @@ static NSLock *gRecoveryStatusLock = nil;
 static bool gStartupComplete = false;
 static AncPrivateVaultGrantIndex *gGrantIndex = nil;
 static AncPrivateVaultJobProcessor *gJobProcessor = nil;
+static AncPrivateVaultAuthorityStore *gEndpointAuthorityStore = nil;
+static AncPrivateVaultControlLog *gControlLog = nil;
+static AncPrivateVaultEnrollmentOfferArtifactStore *gEnrollmentArtifactStore =
+    nil;
+static AncPrivateVaultEnrollmentCoordinator *gEnrollmentCoordinator = nil;
+static NSMutableDictionary<NSString *, id> *gEnrollmentInspections = nil;
+static NSLock *gEnrollmentInspectionLock = nil;
+
+@interface PVEnrollmentInspection : NSObject
+@property(nonatomic) NSString *vaultId;
+@property(nonatomic) AncPrivateVaultEnrollmentChallengeResult *challenge;
+@property(nonatomic) uint64_t expiresAt;
+@end
+@implementation PVEnrollmentInspection
+@end
 
 static const char *PVRotationAckState(void);
 
@@ -995,6 +1016,283 @@ static void PVFinalizeGenesis(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static NSString *PVEnrollmentToken(void) {
+    uint8_t bytes[16] = {0};
+    if (SecRandomCopyBytes(kSecRandomDefault, sizeof bytes, bytes) !=
+        errSecSuccess) {
+        return nil;
+    }
+    NSMutableString *token = [NSMutableString stringWithCapacity:32];
+    for (size_t index = 0; index < sizeof bytes; index += 1) {
+        [token appendFormat:@"%02x", bytes[index]];
+    }
+    anc_pv_zeroize(bytes, sizeof bytes);
+    return token;
+}
+
+static BOOL PVEnrollmentContext(
+    NSString *vaultId, AncPrivateVaultEnrollmentOfferArtifact **artifact,
+    AncPrivateVaultControlLogState **state, uint64_t *signedAtSeconds) {
+    if (vaultId.length != 32 || artifact == NULL || state == NULL ||
+        signedAtSeconds == NULL || gEnrollmentArtifactStore == nil ||
+        gEndpointAuthorityStore == nil) {
+        return NO;
+    }
+    *artifact = nil;
+    *state = nil;
+    *signedAtSeconds = 0;
+    NSData *vaultBytes = PVLookupIDData(vaultId.UTF8String);
+    AncPrivateVaultEnrollmentOfferArtifact *stored = nil;
+    AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+    if (vaultBytes == nil ||
+        [gEnrollmentArtifactStore readVaultId:vaultBytes artifact:&stored] !=
+            AncPrivateVaultEnrollmentOfferArtifactStatusOK ||
+        stored == nil ||
+        [gEndpointAuthorityStore loadVaultId:vaultId
+                                  checkpoint:&checkpoint
+                                       error:nil] !=
+            AncPrivateVaultAuthorityStoreStatusOK ||
+        checkpoint == nil || checkpoint.snapshot.signedAtMs == 0) {
+        return NO;
+    }
+    AncPrivateVaultControlLogState *authenticated =
+        AncPrivateVaultControlLogStateCreateFromAuthenticatedCheckpoint(
+            checkpoint);
+    if (authenticated == nil ||
+        ![authenticated.vaultId isEqualToString:vaultId]) {
+        return NO;
+    }
+    *artifact = stored;
+    *state = authenticated;
+    *signedAtSeconds = checkpoint.snapshot.signedAtMs / 1000;
+    return *signedAtSeconds > 0;
+}
+
+static void PVPrepareEnrollment(xpc_connection_t peer, xpc_object_t message,
+                                const PVRequest *request) {
+    @autoreleasepool {
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        AncPrivateVaultEnrollmentCandidate *candidate = nil;
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        if (vaultBytes == nil || gEnrollmentCoordinator == nil || now == 0 ||
+            [gEnrollmentCoordinator prepareBrokerVaultId:vaultBytes
+                                              nowSeconds:now
+                                               candidate:&candidate] !=
+                AncPrivateVaultEnrollmentCoordinatorStatusOK ||
+            candidate == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        NSString *candidateId = PVVaultIDHex(candidate.endpointId);
+        NSString *offerHash = PVHex(candidate.offerHash);
+        if (candidateId.length != 32 || offerHash.length != 64) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "offered");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "candidateEndpointId",
+                                  candidateId.UTF8String);
+        xpc_dictionary_set_string(reply, "offerHash", offerHash.UTF8String);
+        xpc_dictionary_set_data(reply, "offer", candidate.encodedOffer.bytes,
+                                candidate.encodedOffer.length);
+        xpc_dictionary_set_data(reply, "candidateKeyProof",
+                                candidate.candidateKeyProof.bytes,
+                                candidate.candidateKeyProof.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVInspectEnrollment(xpc_connection_t peer, xpc_object_t message,
+                                const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        AncPrivateVaultControlLogState *state = nil;
+        uint64_t signedAt = 0;
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        NSData *challengeBytes =
+            request->enrollmentChallenge == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentChallenge
+                                  length:request->enrollmentChallengeLength];
+        AncPrivateVaultEnrollmentChallengeStatus status;
+        AncPrivateVaultEnrollmentChallengeResult *challenge = nil;
+        if (!PVEnrollmentContext(vaultId, &artifact, &state, &signedAt) ||
+            challengeBytes == nil || now == 0) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        challenge = AncPrivateVaultEnrollmentChallengeVerify(
+            artifact.encodedOffer, challengeBytes, state, signedAt, now,
+            &status);
+        NSString *candidateId = PVVaultIDHex(challenge.candidateEndpointId);
+        if (challenge == nil || candidateId.length != 32 ||
+            ![challenge.targetMembershipRole isEqualToString:@"broker"] ||
+            challenge.sasTranscriptHash.length != 32) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        NSString *token = PVEnrollmentToken();
+        if (token == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        PVEnrollmentInspection *inspection = [PVEnrollmentInspection new];
+        inspection.vaultId = vaultId;
+        inspection.challenge = challenge;
+        inspection.expiresAt = challenge.expiresAt;
+        [gEnrollmentInspectionLock lock];
+        @try {
+            NSArray<NSString *> *keys = gEnrollmentInspections.allKeys;
+            for (NSString *key in keys) {
+                PVEnrollmentInspection *existing = gEnrollmentInspections[key];
+                if (existing.expiresAt < now)
+                    [gEnrollmentInspections removeObjectForKey:key];
+            }
+            if (gEnrollmentInspections.count >= 16) {
+                token = nil;
+            } else {
+                gEnrollmentInspections[token] = inspection;
+            }
+        } @finally {
+            [gEnrollmentInspectionLock unlock];
+        }
+        if (token == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "inspected");
+        xpc_dictionary_set_string(reply, "ceremonyToken", token.UTF8String);
+        xpc_dictionary_set_string(reply, "sasCode",
+                                  challenge.sasCode.UTF8String);
+        xpc_dictionary_set_string(reply, "candidateEndpointId",
+                                  candidateId.UTF8String);
+        xpc_dictionary_set_string(reply, "membershipRole", "broker");
+        xpc_dictionary_set_bool(reply, "unattended", true);
+        xpc_dictionary_set_data(reply, "sasTranscriptHash",
+                                challenge.sasTranscriptHash.bytes,
+                                challenge.sasTranscriptHash.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVDecideEnrollment(xpc_connection_t peer, xpc_object_t message,
+                               const PVRequest *request) {
+    @autoreleasepool {
+        NSString *token =
+            [NSString stringWithUTF8String:request->ceremonyToken];
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        [gEnrollmentInspectionLock lock];
+        PVEnrollmentInspection *inspection = gEnrollmentInspections[token];
+        [gEnrollmentInspectionLock unlock];
+        if (inspection == nil || now == 0 || now > inspection.expiresAt) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        uint8_t receiptBytes[16] = {0};
+        if (SecRandomCopyBytes(kSecRandomDefault, sizeof receiptBytes,
+                              receiptBytes) != errSecSuccess) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        NSData *receiptId = [NSData dataWithBytes:receiptBytes
+                                          length:sizeof receiptBytes];
+        anc_pv_zeroize(receiptBytes, sizeof receiptBytes);
+        BOOL confirmed = strcmp(request->decision, "confirmed") == 0;
+        AncPrivateVaultEnrollmentSasReceipt *receipt = nil;
+        AncPrivateVaultEnrollmentCoordinatorStatus status =
+            [gEnrollmentCoordinator
+                recordSasDecisionForChallenge:inspection.challenge
+                                  receiptId:receiptId
+                                  decidedAt:now
+                                   decision:confirmed
+                                                ? AncPrivateVaultEnrollmentSasDecisionConfirmed
+                                                : AncPrivateVaultEnrollmentSasDecisionMismatch
+                                    receipt:&receipt];
+        if (status != AncPrivateVaultEnrollmentCoordinatorStatusOK ||
+            receipt == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        [gEnrollmentInspectionLock lock];
+        if (gEnrollmentInspections[token] == inspection)
+            [gEnrollmentInspections removeObjectForKey:token];
+        [gEnrollmentInspectionLock unlock];
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state",
+                                  confirmed ? "confirmed" : "mismatch");
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVActivateEnrollment(xpc_connection_t peer, xpc_object_t message,
+                                 const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        AncPrivateVaultControlLogState *state = nil;
+        uint64_t signedAt = 0;
+        uint64_t now = (uint64_t)floor(NSDate.date.timeIntervalSince1970);
+        NSData *challenge =
+            request->enrollmentChallenge == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentChallenge
+                                  length:request->enrollmentChallengeLength];
+        NSData *authorization =
+            request->enrollmentAuthorization == NULL
+                ? nil
+                : [NSData dataWithBytes:request->enrollmentAuthorization
+                                  length:request->enrollmentAuthorizationLength];
+        if (!PVEnrollmentContext(vaultId, &artifact, &state, &signedAt) ||
+            challenge == nil || authorization == nil || now == 0) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        AncPrivateVaultEnrollmentAuthorizationStatus verifyStatus;
+        AncPrivateVaultEnrollmentAuthorizationResult *verified =
+            AncPrivateVaultEnrollmentAuthorizationVerify(
+                artifact.encodedOffer, challenge, authorization, state,
+                signedAt, now, gControlLog, &verifyStatus);
+        AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+        if (verified == nil ||
+            [gEnrollmentCoordinator activateAuthorization:verified
+                                              verifiedAtMs:now * 1000
+                                                checkpoint:&checkpoint] !=
+                AncPrivateVaultEnrollmentCoordinatorStatusOK ||
+            checkpoint == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        NSString *headHash = PVHex(checkpoint.snapshot.headHash);
+        if (headHash.length != 64) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL)
+            return;
+        xpc_dictionary_set_string(reply, "state", "active");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_uint64(reply, "custodyGeneration",
+                                  checkpoint.custodyGeneration);
+        xpc_dictionary_set_uint64(reply, "activeEpoch",
+                                  checkpoint.snapshot.epoch);
+        xpc_dictionary_set_uint64(reply, "sequence",
+                                  checkpoint.snapshot.sequence);
+        xpc_dictionary_set_string(reply, "headHash", headHash.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static const char *PVRotationAckState(void) {
     if (gHostedAppendRetry == nil) {
         return "unavailable";
@@ -1133,6 +1431,22 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVFinalizeGenesis(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "prepare_enroll") == 0) {
+                PVPrepareEnrollment(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "inspect_enroll") == 0) {
+                PVInspectEnrollment(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "decide_enroll") == 0) {
+                PVDecideEnrollment(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "activate_enroll") == 0) {
+                PVActivateEnrollment(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "accept_bootstrap") == 0) {
                 PVAcceptBootstrap(peer, message, &request);
                 return;
@@ -1210,6 +1524,8 @@ int main(void) {
         gBootstrapReplayLock = [NSLock new];
         gRecoveryStatusLock = [NSLock new];
         gRecoveryStatuses = [NSMutableDictionary dictionary];
+        gEnrollmentInspectionLock = [NSLock new];
+        gEnrollmentInspections = [NSMutableDictionary dictionary];
         NSURL *stateRoot = PVStateRootURL();
         NSURL *recoveryStateRoot =
             AncPrivateVaultPrepareRecoveryStateRoot(stateRoot);
@@ -1254,6 +1570,21 @@ int main(void) {
                  grantIndex:gGrantIndex resultSpool:resultSpool];
         AncPrivateVaultControlLog *controlLog =
             [[AncPrivateVaultControlLog alloc] init];
+        gEndpointAuthorityStore = authority;
+        gControlLog = controlLog;
+        gEnrollmentArtifactStore =
+            [[AncPrivateVaultEnrollmentOfferArtifactStore alloc]
+                initWithKeychain:keychain
+                         recordId:@"broker-enrollment-offer-v1"];
+        AncPrivateVaultEnrollmentSasReceiptStore *enrollmentReceiptStore =
+            [[AncPrivateVaultEnrollmentSasReceiptStore alloc]
+                initWithKeychain:keychain
+                         recordId:@"broker-enrollment-sas-v1"];
+        gEnrollmentCoordinator = [[AncPrivateVaultEnrollmentCoordinator alloc]
+            initWithBrokerCustodyRepository:gBrokerCustodyRepository
+                               artifactStore:gEnrollmentArtifactStore
+                             sasReceiptStore:enrollmentReceiptStore
+                              authorityStore:brokerAuthority];
         AncPrivateVaultGenesisArtifactStore *genesisArtifacts =
             [[AncPrivateVaultGenesisArtifactStore alloc]
                 initWithStateRootURL:stateRoot];
@@ -1337,6 +1668,10 @@ int main(void) {
             spool == nil || preparation == nil || authority == nil ||
             brokerAuthority == nil || gGrantIndex == nil ||
             gJobProcessor == nil ||
+            gEndpointAuthorityStore == nil || gControlLog == nil ||
+            gEnrollmentArtifactStore == nil || enrollmentReceiptStore == nil ||
+            gEnrollmentCoordinator == nil || gEnrollmentInspectionLock == nil ||
+            gEnrollmentInspections == nil ||
             controlLog == nil || genesisArtifacts == nil ||
             genesisPreparationArtifacts == nil ||
             genesisPreparationStore == nil ||

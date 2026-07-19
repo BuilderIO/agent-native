@@ -355,6 +355,60 @@ int main(void) {
   assert(parsed.receiptLength == sizeof receiptBytes);
   xpc_release(finalizeGenesis);
 
+  const char *enrollmentVault = "00112233445566778899aabbccddeeff";
+  const char *ceremonyToken = "ffeeddccbbaa00998877665544332211";
+  const uint8_t enrollmentChallenge[] = {0xa1, 0x01, 0x03};
+  const uint8_t enrollmentAuthorization[] = {0xa1, 0x01, 0x04};
+  xpc_object_t prepareEnrollment = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "prepare_enroll", "request-prepare-enroll");
+  xpc_dictionary_set_string(prepareEnrollment, "vaultId", enrollmentVault);
+  assert(PVParseRequest(prepareEnrollment, &parsed) == PVRequestValid &&
+         strcmp(parsed.vaultID, enrollmentVault) == 0);
+  xpc_release(prepareEnrollment);
+
+  xpc_object_t inspectEnrollment = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "inspect_enroll", "request-inspect-enroll");
+  xpc_dictionary_set_string(inspectEnrollment, "vaultId", enrollmentVault);
+  xpc_dictionary_set_data(inspectEnrollment, "challenge",
+                          enrollmentChallenge,
+                          sizeof enrollmentChallenge);
+  assert(PVParseRequest(inspectEnrollment, &parsed) == PVRequestValid &&
+         parsed.enrollmentChallengeLength == sizeof enrollmentChallenge);
+  xpc_release(inspectEnrollment);
+
+  for (size_t index = 0; index < 2; index += 1) {
+    xpc_object_t decideEnrollment = PVMakeRequest(
+        PV_PROTOCOL_VERSION, "decide_enroll", "request-decide-enroll");
+    xpc_dictionary_set_string(decideEnrollment, "ceremonyToken",
+                              ceremonyToken);
+    xpc_dictionary_set_string(decideEnrollment, "decision",
+                              index == 0 ? "confirmed" : "mismatch");
+    assert(PVParseRequest(decideEnrollment, &parsed) == PVRequestValid &&
+           strcmp(parsed.ceremonyToken, ceremonyToken) == 0);
+    xpc_release(decideEnrollment);
+  }
+
+  xpc_object_t activateEnrollment = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "activate_enroll", "request-activate-enroll");
+  xpc_dictionary_set_string(activateEnrollment, "vaultId", enrollmentVault);
+  xpc_dictionary_set_data(activateEnrollment, "challenge",
+                          enrollmentChallenge,
+                          sizeof enrollmentChallenge);
+  xpc_dictionary_set_data(activateEnrollment, "authorization",
+                          enrollmentAuthorization,
+                          sizeof enrollmentAuthorization);
+  assert(PVParseRequest(activateEnrollment, &parsed) == PVRequestValid &&
+         parsed.enrollmentAuthorizationLength ==
+             sizeof enrollmentAuthorization);
+  xpc_release(activateEnrollment);
+
+  xpc_object_t forgedDecision = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "decide_enroll", "request-forged-enroll");
+  xpc_dictionary_set_string(forgedDecision, "ceremonyToken", ceremonyToken);
+  xpc_dictionary_set_string(forgedDecision, "decision", "confirmed-ish");
+  assert(PVParseRequest(forgedDecision, &parsed) == PVRequestInvalid);
+  xpc_release(forgedDecision);
+
   xpc_object_t missingAdmissionReceipt = PVMakeRequest(
       PV_PROTOCOL_VERSION, "accept_admit", "request-missing-receipt");
   xpc_dictionary_set_string(missingAdmissionReceipt, "lookupId", lookupID);

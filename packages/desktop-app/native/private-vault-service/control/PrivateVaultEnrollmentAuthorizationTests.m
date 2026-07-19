@@ -587,9 +587,6 @@ int main(void) {
         [coordinator activateAuthorization:verified
                               verifiedAtMs:UINT64_C(1721111163000)
                                 checkpoint:&retryCheckpoint];
-    if (retryStatus != AncPrivateVaultEnrollmentCoordinatorStatusOK)
-      fprintf(stderr, "completed enrollment retry status: %ld\n",
-              (long)retryStatus);
     assert(retryStatus == AncPrivateVaultEnrollmentCoordinatorStatusOK &&
            [retryCheckpoint.frameDigest
                isEqualToData:coordinatorCheckpoint.frameDigest]);

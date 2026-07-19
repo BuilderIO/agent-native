@@ -927,10 +927,29 @@ membership capability, and returns only after authority and custody reread as
 generation 3. A retry after the intermediate or completed state is idempotent;
 the epoch key, candidate private keys, and local state key never cross the
 native boundary. The synthetic broker corpus proves refusal before SAS,
-successful activation, active-epoch equality, official authority reread, and a
-completed retry on Apple Silicon and Intel. Wiring the trusted native SAS sheet
-into this coordinator through the private XPC operation remains the next
-boundary.
+successful activation, active-epoch equality, official authority reread, an
+injected interruption after the authorization-bound generation-2 custody CAS,
+and exact retries from both generation 2 and completed generation 3 on Apple
+Silicon and Intel.
+
+The signed Desktop boundary now wires that coordinator through a deliberately
+asymmetric enrollment protocol. JavaScript may prepare the public broker offer,
+ask native code to begin confirmation, and submit the signed authorization for
+activation. It cannot call the internal `inspect_enroll` or `decide_enroll`
+verbs: the universal addon alone requests immutable SAS facts, renders the
+AppKit comparison sheet on its main thread, and returns one opaque native token
+with `confirmed` or `mismatch` to the XPC service. The service verifies the
+challenge against the attended endpoint's OS-encrypted authority checkpoint,
+keeps at most sixteen expiring one-use inspections in memory, and persists the
+candidate-signed decision before releasing success. Activation reconstructs
+the same challenge and authorization against that endpoint checkpoint, while
+the coordinator promotes only the separately stored broker custody and broker
+authority frame. The strict protocol corpus, universal trusted-UI corpus,
+universal addon build/load test, Desktop contract test, TypeScript typecheck,
+and production arm64 XPC build pass. The remaining ordinary-enrollment work is
+the hosted/Desktop orchestration around these native calls, explicit mismatch
+cleanup, authorizer-side challenge/authorization production, and broker
+replacement.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault

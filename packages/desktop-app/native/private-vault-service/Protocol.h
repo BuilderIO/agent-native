@@ -18,6 +18,8 @@
 #define PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES 26746884
 #define PV_JOB_ENVELOPE_MAXIMUM_BYTES (16 * 1024 * 1024 + 64 * 1024)
 #define PV_ENDPOINT_PROOF_MAXIMUM_BYTES (64 * 1024)
+#define PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES (64 * 1024)
+#define PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
 
 typedef enum {
     PVRequestValid = 0,
@@ -35,6 +37,8 @@ typedef struct {
     const char *jobHash;
     const char *algorithmID;
     const char *resultState;
+    const char *decision;
+    const char *ceremonyToken;
     uint64_t hostedEpoch;
     uint64_t hostedRetryCount;
     const void *recoveryConfirmation;
@@ -57,6 +61,10 @@ typedef struct {
     size_t resultPayloadLength;
     const void *unsignedProof;
     size_t unsignedProofLength;
+    const void *enrollmentChallenge;
+    size_t enrollmentChallengeLength;
+    const void *enrollmentAuthorization;
+    size_t enrollmentAuthorizationLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);

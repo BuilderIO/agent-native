@@ -58,6 +58,9 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 return true;
             }
             if (strcmp(key, "unsignedProof") == 0) return true;
+            if (strcmp(key, "ceremonyToken") == 0 ||
+                strcmp(key, "decision") == 0)
+                return true;
             allowed = false;
             return false;
         }
@@ -170,19 +173,76 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool completeResult = strcmp(operation, "complete_result") == 0;
     bool pendingResult = strcmp(operation, "pending_result") == 0;
     bool signRequest = strcmp(operation, "sign_request") == 0;
+    bool prepareEnrollment = strcmp(operation, "prepare_enroll") == 0;
+    bool inspectEnrollment = strcmp(operation, "inspect_enroll") == 0;
+    bool decideEnrollment = strcmp(operation, "decide_enroll") == 0;
+    bool activateEnrollment = strcmp(operation, "activate_enroll") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
         !openJob && !sealResult && !completeResult && !pendingResult &&
-        !signRequest) {
+        !signRequest && !prepareEnrollment && !inspectEnrollment &&
+        !decideEnrollment && !activateEnrollment) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (signRequest) {
+    if (prepareEnrollment) {
+        if (fieldCount != 4 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
+            return PVRequestInvalid;
+        }
+    } else if (inspectEnrollment) {
+        if (fieldCount != 5 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVReadBoundedData(message, "challenge",
+                               PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES,
+                               &request->enrollmentChallenge,
+                               &request->enrollmentChallengeLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (decideEnrollment) {
+        xpc_object_t tokenValue =
+            xpc_dictionary_get_value(message, "ceremonyToken");
+        xpc_object_t decisionValue =
+            xpc_dictionary_get_value(message, "decision");
+        const char *token =
+            tokenValue != NULL && xpc_get_type(tokenValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "ceremonyToken")
+                : NULL;
+        const char *decision =
+            decisionValue != NULL &&
+                    xpc_get_type(decisionValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "decision")
+                : NULL;
+        if (fieldCount != 5 || vaultIDValue != NULL ||
+            !PVIsLowerHex(token, 32) || decision == NULL ||
+            (strcmp(decision, "confirmed") != 0 &&
+             strcmp(decision, "mismatch") != 0)) {
+            return PVRequestInvalid;
+        }
+        request->ceremonyToken = token;
+        request->decision = decision;
+    } else if (activateEnrollment) {
+        if (fieldCount != 6 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVReadBoundedData(message, "challenge",
+                               PV_ENROLLMENT_CHALLENGE_MAXIMUM_BYTES,
+                               &request->enrollmentChallenge,
+                               &request->enrollmentChallengeLength) ||
+            !PVReadBoundedData(message, "authorization",
+                               PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES,
+                               &request->enrollmentAuthorization,
+                               &request->enrollmentAuthorizationLength)) {
+            return PVRequestInvalid;
+        }
+    } else if (signRequest) {
         if (fieldCount != 4 || vaultIDValue != NULL ||
             !PVReadBoundedData(message, "unsignedProof",
                                PV_ENDPOINT_PROOF_MAXIMUM_BYTES,
@@ -358,7 +418,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     request->requestID = requestID;
     request->vaultID =
         unlock || resumeRotation || recoverStatus || openJob || sealResult ||
-                completeResult || pendingResult
+                completeResult || pendingResult || prepareEnrollment ||
+                inspectEnrollment || activateEnrollment
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =
