@@ -174,7 +174,7 @@ function harness() {
     verify: vi.fn(
       async ({ ciphertextHash }) => ciphertextHash === "41".repeat(32),
     ),
-    rollback: vi.fn(async () => undefined),
+    rollback: vi.fn(async () => ({ complete: true })),
     verifyExport: vi.fn(
       async ({ exportBundleHash }) => exportBundleHash === "51".repeat(32),
     ),
@@ -346,5 +346,31 @@ describe("Private Vault resumable migration coordinator", () => {
     });
     expect(source.values.size).toBe(2);
     expect(source.cleanup).not.toHaveBeenCalled();
+  });
+
+  it("keeps rollback resumable until every ciphertext object is gone", async () => {
+    const { coordinator, store, target } = harness();
+    const ledger = await coordinator.preflight(scope, ["root", "child"]);
+    await coordinator.begin(scope, ledger.migrationId);
+    await coordinator.verifyItem({
+      scope,
+      migrationId: ledger.migrationId,
+      sourceDocumentId: "root",
+      revisionId: "31".repeat(16),
+      ciphertextHash: "41".repeat(32),
+    });
+    const rollback = target.rollback as ReturnType<typeof vi.fn>;
+    rollback
+      .mockResolvedValueOnce({ complete: false })
+      .mockResolvedValueOnce({ complete: true });
+
+    await expect(
+      coordinator.rollback(scope, ledger.migrationId),
+    ).resolves.toMatchObject({ state: "verifying", rolledBackAt: null });
+    expect(store.ledger?.state).toBe("verifying");
+    await expect(
+      coordinator.rollback(scope, ledger.migrationId),
+    ).resolves.toMatchObject({ state: "rolled_back", rolledBackAt: now });
+    expect(rollback).toHaveBeenCalledTimes(2);
   });
 });

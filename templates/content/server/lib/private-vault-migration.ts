@@ -61,7 +61,7 @@ export interface PrivateVaultMigrationCiphertextTarget {
   rollback(input: {
     scope: PrivateVaultMigrationScope;
     objectIds: readonly string[];
-  }): Promise<void>;
+  }): Promise<{ complete: boolean }>;
   verifyExport(input: {
     scope: PrivateVaultMigrationScope;
     migrationId: string;
@@ -404,7 +404,8 @@ export class PrivateVaultMigrationCoordinator {
     const objectIds = current.items
       .filter((item) => item.state !== "pending")
       .map((item) => item.objectId);
-    await this.target.rollback({ scope, objectIds });
+    const rollback = await this.target.rollback({ scope, objectIds });
+    if (!rollback.complete) return current.ledger;
     const next = {
       ...current.ledger,
       state: "rolled_back" as const,
