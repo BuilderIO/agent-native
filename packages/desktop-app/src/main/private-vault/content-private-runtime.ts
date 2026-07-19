@@ -1,5 +1,6 @@
 import type { PrivateVaultLocalActionRegistry } from "@agent-native/private-vault-broker";
 
+import { PrivateVaultContentBrokerRuntimeTransport } from "./content-broker-runtime-transport.js";
 import {
   createPrivateVaultContentBrokerRuntime,
   type PrivateVaultContentBrokerRuntime,
@@ -9,6 +10,10 @@ import {
   type PrivateVaultContentDocumentRuntime,
 } from "./content-document-runtime.js";
 import type { PrivateVaultContentSession } from "./content-genesis-transport.js";
+import {
+  createPrivateVaultContentRequesterRuntime,
+  type PrivateVaultContentRequesterRuntime,
+} from "./content-requester-runtime.js";
 import { PrivateVaultContentRuntimeTransport } from "./content-runtime-transport.js";
 
 interface BrokerLifecycle {
@@ -20,6 +25,10 @@ interface BrokerLifecycle {
 interface DocumentLifecycle {
   initialize(vaultId: string): Promise<void>;
   close(): void;
+}
+
+interface RequesterSurface {
+  runAction(input: { actionName: string; args: unknown }): Promise<unknown>;
 }
 
 type PrivateContentDocuments = DocumentLifecycle &
@@ -55,6 +64,7 @@ export class PrivateVaultContentRuntime {
   readonly #broker: (
     actions: PrivateVaultLocalActionRegistry,
   ) => BrokerLifecycle;
+  readonly #requester: RequesterSurface;
   #active: {
     vaultId: string;
     broker: BrokerLifecycle | null;
@@ -68,11 +78,13 @@ export class PrivateVaultContentRuntime {
       create(vaultId: string): Promise<PrivateVaultLocalActionRegistry | null>;
     };
     broker: (actions: PrivateVaultLocalActionRegistry) => BrokerLifecycle;
+    requester: RequesterSurface;
   }) {
     this.#descriptor = input.descriptor;
     this.#documents = input.documents;
     this.#brokerActions = input.brokerActions;
     this.#broker = input.broker;
+    this.#requester = input.requester;
   }
 
   start(): Promise<void> {
@@ -114,6 +126,15 @@ export class PrivateVaultContentRuntime {
     return this.#documents;
   }
 
+  async runAgentAction(input: { actionName: string; args: unknown }) {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#requester.runAction(input);
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
   async #start(): Promise<void> {
     try {
       const descriptor = await this.#descriptor.read();
@@ -150,11 +171,17 @@ export function createPrivateVaultContentRuntime(input: {
   const documents: PrivateVaultContentDocumentRuntime =
     createPrivateVaultContentDocumentRuntime(input);
   const descriptor = new PrivateVaultContentRuntimeTransport(input);
+  const requester: PrivateVaultContentRequesterRuntime =
+    createPrivateVaultContentRequesterRuntime({
+      ...input,
+      descriptor: new PrivateVaultContentBrokerRuntimeTransport(input),
+    });
   return new PrivateVaultContentRuntime({
     descriptor,
     documents,
     brokerActions: input.brokerActions,
     broker: (actions) =>
       createPrivateVaultContentBrokerRuntime({ ...input, actions }),
+    requester,
   });
 }

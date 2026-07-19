@@ -20,17 +20,20 @@ function harness() {
     health: vi.fn(() => ({ state: "running" })),
   };
   const factory = vi.fn(() => broker);
+  const requester = { runAction: vi.fn(async () => ({ id: "result" })) };
   return {
     actions,
     broker,
     documents,
     brokerActions,
     factory,
+    requester,
     runtime: new PrivateVaultContentRuntime({
       descriptor: { read: vi.fn(async () => ({ vaultId })) },
       documents: documents as never,
       brokerActions,
       broker: factory as never,
+      requester,
     }),
   };
 }
@@ -77,5 +80,24 @@ describe("PrivateVaultContentRuntime", () => {
       PrivateVaultContentRuntimeError,
     );
     await first;
+  });
+
+  it("keeps agent jobs behind the active signed runtime lifecycle", async () => {
+    const source = harness();
+    await expect(
+      source.runtime.runAgentAction({ actionName: "list-documents", args: {} }),
+    ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
+    await source.runtime.start();
+    await expect(
+      source.runtime.runAgentAction({ actionName: "list-documents", args: {} }),
+    ).resolves.toEqual({ id: "result" });
+    expect(source.requester.runAction).toHaveBeenCalledWith({
+      actionName: "list-documents",
+      args: {},
+    });
+    await source.runtime.stop();
+    await expect(
+      source.runtime.runAgentAction({ actionName: "list-documents", args: {} }),
+    ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
   });
 });
