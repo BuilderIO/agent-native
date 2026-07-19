@@ -29,6 +29,9 @@ enum {
   ANC_PV_MAX_AAD_BYTES = 1024 * 1024,
   ANC_PV_MAX_PASSPHRASE_BYTES = 1024,
   ANC_PV_MAX_RANDOM_BYTES = 1024 * 1024,
+  /* Export archives are an explicit backup-only exception to the ordinary
+   * 16 MiB message ceiling. Do not use these primitives for jobs/results. */
+  ANC_PV_MAX_EXPORT_BYTES = 256 * 1024 * 1024,
 };
 
 typedef enum AncPrivateVaultCryptoStatus {
@@ -67,6 +70,10 @@ AncPrivateVaultCryptoStatus
 anc_pv_blake2b_256_keyed(uint8_t output[ANC_PV_HASH_BYTES],
                          const uint8_t *message, size_t message_length,
                          const uint8_t key[ANC_PV_KEY_BYTES]);
+
+AncPrivateVaultCryptoStatus anc_pv_export_blake2b_256_two_part(
+    uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *first,
+    size_t first_length, const uint8_t *second, size_t second_length);
 
 AncPrivateVaultCryptoStatus
 anc_pv_ed25519_seed_keypair(uint8_t public_key[ANC_PV_SIGN_PUBLIC_KEY_BYTES],
@@ -111,6 +118,20 @@ AncPrivateVaultCryptoStatus anc_pv_xchacha20poly1305_encrypt(
     const uint8_t key[ANC_PV_KEY_BYTES]);
 
 AncPrivateVaultCryptoStatus anc_pv_xchacha20poly1305_decrypt(
+    uint8_t *plaintext, size_t plaintext_capacity, size_t *plaintext_length,
+    const uint8_t *ciphertext, size_t ciphertext_length,
+    const uint8_t *associated_data, size_t associated_data_length,
+    const uint8_t nonce[ANC_PV_NONCE_BYTES],
+    const uint8_t key[ANC_PV_KEY_BYTES]);
+
+AncPrivateVaultCryptoStatus anc_pv_export_xchacha20poly1305_encrypt(
+    uint8_t *ciphertext, size_t ciphertext_capacity, size_t *ciphertext_length,
+    const uint8_t *plaintext, size_t plaintext_length,
+    const uint8_t *associated_data, size_t associated_data_length,
+    const uint8_t nonce[ANC_PV_NONCE_BYTES],
+    const uint8_t key[ANC_PV_KEY_BYTES]);
+
+AncPrivateVaultCryptoStatus anc_pv_export_xchacha20poly1305_decrypt(
     uint8_t *plaintext, size_t plaintext_capacity, size_t *plaintext_length,
     const uint8_t *ciphertext, size_t ciphertext_length,
     const uint8_t *associated_data, size_t associated_data_length,

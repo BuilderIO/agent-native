@@ -20,6 +20,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
   "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m"
+  "$SOURCE_ROOT/control/PrivateVaultExportArchive.m"
   "$SOURCE_ROOT/control/PrivateVaultObjectJobScope.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantRevocationBuilder.m"
@@ -893,6 +894,37 @@ case "${PRIVATE_VAULT_BUILD_OBJECT_REVISION_TESTS:-}" in
   build_object_revision_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_object_revision_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_EXPORT_ARCHIVE_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  EXPORT_ARCHIVE_TEST_OUTPUT="$OUTPUT_ROOT/.export-archive-tests"
+  rm -rf "$EXPORT_ARCHIVE_TEST_OUTPUT"
+  mkdir -p "$EXPORT_ARCHIVE_TEST_OUTPUT"
+  build_export_archive_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$EXPORT_ARCHIVE_TEST_OUTPUT/private-vault-export-archive-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultExportArchive.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/control/PrivateVaultExportArchiveTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_export_archive_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_export_archive_tests x86_64
   fi
   ;;
 esac

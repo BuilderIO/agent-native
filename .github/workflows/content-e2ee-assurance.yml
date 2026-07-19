@@ -8,6 +8,7 @@ on:
       - "packages/core/src/e2ee/**"
       - "packages/private-vault-broker/**"
       - "packages/desktop-app/native/private-vault-*/**"
+      - "packages/desktop-app/native/build-private-vault-*.sh"
       - "packages/desktop-app/src/main/private-vault/**"
       - "packages/desktop-app/src/main/ipc/content-private-*.ts"
       - "packages/desktop-app/src/preload/**"
@@ -104,6 +105,7 @@ jobs:
           PRIVATE_VAULT_BUILD_ENDPOINT_REQUEST_TESTS: "1"
           PRIVATE_VAULT_BUILD_CONTROL_LOG_TESTS: "1"
           PRIVATE_VAULT_BUILD_OBJECT_REVISION_TESTS: "1"
+          PRIVATE_VAULT_BUILD_EXPORT_ARCHIVE_TESTS: "1"
         run: packages/desktop-app/native/build-private-vault-service.sh
 
       - name: Execute native corpus for the runner architecture
@@ -124,6 +126,7 @@ jobs:
             "$build_root/.endpoint-request-tests/private-vault-endpoint-request-tests-$architecture"
             "$build_root/.control-log-tests/private-vault-control-log-tests-$architecture"
             "$build_root/.object-revision-tests/private-vault-object-revision-tests-$architecture"
+            "$build_root/.export-archive-tests/private-vault-export-archive-tests-$architecture"
           )
           for test_binary in "${test_binaries[@]}"; do
             if [ ! -x "$test_binary" ]; then

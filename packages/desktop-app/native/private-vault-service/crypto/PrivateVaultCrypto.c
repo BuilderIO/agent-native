@@ -154,6 +154,39 @@ anc_pv_blake2b_256_keyed(uint8_t output[ANC_PV_HASH_BYTES],
   return ANC_PV_CRYPTO_OK;
 }
 
+AncPrivateVaultCryptoStatus anc_pv_export_blake2b_256_two_part(
+    uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *first,
+    size_t first_length, const uint8_t *second, size_t second_length) {
+  if (output == NULL ||
+      !anc_pv_valid_bytes(first, first_length, ANC_PV_MAX_AAD_BYTES) ||
+      !anc_pv_valid_bytes(second, second_length, ANC_PV_MAX_EXPORT_BYTES) ||
+      first_length > SIZE_MAX - second_length ||
+      first_length + second_length >
+          ANC_PV_MAX_EXPORT_BYTES + ANC_PV_MAX_AAD_BYTES ||
+      anc_pv_ranges_overlap(output, ANC_PV_HASH_BYTES, first, first_length) ||
+      anc_pv_ranges_overlap(output, ANC_PV_HASH_BYTES, second, second_length)) {
+    return ANC_PV_CRYPTO_INVALID_ARGUMENT;
+  }
+  crypto_generichash_blake2b_state state;
+  int result =
+      crypto_generichash_blake2b_init(&state, NULL, 0, ANC_PV_HASH_BYTES);
+  if (result == 0 && first_length > 0)
+    result = crypto_generichash_blake2b_update(
+        &state, first, (unsigned long long)first_length);
+  if (result == 0 && second_length > 0)
+    result = crypto_generichash_blake2b_update(
+        &state, second, (unsigned long long)second_length);
+  if (result == 0)
+    result =
+        crypto_generichash_blake2b_final(&state, output, ANC_PV_HASH_BYTES);
+  sodium_memzero(&state, sizeof state);
+  if (result != 0) {
+    sodium_memzero(output, ANC_PV_HASH_BYTES);
+    return ANC_PV_CRYPTO_OPERATION_FAILED;
+  }
+  return ANC_PV_CRYPTO_OK;
+}
+
 AncPrivateVaultCryptoStatus
 anc_pv_ed25519_seed_keypair(uint8_t public_key[ANC_PV_SIGN_PUBLIC_KEY_BYTES],
                             uint8_t private_key[ANC_PV_SIGN_PRIVATE_KEY_BYTES],
@@ -345,6 +378,78 @@ AncPrivateVaultCryptoStatus anc_pv_xchacha20poly1305_decrypt(
       anc_pv_ranges_overlap(plaintext, required, key, ANC_PV_KEY_BYTES)) {
     return ANC_PV_CRYPTO_INVALID_ARGUMENT;
   }
+  if (crypto_aead_xchacha20poly1305_ietf_decrypt(
+          plaintext, &produced, NULL, ciphertext,
+          (unsigned long long)ciphertext_length, associated_data,
+          (unsigned long long)associated_data_length, nonce, key) != 0 ||
+      produced != required) {
+    sodium_memzero(plaintext, required);
+    return ANC_PV_CRYPTO_AUTHENTICATION_FAILED;
+  }
+  *plaintext_length = required;
+  return ANC_PV_CRYPTO_OK;
+}
+
+AncPrivateVaultCryptoStatus anc_pv_export_xchacha20poly1305_encrypt(
+    uint8_t *ciphertext, size_t ciphertext_capacity, size_t *ciphertext_length,
+    const uint8_t *plaintext, size_t plaintext_length,
+    const uint8_t *associated_data, size_t associated_data_length,
+    const uint8_t nonce[ANC_PV_NONCE_BYTES],
+    const uint8_t key[ANC_PV_KEY_BYTES]) {
+  unsigned long long produced = 0;
+  const size_t required = plaintext_length + ANC_PV_AUTH_BYTES;
+  if (ciphertext_length != NULL) *ciphertext_length = 0;
+  if (ciphertext_length == NULL || nonce == NULL || key == NULL ||
+      !anc_pv_valid_bytes(plaintext, plaintext_length,
+                          ANC_PV_MAX_EXPORT_BYTES) ||
+      !anc_pv_valid_bytes(associated_data, associated_data_length,
+                          ANC_PV_MAX_AAD_BYTES) ||
+      plaintext_length > SIZE_MAX - ANC_PV_AUTH_BYTES ||
+      !anc_pv_valid_output(ciphertext, ciphertext_capacity, required) ||
+      anc_pv_ranges_overlap(ciphertext, required, plaintext,
+                            plaintext_length) ||
+      anc_pv_ranges_overlap(ciphertext, required, associated_data,
+                            associated_data_length) ||
+      anc_pv_ranges_overlap(ciphertext, required, nonce, ANC_PV_NONCE_BYTES) ||
+      anc_pv_ranges_overlap(ciphertext, required, key, ANC_PV_KEY_BYTES))
+    return ANC_PV_CRYPTO_INVALID_ARGUMENT;
+  if (crypto_aead_xchacha20poly1305_ietf_encrypt(
+          ciphertext, &produced, plaintext,
+          (unsigned long long)plaintext_length, associated_data,
+          (unsigned long long)associated_data_length, NULL, nonce, key) != 0 ||
+      produced != required) {
+    sodium_memzero(ciphertext, required);
+    return ANC_PV_CRYPTO_OPERATION_FAILED;
+  }
+  *ciphertext_length = required;
+  return ANC_PV_CRYPTO_OK;
+}
+
+AncPrivateVaultCryptoStatus anc_pv_export_xchacha20poly1305_decrypt(
+    uint8_t *plaintext, size_t plaintext_capacity, size_t *plaintext_length,
+    const uint8_t *ciphertext, size_t ciphertext_length,
+    const uint8_t *associated_data, size_t associated_data_length,
+    const uint8_t nonce[ANC_PV_NONCE_BYTES],
+    const uint8_t key[ANC_PV_KEY_BYTES]) {
+  unsigned long long produced = 0;
+  const size_t required = ciphertext_length >= ANC_PV_AUTH_BYTES
+                              ? ciphertext_length - ANC_PV_AUTH_BYTES
+                              : 0;
+  if (plaintext_length != NULL) *plaintext_length = 0;
+  if (plaintext_length == NULL || nonce == NULL || key == NULL ||
+      ciphertext_length <= ANC_PV_AUTH_BYTES ||
+      !anc_pv_valid_bytes(ciphertext, ciphertext_length,
+                          ANC_PV_MAX_EXPORT_BYTES + ANC_PV_AUTH_BYTES) ||
+      !anc_pv_valid_bytes(associated_data, associated_data_length,
+                          ANC_PV_MAX_AAD_BYTES) ||
+      !anc_pv_valid_output(plaintext, plaintext_capacity, required) ||
+      anc_pv_ranges_overlap(plaintext, required, ciphertext,
+                            ciphertext_length) ||
+      anc_pv_ranges_overlap(plaintext, required, associated_data,
+                            associated_data_length) ||
+      anc_pv_ranges_overlap(plaintext, required, nonce, ANC_PV_NONCE_BYTES) ||
+      anc_pv_ranges_overlap(plaintext, required, key, ANC_PV_KEY_BYTES))
+    return ANC_PV_CRYPTO_INVALID_ARGUMENT;
   if (crypto_aead_xchacha20poly1305_ietf_decrypt(
           plaintext, &produced, NULL, ciphertext,
           (unsigned long long)ciphertext_length, associated_data,
