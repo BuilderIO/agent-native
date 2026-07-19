@@ -26,6 +26,7 @@
 #define PV_ENROLLMENT_AUTHORIZATION_MAXIMUM_BYTES (256 * 1024)
 #define PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES (1024 * 1024)
 #define PV_OBJECT_REVISION_MAXIMUM_BYTES (1024 * 1024 + 64 * 1024)
+#define PV_EXPORT_PLAINTEXT_MAXIMUM_BYTES (256 * 1024 * 1024)
 
 typedef enum {
     PVRequestValid = 0,
@@ -51,7 +52,11 @@ typedef struct {
     const char *ceremonyToken;
     const char *objectID;
     const char *objectContentType;
+    const char *exportID;
+    const char *sourceSnapshotHash;
     uint64_t objectRevision;
+    uint64_t exportCreatedAt;
+    uint64_t exportObjectCount;
     uint64_t hostedEpoch;
     uint64_t hostedRetryCount;
     uint64_t expiresAt;
@@ -89,6 +94,8 @@ typedef struct {
     size_t enrollmentAuthorizationLength;
     const void *objectPayload;
     size_t objectPayloadLength;
+    const void *exportPlaintext;
+    size_t exportPlaintextLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);

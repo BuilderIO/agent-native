@@ -49,6 +49,8 @@
 #import "PrivateVaultEnrollmentCoordinator.h"
 #import "PrivateVaultObjectRevision.h"
 #import "PrivateVaultObjectJobScope.h"
+#import "PrivateVaultExportArchive.h"
+#import "PrivateVaultRecoveryAuthority.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -1789,6 +1791,77 @@ static void PVListContentGrants(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVSealExportArchive(xpc_connection_t peer, xpc_object_t message,
+                                const PVRequest *request) {
+    @autoreleasepool {
+        NSData *vaultID = PVLookupIDData(request->vaultID);
+        NSData *exportID = PVLookupIDData(request->exportID);
+        NSData *snapshotHash = PVHashData(request->sourceSnapshotHash);
+        NSData *mnemonic = request->recoveryMnemonic == NULL
+                               ? nil
+                               : [NSData dataWithBytesNoCopy:
+                                             (void *)request->recoveryMnemonic
+                                                        length:request
+                                                                   ->recoveryMnemonicLength
+                                                  freeWhenDone:NO];
+        NSData *plaintext = request->exportPlaintext == NULL
+                                ? nil
+                                : [NSData dataWithBytesNoCopy:
+                                              (void *)request->exportPlaintext
+                                                         length:request
+                                                                    ->exportPlaintextLength
+                                                   freeWhenDone:NO];
+        AncPrivateVaultMnemonicStatus mnemonicStatus;
+        AncPrivateVaultGuardedMemory *entropy =
+            mnemonic == nil
+                ? nil
+                : AncPrivateVaultMnemonicDecode(mnemonic, &mnemonicStatus);
+        AncPrivateVaultRecoveryAuthorityStatus recoveryStatus;
+        AncPrivateVaultGuardedMemory *root =
+            entropy == nil || vaultID == nil
+                ? nil
+                : AncPrivateVaultDeriveRecoveryRoot(
+                      entropy, vaultID, &recoveryStatus);
+        NSMutableData *nonce = [NSMutableData dataWithLength:24];
+        BOOL randomized =
+            anc_pv_random(nonce.mutableBytes, nonce.length) == ANC_PV_CRYPTO_OK;
+        AncPrivateVaultExportArchiveStatus archiveStatus;
+        AncPrivateVaultSealedExportArchive *sealed =
+            root == nil || exportID == nil || snapshotHash == nil ||
+                    plaintext == nil || !randomized
+                ? nil
+                : AncPrivateVaultSealExportArchive(
+                      vaultID, exportID, request->exportCreatedAt,
+                      snapshotHash, request->exportObjectCount, plaintext,
+                      root, nonce, &archiveStatus);
+        BOOL rootClosed =
+            root == nil || [root close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL entropyClosed = entropy == nil ||
+                             [entropy close] ==
+                                 AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL closed = rootClosed && entropyClosed;
+        anc_pv_zeroize(nonce.mutableBytes, nonce.length);
+        if (sealed == nil || !closed ||
+            archiveStatus != AncPrivateVaultExportArchiveStatusOK ||
+            ![sealed.metadata.vaultId isEqualToData:vaultID] ||
+            ![sealed.metadata.exportId isEqualToData:exportID] ||
+            ![sealed.metadata.sourceSnapshotHash isEqualToData:snapshotHash] ||
+            sealed.metadata.createdAt != request->exportCreatedAt ||
+            sealed.metadata.objectCount != request->exportObjectCount) {
+            PVSendError(peer, message, "export_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "sealed");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "exportId", request->exportID);
+        xpc_dictionary_set_data(reply, "archive", sealed.encodedArchive.bytes,
+                                sealed.encodedArchive.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVSealContentJob(xpc_connection_t peer, xpc_object_t message,
                              const PVRequest *request) {
     @autoreleasepool {
@@ -2906,6 +2979,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "revoke_grant") == 0) {
                 PVRevokeContentGrant(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "seal_export") == 0) {
+                PVSealExportArchive(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "seal_job") == 0) {

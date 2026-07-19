@@ -127,6 +127,26 @@ int main(void) {
          strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
   xpc_release(listGrants);
 
+  xpc_object_t sealExport =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_export", "request-seal-export");
+  xpc_dictionary_set_string(sealExport, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(sealExport, "exportId",
+                            "ffeeddccbbaa99887766554433221100");
+  xpc_dictionary_set_uint64(sealExport, "createdAt", UINT64_C(1800000000000));
+  xpc_dictionary_set_string(
+      sealExport, "sourceSnapshotHash",
+      "1111111111111111111111111111111111111111111111111111111111111111");
+  xpc_dictionary_set_uint64(sealExport, "objectCount", 2);
+  xpc_dictionary_set_data(sealExport, "recoveryMnemonic", "phrase", 6);
+  xpc_dictionary_set_data(sealExport, "exportPlaintext", "{}", 2);
+  assert(PVParseRequest(sealExport, &parsed) == PVRequestValid &&
+         strcmp(parsed.exportID, "ffeeddccbbaa99887766554433221100") == 0 &&
+         parsed.exportCreatedAt == UINT64_C(1800000000000) &&
+         parsed.exportObjectCount == 2 && parsed.exportPlaintextLength == 2 &&
+         parsed.recoveryMnemonicLength == 6);
+  xpc_release(sealExport);
+
   const uint8_t requesterPayload[] = {'{', '}', '\n'};
   xpc_object_t sealJob =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_job", "request-seal-job");

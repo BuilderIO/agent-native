@@ -14,4 +14,7 @@ bool PVTrustedGenesisConfirmAdmission(const char *accountID,
 bool PVTrustedRecoveryCollectPhrase(const char *vaultID,
                                     std::vector<uint8_t> &recoveryPhrase);
 
+bool PVTrustedExportCollectPhrase(const char *vaultID,
+                                  std::vector<uint8_t> &recoveryPhrase);
+
 #endif

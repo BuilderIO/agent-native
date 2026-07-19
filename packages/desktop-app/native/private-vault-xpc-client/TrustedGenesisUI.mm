@@ -187,3 +187,56 @@ bool PVTrustedRecoveryCollectPhrase(const char *vaultID,
     return !recoveryPhrase.empty();
   }
 }
+
+bool PVTrustedExportCollectPhrase(const char *vaultID,
+                                  std::vector<uint8_t> &recoveryPhrase) {
+  recoveryPhrase.clear();
+  if (![NSThread isMainThread] || vaultID == nullptr ||
+      strnlen(vaultID, 33) != 32)
+    return false;
+  for (size_t index = 0; index < 32; index += 1) {
+    const char byte = vaultID[index];
+    if (!((byte >= '0' && byte <= '9') ||
+          (byte >= 'a' && byte <= 'f')))
+      return false;
+  }
+  @autoreleasepool {
+    NSString *vault = [NSString stringWithUTF8String:vaultID];
+    if (vault == nil)
+      return false;
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = @"Create a recovery-verified encrypted export?";
+    alert.informativeText = [NSString
+        stringWithFormat:
+            @"Vault: %@\n\nEnter all 24 recovery words. The phrase, recovery "
+             "root, and export key stay inside the signed native vault "
+             "boundary. The resulting encrypted archive can be recovered "
+             "offline, so store it somewhere you control.",
+            vault];
+    [alert addButtonWithTitle:@"Verify and Create Export"];
+    [alert addButtonWithTitle:@"Cancel"];
+    NSSecureTextField *field = [[NSSecureTextField alloc]
+        initWithFrame:NSMakeRect(0, 0, 520, 28)];
+    field.placeholderString = @"word1 word2 … word24";
+    alert.accessoryView = field;
+    if ([alert runModal] != NSAlertFirstButtonReturn) {
+      field.stringValue = @"";
+      return false;
+    }
+    NSData *typed = [field.stringValue dataUsingEncoding:NSUTF8StringEncoding
+                                    allowLossyConversion:NO];
+    if (typed.length == 0 || typed.length > 512) {
+      field.stringValue = @"";
+      return false;
+    }
+    try {
+      const auto *bytes = static_cast<const uint8_t *>(typed.bytes);
+      recoveryPhrase.assign(bytes, bytes + typed.length);
+    } catch (...) {
+      recoveryPhrase.clear();
+    }
+    field.stringValue = @"";
+    return !recoveryPhrase.empty();
+  }
+}

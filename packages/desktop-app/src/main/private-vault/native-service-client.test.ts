@@ -704,6 +704,57 @@ describe("Private Vault native service client", () => {
     );
   });
 
+  it("seals an export through native phrase collection and clears its working plaintext", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const exportId = "ffeeddccbbaa99887766554433221100";
+    const sourceSnapshotHash = "ab".repeat(32);
+    const plaintext = Uint8Array.from([0x7b, 0x7d]);
+    let capturedPlaintext: Buffer | undefined;
+    const request = vi.fn(async (...arguments_: unknown[]) => {
+      capturedPlaintext = arguments_[6] as Buffer;
+      return {
+        version: 3,
+        operation: "seal_export",
+        state: "sealed",
+        vaultId,
+        exportId,
+        archive: Buffer.from([0xa1, 1, 1]),
+      };
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.sealExportArchive({
+        vaultId,
+        exportId,
+        createdAt: 1_800_000_000_000,
+        sourceSnapshotHash,
+        objectCount: 2,
+        plaintext,
+      }),
+    ).resolves.toMatchObject({
+      version: 1,
+      suite: "anc/v1",
+      operation: "seal_export",
+      state: "sealed",
+      vaultId,
+      exportId,
+      archive: Uint8Array.from([0xa1, 1, 1]),
+    });
+    expect(request).toHaveBeenCalledWith(
+      "seal_export",
+      vaultId,
+      exportId,
+      1_800_000_000_000,
+      sourceSnapshotHash,
+      2,
+      expect.any(Buffer),
+    );
+    expect(capturedPlaintext).toEqual(Buffer.alloc(2));
+    expect(plaintext).toEqual(Uint8Array.from([0x7b, 0x7d]));
+  });
+
   it("seals one semantically encoded job and binds the native reply", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const jobId = "ffeeddccbbaa99887766554433221100";
@@ -1699,6 +1750,7 @@ describe("Private Vault native service client", () => {
     expect(nativeSource).toContain("PVTrustedGenesisCollectFullPhrase");
     expect(nativeSource).toContain("PVTrustedGenesisConfirmAdmission");
     expect(nativeSource).toContain("PVTrustedRecoveryCollectPhrase");
+    expect(nativeSource).toContain("PVTrustedExportCollectPhrase");
     expect(nativeSource).not.toMatch(
       /PVSet(Buffer|String)[^\n]*recoveryMnemonic/,
     );
