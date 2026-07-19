@@ -502,9 +502,11 @@ control route now admits a separate canonical revocation append
 request, authenticates the signer and prior head, commits only the signed edge,
 and returns a content-free receipt. The host deliberately does not pretend it
 can authenticate that nested envelope against a plaintext grant; enrolled
-native clients retain that duty. Native receipt acceptance and user-facing
-grant controls remain product work, but JavaScript never receives the endpoint
-signing seed or assembles the signed authority edge.
+native clients retain that duty. Native code now produces the exact hosted
+request and strictly decodes the content-free receipt with Core-parity vectors
+on arm64 and x86_64. Durable receipt acceptance and user-facing grant controls
+remain product work, but JavaScript never receives the endpoint signing seed or
+assembles the signed authority edge.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact

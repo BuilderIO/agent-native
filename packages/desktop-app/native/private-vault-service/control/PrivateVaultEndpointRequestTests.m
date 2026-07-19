@@ -44,6 +44,25 @@ int main(void) {
             Hex(@"a70166616e632f76310201037823636f6e74726f6c2d6c6f672d7265636"
                 @"f766572792d617070656e642d726571756573740443010203054204050641"
                 @"0607420708")]);
+    NSData *revocationBody =
+        AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
+            signedEntry, &status);
+    assert(status == AncPrivateVaultEndpointRequestStatusOK);
+    assert([revocationBody
+        isEqualToData:
+            Hex(@"a40166616e632f7631020103782b636f6e74726f6c2d6c6f672d6772616e742"
+                @"d7265766f636174696f6e2d617070656e642d726571756573740443010203")]);
+    NSData *revocationReceiptBytes =
+        Hex(@"a70166616e632f7631020103782b636f6e74726f6c2d6c6f672d6772616e742d7265766f636174696f6e2d617070656e642d726563656970740478203231323132313231323132313231323132313231323132313231323132313231057820333933393339333933393339333933393339333933393339333933393339333906010758204444444444444444444444444444444444444444444444444444444444444444");
+    AncPrivateVaultGrantRevocationHostedAppendReceipt *revocationReceipt =
+        AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(
+            revocationReceiptBytes);
+    assert(revocationReceipt != nil && revocationReceipt.sequence == 1 &&
+           [revocationReceipt.vaultId
+               isEqualToString:@"21212121212121212121212121212121"] &&
+           [revocationReceipt.entryId
+               isEqualToString:@"39393939393939393939393939393939"] &&
+           revocationReceipt.headHash.length == 32);
     AncPrivateVaultCanonicalStatus canonicalStatus;
     NSData *receiptBytes = AncPrivateVaultCanonicalEncode(
         [AncPrivateVaultCanonicalValue map:@{
@@ -139,6 +158,12 @@ int main(void) {
                signedEntry, recoveryWrap, oversized, NSData.data,
                &status) == nil);
     assert(status == AncPrivateVaultEndpointRequestStatusTooLarge);
+    assert(AncPrivateVaultControlLogGrantRevocationAppendRequestEncode(
+               NSData.data, &status) == nil);
+    NSMutableData *wrongReceipt = [revocationReceiptBytes mutableCopy];
+    [wrongReceipt appendBytes:(uint8_t[]){0} length:1];
+    assert(AncPrivateVaultControlLogGrantRevocationAppendReceiptDecode(
+               wrongReceipt) == nil);
     anc_pv_zeroize(seed, sizeof seed);
     puts("endpoint request tests passed");
   }

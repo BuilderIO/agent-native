@@ -736,8 +736,11 @@ four-field, type-distinct revocation request, authenticates the active endpoint
 and ordered outer edge, atomically advances the opaque control head, and
 returns a content-free canonical receipt. SQLite integration proof covers the
 full admitted append and replay without teaching the host to validate or read
-the encrypted grant. Native receipt acceptance and user-visible grant controls
-remain; native custody no longer leaves the signed outer edge to JavaScript.
+the encrypted grant. Native custody now emits the byte-exact hosted request and
+strictly decodes the content-free receipt with Core-parity vectors on arm64 and
+x86_64. Durable receipt acceptance and user-visible grant controls remain;
+native custody no longer leaves either the signed outer edge or wire framing to
+JavaScript.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the
