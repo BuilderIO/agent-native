@@ -23,7 +23,20 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly) uint64_t generation;
 @property(nonatomic, readonly) NSUInteger grantCount;
 @property(nonatomic, readonly) NSUInteger revocationCount;
+@property(nonatomic, readonly) NSUInteger pendingRevocationCount;
 @property(nonatomic, readonly) NSUInteger jobCount;
+@end
+
+@interface AncPrivateVaultRevocableGrantContext : NSObject
+@property(nonatomic, readonly) AncPrivateVaultVerifiedGrant *grant;
+@property(nonatomic, readonly) NSString *issuerControlEndpointId;
+@property(nonatomic, readonly) NSData *issuerSigningPublicKey;
+@end
+
+@interface AncPrivateVaultPendingGrantRevocation : NSObject
+@property(nonatomic, readonly) NSData *grantRef;
+@property(nonatomic, readonly) NSData *signedEntry;
+@property(nonatomic, readonly) NSData *revocationEnvelope;
 @end
 
 @interface AncPrivateVaultGrantContext : NSObject
@@ -76,6 +89,28 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey;
                     vaultId:(NSString *)vaultId
     signerControlEndpointId:(NSString *)signerControlEndpointId
      signerSigningPublicKey:(NSData *)signerSigningPublicKey;
+
+/** Resolves stored issuer evidence even after grant expiry, but not revocation. */
+- (AncPrivateVaultGrantIndexStatus)
+    resolveGrantForRevocationRef:(NSData *)grantRef
+                         vaultId:(NSString *)vaultId
+                         context:(AncPrivateVaultRevocableGrantContext
+                                      *_Nullable *_Nullable)context;
+
+/** Persists the one exact signed edge that may be retried for this vault. */
+- (AncPrivateVaultGrantIndexStatus)
+    stagePendingRevocationSignedEntry:(NSData *)signedEntry
+                   revocationEnvelope:(NSData *)revocationEnvelope
+                              vaultId:(NSString *)vaultId;
+
+- (AncPrivateVaultGrantIndexStatus)
+    pendingRevocationForVaultId:(NSString *)vaultId
+                         context:(AncPrivateVaultPendingGrantRevocation
+                                      *_Nullable *_Nullable)context;
+
+- (AncPrivateVaultGrantIndexStatus)
+    clearPendingRevocationSignedEntry:(NSData *)signedEntry
+                              vaultId:(NSString *)vaultId;
 
 - (AncPrivateVaultGrantIndexStatus)
     authorizeGrantRef:(NSData *)grantRef

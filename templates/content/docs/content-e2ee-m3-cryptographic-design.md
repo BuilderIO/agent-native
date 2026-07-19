@@ -507,9 +507,11 @@ request and strictly decodes the content-free receipt with Core-parity vectors
 on arm64 and x86_64. A separate authenticated replay capability now advances
 the trusted head and custody generation while proving that epoch, membership,
 recovery, and freshness projections were carried unchanged. Durable
-receipt-to-edge acceptance and user-facing grant controls remain product work,
-but JavaScript never receives the endpoint signing seed or assembles the signed
-authority edge.
+receipt-to-edge acceptance and user-facing grant controls remain product work.
+The encrypted rollback-fenced grant index now persists exactly one byte-stable
+pending revocation per vault across restart, refuses a different edge while it
+is pending, and clears only the exact signed bytes. JavaScript never receives
+the endpoint signing seed or assembles the signed authority edge.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact

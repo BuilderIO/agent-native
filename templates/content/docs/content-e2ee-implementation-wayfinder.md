@@ -742,8 +742,11 @@ x86_64. The authenticated authority store now also mints and commits a separate
 carry-current-epoch replay capability for a verified, projection-preserving
 edge, advancing custody generation and the signed head without manufacturing a
 key rotation. Durable receipt-to-edge acceptance and user-visible grant
-controls remain; native custody no longer leaves either the signed outer edge
-or wire framing to JavaScript.
+controls remain. The encrypted rollback-fenced grant index now admits exactly
+one byte-stable pending revocation per vault, reopens it after process restart,
+rejects substitution, and clears it only by exact signed-edge identity. Native
+custody no longer leaves either the signed outer edge or wire framing to
+JavaScript.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the

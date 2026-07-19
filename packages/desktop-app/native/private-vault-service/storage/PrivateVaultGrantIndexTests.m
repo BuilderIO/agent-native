@@ -210,7 +210,8 @@ int main(void) {
     AncPrivateVaultGrantIndexSnapshot *snapshot = nil;
     assert([index loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 0 && snapshot.grantCount == 0);
+    assert(snapshot.generation == 0 && snapshot.grantCount == 0 &&
+           snapshot.pendingRevocationCount == 0);
     NSString *stagePath = [temporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"grant-index/%@.stage", kVaultId]];
     assert([[@"uncommitted" dataUsingEncoding:NSUTF8StringEncoding]
@@ -577,6 +578,49 @@ int main(void) {
                                                   jobHash:authorizedJobHash
                                                      state:@"completed"] ==
            AncPrivateVaultJobProcessorStatusOK);
+    AncPrivateVaultRevocableGrantContext *revocable = nil;
+    assert([index resolveGrantForRevocationRef:grantRef vaultId:kVaultId
+                                       context:&revocable] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           [revocable.grant.grantRef isEqualToData:grantRef] &&
+           [revocable.issuerControlEndpointId
+               isEqualToString:@"endpoint:index-owner"] &&
+           [revocable.issuerSigningPublicKey isEqualToData:publicKey]);
+    NSData *pendingSignedEntry = Pattern(0xa5, 512);
+    assert([index stagePendingRevocationSignedEntry:pendingSignedEntry
+                                revocationEnvelope:revocation
+                                           vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index stagePendingRevocationSignedEntry:pendingSignedEntry
+                                revocationEnvelope:revocation
+                                           vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([index stagePendingRevocationSignedEntry:Pattern(0xa6, 512)
+                                revocationEnvelope:revocation
+                                           vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusConflict);
+    AncPrivateVaultGrantIndex *pendingRestart =
+        [[AncPrivateVaultGrantIndex alloc]
+            initWithStateRootURL:[NSURL fileURLWithPath:temporary]
+                         session:session
+                        keychain:keychain];
+    AncPrivateVaultPendingGrantRevocation *pendingRevocation = nil;
+    assert([pendingRestart pendingRevocationForVaultId:kVaultId
+                                               context:&pendingRevocation] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           [pendingRevocation.grantRef isEqualToData:grantRef] &&
+           [pendingRevocation.signedEntry isEqualToData:pendingSignedEntry] &&
+           [pendingRevocation.revocationEnvelope isEqualToData:revocation]);
+    assert([pendingRestart clearPendingRevocationSignedEntry:Pattern(0xa6, 512)
+                                                    vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusConflict);
+    assert([pendingRestart clearPendingRevocationSignedEntry:pendingSignedEntry
+                                                    vaultId:kVaultId] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    assert([pendingRestart pendingRevocationForVaultId:kVaultId
+                                               context:&pendingRevocation] ==
+               AncPrivateVaultGrantIndexStatusNotFound &&
+           pendingRevocation == nil);
     assert([index applyRevocationEnvelope:revocation vaultId:kVaultId
                   signerControlEndpointId:@"endpoint:index-owner"
                    signerSigningPublicKey:publicKey] ==
@@ -595,8 +639,9 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 11 && snapshot.grantCount == 3 &&
-           snapshot.revocationCount == 1 && snapshot.jobCount == 2);
+    assert(snapshot.generation == 13 && snapshot.grantCount == 3 &&
+           snapshot.revocationCount == 1 &&
+           snapshot.pendingRevocationCount == 0 && snapshot.jobCount == 2);
     AncPrivateVaultJobProcessor *restartedProcessor =
         [[AncPrivateVaultJobProcessor alloc]
             initWithSession:session

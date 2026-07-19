@@ -17,6 +17,7 @@ static const uint8_t kDigestDomain[] = "anc/v1/grant-index-frame-digest";
 static const NSUInteger kMaximumIndexBytes = 1024 * 1024;
 static const NSUInteger kMaximumGrants = 256;
 static const NSUInteger kMaximumRevocations = 256;
+static const NSUInteger kMaximumPendingRevocations = 1;
 static const NSUInteger kMaximumJobs = 256;
 static const NSUInteger kMaximumTemporaryFilesPerVault = 64;
 static NSString *const kFenceRecordId = @"grant-index";
@@ -53,12 +54,21 @@ static NSString *const kFenceRecordId = @"grant-index";
 @implementation AncStoredJob
 @end
 
+@interface AncStoredPendingGrantRevocation : NSObject
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) NSData *signedEntry;
+@property(nonatomic) NSData *revocationEnvelope;
+@end
+@implementation AncStoredPendingGrantRevocation
+@end
+
 @interface AncGrantIndexRecord : NSObject
 @property(nonatomic) NSData *vaultId;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) NSArray<AncStoredGrant *> *grants;
 @property(nonatomic) NSArray<NSData *> *revocations;
 @property(nonatomic) NSArray<AncStoredJob *> *jobs;
+@property(nonatomic) NSArray<AncStoredPendingGrantRevocation *> *pendingRevocations;
 @end
 @implementation AncGrantIndexRecord
 @end
@@ -67,9 +77,27 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) NSUInteger grantCount;
 @property(nonatomic) NSUInteger revocationCount;
+@property(nonatomic) NSUInteger pendingRevocationCount;
 @property(nonatomic) NSUInteger jobCount;
 @end
 @implementation AncPrivateVaultGrantIndexSnapshot
+@end
+
+
+@interface AncPrivateVaultRevocableGrantContext ()
+@property(nonatomic) AncPrivateVaultVerifiedGrant *grant;
+@property(nonatomic) NSString *issuerControlEndpointId;
+@property(nonatomic) NSData *issuerSigningPublicKey;
+@end
+@implementation AncPrivateVaultRevocableGrantContext
+@end
+
+@interface AncPrivateVaultPendingGrantRevocation ()
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) NSData *signedEntry;
+@property(nonatomic) NSData *revocationEnvelope;
+@end
+@implementation AncPrivateVaultPendingGrantRevocation
 @end
 
 @interface AncPrivateVaultGrantContext ()
@@ -273,6 +301,14 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
     }
     [jobs addObject:[AncPrivateVaultCanonicalValue array:fields]];
   }
+  NSMutableArray *pendingRevocations = [NSMutableArray array];
+  for (AncStoredPendingGrantRevocation *pending in record.pendingRevocations) {
+    [pendingRevocations addObject:[AncPrivateVaultCanonicalValue array:@[
+      [AncPrivateVaultCanonicalValue bytes:pending.grantRef],
+      [AncPrivateVaultCanonicalValue bytes:pending.signedEntry],
+      [AncPrivateVaultCanonicalValue bytes:pending.revocationEnvelope],
+    ]]];
+  }
   AncPrivateVaultCanonicalStatus status;
   return AncPrivateVaultCanonicalEncode(
       [AncPrivateVaultCanonicalValue map:@{
@@ -282,6 +318,7 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
         @4 : [AncPrivateVaultCanonicalValue array:grants],
         @5 : [AncPrivateVaultCanonicalValue array:revocations],
         @6 : [AncPrivateVaultCanonicalValue array:jobs],
+        @7 : [AncPrivateVaultCanonicalValue array:pendingRevocations],
       }],
       &status);
 }
@@ -297,13 +334,18 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
       : nil;
   NSSet *legacyKeys = [NSSet setWithArray:@[@1, @2, @3, @4, @5]];
   NSSet *currentKeys = [NSSet setWithArray:@[@1, @2, @3, @4, @5, @6]];
+  NSSet *pendingKeys =
+      [NSSet setWithArray:@[@1, @2, @3, @4, @5, @6, @7]];
   AncPrivateVaultCanonicalValue *grantsValue = map[@4];
   AncPrivateVaultCanonicalValue *revocationsValue = map[@5];
   AncPrivateVaultCanonicalValue *jobsValue = map[@6];
+  AncPrivateVaultCanonicalValue *pendingValue = map[@7];
   NSSet *actualKeys = [NSSet setWithArray:map.allKeys];
   BOOL legacy = map.count == 5 && [legacyKeys isEqualToSet:actualKeys];
   BOOL current = map.count == 6 && [currentKeys isEqualToSet:actualKeys];
-  if ((!legacy && !current) ||
+  BOOL withPending =
+      map.count == 7 && [pendingKeys isEqualToSet:actualKeys];
+  if ((!legacy && !current && !withPending) ||
       ![((AncPrivateVaultCanonicalValue *)map[@1]).textValue
           isEqualToString:@"anc/v1"] ||
       ![FieldBytes(map, 2, 16) isEqualToData:expectedVaultId] ||
@@ -313,7 +355,10 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
       revocationsValue.type != AncPrivateVaultCanonicalTypeArray ||
       revocationsValue.arrayValue.count > kMaximumRevocations ||
       (!legacy && (jobsValue.type != AncPrivateVaultCanonicalTypeArray ||
-                   jobsValue.arrayValue.count > kMaximumJobs)))
+                   jobsValue.arrayValue.count > kMaximumJobs)) ||
+      (withPending &&
+       (pendingValue.type != AncPrivateVaultCanonicalTypeArray ||
+        pendingValue.arrayValue.count > kMaximumPendingRevocations)))
     return nil;
   NSMutableArray<AncStoredGrant *> *grants = [NSMutableArray array];
   for (AncPrivateVaultCanonicalValue *item in grantsValue.arrayValue) {
@@ -461,12 +506,49 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
     [jobIds addObject:job.jobId];
     [jobs addObject:job];
   }
+  NSMutableArray<AncStoredPendingGrantRevocation *> *pendingRevocations =
+      [NSMutableArray array];
+  for (AncPrivateVaultCanonicalValue *item in
+       (withPending ? pendingValue.arrayValue : @[])) {
+    if (item.type != AncPrivateVaultCanonicalTypeArray ||
+        item.arrayValue.count != 3)
+      return nil;
+    AncPrivateVaultCanonicalValue *grantRef = item.arrayValue[0];
+    AncPrivateVaultCanonicalValue *signedEntry = item.arrayValue[1];
+    AncPrivateVaultCanonicalValue *revocation = item.arrayValue[2];
+    AncStoredGrant *stored = nil;
+    if (grantRef.type == AncPrivateVaultCanonicalTypeBytes &&
+        grantRef.bytesValue.length == 32)
+      for (AncStoredGrant *candidate in grants)
+        if ([candidate.verified.grantRef isEqualToData:grantRef.bytesValue])
+          stored = candidate;
+    AncPrivateVaultGrantCodecStatus revokeStatus;
+    if (stored == nil || signedEntry.type != AncPrivateVaultCanonicalTypeBytes ||
+        signedEntry.bytesValue.length == 0 ||
+        signedEntry.bytesValue.length > 64 * 1024 ||
+        revocation.type != AncPrivateVaultCanonicalTypeBytes ||
+        revocation.bytesValue.length == 0 ||
+        revocation.bytesValue.length > 64 * 1024 ||
+        ![RevocationGrantRef(revocation.bytesValue)
+            isEqualToData:grantRef.bytesValue] ||
+        AncPrivateVaultVerifyGrantRevocationEnvelope(
+            revocation.bytesValue, expectedVaultId, stored.verified,
+            stored.issuerSigningPublicKey.bytes, &revokeStatus) == nil)
+      return nil;
+    AncStoredPendingGrantRevocation *pending =
+        [AncStoredPendingGrantRevocation new];
+    pending.grantRef = [grantRef.bytesValue copy];
+    pending.signedEntry = [signedEntry.bytesValue copy];
+    pending.revocationEnvelope = [revocation.bytesValue copy];
+    [pendingRevocations addObject:pending];
+  }
   AncGrantIndexRecord *record = [AncGrantIndexRecord new];
   record.vaultId = [expectedVaultId copy];
   record.generation = expectedGeneration;
   record.grants = [grants copy];
   record.revocations = [revocations copy];
   record.jobs = [jobs copy];
+  record.pendingRevocations = [pendingRevocations copy];
   return record;
 }
 
@@ -785,6 +867,7 @@ static AncPrivateVaultGrantIndexStatus AuthorizeRecord(
     empty.grants = @[];
     empty.revocations = @[];
     empty.jobs = @[];
+    empty.pendingRevocations = @[];
     *outRecord = empty;
     return AncPrivateVaultGrantIndexStatusOK;
   }
@@ -902,6 +985,7 @@ static AncPrivateVaultGrantIndexStatus AuthorizeRecord(
           value.generation = record.generation;
           value.grantCount = record.grants.count;
           value.revocationCount = record.revocations.count;
+          value.pendingRevocationCount = record.pendingRevocations.count;
           value.jobCount = record.jobs.count;
           return AncPrivateVaultGrantIndexStatusOK;
         }];
@@ -1003,6 +1087,149 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey {
             return AncPrivateVaultGrantIndexStatusConflict;
           record.revocations =
               [record.revocations arrayByAddingObject:[revocationEnvelope copy]];
+          record.generation += 1;
+          return [self commitLockedRecord:record vaultId:vaultId
+                             localStateKey:key];
+        }];
+  });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    resolveGrantForRevocationRef:(NSData *)grantRef
+                         vaultId:(NSString *)vaultId
+                         context:(AncPrivateVaultRevocableGrantContext **)context {
+  if (context != NULL) *context = nil;
+  if (grantRef.length != 32) return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultRevocableGrantContext *resolved = nil;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          (void)key;
+          for (NSData *revocation in record.revocations)
+            if ([RevocationGrantRef(revocation) isEqualToData:grantRef])
+              return AncPrivateVaultGrantIndexStatusUnauthorized;
+          AncStoredGrant *stored = nil;
+          for (AncStoredGrant *candidate in record.grants)
+            if ([candidate.verified.grantRef isEqualToData:grantRef])
+              stored = candidate;
+          if (stored == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          resolved = [AncPrivateVaultRevocableGrantContext new];
+          resolved.grant = stored.verified;
+          resolved.issuerControlEndpointId =
+              [stored.issuerControlEndpointId copy];
+          resolved.issuerSigningPublicKey =
+              [stored.issuerSigningPublicKey copy];
+          return AncPrivateVaultGrantIndexStatusOK;
+        }];
+  });
+  if (status == AncPrivateVaultGrantIndexStatusOK && context != NULL)
+    *context = resolved;
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    stagePendingRevocationSignedEntry:(NSData *)signedEntry
+                   revocationEnvelope:(NSData *)revocationEnvelope
+                              vaultId:(NSString *)vaultId {
+  if (signedEntry.length == 0 || signedEntry.length > 64 * 1024 ||
+      revocationEnvelope.length == 0 ||
+      revocationEnvelope.length > 64 * 1024)
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          NSData *grantRef = RevocationGrantRef(revocationEnvelope);
+          AncStoredGrant *stored = nil;
+          for (AncStoredGrant *candidate in record.grants)
+            if ([candidate.verified.grantRef isEqualToData:grantRef])
+              stored = candidate;
+          AncPrivateVaultGrantCodecStatus codecStatus;
+          if (stored == nil ||
+              AncPrivateVaultVerifyGrantRevocationEnvelope(
+                  revocationEnvelope, vaultBytes, stored.verified,
+                  stored.issuerSigningPublicKey.bytes, &codecStatus) == nil)
+            return AncPrivateVaultGrantIndexStatusUnauthorized;
+          for (NSData *existing in record.revocations)
+            if ([RevocationGrantRef(existing) isEqualToData:grantRef])
+              return AncPrivateVaultGrantIndexStatusConflict;
+          AncStoredPendingGrantRevocation *existing =
+              record.pendingRevocations.firstObject;
+          if (existing != nil)
+            return [existing.signedEntry isEqualToData:signedEntry] &&
+                    [existing.revocationEnvelope
+                        isEqualToData:revocationEnvelope]
+                ? AncPrivateVaultGrantIndexStatusOK
+                : AncPrivateVaultGrantIndexStatusConflict;
+          if (record.pendingRevocations.count >=
+                  kMaximumPendingRevocations ||
+              record.generation >= INT64_MAX)
+            return AncPrivateVaultGrantIndexStatusConflict;
+          AncStoredPendingGrantRevocation *pending =
+              [AncStoredPendingGrantRevocation new];
+          pending.grantRef = [grantRef copy];
+          pending.signedEntry = [signedEntry copy];
+          pending.revocationEnvelope = [revocationEnvelope copy];
+          record.pendingRevocations = @[ pending ];
+          record.generation += 1;
+          return [self commitLockedRecord:record vaultId:vaultId
+                             localStateKey:key];
+        }];
+  });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    pendingRevocationForVaultId:(NSString *)vaultId
+                         context:(AncPrivateVaultPendingGrantRevocation **)context {
+  if (context != NULL) *context = nil;
+  __block AncPrivateVaultPendingGrantRevocation *resolved = nil;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          (void)key;
+          AncStoredPendingGrantRevocation *pending =
+              record.pendingRevocations.firstObject;
+          if (pending == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          resolved = [AncPrivateVaultPendingGrantRevocation new];
+          resolved.grantRef = [pending.grantRef copy];
+          resolved.signedEntry = [pending.signedEntry copy];
+          resolved.revocationEnvelope = [pending.revocationEnvelope copy];
+          return AncPrivateVaultGrantIndexStatusOK;
+        }];
+  });
+  if (status == AncPrivateVaultGrantIndexStatusOK && context != NULL)
+    *context = resolved;
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    clearPendingRevocationSignedEntry:(NSData *)signedEntry
+                              vaultId:(NSString *)vaultId {
+  if (signedEntry.length == 0 || signedEntry.length > 64 * 1024)
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          AncStoredPendingGrantRevocation *pending =
+              record.pendingRevocations.firstObject;
+          if (pending == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          if (![pending.signedEntry isEqualToData:signedEntry])
+            return AncPrivateVaultGrantIndexStatusConflict;
+          if (record.generation >= INT64_MAX)
+            return AncPrivateVaultGrantIndexStatusConflict;
+          record.pendingRevocations = @[];
           record.generation += 1;
           return [self commitLockedRecord:record vaultId:vaultId
                              localStateKey:key];
