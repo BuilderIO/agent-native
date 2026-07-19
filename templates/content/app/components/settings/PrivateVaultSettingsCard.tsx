@@ -5,7 +5,7 @@ import {
   IconLoader2,
   IconShieldLock,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  getPrivateVaultBrowserStatus,
+  type PrivateVaultBrowserStatus,
+} from "@/lib/private-vault-runtime-client";
 
 type VaultResult =
   | { ok: true; vaultId: string }
@@ -43,6 +47,15 @@ export function PrivateVaultSettingsCard() {
   const desktop = bridge();
   const [operation, setOperation] = useState<VaultOperation | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<PrivateVaultBrowserStatus | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getPrivateVaultBrowserStatus({ signal: controller.signal })
+      .then(setStatus)
+      .catch(() => setStatus(null));
+    return () => controller.abort();
+  }, []);
 
   const run = async (next: VaultOperation) => {
     if (!desktop) return;
@@ -66,6 +79,9 @@ export function PrivateVaultSettingsCard() {
             ? "There are no pending vault ceremonies."
             : "Your encrypted vault ceremony is complete.",
       );
+      const vaultId =
+        "vaultId" in result ? result.vaultId : result.vaults[0]?.vaultId;
+      if (vaultId) setStatus({ state: "active", vaultId, sequence: 0 });
     } catch {
       setMessage("Private Vault is unavailable in this Content surface.");
     } finally {
@@ -137,6 +153,21 @@ export function PrivateVaultSettingsCard() {
           </DropdownMenu>
         ) : null}
       </div>
+
+      {status?.state === "active" ? (
+        <div className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <IconShieldLock size={16} aria-hidden="true" />
+            Encrypted vault ready
+          </div>
+          <p className="mt-1 leading-6 text-muted-foreground">
+            This browser can see that a vault exists, but it cannot read titles,
+            document bodies, or the private search index. Open Agent Native
+            Desktop and choose <strong>Private Vault</strong> in the Content
+            tab.
+          </p>
+        </div>
+      ) : null}
 
       {message ? (
         <p className="mt-3 text-sm text-muted-foreground" role="status">

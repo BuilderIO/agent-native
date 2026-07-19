@@ -17,6 +17,10 @@ describe("PrivateVaultSettingsCard", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
   });
 
   afterEach(() => {
@@ -27,6 +31,7 @@ describe("PrivateVaultSettingsCard", () => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = false;
+    vi.unstubAllGlobals();
   });
 
   it("honestly presents desktop-only setup without collecting secrets", () => {
@@ -75,5 +80,28 @@ describe("PrivateVaultSettingsCard", () => {
     expect(container.textContent).toContain(
       "Your encrypted vault ceremony is complete.",
     );
+  });
+
+  it("shows an existing vault as content-free and locked in the browser", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              version: 1,
+              suite: "anc/v1",
+              state: "active",
+              vaultId: "11".repeat(16),
+              head: { sequence: 4, hash: "22".repeat(32) },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+    await act(async () => root.render(<PrivateVaultSettingsCard />));
+    expect(container.textContent).toContain("Encrypted vault ready");
+    expect(container.textContent).toContain("cannot read titles");
+    expect(container.textContent).toContain("Open Agent Native Desktop");
   });
 });
