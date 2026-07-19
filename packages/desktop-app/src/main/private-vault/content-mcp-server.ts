@@ -33,6 +33,64 @@ const ACTIONS = {
     "Restore one encrypted private document version as a new revision.",
 } as const;
 
+const UNSUPPORTED_ACTIONS = {
+  "add-comment": "Comments are not encrypted in Private Vault beta.",
+  "list-comments": "Comments are not encrypted in Private Vault beta.",
+  "update-comment": "Comments are not encrypted in Private Vault beta.",
+  "delete-comment": "Comments are not encrypted in Private Vault beta.",
+  "create-content-database":
+    "Content databases are not encrypted in Private Vault beta.",
+  "create-inline-content-database":
+    "Content databases are not encrypted in Private Vault beta.",
+  "get-content-database":
+    "Content databases are not encrypted in Private Vault beta.",
+  "list-content-databases":
+    "Content databases are not encrypted in Private Vault beta.",
+  "add-database-item":
+    "Content databases are not encrypted in Private Vault beta.",
+  "submit-content-database-form":
+    "Content databases are not encrypted in Private Vault beta.",
+  "get-public-document":
+    "Public publishing is incompatible with Private Vault beta.",
+  "export-document":
+    "Document export is unavailable until the encrypted export ceremony is complete.",
+  "import-content-source":
+    "Imports require the explicit Private Vault migration ceremony.",
+  "export-content-source":
+    "Source export is unavailable until the encrypted export ceremony is complete.",
+  "pull-notion-page":
+    "Notion and other integrations are not encrypted in Private Vault beta.",
+  "push-notion-page":
+    "Notion and other integrations are not encrypted in Private Vault beta.",
+  "pull-builder-doc":
+    "Builder and other source integrations are not encrypted in Private Vault beta.",
+  "push-builder-doc":
+    "Builder and other source integrations are not encrypted in Private Vault beta.",
+  "attach-content-database-source":
+    "Source federation is not encrypted in Private Vault beta.",
+  "transcribe-media": "Media is not encrypted in Private Vault beta.",
+  "create-extension": "Extensions cannot access Private Vault beta.",
+  "update-extension": "Extensions cannot access Private Vault beta.",
+  "delete-extension": "Extensions cannot access Private Vault beta.",
+} as const;
+
+const PRIVATE_CONTENT_CAPABILITIES = Object.freeze({
+  version: 1,
+  surface: "signed-desktop-only",
+  fallback: "none",
+  supported: Object.freeze(Object.keys(ACTIONS).sort()),
+  unavailable: Object.freeze({
+    collaboration: "Comments and realtime collaboration are not encrypted.",
+    databases: "Databases, properties, forms, and views are not encrypted.",
+    extensions: "Extensions cannot access the private vault.",
+    integrations: "Notion, Builder, and provider integrations are unavailable.",
+    media: "Media upload, transcription, and derived assets are unavailable.",
+    publishing: "Private documents cannot be made public or token-shared.",
+    sourceFederation:
+      "Imports, source sync, and source federation are unavailable.",
+  }),
+});
+
 type ActionName = keyof typeof ACTIONS;
 
 interface RunContext {
@@ -213,6 +271,44 @@ export class PrivateVaultContentMcpBridge {
             throw new Error("Private Content action unavailable");
           return { content: [{ type: "text" as const, text }] };
         },
+      );
+    }
+    mcp.registerTool(
+      "private-content-capabilities",
+      {
+        description:
+          "List the exact signed-Desktop Private Vault beta capabilities and fail-closed gaps without reading content.",
+        inputSchema: {},
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async () => ({
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(PRIVATE_CONTENT_CAPABILITIES),
+          },
+        ],
+      }),
+    );
+    for (const [actionName, reason] of Object.entries(UNSUPPORTED_ACTIONS)) {
+      mcp.registerTool(
+        actionName,
+        {
+          description: `${reason} This Private Vault tool always fails closed and never queues work.`,
+          inputSchema: {
+            args: z.record(z.string().max(256), z.unknown()).default({}),
+          },
+          annotations: { readOnlyHint: true, openWorldHint: false },
+        },
+        async () => ({
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: `${reason} Use Standard Cloud only if the user explicitly chooses to move or disclose the content; Private Vault never falls back automatically.`,
+            },
+          ],
+        }),
       );
     }
   }

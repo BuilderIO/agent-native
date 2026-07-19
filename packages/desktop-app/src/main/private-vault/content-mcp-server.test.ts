@@ -36,6 +36,10 @@ describe("Private Vault Content MCP bridge", () => {
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain("search-documents");
     expect(tools.tools.map((tool) => tool.name)).toContain("view-screen");
+    expect(tools.tools.map((tool) => tool.name)).toContain(
+      "private-content-capabilities",
+    );
+    expect(tools.tools.map((tool) => tool.name)).toContain("add-comment");
     expect(
       tools.tools.find((tool) => tool.name === "view-screen")?.annotations,
     ).toMatchObject({ readOnlyHint: true, openWorldHint: false });
@@ -57,6 +61,33 @@ describe("Private Vault Content MCP bridge", () => {
       args: { query: "private", subjectAgentId: "ff".repeat(16) },
       subjectAgentId,
     });
+
+    const capabilities = await client.callTool({
+      name: "private-content-capabilities",
+      arguments: {},
+    });
+    expect(capabilities).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining('"surface":"signed-desktop-only"'),
+        },
+      ],
+    });
+    const blocked = await client.callTool({
+      name: "add-comment",
+      arguments: { args: { documentId: "private" } },
+    });
+    expect(blocked).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("never falls back automatically"),
+        },
+      ],
+    });
+    expect(runAction).toHaveBeenCalledTimes(1);
   });
 
   it("revokes per-run credentials and rejects malformed registrations", async () => {

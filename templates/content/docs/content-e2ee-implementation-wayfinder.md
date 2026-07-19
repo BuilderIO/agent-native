@@ -1344,6 +1344,15 @@ routing reads that coordinate through an internal active-runtime capability.
 Broker tests, focused Desktop runtime/IPC/UI/privacy tests, both package
 typechecks, and the broker build pass at this checkpoint.
 
+The authenticated local MCP surface now advertises a content-free
+`private-content-capabilities` read plus familiar comment, database,
+publishing, import/export, Notion, Builder, source, media, and extension action
+names as explicit fail-closed tools. These handlers return category-specific
+guidance and never call the requester, mint a grant, seal a job, or fall back to
+Standard Cloud. This makes the unsupported beta boundary visible before an
+agent guesses at a standard Content workflow. MCP integration tests prove the
+blocked call is an error and the action runner remains untouched.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

@@ -49,6 +49,11 @@ actions, and an optional local-file source of truth.
   standard Content action surface. The signed Desktop app decrypts only the
   minimum request and result on an enrolled endpoint; hosted Content stores
   opaque coordinates and ciphertext.
+- Call `private-content-capabilities` when the requested workflow may involve
+  comments, databases, collaboration, publishing, integrations, extensions,
+  source federation, imports, exports, or media. Private MCP advertises the
+  familiar unsupported action names as fail-closed tools so a mistaken call
+  returns precise guidance without creating an encrypted job.
 - Private Content `view-screen` returns only the local list/editor view and an
   optional opaque document ID. It never returns a title, snippet, search query,
   or unsaved draft through application state. Use `get-document` or
