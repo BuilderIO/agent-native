@@ -216,14 +216,14 @@ describe("Private Vault endpoint-witnessed continuity append", () => {
     });
   });
 
-  it("rejects timestamp substitution and broker-self-signed renewal", async () => {
-    const wrongTime = await fixture({
-      createdAt: "2026-07-19T10:00:01.000Z",
+  it("rejects future-dated authority and broker-self-signed renewal", async () => {
+    const future = await fixture({
+      createdAt: "2026-07-19T10:00:31.000Z",
     });
-    loadState.mockResolvedValue(wrongTime.state);
+    loadState.mockResolvedValue(future.state);
     await expect(
       appendPrivateVaultControlLogContinuity({
-        body: wrongTime.body,
+        body: future.body,
         proof: proof(),
         now: new Date(issuedAt),
       }),

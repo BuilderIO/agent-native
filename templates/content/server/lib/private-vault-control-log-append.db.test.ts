@@ -48,6 +48,7 @@ const VAULT_ID = "11".repeat(16);
 const OWNER_ID = "22".repeat(16);
 const SECONDARY_ID = "33".repeat(16);
 const THIRD_ID = "34".repeat(16);
+const FOURTH_ID = "35".repeat(16);
 const RECOVERY_ID = "44".repeat(16);
 const CEREMONY_ID = "55".repeat(16);
 const WRAP_ID = "66".repeat(16);
@@ -115,19 +116,33 @@ function member(
   endpointId: string,
   signingPublicKey: Uint8Array,
   agreementPublicKey: Uint8Array,
+  role: "endpoint" | "broker" = "endpoint",
 ): ControlLogMember {
   return {
     endpointId,
-    role: "endpoint",
-    unattended: false,
+    role,
+    unattended: role === "broker",
     signingPublicKey: ancV1BytesToHex(signingPublicKey),
     keyAgreementPublicKey: ancV1BytesToHex(agreementPublicKey),
     enrollmentRef: `enrollment:${endpointId}`,
   };
 }
 
+function hostedIdentity(value: ControlLogMember): string {
+  return JSON.stringify({
+    algorithmId: "anc/v1-control-log-member",
+    publicIdentity: Buffer.from(JSON.stringify(value)).toString("base64url"),
+  });
+}
+
 function commit(input: {
-  ceremonyKind: "first_device" | "add_device" | "remove_device";
+  ceremonyKind:
+    | "first_device"
+    | "add_device"
+    | "add_broker"
+    | "remove_device"
+    | "remove_broker"
+    | "broker_replacement";
   activeMembers: ControlLogMember[];
   previousMembershipHash: string | null;
   removedEndpointIds?: string[];
@@ -148,8 +163,14 @@ function commit(input: {
       left.endpointId.localeCompare(right.endpointId),
     ),
     removedEndpointIds: input.removedEndpointIds ?? [],
-    rotationCompleted: input.ceremonyKind === "remove_device",
-    outstandingJobsResolved: false,
+    rotationCompleted: [
+      "remove_device",
+      "remove_broker",
+      "broker_replacement",
+    ].includes(input.ceremonyKind),
+    outstandingJobsResolved: ["remove_broker", "broker_replacement"].includes(
+      input.ceremonyKind,
+    ),
     recoverySnapshotHash: null,
     recoveryAuthorizationHash: null,
     recoveryGeneration: 1,
@@ -200,6 +221,12 @@ describe("Private Vault authenticated rotation append", () => {
     const thirdAgreement = await ancV1BoxKeypairFromSeed(
       new Uint8Array(32).fill(9),
     );
+    const fourthSigning = await ancV1SigningKeypairFromSeed(
+      new Uint8Array(32).fill(12),
+    );
+    const fourthAgreement = await ancV1BoxKeypairFromSeed(
+      new Uint8Array(32).fill(13),
+    );
     const recoveryAgreement = await ancV1BoxKeypairFromSeed(
       new Uint8Array(32).fill(5),
     );
@@ -217,7 +244,15 @@ describe("Private Vault authenticated rotation append", () => {
       THIRD_ID,
       thirdSigning.publicKey,
       thirdAgreement.publicKey,
+      "broker",
     );
+    const fourth = member(
+      FOURTH_ID,
+      fourthSigning.publicKey,
+      fourthAgreement.publicKey,
+      "broker",
+    );
+    const rotationCreatedAt = new Date().toISOString();
     const initialWrapHash = "99".repeat(32);
 
     await getDb().insert(schema.contentEncryptedVaults).values({
@@ -301,7 +336,7 @@ describe("Private Vault authenticated rotation append", () => {
       sequence: 2,
       previousHash: enrolledSecondary.state.headHash,
       innerEnvelope: commit({
-        ceremonyKind: "add_device",
+        ceremonyKind: "add_broker",
         activeMembers: [owner, secondary, third],
         previousMembershipHash: enrolledSecondary.state.membershipHash,
         recoveryWrapHash: initialWrapHash,
@@ -322,6 +357,31 @@ describe("Private Vault authenticated rotation append", () => {
         },
       },
     );
+    await getDb()
+      .insert(schema.contentEncryptedVaultEndpoints)
+      .values([
+        {
+          ...scope,
+          endpointId: OWNER_ID,
+          endpointState: "online",
+          publicIdentityJson: hostedIdentity(owner),
+          healthState: "healthy",
+        },
+        {
+          ...scope,
+          endpointId: SECONDARY_ID,
+          endpointState: "online",
+          publicIdentityJson: hostedIdentity(secondary),
+          healthState: "healthy",
+        },
+        {
+          ...scope,
+          endpointId: THIRD_ID,
+          endpointState: "online",
+          publicIdentityJson: hostedIdentity(third),
+          healthState: "healthy",
+        },
+      ]);
 
     const wrap = await createAncV1RecoveryWrap(
       {
@@ -355,13 +415,13 @@ describe("Private Vault authenticated rotation append", () => {
     );
     const rotation = await createSignedControlLogEntry({
       vaultId: VAULT_ID,
-      createdAt: "2026-07-17T01:02:00.000Z",
+      createdAt: rotationCreatedAt,
       envelopeId: "cc".repeat(16),
       sequence: 3,
       previousHash: enrolled.state.headHash,
       innerEnvelope: commit({
-        ceremonyKind: "remove_device",
-        activeMembers: [owner, secondary],
+        ceremonyKind: "broker_replacement",
+        activeMembers: [owner, secondary, fourth],
         previousMembershipHash: enrolled.state.membershipHash,
         removedEndpointIds: [THIRD_ID],
         epoch: 2,
@@ -380,7 +440,28 @@ describe("Private Vault authenticated rotation append", () => {
       signedEntry: Uint8Array.from(encodeSignedControlLogEntry(rotation)),
       recoveryWrap: Uint8Array.from(recoveryWrap),
     });
-    const requestTime = new Date();
+    const requestTime = new Date(rotation.createdAt);
+    const mismatchedTime = new Date(requestTime.getTime() - 1_000);
+    const mismatchedProof = await createEndpointRequestProof({
+      vaultId: VAULT_ID,
+      endpointId: OWNER_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body,
+      issuedAt: mismatchedTime.toISOString(),
+      nonce: "dc".repeat(16),
+      signingPrivateKey: ownerSigning.privateKey,
+    });
+    await expect(
+      appendRotation({
+        body,
+        proof: mismatchedProof,
+        now: new Date(mismatchedTime.getTime() + 500),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(
+      await controlLog.privateVaultControlLogService.loadVerifiedState(scope),
+    ).toMatchObject({ sequence: 2, epoch: 1 });
     const proof = await createEndpointRequestProof({
       vaultId: VAULT_ID,
       endpointId: OWNER_ID,
@@ -414,20 +495,125 @@ describe("Private Vault authenticated rotation append", () => {
       .update(schema.contentEncryptedVaults)
       .set({ vaultState: "active" })
       .where(eq(schema.contentEncryptedVaults.vaultId, VAULT_ID));
+    await getDb()
+      .delete(schema.contentEncryptedVaultEndpoints)
+      .where(eq(schema.contentEncryptedVaultEndpoints.endpointId, THIRD_ID));
+    const wrongScopeProof = await createEndpointRequestProof({
+      vaultId: VAULT_ID,
+      endpointId: OWNER_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body,
+      issuedAt: rotation.createdAt,
+      nonce: "d0".repeat(16),
+      signingPrivateKey: ownerSigning.privateKey,
+    });
+    await expect(
+      appendRotation({
+        body,
+        proof: wrongScopeProof,
+        now: new Date(requestTime.getTime() + 2_000),
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      await controlLog.privateVaultControlLogService.loadVerifiedState(scope),
+    ).toMatchObject({ sequence: 2, epoch: 1 });
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultRecoveryWraps),
+    ).toHaveLength(0);
+    await getDb()
+      .insert(schema.contentEncryptedVaultEndpoints)
+      .values({
+        ...scope,
+        endpointId: THIRD_ID,
+        endpointState: "online",
+        publicIdentityJson: hostedIdentity(third),
+        healthState: "healthy",
+      });
+    const foreignVaultId = "36".repeat(16);
+    await getDb().insert(schema.contentEncryptedVaults).values({
+      vaultId: foreignVaultId,
+      ownerEmail: "foreign-rotation-owner@example.com",
+      orgId: "org:foreign-rotation",
+      accountId: "account:foreign-rotation",
+      workspaceId: "workspace:foreign-rotation",
+      vaultState: "active",
+    });
+    await getDb()
+      .insert(schema.contentEncryptedVaultEndpoints)
+      .values({
+        vaultId: foreignVaultId,
+        ownerEmail: "foreign-rotation-owner@example.com",
+        orgId: "org:foreign-rotation",
+        endpointId: FOURTH_ID,
+        endpointState: "online",
+        publicIdentityJson: JSON.stringify({
+          algorithmId: "anc/v1-foreign-test",
+          publicIdentity: "foreign-content",
+        }),
+        healthState: "healthy",
+      });
+    const collisionProof = await createEndpointRequestProof({
+      vaultId: VAULT_ID,
+      endpointId: OWNER_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body,
+      issuedAt: rotation.createdAt,
+      nonce: "de".repeat(16),
+      signingPrivateKey: ownerSigning.privateKey,
+    });
+    await expect(
+      appendRotation({
+        body,
+        proof: collisionProof,
+        now: new Date(requestTime.getTime() + 3_000),
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      await controlLog.privateVaultControlLogService.loadVerifiedState(scope),
+    ).toMatchObject({ sequence: 2, epoch: 1 });
+    expect(
+      await getDb().select().from(schema.contentEncryptedVaultRecoveryWraps),
+    ).toHaveLength(0);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultEndpoints)
+        .where(eq(schema.contentEncryptedVaultEndpoints.endpointId, THIRD_ID)),
+    ).toMatchObject([{ endpointState: "online", healthState: "healthy" }]);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultEndpoints)
+        .where(eq(schema.contentEncryptedVaultEndpoints.endpointId, FOURTH_ID)),
+    ).toMatchObject([
+      {
+        vaultId: foreignVaultId,
+        ownerEmail: "foreign-rotation-owner@example.com",
+        publicIdentityJson: JSON.stringify({
+          algorithmId: "anc/v1-foreign-test",
+          publicIdentity: "foreign-content",
+        }),
+      },
+    ]);
+    await getDb()
+      .delete(schema.contentEncryptedVaultEndpoints)
+      .where(eq(schema.contentEncryptedVaultEndpoints.endpointId, FOURTH_ID));
     const committedProof = await createEndpointRequestProof({
       vaultId: VAULT_ID,
       endpointId: OWNER_ID,
       method: "POST",
       path: "/api/private-vault/control-log/append",
       body,
-      issuedAt: new Date(requestTime.getTime() + 2_000).toISOString(),
-      nonce: "de".repeat(16),
+      issuedAt: rotation.createdAt,
+      nonce: "df".repeat(16),
       signingPrivateKey: ownerSigning.privateKey,
     });
     const receiptBytes = await appendRotation({
       body,
       proof: committedProof,
-      now: new Date(requestTime.getTime() + 3_000),
+      now: new Date(requestTime.getTime() + 5_000),
     });
     const receipt = decodeAncV1ControlLogRotationAppendReceipt(receiptBytes);
     expect(receipt).toMatchObject({
@@ -436,6 +622,32 @@ describe("Private Vault authenticated rotation append", () => {
       sequence: 3,
       recoveryWrapHash,
       recoveryWrapByteLength: recoveryWrap.byteLength,
+    });
+    const projectedEndpoints = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultEndpoints);
+    expect(
+      projectedEndpoints.find((endpoint) => endpoint.endpointId === THIRD_ID),
+    ).toMatchObject({
+      vaultId: VAULT_ID,
+      ownerEmail: OWNER,
+      orgId: ORG,
+      endpointState: "revoked",
+      healthState: "unknown",
+      publicIdentityJson: JSON.stringify({
+        algorithmId: "anc/v1-control-log-revoked",
+        publicIdentity: "redacted",
+      }),
+    });
+    expect(
+      projectedEndpoints.find((endpoint) => endpoint.endpointId === FOURTH_ID),
+    ).toMatchObject({
+      vaultId: VAULT_ID,
+      ownerEmail: OWNER,
+      orgId: ORG,
+      endpointState: "online",
+      healthState: "healthy",
+      publicIdentityJson: hostedIdentity(fourth),
     });
 
     const committedN =
@@ -447,7 +659,7 @@ describe("Private Vault authenticated rotation append", () => {
         suite: "anc/v1",
         vaultId: ancV1HexToBytes(VAULT_ID),
         type: "recovery-wrap",
-        createdAt: Date.parse("2026-07-17T01:02:30.000Z") / 1000,
+        createdAt: Math.floor((Date.parse(rotationCreatedAt) + 2_000) / 1_000),
         envelopeId: ancV1HexToBytes("13".repeat(16)),
         ceremonyId: ancV1HexToBytes(nextCeremonyId),
         recoveryGeneration: 1,
@@ -474,14 +686,14 @@ describe("Private Vault authenticated rotation append", () => {
     );
     const nextRotation = await createSignedControlLogEntry({
       vaultId: VAULT_ID,
-      createdAt: "2026-07-17T01:03:00.000Z",
+      createdAt: new Date(Date.parse(rotationCreatedAt) + 5_000).toISOString(),
       envelopeId: "14".repeat(16),
       sequence: 4,
       previousHash: committedN!.headHash,
       innerEnvelope: commit({
         ceremonyKind: "remove_device",
         ceremonyId: nextCeremonyId,
-        activeMembers: [secondary],
+        activeMembers: [secondary, fourth],
         previousMembershipHash: committedN!.membershipHash,
         removedEndpointIds: [OWNER_ID],
         epoch: 3,
@@ -506,27 +718,28 @@ describe("Private Vault authenticated rotation append", () => {
       method: "POST",
       path: "/api/private-vault/control-log/append",
       body: nextBody,
-      issuedAt: new Date(requestTime.getTime() + 4_000).toISOString(),
+      issuedAt: nextRotation.createdAt,
       nonce: "ef".repeat(16),
       signingPrivateKey: secondarySigning.privateKey,
     });
     await appendRotation({
       body: nextBody,
       proof: nextProof,
-      now: new Date(requestTime.getTime() + 5_000),
+      now: new Date(Date.parse(nextRotation.createdAt) + 1_000),
     });
     expect(
       (await controlLog.privateVaultControlLogService.loadVerifiedState(scope))
         ?.activeMembers,
-    ).toEqual([secondary]);
+    ).toEqual([secondary, fourth]);
 
+    const retryTime = new Date(requestTime.getTime() + 7_000);
     const retryProof = await createEndpointRequestProof({
       vaultId: VAULT_ID,
       endpointId: OWNER_ID,
       method: "POST",
       path: "/api/private-vault/control-log/append",
       body,
-      issuedAt: new Date(requestTime.getTime() + 6_000).toISOString(),
+      issuedAt: retryTime.toISOString(),
       nonce: "ee".repeat(16),
       signingPrivateKey: ownerSigning.privateKey,
     });
@@ -534,7 +747,7 @@ describe("Private Vault authenticated rotation append", () => {
       appendRotation({
         body,
         proof: retryProof,
-        now: new Date(requestTime.getTime() + 7_000),
+        now: new Date(retryTime.getTime() + 500),
       }),
     ).resolves.toEqual(receiptBytes);
 
@@ -559,7 +772,7 @@ describe("Private Vault authenticated rotation append", () => {
     expect(beforeRevocation).not.toBeNull();
     const revocation = await createSignedControlLogEntry({
       vaultId: VAULT_ID,
-      createdAt: "2026-07-17T01:04:00.000Z",
+      createdAt: new Date(Date.parse(rotationCreatedAt) + 10_000).toISOString(),
       envelopeId: "15".repeat(16),
       sequence: 5,
       previousHash: beforeRevocation!.headHash,
@@ -578,13 +791,33 @@ describe("Private Vault authenticated rotation append", () => {
       type: "control-log-grant-revocation-append-request",
       signedEntry: Uint8Array.from(encodeSignedControlLogEntry(revocation)),
     });
+    const mismatchedRevocationTime = new Date(
+      Date.parse(revocation.createdAt) - 1_000,
+    );
+    const mismatchedRevocationProof = await createEndpointRequestProof({
+      vaultId: VAULT_ID,
+      endpointId: SECONDARY_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body: revocationBody,
+      issuedAt: mismatchedRevocationTime.toISOString(),
+      nonce: "f0".repeat(16),
+      signingPrivateKey: secondarySigning.privateKey,
+    });
+    await expect(
+      appendGrantRevocation({
+        body: revocationBody,
+        proof: mismatchedRevocationProof,
+        now: new Date(mismatchedRevocationTime.getTime() + 500),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
     const revocationProof = await createEndpointRequestProof({
       vaultId: VAULT_ID,
       endpointId: SECONDARY_ID,
       method: "POST",
       path: "/api/private-vault/control-log/append",
       body: revocationBody,
-      issuedAt: new Date(requestTime.getTime() + 8_000).toISOString(),
+      issuedAt: revocation.createdAt,
       nonce: "f1".repeat(16),
       signingPrivateKey: secondarySigning.privateKey,
     });
@@ -592,7 +825,7 @@ describe("Private Vault authenticated rotation append", () => {
       await appendGrantRevocation({
         body: revocationBody,
         proof: revocationProof,
-        now: new Date(requestTime.getTime() + 9_000),
+        now: new Date(Date.parse(revocation.createdAt) + 1_000),
       }),
     );
     expect(revocationReceipt).toMatchObject({
@@ -625,7 +858,7 @@ async function buildGenesisFixture(input?: {
   const recoverySigning = await ancV1SigningKeypairFromSeed(
     new Uint8Array(32).fill(24),
   );
-  const createdAt = "2026-07-18T02:00:00.000Z";
+  const createdAt = new Date().toISOString();
   const recoveryWrap = encodeAncV1RecoveryWrap(
     await createAncV1RecoveryWrap(
       {
@@ -724,7 +957,7 @@ async function buildGenesisFixture(input?: {
         bootstrapTranscriptHash: "87".repeat(32),
       });
   }
-  const requestTime = new Date();
+  const requestTime = new Date(createdAt);
   const makeProof = (nonceByte: number, privateKey = signing.privateKey) => {
     return Promise.all([
       createEndpointRequestProof({
@@ -767,6 +1000,33 @@ describe("Private Vault account-admitted genesis append", () => {
     await getDb().delete(schema.contentEncryptedVaultGenesisAdmissions);
     await getDb().delete(schema.contentEncryptedVaultRetentionQueue);
     await getDb().delete(schema.contentEncryptedVaults);
+  });
+
+  it("rejects a signed genesis entry dated after the request proof", async () => {
+    const fixture = await buildGenesisFixture();
+    const issuedAt = new Date(Date.parse(fixture.entry.createdAt) - 1_000);
+    const proof = await createEndpointRequestProof({
+      vaultId: GENESIS_VAULT_ID,
+      endpointId: GENESIS_ENDPOINT_ID,
+      method: "POST",
+      path: "/api/private-vault/control-log/append",
+      body: fixture.body,
+      issuedAt: issuedAt.toISOString(),
+      nonce: "00".repeat(16),
+      signingPrivateKey: fixture.signing.privateKey,
+    });
+    await expect(
+      appendGenesis({
+        body: fixture.body,
+        proof,
+        now: new Date(issuedAt.getTime() + 500),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultControlLogEntries),
+    ).toHaveLength(0);
   });
 
   it("commits the exact sequence-zero edge, wrap binding, stage, and endpoint projection once", async () => {
@@ -829,7 +1089,9 @@ describe("Private Vault account-admitted genesis append", () => {
 
     const laterCheckpoint = await createSignedControlLogEntry({
       vaultId: GENESIS_VAULT_ID,
-      createdAt: "2026-07-18T02:02:00.000Z",
+      createdAt: new Date(
+        Date.parse(fixture.entry.createdAt) + 60_000,
+      ).toISOString(),
       envelopeId: "89".repeat(16),
       sequence: 1,
       previousHash: genesisState!.headHash,
@@ -933,7 +1195,7 @@ describe("Private Vault account-admitted genesis append", () => {
         workspaceId: "workspace:other-account",
         vaultState: "active",
       });
-    const otherAccountTime = new Date();
+    const otherAccountTime = new Date(fixture.entry.createdAt);
     const otherAccount = await createEndpointRequestProof({
       vaultId: "92".repeat(16),
       endpointId: GENESIS_ENDPOINT_ID,

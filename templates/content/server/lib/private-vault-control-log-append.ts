@@ -225,6 +225,24 @@ function endpointPublicIdentityJson(member: {
   });
 }
 
+const REVOKED_ENDPOINT_PUBLIC_IDENTITY_JSON = JSON.stringify({
+  algorithmId: "anc/v1-control-log-revoked",
+  publicIdentity: "redacted",
+});
+
+function entryCreatedNoLaterThanProof(
+  entryCreatedAt: string,
+  proofIssuedAt: string,
+): boolean {
+  const entryMilliseconds = Date.parse(entryCreatedAt);
+  const proofMilliseconds = Date.parse(proofIssuedAt);
+  return (
+    Number.isFinite(entryMilliseconds) &&
+    Number.isFinite(proofMilliseconds) &&
+    entryMilliseconds <= proofMilliseconds
+  );
+}
+
 async function requireExactEndpointProjection(input: {
   ownerEmail: string;
   orgId: string;
@@ -494,7 +512,9 @@ export async function appendPrivateVaultControlLogGenesis(input: {
     entry.innerEnvelope.ceremonyKind !== "first_device" ||
     entry.innerEnvelope.activeMembers.length !== 1 ||
     entry.innerEnvelope.activeMembers[0]?.role !== "endpoint" ||
-    entry.innerEnvelope.activeMembers[0].endpointId !== entry.signerEndpointId
+    entry.innerEnvelope.activeMembers[0].endpointId !==
+      entry.signerEndpointId ||
+    !entryCreatedNoLaterThanProof(entry.createdAt, input.proof.issuedAt)
   ) {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
@@ -720,7 +740,11 @@ export async function appendPrivateVaultControlLogGrantRevocation(input: {
   } catch {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
-  if (entry.sequence < 1 || entry.innerEnvelope.type !== "grant_revocation") {
+  if (
+    entry.sequence < 1 ||
+    entry.innerEnvelope.type !== "grant_revocation" ||
+    !entryCreatedNoLaterThanProof(entry.createdAt, input.proof.issuedAt)
+  ) {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
 
@@ -812,6 +836,7 @@ export async function appendPrivateVaultControlLogContinuity(input: {
   proof: EndpointRequestProof;
   now?: Date;
 }): Promise<Uint8Array> {
+  const now = input.now ?? new Date();
   let request: ReturnType<typeof decodeAncV1ControlLogContinuityAppendRequest>;
   let entry: ReturnType<typeof decodeSignedControlLogEntry>;
   try {
@@ -823,7 +848,7 @@ export async function appendPrivateVaultControlLogContinuity(input: {
   if (
     entry.sequence < 1 ||
     entry.innerEnvelope.type !== "continuity_checkpoint" ||
-    entry.createdAt !== input.proof.issuedAt
+    !entryCreatedNoLaterThanProof(entry.createdAt, input.proof.issuedAt)
   ) {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
@@ -859,7 +884,7 @@ export async function appendPrivateVaultControlLogContinuity(input: {
       expectedMethod: "POST",
       expectedPath: PRIVATE_VAULT_CONTROL_LOG_APPEND_PATH,
       body: input.body,
-      now: input.now ?? new Date(),
+      now,
       resolveAuthorizedEndpoint: async ({ vaultId, endpointId }) =>
         vaultId === scope.vaultId && endpointId === signer.endpointId
           ? {
@@ -923,10 +948,12 @@ export async function appendPrivateVaultControlLogRotation(input: {
       entry.innerEnvelope.ceremonyKind === "remove_broker" ||
       entry.innerEnvelope.ceremonyKind === "broker_replacement"
     ) ||
-    !entry.innerEnvelope.rotationCompleted
+    !entry.innerEnvelope.rotationCompleted ||
+    !entryCreatedNoLaterThanProof(entry.createdAt, input.proof.issuedAt)
   ) {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
+  const rotation = entry.innerEnvelope;
 
   const scope = await resolveActivePrivateVaultControlScope(entry.vaultId);
   if (!scope) throw new PrivateVaultControlLogAppendError("not_found");
@@ -943,9 +970,8 @@ export async function appendPrivateVaultControlLogRotation(input: {
   }
   if (
     (!committed && entry.sequence !== current.sequence + 1) ||
-    (!committed && entry.innerEnvelope.epoch !== current.epoch + 1) ||
-    (!committed &&
-      entry.innerEnvelope.recoveryWrapHash === current.recoveryWrapHash)
+    (!committed && rotation.epoch !== current.epoch + 1) ||
+    (!committed && rotation.recoveryWrapHash === current.recoveryWrapHash)
   ) {
     throw new PrivateVaultControlLogAppendError("conflict");
   }
@@ -1002,7 +1028,7 @@ export async function appendPrivateVaultControlLogRotation(input: {
   } catch {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
-  if (entry.innerEnvelope.recoveryWrapHash !== recoveryWrapHash) {
+  if (rotation.recoveryWrapHash !== recoveryWrapHash) {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }
 
@@ -1063,6 +1089,184 @@ export async function appendPrivateVaultControlLogRotation(input: {
               ciphertextByteLength: request.recoveryWrap.byteLength,
               serverReceivedAt,
             });
+            if (rotation.removedEndpointIds.length > 0) {
+              const removedMembers = signerAuthority.activeMembers.filter(
+                (member) =>
+                  rotation.removedEndpointIds.includes(member.endpointId),
+              );
+              const projectedRemoved = await tx
+                .select({
+                  endpointId: schema.contentEncryptedVaultEndpoints.endpointId,
+                  endpointState:
+                    schema.contentEncryptedVaultEndpoints.endpointState,
+                  publicIdentityJson:
+                    schema.contentEncryptedVaultEndpoints.publicIdentityJson,
+                  healthState:
+                    schema.contentEncryptedVaultEndpoints.healthState,
+                })
+                .from(schema.contentEncryptedVaultEndpoints)
+                .where(
+                  and(
+                    eq(
+                      schema.contentEncryptedVaultEndpoints.ownerEmail,
+                      scope.ownerEmail,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultEndpoints.orgId,
+                      scope.orgId,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultEndpoints.vaultId,
+                      scope.vaultId,
+                    ),
+                    inArray(
+                      schema.contentEncryptedVaultEndpoints.endpointId,
+                      rotation.removedEndpointIds,
+                    ),
+                  ),
+                );
+              if (
+                removedMembers.length !== rotation.removedEndpointIds.length ||
+                projectedRemoved.length !== removedMembers.length ||
+                projectedRemoved.some((endpoint) => {
+                  const member = removedMembers.find(
+                    (candidate) => candidate.endpointId === endpoint.endpointId,
+                  );
+                  return (
+                    !member ||
+                    endpoint.endpointState !== "online" ||
+                    endpoint.healthState !== "healthy" ||
+                    endpoint.publicIdentityJson !==
+                      endpointPublicIdentityJson(member)
+                  );
+                })
+              ) {
+                throw new PrivateVaultControlLogAppendError("conflict");
+              }
+              const revoked = await tx
+                .update(schema.contentEncryptedVaultEndpoints)
+                .set({
+                  endpointState: "revoked",
+                  publicIdentityJson: REVOKED_ENDPOINT_PUBLIC_IDENTITY_JSON,
+                  healthState: "unknown",
+                  serverReceivedAt,
+                })
+                .where(
+                  and(
+                    eq(
+                      schema.contentEncryptedVaultEndpoints.ownerEmail,
+                      scope.ownerEmail,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultEndpoints.orgId,
+                      scope.orgId,
+                    ),
+                    eq(
+                      schema.contentEncryptedVaultEndpoints.vaultId,
+                      scope.vaultId,
+                    ),
+                    inArray(
+                      schema.contentEncryptedVaultEndpoints.endpointId,
+                      rotation.removedEndpointIds,
+                    ),
+                  ),
+                )
+                .returning({
+                  endpointId: schema.contentEncryptedVaultEndpoints.endpointId,
+                });
+              if (revoked.length !== removedMembers.length) {
+                throw new PrivateVaultControlLogAppendError("conflict");
+              }
+            }
+            if (rotation.ceremonyKind === "broker_replacement") {
+              const priorEndpointIds = new Set(
+                signerAuthority.activeMembers.map(
+                  (member) => member.endpointId,
+                ),
+              );
+              const replacementMembers = rotation.activeMembers.filter(
+                (member) => !priorEndpointIds.has(member.endpointId),
+              );
+              const replacement = replacementMembers[0];
+              if (
+                replacementMembers.length !== 1 ||
+                !replacement ||
+                replacement.role !== "broker"
+              ) {
+                throw new PrivateVaultControlLogAppendError("conflict");
+              }
+              const publicIdentityJson =
+                endpointPublicIdentityJson(replacement);
+              const [existing] = await tx
+                .select({
+                  endpointId: schema.contentEncryptedVaultEndpoints.endpointId,
+                  vaultId: schema.contentEncryptedVaultEndpoints.vaultId,
+                  ownerEmail: schema.contentEncryptedVaultEndpoints.ownerEmail,
+                  orgId: schema.contentEncryptedVaultEndpoints.orgId,
+                })
+                .from(schema.contentEncryptedVaultEndpoints)
+                .where(
+                  eq(
+                    schema.contentEncryptedVaultEndpoints.endpointId,
+                    replacement.endpointId,
+                  ),
+                )
+                .limit(1);
+              if (
+                existing &&
+                (existing.vaultId !== scope.vaultId ||
+                  existing.ownerEmail !== scope.ownerEmail ||
+                  existing.orgId !== scope.orgId)
+              ) {
+                throw new PrivateVaultControlLogAppendError("conflict");
+              }
+              if (existing) {
+                const [updated] = await tx
+                  .update(schema.contentEncryptedVaultEndpoints)
+                  .set({
+                    endpointState: "online",
+                    publicIdentityJson,
+                    healthState: "healthy",
+                    serverReceivedAt,
+                  })
+                  .where(
+                    and(
+                      eq(
+                        schema.contentEncryptedVaultEndpoints.endpointId,
+                        replacement.endpointId,
+                      ),
+                      eq(
+                        schema.contentEncryptedVaultEndpoints.ownerEmail,
+                        scope.ownerEmail,
+                      ),
+                      eq(
+                        schema.contentEncryptedVaultEndpoints.orgId,
+                        scope.orgId,
+                      ),
+                      eq(
+                        schema.contentEncryptedVaultEndpoints.vaultId,
+                        scope.vaultId,
+                      ),
+                    ),
+                  )
+                  .returning({
+                    endpointId:
+                      schema.contentEncryptedVaultEndpoints.endpointId,
+                  });
+                if (!updated) {
+                  throw new PrivateVaultControlLogAppendError("conflict");
+                }
+              } else {
+                await tx.insert(schema.contentEncryptedVaultEndpoints).values({
+                  ...scope,
+                  endpointId: replacement.endpointId,
+                  endpointState: "online",
+                  publicIdentityJson,
+                  healthState: "healthy",
+                  serverReceivedAt,
+                });
+              }
+            }
             await commitPrivateVaultCiphertextStageInTransaction(
               tx,
               stage,
@@ -1105,7 +1309,8 @@ export async function appendPrivateVaultControlLogRecovery(input: {
     entry.innerEnvelope.type !== "membership_commit" ||
     entry.innerEnvelope.ceremonyKind !== "recovery" ||
     entry.innerEnvelope.activeMembers.length !== 1 ||
-    !entry.innerEnvelope.rotationCompleted
+    !entry.innerEnvelope.rotationCompleted ||
+    !entryCreatedNoLaterThanProof(entry.createdAt, input.proof.issuedAt)
   ) {
     throw new PrivateVaultControlLogAppendError("invalid_request");
   }

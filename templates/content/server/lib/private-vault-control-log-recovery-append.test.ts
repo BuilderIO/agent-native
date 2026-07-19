@@ -300,7 +300,7 @@ describe("Private Vault recovery append orchestration", () => {
 
     const receipt = await appendPrivateVaultControlLogRecovery({
       body: request.body,
-      proof: {} as never,
+      proof: { issuedAt: request.entry.createdAt } as never,
       now: new Date("2026-07-18T12:01:01.000Z"),
     });
     expect(receipt).toBeInstanceOf(Uint8Array);
@@ -324,5 +324,18 @@ describe("Private Vault recovery append orchestration", () => {
       currentSnapshot: request.currentSnapshot,
       recoveryAuthorization: request.recoveryAuthorization,
     });
+  });
+
+  it("rejects a signed recovery entry dated after the request proof", async () => {
+    const request = await recoveryRequest();
+    await expect(
+      appendPrivateVaultControlLogRecovery({
+        body: request.body,
+        proof: { issuedAt: "2026-07-18T12:00:59.000Z" } as never,
+        now: new Date("2026-07-18T12:01:31.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(verifyEndpointProof).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
   });
 });
