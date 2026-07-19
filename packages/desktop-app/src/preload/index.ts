@@ -120,6 +120,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION, request),
     listGrants: (): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_LIST_GRANTS),
+    listMembers: (): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_LIST_MEMBERS),
     revokeGrant: (
       grantRef: string,
     ): Promise<DesktopPrivateContentResult<unknown>> =>

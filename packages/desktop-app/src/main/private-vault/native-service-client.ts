@@ -62,6 +62,7 @@ type NativeOperation =
   | "create_grant"
   | "revoke_grant"
   | "list_grants"
+  | "list_members"
   | "seal_job"
   | "open_result"
   | "open_job"
@@ -104,6 +105,7 @@ export interface PrivateVaultNativeServiceClient
     input: NativeRevokeContentGrantInput,
   ): Promise<NativeRevokedContentGrantResult>;
   listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult>;
+  listVaultMembers(vaultId: string): Promise<NativeListedVaultMembersResult>;
   sealExportArchive(
     input: NativeSealExportArchiveInput,
   ): Promise<NativeSealedExportArchiveResult>;
@@ -229,6 +231,22 @@ export interface NativeListedContentGrantsResult {
   readonly state: "listed";
   readonly vaultId: string;
   readonly grants: readonly NativeContentGrantSummary[];
+}
+
+export interface NativeVaultMemberSummary {
+  readonly endpointId: string;
+  readonly role: "endpoint" | "broker";
+  readonly unattended: boolean;
+  readonly current: boolean;
+}
+
+export interface NativeListedVaultMembersResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "list_members";
+  readonly state: "listed";
+  readonly vaultId: string;
+  readonly members: readonly NativeVaultMemberSummary[];
 }
 
 export interface NativeSealExportArchiveInput {
@@ -1330,6 +1348,64 @@ function parseListedContentGrants(
   });
 }
 
+function parseListedVaultMembers(
+  value: unknown,
+  vaultId: string,
+): NativeListedVaultMembersResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "members",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "list_members" ||
+    value.state !== "listed" ||
+    value.vaultId !== vaultId ||
+    !Array.isArray(value.members) ||
+    value.members.length === 0 ||
+    value.members.length > 64
+  )
+    throw new PrivateVaultNativeServiceClientError();
+
+  const seen = new Set<string>();
+  let currentCount = 0;
+  const members = value.members.map((entry): NativeVaultMemberSummary => {
+    if (
+      !isRecord(entry) ||
+      !hasExactKeys(entry, ["endpointId", "role", "unattended", "current"]) ||
+      !isLowerHex(entry.endpointId, 32) ||
+      seen.has(entry.endpointId) ||
+      (entry.role !== "endpoint" && entry.role !== "broker") ||
+      typeof entry.unattended !== "boolean" ||
+      entry.unattended !== (entry.role === "broker") ||
+      typeof entry.current !== "boolean" ||
+      (entry.current && entry.role !== "endpoint")
+    )
+      throw new PrivateVaultNativeServiceClientError();
+    seen.add(entry.endpointId);
+    if (entry.current) currentCount += 1;
+    return Object.freeze({
+      endpointId: entry.endpointId,
+      role: entry.role,
+      unattended: entry.unattended,
+      current: entry.current,
+    });
+  });
+  if (currentCount !== 1) throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "list_members" as const,
+    state: "listed" as const,
+    vaultId,
+    members: Object.freeze(members),
+  });
+}
+
 function parseSealedExportArchive(
   value: unknown,
   input: NativeSealExportArchiveInput,
@@ -1801,6 +1877,22 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         const addon = await this.#addon;
         return parseListedContentGrants(
           await addon.request("list_grants", vaultId),
+          vaultId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  listVaultMembers(vaultId: string): Promise<NativeListedVaultMembersResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseListedVaultMembers(
+          await addon.request("list_members", vaultId),
           vaultId,
         );
       } catch {

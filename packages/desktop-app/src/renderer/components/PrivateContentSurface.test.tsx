@@ -92,6 +92,19 @@ describe("PrivateContentSurface privacy disclosure", () => {
           })),
           list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
           listGrants,
+          listMembers: vi.fn(async () => ({
+            ok: true,
+            value: {
+              members: [
+                {
+                  endpointId: "33".repeat(16),
+                  role: "endpoint",
+                  unattended: false,
+                  current: true,
+                },
+              ],
+            },
+          })),
           revokeGrant,
         },
       },
@@ -110,6 +123,7 @@ describe("PrivateContentSurface privacy disclosure", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.textContent).toContain("Agent 222222…222222");
+    expect(container.textContent).toContain("This Mac");
 
     const revoke = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Revoke",

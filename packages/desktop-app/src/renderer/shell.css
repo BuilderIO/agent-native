@@ -718,6 +718,26 @@ body {
   white-space: nowrap;
 }
 
+.private-content-member {
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.private-content-member strong,
+.private-content-member span {
+  display: block;
+}
+
+.private-content-member strong {
+  overflow: hidden;
+  color: #d9dde7;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .private-content-grant button {
   flex: 0 0 auto;
   border: 0;

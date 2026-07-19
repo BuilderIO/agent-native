@@ -1307,6 +1307,32 @@ cipher; native `anc/v1` seal/open interoperability is covered separately by the
 cross-architecture object vectors. Deployed two-client evidence remains a PR 8
 assurance item and is not inferred from this test.
 
+The signed Desktop surface now exposes the first user-auditable authority
+projection. A native `list_grants` operation returns only grant reference,
+agent/endpoint identity, validity timestamps, and revocation state; a native
+`list_members` operation returns only endpoint identity, endpoint/broker role,
+unattended state, and which attended endpoint is this Mac. Both operations
+require current attended custody to match the authenticated authority anchor,
+reject extra fields and duplicate identities at every bridge layer, and expose
+neither document metadata, enrollment proofs, public keys, nor signed control
+artifacts. The Desktop “Who can read?” panel renders these projections and uses
+an accessible human confirmation before native grant revocation. Revocation
+also evicts the requester cache so a later agent action cannot reuse the
+withdrawn standing grant. Protocol tests, production universal service/addon
+builds, forty-seven focused native-client/runtime/IPC/UI tests, Desktop
+typecheck, and the production renderer build pass. Endpoint removal remains
+deliberately absent until the existing rotation coordinator can initiate and
+prove the full removal/rewrap/acknowledgement ceremony; membership inventory is
+not presented as revocation.
+
+Private Content application state is now a local signed-Desktop projection of
+only `list` versus `editor` and an optional opaque document ID. The
+authenticated local MCP bridge exposes that state as read-only `view-screen`;
+titles, snippets, search queries, and unsaved drafts are structurally rejected
+from the IPC state update and require the normal encrypted document actions.
+The exported Content skill names this boundary and preserves fail-closed agent
+behavior.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

@@ -22,6 +22,7 @@ function fixture(allowed = true) {
     health: vi.fn(() => ({ vaultId, brokerState: "offline", broker: null })),
     documents: vi.fn(() => documents),
     listAgentGrants: vi.fn(async () => ({ grants: [] })),
+    listVaultMembers: vi.fn(async () => ({ members: [] })),
     revokeAgentGrant: vi.fn(async (grantRef: string) => ({
       state: "revoked",
       grantRef,
@@ -62,6 +63,7 @@ describe("signed Private Content IPC", () => {
       revisionId: "33".repeat(32),
     });
     await source.handlers.listGrants(event);
+    await source.handlers.listMembers(event);
     await source.handlers.revokeGrant(event, "44".repeat(32));
     await source.handlers.setApplicationState(event, {
       view: "editor",
@@ -91,6 +93,7 @@ describe("signed Private Content IPC", () => {
       "33".repeat(32),
     );
     expect(source.runtime.listAgentGrants).toHaveBeenCalledOnce();
+    expect(source.runtime.listVaultMembers).toHaveBeenCalledOnce();
     expect(source.runtime.revokeAgentGrant).toHaveBeenCalledWith(
       "44".repeat(32),
     );

@@ -12,6 +12,7 @@ import {
 import {
   createPrivateVaultNativeServiceClient,
   type NativeListedContentGrantsResult,
+  type NativeListedVaultMembersResult,
   type NativeCreatedContentGrantResult,
   type NativeRevokedContentGrantResult,
   type PrivateVaultNativeServiceClient,
@@ -234,6 +235,10 @@ export class PrivateVaultContentRequesterRuntime {
 
   listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult> {
     return this.#native.listContentGrants(vaultId);
+  }
+
+  listVaultMembers(vaultId: string): Promise<NativeListedVaultMembersResult> {
+    return this.#native.listVaultMembers(vaultId);
   }
 
   async revokeContentGrant(

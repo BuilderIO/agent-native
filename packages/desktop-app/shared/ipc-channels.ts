@@ -82,6 +82,7 @@ export const IPC = {
   CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION:
     "content-private-runtime:restore-version",
   CONTENT_PRIVATE_RUNTIME_LIST_GRANTS: "content-private-runtime:list-grants",
+  CONTENT_PRIVATE_RUNTIME_LIST_MEMBERS: "content-private-runtime:list-members",
   CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT: "content-private-runtime:revoke-grant",
   CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE:
     "content-private-runtime:set-application-state",
@@ -454,6 +455,13 @@ export interface DesktopPrivateContentGrantSummary {
 export type DesktopPrivateContentApplicationState =
   | { view: "list" }
   | { view: "editor"; documentId: string };
+
+export interface DesktopPrivateContentVaultMember {
+  endpointId: string;
+  role: "endpoint" | "broker";
+  unattended: boolean;
+  current: boolean;
+}
 
 export type DesktopPrivateContentResult<T> =
   | { ok: true; value: T }

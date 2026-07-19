@@ -74,6 +74,7 @@ enum class PVOperation {
   RecoverStatus,
   CreateGrant,
   ListGrants,
+  ListMembers,
   RevokeGrant,
   SealJob,
   OpenResult,
@@ -122,6 +123,13 @@ struct PVGrantSummary {
   uint64_t expiresAt = 0;
   bool revoked = false;
   bool pendingRevocation = false;
+};
+
+struct PVMemberSummary {
+  char endpointID[33] = {0};
+  char role[9] = {0};
+  bool unattended = false;
+  bool current = false;
 };
 
 struct PVParsedReply {
@@ -175,6 +183,7 @@ struct PVParsedReply {
   std::vector<uint8_t> sasTranscriptHash;
   std::vector<PVCandidate> candidates;
   std::vector<PVGrantSummary> grants;
+  std::vector<PVMemberSummary> members;
 };
 
 class PVReplyState {
@@ -324,6 +333,7 @@ struct PVAsyncRequest {
   std::vector<uint8_t> sasTranscriptHash;
   std::vector<PVCandidate> candidates;
   std::vector<PVGrantSummary> grants;
+  std::vector<PVMemberSummary> members;
 
   ~PVAsyncRequest() {
     if (!recoveryConfirmation.empty())
@@ -954,6 +964,90 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       summary.pendingRevocation =
           xpc_dictionary_get_bool(item, "pendingRevocation");
       parsed.grants.push_back(summary);
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
+  if (operation == PVOperation::ListMembers) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "members",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    xpc_object_t members = xpc_dictionary_get_value(reply, "members");
+    if (!PVHasExactKeys(reply, keys, 6) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "listed") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        members == nullptr || xpc_get_type(members) != XPC_TYPE_ARRAY ||
+        xpc_array_get_count(members) == 0 ||
+        xpc_array_get_count(members) > 64) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    const size_t count = xpc_array_get_count(members);
+    try {
+      parsed.members.reserve(count);
+    } catch (...) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    size_t currentCount = 0;
+    for (size_t index = 0; index < count; index += 1) {
+      xpc_object_t item = xpc_array_get_value(members, index);
+      const char *const itemKeys[] = {
+          "endpointId", "role", "unattended", "current",
+      };
+      const char *endpointID =
+          item == nullptr ? nullptr : PVGetString(item, "endpointId");
+      const char *role = item == nullptr ? nullptr : PVGetString(item, "role");
+      xpc_object_t unattended = item == nullptr
+          ? nullptr
+          : xpc_dictionary_get_value(item, "unattended");
+      xpc_object_t current = item == nullptr
+          ? nullptr
+          : xpc_dictionary_get_value(item, "current");
+      const bool isEndpoint = role != nullptr && strcmp(role, "endpoint") == 0;
+      const bool isBroker = role != nullptr && strcmp(role, "broker") == 0;
+      const bool unattendedValue =
+          unattended != nullptr && xpc_get_type(unattended) == XPC_TYPE_BOOL
+              ? xpc_dictionary_get_bool(item, "unattended")
+              : false;
+      const bool currentValue =
+          current != nullptr && xpc_get_type(current) == XPC_TYPE_BOOL
+              ? xpc_dictionary_get_bool(item, "current")
+              : false;
+      bool duplicate = false;
+      if (endpointID != nullptr)
+        for (const PVMemberSummary &existing : parsed.members)
+          duplicate =
+              duplicate || strcmp(existing.endpointID, endpointID) == 0;
+      if (item == nullptr || xpc_get_type(item) != XPC_TYPE_DICTIONARY ||
+          !PVHasExactKeys(item, itemKeys, 4) ||
+          !PVIsLowerHex(endpointID, 32) || (!isEndpoint && !isBroker) ||
+          unattended == nullptr || xpc_get_type(unattended) != XPC_TYPE_BOOL ||
+          current == nullptr || xpc_get_type(current) != XPC_TYPE_BOOL ||
+          unattendedValue != isBroker || (currentValue && !isEndpoint) ||
+          duplicate) {
+        parsed.failure = PVFailure::MalformedReply;
+        parsed.members.clear();
+        return parsed;
+      }
+      PVMemberSummary summary;
+      memcpy(summary.endpointID, endpointID, 33);
+      memcpy(summary.role, role, strlen(role) + 1);
+      summary.unattended = unattendedValue;
+      summary.current = currentValue;
+      if (currentValue) currentCount += 1;
+      parsed.members.push_back(summary);
+    }
+    if (currentCount != 1) {
+      parsed.failure = PVFailure::MalformedReply;
+      parsed.members.clear();
+      return parsed;
     }
     memcpy(parsed.state, state, strlen(state) + 1);
     memcpy(parsed.vaultID, vaultID, 33);
@@ -1761,6 +1855,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "revoke_grant"
                           : request->operation == PVOperation::ListGrants
                               ? "list_grants"
+                          : request->operation == PVOperation::ListMembers
+                              ? "list_members"
                           : request->operation == PVOperation::SealJob
                               ? "seal_job"
                           : request->operation == PVOperation::OpenResult
@@ -1839,6 +1935,7 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::CreateGrant ||
       request->operation == PVOperation::RevokeGrant ||
       request->operation == PVOperation::ListGrants ||
+      request->operation == PVOperation::ListMembers ||
       request->operation == PVOperation::SealExport ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
@@ -2061,6 +2158,7 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::CreateGrant ||
                 request->operation == PVOperation::RevokeGrant ||
                 request->operation == PVOperation::ListGrants ||
+                request->operation == PVOperation::ListMembers ||
                 request->operation == PVOperation::SealExport ||
                 request->operation == PVOperation::SealJob ||
                 request->operation == PVOperation::OpenResult ||
@@ -2169,6 +2267,7 @@ void PVExecute(napi_env env, void *data) {
     request->grantID = std::move(parsed.grantID);
     request->grantRefBytes = std::move(parsed.grantRefBytes);
     request->grants = std::move(parsed.grants);
+    request->members = std::move(parsed.members);
     request->sasTranscriptHash = std::move(parsed.sasTranscriptHash);
     request->writerEndpointID = std::move(parsed.writerEndpointID);
     request->candidates = std::move(parsed.candidates);
@@ -2273,6 +2372,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "revoke_grant"
                 : request->operation == PVOperation::ListGrants
                     ? "list_grants"
+                : request->operation == PVOperation::ListMembers
+                    ? "list_members"
                 : request->operation == PVOperation::SealJob
                     ? "seal_job"
                 : request->operation == PVOperation::OpenResult
@@ -2402,6 +2503,51 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       }
       if (request->failure == PVFailure::None &&
           napi_set_named_property(env, result, "grants", grants) != napi_ok)
+        request->failure = PVFailure::ServiceError;
+      if (request->failure != PVFailure::None) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::ListMembers) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      napi_value members;
+      if (napi_create_array_with_length(env, request->members.size(),
+                                        &members) != napi_ok) {
+        request->failure = PVFailure::ServiceError;
+      } else {
+        for (size_t index = 0; index < request->members.size(); index += 1) {
+          const PVMemberSummary &summary = request->members[index];
+          napi_value item;
+          napi_value unattended;
+          napi_value current;
+          if (napi_create_object(env, &item) != napi_ok) {
+            request->failure = PVFailure::ServiceError;
+            break;
+          }
+          PVSetString(env, item, "endpointId", summary.endpointID);
+          PVSetString(env, item, "role", summary.role);
+          if (napi_get_boolean(env, summary.unattended, &unattended) !=
+                  napi_ok ||
+              napi_set_named_property(env, item, "unattended", unattended) !=
+                  napi_ok ||
+              napi_get_boolean(env, summary.current, &current) != napi_ok ||
+              napi_set_named_property(env, item, "current", current) !=
+                  napi_ok ||
+              napi_set_element(env, members, index, item) != napi_ok) {
+            request->failure = PVFailure::ServiceError;
+            break;
+          }
+        }
+      }
+      if (request->failure == PVFailure::None &&
+          napi_set_named_property(env, result, "members", members) != napi_ok)
         request->failure = PVFailure::ServiceError;
       if (request->failure != PVFailure::None) {
         napi_value message;
@@ -2757,6 +2903,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::RevokeGrant;
   } else if (strcmp(operation, "list_grants") == 0) {
     request->operation = PVOperation::ListGrants;
+  } else if (strcmp(operation, "list_members") == 0) {
+    request->operation = PVOperation::ListMembers;
   } else if (strcmp(operation, "seal_job") == 0) {
     request->operation = PVOperation::SealJob;
   } else if (strcmp(operation, "open_result") == 0) {
@@ -2815,6 +2963,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::CreateGrant ? 5
       : request->operation == PVOperation::RevokeGrant ? 3
       : request->operation == PVOperation::ListGrants ? 2
+      : request->operation == PVOperation::ListMembers ? 2
       : request->operation == PVOperation::SealJob ? 7
       : request->operation == PVOperation::OpenResult ? 6
       : request->operation == PVOperation::OpenJob ? 7
@@ -2846,6 +2995,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::CreateGrant ||
       request->operation == PVOperation::RevokeGrant ||
       request->operation == PVOperation::ListGrants ||
+      request->operation == PVOperation::ListMembers ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
       request->operation == PVOperation::OpenJob ||

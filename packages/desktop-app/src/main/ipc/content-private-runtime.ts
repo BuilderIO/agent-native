@@ -45,6 +45,7 @@ type RuntimeSurface = Pick<
   | "stop"
   | "health"
   | "listAgentGrants"
+  | "listVaultMembers"
   | "revokeAgentGrant"
   | "setApplicationState"
 > & {
@@ -200,6 +201,11 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
         exactNoArguments(arguments_);
         return runtime(event).listAgentGrants();
       }),
+    listMembers: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        exactNoArguments(arguments_);
+        return runtime(event).listVaultMembers();
+      }),
     revokeGrant: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
       result(async () => {
         if (arguments_.length !== 1) throw new Error();
@@ -241,6 +247,10 @@ export function registerContentPrivateRuntimeIpc(input: {
     handlers.restoreVersion,
   );
   ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_LIST_GRANTS, handlers.listGrants);
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_LIST_MEMBERS,
+    handlers.listMembers,
+  );
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT,
     handlers.revokeGrant,

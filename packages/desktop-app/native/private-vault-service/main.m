@@ -1791,6 +1791,76 @@ static void PVListContentGrants(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVListVaultMembers(xpc_connection_t peer, xpc_object_t message,
+                               const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *localEndpointId = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *epoch = nil;
+        if (!PVObjectEndpointContext(vaultId, &state, &localEndpointId,
+                                     &signing, &epoch) ||
+            signing == nil || epoch == nil || state == nil ||
+            localEndpointId.length != 16 || state.activeMembers.count == 0 ||
+            state.activeMembers.count > 64) {
+            if (signing != nil) [signing close];
+            if (epoch != nil) [epoch close];
+            PVSendError(peer, message, "member_list_failed");
+            return;
+        }
+        BOOL signingClosed =
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL epochClosed =
+            [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL secretsClosed = signingClosed && epochClosed;
+        NSString *localEndpoint = PVVaultIDHex(localEndpointId);
+        xpc_object_t members = xpc_array_create(NULL, 0);
+        NSMutableSet<NSString *> *seen = [NSMutableSet set];
+        NSUInteger currentCount = 0;
+        BOOL valid = secretsClosed && localEndpoint != nil && members != NULL;
+        for (AncPrivateVaultControlLogMember *member in state.activeMembers) {
+            BOOL roleValid = [member.role isEqualToString:@"endpoint"] ||
+                             [member.role isEqualToString:@"broker"];
+            BOOL unattendedValid =
+                ([member.role isEqualToString:@"broker"] &&
+                 member.unattended) ||
+                ([member.role isEqualToString:@"endpoint"] &&
+                 !member.unattended);
+            BOOL current = [member.endpointId isEqualToString:localEndpoint];
+            if (!valid || !roleValid || !unattendedValid ||
+                PVLookupIDData(member.endpointId.UTF8String).length != 16 ||
+                [seen containsObject:member.endpointId]) {
+                valid = NO;
+                break;
+            }
+            [seen addObject:member.endpointId];
+            if (current) currentCount += 1;
+            xpc_object_t item = xpc_dictionary_create(NULL, NULL, 0);
+            if (item == NULL) {
+                valid = NO;
+                break;
+            }
+            xpc_dictionary_set_string(item, "endpointId",
+                                      member.endpointId.UTF8String);
+            xpc_dictionary_set_string(item, "role", member.role.UTF8String);
+            xpc_dictionary_set_bool(item, "unattended", member.unattended);
+            xpc_dictionary_set_bool(item, "current", current);
+            xpc_array_append_value(members, item);
+        }
+        if (!valid || currentCount != 1) {
+            PVSendError(peer, message, "member_list_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "listed");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_value(reply, "members", members);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVSealExportArchive(xpc_connection_t peer, xpc_object_t message,
                                 const PVRequest *request) {
     @autoreleasepool {
@@ -2975,6 +3045,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "list_grants") == 0) {
                 PVListContentGrants(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "list_members") == 0) {
+                PVListVaultMembers(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "revoke_grant") == 0) {

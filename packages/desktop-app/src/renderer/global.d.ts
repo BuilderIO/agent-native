@@ -672,6 +672,9 @@ interface ElectronAPI {
     listGrants(): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
+    listMembers(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
     revokeGrant(
       grantRef: string,
     ): Promise<

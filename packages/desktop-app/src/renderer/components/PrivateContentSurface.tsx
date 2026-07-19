@@ -3,6 +3,7 @@ import type {
   DesktopPrivateContentDocument,
   DesktopPrivateContentGrantSummary,
   DesktopPrivateContentSummary,
+  DesktopPrivateContentVaultMember,
   DesktopPrivateContentVersion,
 } from "@shared/ipc-channels";
 import {
@@ -185,6 +186,29 @@ function privateGrants(value: unknown): DesktopPrivateContentGrantSummary[] {
   });
 }
 
+function privateMembers(value: unknown): DesktopPrivateContentVaultMember[] {
+  if (!value || typeof value !== "object") return [];
+  const members = (value as { members?: unknown }).members;
+  if (!Array.isArray(members)) return [];
+  return members.filter(
+    (member): member is DesktopPrivateContentVaultMember => {
+      if (!member || typeof member !== "object" || Array.isArray(member))
+        return false;
+      const record = member as Record<string, unknown>;
+      return (
+        Object.keys(record).length === 4 &&
+        typeof record.endpointId === "string" &&
+        /^[0-9a-f]{32}$/u.test(record.endpointId) &&
+        (record.role === "endpoint" || record.role === "broker") &&
+        typeof record.unattended === "boolean" &&
+        record.unattended === (record.role === "broker") &&
+        typeof record.current === "boolean" &&
+        (!record.current || record.role === "endpoint")
+      );
+    },
+  );
+}
+
 function shortIdentity(value: string) {
   return `${value.slice(0, 6)}…${value.slice(-6)}`;
 }
@@ -238,7 +262,11 @@ export default function PrivateContentSurface({
   const [versions, setVersions] = useState<DesktopPrivateContentVersion[]>([]);
   const [showVersions, setShowVersions] = useState(false);
   const [grants, setGrants] = useState<DesktopPrivateContentGrantSummary[]>([]);
+  const [members, setMembers] = useState<DesktopPrivateContentVaultMember[]>(
+    [],
+  );
   const [grantsLoading, setGrantsLoading] = useState(false);
+  const [membersLoading, setMembersLoading] = useState(false);
   const [revokingGrantRef, setRevokingGrantRef] = useState<string | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
     null,
@@ -260,6 +288,19 @@ export default function PrivateContentSurface({
       setMessage("Agent access could not be verified on this device.");
     } finally {
       setGrantsLoading(false);
+    }
+  }, []);
+
+  const loadMembers = useCallback(async () => {
+    setMembersLoading(true);
+    try {
+      const response = await window.electronAPI.privateContent.listMembers();
+      if (!response.ok) throw new Error();
+      setMembers(privateMembers(response.value));
+    } catch {
+      setMessage("Enrolled devices could not be verified on this device.");
+    } finally {
+      setMembersLoading(false);
     }
   }, []);
 
@@ -287,12 +328,12 @@ export default function PrivateContentSurface({
     setHealth(privateContentHealth(response.value));
     setState("open");
     try {
-      await Promise.all([loadList(), loadGrants()]);
+      await Promise.all([loadList(), loadGrants(), loadMembers()]);
     } catch {
       setState("error");
       setMessage("Private documents could not be verified on this device.");
     }
-  }, [loadGrants, loadList]);
+  }, [loadGrants, loadList, loadMembers]);
 
   useEffect(() => {
     const refreshHealth = () =>
@@ -450,6 +491,7 @@ export default function PrivateContentSurface({
     setShowVersions(false);
     setHealth(null);
     setGrants([]);
+    setMembers([]);
     setState("locked");
   };
 
@@ -560,11 +602,44 @@ export default function PrivateContentSurface({
           <details
             className="private-content-reader-details"
             onToggle={(event) => {
-              if (event.currentTarget.open) void loadGrants();
+              if (event.currentTarget.open)
+                void Promise.all([loadGrants(), loadMembers()]);
             }}
           >
             <summary>Who can read?</summary>
             <PrivateContentDisclosure compact />
+            <div className="private-content-grants">
+              <div className="private-content-grants-heading">
+                <IconShieldLock size={15} aria-hidden="true" />
+                <strong>Enrolled members</strong>
+              </div>
+              {membersLoading ? (
+                <span>Checking signed membership…</span>
+              ) : members.length === 0 ? (
+                <span>
+                  Membership is unavailable while the vault is locked.
+                </span>
+              ) : (
+                members.map((member) => (
+                  <div
+                    className="private-content-member"
+                    key={member.endpointId}
+                  >
+                    <strong>
+                      {member.current
+                        ? "This Mac"
+                        : member.role === "broker"
+                          ? "Personal agent broker"
+                          : "Enrolled device"}
+                    </strong>
+                    <span>
+                      {shortIdentity(member.endpointId)} ·{" "}
+                      {member.unattended ? "unattended" : "attended"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
             <div className="private-content-grants">
               <div className="private-content-grants-heading">
                 <IconUserShield size={15} aria-hidden="true" />

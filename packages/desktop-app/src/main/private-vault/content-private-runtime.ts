@@ -35,6 +35,7 @@ interface RequesterSurface {
     subjectAgentId: string;
   }): Promise<unknown>;
   listContentGrants(vaultId: string): Promise<unknown>;
+  listVaultMembers(vaultId: string): Promise<unknown>;
   revokeContentGrant(vaultId: string, grantRef: string): Promise<unknown>;
 }
 
@@ -147,6 +148,15 @@ export class PrivateVaultContentRuntime {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     try {
       return await this.#requester.listContentGrants(this.#active.vaultId);
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
+  async listVaultMembers() {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#requester.listVaultMembers(this.#active.vaultId);
     } catch {
       throw new PrivateVaultContentRuntimeError();
     }

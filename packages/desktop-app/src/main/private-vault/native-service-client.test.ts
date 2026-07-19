@@ -704,6 +704,79 @@ describe("Private Vault native service client", () => {
     );
   });
 
+  it("lists only content-free vault member summaries", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const currentEndpointId = "11112222333344445555666677778888";
+    const brokerEndpointId = "9999aaaabbbbccccddddeeeeffff0000";
+    const request = vi.fn(
+      async (): Promise<unknown> => ({
+        version: 3,
+        operation: "list_members",
+        state: "listed",
+        vaultId,
+        members: [
+          {
+            endpointId: currentEndpointId,
+            role: "endpoint",
+            unattended: false,
+            current: true,
+          },
+          {
+            endpointId: brokerEndpointId,
+            role: "broker",
+            unattended: true,
+            current: false,
+          },
+        ],
+      }),
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    await expect(client.listVaultMembers(vaultId)).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "list_members",
+      state: "listed",
+      vaultId,
+      members: [
+        {
+          endpointId: currentEndpointId,
+          role: "endpoint",
+          unattended: false,
+          current: true,
+        },
+        {
+          endpointId: brokerEndpointId,
+          role: "broker",
+          unattended: true,
+          current: false,
+        },
+      ],
+    });
+    expect(request).toHaveBeenCalledWith("list_members", vaultId);
+
+    request.mockResolvedValueOnce({
+      version: 3,
+      operation: "list_members",
+      state: "listed",
+      vaultId,
+      members: [
+        {
+          endpointId: currentEndpointId,
+          role: "endpoint",
+          unattended: false,
+          current: true,
+          signingPublicKey: "must-not-cross",
+        },
+      ],
+    });
+    await expect(client.listVaultMembers(vaultId)).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+  });
+
   it("seals an export through native phrase collection and clears its working plaintext", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const exportId = "ffeeddccbbaa99887766554433221100";

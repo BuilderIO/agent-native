@@ -275,6 +275,10 @@ describe("Content requester runtime", () => {
         operation: "list_grants",
         grants: [],
       })),
+      listVaultMembers: vi.fn(async () => ({
+        operation: "list_members",
+        members: [],
+      })),
       revokeContentGrant: vi.fn(async () => ({
         operation: "revoke_grant",
         state: "revoked",
@@ -319,6 +323,12 @@ describe("Content requester runtime", () => {
     await expect(
       runtime.listContentGrants(descriptor.vaultId),
     ).resolves.toEqual({ operation: "list_grants", grants: [] });
+    await expect(runtime.listVaultMembers(descriptor.vaultId)).resolves.toEqual(
+      {
+        operation: "list_members",
+        members: [],
+      },
+    );
     await runtime.revokeContentGrant(descriptor.vaultId, firstGrantRef);
     await run();
 

@@ -127,6 +127,14 @@ int main(void) {
          strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
   xpc_release(listGrants);
 
+  xpc_object_t listMembers =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "list_members", "request-list-members");
+  xpc_dictionary_set_string(listMembers, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(listMembers, &parsed) == PVRequestValid &&
+         strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  xpc_release(listMembers);
+
   xpc_object_t sealExport =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_export", "request-seal-export");
   xpc_dictionary_set_string(sealExport, "vaultId",

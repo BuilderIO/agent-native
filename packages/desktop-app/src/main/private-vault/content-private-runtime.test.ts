@@ -24,6 +24,7 @@ function harness() {
   const requester = {
     runAction: vi.fn(async () => ({ id: "result" })),
     listContentGrants: vi.fn(async () => ({ grants: [] })),
+    listVaultMembers: vi.fn(async () => ({ members: [] })),
     revokeContentGrant: vi.fn(async (_vaultId: string, grantRef: string) => ({
       state: "revoked",
       grantRef,
@@ -157,11 +158,15 @@ describe("PrivateVaultContentRuntime", () => {
     await expect(source.runtime.listAgentGrants()).resolves.toEqual({
       grants: [],
     });
+    await expect(source.runtime.listVaultMembers()).resolves.toEqual({
+      members: [],
+    });
     await expect(source.runtime.revokeAgentGrant(grantRef)).resolves.toEqual({
       state: "revoked",
       grantRef,
     });
     expect(source.requester.listContentGrants).toHaveBeenCalledWith(vaultId);
+    expect(source.requester.listVaultMembers).toHaveBeenCalledWith(vaultId);
     expect(source.requester.revokeContentGrant).toHaveBeenCalledWith(
       vaultId,
       grantRef,
