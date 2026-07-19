@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.15.3
+
+### Patch Changes
+
+- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
+- e53a34e: Add reusable provider API and staged dataset action factories, including opt-in custom provider registration and sanitized provider request audit summaries that narrow recorded audit metadata to safe request context.
+- Updated dependencies [e53a34e]
+  - @agent-native/toolkit@0.7.0
+
 ## 0.15.2
 
 ### Patch Changes
