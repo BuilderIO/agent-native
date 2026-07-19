@@ -22,6 +22,7 @@ export interface PrivateVaultActionRequest {
 
 export interface PrivateVaultAuthorizedActionContext {
   readonly jobId: string;
+  readonly jobHash: string;
   readonly resourceId: Uint8Array;
   readonly operation: string;
 }
@@ -202,6 +203,7 @@ export class PrivateVaultContentActionExecutor {
   async execute(input: {
     readonly payload: Uint8Array;
     readonly jobId: string;
+    readonly jobHash: string;
     readonly resourceId: Uint8Array;
     readonly operation: string;
   }): Promise<{
@@ -212,12 +214,14 @@ export class PrivateVaultContentActionExecutor {
       if (!ACTION_NAME.test(input.operation)) {
         fail();
       }
+      if (!/^[0-9a-f]{64}$/.test(input.jobHash)) fail();
       const request = decodePrivateVaultActionRequest(input.payload);
       if (request.actionName !== input.operation) fail();
       const handler = this.#registry[request.actionName];
       if (!handler) fail();
       const result = await handler.run(request.args, {
         jobId: input.jobId,
+        jobHash: input.jobHash,
         resourceId: Uint8Array.from(input.resourceId),
         operation: input.operation,
       });

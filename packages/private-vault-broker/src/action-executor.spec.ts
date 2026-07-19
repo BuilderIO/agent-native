@@ -50,6 +50,7 @@ describe("private-vault Content action executor", () => {
         args: { id: "document_12345678" },
       }),
       jobId: "job_12345678",
+      jobHash: "11".repeat(32),
       resourceId: new Uint8Array(16).fill(7),
       operation: "get-document",
     };
@@ -94,6 +95,7 @@ describe("private-vault Content action executor", () => {
           }),
         ),
         jobId: "job_12345678",
+        jobHash: "11".repeat(32),
         resourceId: new Uint8Array(16),
         operation: actionName,
       });

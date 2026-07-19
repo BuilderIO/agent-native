@@ -34,6 +34,7 @@ export interface PrivateVaultBrokerActionExecutor {
     /** Authenticated plaintext bytes borrowed only for this local call. */
     readonly payload: Uint8Array;
     readonly jobId: string;
+    readonly jobHash: string;
     readonly resourceId: Uint8Array;
     readonly operation: string;
   }): Promise<{
@@ -228,6 +229,7 @@ export class PrivateVaultBrokerWorker {
         const execution = await this.#executor.execute({
           payload,
           jobId: claimed.jobId,
+          jobHash: opened.jobHash,
           resourceId: opened.resourceId,
           operation: opened.operationName,
         });

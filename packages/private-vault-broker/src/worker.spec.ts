@@ -181,6 +181,13 @@ describe("PrivateVaultBrokerWorker", () => {
       retryCount: 0,
       algorithmId: "anc-v1-job",
     });
+    expect(fixture.executor.execute).toHaveBeenCalledWith({
+      payload: fixture.openedPayload,
+      jobId,
+      jobHash,
+      resourceId: new Uint8Array(16),
+      operation: "get-document",
+    });
     expect(fixture.native.recoverHostedResult).toHaveBeenCalledWith({
       ...base,
       operation: "recoverHostedResult",

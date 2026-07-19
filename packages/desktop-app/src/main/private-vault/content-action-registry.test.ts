@@ -13,6 +13,7 @@ const at = "2026-07-18T20:00:00.000Z";
 function context(resource: string, operation: string) {
   return {
     jobId: "job-fixture",
+    jobHash: "11".repeat(32),
     resourceId: Uint8Array.from(Buffer.from(resource, "hex")),
     operation,
   };
