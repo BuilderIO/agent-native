@@ -49,6 +49,7 @@ describe("anc/v1 suite freeze", () => {
       "enrollment-key-proof",
       "enrollment-challenge",
       "enrollment-sas",
+      "enrollment-sas-decision",
       "enrollment-authorization",
       "genesis-recovery-confirmation",
       "genesis-authorization",
