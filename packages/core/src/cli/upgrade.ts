@@ -18,6 +18,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { MigrationCodemodResult } from "./migration-codemod.js";
+
 const AGENT_NATIVE_SCOPE = "@agent-native/";
 const PINNABLE_VERSION = "latest";
 
@@ -541,6 +543,19 @@ const FAILURE_GUIDANCE = [
   "  npx @agent-native/core@latest upgrade",
 ].join("\n");
 
+function applyCodemodDependencyPlan(
+  codemodResult: MigrationCodemodResult,
+): MigrationCodemodResult["changes"] {
+  const dependencyFiles = new Set(codemodResult.dependencyFiles);
+  const applied: MigrationCodemodResult["changes"] = [];
+  for (const change of codemodResult.changes) {
+    if (!dependencyFiles.has(change.file)) continue;
+    fs.writeFileSync(change.file, change.after);
+    applied.push(change);
+  }
+  return applied;
+}
+
 export async function runUpgrade(
   argv: string[],
   io: UpgradeIo = defaultIo,
@@ -659,39 +674,57 @@ export async function runUpgrade(
     });
   }
 
+  let codemodPlan:
+    | {
+        module: typeof import("./migration-codemod.js");
+        dependencyChanges: MigrationCodemodResult["changes"];
+      }
+    | undefined;
+
   if (opts.codemods) {
-    const { formatMigrationCodemodDiff, runMigrationCodemods } =
-      await import("./migration-codemod.js");
-    const codemodResult = runMigrationCodemods({
+    const codemodModule = await import("./migration-codemod.js");
+    const codemodResult = codemodModule.runMigrationCodemods({
       root: project.root,
-      apply: !dryRun,
-    });
-    const diff = formatMigrationCodemodDiff(codemodResult, project.root);
-    result.codemod = {
-      files: codemodResult.changes.map((change) =>
-        relativeTo(project.root, change.file),
+      targetExists: codemodModule.createMigrationPlanningTargetResolver(
+        project.root,
       ),
-      warnings: codemodResult.warnings,
-      diff,
-    };
-    result.steps.push({
-      id: "codemods",
-      status:
-        codemodResult.changes.length === 0
-          ? "skipped"
-          : dryRun
-            ? "planned"
-            : "ok",
-      detail:
-        codemodResult.changes.length === 0
-          ? "No manifest migrations found"
-          : `${dryRun ? "Would update" : "Updated"} ${codemodResult.changes.length} file(s)`,
     });
-    if (!opts.json && diff) {
+    const diff = codemodModule.formatMigrationCodemodDiff(
+      codemodResult,
+      project.root,
+    );
+    const dependencyChanges = dryRun
+      ? []
+      : applyCodemodDependencyPlan(codemodResult);
+    codemodPlan = {
+      module: codemodModule,
+      dependencyChanges,
+    };
+
+    if (dryRun) {
+      result.codemod = {
+        files: codemodResult.changes.map((change) =>
+          relativeTo(project.root, change.file),
+        ),
+        warnings: codemodResult.warnings,
+        diff,
+      };
+    }
+    if (dryRun) {
+      result.steps.push({
+        id: "codemods",
+        status: codemodResult.changes.length === 0 ? "skipped" : "planned",
+        detail:
+          codemodResult.changes.length === 0
+            ? "No manifest migrations found"
+            : `Would update ${codemodResult.changes.length} file(s)`,
+      });
+    }
+    if (dryRun && !opts.json && diff) {
       io.log(diff);
       io.log("");
     }
-    if (!opts.json) {
+    if (dryRun && !opts.json) {
       for (const warning of codemodResult.warnings) {
         io.err(`[codemods] ${warning}`);
       }
@@ -721,6 +754,30 @@ export async function runUpgrade(
       result.ok = false;
       result.exitCode = spawned.status ?? 1;
       result.message = `${pm} install failed`;
+      if (codemodPlan && codemodPlan.dependencyChanges.length > 0) {
+        const dependencyResult: MigrationCodemodResult = {
+          changes: codemodPlan.dependencyChanges,
+          dependencyFiles: codemodPlan.dependencyChanges.map(
+            (change) => change.file,
+          ),
+          warnings: [],
+        };
+        const diff = codemodPlan.module.formatMigrationCodemodDiff(
+          dependencyResult,
+          project.root,
+        );
+        result.codemod = {
+          files: dependencyResult.changes.map((change) =>
+            relativeTo(project.root, change.file),
+          ),
+          warnings: [],
+          diff,
+        };
+        if (!opts.json && diff) {
+          io.log(diff);
+          io.log("");
+        }
+      }
       result.steps.push({
         id: "install",
         status: "failed",
@@ -730,6 +787,51 @@ export async function runUpgrade(
       return result.exitCode;
     }
     result.steps.push({ id: "install", status: "ok", detail: `${pm} install` });
+  }
+
+  if (codemodPlan && !dryRun) {
+    const applied = codemodPlan.module.runMigrationCodemods({
+      root: project.root,
+      apply: true,
+    });
+    const actualResult: MigrationCodemodResult = {
+      changes: [...codemodPlan.dependencyChanges, ...applied.changes],
+      dependencyFiles: codemodPlan.dependencyChanges.map(
+        (change) => change.file,
+      ),
+      warnings: applied.warnings,
+    };
+    const diff = codemodPlan.module.formatMigrationCodemodDiff(
+      actualResult,
+      project.root,
+    );
+    const files = [
+      ...new Set(actualResult.changes.map((change) => change.file)),
+    ];
+    result.codemod = {
+      files: files.map((file) => relativeTo(project.root, file)),
+      warnings: actualResult.warnings,
+      diff,
+    };
+    result.steps.push({
+      id: "codemods",
+      status: files.length === 0 ? "skipped" : "ok",
+      detail:
+        files.length === 0
+          ? "No resolvable manifest migrations found"
+          : opts.skipInstall
+            ? `Updated ${files.length} file(s) without installing dependencies`
+            : `Updated ${files.length} file(s) after dependency installation`,
+    });
+    if (!opts.json && diff) {
+      io.log(diff);
+      io.log("");
+    }
+    if (!opts.json) {
+      for (const warning of actualResult.warnings) {
+        io.err(`[codemods] ${warning}`);
+      }
+    }
   }
 
   // Skills refresh.
