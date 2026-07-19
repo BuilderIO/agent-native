@@ -1443,7 +1443,7 @@ function isSafeIdArray(value: unknown, max: number): value is string[] {
 function isSafeOrchestrationText(value: unknown): value is string {
   return (
     isArtifactSummary(value) &&
-    !/(?:bearer\s+|api[_-]?key\s*[:=]|authorization\s*[:=]|(?:sk|rk|pk)-[A-Za-z0-9_-]{12,}|refresh[_-]?token\s*[:=])/i.test(
+    !/(?:bearer\s+|api[_-]?key\s*[:=]|authorization\s*[:=]|(?:sk|rk|pk)[_-][A-Za-z0-9_-]{12,}|(?:access|refresh)[_-]?token\s*[:=])/i.test(
       value,
     )
   );

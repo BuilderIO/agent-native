@@ -41,6 +41,7 @@ import {
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
 const TERMINAL_PHASES = new Set(["completed", "failed", "canceled"]);
+type ManagedLifecycleCommand = "start" | "go" | "resume" | "re-review";
 
 export interface MultiFrontierManagerOptions {
   resolveWorkspaceCwd(workspaceId: string): Promise<string | null>;
@@ -80,6 +81,7 @@ interface ManagedCollaboration {
   orchestrator: MultiFrontierOrchestrator;
   listeners: Set<(event: MultiFrontierIpcEvent) => void>;
   sequence: number;
+  lifecycleCommand?: ManagedLifecycleCommand;
 }
 
 /**
@@ -191,6 +193,15 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    return this.#runLifecycleCommand(session, "start", request.requestId, () =>
+      this.#start(session, request),
+    );
+  }
+
+  async #start(
+    session: ManagedCollaboration,
+    request: MultiFrontierCollaborationIdRequest,
+  ): Promise<MultiFrontierCollaborationResult> {
     const planningRequest = session.request;
     if (!planningRequest) {
       return this.#errorForSession(
@@ -243,6 +254,15 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    return this.#runLifecycleCommand(session, "go", request.requestId, () =>
+      this.#approveGo(session, request),
+    );
+  }
+
+  async #approveGo(
+    session: ManagedCollaboration,
+    request: MultiFrontierCollaborationIdRequest,
+  ): Promise<MultiFrontierCollaborationResult> {
     if (!(await this.#hasConnectedSubscriptions())) {
       return this.#subscriptionRequired(request.requestId, session);
     }
@@ -269,8 +289,25 @@ export class MultiFrontierManager {
       lease = await session.coordinator.approveGo(
         trusted.driver?.participantId ?? session.driverParticipantId,
       );
-    } catch (error) {
-      return this.#pauseForProviderFailure(session, request.requestId, error);
+    } catch {
+      const current = await session.coordinator
+        .readTrustedSnapshot()
+        .catch(() => null);
+      if (
+        current?.phase === "implementing" &&
+        current.approval === "approved"
+      ) {
+        return this.#errorForSession(
+          request.requestId,
+          session,
+          "GO was already approved by a concurrent request.",
+        );
+      }
+      return this.#errorForSession(
+        request.requestId,
+        session,
+        "GO could not be applied to the current collaboration state.",
+      );
     }
     await this.#emitNotice(
       session,
@@ -301,6 +338,15 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    return this.#runLifecycleCommand(session, "resume", request.requestId, () =>
+      this.#resume(session, request),
+    );
+  }
+
+  async #resume(
+    session: ManagedCollaboration,
+    request: MultiFrontierCollaborationIdRequest,
+  ): Promise<MultiFrontierCollaborationResult> {
     if (!(await this.#hasConnectedSubscriptions())) {
       return this.#subscriptionRequired(request.requestId, session);
     }
@@ -338,7 +384,7 @@ export class MultiFrontierManager {
     // request is explicit new input; no prior turn is replayed.
     await this.#emitSnapshot(session);
     if (needsPlanningPrompt) {
-      return this.start({
+      return this.#start(session, {
         schemaVersion: 1,
         requestId: request.requestId,
         action: "start",
@@ -364,6 +410,18 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    return this.#runLifecycleCommand(
+      session,
+      "re-review",
+      request.requestId,
+      () => this.#reReview(session, request),
+    );
+  }
+
+  async #reReview(
+    session: ManagedCollaboration,
+    request: MultiFrontierReReviewRequest,
+  ): Promise<MultiFrontierCollaborationResult> {
     if (!(await this.#hasConnectedSubscriptions())) {
       return this.#subscriptionRequired(request.requestId, session);
     }
@@ -517,6 +575,29 @@ export class MultiFrontierManager {
       }),
     );
     this.#sessions.clear();
+  }
+
+  async #runLifecycleCommand(
+    session: ManagedCollaboration,
+    command: ManagedLifecycleCommand,
+    requestId: string,
+    operation: () => Promise<MultiFrontierCollaborationResult>,
+  ): Promise<MultiFrontierCollaborationResult> {
+    if (session.lifecycleCommand) {
+      return this.#errorForSession(
+        requestId,
+        session,
+        `${session.lifecycleCommand} is already in progress for this collaboration.`,
+      );
+    }
+    session.lifecycleCommand = command;
+    try {
+      return await operation();
+    } finally {
+      if (session.lifecycleCommand === command) {
+        session.lifecycleCommand = undefined;
+      }
+    }
   }
 
   #createSession(input: {

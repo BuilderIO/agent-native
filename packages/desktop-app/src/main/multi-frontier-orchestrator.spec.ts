@@ -330,11 +330,17 @@ describe("MultiFrontierOrchestrator", () => {
   });
 
   it("keeps first-round proposal prompts independent of sibling proposal output", async () => {
+    const privateProposalByParticipant = {
+      codex: "codex-private-proposal-body::mfproposal.codex.secret",
+      claude: "claude-private-proposal-body::mfproposal.claude.secret",
+    } as const;
     const harness = createHarness({
       captureTurnResult: async (request) => ({
         text:
           request.stage === "proposal"
-            ? `${request.participantId}-private-proposal-body`
+            ? privateProposalByParticipant[
+                request.participantId as keyof typeof privateProposalByParticipant
+              ]
             : `${request.stage} complete`,
         ...(request.stage === "synthesis" ? { agreed: true } : {}),
       }),
@@ -346,14 +352,30 @@ describe("MultiFrontierOrchestrator", () => {
       driverParticipantId: "codex",
     });
 
-    const proposalInstructions = harness.coordinatorTurns
-      .filter((turn) => turn.kind === "proposal")
-      .map((turn) => turn.instruction);
-    expect(proposalInstructions).toHaveLength(2);
-    for (const instruction of proposalInstructions) {
-      expect(instruction).not.toContain("codex-private-proposal-body");
-      expect(instruction).not.toContain("claude-private-proposal-body");
-      expect(instruction).not.toContain("mfproposal.");
+    const proposalInstructions = new Map(
+      harness.coordinatorTurns
+        .filter((turn) => turn.kind === "proposal")
+        .map((turn) => [turn.participantId, turn.instruction]),
+    );
+    const proposalArtifacts = harness.artifacts.filter(
+      (artifact) => artifact.kind === "proposal",
+    );
+    expect(proposalInstructions.size).toBe(2);
+    expect(proposalArtifacts).toHaveLength(2);
+    for (const participantId of ["codex", "claude"] as const) {
+      const siblingParticipantId =
+        participantId === "codex" ? "claude" : "codex";
+      const instruction = proposalInstructions.get(participantId);
+      expect(instruction).toBeDefined();
+      expect(instruction).not.toContain(
+        privateProposalByParticipant[siblingParticipantId],
+      );
+      expect(instruction).not.toContain(
+        `mfproposal.${siblingParticipantId}.secret`,
+      );
+      for (const artifact of proposalArtifacts) {
+        expect(instruction).not.toContain(artifact.id);
+      }
     }
   });
 

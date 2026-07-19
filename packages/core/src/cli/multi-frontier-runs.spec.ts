@@ -620,6 +620,18 @@ describe("multi-frontier run store", () => {
     expect(() => append({ ...base, text: `Bearer ${"x".repeat(24)}` })).toThrow(
       "orchestration artifact",
     );
+    expect(() =>
+      append({
+        ...base,
+        text: "Provider output included access_token=not-for-persistence.",
+      }),
+    ).toThrow("orchestration artifact");
+    expect(() =>
+      append({
+        ...base,
+        text: `Provider output included sk_live_${"x".repeat(16)}.`,
+      }),
+    ).toThrow("orchestration artifact");
     expect(() => append({ ...base, text: "x".repeat(9_000) })).toThrow(
       "orchestration artifact",
     );

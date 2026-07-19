@@ -58,6 +58,67 @@ describe("MultiFrontierManager", () => {
     });
   });
 
+  it("keeps a concurrent duplicate GO from pausing the active implementation", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns);
+    const created = await manager.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await manager.start(action("start", collaborationId));
+
+    const [first, duplicate] = await Promise.all([
+      manager.go({ ...action("go", collaborationId), requestId: "go-first" }),
+      manager.go({
+        ...action("go", collaborationId),
+        requestId: "go-duplicate",
+      }),
+    ]);
+
+    expect([first.error, duplicate.error].filter(Boolean)).toHaveLength(1);
+    expect([first.snapshot?.phase, duplicate.snapshot?.phase]).toContain(
+      "implementing",
+    );
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "completed",
+    );
+    expect(getMultiFrontierRun(collaborationId)?.phase).toBe("completed");
+    expect(turns.some((turn) => turn.phase === "implementing")).toBe(true);
+  });
+
+  it("keeps a concurrent duplicate planning start from pausing the active review", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const planning = deferred<void>();
+    const manager = createManager(turns, { planningGate: planning.promise });
+    const created = await manager.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+
+    const first = manager.start({
+      ...action("start", collaborationId),
+      requestId: "start-first",
+    });
+    await waitFor(
+      () => turns.filter((turn) => turn.phase === "proposing").length === 2,
+    );
+    await expect(
+      manager.start({
+        ...action("start", collaborationId),
+        requestId: "start-duplicate",
+      }),
+    ).resolves.toMatchObject({
+      error: {
+        message: expect.stringContaining("start is already in progress"),
+      },
+      snapshot: { phase: "proposing" },
+    });
+
+    planning.resolve(undefined);
+    await expect(first).resolves.toMatchObject({
+      snapshot: { phase: "awaiting_go" },
+    });
+    expect(getMultiFrontierRun(collaborationId)?.phase).toBe("awaiting_go");
+  });
+
   it("recovers artifacts through the real coordinator without replaying a turn before explicit GO", async () => {
     useStore();
     const initialTurns: LocalFrontierTurnInput[] = [];
@@ -408,6 +469,7 @@ function createManager(
     connected?: boolean;
     snapshotTestOutput?: string;
     omitImplementationTests?: boolean;
+    planningGate?: Promise<void>;
     onParticipants?: (sessionRefs: Readonly<Record<string, string>>) => void;
   } = {},
 ): MultiFrontierManager {
@@ -439,6 +501,7 @@ function participant(
     checkpointConsequential?: boolean;
     checkpointFindings?: boolean;
     omitImplementationTests?: boolean;
+    planningGate?: Promise<void>;
   },
 ): LocalFrontierParticipant {
   return {
@@ -449,6 +512,9 @@ function participant(
     async resume(_input: LocalFrontierSessionInput) {},
     async runTurn(input) {
       turns.push(input);
+      if (input.phase === "proposing" && options.planningGate) {
+        await options.planningGate;
+      }
       if (input.phase === "cross_review") {
         return {
           text: "Cross-review complete.",
@@ -536,6 +602,14 @@ function participant(
       return () => undefined;
     },
   };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 function createRequest(): MultiFrontierCreateCollaborationRequest {
