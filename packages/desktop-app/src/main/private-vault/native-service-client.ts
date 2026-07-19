@@ -59,6 +59,8 @@ type NativeOperation =
   | "recover_begin"
   | "recover_page"
   | "recover_status"
+  | "create_grant"
+  | "seal_job"
   | "open_job"
   | "seal_result"
   | "complete_result"
@@ -90,6 +92,12 @@ export interface PrivateVaultNativeServiceClient
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
   unlock(vaultId: string): Promise<NativeUnlockResult>;
+  createContentGrant(
+    input: NativeCreateContentGrantInput,
+  ): Promise<NativeCreatedContentGrantResult>;
+  sealContentJob(
+    input: NativeSealContentJobInput,
+  ): Promise<NativeSealedContentJobResult>;
   openHostedJob(
     request: NativeOpenHostedJobRequest,
   ): Promise<NativeOpenHostedJobResult>;
@@ -147,6 +155,50 @@ export interface PrivateVaultNativeServiceClient
   openJobContentObjectRevision(
     input: NativeOpenJobContentObjectInput,
   ): Promise<NativeOpenedJobContentObjectResult>;
+}
+
+export interface NativeCreateContentGrantInput {
+  readonly vaultId: string;
+  readonly recipientEndpointId: string;
+  readonly expiresAt: number;
+}
+
+export interface NativeCreatedContentGrantResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "create_grant";
+  readonly state: "created";
+  readonly vaultId: string;
+  readonly recipientEndpointId: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly grantId: Uint8Array;
+  readonly grantRef: Uint8Array;
+  readonly grantEnvelope: Uint8Array;
+}
+
+export interface NativeSealContentJobInput {
+  readonly vaultId: string;
+  readonly jobId: string;
+  readonly grantRef: string;
+  readonly recipientEndpointId: string;
+  readonly expiresAt: number;
+  readonly jobPayload: Uint8Array;
+}
+
+export interface NativeSealedContentJobResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "seal_job";
+  readonly state: "sealed";
+  readonly vaultId: string;
+  readonly jobId: string;
+  readonly recipientEndpointId: string;
+  readonly epoch: number;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly algorithmId: "anc/v1";
+  readonly jobEnvelope: Uint8Array;
 }
 
 export interface NativeSealContentObjectInput {
@@ -984,6 +1036,107 @@ function parseFinalizeGenesis(value: unknown, lookupId: string): void {
   }
 }
 
+function parseCreatedContentGrant(
+  value: unknown,
+  input: NativeCreateContentGrantInput,
+): NativeCreatedContentGrantResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "recipientEndpointId",
+      "issuedAt",
+      "expiresAt",
+      "grantId",
+      "grantRef",
+      "grantEnvelope",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "create_grant" ||
+    value.state !== "created" ||
+    value.vaultId !== input.vaultId ||
+    value.recipientEndpointId !== input.recipientEndpointId ||
+    !Number.isSafeInteger(value.issuedAt) ||
+    (value.issuedAt as number) <= 0 ||
+    value.expiresAt !== input.expiresAt ||
+    (value.issuedAt as number) >= input.expiresAt
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  const grantId = copyBoundedBytes(value.grantId, 16);
+  const grantRef = copyBoundedBytes(value.grantRef, 32);
+  if (grantId.byteLength !== 16 || grantRef.byteLength !== 32)
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "create_grant",
+    state: "created",
+    vaultId: input.vaultId,
+    recipientEndpointId: input.recipientEndpointId,
+    issuedAt: value.issuedAt as number,
+    expiresAt: input.expiresAt,
+    grantId,
+    grantRef,
+    grantEnvelope: copyBoundedBytes(value.grantEnvelope, 64 * 1024),
+  });
+}
+
+function parseSealedContentJob(
+  value: unknown,
+  input: NativeSealContentJobInput,
+): NativeSealedContentJobResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "jobId",
+      "recipientEndpointId",
+      "epoch",
+      "issuedAt",
+      "expiresAt",
+      "algorithmId",
+      "jobEnvelope",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "seal_job" ||
+    value.state !== "sealed" ||
+    value.vaultId !== input.vaultId ||
+    value.jobId !== input.jobId ||
+    value.recipientEndpointId !== input.recipientEndpointId ||
+    !Number.isSafeInteger(value.epoch) ||
+    (value.epoch as number) <= 0 ||
+    !Number.isSafeInteger(value.issuedAt) ||
+    (value.issuedAt as number) <= 0 ||
+    value.expiresAt !== input.expiresAt ||
+    (value.issuedAt as number) >= input.expiresAt ||
+    value.algorithmId !== "anc/v1"
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "seal_job",
+    state: "sealed",
+    vaultId: input.vaultId,
+    jobId: input.jobId,
+    recipientEndpointId: input.recipientEndpointId,
+    epoch: value.epoch as number,
+    issuedAt: value.issuedAt as number,
+    expiresAt: input.expiresAt,
+    algorithmId: "anc/v1",
+    jobEnvelope: copyBoundedBytes(
+      value.jobEnvelope,
+      E2EE_SIZE_LIMITS.jobEnvelopeBytes,
+    ),
+  });
+}
+
 function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
   if (
     !isRecord(value) ||
@@ -1269,6 +1422,73 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         return parseUnlock(await addon.request("unlock", vaultId));
       } catch {
         throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  createContentGrant(
+    input: NativeCreateContentGrantInput,
+  ): Promise<NativeCreatedContentGrantResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.recipientEndpointId, 32) ||
+      !Number.isSafeInteger(input.expiresAt) ||
+      input.expiresAt <= 0
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseCreatedContentGrant(
+          await addon.request(
+            "create_grant",
+            input.vaultId,
+            input.recipientEndpointId,
+            input.expiresAt,
+          ),
+          input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  sealContentJob(
+    input: NativeSealContentJobInput,
+  ): Promise<NativeSealedContentJobResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.jobId, 32) ||
+      !isLowerHex(input.grantRef, 64) ||
+      !isLowerHex(input.recipientEndpointId, 32) ||
+      !Number.isSafeInteger(input.expiresAt) ||
+      input.expiresAt <= 0 ||
+      !(input.jobPayload instanceof Uint8Array) ||
+      input.jobPayload.byteLength === 0 ||
+      input.jobPayload.byteLength > E2EE_SIZE_LIMITS.jobPayloadBytes
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    const payload = Buffer.from(input.jobPayload);
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseSealedContentJob(
+          await addon.request(
+            "seal_job",
+            input.vaultId,
+            input.jobId,
+            input.grantRef,
+            input.recipientEndpointId,
+            input.expiresAt,
+            payload,
+          ),
+          input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        payload.fill(0);
       }
     });
   }

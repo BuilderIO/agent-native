@@ -552,6 +552,117 @@ describe("Private Vault native service client", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it("issues requester grants only through the native vault boundary", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const recipientEndpointId = "11112222333344445555666677778888";
+    const expiresAt = 1_721_114_711;
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "create_grant",
+      state: "created",
+      vaultId,
+      recipientEndpointId,
+      issuedAt: 1_721_111_111,
+      expiresAt,
+      grantId: Buffer.alloc(16, 5),
+      grantRef: Buffer.alloc(32, 6),
+      grantEnvelope: Buffer.from([0xa1, 1, 1]),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.createContentGrant({ vaultId, recipientEndpointId, expiresAt }),
+    ).resolves.toMatchObject({
+      version: 1,
+      suite: "anc/v1",
+      operation: "create_grant",
+      state: "created",
+      vaultId,
+      recipientEndpointId,
+      expiresAt,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "create_grant",
+      vaultId,
+      recipientEndpointId,
+      expiresAt,
+    );
+  });
+
+  it("seals one semantically encoded job and binds the native reply", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const jobId = "ffeeddccbbaa99887766554433221100";
+    const grantRef = "ab".repeat(32);
+    const recipientEndpointId = "11112222333344445555666677778888";
+    const expiresAt = 1_721_111_711;
+    const jobPayload = Buffer.from([0xa1, 1, 1]);
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "seal_job",
+      state: "sealed",
+      vaultId,
+      jobId,
+      recipientEndpointId,
+      epoch: 3,
+      issuedAt: 1_721_111_111,
+      expiresAt,
+      algorithmId: "anc/v1",
+      jobEnvelope: Buffer.from([0xa1, 2, 2]),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.sealContentJob({
+        vaultId,
+        jobId,
+        grantRef,
+        recipientEndpointId,
+        expiresAt,
+        jobPayload,
+      }),
+    ).resolves.toMatchObject({
+      operation: "seal_job",
+      state: "sealed",
+      vaultId,
+      jobId,
+      epoch: 3,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "seal_job",
+      vaultId,
+      jobId,
+      grantRef,
+      recipientEndpointId,
+      expiresAt,
+      expect.any(Buffer),
+    );
+    request.mockResolvedValueOnce({
+      version: 3,
+      operation: "seal_job",
+      state: "sealed",
+      vaultId,
+      jobId: "00".repeat(16),
+      recipientEndpointId,
+      epoch: 3,
+      issuedAt: 1_721_111_111,
+      expiresAt,
+      algorithmId: "anc/v1",
+      jobEnvelope: Buffer.from([1]),
+    });
+    await expect(
+      client.sealContentJob({
+        vaultId,
+        jobId,
+        grantRef,
+        recipientEndpointId,
+        expiresAt,
+        jobPayload,
+      }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+  });
+
   it("maps one encrypted broker job through the caller-independent authority boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const endpointId = "11112222333344445555666677778888";
