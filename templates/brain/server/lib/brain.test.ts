@@ -1630,6 +1630,149 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("publishes allowed company knowledge without review when every evidence source opts out", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture();
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(result.knowledge).toMatchObject({
+      status: "published",
+      publishTier: "company",
+      confidence: 80,
+      audienceId: "aud_org",
+      audienceAclHash: "acl-hash",
+    });
+  });
+
+  it("keeps auto-redacted knowledge unpublished when its evidence source opts out of review", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture({
+      content: "Contact alice@example.com before publishing the launch plan.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Launch contact alice@example.com",
+      body: "Contact alice@example.com before publishing the launch plan.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Contact alice@example.com before publishing the launch plan.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(result.knowledge).toMatchObject({
+      status: "redacted",
+      publishedAt: null,
+      audienceId: "aud_org",
+      audienceAclHash: "acl-hash",
+    });
+    expect(JSON.stringify(result.knowledge)).not.toContain("alice@example.com");
+  });
+
+  it("keeps explicit proposals queued when their evidence source opts out of automatic review", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture();
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "always",
+    });
+
+    expect(result.mode).toBe("proposal");
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+
+  it("requires review at high confidence when any evidence source explicitly requires it", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture();
+    seedSource({
+      id: "source-2",
+      configJson: JSON.stringify({ reviewRequired: true }),
+    });
+    seedCapture({
+      id: "capture-2",
+      sourceId: "source-2",
+      content: "Decision: keep the existing launch safeguards.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta safeguards",
+      body: "The launch keeps its existing safeguards.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+        {
+          captureId: "capture-2",
+          quote: "Decision: keep the existing launch safeguards.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("proposal");
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+
+  it("honors an explicit source review requirement above the legacy workspace default", async () => {
+    mocks.settings.requireApprovalForCompanyKnowledge = false;
+    seedSource({ configJson: JSON.stringify({ reviewRequired: true }) });
+    seedCapture();
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("proposal");
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+
   it("auto-publishes high-confidence company-tier knowledge when no redaction is needed", async () => {
     seedSource();
     seedCapture({
