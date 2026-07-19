@@ -55,7 +55,13 @@ describe("Private Vault Content object transport", () => {
     });
     const source = Uint8Array.of(1, 2, 3, 4);
     await expect(
-      transport.put({ coordinate, revision: 3, epoch: 7, ciphertext: source }),
+      transport.put({
+        coordinate,
+        objectType: "document",
+        revision: 3,
+        epoch: 7,
+        ciphertext: source,
+      }),
     ).resolves.toEqual(metadata);
     expect(fetch).toHaveBeenCalledWith(
       url,

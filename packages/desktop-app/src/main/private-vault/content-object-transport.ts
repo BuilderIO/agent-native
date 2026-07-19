@@ -1,6 +1,6 @@
 import type { PrivateVaultContentSession } from "./content-genesis-transport.js";
 
-const OBJECT_TYPE = "document";
+export type PrivateVaultContentHostedObjectType = "document" | "vault-manifest";
 const ALGORITHM_ID = "anc/v1";
 const MAXIMUM_CIPHERTEXT_BYTES = 1024 * 1024 + 64 * 1024;
 const MAXIMUM_METADATA_BYTES = 4096;
@@ -14,7 +14,7 @@ export interface PrivateVaultContentObjectCoordinate {
 
 export interface PrivateVaultContentObjectMetadata extends PrivateVaultContentObjectCoordinate {
   readonly revision: number;
-  readonly objectType: typeof OBJECT_TYPE;
+  readonly objectType: PrivateVaultContentHostedObjectType;
   readonly algorithmId: typeof ALGORITHM_ID;
   readonly epoch: number;
   readonly parentRevisionIds: readonly string[];
@@ -57,6 +57,12 @@ function lowerHex(value: unknown, bytes: number): value is string {
 
 function positiveSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function isObjectType(
+  value: unknown,
+): value is PrivateVaultContentHostedObjectType {
+  return value === "document" || value === "vault-manifest";
 }
 
 function exactCoordinate(value: PrivateVaultContentObjectCoordinate) {
@@ -103,7 +109,7 @@ function parseMetadata(value: unknown): PrivateVaultContentObjectMetadata {
     !lowerHex(record.vaultId, 16) ||
     !lowerHex(record.objectId, 16) ||
     !lowerHex(record.revisionId, 32) ||
-    record.objectType !== OBJECT_TYPE ||
+    !isObjectType(record.objectType) ||
     record.algorithmId !== ALGORITHM_ID ||
     !positiveSafeInteger(record.revision) ||
     !positiveSafeInteger(record.epoch) ||
@@ -122,7 +128,7 @@ function parseMetadata(value: unknown): PrivateVaultContentObjectMetadata {
     objectId: record.objectId,
     revisionId: record.revisionId,
     revision: record.revision,
-    objectType: OBJECT_TYPE,
+    objectType: record.objectType,
     algorithmId: ALGORITHM_ID,
     epoch: record.epoch,
     parentRevisionIds: [...record.parentRevisionIds] as string[],
@@ -187,6 +193,7 @@ export class PrivateVaultContentObjectTransport {
 
   async put(input: {
     readonly coordinate: PrivateVaultContentObjectCoordinate;
+    readonly objectType: PrivateVaultContentHostedObjectType;
     readonly revision: number;
     readonly epoch: number;
     readonly parentRevisionIds?: readonly string[];
@@ -207,7 +214,7 @@ export class PrivateVaultContentObjectTransport {
       throw new PrivateVaultContentObjectTransportError();
     const expected: PrivateVaultContentObjectMetadata = {
       ...coordinate,
-      objectType: OBJECT_TYPE,
+      objectType: input.objectType,
       algorithmId: ALGORITHM_ID,
       revision: input.revision,
       epoch: input.epoch,
@@ -232,7 +239,7 @@ export class PrivateVaultContentObjectTransport {
           "X-ANC-Object-Id": coordinate.objectId,
           "X-ANC-Revision-Id": coordinate.revisionId,
           "X-ANC-Revision": String(input.revision),
-          "X-ANC-Object-Type": OBJECT_TYPE,
+          "X-ANC-Object-Type": input.objectType,
           "X-ANC-Algorithm-Id": ALGORITHM_ID,
           "X-ANC-Epoch": String(input.epoch),
           "X-ANC-Parent-Revision-Ids": encodeParents(parents),
@@ -264,7 +271,7 @@ export class PrivateVaultContentObjectTransport {
   async list(vaultIdInput: string): Promise<
     readonly {
       readonly objectId: string;
-      readonly objectType: typeof OBJECT_TYPE;
+      readonly objectType: PrivateVaultContentHostedObjectType;
       readonly latestRevision: PrivateVaultContentObjectMetadata;
     }[]
   > {
@@ -314,7 +321,7 @@ export class PrivateVaultContentObjectTransport {
           Object.keys(record).sort().join(",") !==
             "latestRevision,objectId,objectType" ||
           !lowerHex(record.objectId, 16) ||
-          record.objectType !== OBJECT_TYPE
+          !isObjectType(record.objectType)
         )
           throw new Error();
         const latestRevision = parseMetadata(record.latestRevision);
@@ -326,7 +333,7 @@ export class PrivateVaultContentObjectTransport {
           throw new Error();
         return Object.freeze({
           objectId: record.objectId,
-          objectType: OBJECT_TYPE,
+          objectType: record.objectType,
           latestRevision,
         });
       });
@@ -373,7 +380,7 @@ export class PrivateVaultContentObjectTransport {
         length > MAXIMUM_CIPHERTEXT_BYTES ||
         !positiveSafeInteger(epoch) ||
         !positiveSafeInteger(revision) ||
-        response.headers.get("x-anc-object-type") !== OBJECT_TYPE ||
+        !isObjectType(response.headers.get("x-anc-object-type")) ||
         response.headers.get("x-anc-algorithm-id") !== ALGORITHM_ID ||
         !parentsHeader
       )
@@ -394,7 +401,9 @@ export class PrivateVaultContentObjectTransport {
           length,
         ),
         metadata: Object.freeze({
-          objectType: OBJECT_TYPE,
+          objectType: response.headers.get(
+            "x-anc-object-type",
+          ) as PrivateVaultContentHostedObjectType,
           algorithmId: ALGORITHM_ID,
           revision,
           epoch,

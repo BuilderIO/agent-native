@@ -1201,6 +1201,11 @@ fail at the typed client, addon, protocol, and service boundaries. The protocol
 suite, universal addon, Desktop typecheck, and universal production service
 bundle pass with the manifest format enabled.
 
+Desktop's authenticated relay maps those two signed media types to distinct
+content-free hosted object types and checks the mapping again after native open.
+This prevents a hosted document coordinate from being substituted for a vault
+manifest while keeping both payloads opaque to the hosted plane.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

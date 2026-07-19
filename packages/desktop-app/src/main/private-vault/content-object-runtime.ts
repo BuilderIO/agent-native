@@ -1,6 +1,11 @@
 import {
+  PRIVATE_VAULT_CONTENT_TYPE,
+  PRIVATE_VAULT_MANIFEST_CONTENT_TYPE,
+} from "./content-document-codec.js";
+import {
   PrivateVaultContentObjectTransport,
   type PrivateVaultContentObjectMetadata,
+  type PrivateVaultContentHostedObjectType,
 } from "./content-object-transport.js";
 import {
   createPrivateVaultNativeServiceClient,
@@ -9,6 +14,18 @@ import {
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
+}
+
+type ContentType =
+  | typeof PRIVATE_VAULT_CONTENT_TYPE
+  | typeof PRIVATE_VAULT_MANIFEST_CONTENT_TYPE;
+
+function hostedObjectType(
+  contentType: ContentType,
+): PrivateVaultContentHostedObjectType {
+  return contentType === PRIVATE_VAULT_CONTENT_TYPE
+    ? "document"
+    : "vault-manifest";
 }
 
 export class PrivateVaultContentObjectRuntime {
@@ -31,6 +48,7 @@ export class PrivateVaultContentObjectRuntime {
     readonly vaultId: string;
     readonly objectId: string;
     readonly revision: number;
+    readonly contentType?: ContentType;
     readonly plaintext: Uint8Array;
     readonly parentRevisionIds?: readonly string[];
   }): Promise<{
@@ -39,10 +57,12 @@ export class PrivateVaultContentObjectRuntime {
     readonly plaintextLength: number;
     readonly ciphertextByteLength: number;
   }> {
+    const contentType = input.contentType ?? PRIVATE_VAULT_CONTENT_TYPE;
     const sealed = await this.#native.sealContentObjectRevision({
       vaultId: input.vaultId,
       objectId: input.objectId,
       revision: input.revision,
+      contentType,
       plaintext: input.plaintext,
     });
     const revisionId = hex(sealed.revisionId);
@@ -54,6 +74,7 @@ export class PrivateVaultContentObjectRuntime {
           revisionId,
         },
         revision: sealed.revision,
+        objectType: hostedObjectType(sealed.contentType),
         epoch: sealed.epoch,
         parentRevisionIds: input.parentRevisionIds,
         ciphertext: sealed.encodedRevision,
@@ -96,6 +117,8 @@ export class PrivateVaultContentObjectRuntime {
         if (
           hex(opened.revisionId) !== input.revisionId ||
           opened.epoch !== downloaded.metadata.epoch ||
+          hostedObjectType(opened.contentType) !==
+            downloaded.metadata.objectType ||
           opened.plaintextLength !== opened.plaintext.byteLength
         )
           throw new Error("object binding failed");

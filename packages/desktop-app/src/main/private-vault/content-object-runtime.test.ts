@@ -32,6 +32,44 @@ function transport() {
 }
 
 describe("Private Vault Content object runtime", () => {
+  it("binds a vault manifest MIME type to its distinct hosted object type", async () => {
+    const encodedRevision = Uint8Array.of(0xa4, 1, 2, 3);
+    const native = {
+      sealContentObjectRevision: vi.fn(async (input) => ({
+        version: 1 as const,
+        suite: "anc/v1" as const,
+        operation: "seal_object" as const,
+        state: "sealed" as const,
+        vaultId,
+        objectId,
+        revision: input.revision,
+        epoch: 7,
+        revisionId: Buffer.from(revisionId, "hex"),
+        contentType: input.contentType!,
+        plaintextLength: input.plaintext.byteLength,
+        encodedRevision,
+      })),
+      openContentObjectRevision: vi.fn(),
+    };
+    const hosted = transport();
+    const runtime = new PrivateVaultContentObjectRuntime(native);
+
+    await runtime.sealAndUpload({
+      transport: hosted as never,
+      vaultId,
+      objectId,
+      revision: 1,
+      contentType: "application/vnd.agent-native.content-vault-manifest+json",
+      plaintext: Uint8Array.from(Buffer.from('{"kind":"manifest"}')),
+      parentRevisionIds: [],
+    });
+
+    expect(hosted.put).toHaveBeenCalledWith(
+      expect.objectContaining({ objectType: "vault-manifest", revision: 1 }),
+    );
+    expect(encodedRevision).toEqual(new Uint8Array(4));
+  });
+
   it("seals before upload and returns content-free coordinates", async () => {
     const encodedRevision = Uint8Array.of(0xa4, 1, 2, 3);
     const native = {
@@ -84,6 +122,7 @@ describe("Private Vault Content object runtime", () => {
     expect(hosted.put).toHaveBeenCalledWith(
       expect.objectContaining({
         coordinate: { vaultId, objectId, revisionId },
+        objectType: "document",
         revision: 3,
         epoch: 7,
         ciphertext: Uint8Array.from([0, 0, 0, 0]),
