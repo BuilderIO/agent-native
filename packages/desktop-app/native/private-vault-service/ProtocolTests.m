@@ -106,6 +106,19 @@ int main(void) {
          parsed.expiresAt == 1721114711);
   xpc_release(createGrant);
 
+  xpc_object_t revokeGrant =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "revoke_grant", "request-revoke");
+  xpc_dictionary_set_string(revokeGrant, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_string(
+      revokeGrant, "grantRef",
+      "abababababababababababababababababababababababababababababababab");
+  assert(PVParseRequest(revokeGrant, &parsed) == PVRequestValid &&
+         strcmp(parsed.grantRef,
+                "abababababababababababababababababababababababababababababababab") ==
+             0);
+  xpc_release(revokeGrant);
+
   const uint8_t requesterPayload[] = {'{', '}', '\n'};
   xpc_object_t sealJob =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_job", "request-seal-job");

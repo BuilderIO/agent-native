@@ -599,6 +599,43 @@ describe("Private Vault native service client", () => {
     );
   });
 
+  it("revokes a grant without exposing control-log artifacts", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const grantRef = "ab".repeat(32);
+    const request = vi.fn(async () => ({
+      version: 3,
+      operation: "revoke_grant",
+      state: "revoked",
+      vaultId,
+      grantRef,
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.revokeContentGrant({ vaultId, grantRef }),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "revoke_grant",
+      state: "revoked",
+      vaultId,
+      grantRef,
+    });
+    expect(request).toHaveBeenCalledWith("revoke_grant", vaultId, grantRef);
+
+    request.mockResolvedValueOnce({
+      version: 3,
+      operation: "revoke_grant",
+      state: "revoked",
+      vaultId,
+      grantRef: "cd".repeat(32),
+    });
+    await expect(
+      client.revokeContentGrant({ vaultId, grantRef }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+  });
+
   it("seals one semantically encoded job and binds the native reply", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const jobId = "ffeeddccbbaa99887766554433221100";

@@ -70,6 +70,7 @@ enum class PVOperation {
   EnrollmentBootstrap,
   RecoverStatus,
   CreateGrant,
+  RevokeGrant,
   SealJob,
   OpenResult,
   OpenJob,
@@ -784,6 +785,28 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     memcpy(parsed.subjectAgentID, subjectAgent, 33);
     parsed.issuedAt = issuedAt;
     parsed.expiresAt = expiresAt;
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
+  if (operation == PVOperation::RevokeGrant) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "grantRef",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *grantRef = PVGetString(reply, "grantRef");
+    if (!PVHasExactKeys(reply, keys, 6) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "revoked") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(grantRef, 64)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.grantRef, grantRef, 65);
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -1584,6 +1607,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "recover_status"
                           : request->operation == PVOperation::CreateGrant
                               ? "create_grant"
+                          : request->operation == PVOperation::RevokeGrant
+                              ? "revoke_grant"
                           : request->operation == PVOperation::SealJob
                               ? "seal_job"
                           : request->operation == PVOperation::OpenResult
@@ -1658,6 +1683,7 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::RecoverStatus ||
       request->operation == PVOperation::Unlock ||
       request->operation == PVOperation::CreateGrant ||
+      request->operation == PVOperation::RevokeGrant ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
       request->operation == PVOperation::OpenJob ||
@@ -1702,6 +1728,8 @@ void PVExecute(napi_env env, void *data) {
     xpc_dictionary_set_int64(message, "expiresAt",
                              static_cast<int64_t>(request->expiresAt));
   }
+  if (request->operation == PVOperation::RevokeGrant)
+    xpc_dictionary_set_string(message, "grantRef", request->grantRef);
   if (request->operation == PVOperation::SealJob) {
     static const uint8_t emptyJobPayload = 0;
     xpc_dictionary_set_string(message, "jobId", request->jobID);
@@ -1833,9 +1861,12 @@ void PVExecute(napi_env env, void *data) {
                                          });
   xpc_release(message);
 
+  const int64_t timeout = request->operation == PVOperation::RevokeGrant
+      ? 22LL * NSEC_PER_SEC
+      : PV_REQUEST_TIMEOUT_NANOSECONDS;
   const long waitResult = dispatch_semaphore_wait(
       state->semaphore(),
-      dispatch_time(DISPATCH_TIME_NOW, PV_REQUEST_TIMEOUT_NANOSECONDS));
+      dispatch_time(DISPATCH_TIME_NOW, timeout));
   if (waitResult != 0) {
     request->failure = PVFailure::Timeout;
   } else {
@@ -1855,6 +1886,7 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::SealObject ||
                 request->operation == PVOperation::OpenObject ||
                 request->operation == PVOperation::CreateGrant ||
+                request->operation == PVOperation::RevokeGrant ||
                 request->operation == PVOperation::SealJob ||
                 request->operation == PVOperation::OpenResult ||
                 request->operation == PVOperation::SealJobObject ||
@@ -1882,6 +1914,10 @@ void PVExecute(napi_env env, void *data) {
                 request->recipientEndpointID) != 0 ||
          strcmp(parsed.subjectAgentID, request->subjectAgentID) != 0 ||
          parsed.expiresAt != request->expiresAt))
+      parsed.failure = PVFailure::MalformedReply;
+    if (parsed.failure == PVFailure::None &&
+        request->operation == PVOperation::RevokeGrant &&
+        strcmp(parsed.grantRef, request->grantRef) != 0)
       parsed.failure = PVFailure::MalformedReply;
     if (parsed.failure == PVFailure::None &&
         request->operation == PVOperation::SealJob &&
@@ -2052,6 +2088,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "recover_status"
                 : request->operation == PVOperation::CreateGrant
                     ? "create_grant"
+                : request->operation == PVOperation::RevokeGrant
+                    ? "revoke_grant"
                 : request->operation == PVOperation::SealJob
                     ? "seal_job"
                 : request->operation == PVOperation::OpenResult
@@ -2124,6 +2162,9 @@ void PVComplete(napi_env env, napi_status status, void *data) {
         delete request;
         return;
       }
+    } else if (request->operation == PVOperation::RevokeGrant) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "grantRef", request->grantRef);
     } else if (request->operation == PVOperation::SealJob) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "jobId", request->jobID);
@@ -2463,6 +2504,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::RecoverStatus;
   } else if (strcmp(operation, "create_grant") == 0) {
     request->operation = PVOperation::CreateGrant;
+  } else if (strcmp(operation, "revoke_grant") == 0) {
+    request->operation = PVOperation::RevokeGrant;
   } else if (strcmp(operation, "seal_job") == 0) {
     request->operation = PVOperation::SealJob;
   } else if (strcmp(operation, "open_result") == 0) {
@@ -2517,6 +2560,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
           ? 2
       : request->operation == PVOperation::EnrollmentBootstrap ? 3
       : request->operation == PVOperation::CreateGrant ? 5
+      : request->operation == PVOperation::RevokeGrant ? 3
       : request->operation == PVOperation::SealJob ? 7
       : request->operation == PVOperation::OpenResult ? 6
       : request->operation == PVOperation::OpenJob ? 7
@@ -2545,6 +2589,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::RecoverStatus ||
       request->operation == PVOperation::EnrollmentBootstrap ||
       request->operation == PVOperation::CreateGrant ||
+      request->operation == PVOperation::RevokeGrant ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
       request->operation == PVOperation::OpenJob ||
@@ -2575,6 +2620,20 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   }
   const uint8_t *sealedJobPayload = nullptr;
   size_t sealedJobPayloadLength = 0;
+  if (request->operation == PVOperation::RevokeGrant) {
+    size_t grantRefLength = 0;
+    if (napi_typeof(env, argv[2], &argumentType) != napi_ok ||
+        argumentType != napi_string ||
+        napi_get_value_string_utf8(env, argv[2], request->grantRef,
+                                   sizeof(request->grantRef),
+                                   &grantRefLength) != napi_ok ||
+        grantRefLength != 64 || !PVIsLowerHex(request->grantRef, 64)) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+  }
   if (request->operation == PVOperation::CreateGrant ||
       request->operation == PVOperation::SealJob) {
     const size_t recipientIndex =

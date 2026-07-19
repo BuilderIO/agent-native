@@ -750,7 +750,13 @@ JavaScript. An internal native coordinator now joins those seams: it builds or
 reopens the exact pending edge, produces the fixed proof, binds the receipt to
 the edge id, sequence, and domain hash, durably applies the revocation, commits
 the carry-current authority replay, and clears only after the official
-checkpoint agrees. Service/XPC reachability and user controls remain.
+checkpoint agrees. The signed service and universal addon now expose one
+bounded `revoke_grant` operation accepting only the vault id and exact grant
+hash. Native custody
+creates and submits the append internally and returns only the revoked state,
+vault id, and grant hash to TypeScript; signed bytes, proof headers, receipts,
+and endpoint keys never cross the addon boundary. User-visible inventory and
+controls remain.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the

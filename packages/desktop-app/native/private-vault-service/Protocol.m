@@ -194,6 +194,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool recoverStatus = strcmp(operation, "recover_status") == 0;
     bool openJob = strcmp(operation, "open_job") == 0;
     bool createGrant = strcmp(operation, "create_grant") == 0;
+    bool revokeGrant = strcmp(operation, "revoke_grant") == 0;
     bool sealJob = strcmp(operation, "seal_job") == 0;
     bool openResult = strcmp(operation, "open_result") == 0;
     bool sealResult = strcmp(operation, "seal_result") == 0;
@@ -216,7 +217,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
-        !openJob && !createGrant && !sealJob && !openResult && !sealResult &&
+        !openJob && !createGrant && !revokeGrant && !sealJob && !openResult && !sealResult &&
         !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
@@ -252,6 +253,20 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         request->jobID = xpc_dictionary_get_string(message, "jobId");
         request->jobHash = xpc_dictionary_get_string(message, "jobHash");
         request->senderEndpointID = sender;
+    } else if (revokeGrant) {
+        xpc_object_t grantValue =
+            xpc_dictionary_get_value(message, "grantRef");
+        const char *grantRef =
+            grantValue != NULL && xpc_get_type(grantValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "grantRef")
+                : NULL;
+        if (fieldCount != 5 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVIsLowerHex(grantRef, 64)) {
+            return PVRequestInvalid;
+        }
+        request->grantRef = grantRef;
     } else if (createGrant) {
         xpc_object_t recipientValue =
             xpc_dictionary_get_value(message, "recipientEndpointId");
@@ -657,7 +672,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                 completeResult || pendingResult || prepareEnrollment ||
                 challengeEnrollment || inspectEnrollment ||
                 authorizeEnrollment || activateEnrollment ||
-                enrollmentBootstrap || sealObject ||
+                enrollmentBootstrap || revokeGrant || sealObject ||
                 openObject
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;

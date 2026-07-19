@@ -42,6 +42,7 @@
 #import "PrivateVaultRecoveryCoordinator.h"
 #import "PrivateVaultRecoveryPreparationStore.h"
 #import "PrivateVaultGrantIndex.h"
+#import "PrivateVaultGrantRevocationCoordinator.h"
 #import "PrivateVaultJobProcessor.h"
 #import "PrivateVaultEnrollmentOfferArtifactStore.h"
 #import "PrivateVaultEnrollmentSasReceiptStore.h"
@@ -65,6 +66,7 @@ static NSMutableDictionary<NSString *, NSString *> *gRecoveryStatuses = nil;
 static NSLock *gRecoveryStatusLock = nil;
 static bool gStartupComplete = false;
 static AncPrivateVaultGrantIndex *gGrantIndex = nil;
+static AncPrivateVaultGrantRevocationCoordinator *gGrantRevocationCoordinator = nil;
 static AncPrivateVaultJobProcessor *gJobProcessor = nil;
 static AncPrivateVaultAuthorityStore *gEndpointAuthorityStore = nil;
 static AncPrivateVaultAuthorityStore *gBrokerAuthorityStore = nil;
@@ -1616,6 +1618,115 @@ static void PVCreateContentGrant(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVRevokeContentGrant(xpc_connection_t peer, xpc_object_t message,
+                                 const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *grantRef = PVHashData(request->grantRef);
+        uint64_t nowMilliseconds = 0;
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *endpointIdData = nil;
+        AncPrivateVaultControlLogMember *endpointMember = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *agreement = nil;
+        BOOL contextOkay = grantRef != nil && gGrantRevocationCoordinator != nil &&
+            gHostedAppendTransport != nil &&
+            [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
+            nowMilliseconds >= 1000 &&
+            PVRequesterEndpointContext(vaultId, &state, &endpointIdData,
+                                       &endpointMember, &signing, &agreement);
+        NSData *revocationId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *logId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *nonceData = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSString *endpointId = PVVaultIDHex(endpointIdData);
+        NSString *nonce = PVVaultIDHex(nonceData);
+        NSString *logEnvelopeId = logId == nil
+            ? nil
+            : [@"log-entry:grant-revoke-" stringByAppendingString:
+                                              PVVaultIDHex(logId)];
+        NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
+        formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime |
+                                  NSISO8601DateFormatWithFractionalSeconds;
+        NSString *createdAt = contextOkay
+            ? [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:
+                    (NSTimeInterval)(nowMilliseconds / 1000)]]
+            : nil;
+        __block AncPrivateVaultPreparedGrantRevocation *prepared = nil;
+        __block AncPrivateVaultGrantRevocationCoordinatorStatus prepareStatus =
+            AncPrivateVaultGrantRevocationCoordinatorStatusInvalid;
+        AncPrivateVaultGuardedMemoryStatus borrowed =
+            signing == nil ? AncPrivateVaultGuardedMemoryStatusInvalid
+                           : [signing borrow:^BOOL(uint8_t *seed, size_t length) {
+              if (length != ANC_PV_SEED_BYTES) return NO;
+              prepareStatus = [gGrantRevocationCoordinator
+                  prepareVaultId:vaultId
+                        grantRef:grantRef
+            revocationEnvelopeId:revocationId
+                     logEnvelopeId:logEnvelopeId
+                         createdAt:createdAt
+                 revokedAtSeconds:nowMilliseconds / 1000
+                           reason:@"user_revoked"
+                            nonce:nonce
+                       endpointId:endpointId
+                      signingSeed:seed
+         expectedSigningPublicKey:endpointMember.signingPublicKey
+                           result:&prepared];
+              return prepareStatus ==
+                  AncPrivateVaultGrantRevocationCoordinatorStatusOK;
+            }];
+        BOOL signingClosed = signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL agreementClosed = agreement != nil &&
+            [agreement close] == AncPrivateVaultGuardedMemoryStatusOK;
+        if (!contextOkay || revocationId == nil || logId == nil ||
+            nonceData == nil || createdAt == nil ||
+            borrowed != AncPrivateVaultGuardedMemoryStatusOK ||
+            prepareStatus !=
+                AncPrivateVaultGrantRevocationCoordinatorStatusOK ||
+            prepared == nil || !signingClosed || !agreementClosed) {
+            PVSendError(peer, message, "grant_revoke_failed");
+            return;
+        }
+
+        PVRequest requestCopy = *request;
+        xpc_connection_t callbackPeer = peer;
+        xpc_object_t callbackMessage = message;
+        [gHostedAppendTransport
+            appendBody:prepared.requestBody
+             proofHeader:prepared.proofHeader
+              completion:^(AncPrivateVaultHostedAppendTransportStatus status,
+                           NSData *receipt) {
+                @autoreleasepool {
+                    uint64_t verifiedAtMs = 0;
+                    BOOL finalized =
+                        status == AncPrivateVaultHostedAppendTransportStatusOK &&
+                        receipt != nil &&
+                        [gTrustedClock readNowMilliseconds:&verifiedAtMs] &&
+                        [gGrantRevocationCoordinator
+                            finalizeVaultId:vaultId
+                                   receipt:receipt
+                              verifiedAtMs:verifiedAtMs] ==
+                            AncPrivateVaultGrantRevocationCoordinatorStatusOK;
+                    if (!finalized) {
+                        PVSendError(callbackPeer, callbackMessage,
+                                    "grant_revoke_failed");
+                    } else {
+                        xpc_object_t reply =
+                            PVCreateReply(callbackMessage, &requestCopy);
+                        if (reply != NULL) {
+                            xpc_dictionary_set_string(reply, "state", "revoked");
+                            xpc_dictionary_set_string(reply, "vaultId",
+                                                      requestCopy.vaultID);
+                            xpc_dictionary_set_string(reply, "grantRef",
+                                                      requestCopy.grantRef);
+                            xpc_connection_send_message(callbackPeer, reply);
+                        }
+                    }
+                }
+              }];
+    }
+}
+
 static void PVSealContentJob(xpc_connection_t peer, xpc_object_t message,
                              const PVRequest *request) {
     @autoreleasepool {
@@ -2727,6 +2838,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVCreateContentGrant(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "revoke_grant") == 0) {
+                PVRevokeContentGrant(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "seal_job") == 0) {
                 PVSealContentJob(peer, message, &request);
                 return;
@@ -2843,6 +2958,11 @@ int main(void) {
         gEndpointAuthorityStore = authority;
         gBrokerAuthorityStore = brokerAuthority;
         gControlLog = controlLog;
+        gGrantRevocationCoordinator =
+            [[AncPrivateVaultGrantRevocationCoordinator alloc]
+                initWithGrantIndex:gGrantIndex
+                    authorityStore:authority
+                        controlLog:controlLog];
         gEnrollmentArtifactStore =
             [[AncPrivateVaultEnrollmentOfferArtifactStore alloc]
                 initWithKeychain:keychain
@@ -2941,6 +3061,7 @@ int main(void) {
             spool == nil || preparation == nil || authority == nil ||
             brokerAuthority == nil || gGrantIndex == nil ||
             gJobProcessor == nil ||
+            gGrantRevocationCoordinator == nil ||
             gEndpointAuthorityStore == nil || gBrokerAuthorityStore == nil ||
             gControlLog == nil ||
             gEnrollmentArtifactStore == nil || enrollmentReceiptStore == nil ||

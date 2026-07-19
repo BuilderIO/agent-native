@@ -514,8 +514,12 @@ is pending, and clears only the exact signed bytes. JavaScript never receives
 the endpoint signing seed or assembles the signed authority edge. The internal
 native coordinator now binds the complete prepare, receipt verification,
 revocation replay, carried authority commit, crash reconciliation, and cleanup
-sequence. It is not yet reachable through the signed service/XPC product
-surface.
+sequence. The signed XPC service and universal addon make that coordinator
+reachable through one strict `revoke_grant(vaultId, grantRef)` call. The addon
+validates a
+content-free success tuple and never exposes the pending edge, endpoint proof,
+hosted receipt, or signing material to TypeScript. Grant inventory and the
+user-facing confirmation/control surface remain product work.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact

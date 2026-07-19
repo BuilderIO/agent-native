@@ -60,6 +60,7 @@ type NativeOperation =
   | "recover_page"
   | "recover_status"
   | "create_grant"
+  | "revoke_grant"
   | "seal_job"
   | "open_result"
   | "open_job"
@@ -97,6 +98,9 @@ export interface PrivateVaultNativeServiceClient
   createContentGrant(
     input: NativeCreateContentGrantInput,
   ): Promise<NativeCreatedContentGrantResult>;
+  revokeContentGrant(
+    input: NativeRevokeContentGrantInput,
+  ): Promise<NativeRevokedContentGrantResult>;
   sealContentJob(
     input: NativeSealContentJobInput,
   ): Promise<NativeSealedContentJobResult>;
@@ -186,6 +190,20 @@ export interface NativeCreatedContentGrantResult {
   readonly grantId: Uint8Array;
   readonly grantRef: Uint8Array;
   readonly grantEnvelope: Uint8Array;
+}
+
+export interface NativeRevokeContentGrantInput {
+  readonly vaultId: string;
+  readonly grantRef: string;
+}
+
+export interface NativeRevokedContentGrantResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "revoke_grant";
+  readonly state: "revoked";
+  readonly vaultId: string;
+  readonly grantRef: string;
 }
 
 export interface NativeSealContentJobInput {
@@ -1157,6 +1175,36 @@ function parseCreatedContentGrant(
   });
 }
 
+function parseRevokedContentGrant(
+  value: unknown,
+  input: NativeRevokeContentGrantInput,
+): NativeRevokedContentGrantResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "grantRef",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "revoke_grant" ||
+    value.state !== "revoked" ||
+    value.vaultId !== input.vaultId ||
+    value.grantRef !== input.grantRef
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "revoke_grant" as const,
+    state: "revoked" as const,
+    vaultId: input.vaultId,
+    grantRef: input.grantRef,
+  });
+}
+
 function parseSealedContentJob(
   value: unknown,
   input: NativeSealContentJobInput,
@@ -1559,6 +1607,24 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
             input.subjectAgentId,
             input.expiresAt,
           ),
+          input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  revokeContentGrant(
+    input: NativeRevokeContentGrantInput,
+  ): Promise<NativeRevokedContentGrantResult> {
+    if (!isLowerHex(input.vaultId, 32) || !isLowerHex(input.grantRef, 64))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseRevokedContentGrant(
+          await addon.request("revoke_grant", input.vaultId, input.grantRef),
           input,
         );
       } catch {
