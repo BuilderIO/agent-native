@@ -49,10 +49,7 @@ import {
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
-import {
-  canAddRewindHistory,
-  rewindHistoryUnavailableReason,
-} from "@/lib/rewind-visibility";
+import { canOfferRewindHistory } from "@/lib/rewind-visibility";
 import {
   parseEdits,
   getExcludedRanges,
@@ -644,14 +641,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenStitch={() => setStitchOpen(true)}
         onOpenRewind={() => setRewindOpen(true)}
         rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
-        rewindAvailable={canAddRewindHistory(
-          playerData?.role,
-          recording?.visibility,
-        )}
-        rewindUnavailableReason={rewindHistoryUnavailableReason(
-          playerData?.role,
-          recording?.visibility,
-        )}
+        rewindAvailable={canOfferRewindHistory(playerData?.role)}
+        rewindRequiresPrivate={recording?.visibility !== "private"}
         chaptersOpen={chaptersOpen}
       />
 
@@ -804,7 +795,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
-      {canAddRewindHistory(playerData?.role, recording?.visibility) ? (
+      {canOfferRewindHistory(playerData?.role) ? (
         <RewindExtensionDialog
           open={rewindOpen}
           onOpenChange={setRewindOpen}
@@ -812,6 +803,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           durationMs={durationMs}
           videoFormat={videoFormat}
           hasAudio={Boolean(recording.hasAudio)}
+          visibility={recording.visibility}
+          onVisibilityChanged={async () => {
+            await playerDataQuery.refetch();
+          }}
           onApplied={async () => {
             await playerDataQuery.refetch();
           }}

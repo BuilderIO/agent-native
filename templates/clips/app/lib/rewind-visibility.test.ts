@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canAddRewindHistory,
+  canOfferRewindHistory,
   isPrivateClip,
   rewindHistoryUnavailableReason,
 } from "./rewind-visibility";
@@ -12,6 +13,8 @@ describe("Rewind history visibility", () => {
     expect(canAddRewindHistory("owner", "org")).toBe(false);
     expect(canAddRewindHistory("owner", "public")).toBe(false);
     expect(canAddRewindHistory("viewer", "private")).toBe(false);
+    expect(canOfferRewindHistory("owner")).toBe(true);
+    expect(canOfferRewindHistory("viewer")).toBe(false);
     expect(isPrivateClip("private")).toBe(true);
     expect(isPrivateClip("org")).toBe(false);
   });

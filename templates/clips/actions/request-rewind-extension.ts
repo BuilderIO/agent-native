@@ -10,6 +10,7 @@ import { z } from "zod";
 import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
+import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 
 export const REWIND_EXTENSION_PREFIX = "rewind-extension-request-";
 
@@ -54,6 +55,7 @@ export default defineAction({
         "Make this Clip private before adding local Rewind history.",
       );
     }
+    await assertNoDirectRecordingShares(recordingId);
     const key = rewindExtensionKey(recordingId);
     const existing = (await readAppState(key)) as RewindExtensionRequest | null;
     if (existing && !["failed", "applied"].includes(existing.status)) {

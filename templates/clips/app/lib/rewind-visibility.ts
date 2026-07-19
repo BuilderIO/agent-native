@@ -13,6 +13,12 @@ export function canAddRewindHistory(
   return role === "owner" && isPrivateClip(visibility);
 }
 
+export function canOfferRewindHistory(
+  role: string | null | undefined,
+): boolean {
+  return role === "owner";
+}
+
 export function rewindHistoryUnavailableReason(
   role: string | null | undefined,
   visibility: ClipVisibility | string | null | undefined,

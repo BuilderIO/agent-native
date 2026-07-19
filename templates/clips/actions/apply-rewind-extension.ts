@@ -14,6 +14,7 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
   rewindExtensionKey,
   type RewindExtensionRequest,
@@ -96,6 +97,7 @@ export default defineAction({
         "Rewind history can only be added to a private Clip from a private pre-roll.",
       );
     }
+    await assertNoDirectRecordingShares(args.recordingId);
     const key = rewindExtensionKey(args.recordingId);
     const request = (await readAppState(key)) as RewindExtensionRequest | null;
     if (

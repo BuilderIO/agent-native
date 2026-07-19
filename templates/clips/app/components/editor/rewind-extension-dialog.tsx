@@ -42,6 +42,8 @@ interface RewindExtensionDialogProps {
   durationMs: number;
   videoFormat: "webm" | "mp4";
   hasAudio: boolean;
+  visibility: "private" | "org" | "public";
+  onVisibilityChanged: () => void | Promise<void>;
   onApplied: () => void | Promise<void>;
 }
 
@@ -72,14 +74,20 @@ export function RewindExtensionDialog({
   durationMs,
   videoFormat,
   hasAudio,
+  visibility,
+  onVisibilityChanged,
   onApplied,
 }: RewindExtensionDialogProps) {
+  const makePrivateForRewind = useActionMutation(
+    "make-recording-private-for-rewind",
+  );
   const requestExtension = useActionMutation("request-rewind-extension");
   const applyExtension = useActionMutation("apply-rewind-extension");
   const requestTranscript = useActionMutation("request-transcript" as any);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [privacyConfirmed, setPrivacyConfirmed] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -92,8 +100,28 @@ export function RewindExtensionDialog({
     if (!open && !busy) {
       setStatus(null);
       setProgress(0);
+      setPrivacyConfirmed(false);
     }
   }, [busy, open]);
+
+  const makePrivate = useCallback(async () => {
+    setBusy(true);
+    setStatus("Making this Clip private…");
+    try {
+      await makePrivateForRewind.mutateAsync({ recordingId });
+      await onVisibilityChanged();
+      setPrivacyConfirmed(true);
+      setStatus(null);
+      toast.success(
+        "This Clip is private. You can now add local Rewind history.",
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+      setStatus(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [makePrivateForRewind, onVisibilityChanged, recordingId]);
 
   const addFromRewind = useCallback(
     async (seconds: 30 | 300) => {
@@ -223,19 +251,46 @@ export function RewindExtensionDialog({
         </DialogHeader>
 
         {busy ? (
-          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+          <div
+            className="rounded-lg border bg-muted/30 p-4 text-sm"
+            role="status"
+            aria-live="polite"
+          >
             <div className="flex items-center gap-2 font-medium">
-              <IconLoader2 className="h-4 w-4 animate-spin" />
+              <IconLoader2
+                className="h-4 w-4 animate-spin"
+                aria-hidden="true"
+              />
               {status}
             </div>
             {progress > 0 ? (
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full bg-primary transition-[width]"
+                  role="progressbar"
+                  aria-label="Rewind history processing progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress * 100)}
                   style={{ width: `${Math.round(progress * 100)}%` }}
                 />
               </div>
             ) : null}
+          </div>
+        ) : visibility !== "private" && !privacyConfirmed ? (
+          <div className="grid gap-3">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+              <strong className="block">Make this Clip private first</strong>
+              <span className="mt-1 block text-muted-foreground">
+                Local Rewind history can contain context from before you chose
+                to record. This changes the Clip to private. If anyone still has
+                direct access, Clips will stop here so you can remove them in
+                Share first.
+              </span>
+            </div>
+            <Button onClick={() => void makePrivate()}>
+              Make private and continue
+            </Button>
           </div>
         ) : (
           <div className="grid gap-2">
