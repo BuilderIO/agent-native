@@ -173,6 +173,17 @@ function privateVersions(value: unknown): DesktopPrivateContentVersion[] {
   );
 }
 
+function privateMigrationCandidateIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.filter(
+    (id): id is string =>
+      typeof id === "string" && id.length > 0 && id.length <= 256,
+  );
+  return ids.length === value.length && new Set(ids).size === ids.length
+    ? ids
+    : [];
+}
+
 function privateGrants(value: unknown): DesktopPrivateContentGrantSummary[] {
   if (!value || typeof value !== "object") return [];
   const grants = (value as { grants?: unknown }).grants;
@@ -285,6 +296,11 @@ export default function PrivateContentSurface({
   const [grantsLoading, setGrantsLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [enrollingBroker, setEnrollingBroker] = useState(false);
+  const [migrationCandidateIds, setMigrationCandidateIds] = useState<string[]>(
+    [],
+  );
+  const [migrationLoading, setMigrationLoading] = useState(false);
+  const [migrating, setMigrating] = useState(false);
   const [revokingGrantRef, setRevokingGrantRef] = useState<string | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
     null,
@@ -319,6 +335,20 @@ export default function PrivateContentSurface({
       setMessage("Enrolled devices could not be verified on this device.");
     } finally {
       setMembersLoading(false);
+    }
+  }, []);
+
+  const loadMigrationCandidates = useCallback(async () => {
+    setMigrationLoading(true);
+    try {
+      const response =
+        await window.electronAPI.privateContent.migrationCandidates();
+      if (!response.ok) throw new Error();
+      setMigrationCandidateIds(privateMigrationCandidateIds(response.value));
+    } catch {
+      setMessage("Standard Cloud migration could not be inspected safely.");
+    } finally {
+      setMigrationLoading(false);
     }
   }, []);
 
@@ -569,6 +599,28 @@ export default function PrivateContentSurface({
     setMessage("Personal agent enrolled with separate unattended custody.");
   };
 
+  const migrateStandardCloud = async () => {
+    if (migrationCandidateIds.length === 0) return;
+    setMigrating(true);
+    setMessage("");
+    const response = await window.electronAPI.privateContent.migrate({
+      mode: "start",
+      sourceDocumentIds: migrationCandidateIds,
+    });
+    if (!response.ok) {
+      setMigrating(false);
+      setMessage(
+        "Migration paused safely. Reopen this panel to resume the durable ceremony; Standard Cloud remains unchanged.",
+      );
+      return;
+    }
+    await Promise.all([loadList(), loadMigrationCandidates()]);
+    setMigrating(false);
+    setMessage(
+      "Encrypted copies verified and cut over. Standard Cloud originals remain until export and recovery are proven.",
+    );
+  };
+
   if (state !== "open") {
     return (
       <section className="private-content private-content--locked">
@@ -684,6 +736,69 @@ export default function PrivateContentSurface({
           ))}
         </div>
         <div className="private-content-tree-footer">
+          <details
+            className="private-content-migration-details"
+            onToggle={(event) => {
+              if (event.currentTarget.open) void loadMigrationCandidates();
+            }}
+          >
+            <summary>Move from Standard Cloud</summary>
+            <div>
+              <IconShieldLock size={15} aria-hidden="true" />
+              <p>
+                {migrationLoading
+                  ? "Checking eligible documents…"
+                  : migrationCandidateIds.length === 0
+                    ? "No eligible Standard Cloud documents found."
+                    : `${migrationCandidateIds.length} document${
+                        migrationCandidateIds.length === 1 ? "" : "s"
+                      } ready for an encrypted copy.`}
+              </p>
+            </div>
+            <span>
+              Desktop encrypts and verifies every document before one manifest
+              cuts over. Originals are not deleted until a separate export and
+              recovery drill succeeds.
+            </span>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={
+                    migrationLoading ||
+                    migrating ||
+                    migrationCandidateIds.length === 0
+                  }
+                  type="button"
+                >
+                  {migrating ? "Migrating…" : "Review migration"}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Encrypt these Standard Cloud documents?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Signed Desktop will read {migrationCandidateIds.length}{" "}
+                    document
+                    {migrationCandidateIds.length === 1 ? "" : "s"}, encrypt and
+                    verify each one, then publish one encrypted manifest.
+                    Unsupported comments, databases, shares, media, and source
+                    connections stop the migration. No plaintext is deleted in
+                    this step.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep Standard Cloud</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => void migrateStandardCloud()}
+                  >
+                    Encrypt and verify
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </details>
           <details
             className="private-content-reader-details"
             onToggle={(event) => {
@@ -928,6 +1043,7 @@ export default function PrivateContentSurface({
           <div className="private-content-empty">
             <IconShieldLock size={30} strokeWidth={1.5} />
             <p>Select a private document or create a new one.</p>
+            {message && <p className="private-content-message">{message}</p>}
           </div>
         )}
       </main>

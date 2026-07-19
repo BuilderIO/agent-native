@@ -74,6 +74,13 @@ afterAll(() => {
 });
 
 describe("Private Vault Standard Cloud migration source", () => {
+  it("lists only scoped non-source Standard Cloud document IDs", async () => {
+    await expect(source.listCandidateIds(scope)).resolves.toEqual([
+      "legacy-child",
+      "legacy-root",
+    ]);
+  });
+
   it("requires a closed private hierarchy with no unsupported derivatives", async () => {
     await expect(source.freeze(scope, [root.id])).rejects.toBeInstanceOf(
       PrivateVaultMigrationError,

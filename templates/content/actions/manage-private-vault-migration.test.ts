@@ -4,6 +4,8 @@ const runtime = vi.hoisted(() => ({
   requireScope: vi.fn(),
   get: vi.fn(),
   coordinator: {
+    active: vi.fn(),
+    listCandidates: vi.fn(),
     preflight: vi.fn(),
     begin: vi.fn(),
     readSource: vi.fn(),
@@ -41,6 +43,8 @@ describe("manage-private-vault-migration action", () => {
       id: "source-doc",
       content: "private sentinel",
     });
+    runtime.coordinator.listCandidates.mockResolvedValue(["source-doc"]);
+    runtime.coordinator.active.mockResolvedValue(null);
     runtime.get.mockResolvedValue({ ledger, items: [] });
   });
 
@@ -51,6 +55,20 @@ describe("manage-private-vault-migration action", () => {
   });
 
   it("dispatches every stateful operation through the scoped coordinator", async () => {
+    await expect(
+      action.run({ vaultId, operation: "active" }, {} as never),
+    ).resolves.toEqual({ operation: "active", current: null });
+    expect(runtime.coordinator.active).toHaveBeenCalledWith(scope);
+
+    await expect(
+      action.run({ vaultId, operation: "candidates" }, {} as never),
+    ).resolves.toEqual({
+      operation: "candidates",
+      sourceCount: 1,
+      sourceDocumentIds: ["source-doc"],
+    });
+    expect(runtime.coordinator.listCandidates).toHaveBeenCalledWith(scope);
+
     await action.run(
       { vaultId, operation: "preflight", sourceDocumentIds: ["source-doc"] },
       {} as never,

@@ -147,7 +147,9 @@ describe("PrivateContentSurface privacy disclosure", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const summary = container.querySelector("summary");
+    const summary = [...container.querySelectorAll("summary")].find(
+      (candidate) => candidate.textContent === "Who can read?",
+    );
     expect(summary).not.toBeNull();
     await act(async () => {
       (summary as HTMLElement | null)?.click();
@@ -175,5 +177,76 @@ describe("PrivateContentSurface privacy disclosure", () => {
       await Promise.resolve();
     });
     expect(revokeGrant).toHaveBeenCalledWith(grantRef);
+  });
+
+  it("requires attended confirmation and keeps plaintext cleanup separate from migration", async () => {
+    const migrate = vi.fn(async () => ({
+      ok: true as const,
+      value: { state: "cutover", migrationId: "31".repeat(16) },
+    }));
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        privateContent: {
+          health: vi.fn(async () => ({
+            ok: true,
+            value: { brokerState: "offline", broker: null },
+          })),
+          list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
+          listGrants: vi.fn(async () => ({
+            ok: true,
+            value: { grants: [] },
+          })),
+          listMembers: vi.fn(async () => ({
+            ok: true,
+            value: { members: [] },
+          })),
+          migrationCandidates: vi.fn(async () => ({
+            ok: true,
+            value: ["legacy-root", "legacy-child"],
+          })),
+          migrate,
+        },
+      },
+    });
+    await act(async () => {
+      root.render(<PrivateContentSurface onClose={vi.fn()} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const summary = [...container.querySelectorAll("summary")].find(
+      (candidate) => candidate.textContent === "Move from Standard Cloud",
+    );
+    await act(async () => {
+      summary?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain(
+      "2 documents ready for an encrypted copy.",
+    );
+    const review = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Review migration",
+    );
+    await act(async () => review?.click());
+    expect(document.body.textContent).toContain(
+      "No plaintext is deleted in this step.",
+    );
+    const confirm = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Encrypt and verify",
+    );
+    await act(async () => {
+      confirm?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(migrate).toHaveBeenCalledWith({
+      mode: "start",
+      sourceDocumentIds: ["legacy-root", "legacy-child"],
+    });
+    expect(JSON.stringify(migrate.mock.calls)).not.toContain("vaultId");
+    expect(container.textContent).toContain(
+      "Standard Cloud originals remain until export and recovery are proven.",
+    );
   });
 });

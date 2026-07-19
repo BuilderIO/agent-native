@@ -707,6 +707,14 @@ interface ElectronAPI {
     ): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
+    migrationCandidates(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    migrate(
+      request: import("@shared/ipc-channels").DesktopPrivateContentMigrationRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
     setApplicationState(
       state: import("@shared/ipc-channels").DesktopPrivateContentApplicationState,
     ): Promise<

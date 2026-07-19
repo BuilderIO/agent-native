@@ -34,6 +34,9 @@ export interface PrivateVaultMigrationSourceDocument {
 }
 
 export interface PrivateVaultMigrationSource {
+  listCandidateIds(
+    scope: PrivateVaultMigrationScope,
+  ): Promise<readonly string[]>;
   freeze(
     scope: PrivateVaultMigrationScope,
     sourceDocumentIds: readonly string[],
@@ -91,6 +94,10 @@ export interface PrivateVaultMigrationStore {
     scope: PrivateVaultMigrationScope,
     migrationId: string,
   ): Promise<{
+    ledger: PrivateVaultMigrationLedger;
+    items: readonly PrivateVaultMigrationItem[];
+  } | null>;
+  findActive(scope: PrivateVaultMigrationScope): Promise<{
     ledger: PrivateVaultMigrationLedger;
     items: readonly PrivateVaultMigrationItem[];
   } | null>;
@@ -186,6 +193,22 @@ export class PrivateVaultMigrationCoordinator {
     private readonly store: PrivateVaultMigrationStore,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
+
+  async listCandidates(
+    scope: PrivateVaultMigrationScope,
+  ): Promise<readonly string[]> {
+    const ids = await this.source.listCandidateIds(scope);
+    if (
+      ids.length > PRIVATE_VAULT_MIGRATION_MAX_DOCUMENTS ||
+      new Set(ids).size !== ids.length
+    )
+      fail();
+    return Object.freeze([...ids].sort());
+  }
+
+  active(scope: PrivateVaultMigrationScope) {
+    return this.store.findActive(scope);
+  }
 
   async preflight(
     scope: PrivateVaultMigrationScope,

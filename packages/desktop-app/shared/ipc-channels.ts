@@ -85,6 +85,9 @@ export const IPC = {
   CONTENT_PRIVATE_RUNTIME_LIST_GRANTS: "content-private-runtime:list-grants",
   CONTENT_PRIVATE_RUNTIME_LIST_MEMBERS: "content-private-runtime:list-members",
   CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT: "content-private-runtime:revoke-grant",
+  CONTENT_PRIVATE_RUNTIME_MIGRATION_CANDIDATES:
+    "content-private-runtime:migration-candidates",
+  CONTENT_PRIVATE_RUNTIME_MIGRATE: "content-private-runtime:migrate",
   CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE:
     "content-private-runtime:set-application-state",
 
@@ -446,6 +449,10 @@ export interface DesktopPrivateContentRestoreVersionRequest {
   id: string;
   revisionId: string;
 }
+
+export type DesktopPrivateContentMigrationRequest =
+  | { mode: "start"; sourceDocumentIds: string[] }
+  | { mode: "resume"; migrationId: string };
 
 export interface DesktopPrivateContentGrantSummary {
   grantRef: string;

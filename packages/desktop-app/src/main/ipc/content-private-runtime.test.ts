@@ -28,6 +28,8 @@ function fixture(allowed = true) {
       state: "revoked",
       grantRef,
     })),
+    listLegacyMigrationCandidates: vi.fn(async () => ["legacy-document"]),
+    migrateLegacyContent: vi.fn(async () => ({ state: "cutover" })),
     setApplicationState: vi.fn(),
   };
   return {
@@ -66,6 +68,11 @@ describe("signed Private Content IPC", () => {
     await source.handlers.listGrants(event);
     await source.handlers.listMembers(event);
     await source.handlers.revokeGrant(event, "44".repeat(32));
+    await source.handlers.migrationCandidates(event);
+    await source.handlers.migrate(event, {
+      mode: "start",
+      sourceDocumentIds: ["legacy-document"],
+    });
     await source.handlers.setApplicationState(event, {
       view: "editor",
       documentId,
@@ -98,6 +105,10 @@ describe("signed Private Content IPC", () => {
     expect(source.runtime.revokeAgentGrant).toHaveBeenCalledWith(
       "44".repeat(32),
     );
+    expect(source.runtime.listLegacyMigrationCandidates).toHaveBeenCalledOnce();
+    expect(source.runtime.migrateLegacyContent).toHaveBeenCalledWith({
+      sourceDocumentIds: ["legacy-document"],
+    });
     expect(source.runtime.setApplicationState).toHaveBeenCalledWith({
       view: "editor",
       documentId,
@@ -128,6 +139,12 @@ describe("signed Private Content IPC", () => {
     ).resolves.toMatchObject({ ok: false });
     await expect(
       source.handlers.revokeGrant({} as never, "not-a-grant-ref"),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(
+      source.handlers.migrate({} as never, {
+        mode: "start",
+        sourceDocumentIds: [],
+      }),
     ).resolves.toMatchObject({ ok: false });
     await expect(
       source.handlers.setApplicationState({} as never, {

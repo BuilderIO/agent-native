@@ -198,6 +198,30 @@ export const sqlPrivateVaultMigrationStore: PrivateVaultMigrationStore = {
     return { ledger, items };
   },
 
+  async findActive(scope) {
+    const rows = await getDb()
+      .select({
+        migrationId: schema.contentEncryptedVaultMigrations.migrationId,
+      })
+      .from(schema.contentEncryptedVaultMigrations)
+      .where(
+        and(
+          eq(
+            schema.contentEncryptedVaultMigrations.ownerEmail,
+            scope.ownerEmail,
+          ),
+          eq(schema.contentEncryptedVaultMigrations.orgId, scope.orgId),
+          eq(schema.contentEncryptedVaultMigrations.vaultId, scope.vaultId),
+          ne(schema.contentEncryptedVaultMigrations.state, "cleaned"),
+          ne(schema.contentEncryptedVaultMigrations.state, "rolled_back"),
+        ),
+      )
+      .limit(2);
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) throw new PrivateVaultMigrationError();
+    return this.get(scope, rows[0]!.migrationId);
+  },
+
   async transition({ scope, previous, next }) {
     const parsed = assertPrivateVaultMigrationTransition(previous, next);
     const [row] = await getDb()

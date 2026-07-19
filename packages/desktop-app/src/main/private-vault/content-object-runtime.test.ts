@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { PrivateVaultContentObjectRuntime } from "./content-object-runtime.js";
@@ -34,6 +36,9 @@ function transport() {
 describe("Private Vault Content object runtime", () => {
   it("binds a vault manifest MIME type to its distinct hosted object type", async () => {
     const encodedRevision = Uint8Array.of(0xa4, 1, 2, 3);
+    const ciphertextHash = createHash("sha256")
+      .update(encodedRevision)
+      .digest("hex");
     const native = {
       sealContentObjectRevision: vi.fn(async (input) => ({
         version: 1 as const,
@@ -54,7 +59,7 @@ describe("Private Vault Content object runtime", () => {
     const hosted = transport();
     const runtime = new PrivateVaultContentObjectRuntime(native);
 
-    await runtime.sealAndUpload({
+    const uploaded = await runtime.sealAndUpload({
       transport: hosted as never,
       vaultId,
       objectId,
@@ -63,6 +68,7 @@ describe("Private Vault Content object runtime", () => {
       plaintext: Uint8Array.from(Buffer.from('{"kind":"manifest"}')),
       parentRevisionIds: [],
     });
+    expect(uploaded.ciphertextHash).toBe(ciphertextHash);
 
     expect(hosted.put).toHaveBeenCalledWith(
       expect.objectContaining({ objectType: "vault-manifest", revision: 1 }),
@@ -115,6 +121,9 @@ describe("Private Vault Content object runtime", () => {
       }),
     ).resolves.toEqual({
       revisionId,
+      ciphertextHash: createHash("sha256")
+        .update(Uint8Array.of(0xa4, 1, 2, 3))
+        .digest("hex"),
       epoch: 7,
       plaintextLength: 16,
       ciphertextByteLength: 4,

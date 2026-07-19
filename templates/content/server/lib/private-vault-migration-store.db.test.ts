@@ -99,6 +99,9 @@ describe("Private Vault SQL migration ledger", () => {
     await expect(
       store.create({ scope, ledger: initial, items }),
     ).resolves.toEqual(initial);
+    await expect(store.findActive(scope)).resolves.toMatchObject({
+      ledger: { migrationId, state: "preflight" },
+    });
     const copying = ledger({ state: "copying" });
     await expect(
       store.transition({ scope, previous: initial, next: copying }),
@@ -184,6 +187,7 @@ describe("Private Vault SQL migration ledger", () => {
         expect.objectContaining({ state: "cleaned", cleanupAt: timestamp }),
       ]),
     );
+    await expect(store.findActive(scope)).resolves.toBeNull();
   });
 
   it("never stores source titles, bodies, or export plaintext in the ledger", async () => {

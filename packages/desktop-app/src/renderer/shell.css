@@ -690,6 +690,57 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
+.private-content-migration-details {
+  width: 100%;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.private-content-migration-details summary {
+  cursor: pointer;
+  color: #cdd8ff;
+  font-size: 11px;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
+.private-content-migration-details > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 9px;
+  color: #9fb7ff;
+}
+
+.private-content-migration-details p,
+.private-content-migration-details > span {
+  margin: 0;
+  color: #aeb5c5;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.private-content-migration-details > span {
+  display: block;
+  margin-top: 7px;
+  color: #7f889b;
+}
+
+.private-content-migration-details > button {
+  margin-top: 9px;
+  border: 1px solid rgba(159, 183, 255, 0.3);
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: rgba(97, 126, 216, 0.12);
+  color: #cdd8ff;
+  font-size: 10px;
+}
+
+.private-content-migration-details > button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .private-content-reader-details summary {
   cursor: pointer;
   color: #aeb5c5;

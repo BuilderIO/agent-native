@@ -66,6 +66,10 @@ class MemorySource implements PrivateVaultMigrationSource {
     },
   );
 
+  async listCandidateIds() {
+    return [...this.values.keys()];
+  }
+
   async freeze(_scope: PrivateVaultMigrationScope, ids: readonly string[]) {
     return ids.flatMap((id) => {
       const value = this.values.get(id);
@@ -95,6 +99,17 @@ class MemoryStore implements PrivateVaultMigrationStore {
 
   async get(_scope: PrivateVaultMigrationScope, migrationId: string) {
     return this.ledger?.migrationId === migrationId
+      ? {
+          ledger: structuredClone(this.ledger),
+          items: structuredClone(this.items),
+        }
+      : null;
+  }
+
+  async findActive() {
+    return this.ledger &&
+      this.ledger.state !== "cleaned" &&
+      this.ledger.state !== "rolled_back"
       ? {
           ledger: structuredClone(this.ledger),
           items: structuredClone(this.items),
@@ -199,6 +214,22 @@ function harness() {
 }
 
 describe("Private Vault resumable migration coordinator", () => {
+  it("lists a deterministic bounded candidate set", async () => {
+    const { coordinator } = harness();
+    await expect(coordinator.listCandidates(scope)).resolves.toEqual([
+      "child",
+      "root",
+    ]);
+  });
+
+  it("discovers the scoped durable ledger after a caller restart", async () => {
+    const { coordinator } = harness();
+    const ledger = await coordinator.preflight(scope, ["root", "child"]);
+    await expect(coordinator.active(scope)).resolves.toMatchObject({
+      ledger: { migrationId: ledger.migrationId, state: "preflight" },
+    });
+  });
+
   it("rejects a frozen document hierarchy with a parent cycle", async () => {
     const { coordinator, source } = harness();
     source.values.set("root", {

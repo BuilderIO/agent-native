@@ -53,6 +53,7 @@ export class PrivateVaultContentObjectRuntime {
     readonly parentRevisionIds?: readonly string[];
   }): Promise<{
     readonly revisionId: string;
+    readonly ciphertextHash: string;
     readonly epoch: number;
     readonly plaintextLength: number;
     readonly ciphertextByteLength: number;
@@ -66,6 +67,9 @@ export class PrivateVaultContentObjectRuntime {
       plaintext: input.plaintext,
     });
     const revisionId = hex(sealed.revisionId);
+    const ciphertextHash = createHash("sha256")
+      .update(sealed.encodedRevision)
+      .digest("hex");
     try {
       const metadata = await input.transport.put({
         coordinate: {
@@ -81,6 +85,7 @@ export class PrivateVaultContentObjectRuntime {
       });
       return Object.freeze({
         revisionId,
+        ciphertextHash,
         epoch: metadata.epoch,
         plaintextLength: sealed.plaintextLength,
         ciphertextByteLength: metadata.ciphertextByteLength,
@@ -143,3 +148,4 @@ export function createPrivateVaultContentObjectRuntime() {
     createPrivateVaultNativeServiceClient(),
   );
 }
+import { createHash } from "node:crypto";

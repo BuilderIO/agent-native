@@ -20,6 +20,18 @@ export const managePrivateVaultMigrationSchema = z.discriminatedUnion(
     z
       .object({
         ...base,
+        operation: z.literal("active"),
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        operation: z.literal("candidates"),
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
         operation: z.literal("preflight"),
         sourceDocumentIds: z.array(sourceDocumentIdSchema).min(1).max(10_000),
       })
@@ -88,6 +100,19 @@ export default defineAction({
   run: async (args) => {
     const scope = await requirePrivateVaultMigrationActionScope(args.vaultId);
     switch (args.operation) {
+      case "active": {
+        const current = await privateVaultMigrationCoordinator.active(scope);
+        return { operation: args.operation, current };
+      }
+      case "candidates": {
+        const sourceDocumentIds =
+          await privateVaultMigrationCoordinator.listCandidates(scope);
+        return {
+          operation: args.operation,
+          sourceCount: sourceDocumentIds.length,
+          sourceDocumentIds,
+        };
+      }
       case "preflight": {
         const ledger = await privateVaultMigrationCoordinator.preflight(
           scope,

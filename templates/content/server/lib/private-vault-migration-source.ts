@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import {
@@ -249,6 +249,24 @@ async function readFrozenSources(
 }
 
 export const sqlPrivateVaultMigrationSource: PrivateVaultMigrationSource = {
+  async listCandidateIds(scope) {
+    const rows = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          sourceScope(scope),
+          isNull(schema.documents.sourceMode),
+          isNull(schema.documents.sourceKind),
+          isNull(schema.documents.sourcePath),
+          isNull(schema.documents.sourceRootPath),
+        ),
+      );
+    return rows
+      .map((row) => row.id)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  },
+
   freeze: readFrozenSources,
 
   async read(scope, sourceDocumentId) {

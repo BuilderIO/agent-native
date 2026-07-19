@@ -1,6 +1,7 @@
 import {
   IPC,
   type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentMigrationRequest,
   type DesktopPrivateContentRestoreVersionRequest,
   type DesktopPrivateContentResult,
   type DesktopPrivateContentUpdateRequest,
@@ -38,6 +39,15 @@ const applicationStateSchema = z.discriminatedUnion("view", [
   z.object({ view: z.literal("list") }).strict(),
   z.object({ view: z.literal("editor"), documentId: opaqueIdSchema }).strict(),
 ]);
+const migrationRequestSchema = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("start"),
+      sourceDocumentIds: z.array(z.string().min(1).max(256)).min(1).max(10_000),
+    })
+    .strict(),
+  z.object({ mode: z.literal("resume"), migrationId: opaqueIdSchema }).strict(),
+]);
 
 type RuntimeSurface = Pick<
   PrivateVaultContentRuntime,
@@ -48,6 +58,8 @@ type RuntimeSurface = Pick<
   | "listAgentGrants"
   | "listVaultMembers"
   | "revokeAgentGrant"
+  | "listLegacyMigrationCandidates"
+  | "migrateLegacyContent"
   | "setApplicationState"
 > & {
   documents(): {
@@ -212,6 +224,26 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
         const grantRef = revisionIdSchema.parse(arguments_[0]);
         return runtime(event).revokeAgentGrant(grantRef);
       }),
+    migrationCandidates: (
+      event: IpcMainInvokeEvent,
+      ...arguments_: unknown[]
+    ) =>
+      result(async () => {
+        exactNoArguments(arguments_);
+        return runtime(event).listLegacyMigrationCandidates();
+      }),
+    migrate: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const request = migrationRequestSchema.parse(
+          arguments_[0],
+        ) satisfies DesktopPrivateContentMigrationRequest;
+        return runtime(event).migrateLegacyContent(
+          request.mode === "start"
+            ? { sourceDocumentIds: request.sourceDocumentIds }
+            : { migrationId: request.migrationId },
+        );
+      }),
     setApplicationState: (
       event: IpcMainInvokeEvent,
       ...arguments_: unknown[]
@@ -255,6 +287,11 @@ export function registerContentPrivateRuntimeIpc(input: {
     IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT,
     handlers.revokeGrant,
   );
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_MIGRATION_CANDIDATES,
+    handlers.migrationCandidates,
+  );
+  ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_MIGRATE, handlers.migrate);
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE,
     handlers.setApplicationState,
