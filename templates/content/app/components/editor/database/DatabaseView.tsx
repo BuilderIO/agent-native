@@ -15643,7 +15643,7 @@ function DatabasePropertyHeader({
   const canReorder = canEdit && !property.definition.systemRole;
   const columnState = databaseColumnHeaderState(
     sorts,
-    filters,
+    userVisibleDatabaseFilters(filters, [property]),
     property.definition.id,
   );
 
