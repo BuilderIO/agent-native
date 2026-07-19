@@ -33,6 +33,7 @@ export const E2EE_DOMAIN_TAGS = Object.freeze([
   "enrollment-key-proof",
   "enrollment-challenge",
   "enrollment-sas",
+  "enrollment-sas-decision",
   "enrollment-authorization",
   "genesis-recovery-confirmation",
   "genesis-authorization",
@@ -123,6 +124,15 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     challengeEnvelopeId: 334,
     challengeCreatedAt: 335,
     challengeExpiresAt: 336,
+  }),
+  enrollmentSasDecision: Object.freeze({
+    offerHash: 620,
+    challengeHash: 621,
+    sasTranscriptHash: 622,
+    candidateEndpointId: 623,
+    ceremonyId: 624,
+    decision: 625,
+    signature: 626,
   }),
   ceremonyAbortState: Object.freeze({
     ceremonyId: 340,
@@ -390,6 +400,7 @@ export const E2EE_SIZE_LIMITS = Object.freeze({
   resultEnvelopeBytes: 16 * 1024 * 1024 + 64 * 1024,
   vaultLogEntryBytes: 64 * 1024,
   enrollmentAuthorizationBytes: 256 * 1024,
+  enrollmentSasDecisionBytes: 2 * 1024,
 });
 
 export const E2EE_LIFETIME_LIMITS_SECONDS = Object.freeze({

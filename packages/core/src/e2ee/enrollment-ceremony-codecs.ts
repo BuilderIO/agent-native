@@ -35,6 +35,7 @@ import {
 const COMMON = E2EE_ENVELOPE_FIELDS.common;
 const CHALLENGE = E2EE_ENVELOPE_FIELDS.enrollmentChallenge;
 const SAS = E2EE_ENVELOPE_FIELDS.enrollmentSas;
+const SAS_DECISION = E2EE_ENVELOPE_FIELDS.enrollmentSasDecision;
 const AUTHORIZATION = E2EE_ENVELOPE_FIELDS.enrollmentAuthorization;
 const ID_BYTES = 16;
 const HASH_BYTES = 32;
@@ -101,6 +102,20 @@ export interface AncV1EnrollmentSasTranscript {
   challengeEnvelopeId: Uint8Array;
   challengeCreatedAt: number;
   challengeExpiresAt: number;
+}
+
+export interface AncV1UnsignedEnrollmentSasDecision extends CommonEnvelope {
+  type: "enrollment-sas-decision";
+  offerHash: Uint8Array;
+  challengeHash: Uint8Array;
+  sasTranscriptHash: Uint8Array;
+  candidateEndpointId: Uint8Array;
+  ceremonyId: Uint8Array;
+  decision: "confirmed" | "mismatch";
+}
+
+export interface AncV1EnrollmentSasDecision extends AncV1UnsignedEnrollmentSasDecision {
+  signature: Uint8Array;
 }
 
 export interface AncV1UnsignedEnrollmentAuthorization extends CommonEnvelope {
@@ -182,6 +197,13 @@ function integer(value: unknown, minimum: number, name: string): number {
 function role(value: unknown, name: string): "endpoint" | "broker" {
   if (value !== "endpoint" && value !== "broker") {
     fail(`${name} must be endpoint or broker`);
+  }
+  return value;
+}
+
+function sasDecision(value: unknown, name: string): "confirmed" | "mismatch" {
+  if (value !== "confirmed" && value !== "mismatch") {
+    fail(`${name} must be confirmed or mismatch`);
   }
   return value;
 }
@@ -322,6 +344,28 @@ const CHALLENGE_UNSIGNED_FIELDS = [
 ] as const;
 const CHALLENGE_FIELDS = [...CHALLENGE_UNSIGNED_FIELDS, "signature"] as const;
 const challengeKeys = [...Object.values(COMMON), ...Object.values(CHALLENGE)];
+
+const SAS_DECISION_UNSIGNED_FIELDS = [
+  "suite",
+  "vaultId",
+  "type",
+  "createdAt",
+  "envelopeId",
+  "offerHash",
+  "challengeHash",
+  "sasTranscriptHash",
+  "candidateEndpointId",
+  "ceremonyId",
+  "decision",
+] as const;
+const SAS_DECISION_FIELDS = [
+  ...SAS_DECISION_UNSIGNED_FIELDS,
+  "signature",
+] as const;
+const sasDecisionKeys = [
+  ...Object.values(COMMON),
+  ...Object.values(SAS_DECISION),
+];
 
 function unsignedChallengeMap(
   value: AncV1UnsignedEnrollmentChallenge,
@@ -1231,6 +1275,209 @@ export async function hashAncV1EnrollmentChallenge(
 ): Promise<Uint8Array> {
   decodeAncV1EnrollmentChallenge(encodedChallenge, { expectedVaultId });
   return ancV1Hash("enrollment-challenge", encodedChallenge.slice());
+}
+
+function unsignedSasDecisionMap(
+  value: AncV1UnsignedEnrollmentSasDecision,
+): Map<number, AncV1CanonicalValue> {
+  exact(
+    value,
+    SAS_DECISION_UNSIGNED_FIELDS,
+    "Unsigned enrollment SAS decision",
+  );
+  return new Map<number, AncV1CanonicalValue>([
+    ...commonMap(value, "enrollment-sas-decision"),
+    [SAS_DECISION.offerHash, bytes(value.offerHash, HASH_BYTES, "offerHash")],
+    [
+      SAS_DECISION.challengeHash,
+      bytes(value.challengeHash, HASH_BYTES, "challengeHash"),
+    ],
+    [
+      SAS_DECISION.sasTranscriptHash,
+      bytes(value.sasTranscriptHash, HASH_BYTES, "sasTranscriptHash"),
+    ],
+    [
+      SAS_DECISION.candidateEndpointId,
+      bytes(value.candidateEndpointId, ID_BYTES, "candidateEndpointId"),
+    ],
+    [SAS_DECISION.ceremonyId, bytes(value.ceremonyId, ID_BYTES, "ceremonyId")],
+    [SAS_DECISION.decision, sasDecision(value.decision, "decision")],
+  ]);
+}
+
+export function encodeAncV1UnsignedEnrollmentSasDecision(
+  value: AncV1UnsignedEnrollmentSasDecision,
+): Uint8Array {
+  return encodeAncV1Canonical(unsignedSasDecisionMap(value));
+}
+
+export function encodeAncV1EnrollmentSasDecision(
+  value: AncV1EnrollmentSasDecision,
+): Uint8Array {
+  exact(value, SAS_DECISION_FIELDS, "Enrollment SAS decision");
+  const { signature, ...unsigned } = value;
+  return encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      ...unsignedSasDecisionMap(unsigned),
+      [SAS_DECISION.signature, bytes(signature, SIGNATURE_BYTES, "signature")],
+    ]),
+  );
+}
+
+export async function signAncV1EnrollmentSasDecision(
+  value: AncV1UnsignedEnrollmentSasDecision,
+  candidateSigningPrivateKey: Uint8Array,
+): Promise<AncV1EnrollmentSasDecision> {
+  const preimage = encodeAncV1UnsignedEnrollmentSasDecision(value);
+  return {
+    ...value,
+    signature: await ancV1SignDetached(
+      "enrollment-sas-decision",
+      preimage,
+      candidateSigningPrivateKey,
+    ),
+  };
+}
+
+export function decodeAncV1EnrollmentSasDecision(
+  encoded: Uint8Array,
+  binding: { expectedVaultId: Uint8Array },
+): AncV1EnrollmentSasDecision {
+  exact(binding, ["expectedVaultId"], "SAS decision binding");
+  const map = decodeMap(
+    encoded,
+    sasDecisionKeys,
+    E2EE_SIZE_LIMITS.enrollmentSasDecisionBytes,
+  );
+  return {
+    ...commonFromMap(map, "enrollment-sas-decision", binding.expectedVaultId),
+    offerHash: bytes(
+      field(map, SAS_DECISION.offerHash, "offerHash"),
+      HASH_BYTES,
+      "offerHash",
+    ),
+    challengeHash: bytes(
+      field(map, SAS_DECISION.challengeHash, "challengeHash"),
+      HASH_BYTES,
+      "challengeHash",
+    ),
+    sasTranscriptHash: bytes(
+      field(map, SAS_DECISION.sasTranscriptHash, "sasTranscriptHash"),
+      HASH_BYTES,
+      "sasTranscriptHash",
+    ),
+    candidateEndpointId: bytes(
+      field(map, SAS_DECISION.candidateEndpointId, "candidateEndpointId"),
+      ID_BYTES,
+      "candidateEndpointId",
+    ),
+    ceremonyId: bytes(
+      field(map, SAS_DECISION.ceremonyId, "ceremonyId"),
+      ID_BYTES,
+      "ceremonyId",
+    ),
+    decision: sasDecision(
+      field(map, SAS_DECISION.decision, "decision"),
+      "decision",
+    ),
+    signature: bytes(
+      field(map, SAS_DECISION.signature, "signature"),
+      SIGNATURE_BYTES,
+      "signature",
+    ),
+  };
+}
+
+export async function verifyAncV1EnrollmentSasDecisionSignature(
+  encodedReceipt: Uint8Array,
+  binding: {
+    expectedVaultId: Uint8Array;
+    candidateSigningPublicKey: Uint8Array;
+  },
+): Promise<AncV1EnrollmentSasDecision> {
+  exact(
+    binding,
+    ["expectedVaultId", "candidateSigningPublicKey"],
+    "SAS decision signature binding",
+  );
+  const receipt = decodeAncV1EnrollmentSasDecision(encodedReceipt, {
+    expectedVaultId: binding.expectedVaultId,
+  });
+  const { signature, ...unsigned } = receipt;
+  if (
+    !(await ancV1VerifyDetached(
+      "enrollment-sas-decision",
+      encodeAncV1UnsignedEnrollmentSasDecision(unsigned),
+      signature,
+      bytes(
+        binding.candidateSigningPublicKey,
+        PUBLIC_KEY_BYTES,
+        "candidateSigningPublicKey",
+      ),
+    ))
+  ) {
+    fail("Enrollment SAS decision signature verification failed");
+  }
+  return receipt;
+}
+
+export async function verifyAncV1EnrollmentSasDecision(
+  encodedReceipt: Uint8Array,
+  input: {
+    encodedOffer: Uint8Array;
+    encodedChallenge: Uint8Array;
+    verifiedControlState: ControlLogState;
+    now: number;
+  },
+): Promise<{
+  receipt: AncV1EnrollmentSasDecision;
+  challenge: AncV1EnrollmentChallenge;
+  sasCode: string;
+}> {
+  exact(
+    input,
+    ["encodedOffer", "encodedChallenge", "verifiedControlState", "now"],
+    "SAS decision verification input",
+  );
+  const verified = await verifyAncV1EnrollmentChallenge(
+    input.encodedChallenge,
+    {
+      encodedOffer: input.encodedOffer,
+      verifiedControlState: input.verifiedControlState,
+      now: input.now,
+    },
+  );
+  const receipt = await verifyAncV1EnrollmentSasDecisionSignature(
+    encodedReceipt,
+    {
+      expectedVaultId: verified.offer.vaultId,
+      candidateSigningPublicKey: verified.offer.signingPublicKey,
+    },
+  );
+  const expectedOfferHash = await hashAncV1EndpointEnrollmentOffer(
+    input.encodedOffer,
+    { expectedVaultId: verified.offer.vaultId },
+  );
+  const expectedChallengeHash = await hashAncV1EnrollmentChallenge(
+    input.encodedChallenge,
+    verified.offer.vaultId,
+  );
+  if (
+    receipt.createdAt < verified.challenge.createdAt ||
+    receipt.createdAt > verified.challenge.expiresAt ||
+    !equalBytes(receipt.offerHash, expectedOfferHash) ||
+    !equalBytes(receipt.challengeHash, expectedChallengeHash) ||
+    !equalBytes(receipt.sasTranscriptHash, verified.transcriptHash) ||
+    !equalBytes(receipt.candidateEndpointId, verified.offer.endpointId) ||
+    !equalBytes(receipt.ceremonyId, verified.offer.ceremonyId)
+  ) {
+    fail("Enrollment SAS decision does not match the verified challenge");
+  }
+  return {
+    receipt,
+    challenge: verified.challenge,
+    sasCode: verified.sasCode,
+  };
 }
 
 export async function verifyAncV1EnrollmentAuthorizationSignature(

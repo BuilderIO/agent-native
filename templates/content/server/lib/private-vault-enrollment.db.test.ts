@@ -6,7 +6,16 @@ import {
   ancV1BoxKeypairFromSeed,
   ancV1BytesToHex,
   ancV1SigningKeypairFromSeed,
+  createAncV1CandidateKeyProof,
+  decodeAncV1EndpointEnrollmentOffer,
+  encodeAncV1EnrollmentChallenge,
   encodeAncV1EndpointEnrollmentOffer,
+  encodeAncV1EnrollmentSasDecision,
+  hashAncV1EndpointEnrollmentOffer,
+  hashAncV1EnrollmentChallenge,
+  hashAncV1EnrollmentSasTranscript,
+  signAncV1EnrollmentChallenge,
+  signAncV1EnrollmentSasDecision,
   type ControlLogState,
 } from "@agent-native/core/e2ee";
 import { eq } from "drizzle-orm";
@@ -43,6 +52,8 @@ vi.mock("./private-vault-control-log-runtime.js", () => ({
 let getDb: (typeof import("../db/index.js"))["getDb"];
 let schema: typeof import("../db/schema.js");
 let publishOffer: (typeof import("./private-vault-enrollment.js"))["publishPrivateVaultEnrollmentOffer"];
+let publishChallenge: (typeof import("./private-vault-enrollment.js"))["publishPrivateVaultEnrollmentChallenge"];
+let publishSasDecision: (typeof import("./private-vault-enrollment.js"))["publishPrivateVaultEnrollmentSasDecision"];
 let readStatus: (typeof import("./private-vault-enrollment.js"))["readPrivateVaultEnrollmentStatus"];
 
 function state(input?: { broker?: boolean }): ControlLogState {
@@ -101,6 +112,110 @@ async function offer(input?: { role?: "endpoint" | "broker" }) {
   });
 }
 
+async function crossDeviceCeremony(encodedOffer: Uint8Array) {
+  const candidate = await ancV1SigningKeypairFromSeed(
+    new Uint8Array(32).fill(1),
+  );
+  const authorizer = await ancV1SigningKeypairFromSeed(
+    new Uint8Array(32).fill(6),
+  );
+  const authorizerAgreement = await ancV1BoxKeypairFromSeed(
+    new Uint8Array(32).fill(7),
+  );
+  const decodedOffer = decodeAncV1EndpointEnrollmentOffer(encodedOffer, {
+    expectedVaultId: Uint8Array.from(Buffer.from(VAULT_ID, "hex")),
+  });
+  const offerHash = await hashAncV1EndpointEnrollmentOffer(encodedOffer, {
+    expectedVaultId: decodedOffer.vaultId,
+  });
+  const candidateKeyProof = await createAncV1CandidateKeyProof(
+    offerHash,
+    candidate.privateKey,
+  );
+  const controlState: ControlLogState = {
+    ...state(),
+    activeMembers: [
+      {
+        ...state().activeMembers[0]!,
+        signingPublicKey: ancV1BytesToHex(authorizer.publicKey),
+        keyAgreementPublicKey: ancV1BytesToHex(authorizerAgreement.publicKey),
+      },
+    ],
+  };
+  const createdAt = Math.floor(NOW.getTime() / 1000) + 1;
+  const challengeBase = {
+    suite: "anc/v1" as const,
+    vaultId: decodedOffer.vaultId,
+    type: "enrollment-challenge" as const,
+    createdAt,
+    envelopeId: new Uint8Array(16).fill(8),
+    offerHash,
+    candidateKeyProof,
+    authorizerEndpointId: Uint8Array.from(Buffer.from(OWNER_ID, "hex")),
+    authorizerSigningPublicKey: authorizer.publicKey,
+    authorizerKeyAgreementPublicKey: authorizerAgreement.publicKey,
+    controlSequence: controlState.sequence,
+    controlHeadHash: Uint8Array.from(Buffer.from(controlState.headHash, "hex")),
+    membershipHash: Uint8Array.from(
+      Buffer.from(controlState.membershipHash, "hex"),
+    ),
+    targetMembershipRole: decodedOffer.membershipRole,
+    challengeNonce: new Uint8Array(32).fill(9),
+    expiresAt: createdAt + 300,
+  };
+  const sasTranscriptHash = await hashAncV1EnrollmentSasTranscript({
+    suite: "anc/v1",
+    vaultId: decodedOffer.vaultId,
+    type: "enrollment-sas",
+    ceremonyId: decodedOffer.ceremonyId,
+    offerHash,
+    candidateEndpointId: decodedOffer.endpointId,
+    candidateSigningPublicKey: decodedOffer.signingPublicKey,
+    candidateKeyAgreementPublicKey: decodedOffer.keyAgreementPublicKey,
+    candidateKeyProof,
+    authorizerEndpointId: challengeBase.authorizerEndpointId,
+    authorizerSigningPublicKey: challengeBase.authorizerSigningPublicKey,
+    authorizerKeyAgreementPublicKey:
+      challengeBase.authorizerKeyAgreementPublicKey,
+    controlSequence: challengeBase.controlSequence,
+    controlHeadHash: challengeBase.controlHeadHash,
+    membershipHash: challengeBase.membershipHash,
+    targetMembershipRole: challengeBase.targetMembershipRole,
+    challengeNonce: challengeBase.challengeNonce,
+    challengeEnvelopeId: challengeBase.envelopeId,
+    challengeCreatedAt: challengeBase.createdAt,
+    challengeExpiresAt: challengeBase.expiresAt,
+  });
+  const encodedChallenge = encodeAncV1EnrollmentChallenge(
+    await signAncV1EnrollmentChallenge(
+      { ...challengeBase, sasTranscriptHash },
+      authorizer.privateKey,
+    ),
+  );
+  const encodedDecision = encodeAncV1EnrollmentSasDecision(
+    await signAncV1EnrollmentSasDecision(
+      {
+        suite: "anc/v1",
+        vaultId: decodedOffer.vaultId,
+        type: "enrollment-sas-decision",
+        createdAt: createdAt + 1,
+        envelopeId: new Uint8Array(16).fill(10),
+        offerHash,
+        challengeHash: await hashAncV1EnrollmentChallenge(
+          encodedChallenge,
+          decodedOffer.vaultId,
+        ),
+        sasTranscriptHash,
+        candidateEndpointId: decodedOffer.endpointId,
+        ceremonyId: decodedOffer.ceremonyId,
+        decision: "confirmed",
+      },
+      candidate.privateKey,
+    ),
+  );
+  return { controlState, encodedChallenge, encodedDecision };
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
   const db = await import("../db/index.js");
@@ -109,6 +224,8 @@ beforeAll(async () => {
   await (await import("../plugins/db.js")).default(undefined as never);
   const enrollment = await import("./private-vault-enrollment.js");
   publishOffer = enrollment.publishPrivateVaultEnrollmentOffer;
+  publishChallenge = enrollment.publishPrivateVaultEnrollmentChallenge;
+  publishSasDecision = enrollment.publishPrivateVaultEnrollmentSasDecision;
   readStatus = enrollment.readPrivateVaultEnrollmentStatus;
 }, 60_000);
 
@@ -187,6 +304,65 @@ describe("Private Vault enrollment rendezvous", () => {
       /privateKey|signingSeed|epochKey|recoverySecret|plaintext/i,
     );
     expect(ancV1BytesToHex(encoded).length).toBeGreaterThan(0);
+  });
+
+  it("persists and verifies the candidate-signed cross-device SAS decision before authorization", async () => {
+    const encodedOffer = await offer();
+    const ceremony = await crossDeviceCeremony(encodedOffer);
+    loadVerifiedState.mockResolvedValue(ceremony.controlState);
+    const offered = await publishOffer({
+      scope,
+      offer: encodedOffer,
+      now: NOW,
+    });
+    const challenged = await publishChallenge({
+      scope,
+      offerHash: ancV1BytesToHex(
+        await hashAncV1EndpointEnrollmentOffer(encodedOffer, {
+          expectedVaultId: Uint8Array.from(Buffer.from(VAULT_ID, "hex")),
+        }),
+      ),
+      challenge: ceremony.encodedChallenge,
+      now: new Date(NOW.getTime() + 1_000),
+    });
+    const confirmed = await publishSasDecision({
+      scope,
+      offerHash: ancV1BytesToHex(
+        await hashAncV1EndpointEnrollmentOffer(encodedOffer, {
+          expectedVaultId: Uint8Array.from(Buffer.from(VAULT_ID, "hex")),
+        }),
+      ),
+      sasDecision: ceremony.encodedDecision,
+      now: new Date(NOW.getTime() + 2_000),
+    });
+
+    expect(offered.phase).toBe("offer");
+    expect(challenged.phase).toBe("challenge");
+    expect(confirmed).toMatchObject({ phase: "confirmed" });
+    expect(confirmed.sasDecision).toEqual(ceremony.encodedDecision);
+    await expect(
+      publishSasDecision({
+        scope,
+        offerHash: ancV1BytesToHex(
+          await hashAncV1EndpointEnrollmentOffer(encodedOffer, {
+            expectedVaultId: Uint8Array.from(Buffer.from(VAULT_ID, "hex")),
+          }),
+        ),
+        sasDecision: ceremony.encodedDecision,
+        now: new Date(NOW.getTime() + 3_000),
+      }),
+    ).resolves.toEqual(confirmed);
+
+    const [stored] = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultEnrollmentCeremonies);
+    expect(stored).toMatchObject({
+      phase: "confirmed",
+      sasDecisionId: "0a".repeat(16),
+    });
+    expect(JSON.stringify(stored)).not.toMatch(
+      /privateKey|signingSeed|epochKey|recoverySecret|plaintext/i,
+    );
   });
 
   it("refuses to return a tampered persisted transcript", async () => {

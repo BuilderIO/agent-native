@@ -237,9 +237,11 @@ describe("content database migrations", () => {
     );
 
     expect(source).toContain("version: 89");
+    expect(source).toContain("version: 90");
     expect(migration).toContain(
       "CREATE TABLE IF NOT EXISTS content_encrypted_vault_enrollment_ceremonies",
     );
+    expect(source).toContain("content-private-vault-cross-device-sas-decision");
     expect(migration).toContain("offer_bytes_base64url TEXT NOT NULL");
     expect(migration).toContain("challenge_bytes_base64url TEXT");
     expect(migration).toContain("authorization_bytes_base64url TEXT");

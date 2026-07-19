@@ -15,6 +15,7 @@ import {
 import {
   AncV1EnrollmentCeremonyError,
   type AncV1EnrollmentChallenge,
+  type AncV1UnsignedEnrollmentSasDecision,
   type AncV1EnrollmentSasTranscript,
   type AncV1UnsignedEnrollmentAuthorization,
   type AncV1UnsignedEnrollmentChallenge,
@@ -25,10 +26,12 @@ import {
   decodeAncV1EnrollmentAuthorization,
   decodeAncV1EnrollmentChallenge,
   decodeAncV1EnrollmentSasTranscript,
+  decodeAncV1EnrollmentSasDecision,
   deriveAncV1EnrollmentSasCode,
   encodeAncV1EnrollmentAuthorization,
   encodeAncV1EnrollmentChallenge,
   encodeAncV1EnrollmentSasTranscript,
+  encodeAncV1EnrollmentSasDecision,
   encodeAncV1UnsignedEnrollmentAuthorization,
   encodeAncV1UnsignedEnrollmentChallenge,
   enrollmentSasComparisonOutcome,
@@ -36,10 +39,12 @@ import {
   hashAncV1EnrollmentSasTranscript,
   signAncV1EnrollmentAuthorization,
   signAncV1EnrollmentChallenge,
+  signAncV1EnrollmentSasDecision,
   verifyAncV1CandidateKeyProof,
   verifyAncV1EnrollmentAuthorization,
   verifyAncV1EnrollmentAuthorizationSignature,
   verifyAncV1EnrollmentChallenge,
+  verifyAncV1EnrollmentSasDecision,
   verifyPersistedAncV1EnrollmentActivation,
 } from "./enrollment-ceremony-codecs.js";
 import {
@@ -392,6 +397,63 @@ describe("anc/v1 enrollment ceremony canonical contracts", () => {
     expect(verified.transcript).toEqual(value.transcript);
     expect(verified.transcriptHash).toEqual(value.sasTranscriptHash);
     expect(verified.sasCode).toMatch(/^\d{3}-\d{3}-\d{3}$/);
+  });
+
+  it("carries a candidate-signed SAS decision between devices without trusting the rendezvous", async () => {
+    const value = await fixture();
+    const unsigned: AncV1UnsignedEnrollmentSasDecision = {
+      suite: E2EE_SUITE_ID,
+      vaultId,
+      type: "enrollment-sas-decision",
+      createdAt: value.challenge.createdAt + 2,
+      envelopeId: p(0x44, 16),
+      offerHash: value.offerHash,
+      challengeHash: await hashAncV1EnrollmentChallenge(
+        value.encodedChallenge,
+        vaultId,
+      ),
+      sasTranscriptHash: value.sasTranscriptHash,
+      candidateEndpointId: value.offer.endpointId,
+      ceremonyId: value.offer.ceremonyId,
+      decision: "confirmed",
+    };
+    const receipt = await signAncV1EnrollmentSasDecision(
+      unsigned,
+      value.candidate.privateKey,
+    );
+    const encoded = encodeAncV1EnrollmentSasDecision(receipt);
+
+    expect(
+      encodeAncV1EnrollmentSasDecision(
+        decodeAncV1EnrollmentSasDecision(encoded, {
+          expectedVaultId: vaultId,
+        }),
+      ),
+    ).toEqual(encoded);
+    await expect(
+      verifyAncV1EnrollmentSasDecision(encoded, {
+        encodedOffer: value.encodedOffer,
+        encodedChallenge: value.encodedChallenge,
+        verifiedControlState: value.state,
+        now: unsigned.createdAt,
+      }),
+    ).resolves.toMatchObject({
+      receipt: { decision: "confirmed" },
+    });
+
+    const substituted = mutate(
+      encoded,
+      E2EE_ENVELOPE_FIELDS.enrollmentSasDecision.decision,
+      "mismatch",
+    );
+    await expect(
+      verifyAncV1EnrollmentSasDecision(substituted, {
+        encodedOffer: value.encodedOffer,
+        encodedChallenge: value.encodedChallenge,
+        verifiedControlState: value.state,
+        now: unsigned.createdAt,
+      }),
+    ).rejects.toThrow(/signature/);
   });
 
   it("rejects wrong candidate proof, offer, role, broker/removed authorizer, keys and stale state", async () => {

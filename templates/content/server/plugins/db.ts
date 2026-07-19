@@ -1328,6 +1328,18 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_scope_phase_idx
         ON content_encrypted_vault_enrollment_ceremonies (owner_email, org_id, vault_id, phase, expires_at)`,
     },
+    {
+      version: 90,
+      name: "content-private-vault-cross-device-sas-decision",
+      sql: `ALTER TABLE content_encrypted_vault_enrollment_ceremonies
+        ADD COLUMN IF NOT EXISTS sas_decision_id TEXT;
+      ALTER TABLE content_encrypted_vault_enrollment_ceremonies
+        ADD COLUMN IF NOT EXISTS sas_decision_bytes_base64url TEXT;
+      ALTER TABLE content_encrypted_vault_enrollment_ceremonies
+        ADD COLUMN IF NOT EXISTS sas_decision_hash TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_sas_decision_unique
+        ON content_encrypted_vault_enrollment_ceremonies (sas_decision_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

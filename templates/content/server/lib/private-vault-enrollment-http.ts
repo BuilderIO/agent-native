@@ -74,6 +74,10 @@ export function serializePrivateVaultEnrollmentStatus(
       status.challenge === null
         ? null
         : Buffer.from(status.challenge).toString("base64url"),
+    sasDecision:
+      status.sasDecision === null
+        ? null
+        : Buffer.from(status.sasDecision).toString("base64url"),
     authorization:
       status.authorization === null
         ? null

@@ -6,6 +6,7 @@ import {
   decodeAncV1EndpointEnrollmentOffer,
   decodeAncV1EnrollmentAuthorization,
   decodeAncV1EnrollmentChallenge,
+  encodeAncV1EnrollmentSasDecision,
   decodeSignedControlLogEntry,
   encodeAncV1EndpointEnrollmentOffer,
   encodeAncV1EnrollmentAuthorization,
@@ -13,6 +14,8 @@ import {
   hashAncV1EndpointEnrollmentOffer,
   verifyAncV1EnrollmentAuthorization,
   verifyAncV1EnrollmentChallenge,
+  verifyAncV1EnrollmentSasDecision,
+  verifyAncV1EnrollmentSasDecisionSignature,
   type ControlLogState,
 } from "@agent-native/core/e2ee";
 import { and, eq } from "drizzle-orm";
@@ -23,9 +26,15 @@ import type { PrivateVaultControlLogScope } from "./private-vault-control-log.js
 
 const OFFER_MAX_BYTES = 64 * 1024;
 const CHALLENGE_MAX_BYTES = 64 * 1024;
+const SAS_DECISION_MAX_BYTES = 2 * 1024;
 const AUTHORIZATION_MAX_BYTES = 256 * 1024;
 
-type EnrollmentPhase = "offer" | "challenge" | "committed";
+type EnrollmentPhase =
+  | "offer"
+  | "challenge"
+  | "confirmed"
+  | "rejected"
+  | "committed";
 
 export class PrivateVaultEnrollmentError extends Error {
   constructor(
@@ -48,6 +57,7 @@ export interface PrivateVaultEnrollmentStatus {
   phase: EnrollmentPhase;
   offer: Uint8Array;
   challenge: Uint8Array | null;
+  sasDecision: Uint8Array | null;
   authorization: Uint8Array | null;
   controlEntryId: string | null;
   controlEntryHash: string | null;
@@ -99,29 +109,43 @@ async function parseRow(
 ): Promise<PrivateVaultEnrollmentStatus> {
   const offer = decode(row.offerBytesBase64url, OFFER_MAX_BYTES);
   const challenge = decode(row.challengeBytesBase64url, CHALLENGE_MAX_BYTES);
+  const sasDecision = decode(
+    row.sasDecisionBytesBase64url,
+    SAS_DECISION_MAX_BYTES,
+  );
   const authorization = decode(
     row.authorizationBytesBase64url,
     AUTHORIZATION_MAX_BYTES,
   );
   if (
     !offer ||
-    !(["offer", "challenge", "committed"] as const).includes(
-      row.phase as EnrollmentPhase,
-    ) ||
+    !(
+      ["offer", "challenge", "confirmed", "rejected", "committed"] as const
+    ).includes(row.phase as EnrollmentPhase) ||
     (row.phase === "offer" &&
       (challenge !== null ||
+        sasDecision !== null ||
         authorization !== null ||
         row.controlEntryId !== null ||
         row.controlEntryHash !== null ||
         row.consumedAt !== null)) ||
     (row.phase === "challenge" &&
       (challenge === null ||
+        sasDecision !== null ||
+        authorization !== null ||
+        row.controlEntryId !== null ||
+        row.controlEntryHash !== null ||
+        row.consumedAt !== null)) ||
+    ((row.phase === "confirmed" || row.phase === "rejected") &&
+      (challenge === null ||
+        sasDecision === null ||
         authorization !== null ||
         row.controlEntryId !== null ||
         row.controlEntryHash !== null ||
         row.consumedAt !== null)) ||
     (row.phase === "committed" &&
       (challenge === null ||
+        sasDecision === null ||
         authorization === null ||
         row.controlEntryId === null ||
         row.controlEntryHash === null ||
@@ -150,8 +174,9 @@ async function parseRow(
     ) {
       throw new Error();
     }
+    let decodedChallenge = null;
     if (challenge !== null) {
-      const decodedChallenge = decodeAncV1EnrollmentChallenge(challenge, {
+      decodedChallenge = decodeAncV1EnrollmentChallenge(challenge, {
         expectedVaultId: vaultId,
       });
       if (
@@ -160,6 +185,42 @@ async function parseRow(
           decodedChallenge.envelopeId,
           decodedChallenge.challengeNonce,
         ) !== row.challengeKey
+      ) {
+        throw new Error();
+      }
+    }
+    if (sasDecision !== null) {
+      if (decodedChallenge === null) throw new Error();
+      const decodedDecision = await verifyAncV1EnrollmentSasDecisionSignature(
+        sasDecision,
+        {
+          expectedVaultId: vaultId,
+          candidateSigningPublicKey: decodedOffer.signingPublicKey,
+        },
+      );
+      if (
+        !exact(
+          encodeAncV1EnrollmentSasDecision(decodedDecision),
+          sasDecision,
+        ) ||
+        ancV1BytesToHex(decodedDecision.offerHash) !== row.offerHash ||
+        !exact(
+          decodedDecision.challengeHash,
+          await ancV1Hash("enrollment-challenge", challenge!),
+        ) ||
+        !exact(
+          decodedDecision.sasTranscriptHash,
+          decodedChallenge.sasTranscriptHash,
+        ) ||
+        ancV1LifecycleIdToHex(decodedDecision.candidateEndpointId) !==
+          row.candidateEndpointId ||
+        ancV1LifecycleIdToHex(decodedDecision.ceremonyId) !== row.ceremonyId ||
+        ancV1LifecycleIdToHex(decodedDecision.envelopeId) !==
+          row.sasDecisionId ||
+        ancV1BytesToHex(
+          await ancV1Hash("enrollment-sas-decision", sasDecision),
+        ) !== row.sasDecisionHash ||
+        (row.phase === "rejected") !== (decodedDecision.decision === "mismatch")
       ) {
         throw new Error();
       }
@@ -197,6 +258,7 @@ async function parseRow(
     phase: row.phase as EnrollmentPhase,
     offer,
     challenge,
+    sasDecision,
     authorization,
     controlEntryId: row.controlEntryId,
     controlEntryHash: row.controlEntryHash,
@@ -378,8 +440,9 @@ export async function commitPrivateVaultEnrollmentAuthorization(input: {
     throw new PrivateVaultEnrollmentError("conflict");
   }
   if (
-    status.phase !== "challenge" ||
+    status.phase !== "confirmed" ||
     !status.challenge ||
+    !status.sasDecision ||
     Date.parse(row.expiresAt) <= now.getTime()
   ) {
     throw new PrivateVaultEnrollmentError("expired");
@@ -432,7 +495,7 @@ export async function commitPrivateVaultEnrollmentAuthorization(input: {
               scoped(input.scope, input.offerHash),
               eq(
                 schema.contentEncryptedVaultEnrollmentCeremonies.phase,
-                "challenge",
+                "confirmed",
               ),
             ),
           )
@@ -451,6 +514,77 @@ export async function commitPrivateVaultEnrollmentAuthorization(input: {
     scope: input.scope,
     offerHash: input.offerHash,
   });
+}
+
+export async function publishPrivateVaultEnrollmentSasDecision(input: {
+  scope: PrivateVaultControlLogScope;
+  offerHash: string;
+  sasDecision: Uint8Array;
+  now?: Date;
+}): Promise<PrivateVaultEnrollmentStatus> {
+  const now = input.now ?? new Date();
+  const decisionBytes = bounded(input.sasDecision, SAS_DECISION_MAX_BYTES);
+  const [row] = await getDb()
+    .select()
+    .from(schema.contentEncryptedVaultEnrollmentCeremonies)
+    .where(scoped(input.scope, input.offerHash))
+    .limit(1);
+  if (!row) throw new PrivateVaultEnrollmentError("not_found");
+  const status = await parseRow(row);
+  if (status.phase === "confirmed" || status.phase === "rejected") {
+    if (status.sasDecision && exact(status.sasDecision, decisionBytes)) {
+      return status;
+    }
+    throw new PrivateVaultEnrollmentError("conflict");
+  }
+  if (
+    status.phase !== "challenge" ||
+    !status.challenge ||
+    Date.parse(row.expiresAt) <= now.getTime()
+  ) {
+    throw new PrivateVaultEnrollmentError("expired");
+  }
+  const state = await currentState(input.scope);
+  let verified;
+  try {
+    verified = await verifyAncV1EnrollmentSasDecision(decisionBytes, {
+      encodedOffer: status.offer,
+      encodedChallenge: status.challenge,
+      verifiedControlState: state,
+      now: Math.floor(now.getTime() / 1000),
+    });
+    if (
+      !exact(encodeAncV1EnrollmentSasDecision(verified.receipt), decisionBytes)
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new PrivateVaultEnrollmentError("invalid_request");
+  }
+  const sasDecisionId = ancV1LifecycleIdToHex(verified.receipt.envelopeId);
+  const sasDecisionHash = ancV1BytesToHex(
+    await ancV1Hash("enrollment-sas-decision", decisionBytes),
+  );
+  const phase =
+    verified.receipt.decision === "confirmed" ? "confirmed" : "rejected";
+  const [updated] = await getDb()
+    .update(schema.contentEncryptedVaultEnrollmentCeremonies)
+    .set({
+      phase,
+      sasDecisionId,
+      sasDecisionBytesBase64url: encode(decisionBytes),
+      sasDecisionHash,
+      updatedAt: now.toISOString(),
+    })
+    .where(
+      and(
+        scoped(input.scope, input.offerHash),
+        eq(schema.contentEncryptedVaultEnrollmentCeremonies.phase, "challenge"),
+      ),
+    )
+    .returning();
+  if (!updated) throw new PrivateVaultEnrollmentError("conflict");
+  return parseRow(updated);
 }
 
 export async function readPrivateVaultEnrollmentStatus(input: {
@@ -472,5 +606,6 @@ export async function readPrivateVaultEnrollmentStatus(input: {
 export const privateVaultEnrollmentLimits = Object.freeze({
   offerBytes: OFFER_MAX_BYTES,
   challengeBytes: CHALLENGE_MAX_BYTES,
+  sasDecisionBytes: SAS_DECISION_MAX_BYTES,
   authorizationBytes: AUTHORIZATION_MAX_BYTES,
 });

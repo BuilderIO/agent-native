@@ -3,15 +3,22 @@ import type { PrivateVaultContentSession } from "./content-genesis-transport.js"
 const MEDIA_TYPE = "application/vnd.agent-native.private-vault-enrollment+cbor";
 const OFFER_MAX_BYTES = 64 * 1024;
 const CHALLENGE_MAX_BYTES = 64 * 1024;
+const SAS_DECISION_MAX_BYTES = 2 * 1024;
 const AUTHORIZATION_MAX_BYTES = 256 * 1024;
 const STATUS_MAX_BYTES = 512 * 1024;
 
-export type PrivateVaultEnrollmentPhase = "offer" | "challenge" | "committed";
+export type PrivateVaultEnrollmentPhase =
+  | "offer"
+  | "challenge"
+  | "confirmed"
+  | "rejected"
+  | "committed";
 
 export interface PrivateVaultHostedEnrollmentStatus {
   readonly phase: PrivateVaultEnrollmentPhase;
   readonly offer: Uint8Array;
   readonly challenge: Uint8Array | null;
+  readonly sasDecision: Uint8Array | null;
   readonly authorization: Uint8Array | null;
   readonly controlEntryId: string | null;
   readonly controlEntryHash: string | null;
@@ -93,6 +100,7 @@ function exactStatus(value: unknown): PrivateVaultHostedEnrollmentStatus {
     "expiresAt",
     "offer",
     "phase",
+    "sasDecision",
     "suite",
     "version",
   ].sort();
@@ -103,6 +111,8 @@ function exactStatus(value: unknown): PrivateVaultHostedEnrollmentStatus {
     input.suite !== "anc/v1" ||
     (input.phase !== "offer" &&
       input.phase !== "challenge" &&
+      input.phase !== "confirmed" &&
+      input.phase !== "rejected" &&
       input.phase !== "committed") ||
     typeof input.expiresAt !== "string" ||
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(input.expiresAt)
@@ -111,6 +121,7 @@ function exactStatus(value: unknown): PrivateVaultHostedEnrollmentStatus {
   }
   const offer = decodeBase64url(input.offer, OFFER_MAX_BYTES);
   const challenge = optionalBytes(input.challenge, CHALLENGE_MAX_BYTES);
+  const sasDecision = optionalBytes(input.sasDecision, SAS_DECISION_MAX_BYTES);
   const authorization = optionalBytes(
     input.authorization,
     AUTHORIZATION_MAX_BYTES,
@@ -121,16 +132,25 @@ function exactStatus(value: unknown): PrivateVaultHostedEnrollmentStatus {
   if (
     (input.phase === "offer" &&
       (challenge !== null ||
+        sasDecision !== null ||
         authorization !== null ||
         controlEntryId !== null ||
         controlEntryHash !== null)) ||
     (input.phase === "challenge" &&
       (challenge === null ||
+        sasDecision !== null ||
+        authorization !== null ||
+        controlEntryId !== null ||
+        controlEntryHash !== null)) ||
+    ((input.phase === "confirmed" || input.phase === "rejected") &&
+      (challenge === null ||
+        sasDecision === null ||
         authorization !== null ||
         controlEntryId !== null ||
         controlEntryHash !== null)) ||
     (committed &&
       (challenge === null ||
+        sasDecision === null ||
         authorization === null ||
         typeof controlEntryId !== "string" ||
         !/^[0-9a-f]{32}$/.test(controlEntryId) ||
@@ -143,6 +163,7 @@ function exactStatus(value: unknown): PrivateVaultHostedEnrollmentStatus {
     phase: input.phase,
     offer,
     challenge,
+    sasDecision,
     authorization,
     controlEntryId: controlEntryId as string | null,
     controlEntryHash: controlEntryHash as string | null,
@@ -199,6 +220,19 @@ export class PrivateVaultContentEnrollmentTransport {
       `/api/private-vault/enrollment/${offerHash}/authorization`,
       offerHash,
       exactBytes(authorization, AUTHORIZATION_MAX_BYTES),
+      offer,
+    );
+  }
+
+  publishSasDecision(
+    offerHash: string,
+    offer: Uint8Array,
+    sasDecision: Uint8Array,
+  ) {
+    return this.#post(
+      `/api/private-vault/enrollment/${offerHash}/sas-decision`,
+      offerHash,
+      exactBytes(sasDecision, SAS_DECISION_MAX_BYTES),
       offer,
     );
   }

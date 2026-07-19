@@ -9,9 +9,10 @@ import type { PrivateVaultContentSession } from "./content-genesis-transport.js"
 const offerHash = "ab".repeat(32);
 const offer = Uint8Array.of(1, 2, 3);
 const challenge = Uint8Array.of(4, 5, 6);
+const sasDecision = Uint8Array.of(10, 11, 12);
 const authorization = Uint8Array.of(7, 8, 9);
 
-function statusBody(phase: "offer" | "challenge" | "committed") {
+function statusBody(phase: "offer" | "challenge" | "confirmed" | "committed") {
   return {
     version: 1,
     suite: "anc/v1",
@@ -19,6 +20,10 @@ function statusBody(phase: "offer" | "challenge" | "committed") {
     offer: Buffer.from(offer).toString("base64url"),
     challenge:
       phase === "offer" ? null : Buffer.from(challenge).toString("base64url"),
+    sasDecision:
+      phase === "confirmed" || phase === "committed"
+        ? Buffer.from(sasDecision).toString("base64url")
+        : null,
     authorization:
       phase === "committed"
         ? Buffer.from(authorization).toString("base64url")
@@ -67,6 +72,12 @@ describe("PrivateVaultContentEnrollmentTransport", () => {
       )
       .mockResolvedValueOnce(
         response(
+          `/api/private-vault/enrollment/${offerHash}/sas-decision`,
+          statusBody("confirmed"),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
           `/api/private-vault/enrollment/${offerHash}/authorization`,
           statusBody("committed"),
         ),
@@ -85,6 +96,9 @@ describe("PrivateVaultContentEnrollmentTransport", () => {
       transport.publishChallenge(offerHash, offer, challenge),
     ).resolves.toMatchObject({ phase: "challenge", challenge });
     await expect(
+      transport.publishSasDecision(offerHash, offer, sasDecision),
+    ).resolves.toMatchObject({ phase: "confirmed", sasDecision });
+    await expect(
       transport.publishAuthorization(offerHash, offer, authorization),
     ).resolves.toMatchObject({
       phase: "committed",
@@ -94,6 +108,7 @@ describe("PrivateVaultContentEnrollmentTransport", () => {
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       "https://content-fork.example/api/private-vault/enrollment/offer",
       `https://content-fork.example/api/private-vault/enrollment/${offerHash}/challenge`,
+      `https://content-fork.example/api/private-vault/enrollment/${offerHash}/sas-decision`,
       `https://content-fork.example/api/private-vault/enrollment/${offerHash}/authorization`,
     ]);
     expect(fetch.mock.calls[0]![1]).toMatchObject({

@@ -591,6 +591,9 @@ export const contentEncryptedVaultEnrollmentCeremonies = table(
     offerBytesBase64url: text("offer_bytes_base64url").notNull(),
     challengeKey: text("challenge_key"),
     challengeBytesBase64url: text("challenge_bytes_base64url"),
+    sasDecisionId: text("sas_decision_id"),
+    sasDecisionBytesBase64url: text("sas_decision_bytes_base64url"),
+    sasDecisionHash: text("sas_decision_hash"),
     authorizationId: text("authorization_id"),
     authorizationBytesBase64url: text("authorization_bytes_base64url"),
     controlEntryId: text("control_entry_id"),
@@ -610,6 +613,9 @@ export const contentEncryptedVaultEnrollmentCeremonies = table(
     ),
     uniqueIndex("content_encrypted_vault_enrollment_authorization_unique").on(
       ceremony.authorizationId,
+    ),
+    uniqueIndex("content_encrypted_vault_enrollment_sas_decision_unique").on(
+      ceremony.sasDecisionId,
     ),
     index("content_encrypted_vault_enrollment_scope_phase_idx").on(
       ceremony.ownerEmail,
