@@ -94,7 +94,7 @@ describe("PrivateVaultContentMutations", () => {
     ).toMatchObject({
       generation: 1,
       previousManifest: null,
-      documents: [{ objectId: documentId }],
+      documents: [{ objectId: documentId, parentId: null, position: 0 }],
     });
     expect(source.head()).toMatchObject({
       objectId: firstManifestId,

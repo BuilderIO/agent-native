@@ -51,6 +51,8 @@ function manifest(
     documents: [
       {
         objectId: documentId,
+        parentId: null,
+        position: 0,
         revisions: [
           {
             revision: 1,
@@ -201,6 +203,28 @@ describe("PrivateVaultContentSync", () => {
     await expect(
       new PrivateVaultContentSync(source).synchronize(vaultId),
     ).rejects.toThrow("offline");
+    expect(source.index.writeManifest).not.toHaveBeenCalled();
+  });
+
+  it("rejects a document whose encrypted tree metadata disagrees", async () => {
+    const source = harness();
+    const openNormally = source.gateway.open.getMockImplementation()!;
+    source.gateway.open.mockImplementation(async (input) => {
+      if (input.objectId === documentId)
+        return {
+          contentType: PRIVATE_VAULT_CONTENT_TYPE,
+          plaintext: Uint8Array.from(
+            encodePrivateVaultContentDocument({
+              ...document,
+              position: 9,
+            }),
+          ),
+        };
+      return openNormally(input);
+    });
+    await expect(
+      new PrivateVaultContentSync(source).synchronize(vaultId),
+    ).rejects.toBeInstanceOf(PrivateVaultContentSyncError);
     expect(source.index.writeManifest).not.toHaveBeenCalled();
   });
 });

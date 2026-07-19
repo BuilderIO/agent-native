@@ -71,6 +71,8 @@ export const privateVaultManifestRevisionSchema = z
 export const privateVaultManifestDocumentSchema = z
   .object({
     objectId: opaqueIdSchema,
+    parentId: opaqueIdSchema.nullable().optional(),
+    position: safePositionSchema.optional(),
     revisions: z.array(privateVaultManifestRevisionSchema).min(1).max(10_000),
   })
   .strict()
@@ -130,6 +132,7 @@ export const privateVaultContentManifestSchema = z
       });
     }
     const objectIds = new Set<string>();
+    let structuredEntries = 0;
     for (const [index, document] of value.documents.entries()) {
       if (objectIds.has(document.objectId)) {
         context.addIssue({
@@ -139,6 +142,63 @@ export const privateVaultContentManifestSchema = z
         });
       }
       objectIds.add(document.objectId);
+      if (document.parentId !== undefined || document.position !== undefined) {
+        structuredEntries += 1;
+        if (
+          document.parentId === undefined ||
+          document.position === undefined
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["documents", index],
+            message: "Manifest structure must be complete",
+          });
+        }
+      }
+    }
+    if (structuredEntries > 0 && structuredEntries !== value.documents.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["documents"],
+        message: "Manifest structure cannot be partial",
+      });
+      return;
+    }
+    if (structuredEntries === value.documents.length) {
+      const byId = new Map(
+        value.documents.map(
+          (document) => [document.objectId, document] as const,
+        ),
+      );
+      for (const [index, document] of value.documents.entries()) {
+        if (document.parentId === undefined || document.position === undefined)
+          continue;
+        if (
+          document.parentId === document.objectId ||
+          (document.parentId !== null && !byId.has(document.parentId))
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["documents", index, "parentId"],
+            message: "Manifest parent is unavailable",
+          });
+          continue;
+        }
+        const visited = new Set<string>([document.objectId]);
+        let parentId: string | null = document.parentId;
+        while (parentId !== null) {
+          if (visited.has(parentId)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["documents", index, "parentId"],
+              message: "Manifest structure must be acyclic",
+            });
+            break;
+          }
+          visited.add(parentId);
+          parentId = byId.get(parentId)?.parentId ?? null;
+        }
+      }
     }
   });
 

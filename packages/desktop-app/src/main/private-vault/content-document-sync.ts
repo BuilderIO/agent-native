@@ -138,7 +138,12 @@ export class PrivateVaultContentSync {
         if (opened.contentType !== PRIVATE_VAULT_CONTENT_TYPE)
           throw new PrivateVaultContentSyncError();
         const document = decodePrivateVaultContentDocument(opened.plaintext);
-        if (document.id !== entry.objectId)
+        if (
+          document.id !== entry.objectId ||
+          (entry.parentId !== undefined &&
+            document.parentId !== entry.parentId) ||
+          (entry.position !== undefined && document.position !== entry.position)
+        )
           throw new PrivateVaultContentSyncError();
         await this.#index.writeDocument(vaultId, latest.revisionId, document);
       } finally {

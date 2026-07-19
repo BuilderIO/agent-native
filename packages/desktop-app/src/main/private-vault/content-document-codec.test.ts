@@ -42,6 +42,8 @@ function manifestFixture() {
     documents: [
       {
         objectId,
+        parentId: null,
+        position: 0,
         revisions: [
           { revision: 1, revisionId, parentRevisionIds: [] as string[] },
         ],
@@ -66,6 +68,33 @@ describe("Private Vault Content plaintext codecs", () => {
         encodePrivateVaultContentManifest(fixture),
       ),
     ).toEqual(fixture);
+  });
+
+  it("accepts legacy manifests but rejects partial or cyclic structure", () => {
+    const fixture = manifestFixture();
+    const legacy = {
+      ...fixture,
+      documents: fixture.documents.map(
+        ({ parentId: _parentId, position: _position, ...document }) => document,
+      ),
+    };
+    expect(
+      decodePrivateVaultContentManifest(
+        encodePrivateVaultContentManifest(legacy),
+      ),
+    ).toEqual(legacy);
+    expect(
+      privateVaultContentManifestSchema.safeParse({
+        ...fixture,
+        documents: [{ ...fixture.documents[0], position: undefined }],
+      }).success,
+    ).toBe(false);
+    expect(
+      privateVaultContentManifestSchema.safeParse({
+        ...fixture,
+        documents: [{ ...fixture.documents[0], parentId: "44".repeat(16) }],
+      }).success,
+    ).toBe(false);
   });
 
   it("round-trips the OS-encrypted local manifest coordinate", () => {

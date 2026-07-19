@@ -41,6 +41,12 @@ type ContentIndexMutationSurface = Pick<
   | "deleteDocument"
 >;
 
+type StructuredManifestEntry =
+  PrivateVaultContentManifest["documents"][number] & {
+    readonly parentId: string | null;
+    readonly position: number;
+  };
+
 export interface CreatePrivateDocumentInput {
   readonly id?: string;
   readonly title: string;
@@ -175,32 +181,23 @@ export class PrivateVaultContentMutations {
   ): Promise<{ readonly success: true; readonly deleted: number }> {
     return this.#serialize(vaultId, async () => {
       const head = await this.#requireHead(vaultId);
-      const loaded = await Promise.all(
-        head.manifest.documents.map(async (entry) => {
-          const latest = entry.revisions.at(-1);
-          if (!latest) throw new PrivateVaultContentMutationError();
-          const document = await this.#index.readDocument(
-            vaultId,
-            entry.objectId,
-            latest.revisionId,
-          );
-          if (!document) throw new PrivateVaultContentMutationError();
-          return document;
-        }),
+      const entries = await this.#structuredEntries(
+        vaultId,
+        head.manifest.documents,
       );
-      if (!loaded.some((document) => document.id === objectId))
+      if (!entries.some((entry) => entry.objectId === objectId))
         throw new PrivateVaultContentMutationError();
       const removed = new Set<string>([objectId]);
       let changed = true;
       while (changed) {
         changed = false;
-        for (const document of loaded) {
+        for (const document of entries) {
           if (
             document.parentId !== null &&
             removed.has(document.parentId) &&
-            !removed.has(document.id)
+            !removed.has(document.objectId)
           ) {
-            removed.add(document.id);
+            removed.add(document.objectId);
             changed = true;
           }
         }
@@ -214,9 +211,7 @@ export class PrivateVaultContentMutations {
           objectId: head.objectId,
           revisionId: head.revisionId,
         },
-        documents: head.manifest.documents.filter(
-          (entry) => !removed.has(entry.objectId),
-        ),
+        documents: entries.filter((entry) => !removed.has(entry.objectId)),
         committedAt: this.#now(),
       };
       const nextHead = await this.#uploadManifest(vaultId, manifest);
@@ -286,7 +281,9 @@ export class PrivateVaultContentMutations {
       plaintext.fill(0);
     }
 
-    const existingDocuments = currentHead?.manifest.documents ?? [];
+    const existingDocuments = currentHead
+      ? await this.#structuredEntries(vaultId, currentHead.manifest.documents)
+      : [];
     const existing = existingDocuments.find(
       (entry) => entry.objectId === document.id,
     );
@@ -305,6 +302,8 @@ export class PrivateVaultContentMutations {
         ...existingDocuments.filter((entry) => entry.objectId !== document.id),
         {
           objectId: document.id,
+          parentId: document.parentId,
+          position: document.position,
           revisions: [
             ...(existing?.revisions ?? []),
             {
@@ -356,30 +355,57 @@ export class PrivateVaultContentMutations {
     return head;
   }
 
+  async #structuredEntries(
+    vaultId: string,
+    entries: PrivateVaultContentManifest["documents"],
+  ): Promise<StructuredManifestEntry[]> {
+    if (
+      entries.every(
+        (entry) => entry.parentId !== undefined && entry.position !== undefined,
+      )
+    ) {
+      return entries.map((entry) => ({
+        ...entry,
+        parentId: entry.parentId!,
+        position: entry.position!,
+      }));
+    }
+    const documents = await Promise.all(
+      entries.map(async (entry) => {
+        const latest = entry.revisions.at(-1);
+        if (!latest) throw new PrivateVaultContentMutationError();
+        const document = await this.#index.readDocument(
+          vaultId,
+          entry.objectId,
+          latest.revisionId,
+        );
+        if (!document) throw new PrivateVaultContentMutationError();
+        return { entry, document };
+      }),
+    );
+    return documents.map(({ entry, document }) => ({
+      ...entry,
+      parentId: document.parentId,
+      position: document.position,
+    }));
+  }
+
   async #nextPosition(
     vaultId: string,
     head: PrivateVaultLocalManifestHead | null,
     parentId: string | null | undefined,
   ): Promise<number> {
     if (!head) return 0;
-    const positions = await Promise.all(
-      head.manifest.documents.map(async (entry) => {
-        const latest = entry.revisions.at(-1)!;
-        return this.#index.readDocument(
-          vaultId,
-          entry.objectId,
-          latest.revisionId,
-        );
-      }),
+    const entries = await this.#structuredEntries(
+      vaultId,
+      head.manifest.documents,
     );
-    if (positions.some((document) => !document))
-      throw new PrivateVaultContentMutationError();
     return (
       Math.max(
         -1,
-        ...positions
-          .filter((document) => document!.parentId === (parentId ?? null))
-          .map((document) => document!.position),
+        ...entries
+          .filter((entry) => entry.parentId === (parentId ?? null))
+          .map((entry) => entry.position),
       ) + 1
     );
   }
@@ -391,8 +417,12 @@ export class PrivateVaultContentMutations {
     parentId: string | null,
   ): Promise<void> {
     if (parentId === objectId) throw new PrivateVaultContentMutationError();
+    const structured = await this.#structuredEntries(
+      vaultId,
+      manifest.documents,
+    );
     const byId = new Map(
-      manifest.documents.map((entry) => [entry.objectId, entry] as const),
+      structured.map((entry) => [entry.objectId, entry] as const),
     );
     const visited = new Set<string>([objectId]);
     let candidate = parentId;
@@ -400,15 +430,8 @@ export class PrivateVaultContentMutations {
       if (visited.has(candidate)) throw new PrivateVaultContentMutationError();
       visited.add(candidate);
       const entry = byId.get(candidate);
-      const latest = entry?.revisions.at(-1);
-      if (!entry || !latest) throw new PrivateVaultContentMutationError();
-      const document = await this.#index.readDocument(
-        vaultId,
-        candidate,
-        latest.revisionId,
-      );
-      if (!document) throw new PrivateVaultContentMutationError();
-      candidate = document.parentId;
+      if (!entry) throw new PrivateVaultContentMutationError();
+      candidate = entry.parentId;
     }
   }
 
