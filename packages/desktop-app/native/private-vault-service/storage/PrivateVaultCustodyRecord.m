@@ -166,7 +166,7 @@ static int anc_pv_decode_id(const uint8_t *field, uint8_t *output,
 static int anc_pv_valid_enums(const AncPrivateVaultCustodySnapshot *snapshot) {
   return snapshot->lifecycle >= ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
          snapshot->lifecycle <=
-             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT &&
          snapshot->role >= ANC_PV_CUSTODY_ROLE_ENDPOINT &&
          snapshot->role <= ANC_PV_CUSTODY_ROLE_BROKER &&
          snapshot->pending_kind >= ANC_PV_CUSTODY_PENDING_NONE &&
@@ -292,8 +292,20 @@ anc_pv_valid_state_matrix(const AncPrivateVaultCustodySnapshot *snapshot,
       snapshot->removal_time_ms == 0;
 
   if (snapshot->lifecycle ==
-      ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS) {
-    return snapshot->record_version == ANC_PV_CUSTODY_VERSION && !pending &&
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS ||
+      snapshot->lifecycle ==
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT) {
+    const int role_matches =
+        (snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS &&
+         snapshot->role == ANC_PV_CUSTODY_ROLE_ENDPOINT) ||
+        (snapshot->lifecycle ==
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT &&
+         snapshot->role == ANC_PV_CUSTODY_ROLE_BROKER);
+    const int transcript_matches =
+        anc_pv_is_zero(snapshot->pending_transcript_digest,
+                       ANC_PV_HASH_BYTES);
+    return role_matches &&
+           snapshot->record_version == ANC_PV_CUSTODY_VERSION && !pending &&
            snapshot->rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
            snapshot->enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
            snapshot->ceremony_id_length == 0 && !has_signing_seed &&
@@ -305,7 +317,7 @@ anc_pv_valid_state_matrix(const AncPrivateVaultCustodySnapshot *snapshot,
            anc_pv_is_nonzero(snapshot->removal_head, ANC_PV_HASH_BYTES) &&
            anc_pv_is_nonzero(snapshot->removal_authorization_digest,
                              ANC_PV_HASH_BYTES) &&
-           snapshot->removal_time_ms > 0;
+           snapshot->removal_time_ms > 0 && transcript_matches;
   }
 
   if (snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING ||
@@ -478,7 +490,9 @@ static AncPrivateVaultCustodyRecordStatus anc_pv_validate_derived_keys(
   if (snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING ||
       snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED ||
       snapshot->lifecycle ==
-          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS) {
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS ||
+      snapshot->lifecycle ==
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT) {
     return ANC_PV_CUSTODY_OK;
   }
   if (anc_pv_ed25519_seed_keypair(signing_public, signing_private,

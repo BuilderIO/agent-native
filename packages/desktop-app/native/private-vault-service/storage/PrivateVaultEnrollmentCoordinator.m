@@ -1,4 +1,5 @@
 #import "PrivateVaultEnrollmentCoordinator.h"
+#import "PrivateVaultCustodyRepositoryEnrollmentInternal.h"
 
 #import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultControlLogInternal.h"
@@ -434,6 +435,42 @@ CustodyStatus(AncPrivateVaultCustodyRepositoryStatus status) {
   NSString *vault = Hex(vaultBytes);
   if (vault == nil)
     return AncPrivateVaultEnrollmentCoordinatorStatusInvalid;
+  AncPrivateVaultEnrollmentSasReceipt *existingReceipt = nil;
+  AncPrivateVaultEnrollmentSasReceiptStoreStatus existingStatus =
+      [self.sasReceiptStore readChallenge:challenge receipt:&existingReceipt];
+  if (existingStatus == AncPrivateVaultEnrollmentSasReceiptStoreStatusOK) {
+    if (existingReceipt == nil || existingReceipt.decision != decision)
+      return AncPrivateVaultEnrollmentCoordinatorStatusConflict;
+    if (decision == AncPrivateVaultEnrollmentSasDecisionMismatch) {
+      if (existingReceipt.decidedAt > UINT64_C(9007199254740))
+        return AncPrivateVaultEnrollmentCoordinatorStatusInvalid;
+      AncPrivateVaultCustodyRepositoryStatus cancelled =
+          [self.brokerCustodyRepository
+              cancelPendingEnrollmentVaultId:vault
+                            expectedOfferHash:offerHash
+                                cancelledAtMs:existingReceipt.decidedAt * 1000];
+      if (cancelled != AncPrivateVaultCustodyRepositoryStatusOK)
+        return CustodyStatus(cancelled);
+      AncPrivateVaultEnrollmentOfferArtifactStatus deleted =
+          [self.artifactStore deleteVaultId:vaultBytes
+                          expectedOfferHash:offerHash];
+      if (deleted != AncPrivateVaultEnrollmentOfferArtifactStatusOK &&
+          deleted != AncPrivateVaultEnrollmentOfferArtifactStatusNotFound)
+        return ArtifactStatus(deleted);
+    }
+    *receipt = existingReceipt;
+    return AncPrivateVaultEnrollmentCoordinatorStatusOK;
+  }
+  if (existingStatus !=
+      AncPrivateVaultEnrollmentSasReceiptStoreStatusNotFound) {
+    return existingStatus ==
+                   AncPrivateVaultEnrollmentSasReceiptStoreStatusCorrupt
+               ? AncPrivateVaultEnrollmentCoordinatorStatusCorrupt
+           : existingStatus ==
+                   AncPrivateVaultEnrollmentSasReceiptStoreStatusInaccessible
+               ? AncPrivateVaultEnrollmentCoordinatorStatusInaccessible
+               : AncPrivateVaultEnrollmentCoordinatorStatusFailed;
+  }
   AncPrivateVaultCustodySnapshot snapshot;
   AncPrivateVaultCustodyHandle *handle = nil;
   AncPrivateVaultCustodyRepositoryStatus read =
@@ -481,6 +518,23 @@ CustodyStatus(AncPrivateVaultCustodyRepositoryStatus status) {
                                challenge:challenge];
   switch (stored) {
   case AncPrivateVaultEnrollmentSasReceiptStoreStatusOK:
+    if (decision == AncPrivateVaultEnrollmentSasDecisionMismatch) {
+      if (decidedAt > UINT64_C(9007199254740))
+        return AncPrivateVaultEnrollmentCoordinatorStatusInvalid;
+      AncPrivateVaultCustodyRepositoryStatus cancelled =
+          [self.brokerCustodyRepository
+              cancelPendingEnrollmentVaultId:vault
+                            expectedOfferHash:offerHash
+                                cancelledAtMs:decidedAt * 1000];
+      if (cancelled != AncPrivateVaultCustodyRepositoryStatusOK)
+        return CustodyStatus(cancelled);
+      AncPrivateVaultEnrollmentOfferArtifactStatus deleted =
+          [self.artifactStore deleteVaultId:vaultBytes
+                          expectedOfferHash:offerHash];
+      if (deleted != AncPrivateVaultEnrollmentOfferArtifactStatusOK &&
+          deleted != AncPrivateVaultEnrollmentOfferArtifactStatusNotFound)
+        return ArtifactStatus(deleted);
+    }
     *receipt = built;
     return AncPrivateVaultEnrollmentCoordinatorStatusOK;
   case AncPrivateVaultEnrollmentSasReceiptStoreStatusInvalid:

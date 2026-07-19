@@ -38,6 +38,9 @@ typedef enum AncPrivateVaultCustodyLifecycle {
    * this lifecycle only, removal_head is the exact predecessor pending-g1
    * wire-record digest, not an authority-log head. */
   ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS = 5,
+  /* Local-only terminal proof for an enrollment rejected at the trusted SAS
+   * boundary. Candidate secrets are zero and this record can never activate. */
+  ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT = 6,
 } AncPrivateVaultCustodyLifecycle;
 
 typedef enum AncPrivateVaultCustodyRole {

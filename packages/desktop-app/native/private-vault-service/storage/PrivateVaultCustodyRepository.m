@@ -39,6 +39,9 @@ static NSData *_Nullable AncCustodyDigest(AncCustodyRecordBuffer *record);
 static BOOL AncGenesisCancellationCommitment(
     const AncPrivateVaultCustodySnapshot *current,
     NSData *pendingRecordDigest, uint64_t cancelledAtMs, uint8_t output[32]);
+static BOOL AncEnrollmentCancellationCommitment(
+    NSData *pendingRecordDigest, NSData *offerHash, uint64_t cancelledAtMs,
+    uint8_t output[32]);
 static BOOL AncSnapshotMatchesVaultId(
     const AncPrivateVaultCustodySnapshot *snapshot, NSString *vaultId);
 static BOOL AncPublicSnapshotsEqual(
@@ -839,6 +842,172 @@ static BOOL AncBuildPendingRecoverySnapshot(
 
 @end
 
+@implementation AncPrivateVaultCustodyRepository (EnrollmentInternal)
+
+- (AncPrivateVaultCustodyRepositoryStatus)
+    cancelPendingEnrollmentVaultId:(NSString *)vaultId
+                  expectedOfferHash:(NSData *)expectedOfferHash
+                      cancelledAtMs:(uint64_t)cancelledAtMs {
+  if ([NSThread.currentThread.threadDictionary[kAncCustodyBorrowScopeThreadKey]
+          boolValue])
+    return AncPrivateVaultCustodyRepositoryStatusConflict;
+  uint8_t canonicalVaultBytes[160] = {0};
+  uint8_t offerBytes[32] = {0};
+  size_t canonicalVaultLength = 0;
+  BOOL exactOffer =
+      AncGenesisExactPublicBytes(expectedOfferHash, offerBytes);
+  NSData *offerHash = exactOffer ? AncGenesisPublicData(offerBytes) : nil;
+  anc_pv_zeroize(offerBytes, sizeof offerBytes);
+  if (!AncGenesisHexIdentifier(vaultId, canonicalVaultBytes,
+                               &canonicalVaultLength) ||
+      canonicalVaultLength != 32 || !exactOffer || offerHash.length != 32 ||
+      cancelledAtMs == 0 ||
+      cancelledAtMs > UINT64_C(9007199254740991)) {
+    anc_pv_zeroize(canonicalVaultBytes, sizeof canonicalVaultBytes);
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  }
+  NSString *canonicalVaultId =
+      AncGenesisIdentifierString(canonicalVaultBytes, canonicalVaultLength);
+  anc_pv_zeroize(canonicalVaultBytes, sizeof canonicalVaultBytes);
+  if (canonicalVaultId == nil)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+
+  __block AncPrivateVaultCustodyRepositoryStatus status =
+      AncPrivateVaultCustodyRepositoryStatusFailed;
+  dispatch_sync(self.queue, ^{
+    AncCustodyRecordBuffer *live = nil;
+    AncPrivateVaultCustodySnapshot current;
+    status = [self reconcileVaultId:canonicalVaultId
+                         liveRecord:&live
+                       liveSnapshot:&current];
+    if (status != AncPrivateVaultCustodyRepositoryStatusOK)
+      return;
+    NSData *currentDigest = AncCustodyDigest(live);
+    if (current.lifecycle ==
+        ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT) {
+      NSData *predecessor = AncGenesisPublicData(current.removal_head);
+      uint8_t commitment[32] = {0};
+      BOOL exactTerminal = currentDigest.length == 32 &&
+                           current.custody_generation == 2 &&
+                           current.role == ANC_PV_CUSTODY_ROLE_BROKER &&
+                           AncSnapshotMatchesVaultId(&current,
+                                                     canonicalVaultId) &&
+                           AncEnrollmentCancellationCommitment(
+                               predecessor, offerHash,
+                               current.removal_time_ms, commitment) &&
+                           anc_pv_memcmp(
+                               commitment,
+                               current.removal_authorization_digest, 32) ==
+                               ANC_PV_CRYPTO_OK;
+      anc_pv_zeroize(commitment, sizeof commitment);
+      AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+      anc_pv_custody_snapshot_zero(&current);
+      status = closed != AncPrivateVaultCustodyRepositoryStatusOK
+                   ? closed
+               : exactTerminal
+                   ? AncPrivateVaultCustodyRepositoryStatusOK
+                   : AncPrivateVaultCustodyRepositoryStatusConflict;
+      return;
+    }
+    BOOL exactPending =
+        currentDigest.length == 32 &&
+        current.record_version == ANC_PV_CUSTODY_VERSION &&
+        current.custody_generation == 1 &&
+        current.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_PENDING &&
+        current.role == ANC_PV_CUSTODY_ROLE_BROKER &&
+        current.pending_kind == ANC_PV_CUSTODY_PENDING_ADD_BROKER &&
+        current.rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
+        current.enrollment_phase ==
+            ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING &&
+        !current.authority_anchor_present && !current.expected_edge_present &&
+        current.active_epoch == 0 && current.pending_epoch == 0 &&
+        current.recovery_generation == 0 && current.vault_id_length == 32 &&
+        current.endpoint_id_length == 32 && current.ceremony_id_length == 32 &&
+        anc_pv_memcmp(current.pending_transcript_digest, offerHash.bytes, 32) ==
+            ANC_PV_CRYPTO_OK &&
+        AncSnapshotMatchesVaultId(&current, canonicalVaultId);
+    AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK || !exactPending) {
+      status = closed != AncPrivateVaultCustodyRepositoryStatusOK
+                   ? closed
+                   : AncPrivateVaultCustodyRepositoryStatusConflict;
+      anc_pv_custody_snapshot_zero(&current);
+      return;
+    }
+
+    AncPrivateVaultCustodySnapshot cancelled = current;
+    cancelled.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT;
+    cancelled.pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
+    cancelled.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_NONE;
+    cancelled.custody_generation = 2;
+    cancelled.ceremony_id_length = 0;
+    anc_pv_zeroize(cancelled.ceremony_id, sizeof cancelled.ceremony_id);
+    anc_pv_zeroize(cancelled.pending_transcript_digest,
+                   sizeof cancelled.pending_transcript_digest);
+    memcpy(cancelled.removal_head, currentDigest.bytes, 32);
+    cancelled.removal_time_ms = cancelledAtMs;
+    uint8_t commitment[32] = {0};
+    BOOL committed = AncEnrollmentCancellationCommitment(
+        currentDigest, offerHash, cancelledAtMs, commitment);
+    if (committed)
+      memcpy(cancelled.removal_authorization_digest, commitment, 32);
+    uint8_t zeroSecrets[160] = {0};
+    AncPrivateVaultCustodySecretInputs secrets = {
+        .signing_seed = zeroSecrets,
+        .box_seed = zeroSecrets + 32,
+        .local_state_key = zeroSecrets + 64,
+        .active_epoch_key = zeroSecrets + 96,
+        .pending_epoch_key = zeroSecrets + 128,
+    };
+    status = committed
+                 ? [self storeLockedSnapshot:&cancelled
+                                      secrets:&secrets
+                                      vaultId:canonicalVaultId]
+                 : AncPrivateVaultCustodyRepositoryStatusFailed;
+    anc_pv_zeroize(zeroSecrets, sizeof zeroSecrets);
+    if (status == AncPrivateVaultCustodyRepositoryStatusOK) {
+      AncCustodyRecordBuffer *terminal = nil;
+      AncPrivateVaultCustodySnapshot observed;
+      status = [self reconcileVaultId:canonicalVaultId
+                           liveRecord:&terminal
+                         liveSnapshot:&observed];
+      NSData *observedDigest =
+          status == AncPrivateVaultCustodyRepositoryStatusOK
+              ? AncCustodyDigest(terminal)
+              : nil;
+      AncPrivateVaultCustodyRepositoryStatus terminalClosed =
+          terminal == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                          : [terminal close];
+      BOOL exact = status == AncPrivateVaultCustodyRepositoryStatusOK &&
+                   terminalClosed ==
+                       AncPrivateVaultCustodyRepositoryStatusOK &&
+                   observedDigest.length == 32 &&
+                   observed.lifecycle ==
+                       ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT &&
+                   observed.custody_generation == 2 &&
+                   observed.removal_time_ms == cancelledAtMs &&
+                   anc_pv_memcmp(observed.pending_transcript_digest,
+                                 (const uint8_t[32]){0}, 32) ==
+                       ANC_PV_CRYPTO_OK &&
+                   anc_pv_memcmp(observed.removal_head,
+                                 currentDigest.bytes, 32) == ANC_PV_CRYPTO_OK &&
+                   anc_pv_memcmp(observed.removal_authorization_digest,
+                                 commitment, 32) == ANC_PV_CRYPTO_OK;
+      if (!exact)
+        status = terminalClosed != AncPrivateVaultCustodyRepositoryStatusOK
+                     ? terminalClosed
+                     : AncPrivateVaultCustodyRepositoryStatusCorrupt;
+      anc_pv_custody_snapshot_zero(&observed);
+    }
+    anc_pv_zeroize(commitment, sizeof commitment);
+    anc_pv_custody_snapshot_zero(&cancelled);
+    anc_pv_custody_snapshot_zero(&current);
+  });
+  return status;
+}
+
+@end
+
 @implementation AncPrivateVaultCustodyRepository (RecoveryInternal)
 
 - (AncPrivateVaultCustodyRepositoryStatus)
@@ -1369,12 +1538,36 @@ static BOOL AncGenesisCancellationCommitment(
   return valid;
 }
 
+static BOOL AncEnrollmentCancellationCommitment(
+    NSData *pendingRecordDigest, NSData *offerHash, uint64_t cancelledAtMs,
+    uint8_t output[32]) {
+  static const uint8_t domain[] =
+      "anc/v1/private-vault/enrollment-cancellation";
+  if (pendingRecordDigest.length != 32 || offerHash.length != 32 ||
+      cancelledAtMs == 0 ||
+      cancelledAtMs > UINT64_C(9007199254740991) || output == NULL)
+    return NO;
+  uint8_t body[72] = {0};
+  memcpy(body, pendingRecordDigest.bytes, 32);
+  memcpy(body + 32, offerHash.bytes, 32);
+  for (size_t index = 0; index < 8; index += 1)
+    body[64 + index] = (uint8_t)(cancelledAtMs >> (56 - index * 8));
+  BOOL ok = anc_pv_blake2b_256_two_part(output, domain, sizeof domain, body,
+                                       sizeof body) == ANC_PV_CRYPTO_OK;
+  anc_pv_zeroize(body, sizeof body);
+  if (!ok)
+    anc_pv_zeroize(output, 32);
+  return ok;
+}
+
 static BOOL
 AncTerminalTransitionAllowed(const AncPrivateVaultCustodySnapshot *current,
                              const AncPrivateVaultCustodySnapshot *next,
                              NSData *currentRecordDigest) {
   if (current->lifecycle ==
-      ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS)
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS ||
+      current->lifecycle ==
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT)
     return NO;
   if (current->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED ||
       current->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING) {
@@ -1434,6 +1627,57 @@ AncTerminalTransitionAllowed(const AncPrivateVaultCustodySnapshot *current,
     anc_pv_zeroize(expected, sizeof expected);
     return valid;
   }
+  if (next->lifecycle ==
+      ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT) {
+    if (current->record_version != ANC_PV_CUSTODY_VERSION ||
+        current->custody_generation != 1 ||
+        current->lifecycle != ANC_PV_CUSTODY_LIFECYCLE_PENDING ||
+        current->role != ANC_PV_CUSTODY_ROLE_BROKER ||
+        current->pending_kind != ANC_PV_CUSTODY_PENDING_ADD_BROKER ||
+        current->rotation_phase != ANC_PV_CUSTODY_ROTATION_NONE ||
+        current->enrollment_phase !=
+            ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING ||
+        current->authority_anchor_present || current->expected_edge_present ||
+        current->active_epoch != 0 || current->pending_epoch != 0 ||
+        current->recovery_generation != 0 ||
+        current->vault_id_length != 32 || current->endpoint_id_length != 32 ||
+        current->ceremony_id_length != 32 ||
+        anc_pv_memcmp(current->pending_transcript_digest,
+                      (const uint8_t[32]){0}, 32) == ANC_PV_CRYPTO_OK ||
+        next->record_version != ANC_PV_CUSTODY_VERSION ||
+        next->custody_generation != 2 ||
+        next->role != ANC_PV_CUSTODY_ROLE_BROKER ||
+        next->pending_kind != ANC_PV_CUSTODY_PENDING_NONE ||
+        next->rotation_phase != ANC_PV_CUSTODY_ROTATION_NONE ||
+        next->enrollment_phase != ANC_PV_CUSTODY_ENROLLMENT_NONE ||
+        next->authority_anchor_present || next->expected_edge_present ||
+        next->active_epoch != 0 || next->pending_epoch != 0 ||
+        next->recovery_generation != 0 || next->vault_id_length != 32 ||
+        next->endpoint_id_length != 32 || next->ceremony_id_length != 0 ||
+        next->removal_sequence != 0 || next->removal_time_ms == 0 ||
+        currentRecordDigest.length != 32 ||
+        memcmp(current->vault_id, next->vault_id, 32) != 0 ||
+        memcmp(current->endpoint_id, next->endpoint_id, 32) != 0 ||
+        memcmp(current->signing_public_key, next->signing_public_key, 32) != 0 ||
+        memcmp(current->box_public_key, next->box_public_key, 32) != 0 ||
+        anc_pv_memcmp(next->pending_transcript_digest,
+                      (const uint8_t[32]){0}, 32) != ANC_PV_CRYPTO_OK ||
+        anc_pv_memcmp(next->removal_head, currentRecordDigest.bytes, 32) !=
+            ANC_PV_CRYPTO_OK)
+      return NO;
+    NSData *offerHash = [NSData
+        dataWithBytes:current->pending_transcript_digest
+               length:32];
+    uint8_t expected[32] = {0};
+    BOOL valid = AncEnrollmentCancellationCommitment(
+                     currentRecordDigest, offerHash,
+                     next->removal_time_ms, expected) &&
+                 anc_pv_memcmp(expected,
+                               next->removal_authorization_digest, 32) ==
+                     ANC_PV_CRYPTO_OK;
+    anc_pv_zeroize(expected, sizeof expected);
+    return valid;
+  }
   if (next->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED)
     return NO;
   return YES;
@@ -1444,7 +1688,9 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   return snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING ||
          snapshot->lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED ||
          snapshot->lifecycle ==
-             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS;
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS ||
+         snapshot->lifecycle ==
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT;
 }
 
 @implementation AncPrivateVaultCustodyRepository
@@ -2917,7 +3163,9 @@ static BOOL AncEnrollmentOfficialPublicStateValid(
   if (snapshot == NULL || secrets == NULL || vaultId.length == 0)
     return AncPrivateVaultCustodyRepositoryStatusInvalid;
   if (snapshot->lifecycle ==
-      ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS)
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_GENESIS ||
+      snapshot->lifecycle ==
+          ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT)
     return AncPrivateVaultCustodyRepositoryStatusConflict;
   __block AncPrivateVaultCustodyRepositoryStatus status;
   dispatch_sync(self.queue, ^{

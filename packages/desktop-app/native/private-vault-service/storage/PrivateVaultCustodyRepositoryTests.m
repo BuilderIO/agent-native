@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 #import "PrivateVaultCustodyRepository.h"
+#import "PrivateVaultCustodyRepositoryEnrollmentInternal.h"
 #import "PrivateVaultCustodyRepositoryGenesisInternal.h"
 #import "PrivateVaultCustodyRepositoryRecoveryInternal.h"
 
@@ -2207,6 +2208,76 @@ static void TestEnrollmentAuthorizationAndPromotionCAS(void) {
   anc_pv_zeroize(&secrets, sizeof secrets);
 }
 
+static void TestEnrollmentCancellationCAS(void) {
+  Reset();
+  NSString *vault = @"00112233445566778899aabbccddeeff";
+  AncPrivateVaultCustodyRepository *repository =
+      [[AncPrivateVaultCustodyRepository alloc]
+          initWithKeychain:Keychain()
+                recordId:AncPrivateVaultBrokerCustodyRecordId];
+  AncPrivateVaultCustodySnapshot offer;
+  TestSecrets secrets;
+  MakeActive(&offer, &secrets, 1, 189, vault);
+  offer.authority_anchor_present = 0;
+  offer.expected_edge_present = 0;
+  offer.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  offer.role = ANC_PV_CUSTODY_ROLE_BROKER;
+  offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
+  offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  SetId(offer.endpoint_id, &offer.endpoint_id_length,
+        @"ffeeddccbbaa99887766554433221100");
+  Fill(offer.pending_transcript_digest, 32, 0x93);
+  SetId(offer.ceremony_id, &offer.ceremony_id_length,
+        @"00112233445566778899aabbccddeeff");
+  offer.active_epoch = 0;
+  offer.recovery_generation = 0;
+  offer.anchored_sequence = 0;
+  memset(offer.anchored_head, 0, 32);
+  memset(offer.membership_digest, 0, 32);
+  offer.signed_at_ms = 0;
+  memset(offer.snapshot_digest, 0, 32);
+  offer.freshness_ms = 0;
+  memset(secrets.activeKey, 0, 32);
+  memset(secrets.pendingKey, 0, 32);
+  AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
+  assert([repository storeSnapshot:&offer secrets:&inputs vaultId:vault] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  NSData *offerHash =
+      [NSData dataWithBytes:offer.pending_transcript_digest length:32];
+  assert([repository cancelPendingEnrollmentVaultId:vault
+                                  expectedOfferHash:offerHash
+                                      cancelledAtMs:1700000030000ULL] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+
+  AncPrivateVaultCustodySnapshot cancelled;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:vault snapshot:&cancelled handle:&handle] ==
+             AncPrivateVaultCustodyRepositoryStatusOK &&
+         handle == nil && cancelled.custody_generation == 2 &&
+         cancelled.lifecycle ==
+             ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT &&
+         cancelled.role == ANC_PV_CUSTODY_ROLE_BROKER &&
+         cancelled.pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+         cancelled.enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_NONE &&
+         cancelled.ceremony_id_length == 0 &&
+         cancelled.removal_time_ms == 1700000030000ULL);
+  assert([repository cancelPendingEnrollmentVaultId:vault
+                                  expectedOfferHash:offerHash
+                                      cancelledAtMs:1700000030001ULL] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  NSMutableData *wrongOffer = [offerHash mutableCopy];
+  ((uint8_t *)wrongOffer.mutableBytes)[0] ^= 1;
+  assert([repository cancelPendingEnrollmentVaultId:vault
+                                  expectedOfferHash:wrongOffer
+                                      cancelledAtMs:1700000030000ULL] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  assert([repository storeSnapshot:&offer secrets:&inputs vaultId:vault] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+  anc_pv_zeroize(&secrets, sizeof secrets);
+  anc_pv_custody_snapshot_zero(&offer);
+  anc_pv_custody_snapshot_zero(&cancelled);
+}
+
 static void TestLegacyCodecMigrations(void) {
   Reset();
   AncPrivateVaultKeychain *keychain = Keychain();
@@ -2457,6 +2528,7 @@ int main(void) {
     TestPromoteGenesisAuthorityAnchorCAS();
     TestPendingRecoveryPromotionCAS();
     TestEnrollmentAuthorizationAndPromotionCAS();
+    TestEnrollmentCancellationCAS();
     TestLegacyCodecMigrations();
     puts("private-vault custody repository tests passed");
   }

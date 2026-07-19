@@ -14,6 +14,7 @@
 #include <assert.h>
 
 static NSMutableDictionary<NSString *, NSData *> *gEnrollmentStore;
+static BOOL gFailEnrollmentOfferDeleteOnce;
 
 static NSString *EnrollmentKey(NSDictionary *query) {
   return
@@ -54,6 +55,11 @@ static OSStatus EnrollmentDelete(CFDictionaryRef raw) {
   NSString *key = EnrollmentKey((__bridge NSDictionary *)raw);
   if (gEnrollmentStore[key] == nil)
     return errSecItemNotFound;
+  if (gFailEnrollmentOfferDeleteOnce &&
+      [key hasPrefix:AncPrivateVaultEnrollmentOfferService]) {
+    gFailEnrollmentOfferDeleteOnce = NO;
+    return errSecInteractionNotAllowed;
+  }
   [gEnrollmentStore removeObjectForKey:key];
   return errSecSuccess;
 }
@@ -610,6 +616,90 @@ int main(void) {
            activeEpochMatches);
     assert([NSFileManager.defaultManager removeItemAtPath:authorityRoot
                                                     error:nil]);
+
+    gEnrollmentStore = [NSMutableDictionary dictionary];
+    enrollmentKeychain = EnrollmentKeychain();
+    AncPrivateVaultCustodyRepository *mismatchRepository =
+        [[AncPrivateVaultCustodyRepository alloc]
+            initWithKeychain:enrollmentKeychain
+                    recordId:AncPrivateVaultBrokerCustodyRecordId];
+    AncPrivateVaultEnrollmentOfferArtifactStore *mismatchOfferStore =
+        [[AncPrivateVaultEnrollmentOfferArtifactStore alloc]
+            initWithKeychain:enrollmentKeychain
+                    recordId:AncPrivateVaultBrokerCustodyRecordId];
+    AncPrivateVaultEnrollmentSasReceiptStore *mismatchReceiptStore =
+        [[AncPrivateVaultEnrollmentSasReceiptStore alloc]
+            initWithKeychain:enrollmentKeychain
+                    recordId:AncPrivateVaultBrokerCustodyRecordId];
+    assert([mismatchOfferStore storeVaultId:vault
+                                encodedOffer:offer.encodedOffer
+                                   offerHash:offer.offerHash
+                           candidateKeyProof:offer.candidateKeyProof] ==
+           AncPrivateVaultEnrollmentOfferArtifactStatusOK);
+    assert([mismatchRepository storeSnapshot:&pending
+                                      secrets:&pendingSecrets
+                                      vaultId:Hex(vault)] ==
+           AncPrivateVaultCustodyRepositoryStatusOK);
+    AncPrivateVaultEnrollmentCoordinator *mismatchCoordinator =
+        [[AncPrivateVaultEnrollmentCoordinator alloc]
+            initWithBrokerCustodyRepository:mismatchRepository
+                               artifactStore:mismatchOfferStore
+                              sasReceiptStore:mismatchReceiptStore
+                               authorityStore:authorityStore];
+    AncPrivateVaultEnrollmentSasReceipt *durableMismatch = nil;
+    gFailEnrollmentOfferDeleteOnce = YES;
+    assert([mismatchCoordinator
+               recordSasDecisionForChallenge:verified.challenge
+                                   receiptId:Repeated(0x5e, 16)
+                                   decidedAt:1721111164
+                                    decision:
+                                        AncPrivateVaultEnrollmentSasDecisionMismatch
+                                     receipt:&durableMismatch] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusFailed &&
+           durableMismatch == nil && !gFailEnrollmentOfferDeleteOnce);
+    AncPrivateVaultCustodySnapshot cancelledBroker;
+    AncPrivateVaultCustodyHandle *cancelledHandle = nil;
+    assert([mismatchRepository readVaultId:Hex(vault)
+                                   snapshot:&cancelledBroker
+                                     handle:&cancelledHandle] ==
+               AncPrivateVaultCustodyRepositoryStatusOK &&
+           cancelledHandle == nil &&
+           cancelledBroker.lifecycle ==
+               ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT &&
+           cancelledBroker.custody_generation == 2 &&
+           cancelledBroker.pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+           memcmp(cancelledBroker.pending_transcript_digest,
+                  (const uint8_t[32]){0}, 32) == 0);
+    AncPrivateVaultEnrollmentOfferArtifact *retainedArtifact = nil;
+    assert([mismatchOfferStore readVaultId:vault artifact:&retainedArtifact] ==
+               AncPrivateVaultEnrollmentOfferArtifactStatusOK &&
+           retainedArtifact != nil);
+    AncPrivateVaultEnrollmentSasReceipt *retriedMismatch = nil;
+    assert([mismatchCoordinator
+               recordSasDecisionForChallenge:verified.challenge
+                                   receiptId:Repeated(0x5f, 16)
+                                   decidedAt:1721111199
+                                    decision:
+                                        AncPrivateVaultEnrollmentSasDecisionMismatch
+                                     receipt:&retriedMismatch] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusOK &&
+           retriedMismatch.decision ==
+               AncPrivateVaultEnrollmentSasDecisionMismatch);
+    AncPrivateVaultEnrollmentOfferArtifact *deletedArtifact = nil;
+    assert([mismatchOfferStore readVaultId:vault artifact:&deletedArtifact] ==
+               AncPrivateVaultEnrollmentOfferArtifactStatusNotFound &&
+           deletedArtifact == nil);
+    AncPrivateVaultEnrollmentSasReceipt *changedDecision = nil;
+    assert([mismatchCoordinator
+               recordSasDecisionForChallenge:verified.challenge
+                                   receiptId:Repeated(0x60, 16)
+                                   decidedAt:1721111200
+                                    decision:
+                                        AncPrivateVaultEnrollmentSasDecisionConfirmed
+                                     receipt:&changedDecision] ==
+               AncPrivateVaultEnrollmentCoordinatorStatusConflict &&
+           changedDecision == nil);
+    anc_pv_custody_snapshot_zero(&cancelledBroker);
     anc_pv_zeroize(localStateKey, sizeof localStateKey);
     Ivar exposedWrap = class_getInstanceVariable(
         AncPrivateVaultEnrollmentAuthorizationResult.class, "_eekWrapEnvelope");

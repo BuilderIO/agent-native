@@ -947,9 +947,20 @@ the coordinator promotes only the separately stored broker custody and broker
 authority frame. The strict protocol corpus, universal trusted-UI corpus,
 universal addon build/load test, Desktop contract test, TypeScript typecheck,
 and production arm64 XPC build pass. The remaining ordinary-enrollment work is
-the hosted/Desktop orchestration around these native calls, explicit mismatch
-cleanup, authorizer-side challenge/authorization production, and broker
-replacement.
+the hosted/Desktop orchestration around these native calls, authorizer-side
+challenge/authorization production, and broker replacement.
+
+An explicit SAS mismatch now also destroys the pending broker candidate rather
+than merely recording a negative decision. After the candidate-signed receipt
+is durable, the coordinator compare-and-swaps the exact offer-bound generation-1
+custody into a terminal generation-2 cancellation tombstone: no ceremony,
+pending transcript, authority edge, or secret survives. The tombstone commits
+to the predecessor record, offer hash, and first decision time, so exact crash
+retries remain idempotent while a different offer, changed decision, or attempt
+to resurrect the candidate conflicts. The public offer artifact is deleted
+last; an injected failure at that final deletion proves a retry resumes from the
+durable receipt and already-destroyed custody, then completes cleanup. Codec,
+repository, and end-to-end coordinator corpora pass on Apple Silicon.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault

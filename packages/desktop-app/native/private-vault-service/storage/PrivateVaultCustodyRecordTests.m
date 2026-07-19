@@ -522,6 +522,20 @@ static int test_state_matrices_and_boundaries(void) {
   CHECK(
       anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
       ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  snapshot.authority_anchor_present = 0;
+  snapshot.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_CANCELLED_ENROLLMENT;
+  snapshot.role = ANC_PV_CUSTODY_ROLE_BROKER;
+  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
+                                     sizeof record) == ANC_PV_CUSTODY_OK);
+  fill(snapshot.pending_transcript_digest, 32, 0xb1);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  anc_pv_zeroize(snapshot.pending_transcript_digest, 32);
+  snapshot.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
 
   CHECK(make_active(&snapshot, &secrets) == 0);
   source = inputs(&secrets);
