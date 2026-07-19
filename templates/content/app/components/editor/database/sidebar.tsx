@@ -300,7 +300,10 @@ export function DatabaseSidebarView({
   }
 
   const navigation = (
-    <nav aria-label={navigationLabel} className="grid gap-1 p-1">
+    <nav
+      aria-label={navigationLabel}
+      className="grid min-w-0 gap-1 overflow-x-hidden p-1"
+    >
       {grouped
         ? groups.map((group) => {
             const open = !collapsedGroupIds.has(group.id);
@@ -324,7 +327,9 @@ export function DatabaseSidebarView({
                 <CollapsibleContent className="grid gap-0.5 pl-2">
                   {group.items.map((item) =>
                     renderItem ? (
-                      <div key={item.id}>{renderItem(item)}</div>
+                      <div key={item.id} className="min-w-0">
+                        {renderItem(item)}
+                      </div>
                     ) : (
                       <DatabaseSidebarRow
                         key={item.id}
@@ -347,7 +352,9 @@ export function DatabaseSidebarView({
           })
         : items.map((item) =>
             renderItem ? (
-              <div key={item.id}>{renderItem(item)}</div>
+              <div key={item.id} className="min-w-0">
+                {renderItem(item)}
+              </div>
             ) : (
               <DatabaseSidebarRow
                 key={item.id}
@@ -460,7 +467,7 @@ function DatabaseSidebarRow({
         </Link>
 
         {(hasMenuActions || canCreateChild) && (
-          <div className="absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 shadow-sm group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

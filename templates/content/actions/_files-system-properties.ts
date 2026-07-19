@@ -26,23 +26,10 @@ type Db = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update">;
 type Database = typeof schema.contentDatabases.$inferSelect;
 type Document = Pick<
   typeof schema.documents.$inferSelect,
-  | "id"
-  | "spaceId"
-  | "parentId"
-  | "sourceMode"
-  | "sourceKind"
-  | "ownerEmail"
-  | "orgId"
+  "id" | "spaceId" | "parentId" | "ownerEmail" | "orgId"
 >;
 
 const SYSTEM_PROPERTY_SPECS = [
-  {
-    role: "files_kind" as const,
-    name: "Kind",
-    type: "select" as const,
-    description: "The kind of Content artifact represented by this file.",
-    position: -300,
-  },
   {
     role: "files_parent" as const,
     name: "Parent",
@@ -59,14 +46,6 @@ const SYSTEM_PROPERTY_SPECS = [
   },
 ] as const;
 
-const KIND_OPTIONS: DocumentPropertyOption[] = [
-  { id: "page", name: "Page", color: "gray" },
-  { id: "database", name: "Database", color: "blue" },
-  { id: "database_row", name: "Database row", color: "purple" },
-  { id: "imported_file", name: "Imported file", color: "green" },
-  { id: "shared_copy", name: "Shared copy", color: "orange" },
-];
-
 function systemPropertyId(
   databaseId: string,
   role: DocumentPropertySystemRole,
@@ -77,22 +56,28 @@ function systemPropertyId(
     .slice(0, 32)}`;
 }
 
-export function filesKindPropertyId(databaseId: string) {
+function legacyFilesKindPropertyId(databaseId: string) {
   return systemPropertyId(databaseId, "files_kind");
+}
+
+export function filesParentPropertyId(databaseId: string) {
+  return systemPropertyId(databaseId, "files_parent");
+}
+
+function defaultFilesRootFilter(databaseId: string) {
+  return {
+    key: filesParentPropertyId(databaseId),
+    label: "Parent",
+    operator: "is_empty" as const,
+    value: "",
+  };
 }
 
 export function defaultFilesDatabaseViewConfig(
   databaseId: string,
 ): ContentDatabaseViewConfig {
   const config = defaultDatabaseViewConfig("table");
-  const filters = [
-    {
-      key: filesKindPropertyId(databaseId),
-      label: "Kind",
-      operator: "does_not_equal" as const,
-      value: "database_row",
-    },
-  ];
+  const filters = [defaultFilesRootFilter(databaseId)];
   return {
     ...config,
     filters,
@@ -100,8 +85,35 @@ export function defaultFilesDatabaseViewConfig(
   };
 }
 
+export function migrateFilesDatabaseViewConfig(
+  config: ContentDatabaseViewConfig,
+  databaseId: string,
+): ContentDatabaseViewConfig {
+  const legacyKindPropertyId = legacyFilesKindPropertyId(databaseId);
+  const migrateFilters = (
+    filters: ContentDatabaseViewConfig["filters"],
+  ): ContentDatabaseViewConfig["filters"] =>
+    filters.flatMap((filter) => {
+      if (filter.key !== legacyKindPropertyId) return [filter];
+      if (
+        filter.operator === "does_not_equal" &&
+        filter.value === "database_row"
+      ) {
+        return [defaultFilesRootFilter(databaseId)];
+      }
+      return [];
+    });
+  return {
+    ...config,
+    filters: migrateFilters(config.filters),
+    views: config.views.map((view) => ({
+      ...view,
+      filters: migrateFilters(view.filters),
+    })),
+  };
+}
+
 function storedOptions(role: DocumentPropertySystemRole) {
-  if (role === "files_kind") return { options: KIND_OPTIONS };
   if (role === "files_source") {
     return {
       options: [{ id: "local", name: "Local", color: "gray" as const }],
@@ -116,7 +128,6 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
   now?: string;
 }) {
   if (args.database.systemRole !== "files") return;
-  if (args.database.filesSystemPropertiesSeeded === 1) return;
   const db = args.db ?? getDb();
   const now = args.now ?? new Date().toISOString();
   const existingDefinitions = await db
@@ -152,7 +163,9 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
       optionIds.every((id, index) => id === legacySourceOptionIds[index])
     );
   });
-  if (!existingSourceSystemProperty && legacySourceProperty) {
+  const adoptedLegacySource =
+    !existingSourceSystemProperty && Boolean(legacySourceProperty);
+  if (adoptedLegacySource && legacySourceProperty) {
     await db
       .update(schema.documentPropertyDefinitions)
       .set({
@@ -195,8 +208,10 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
       .values(missingDefinitions)
       .onConflictDoNothing();
   }
-  const normalizedStored = serializeDatabaseViewConfig(
-    parseDatabaseViewConfig(args.database.viewConfigJson),
+  const parsedStored = parseDatabaseViewConfig(args.database.viewConfigJson);
+  const normalizedStored = serializeDatabaseViewConfig(parsedStored);
+  const migratedStored = serializeDatabaseViewConfig(
+    migrateFilesDatabaseViewConfig(parsedStored, args.database.id),
   );
   const untouchedLegacyDefaults = new Set([
     serializeDatabaseViewConfig(defaultDatabaseViewConfig("sidebar")),
@@ -206,7 +221,17 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
     ? serializeDatabaseViewConfig(
         defaultFilesDatabaseViewConfig(args.database.id),
       )
-    : args.database.viewConfigJson;
+    : migratedStored !== normalizedStored
+      ? migratedStored
+      : args.database.viewConfigJson;
+  if (
+    missingDefinitions.length === 0 &&
+    !adoptedLegacySource &&
+    viewConfigJson === args.database.viewConfigJson &&
+    args.database.filesSystemPropertiesSeeded === 1
+  ) {
+    return;
+  }
   await db
     .update(schema.contentDatabases)
     .set({
@@ -343,53 +368,6 @@ export async function filesSystemPropertyProjection(args: {
     : [];
   const parentById = new Map(parents.map((parent) => [parent.id, parent]));
 
-  const ownedDatabases = documentIds.length
-    ? await db
-        .select({
-          id: schema.contentDatabases.id,
-          documentId: schema.contentDatabases.documentId,
-        })
-        .from(schema.contentDatabases)
-        .where(
-          and(
-            inArray(schema.contentDatabases.documentId, documentIds),
-            isNull(schema.contentDatabases.deletedAt),
-          ),
-        )
-    : [];
-  const ownedDatabaseDocumentIds = new Set(
-    ownedDatabases.map((database) => database.documentId),
-  );
-
-  const memberships = documentIds.length
-    ? await db
-        .select({
-          documentId: schema.contentDatabaseItems.documentId,
-          databaseId: schema.contentDatabaseItems.databaseId,
-        })
-        .from(schema.contentDatabaseItems)
-        .where(inArray(schema.contentDatabaseItems.documentId, documentIds))
-    : [];
-  const membershipDatabaseIds = [
-    ...new Set(
-      memberships
-        .map((membership) => membership.databaseId)
-        .filter((databaseId) => databaseId !== args.database.id),
-    ),
-  ];
-  const readableMembershipDatabaseIds = await readableDatabaseIds(
-    db,
-    membershipDatabaseIds,
-    { includeSystem: false },
-  );
-  const databaseRowDocumentIds = new Set(
-    memberships
-      .filter((membership) =>
-        readableMembershipDatabaseIds.has(membership.databaseId),
-      )
-      .map((membership) => membership.documentId),
-  );
-
   const sourceRows = documentIds.length
     ? await db
         .select({
@@ -451,12 +429,7 @@ export async function filesSystemPropertyProjection(args: {
     definitionByRole.set(role, {
       ...property.definition,
       options: {
-        options:
-          role === "files_kind"
-            ? KIND_OPTIONS
-            : role === "files_parent"
-              ? parentOptions
-              : sourceOptions,
+        options: role === "files_parent" ? parentOptions : sourceOptions,
       },
     });
   }
@@ -469,21 +442,9 @@ export async function filesSystemPropertyProjection(args: {
     const sourceValues = [
       ...new Set(sourceIdsByDocument.get(document.id) ?? []),
     ];
-    const kind =
-      document.sourceKind === "local-file-copy"
-        ? "shared_copy"
-        : document.sourceMode === "local-files" &&
-            document.sourceKind === "file"
-          ? "imported_file"
-          : ownedDatabaseDocumentIds.has(document.id)
-            ? "database"
-            : databaseRowDocumentIds.has(document.id)
-              ? "database_row"
-              : "page";
     valuesByDocumentId.set(
       document.id,
       new Map<DocumentPropertySystemRole, DocumentPropertyValue>([
-        ["files_kind", kind],
         [
           "files_parent",
           document.parentId && parentById.has(document.parentId)
@@ -504,18 +465,21 @@ export function applyFilesSystemPropertyProjection(args: {
   >;
   documentId?: string;
 }) {
-  return args.properties.map((property) => {
-    const role = property.definition.systemRole;
-    if (!role) return property;
-    return {
-      ...property,
-      definition:
-        args.projection.definitionByRole.get(role) ?? property.definition,
-      value: args.documentId
-        ? (args.projection.valuesByDocumentId.get(args.documentId)?.get(role) ??
-          null)
-        : null,
-      editable: false,
-    };
-  });
+  return args.properties
+    .filter((property) => property.definition.systemRole !== "files_kind")
+    .map((property) => {
+      const role = property.definition.systemRole;
+      if (!role) return property;
+      return {
+        ...property,
+        definition:
+          args.projection.definitionByRole.get(role) ?? property.definition,
+        value: args.documentId
+          ? (args.projection.valuesByDocumentId
+              .get(args.documentId)
+              ?.get(role) ?? null)
+          : null,
+        editable: false,
+      };
+    });
 }

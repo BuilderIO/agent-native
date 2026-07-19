@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,7 +114,7 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
-  it("exposes stable, derived Kind, Parent, and Source properties", async () => {
+  it("exposes stable, derived Parent and Source properties", async () => {
     const spaceId = personalContentSpaceId(OWNER);
     const filesDatabase = await getFilesDatabase(spaceId);
     const now = new Date().toISOString();
@@ -209,14 +210,14 @@ describe("Content Files membership reconciliation", () => {
         property,
       ]),
     );
-    expect(definitions.get("files_kind")).toMatchObject({ editable: false });
+    expect(definitions.has("files_kind")).toBe(false);
     expect(definitions.get("files_parent")).toMatchObject({ editable: false });
     expect(definitions.get("files_source")).toMatchObject({ editable: false });
     expect(response.database.viewConfig.views[0]?.filters).toEqual([
       expect.objectContaining({
-        key: definitions.get("files_kind")?.definition.id,
-        operator: "does_not_equal",
-        value: "database_row",
+        key: definitions.get("files_parent")?.definition.id,
+        operator: "is_empty",
+        value: "",
       }),
     ]);
     const child = response.items.find(
@@ -228,7 +229,6 @@ describe("Content Files membership reconciliation", () => {
         property.value,
       ]),
     );
-    expect(values.get("files_kind")).toBe("imported_file");
     expect(values.get("files_parent")).toBe("system-property-parent");
     expect(values.get("files_source")).toEqual(["system-property-source"]);
     expect(
@@ -274,13 +274,13 @@ describe("Content Files membership reconciliation", () => {
 
   it("rejects mutations of derived Files system properties", async () => {
     const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
-    const [kindProperty] = await getDb()
+    const [parentProperty] = await getDb()
       .select()
       .from(schema.documentPropertyDefinitions)
       .where(
         and(
           eq(schema.documentPropertyDefinitions.databaseId, filesDatabase.id),
-          eq(schema.documentPropertyDefinitions.systemRole, "files_kind"),
+          eq(schema.documentPropertyDefinitions.systemRole, "files_parent"),
         ),
       );
     const [
@@ -307,15 +307,15 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         setProperty.run({
           documentId: filesDatabase.documentId,
-          propertyId: kindProperty.id,
-          value: "page",
+          propertyId: parentProperty.id,
+          value: null,
         }),
       ),
     ).rejects.toThrow("derived");
     await expect(
       inOwnerContext(() =>
         configureProperty.run({
-          id: kindProperty.id,
+          id: parentProperty.id,
           documentId: filesDatabase.documentId,
           name: "Other",
           type: "select",
@@ -326,7 +326,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         deleteProperty.run({
           documentId: filesDatabase.documentId,
-          propertyId: kindProperty.id,
+          propertyId: parentProperty.id,
         }),
       ),
     ).rejects.toThrow("cannot be deleted");
@@ -334,7 +334,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         duplicateProperty.run({
           documentId: filesDatabase.documentId,
-          propertyId: kindProperty.id,
+          propertyId: parentProperty.id,
         }),
       ),
     ).rejects.toThrow("cannot be duplicated");
@@ -351,7 +351,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         reorderProperty.run({
           documentId: filesDatabase.documentId,
-          propertyId: kindProperty.id,
+          propertyId: parentProperty.id,
           targetPropertyId: contentProperty.id,
           position: "before",
         }),
@@ -396,6 +396,9 @@ describe("Content Files membership reconciliation", () => {
           spaceId: filesDatabase.spaceId,
           title: id === topLevelDocumentId ? "Later top-level page" : id,
           content: "",
+          parentId: rowDocumentIds.includes(id)
+            ? containingDatabaseDocumentId
+            : null,
           position,
           visibility: "private",
           createdAt: now,
@@ -578,10 +581,10 @@ describe("Content Files membership reconciliation", () => {
     );
     expect(visibleItem?.document.title).toBe("Visible organization page");
     expect(
-      visibleItem?.properties.find(
+      visibleItem?.properties.some(
         (property) => property.definition.systemRole === "files_kind",
-      )?.value,
-    ).toBe("page");
+      ),
+    ).toBe(false);
     expect(JSON.stringify(response)).not.toContain("Owner private database");
 
     await getDb()
@@ -625,7 +628,8 @@ describe("Content Files membership reconciliation", () => {
       .from(schema.contentDatabases)
       .where(eq(schema.contentDatabases.id, filesDatabase.id));
     expect(repaired.filesSystemPropertiesSeeded).toBe(1);
-    expect(repaired.viewConfigJson).toContain("database_row");
+    expect(repaired.viewConfigJson).toContain('"operator":"is_empty"');
+    expect(repaired.viewConfigJson).not.toContain("database_row");
 
     await getDb()
       .update(schema.contentDatabases)
@@ -637,6 +641,67 @@ describe("Content Files membership reconciliation", () => {
       .from(schema.contentDatabases)
       .where(eq(schema.contentDatabases.id, filesDatabase.id));
     expect(afterClearing.viewConfigJson).toBe(legacyDefault);
+  });
+
+  it("migrates the legacy Kind default while preserving saved filters", async () => {
+    const { ensureFilesSystemPropertyDefinitions, filesParentPropertyId } =
+      await import("./_files-system-properties.js");
+    const { defaultDatabaseViewConfig, serializeDatabaseViewConfig } =
+      await import("./_property-utils.js");
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const originalViewConfigJson = filesDatabase.viewConfigJson;
+    const legacyKindPropertyId = `content_files_property_${createHash("sha256")
+      .update(`${filesDatabase.id}:files_kind`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    const savedTitleFilter = {
+      key: "name" as const,
+      label: "Name",
+      operator: "contains" as const,
+      value: "plan",
+    };
+    const legacyDefaultFilter = {
+      key: legacyKindPropertyId,
+      label: "Kind",
+      operator: "does_not_equal" as const,
+      value: "database_row",
+    };
+    const legacyConfig = defaultDatabaseViewConfig("table");
+    legacyConfig.filters = [legacyDefaultFilter, savedTitleFilter];
+    legacyConfig.views[0]!.filters = [legacyDefaultFilter, savedTitleFilter];
+    const legacyViewConfigJson = serializeDatabaseViewConfig(legacyConfig);
+
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        filesSystemPropertiesSeeded: 1,
+        viewConfigJson: legacyViewConfigJson,
+      })
+      .where(eq(schema.contentDatabases.id, filesDatabase.id));
+    try {
+      await ensureFilesSystemPropertyDefinitions({
+        database: { ...filesDatabase, viewConfigJson: legacyViewConfigJson },
+      });
+      const [migrated] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, filesDatabase.id));
+      const parsed = JSON.parse(migrated.viewConfigJson);
+      expect(parsed.views[0].filters).toEqual([
+        {
+          key: filesParentPropertyId(filesDatabase.id),
+          label: "Parent",
+          operator: "is_empty",
+          value: "",
+        },
+        savedTitleFilter,
+      ]);
+    } finally {
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({ viewConfigJson: originalViewConfigJson })
+        .where(eq(schema.contentDatabases.id, filesDatabase.id));
+    }
   });
 
   it("adopts a legacy multi-source Files Source property without losing values", async () => {

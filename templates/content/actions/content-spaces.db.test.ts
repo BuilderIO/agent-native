@@ -516,14 +516,9 @@ describe("Content space provisioning", () => {
       .where(
         eq(schema.documentPropertyDefinitions.databaseId, filesDatabase!.id),
       );
-    expect(filesProperties).toHaveLength(4);
+    expect(filesProperties).toHaveLength(3);
     expect(filesProperties.map((property) => property.systemRole)).toEqual(
-      expect.arrayContaining([
-        null,
-        "files_kind",
-        "files_parent",
-        "files_source",
-      ]),
+      expect.arrayContaining([null, "files_parent", "files_source"]),
     );
     await runWithRequestContext({ userEmail: MEMBER }, async () => {
       await expect(resolveContentSpaceAccess(spaceId)).resolves.toMatchObject({

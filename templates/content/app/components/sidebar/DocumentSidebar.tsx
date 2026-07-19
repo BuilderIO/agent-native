@@ -1353,7 +1353,7 @@ export function DocumentSidebar({
   };
 
   const renderWorkspaceNavigation = () => (
-    <div className="mb-2 px-2">
+    <div className="mb-2 min-w-0 overflow-x-hidden px-2">
       {contentSpaceState === "ready" && selectedSpace ? (
         <div className="grid gap-1">
           {workspaceCatalogDatabase.isError ||

@@ -42,7 +42,6 @@ import {
   databaseCreatedItemNeedsPreview,
   databaseClientQueryExpandedItemLimit,
   databaseClientQueryExpansionIsPending,
-  databaseColumnHeaderState,
   databaseSearchExpandedItemLimit,
   databaseSearchExpansionIsPending,
   databaseAttachedBuilderSources,
@@ -52,48 +51,12 @@ import {
   databasePreviewItem,
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
-  hiddenSystemDatabaseFilters,
   pendingMutationSourceId,
   releaseDatabaseSourceOperation,
-  userVisibleDatabaseFilters,
   previewDraftNeedsConflict,
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
 } from "./DatabaseView";
-
-describe("Files system filters", () => {
-  it("keeps the database-row predicate active while hiding it from user controls", () => {
-    const systemFilter = {
-      key: "kind",
-      label: "Kind",
-      operator: "does_not_equal" as const,
-      value: "database_row",
-    };
-    const userFilter = {
-      key: "name" as const,
-      label: "Name",
-      operator: "contains" as const,
-      value: "plan",
-    };
-    const properties = [
-      { definition: { id: "kind", systemRole: "files_kind" } },
-    ] as DocumentProperty[];
-
-    expect(
-      hiddenSystemDatabaseFilters([systemFilter, userFilter], properties),
-    ).toEqual([systemFilter]);
-    expect(
-      userVisibleDatabaseFilters([systemFilter, userFilter], properties),
-    ).toEqual([userFilter]);
-    expect(
-      databaseColumnHeaderState(
-        [],
-        userVisibleDatabaseFilters([systemFilter, userFilter], properties),
-        "kind",
-      ),
-    ).toEqual({ sortDirection: null, activeFilterCount: 0 });
-  });
-});
 
 describe("Builder required publishing fields", () => {
   const source = {

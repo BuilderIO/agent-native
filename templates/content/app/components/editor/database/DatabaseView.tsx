@@ -824,10 +824,7 @@ function DatabaseTable({
   );
   const sorts = activeView.sorts;
   const filters = activeView.filters;
-  const visibleFilters = useMemo(
-    () => userVisibleDatabaseFilters(filters, orderedProperties),
-    [filters, orderedProperties],
-  );
+  const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
   const columnWidths = activeView.columnWidths;
   const databaseGroupProperty = useMemo(
@@ -1655,7 +1652,7 @@ function DatabaseTable({
   function clearSearchAndFilters() {
     setSearchQuery("");
     setSearchOpen(false);
-    setActiveFilters(hiddenSystemDatabaseFilters(filters, properties));
+    setActiveFilters([]);
   }
 
   function setActiveColumnWidths(
@@ -2461,7 +2458,7 @@ function DatabaseTable({
           setSearchQuery("");
           setSearchOpen(false);
           setActiveSorts([]);
-          setActiveFilters(hiddenSystemDatabaseFilters(filters, properties));
+          setActiveFilters([]);
           setInlineFilterControlsOpen(false);
           setInlineAddFilterOpen(false);
           setInlineFilterOpenIndex(null);
@@ -5722,9 +5719,7 @@ function DatabaseActiveConstraintsBar({
   onResetPersonalChanges: () => void;
   onSaveForEveryone: () => void;
 }) {
-  const filterEntries = filters
-    .map((filter, index) => ({ filter, index }))
-    .filter(({ filter }) => !isHiddenSystemDatabaseFilter(filter, properties));
+  const filterEntries = filters.map((filter, index) => ({ filter, index }));
   if (
     !forceShow &&
     constraintCount === 0 &&
@@ -15643,7 +15638,7 @@ function DatabasePropertyHeader({
   const canReorder = canEdit && !property.definition.systemRole;
   const columnState = databaseColumnHeaderState(
     sorts,
-    userVisibleDatabaseFilters(filters, [property]),
+    filters,
     property.definition.id,
   );
 
@@ -16362,38 +16357,6 @@ export function activeDatabaseConstraintCount(
     (searchQuery.trim() ? 1 : 0) +
     sorts.length +
     filters.filter(isActiveFilter).length
-  );
-}
-
-export function isHiddenSystemDatabaseFilter(
-  filter: DatabaseFilter,
-  properties: DocumentProperty[],
-) {
-  const property = properties.find(
-    (candidate) => candidate.definition.id === filter.key,
-  );
-  return (
-    property?.definition.systemRole === "files_kind" &&
-    filter.operator === "does_not_equal" &&
-    filter.value === "database_row"
-  );
-}
-
-export function hiddenSystemDatabaseFilters(
-  filters: DatabaseFilter[],
-  properties: DocumentProperty[],
-) {
-  return filters.filter((filter) =>
-    isHiddenSystemDatabaseFilter(filter, properties),
-  );
-}
-
-export function userVisibleDatabaseFilters(
-  filters: DatabaseFilter[],
-  properties: DocumentProperty[],
-) {
-  return filters.filter(
-    (filter) => !isHiddenSystemDatabaseFilter(filter, properties),
   );
 }
 

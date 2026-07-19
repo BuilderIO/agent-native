@@ -207,6 +207,12 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "text-[10px] font-semibold uppercase tracking-wider",
     );
+    expect(sidebar).toContain(
+      'className="h-7 min-w-0 flex-1 truncate pe-2 text-start',
+    );
+    expect(sidebar).toContain(
+      'className="mb-2 min-w-0 overflow-x-hidden px-2"',
+    );
     expect(sidebar).not.toContain("{selected ? footer : null}");
     expect(sidebar).not.toContain('t("sidebar.workspaces")');
     expect(sidebar).not.toContain(
