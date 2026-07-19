@@ -947,6 +947,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
+    { specifier: "highlight.js/lib/core", packageName: "highlight.js" },
     { specifier: "html2canvas" },
     { specifier: "i18next" },
     { specifier: "input-otp" },
@@ -991,6 +992,25 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     },
     { specifier: "sonner" },
     { specifier: "tailwind-merge" },
+    ...(hasDep("@agent-native/toolkit", cwd)
+      ? [
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+            packageName: "@agent-native/toolkit",
+          },
+        ]
+      : []),
     { specifier: "vaul" },
     { specifier: "y-protocols/awareness", packageName: "y-protocols" },
     { specifier: "yjs" },
