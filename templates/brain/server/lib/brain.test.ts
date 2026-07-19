@@ -802,6 +802,20 @@ function seedSource(overrides: Row = {}) {
   return source;
 }
 
+function expectCursorPersistedBeforeRunRelease() {
+  const updatedTables = mocks.db.update.mock.calls.map(([tableRef]) =>
+    String((tableRef as Row).__tableName),
+  );
+  const sourceUpdate = updatedTables.lastIndexOf("brainSources");
+  const runRelease = updatedTables.lastIndexOf("brainSyncRuns");
+  expect(sourceUpdate).toBeGreaterThan(-1);
+  expect(runRelease).toBeGreaterThan(sourceUpdate);
+  expect(mocks.rows.syncRuns.at(-1)).toMatchObject({
+    activeSourceId: null,
+    leaseToken: null,
+  });
+}
+
 function seedCapture(overrides: Row = {}) {
   const now = "2026-05-15T12:00:00.000Z";
   const capture = {
@@ -3139,6 +3153,7 @@ describe("Brain connector smoke coverage", () => {
     expect(result.captures[0]?.externalId).toBe(
       `slack:C123:${messageTimestamps[1]}`,
     );
+    expectCursorPersistedBeforeRunRelease();
   });
 
   it("consumes the Slack history page budget and persists the next cursor", async () => {
@@ -3734,6 +3749,53 @@ describe("Brain connector smoke coverage", () => {
     expect(result.captures[0]?.metadata).not.toHaveProperty("sourceUrl");
   });
 
+  it("renews configured-item leases while capture processing is in flight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-15T12:00:00.000Z"));
+    let releaseCapture: (() => void) | undefined;
+    let markCaptureStarted: (() => void) | undefined;
+    const captureStarted = new Promise<void>((resolve) => {
+      markCaptureStarted = resolve;
+    });
+    const captureBlocked = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    mocks.audienceHook.value = async () => {
+      markCaptureStarted?.();
+      await captureBlocked;
+    };
+    const source = seedSource({
+      id: "configured-heartbeat-source",
+      provider: "granola",
+      configJson: JSON.stringify({
+        transcripts: [
+          {
+            externalId: "configured-heartbeat-item",
+            title: "Long-running capture",
+            text: "Decision: retain the connector lease during classification.",
+          },
+        ],
+      }),
+    });
+
+    try {
+      const sync = runConnectorSync(source as never);
+      await captureStarted;
+      const initialExpiry = String(mocks.rows.syncRuns[0]?.leaseExpiresAt);
+
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1_000);
+
+      expect(
+        Date.parse(String(mocks.rows.syncRuns[0]?.leaseExpiresAt)),
+      ).toBeGreaterThan(Date.parse(initialExpiry));
+      releaseCapture?.();
+      await sync;
+    } finally {
+      releaseCapture?.();
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds concurrent Granola note fetch and capture processing", async () => {
     let activeCaptures = 0;
     let maxActiveCaptures = 0;
@@ -3837,6 +3899,7 @@ describe("Brain connector smoke coverage", () => {
     });
     expect(detailIds).toEqual(["note_0", "note_1"]);
     expect(result.captures[0]?.externalId).toBe("granola:note_1");
+    expectCursorPersistedBeforeRunRelease();
   });
 
   it("coalesces overlapping source syncs onto the active run", async () => {
@@ -4008,6 +4071,62 @@ describe("Brain connector smoke coverage", () => {
         Accept: "application/vnd.github+json",
       }),
     });
+  });
+
+  it("renews GitHub leases while item capture processing is in flight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-15T12:00:00.000Z"));
+    let releaseCapture: (() => void) | undefined;
+    let markCaptureStarted: (() => void) | undefined;
+    const captureStarted = new Promise<void>((resolve) => {
+      markCaptureStarted = resolve;
+    });
+    const captureBlocked = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    mocks.audienceHook.value = async () => {
+      markCaptureStarted?.();
+      await captureBlocked;
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json([
+          {
+            id: 101,
+            number: 7,
+            title: "Retain the backfill lease",
+            body: "Decision: heartbeat during capture classification.",
+            html_url: "https://github.com/acme/brain/issues/7",
+            state: "open",
+            created_at: "2026-05-14T10:00:00Z",
+            updated_at: "2026-05-14T11:00:00Z",
+          },
+        ]),
+      ),
+    );
+    const source = seedSource({
+      id: "github-heartbeat-source",
+      provider: "github",
+      configJson: JSON.stringify({ repos: ["acme/brain"], limit: 1 }),
+    });
+
+    try {
+      const sync = runConnectorSync(source as never);
+      await captureStarted;
+      const initialExpiry = String(mocks.rows.syncRuns[0]?.leaseExpiresAt);
+
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1_000);
+
+      expect(
+        Date.parse(String(mocks.rows.syncRuns[0]?.leaseExpiresAt)),
+      ).toBeGreaterThan(Date.parse(initialExpiry));
+      releaseCapture?.();
+      await sync;
+    } finally {
+      releaseCapture?.();
+      vi.useRealTimers();
+    }
   });
 
   it("does not load inaccessible Slack captures while finding linked GitHub refs", async () => {
@@ -4251,6 +4370,7 @@ describe("Brain connector smoke coverage", () => {
         endpoint: "/repos/acme/brain/issues",
       },
     });
+    expectCursorPersistedBeforeRunRelease();
   });
 });
 

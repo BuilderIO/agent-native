@@ -236,6 +236,7 @@ const SLACK_USER_LOOKUP_CONCURRENCY = 4;
 const SLACK_THREAD_CAPTURE_CONCURRENCY = 4;
 const GRANOLA_NOTE_CAPTURE_CONCURRENCY = 4;
 const CONNECTOR_SYNC_LEASE_MS = 10 * 60 * 1_000;
+const CONNECTOR_SYNC_HEARTBEAT_MS = Math.floor(CONNECTOR_SYNC_LEASE_MS / 3);
 
 interface SlackPermalinkResponse {
   permalink?: string;
@@ -2117,6 +2118,35 @@ async function renewRunLease(run: ConnectorSyncRunLease) {
   }
 }
 
+function startRunLeaseHeartbeat(run: ConnectorSyncRunLease) {
+  let stopped = false;
+  let failure: unknown;
+  let pendingRenewal: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (stopped || failure || pendingRenewal) return;
+    pendingRenewal = renewRunLease(run)
+      .catch((error) => {
+        failure = error;
+        clearInterval(timer);
+      })
+      .finally(() => {
+        pendingRenewal = null;
+      });
+  }, CONNECTOR_SYNC_HEARTBEAT_MS);
+  timer.unref?.();
+
+  return {
+    assertHealthy() {
+      if (failure) throw failure;
+    },
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      await pendingRenewal;
+    },
+  };
+}
+
 async function finishRun(
   run: ConnectorSyncRunLease,
   status: "success" | "error",
@@ -2155,6 +2185,7 @@ async function syncFromConfiguredItems(
   const items = transcriptItems(config);
   const captures = [];
   let sensitivityBlocked = 0;
+  const heartbeat = startRunLeaseHeartbeat(run);
 
   try {
     for (const item of items) {
@@ -2174,7 +2205,10 @@ async function syncFromConfiguredItems(
       if (captureResult.capture)
         captures.push(serializeCapture(captureResult.capture));
       if (captureResult.blocked) sensitivityBlocked += 1;
+      heartbeat.assertHealthy();
     }
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
     await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
@@ -2204,13 +2238,9 @@ async function syncFromConfiguredItems(
       message: captures.length ? "Imported configured captures" : emptyMessage,
     };
   } catch (err) {
+    await heartbeat.stop();
     const message = err instanceof Error ? err.message : String(err);
-    await finishRun(
-      run,
-      "error",
-      { capturesCreated: captures.length },
-      message,
-    );
+    await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
       .set({ lastError: message, status: "error", updatedAt: nowIso() })
@@ -2220,6 +2250,12 @@ async function syncFromConfiguredItems(
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      "error",
+      { capturesCreated: captures.length },
+      message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -2599,12 +2635,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await finishRun(
-      run,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -2619,6 +2650,12 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -2956,12 +2993,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await finishRun(
-      run,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -2976,6 +3008,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -3091,6 +3129,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     includePullRequests,
     rateLimited: false,
   };
+  const heartbeat = startRunLeaseHeartbeat(run);
 
   try {
     const token = await requireConnectorCredential(
@@ -3111,6 +3150,8 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     }
     if (!includeIssues && !includePullRequests) {
+      await heartbeat.stop();
+      heartbeat.assertHealthy();
       await renewRunLease(run);
       await db
         .update(schema.brainSources)
@@ -3199,6 +3240,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       }
       stats.itemsSeen = Number(stats.itemsSeen) + 1;
       stats.linkedRefsImported = Number(stats.linkedRefsImported) + 1;
+      heartbeat.assertHealthy();
     }
 
     for (const repo of repositories.slice(0, maxRepositories)) {
@@ -3263,6 +3305,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         if (captureResult.blocked) {
           stats.sensitivityBlocked = Number(stats.sensitivityBlocked ?? 0) + 1;
         }
+        heartbeat.assertHealthy();
 
         const candidateUpdatedAt = item.updated_at;
         if (
@@ -3279,6 +3322,8 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     }
 
     stats.capturesCreated = captures.length;
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
     await renewRunLease(run);
     await db
       .update(schema.brainSources)
@@ -3309,6 +3354,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         : "GitHub sync completed with no new issues or pull requests",
     };
   } catch (err) {
+    await heartbeat.stop();
     const message = err instanceof Error ? err.message : String(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: GitHubSyncCursor = {
@@ -3319,12 +3365,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await finishRun(
-      run,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -3339,6 +3380,12 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
     return {
       runId,
       sourceId: source.id,
