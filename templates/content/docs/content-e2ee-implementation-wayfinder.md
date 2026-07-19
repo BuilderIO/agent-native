@@ -1151,6 +1151,22 @@ Exit gate:
 
 Estimated size: 40–70 files; 4–6 engineer-weeks.
 
+Fork implementation checkpoint: the first Content object revision now has one
+executable `anc/v1` bundle contract shared by Core and the native trust anchor.
+The bundle carries an explicit type discriminator, one EEK-wrapped fresh DEK,
+the endpoint-signed object header, and one final secretstream chunk; the first
+beta bounds plaintext to one 1 MiB chunk. Vault, object, revision, epoch,
+writer, timestamp, content type, plaintext length, DEK reference, chunk index,
+and chunk count are authenticated before plaintext release. Native sealing
+derives the writer public key from its guarded seed and requires that identity
+to name exactly one active member of the authenticated current control state;
+the hosted caller cannot nominate a writer or epoch. Core hostile-coordinate
+tests, independent native-generated inner-envelope replay, arm64 and x86_64
+native seal/open tests, Core typecheck, production universal service build, and
+the pageable-custody guard pass. The primitive is not yet a document product:
+typed XPC operations, the local encrypted index, existing Content action-name
+adapters, and signed-Desktop UI remain open.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

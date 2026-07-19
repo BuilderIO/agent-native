@@ -598,6 +598,14 @@ cookie-free signed transport, authenticated runtime discovery, OS-encrypted
 content-free checkpoint store, revocation verifier, and fail-closed Desktop
 supervisor composition are now executable.
 
+The encrypted Content object primitive is executable as well. Core and native
+code share an explicitly typed canonical bundle containing a current-epoch
+EEK-wrapped fresh DEK, an active-writer-signed header, and a final
+secretstream chunk. Native sealing and opening bind the exact current replayed
+vault, epoch, writer, object, revision, length, content type, and DEK reference
+before plaintext release. The first beta deliberately caps this path at one
+1 MiB chunk; multi-chunk media remains outside the document slice.
+
 On a combined personal desktop, attended endpoint custody and unattended broker
 custody are independent local principals. They use distinct Keychain record and
 rollback-fence identities plus separate owner-only authority, grant, and result

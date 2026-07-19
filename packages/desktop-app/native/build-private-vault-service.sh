@@ -19,6 +19,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEekWrap.m"
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
+  "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m"
   "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisBootstrap.m"
   "$SOURCE_ROOT/control/PrivateVaultGenesisAuthorization.m"
@@ -826,6 +827,38 @@ case "${PRIVATE_VAULT_BUILD_ENROLLMENT_AUTHORIZATION_TESTS:-}" in
   build_enrollment_authorization_tests arm64
   if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
     build_enrollment_authorization_tests x86_64
+  fi
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_OBJECT_REVISION_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  OBJECT_REVISION_TEST_OUTPUT="$OUTPUT_ROOT/.object-revision-tests"
+  rm -rf "$OBJECT_REVISION_TEST_OUTPUT"
+  mkdir -p "$OBJECT_REVISION_TEST_OUTPUT"
+  build_object_revision_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$OBJECT_REVISION_TEST_OUTPUT/private-vault-object-revision-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -DANC_PV_OBJECT_REVISION_VECTOR_PATH="\"$ROOT/../core/src/e2ee/fixtures/anc-v1-object-revision-vectors.json\"" \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/control/PrivateVaultObjectRevisionTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_object_revision_tests arm64
+  if [[ "$PRIVATE_VAULT_BUILD_ARCHITECTURES" == "universal" ]]; then
+    build_object_revision_tests x86_64
   fi
   ;;
 esac
