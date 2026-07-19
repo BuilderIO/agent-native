@@ -1171,7 +1171,12 @@ client. Both operations require active attended endpoint custody to match the
 entire authenticated authority anchor, current epoch, membership digest, and
 writer key before using guarded signing or epoch keys. Protocol rejection
 tests, the universal production service build, both native architecture
-corpora, and the independent Core vector pass at this boundary.
+corpora, and the independent Core vector pass at this boundary. The packaged
+native addon and typed Desktop main-process client now preserve that exact
+shape, bind replies back to the requested vault, object, and revision, own and
+wipe transferred request buffers, and return only ciphertext or bounded
+plaintext plus public revision metadata. Twenty-two focused client tests and
+the packaged addon build pass; no key-returning operation exists.
 
 ### PR 7 — Migration, export, recovery, and rollback
 
