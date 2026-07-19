@@ -179,6 +179,7 @@ const JSONL_NAMES = [
 ];
 const MAX_SOURCE_ROWS = 10_000;
 const MAX_EXCERPT_CHARS = 1_200;
+const MAX_TRANSCRIPT_JOIN_GAP_MS = 2_000;
 type ScreenMemoryOcrIndexState =
   | "pending"
   | "indexing"
@@ -476,6 +477,17 @@ function firstString(
   return null;
 }
 
+function firstFiniteNumber(
+  raw: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
 function normalizeContextItem(
   value: unknown,
   sourceFile: string,
@@ -518,6 +530,14 @@ function itemTime(item: ScreenMemoryContextItem): number {
 interface LocalContextRow {
   item: ScreenMemoryContextItem;
   raw: Record<string, unknown>;
+}
+
+interface LocalTranscriptSpan {
+  row: LocalContextRow;
+  segmentId: string;
+  source: string;
+  startMs: number;
+  endMs: number;
 }
 
 interface LocalSegment {
@@ -664,6 +684,92 @@ function normalizeEvidence(
   });
 }
 
+function transcriptSpan(row: LocalContextRow): LocalTranscriptSpan | null {
+  const segmentId = firstString(row.raw, ["segmentId", "segment_id"]);
+  const source = firstString(row.raw, ["source", "kind"]);
+  const startMs = firstFiniteNumber(row.raw, ["startMs", "start_ms"]);
+  const endMs = firstFiniteNumber(row.raw, ["endMs", "end_ms"]);
+  if (
+    !segmentId ||
+    !source ||
+    startMs === null ||
+    endMs === null ||
+    endMs <= startMs ||
+    !firstString(row.raw, ["text"])
+  ) {
+    return null;
+  }
+  return { row, segmentId, source, startMs, endMs };
+}
+
+/**
+ * Whisper emits phrase-sized rows, which can split an ordinary sentence in
+ * the middle. Join only rows that are demonstrably continuous in the same
+ * finalized segment and audio source. Stored sidecars remain untouched, and a
+ * real pause, source switch, segment boundary, or excerpt bound starts a new
+ * evidence item.
+ */
+function coalesceTranscriptRows(rows: LocalContextRow[]): LocalContextRow[] {
+  const passthrough: LocalContextRow[] = [];
+  const groups = new Map<string, LocalTranscriptSpan[]>();
+
+  for (const row of rows) {
+    const span = transcriptSpan(row);
+    if (!span) {
+      passthrough.push(row);
+      continue;
+    }
+    const key = [row.item.sourceFile, span.segmentId, span.source].join("\0");
+    const group = groups.get(key) ?? [];
+    group.push(span);
+    groups.set(key, group);
+  }
+
+  const joined = [...groups.values()].flatMap((group) => {
+    const ordered = group.sort((a, b) => a.startMs - b.startMs);
+    const output: LocalContextRow[] = [];
+    let current: LocalTranscriptSpan | null = null;
+
+    for (const next of ordered) {
+      const currentText = current
+        ? (firstString(current.row.raw, ["text"]) ?? "")
+        : "";
+      const nextText = firstString(next.row.raw, ["text"]) ?? "";
+      const gapMs = current ? next.startMs - current.endMs : Infinity;
+      const combinedText = [currentText, nextText].filter(Boolean).join(" ");
+      const canJoin =
+        current !== null &&
+        gapMs >= 0 &&
+        gapMs <= MAX_TRANSCRIPT_JOIN_GAP_MS &&
+        combinedText.length <= MAX_EXCERPT_CHARS;
+
+      if (!current || !canJoin) {
+        if (current) output.push(current.row);
+        current = {
+          ...next,
+          row: {
+            item: { ...next.row.item },
+            raw: { ...next.row.raw },
+          },
+        };
+        continue;
+      }
+
+      current.endMs = next.endMs;
+      current.row.item.text = combinedText;
+      current.row.raw.text = combinedText;
+      if ("end_ms" in current.row.raw) current.row.raw.end_ms = next.endMs;
+      else current.row.raw.endMs = next.endMs;
+    }
+    if (current) output.push(current.row);
+    return output;
+  });
+
+  return [...passthrough, ...joined].sort(
+    (a, b) => itemTime(b.item) - itemTime(a.item),
+  );
+}
+
 async function readRows(files: string[]): Promise<{
   rows: LocalContextRow[];
   sourceRowsReadTruncated: boolean;
@@ -694,7 +800,7 @@ async function readRows(files: string[]): Promise<{
   }
 
   return {
-    rows: rows.sort((a, b) => itemTime(b.item) - itemTime(a.item)),
+    rows: coalesceTranscriptRows(rows),
     sourceRowsReadTruncated,
   };
 }
