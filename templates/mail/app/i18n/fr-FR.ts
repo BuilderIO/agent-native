@@ -443,10 +443,10 @@ const messages = {
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
   },
   settings: {
-    openAgentSettings: "Ouvrir les paramètres de l’agent",
+    openAgentSettings: "Gérer l’agent",
     agentDescription:
-      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-    agentTitle: "Paramètres de l’agent",
+      "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+    agentTitle: "Gérer l’agent",
     aliasName: "Nom de l'alias",
     aliasNamePlaceholder: "p. ex. Équipe design",
     recipientsOnePerLine: "Destinataires (un e-mail par ligne)",

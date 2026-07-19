@@ -2917,10 +2917,10 @@ const enUS = {
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage collaborators and shared document access.",
     openTeamSettings: "Open workspace access",
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -8809,10 +8809,9 @@ export const messagesByLocale = {
       workspaceTitle: "工作区",
       workspaceDescription: "管理协作者和共享文档访问权限。",
       openTeamSettings: "打开工作区访问设置",
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
     },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
@@ -8997,10 +8996,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gestiona colaboradores y acceso a documentos compartidos.",
       openTeamSettings: "Abrir acceso al espacio de trabajo",
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
     },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
@@ -9188,10 +9187,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gérez les collaborateurs et l’accès aux documents partagés.",
       openTeamSettings: "Ouvrir l’accès à l’espace de travail",
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
     },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
@@ -9377,10 +9376,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Verwalte Mitwirkende und gemeinsamen Dokumentzugriff.",
       openTeamSettings: "Arbeitsbereichszugriff öffnen",
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
     },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
@@ -9566,10 +9565,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "共同編集者と共有ドキュメントのアクセスを管理します。",
       openTeamSettings: "ワークスペースアクセスを開く",
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
     },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
@@ -9746,10 +9745,10 @@ export const messagesByLocale = {
       workspaceTitle: "워크스페이스",
       workspaceDescription: "공동 작업자와 공유 문서 접근 권한을 관리합니다.",
       openTeamSettings: "워크스페이스 접근 열기",
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
     },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
@@ -9934,10 +9933,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gerencie colaboradores e acesso a documentos compartilhados.",
       openTeamSettings: "Abrir acesso ao espaço de trabalho",
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
     },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -10112,10 +10111,10 @@ export const messagesByLocale = {
       workspaceTitle: "कार्यस्थान",
       workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
       openTeamSettings: "कार्यस्थान पहुंच खोलें",
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
     },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -10291,10 +10290,10 @@ export const messagesByLocale = {
       workspaceTitle: "مساحة العمل",
       workspaceDescription: "إدارة المتعاونين ووصول المستندات المشتركة.",
       openTeamSettings: "فتح وصول مساحة العمل",
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
     },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",

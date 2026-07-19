@@ -11,10 +11,10 @@ const messages = {
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    agentTitle: "Ajustes del agente",
+    agentTitle: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    openAgentSettings: "Abrir ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Gestionar agente",
   },
   chat: {
     archiveChat: "Archivar chat",

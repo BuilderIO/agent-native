@@ -24,7 +24,7 @@ To mention an agent in the chat composer:
 
 There are two agent paths:
 
-- **Custom agents** — local workspace agent profiles in `agents/*.md`. These run inside the current app/runtime using the agent profile's instructions and optional model override.
+- **Custom agents** — local agent-resource profiles in `agents/*.md`. These run inside the current app/runtime using the agent profile's instructions and optional model override.
 - **Connected agents** — remote A2A peers. These are called over the [A2A protocol](/docs/a2a-protocol).
 
 In both cases, your main agent sees the response and can reference or build on it.
@@ -136,13 +136,13 @@ Mentioned-agent output arrives as an `<agent-response agent="…">` block in the
 
 Agents become available for mentioning through several mechanisms:
 
-- **Custom workspace agents** — create agent profiles in the Workspace tab as `agents/*.md`
+- **Custom agents** — create agent profiles in the Resources tab as `agents/*.md`
 - **Auto-discovery** — the framework automatically discovers connected agents running on known ports or configured URLs
 - **Remote manifests** — add connected-agent manifests as `remote-agents/*.json`
 
-### Custom workspace agents
+### Custom agents
 
-Custom agents are Markdown files stored in the workspace:
+Custom agents are Markdown files stored in agent resources:
 
 ```markdown
 ---
@@ -154,9 +154,9 @@ model: inherit
 You are a focused design agent.
 ```
 
-See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format (including `tools`, `delegate-default`, and model overrides).
+See [Agent Resources — Custom Agents](/docs/workspace#custom-agents) for the full format (including `tools`, `delegate-default`, and model overrides).
 
-You can create them from the Workspace tab using:
+You can create them from the Resources tab using:
 
 - `Create Agent` -> `Describe It`
 - `Create Agent` -> `Fill Form`
@@ -181,7 +181,7 @@ Remote A2A agents still use JSON manifests:
 The `@` popover is not limited to agents. You can also reference:
 
 - **Codebase files** — type `@` and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file.
-- **Workspace resources** — reference files defined in the Workspace tab. These can be data files, configuration, or any other structured content.
+- **Agent resources** — reference files defined in the Resources tab. These can be data files, configuration, or any other structured content.
 
 Selecting a file or resource resolves it into the agent's context when the message is sent, the same way an agent mention does.
 
@@ -240,4 +240,4 @@ Custom mention providers appear alongside the built-in agent and file providers 
 - [**A2A Protocol**](/docs/a2a-protocol) — how connected-agent mentions are resolved over the wire
 - [**Agent Teams**](/docs/agent-teams) — spawn sub-agents and pass the `agent` profile parameter
 - [**Skills Guide**](/docs/skills-guide) — author the skills referenced with `/`
-- [**Workspace**](/docs/workspace#custom-agents) — the full custom-agent profile format
+- [**Agent Resources**](/docs/workspace#custom-agents) — the full custom-agent profile format

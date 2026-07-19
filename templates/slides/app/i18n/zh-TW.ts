@@ -35,10 +35,9 @@ const messages = {
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
   },
   agent: {
     emptyState: "可以詢問我任何關於簡報的問題",

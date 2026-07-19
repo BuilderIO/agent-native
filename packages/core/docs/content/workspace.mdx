@@ -1,21 +1,21 @@
 ---
-title: "Workspace"
+title: "Agent Resources"
 description: "Claude-Code-level customization per user — skills, memory, instructions, custom agents, scheduled jobs, MCP servers — backed by SQL, not a filesystem."
 ---
 
-# Workspace
+# Agent Resources
 
 <Callout tone="info">
 
-**Which workspace doc?** This page covers the **customization layer** — what a workspace _is_. For the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+**Which workspace doc?** This page covers **Agent Resources** — the agent customization layer. For the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
 
 </Callout>
 
-Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
+Every agent-native app ships with **agent resources**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
-The twist: **it's SQL rows, not filesystem files.** Each user gets their own workspace stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
+The twist: **it's SQL rows, not filesystem files.** Each user gets their own set of agent resources stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
 
-<Diagram id="doc-block-13zbuxe" title="A Claude-Code workspace, but stored in SQL" summary={"The same customization layer — instructions, skills, memory, agents, jobs, MCP — except every file is a row in a shared multi-tenant database."}>
+<Diagram id="doc-block-13zbuxe" title="A Claude-Code setup, but stored as agent resources in SQL" summary={"The same customization layer — instructions, skills, memory, agents, jobs, MCP — except every file is a row in a shared multi-tenant database."}>
 
 ```html
 <div class="ws-map">
@@ -32,7 +32,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own wor
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
-    <span class="diagram-pill accent">Agent-native workspace</span
+    <span class="diagram-pill accent">Agent-native resources</span
     ><small class="diagram-muted">rows in one SQL database</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
@@ -77,13 +77,13 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own wor
 
 </Diagram>
 
-| Claude Code / Codex              | Agent-native workspace                             |
+| Claude Code / Codex              | Agent-native resources                             |
 | -------------------------------- | -------------------------------------------------- |
 | Files on your local disk         | Rows in a shared SQL database                      |
 | One codebase per developer       | One codebase, many users                           |
 | Needs a dev-box or container     | Runs on any serverless/edge host                   |
 | Customization at `~/.claude/`    | Customization per-user, scoped `u:<email>:…`       |
-| Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + workspace memory resources   |
+| Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + memory resources             |
 | MCP config in a JSON file        | MCP config in JSON _or_ the settings UI, per scope |
 
 Same capabilities. Different economics. See [Templates](/docs/cloneable-saas) for why this matters for SaaS.
@@ -96,7 +96,7 @@ Resources have three runtime scopes:
 - **Shared / organization** — visible to all users in the app or organization. Good for app/team instructions, skills, and shared config.
 - **Workspace** — inherited global defaults managed from Dispatch Resources. Good for company facts, positioning, brand guidelines, global guardrails, workspace-wide skills, and shared MCP servers. Apps read these at runtime; they are not copied into each app.
 
-The in-app Workspace panel shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
+The in-app Resources tab shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
 
 The canonical paths that control how the agent uses each resource:
 
@@ -169,7 +169,7 @@ These paths apply across all three scopes — workspace, organization/app, and p
 
 Change how the agent behaves, in 60 seconds.
 
-1. Open the **Workspace** tab → **Shared** → `AGENTS.md` (create it with `+` → **File** if missing).
+1. Open the **Resources** tab → **Shared** → `AGENTS.md` (create it with `+` → **File** if missing).
 2. Add one rule, e.g.:
 
    ```markdown
@@ -233,15 +233,15 @@ For example:
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Workspace Panel {#workspace-panel}
+## Resources Tab {#workspace-panel}
 
-The agent panel includes a **Workspace** tab alongside Chat and CLI. It shows a folder-organized tree of all resources, an inline editor for any text file (Markdown, JSON, YAML, plain text), and the `+` menu's typed creation flows (Files, Skills, Agents, Scheduled Tasks). Users can browse inherited workspace defaults and create/edit/delete personal or organization resources.
+The agent panel includes a **Resources** tab alongside Chat and CLI. It shows a folder-organized tree of all resources, an inline editor for any text file (Markdown, JSON, YAML, plain text), and the `+` menu's typed creation flows (Files, Skills, Agents, Scheduled Tasks). Users can browse inherited workspace defaults and create/edit/delete personal or organization resources.
 
 When you open a resource, the editor shows an **Effective context** strip with the `workspace default -> organization/app override -> personal override` stack, so you can see what was inherited and why an override is active. Dispatch shows the same model from the control-plane side: on the **Resources** page use **Effective in app**, or expand **Stack** on a resource row in an app card's **Context** dialog.
 
 When Dispatch approval policy is enabled, creating, updating, or deleting an **All apps** resource queues an approval request instead of applying immediately. The create/edit/delete dialogs show an impact preview before save.
 
-Click the `?` icon in the Workspace toolbar to jump back to these docs at any time.
+Click the `?` icon in the Resources toolbar to jump back to these docs at any time.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 
@@ -265,7 +265,7 @@ Reusable company context lives under `context/` (personas, positioning, product 
 
 ### Memory {#memory}
 
-The workspace has two current memory surfaces:
+Agent resources have two current memory surfaces:
 
 - `LEARNINGS.md` in **Shared** scope for project-wide conventions, corrections, and durable team knowledge.
 - `memory/MEMORY.md` in **Personal** scope for structured memory about the current user.
@@ -284,21 +284,21 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 | `instructions/…`   | Shared             | Humans / agent on request            | Every turn                             |
 | `skills/…`         | Shared             | Humans / agent on request            | On demand (`/slash` command)           |
 | `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant |
-| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                     |
+| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app resources | MCP config refresh                     |
 
-Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
+Users can edit these memory files directly in the Resources tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 
 Every one of these surfaces — `AGENTS.md`, skills, memory, custom agents, MCP servers — is the same underlying resource shape: a `path` + `scope` + `content`, addressed and resolved the same way.
 
 <DataModel
   id="doc-block-1rsm42e"
-  title="The workspace resource model"
-  summary="One resource shape backs every workspace file. The runtime keys it by path and scope and resolves the effective value on read."
+  title="The agent resource model"
+  summary="One resource shape backs every agent resource file. The runtime keys it by path and scope and resolves the effective value on read."
   entities={[
     {
       id: "resource",
-      name: "workspace resource",
-      note: "A single file in a user's workspace — instructions, skill, memory, agent, MCP config, or job.",
+      name: "agent resource",
+      note: "A single file in a user's agent resources — instructions, skill, memory, agent, MCP config, or job.",
       fields: [
         {
           name: "path",
@@ -328,7 +328,7 @@ Every one of these surfaces — `AGENTS.md`, skills, memory, custom agents, MCP 
 
 ## Skills {#skills}
 
-Skills are Markdown resource files under the `skills/` path (preferably `skills/<name>/SKILL.md`) that give the agent on-demand domain knowledge, invoked in chat with `/skill-name`. Add them from the Workspace tab or, in Code mode, from `.agents/skills/`.
+Skills are Markdown resource files under the `skills/` path (preferably `skills/<name>/SKILL.md`) that give the agent on-demand domain knowledge, invoked in chat with `/skill-name`. Add them from the Resources tab or, in Code mode, from `.agents/skills/`.
 
 See the [Skills Guide](/docs/skills-guide) — the single source for skill format, scope, discovery, and authoring.
 
@@ -381,7 +381,7 @@ Recommended conventions:
 
 ### Remote agents vs custom agents {#remote-vs-custom-agents}
 
-There are two agent types in Workspace:
+Agent resources include two agent types:
 
 - **Custom agents** — local profiles in `agents/*.md`, executed inside the current app/runtime
 - **Connected agents** — remote A2A peers described by manifests in `remote-agents/*.json` (legacy `agents/*.json` manifests are still recognized)
@@ -396,13 +396,13 @@ Type `@` in the chat input to reference an agent, file, or resource, or `/` to i
 
 The resource system works identically in both modes. What differs is the additional sources available for `@` tagging and `/` commands:
 
-| Feature            | Code Mode                                                               | App Mode                                               |
-| ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
-| @ tagging          | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
-| / slash commands   | .agents/skills/ + resource skills                                       | Resource skills only                                   |
-| Agent file access  | Filesystem + resources                                                  | Resources only                                         |
-| Workspace panel    | Full access                                                             | Full access                                            |
-| AGENTS.md / memory | Available                                                               | Available                                              |
+| Feature            | Code Mode                                                           | App Mode                                           |
+| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------- |
+| @ tagging          | Codebase files + agent resources + custom agents + connected agents | Agent resources + custom agents + connected agents |
+| / slash commands   | .agents/skills/ + resource skills                                   | Resource skills only                               |
+| Agent file access  | Filesystem + resources                                              | Resources only                                     |
+| Resources tab      | Full access                                                         | Full access                                        |
+| AGENTS.md / memory | Available                                                           | Available                                          |
 
 ## Workspace Connections {#workspace-connections}
 

@@ -416,9 +416,9 @@ Two architectural rules keep apps portable across databases and hosts:
 - **Database-agnostic.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's portable query DSL so the same code runs on any supported provider. Use raw SQL only for additive migrations or one-off maintenance, kept parameterized and dialect-agnostic. See [Database](/docs/database).
 - **Hosting-agnostic.** The server runs on Nitro and compiles to any deployment target. Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes or plugins, and never assume a persistent server process — serverless and edge are stateless, so keep all state in SQL. See [Deployment](/docs/deployment).
 
-## Workspace {#workspace}
+## Agent Resources {#workspace}
 
-Every user gets a personal **workspace** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Workspace](/docs/workspace).
+Every user gets a personal set of **agent resources** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Agent Resources](/docs/workspace).
 
 ## Related building blocks {#building-blocks}
 
@@ -433,8 +433,8 @@ These sit on top of the same contract and have their own deep dives:
 Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
 
 - **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
-- **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
-- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
+- **A full set of agent resources per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Agent Resources](/docs/workspace).
+- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + resources anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
 - **BYO agent chat runtimes.** The same chat UI can sit on top of OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, or your own normalized HTTP stream. See [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).
 - **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
 - **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
