@@ -34,7 +34,11 @@ export interface PrivateVaultContentObjectGateway {
 
 type ContentIndexMutationSurface = Pick<
   EncryptedContentIndexStore,
-  "readManifest" | "readDocument" | "writeDocument" | "writeManifest"
+  | "readManifest"
+  | "readDocument"
+  | "writeDocument"
+  | "writeManifest"
+  | "deleteDocument"
 >;
 
 export interface CreatePrivateDocumentInput {
@@ -165,6 +169,65 @@ export class PrivateVaultContentMutations {
     });
   }
 
+  deleteDocument(
+    vaultId: string,
+    objectId: string,
+  ): Promise<{ readonly success: true; readonly deleted: number }> {
+    return this.#serialize(vaultId, async () => {
+      const head = await this.#requireHead(vaultId);
+      const loaded = await Promise.all(
+        head.manifest.documents.map(async (entry) => {
+          const latest = entry.revisions.at(-1);
+          if (!latest) throw new PrivateVaultContentMutationError();
+          const document = await this.#index.readDocument(
+            vaultId,
+            entry.objectId,
+            latest.revisionId,
+          );
+          if (!document) throw new PrivateVaultContentMutationError();
+          return document;
+        }),
+      );
+      if (!loaded.some((document) => document.id === objectId))
+        throw new PrivateVaultContentMutationError();
+      const removed = new Set<string>([objectId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const document of loaded) {
+          if (
+            document.parentId !== null &&
+            removed.has(document.parentId) &&
+            !removed.has(document.id)
+          ) {
+            removed.add(document.id);
+            changed = true;
+          }
+        }
+      }
+      const manifest: PrivateVaultContentManifest = {
+        version: 1,
+        kind: "content-vault-manifest",
+        vaultId,
+        generation: head.manifest.generation + 1,
+        previousManifest: {
+          objectId: head.objectId,
+          revisionId: head.revisionId,
+        },
+        documents: head.manifest.documents.filter(
+          (entry) => !removed.has(entry.objectId),
+        ),
+        committedAt: this.#now(),
+      };
+      const nextHead = await this.#uploadManifest(vaultId, manifest);
+      await this.#index.writeManifest(nextHead);
+      await Promise.all(
+        [...removed].map((id) => this.#index.deleteDocument(vaultId, id)),
+      );
+      return Object.freeze({ success: true as const, deleted: removed.size });
+    });
+  }
+
   async #commitDocument(
     vaultId: string,
     currentHead: PrivateVaultLocalManifestHead | null,
@@ -218,30 +281,37 @@ export class PrivateVaultContentMutations {
       ],
       committedAt: this.#now(),
     };
-    const manifestObjectId = this.#objectId();
-    const manifestPlaintext = encodePrivateVaultContentManifest(manifest);
-    let manifestRevisionId: string;
-    try {
-      ({ revisionId: manifestRevisionId } = await this.#gateway.sealAndUpload({
-        vaultId,
-        objectId: manifestObjectId,
-        revision: 1,
-        contentType: PRIVATE_VAULT_MANIFEST_CONTENT_TYPE,
-        plaintext: manifestPlaintext,
-        parentRevisionIds: [],
-      }));
-    } finally {
-      manifestPlaintext.fill(0);
-    }
+    const nextHead = await this.#uploadManifest(vaultId, manifest);
 
     await this.#index.writeDocument(vaultId, documentRevisionId, document);
-    await this.#index.writeManifest({
-      version: 1,
-      objectId: manifestObjectId,
-      revisionId: manifestRevisionId,
-      manifest,
-    });
+    await this.#index.writeManifest(nextHead);
     return Object.freeze({ ...document });
+  }
+
+  async #uploadManifest(
+    vaultId: string,
+    manifest: PrivateVaultContentManifest,
+  ): Promise<PrivateVaultLocalManifestHead> {
+    const objectId = this.#objectId();
+    const plaintext = encodePrivateVaultContentManifest(manifest);
+    try {
+      const { revisionId } = await this.#gateway.sealAndUpload({
+        vaultId,
+        objectId,
+        revision: 1,
+        contentType: PRIVATE_VAULT_MANIFEST_CONTENT_TYPE,
+        plaintext,
+        parentRevisionIds: [],
+      });
+      return Object.freeze({
+        version: 1,
+        objectId,
+        revisionId,
+        manifest,
+      });
+    } finally {
+      plaintext.fill(0);
+    }
   }
 
   async #requireHead(vaultId: string) {

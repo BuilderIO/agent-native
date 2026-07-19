@@ -14,6 +14,7 @@ const vaultId = "11".repeat(16);
 const documentId = "22".repeat(16);
 const firstManifestId = "33".repeat(16);
 const secondManifestId = "44".repeat(16);
+const thirdManifestId = "66".repeat(16);
 
 function harness() {
   let head: PrivateVaultLocalManifestHead | null = null;
@@ -48,8 +49,13 @@ function harness() {
     writeManifest: vi.fn(async (value: PrivateVaultLocalManifestHead) => {
       head = value;
     }),
+    deleteDocument: vi.fn(async (_vaultId: string, objectId: string) => {
+      for (const key of documents.keys()) {
+        if (key.startsWith(`${objectId}:`)) documents.delete(key);
+      }
+    }),
   };
-  const ids = [documentId, firstManifestId, secondManifestId];
+  const ids = [documentId, firstManifestId, secondManifestId, thirdManifestId];
   const mutations = new PrivateVaultContentMutations({
     gateway,
     index,
@@ -156,5 +162,26 @@ describe("PrivateVaultContentMutations", () => {
       }),
     ).rejects.toBeInstanceOf(Error);
     expect(source.gateway.sealAndUpload).toHaveBeenCalledTimes(callsBeforeMove);
+  });
+
+  it("deletes a subtree only after publishing its encrypted manifest", async () => {
+    const source = harness();
+    await source.mutations.createDocument(vaultId, { title: "Parent" });
+    const childId = "55".repeat(16);
+    await source.mutations.createDocument(vaultId, {
+      id: childId,
+      parentId: documentId,
+      title: "Child",
+    });
+
+    await expect(
+      source.mutations.deleteDocument(vaultId, documentId),
+    ).resolves.toEqual({ success: true, deleted: 2 });
+    expect(source.head()?.manifest.documents).toEqual([]);
+    expect(source.uploads.at(-1)).toMatchObject({
+      objectId: thirdManifestId,
+      contentType: PRIVATE_VAULT_MANIFEST_CONTENT_TYPE,
+    });
+    expect(source.index.deleteDocument).toHaveBeenCalledTimes(2);
   });
 });

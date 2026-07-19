@@ -1206,6 +1206,12 @@ content-free hosted object types and checks the mapping again after native open.
 This prevents a hosted document coordinate from being substituted for a vault
 manifest while keeping both payloads opaque to the hosted plane.
 
+Document deletion now publishes a new encrypted manifest that omits the exact
+document subtree before pruning its OS-encrypted local cache. Immutable hosted
+document revisions remain available for later encrypted history and rollback;
+the hosted plane still learns only that opaque manifest and object access
+occurred.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:
