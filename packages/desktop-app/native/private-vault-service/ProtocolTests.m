@@ -95,10 +95,14 @@ int main(void) {
                             "00112233445566778899aabbccddeeff");
   xpc_dictionary_set_string(createGrant, "recipientEndpointId",
                             "11112222333344445555666677778888");
+  xpc_dictionary_set_string(createGrant, "subjectAgentId",
+                            "9999aaaabbbbccccddddeeeeffff0000");
   xpc_dictionary_set_int64(createGrant, "expiresAt", 1721114711);
   assert(PVParseRequest(createGrant, &parsed) == PVRequestValid &&
          strcmp(parsed.recipientEndpointID,
                 "11112222333344445555666677778888") == 0 &&
+         strcmp(parsed.subjectAgentID,
+                "9999aaaabbbbccccddddeeeeffff0000") == 0 &&
          parsed.expiresAt == 1721114711);
   xpc_release(createGrant);
 

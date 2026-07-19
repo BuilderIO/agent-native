@@ -169,6 +169,7 @@ export interface PrivateVaultNativeServiceClient
 export interface NativeCreateContentGrantInput {
   readonly vaultId: string;
   readonly recipientEndpointId: string;
+  readonly subjectAgentId: string;
   readonly expiresAt: number;
 }
 
@@ -179,6 +180,7 @@ export interface NativeCreatedContentGrantResult {
   readonly state: "created";
   readonly vaultId: string;
   readonly recipientEndpointId: string;
+  readonly subjectAgentId: string;
   readonly issuedAt: number;
   readonly expiresAt: number;
   readonly grantId: Uint8Array;
@@ -1116,6 +1118,7 @@ function parseCreatedContentGrant(
       "state",
       "vaultId",
       "recipientEndpointId",
+      "subjectAgentId",
       "issuedAt",
       "expiresAt",
       "grantId",
@@ -1127,6 +1130,7 @@ function parseCreatedContentGrant(
     value.state !== "created" ||
     value.vaultId !== input.vaultId ||
     value.recipientEndpointId !== input.recipientEndpointId ||
+    value.subjectAgentId !== input.subjectAgentId ||
     !Number.isSafeInteger(value.issuedAt) ||
     (value.issuedAt as number) <= 0 ||
     value.expiresAt !== input.expiresAt ||
@@ -1144,6 +1148,7 @@ function parseCreatedContentGrant(
     state: "created",
     vaultId: input.vaultId,
     recipientEndpointId: input.recipientEndpointId,
+    subjectAgentId: input.subjectAgentId,
     issuedAt: value.issuedAt as number,
     expiresAt: input.expiresAt,
     grantId,
@@ -1538,6 +1543,7 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
     if (
       !isLowerHex(input.vaultId, 32) ||
       !isLowerHex(input.recipientEndpointId, 32) ||
+      !isLowerHex(input.subjectAgentId, 32) ||
       !Number.isSafeInteger(input.expiresAt) ||
       input.expiresAt <= 0
     )
@@ -1550,6 +1556,7 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
             "create_grant",
             input.vaultId,
             input.recipientEndpointId,
+            input.subjectAgentId,
             input.expiresAt,
           ),
           input,

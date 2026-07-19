@@ -6,6 +6,7 @@ import {
 } from "./content-private-runtime.js";
 
 const vaultId = "11".repeat(16);
+const subjectAgentId = "22".repeat(16);
 
 function harness() {
   const actions = { "list-documents": { run: vi.fn() } };
@@ -85,19 +86,32 @@ describe("PrivateVaultContentRuntime", () => {
   it("keeps agent jobs behind the active signed runtime lifecycle", async () => {
     const source = harness();
     await expect(
-      source.runtime.runAgentAction({ actionName: "list-documents", args: {} }),
+      source.runtime.runAgentAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId,
+      }),
     ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
     await source.runtime.start();
     await expect(
-      source.runtime.runAgentAction({ actionName: "list-documents", args: {} }),
+      source.runtime.runAgentAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId,
+      }),
     ).resolves.toEqual({ id: "result" });
     expect(source.requester.runAction).toHaveBeenCalledWith({
       actionName: "list-documents",
       args: {},
+      subjectAgentId,
     });
     await source.runtime.stop();
     await expect(
-      source.runtime.runAgentAction({ actionName: "list-documents", args: {} }),
+      source.runtime.runAgentAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId,
+      }),
     ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
   });
 });

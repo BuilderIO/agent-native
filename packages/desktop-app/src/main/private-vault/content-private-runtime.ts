@@ -28,7 +28,11 @@ interface DocumentLifecycle {
 }
 
 interface RequesterSurface {
-  runAction(input: { actionName: string; args: unknown }): Promise<unknown>;
+  runAction(input: {
+    actionName: string;
+    args: unknown;
+    subjectAgentId: string;
+  }): Promise<unknown>;
 }
 
 type PrivateContentDocuments = DocumentLifecycle &
@@ -126,7 +130,11 @@ export class PrivateVaultContentRuntime {
     return this.#documents;
   }
 
-  async runAgentAction(input: { actionName: string; args: unknown }) {
+  async runAgentAction(input: {
+    actionName: string;
+    args: unknown;
+    subjectAgentId: string;
+  }) {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     try {
       return await this.#requester.runAction(input);

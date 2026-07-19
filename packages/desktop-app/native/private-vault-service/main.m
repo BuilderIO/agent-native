@@ -1532,6 +1532,7 @@ static void PVCreateContentGrant(xpc_connection_t peer, xpc_object_t message,
         NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
         NSData *vaultBytes = PVLookupIDData(request->vaultID);
         NSData *recipient = PVLookupIDData(request->recipientEndpointID);
+        NSData *subjectAgent = PVLookupIDData(request->subjectAgentID);
         uint64_t nowMilliseconds = 0;
         AncPrivateVaultControlLogState *state = nil;
         NSData *endpointId = nil;
@@ -1539,7 +1540,7 @@ static void PVCreateContentGrant(xpc_connection_t peer, xpc_object_t message,
         AncPrivateVaultGuardedMemory *signing = nil;
         AncPrivateVaultGuardedMemory *agreement = nil;
         BOOL contextOkay =
-            vaultBytes != nil && recipient != nil &&
+            vaultBytes != nil && recipient != nil && subjectAgent != nil &&
             [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
             nowMilliseconds >= 1000 &&
             nowMilliseconds / 1000 <= UINT64_C(9007199254740991) &&
@@ -1561,7 +1562,8 @@ static void PVCreateContentGrant(xpc_connection_t peer, xpc_object_t message,
               if (length != ANC_PV_SEED_BYTES) return NO;
               grant = AncPrivateVaultSealGrantEnvelope(
                   vaultBytes, envelopeId, nowMilliseconds / 1000, grantId,
-                  endpointId, accountId, endpointId, nil, @[vaultBytes],
+                  endpointId, accountId, endpointId, subjectAgent,
+                  @[vaultBytes],
                   @[@"create-document", @"delete-document", @"edit-document",
                     @"get-document", @"list-document-versions",
                     @"list-documents", @"move-document", @"pull-document",
@@ -1600,6 +1602,8 @@ static void PVCreateContentGrant(xpc_connection_t peer, xpc_object_t message,
         xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
         xpc_dictionary_set_string(reply, "recipientEndpointId",
                                   request->recipientEndpointID);
+        xpc_dictionary_set_string(reply, "subjectAgentId",
+                                  request->subjectAgentID);
         xpc_dictionary_set_data(reply, "grantId", verified.grantId.bytes,
                                 verified.grantId.length);
         xpc_dictionary_set_data(reply, "grantRef", verified.grantRef.bytes,

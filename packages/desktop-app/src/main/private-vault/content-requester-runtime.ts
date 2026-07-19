@@ -48,6 +48,7 @@ export class PrivateVaultContentRequesterRuntimeError extends Error {
 interface GrantCache {
   readonly vaultId: string;
   readonly recipientEndpointId: string;
+  readonly subjectAgentId: string;
   readonly grantId: string;
   readonly grantRef: string;
   readonly expiresAt: number;
@@ -125,8 +126,8 @@ export class PrivateVaultContentRequesterRuntime {
   readonly #wait: (milliseconds: number) => Promise<void>;
   readonly #pollMilliseconds: number;
   readonly #timeoutMilliseconds: number;
-  #grant: GrantCache | null = null;
-  #grantFlight: Promise<GrantCache> | null = null;
+  readonly #grants = new Map<string, GrantCache>();
+  readonly #grantFlights = new Map<string, Promise<GrantCache>>();
 
   constructor(input: {
     descriptor: {
@@ -151,7 +152,11 @@ export class PrivateVaultContentRequesterRuntime {
     this.#timeoutMilliseconds = input.timeoutMilliseconds ?? 2 * 60 * 1000;
   }
 
-  async runAction(input: { actionName: string; args: unknown }) {
+  async runAction(input: {
+    actionName: string;
+    args: unknown;
+    subjectAgentId: string;
+  }) {
     let actionRequest: Uint8Array | null = null;
     let semanticPayload: Uint8Array | null = null;
     let jobEnvelope: Uint8Array | null = null;
@@ -159,13 +164,18 @@ export class PrivateVaultContentRequesterRuntime {
     let resultPayload: Uint8Array | null = null;
     try {
       const descriptor = await this.#descriptor.read();
+      if (!lowerHex(input.subjectAgentId, 16))
+        throw new PrivateVaultContentRequesterRuntimeError();
       const resource = resourceId(
         descriptor.vaultId,
         input.actionName,
         input.args,
       );
-      const grant = await this.#grantFor(descriptor);
-      actionRequest = encodePrivateVaultActionRequest(input);
+      const grant = await this.#grantFor(descriptor, input.subjectAgentId);
+      actionRequest = encodePrivateVaultActionRequest({
+        actionName: input.actionName,
+        args: input.args,
+      });
       semanticPayload = encodeAncV1SemanticJobPayload({
         resourceId: resource,
         operation: input.actionName,
@@ -221,34 +231,42 @@ export class PrivateVaultContentRequesterRuntime {
 
   async #grantFor(
     descriptor: PrivateVaultContentBrokerRuntimeDescriptor,
+    subjectAgentId: string,
   ): Promise<GrantCache> {
     const nowSeconds = Math.floor(this.#now() / 1000);
+    const key = `${descriptor.vaultId}:${descriptor.endpointId}:${subjectAgentId}`;
+    const cached = this.#grants.get(key);
     if (
-      this.#grant?.vaultId === descriptor.vaultId &&
-      this.#grant.recipientEndpointId === descriptor.endpointId &&
-      this.#grant.expiresAt > nowSeconds + JOB_LIFETIME_SECONDS
+      cached?.vaultId === descriptor.vaultId &&
+      cached.recipientEndpointId === descriptor.endpointId &&
+      cached.subjectAgentId === subjectAgentId &&
+      cached.expiresAt > nowSeconds + JOB_LIFETIME_SECONDS
     )
-      return this.#grant;
-    if (this.#grantFlight) return this.#grantFlight;
-    const flight = this.#createGrant(descriptor, nowSeconds);
-    this.#grantFlight = flight;
+      return cached;
+    const existingFlight = this.#grantFlights.get(key);
+    if (existingFlight) return existingFlight;
+    const flight = this.#createGrant(descriptor, subjectAgentId, nowSeconds);
+    this.#grantFlights.set(key, flight);
     try {
       const grant = await flight;
-      this.#grant = grant;
+      this.#grants.set(key, grant);
       return grant;
     } finally {
-      if (this.#grantFlight === flight) this.#grantFlight = null;
+      if (this.#grantFlights.get(key) === flight)
+        this.#grantFlights.delete(key);
     }
   }
 
   async #createGrant(
     descriptor: PrivateVaultContentBrokerRuntimeDescriptor,
+    subjectAgentId: string,
     nowSeconds: number,
   ): Promise<GrantCache> {
     const created: NativeCreatedContentGrantResult =
       await this.#native.createContentGrant({
         vaultId: descriptor.vaultId,
         recipientEndpointId: descriptor.endpointId,
+        subjectAgentId,
         expiresAt: nowSeconds + GRANT_LIFETIME_SECONDS,
       });
     try {
@@ -267,6 +285,7 @@ export class PrivateVaultContentRequesterRuntime {
       return Object.freeze({
         vaultId: descriptor.vaultId,
         recipientEndpointId: descriptor.endpointId,
+        subjectAgentId,
         grantId,
         grantRef,
         expiresAt: created.expiresAt,

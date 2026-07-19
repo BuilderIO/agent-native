@@ -125,6 +125,7 @@ struct PVParsedReply {
   char jobHash[65] = {0};
   char grantRef[65] = {0};
   char recipientEndpointID[33] = {0};
+  char subjectAgentID[33] = {0};
   char senderEndpointID[33] = {0};
   char jobID[33] = {0};
   char resultState[10] = {0};
@@ -250,6 +251,7 @@ struct PVAsyncRequest {
   char jobID[33] = {0};
   char grantRef[65] = {0};
   char recipientEndpointID[33] = {0};
+  char subjectAgentID[33] = {0};
   char senderEndpointID[33] = {0};
   char resultState[10] = {0};
   char algorithmID[161] = {0};
@@ -743,12 +745,13 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
   if (operation == PVOperation::CreateGrant) {
     const char *const keys[] = {
         "version", "ok", "requestId", "state", "vaultId",
-        "recipientEndpointId", "grantId", "grantRef", "issuedAt",
-        "expiresAt", "grantEnvelope",
+        "recipientEndpointId", "subjectAgentId", "grantId", "grantRef",
+        "issuedAt", "expiresAt", "grantEnvelope",
     };
     const char *state = PVGetString(reply, "state");
     const char *vaultID = PVGetString(reply, "vaultId");
     const char *recipient = PVGetString(reply, "recipientEndpointId");
+    const char *subjectAgent = PVGetString(reply, "subjectAgentId");
     xpc_object_t issued = xpc_dictionary_get_value(reply, "issuedAt");
     xpc_object_t expires = xpc_dictionary_get_value(reply, "expiresAt");
     const uint64_t issuedAt =
@@ -759,11 +762,12 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
         expires != nullptr && xpc_get_type(expires) == XPC_TYPE_UINT64
             ? xpc_dictionary_get_uint64(reply, "expiresAt")
             : 0;
-    if (!PVHasExactKeys(reply, keys, 11) ||
+    if (!PVHasExactKeys(reply, keys, 12) ||
         !PVRequestIDMatches(reply, requestID) || state == nullptr ||
         strcmp(state, "created") != 0 || !PVIsLowerHex(vaultID, 32) ||
         expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
-        !PVIsLowerHex(recipient, 32) || issuedAt == 0 ||
+        !PVIsLowerHex(recipient, 32) || !PVIsLowerHex(subjectAgent, 32) ||
+        issuedAt == 0 ||
         expiresAt <= issuedAt ||
         expiresAt > UINT64_C(9007199254740991) ||
         !PVCopyBoundedData(reply, "grantId", 16, parsed.grantID) ||
@@ -777,6 +781,7 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     memcpy(parsed.state, state, strlen(state) + 1);
     memcpy(parsed.vaultID, vaultID, 33);
     memcpy(parsed.recipientEndpointID, recipient, 33);
+    memcpy(parsed.subjectAgentID, subjectAgent, 33);
     parsed.issuedAt = issuedAt;
     parsed.expiresAt = expiresAt;
     parsed.failure = PVFailure::None;
@@ -1692,6 +1697,8 @@ void PVExecute(napi_env env, void *data) {
   if (request->operation == PVOperation::CreateGrant) {
     xpc_dictionary_set_string(message, "recipientEndpointId",
                               request->recipientEndpointID);
+    xpc_dictionary_set_string(message, "subjectAgentId",
+                              request->subjectAgentID);
     xpc_dictionary_set_int64(message, "expiresAt",
                              static_cast<int64_t>(request->expiresAt));
   }
@@ -1873,6 +1880,7 @@ void PVExecute(napi_env env, void *data) {
         request->operation == PVOperation::CreateGrant &&
         (strcmp(parsed.recipientEndpointID,
                 request->recipientEndpointID) != 0 ||
+         strcmp(parsed.subjectAgentID, request->subjectAgentID) != 0 ||
          parsed.expiresAt != request->expiresAt))
       parsed.failure = PVFailure::MalformedReply;
     if (parsed.failure == PVFailure::None &&
@@ -1920,6 +1928,8 @@ void PVExecute(napi_env env, void *data) {
     memcpy(request->grantRef, parsed.grantRef, sizeof(request->grantRef));
     memcpy(request->recipientEndpointID, parsed.recipientEndpointID,
            sizeof(request->recipientEndpointID));
+    memcpy(request->subjectAgentID, parsed.subjectAgentID,
+           sizeof(request->subjectAgentID));
     memcpy(request->resultState, parsed.resultState,
            sizeof(request->resultState));
     memcpy(request->algorithmID, parsed.algorithmID,
@@ -2098,6 +2108,7 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "recipientEndpointId",
                   request->recipientEndpointID);
+      PVSetString(env, result, "subjectAgentId", request->subjectAgentID);
       PVSetSafeInteger(env, result, "issuedAt", request->issuedAt);
       PVSetSafeInteger(env, result, "expiresAt", request->expiresAt);
       if (!PVSetBuffer(env, result, "grantId", request->grantID) ||
@@ -2505,7 +2516,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
               request->operation == PVOperation::RecoverPage
           ? 2
       : request->operation == PVOperation::EnrollmentBootstrap ? 3
-      : request->operation == PVOperation::CreateGrant ? 4
+      : request->operation == PVOperation::CreateGrant ? 5
       : request->operation == PVOperation::SealJob ? 7
       : request->operation == PVOperation::OpenResult ? 6
       : request->operation == PVOperation::OpenJob ? 7
@@ -2569,7 +2580,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     const size_t recipientIndex =
         request->operation == PVOperation::CreateGrant ? 2 : 4;
     const size_t expiresIndex =
-        request->operation == PVOperation::CreateGrant ? 3 : 5;
+        request->operation == PVOperation::CreateGrant ? 4 : 5;
     size_t recipientLength = 0;
     double expiresAt = 0;
     bool valid =
@@ -2583,6 +2594,15 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
         napi_get_value_double(env, argv[expiresIndex], &expiresAt) == napi_ok &&
         std::isfinite(expiresAt) && std::floor(expiresAt) == expiresAt &&
         expiresAt >= 1 && expiresAt <= 9007199254740991.0;
+    if (valid && request->operation == PVOperation::CreateGrant) {
+      size_t agentLength = 0;
+      valid = napi_typeof(env, argv[3], &argumentType) == napi_ok &&
+              argumentType == napi_string &&
+              napi_get_value_string_utf8(
+                  env, argv[3], request->subjectAgentID,
+                  sizeof(request->subjectAgentID), &agentLength) == napi_ok &&
+              agentLength == 32 && PVIsLowerHex(request->subjectAgentID, 32);
+    }
     if (valid && request->operation == PVOperation::SealJob) {
       size_t jobLength = 0, grantRefLength = 0;
       void *bytes = nullptr;

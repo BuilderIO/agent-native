@@ -555,6 +555,7 @@ describe("Private Vault native service client", () => {
   it("issues requester grants only through the native vault boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const recipientEndpointId = "11112222333344445555666677778888";
+    const subjectAgentId = "9999aaaabbbbccccddddeeeeffff0000";
     const expiresAt = 1_721_114_711;
     const request = vi.fn(async () => ({
       version: 3,
@@ -562,6 +563,7 @@ describe("Private Vault native service client", () => {
       state: "created",
       vaultId,
       recipientEndpointId,
+      subjectAgentId,
       issuedAt: 1_721_111_111,
       expiresAt,
       grantId: Buffer.alloc(16, 5),
@@ -572,7 +574,12 @@ describe("Private Vault native service client", () => {
       request,
     }));
     await expect(
-      client.createContentGrant({ vaultId, recipientEndpointId, expiresAt }),
+      client.createContentGrant({
+        vaultId,
+        recipientEndpointId,
+        subjectAgentId,
+        expiresAt,
+      }),
     ).resolves.toMatchObject({
       version: 1,
       suite: "anc/v1",
@@ -580,12 +587,14 @@ describe("Private Vault native service client", () => {
       state: "created",
       vaultId,
       recipientEndpointId,
+      subjectAgentId,
       expiresAt,
     });
     expect(request).toHaveBeenCalledWith(
       "create_grant",
       vaultId,
       recipientEndpointId,
+      subjectAgentId,
       expiresAt,
     );
   });

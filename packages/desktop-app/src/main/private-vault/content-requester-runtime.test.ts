@@ -20,6 +20,7 @@ const descriptor = {
   endpointId: "11112222333344445555666677778888",
   head: { sequence: 7, hash: "ab".repeat(32) },
 } as const;
+const subjectAgentId = "aa".repeat(16);
 
 describe("Content requester runtime", () => {
   it("round-trips a normal Content action through native grant and job custody", async () => {
@@ -33,6 +34,7 @@ describe("Content requester runtime", () => {
         state: "created",
         vaultId: descriptor.vaultId,
         recipientEndpointId: descriptor.endpointId,
+        subjectAgentId,
         issuedAt: 1_721_131_200,
         expiresAt: 1_723_723_200,
         grantId: Uint8Array.from({ length: 16 }, () => 5),
@@ -104,6 +106,7 @@ describe("Content requester runtime", () => {
       runtime.runAction({
         actionName: "get-document",
         args: { id: "33".repeat(16) },
+        subjectAgentId,
       }),
     ).resolves.toEqual({ title: "Secret" });
     expect(actionName).toBe("get-document");
@@ -126,10 +129,14 @@ describe("Content requester runtime", () => {
       transport: {} as PrivateVaultContentRequesterTransport,
     });
     await expect(
-      runtime.runAction({ actionName: "run-shell", args: {} }),
+      runtime.runAction({ actionName: "run-shell", args: {}, subjectAgentId }),
     ).rejects.toEqual(new PrivateVaultContentRequesterRuntimeError());
     await expect(
-      runtime.runAction({ actionName: "get-document", args: { id: "no" } }),
+      runtime.runAction({
+        actionName: "get-document",
+        args: { id: "no" },
+        subjectAgentId,
+      }),
     ).rejects.toEqual(new PrivateVaultContentRequesterRuntimeError());
     expect(native.createContentGrant).not.toHaveBeenCalled();
     expect(native.sealContentJob).not.toHaveBeenCalled();
@@ -182,7 +189,71 @@ describe("Content requester runtime", () => {
     await runtime.runAction({
       actionName: "list-document-versions",
       args: { documentId },
+      subjectAgentId,
     });
     expect(resourceId).toBe(documentId);
+  });
+
+  it("never shares a standing grant between different agent subjects", async () => {
+    const seenAgents: string[] = [];
+    const native = {
+      createContentGrant: vi.fn(async (input: { subjectAgentId: string }) => {
+        seenAgents.push(input.subjectAgentId);
+        return {
+          issuedAt: 1_721_131_200,
+          expiresAt: 1_723_723_200,
+          grantId: Uint8Array.from({ length: 16 }, () => seenAgents.length),
+          grantRef: Uint8Array.from({ length: 32 }, () => seenAgents.length),
+          grantEnvelope: Uint8Array.from([seenAgents.length]),
+        };
+      }),
+      sealContentJob: vi.fn(async () => ({
+        epoch: 2,
+        issuedAt: 1_721_131_200,
+        expiresAt: 1_721_131_800,
+        jobEnvelope: Uint8Array.from([2]),
+      })),
+      openContentResult: vi.fn(async () => ({
+        state: "completed",
+        resultPayload: new TextEncoder().encode(
+          '{"version":1,"type":"content-action-result","ok":true,"result":[]}',
+        ),
+      })),
+    } as unknown as PrivateVaultNativeServiceClient;
+    const transport = {
+      putGrant: vi.fn(async () => ({})),
+      putJob: vi.fn(async () => ({})),
+      getResult: vi.fn(async () => ({
+        state: "completed",
+        jobHash: "cd".repeat(32),
+        ciphertext: Uint8Array.from([3]),
+      })),
+    } as unknown as PrivateVaultContentRequesterTransport;
+    const runtime = new PrivateVaultContentRequesterRuntime({
+      descriptor: { read: vi.fn(async () => descriptor) },
+      native,
+      transport,
+      now: () => 1_721_131_200_000,
+    });
+    const secondAgentId = "bb".repeat(16);
+    await Promise.all([
+      runtime.runAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId,
+      }),
+      runtime.runAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId: secondAgentId,
+      }),
+    ]);
+    await runtime.runAction({
+      actionName: "list-documents",
+      args: {},
+      subjectAgentId,
+    });
+    expect(seenAgents.sort()).toEqual([subjectAgentId, secondAgentId].sort());
+    expect(native.createContentGrant).toHaveBeenCalledTimes(2);
   });
 });

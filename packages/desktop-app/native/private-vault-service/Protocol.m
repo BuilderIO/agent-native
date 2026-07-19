@@ -67,6 +67,7 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 strcmp(key, "algorithmId") == 0 ||
                 strcmp(key, "grantRef") == 0 ||
                 strcmp(key, "recipientEndpointId") == 0 ||
+                strcmp(key, "subjectAgentId") == 0 ||
                 strcmp(key, "senderEndpointId") == 0 ||
                 strcmp(key, "expiresAt") == 0 ||
                 strcmp(key, "jobPayload") == 0 ||
@@ -256,6 +257,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
             xpc_dictionary_get_value(message, "recipientEndpointId");
         xpc_object_t expiresValue =
             xpc_dictionary_get_value(message, "expiresAt");
+        xpc_object_t agentValue =
+            xpc_dictionary_get_value(message, "subjectAgentId");
         const char *recipient =
             recipientValue != NULL &&
                     xpc_get_type(recipientValue) == XPC_TYPE_STRING
@@ -265,14 +268,20 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
             expiresValue != NULL && xpc_get_type(expiresValue) == XPC_TYPE_INT64
                 ? xpc_dictionary_get_int64(message, "expiresAt")
                 : 0;
-        if (fieldCount != 6 || vaultIDValue == NULL ||
+        const char *agent =
+            agentValue != NULL && xpc_get_type(agentValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "subjectAgentId")
+                : NULL;
+        if (fieldCount != 7 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
-            !PVIsLowerHex(recipient, 32) || expires <= 0 ||
+            !PVIsLowerHex(recipient, 32) || !PVIsLowerHex(agent, 32) ||
+            expires <= 0 ||
             expires > INT64_C(9007199254740991)) {
             return PVRequestInvalid;
         }
         request->recipientEndpointID = recipient;
+        request->subjectAgentID = agent;
         request->expiresAt = (uint64_t)expires;
     } else if (sealJob) {
         xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
