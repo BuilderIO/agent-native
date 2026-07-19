@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 
-import { agentNativePath } from "../api-path.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { FileResult } from "./types.js";
 
 export function useFileSearch(query: string, enabled: boolean) {
+  const { resolvePath = (path) => path } = useComposerRuntimeAdapters();
   const [files, setFiles] = useState<FileResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const requestIdRef = useRef(0);
@@ -28,7 +29,7 @@ export function useFileSearch(query: string, enabled: boolean) {
       async () => {
         try {
           const res = await fetch(
-            agentNativePath(
+            resolvePath(
               `/_agent-native/agent-chat/files?q=${encodeURIComponent(query)}`,
             ),
             { signal: abort.signal },
@@ -57,7 +58,7 @@ export function useFileSearch(query: string, enabled: boolean) {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [query, enabled]);
+  }, [query, enabled, resolvePath]);
 
   return { files, isLoading };
 }

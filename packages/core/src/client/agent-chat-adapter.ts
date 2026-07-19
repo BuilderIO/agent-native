@@ -1,3 +1,4 @@
+import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
@@ -19,7 +20,6 @@ import {
 } from "./active-run-state.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
-import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,

@@ -67,4 +67,27 @@ export {
   type DragHandleDropPlacement,
   type DragHandleOptions,
 } from "./DragHandle.js";
+export {
+  createRegistryBlockNode,
+  LegacyJsonEditSurface,
+  RegistryBlockDataProvider,
+  RegistryBlockNodeView,
+  useRegistryBlockData,
+  type CreateRegistryBlockNodeOptions,
+  type RegistryBlockDataChangeMeta,
+  type RegistryBlockDataValue,
+  type RegistryBlockEditSurfaceOptions,
+  type RegistryBlockNestedBlock,
+  type RegistryBlockRenderOptions,
+  type RegistryBlockRenderResult,
+  type RegistryBlockSideMapBlock,
+} from "./RegistryBlockNode.js";
+export {
+  buildRegistryBlockSlashItems,
+  getRegistryBlockSlashDescription,
+  getRegistryBlockSlashSearchText,
+  type BuildRegistryBlockSlashItemsOptions,
+  type RegistrySlashBlockRegistry,
+  type RegistrySlashBlockSpec,
+} from "./registrySlashCommands.js";
 export type { JSONContent } from "@tiptap/core";

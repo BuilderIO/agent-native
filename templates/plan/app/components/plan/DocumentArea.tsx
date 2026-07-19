@@ -5,7 +5,7 @@ import {
   useOptionalBlockRegistry,
 } from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
-import { uploadEditorImage } from "@agent-native/core/client/rich-markdown-editor";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {

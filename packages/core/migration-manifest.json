@@ -5,27 +5,22 @@
       "to": "@agent-native/core/client/agent-chat",
       "symbols": {
         "AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AGENT_PROMPT_MAX_INLINE_TEXT_CHARS": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentChatHome": "AgentChatHome",
         "AgentChatMessage": "AgentChatMessage",
         "AgentChatSurface": "AgentChatSurface",
         "AgentComposerFrame": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentComposerFrameProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentComposerLayoutVariant": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentNativeI18nCatalog": {
           "to": "@agent-native/core/client/i18n"
@@ -42,8 +37,7 @@
           "to": "@agent-native/toolkit/collab-ui"
         },
         "AgentPromptAttachment": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentSidebar": "AgentSidebar",
         "AgentSidebarStateChangeDetail": "AgentSidebarStateChangeDetail",
@@ -75,8 +69,7 @@
           "to": "@agent-native/toolkit/editor"
         },
         "BuildRegistryBlockSlashItemsOptions": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "BuilderSetupCard": "BuilderSetupCard",
         "ChangelogDialog": {
@@ -117,15 +110,13 @@
           "to": "@agent-native/core/client/navigation"
         },
         "ComposerSubmitIntent": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "CreateCodeBlockNodeOptions": {
           "to": "@agent-native/toolkit/editor"
         },
         "CreateRegistryBlockNodeOptions": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "CreateRichMarkdownExtensionsOptions": {
           "to": "@agent-native/toolkit/editor"
@@ -188,12 +179,10 @@
           "to": "@agent-native/core/client/ui"
         },
         "FileReference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "FileResult": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "GuidedQuestion": "GuidedQuestion",
         "GuidedQuestionAnswers": "GuidedQuestionAnswers",
@@ -248,16 +237,13 @@
           "to": "@agent-native/toolkit/editor"
         },
         "MentionItem": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "MentionPopover": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "MentionReference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "NewWorkspaceAppFlow": {
           "to": "@agent-native/core/client/ui"
@@ -278,20 +264,16 @@
           "to": "@agent-native/toolkit/collab-ui"
         },
         "PromptComposer": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposerFile": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposerProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposerSubmitOptions": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION": {
           "to": "@agent-native/toolkit/editor"
@@ -300,68 +282,52 @@
           "to": "@agent-native/toolkit/editor"
         },
         "ReadAgentPromptAttachmentOptions": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeApi": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeBoundary": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeCopy": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeDock": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeDockProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeEntry": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeEntryProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeInlineSettings": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeProvider": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeProviderProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeSelectSetting": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeSettingOption": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeState": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceSessionAnswer": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceToolResult": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RecentEditHighlights": {
           "to": "@agent-native/toolkit/collab-ui"
@@ -370,24 +336,19 @@
           "to": "@agent-native/toolkit/collab-ui"
         },
         "Reference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RegistryBlockDataProvider": {
-          "to": "@agent-native/core/blocks",
-          "status": "planned"
+          "to": "@agent-native/core/blocks"
         },
         "RegistryBlockDataValue": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "RegistryBlockNodeView": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "RegistryBlockSideMapBlock": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "RemoteSelectionRings": {
           "to": "@agent-native/toolkit/collab-ui"
@@ -464,16 +425,13 @@
           "to": "@agent-native/toolkit/editor"
         },
         "SkillReference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "SkillResult": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "SlashCommand": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "SlashCommandItem": {
           "to": "@agent-native/toolkit/editor"
@@ -488,20 +446,16 @@
           "to": "@agent-native/core/client/ui"
         },
         "TiptapComposer": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposerHandle": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposerProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposerSubmitOptions": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "ToolRendererContext": "ToolRendererContext",
         "ToolRendererProps": "ToolRendererProps",
@@ -586,8 +540,7 @@
           "to": "@agent-native/toolkit/editor"
         },
         "buildRegistryBlockSlashItems": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "buildRepositoryFromCodeAgentTranscript": "buildRepositoryFromCodeAgentTranscript",
         "buildReviewThreads": {
@@ -600,8 +553,7 @@
           "to": "@agent-native/core/client/hooks"
         },
         "canSubmitComposerContent": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "captureClientException": {
           "to": "@agent-native/core/client/analytics"
@@ -636,16 +588,13 @@
           "to": "@agent-native/core/client/collab"
         },
         "createRealtimeVoiceSession": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "createRealtimeVoiceSessionWithCapability": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "createRegistryBlockNode": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "createRichMarkdownExtensions": {
           "to": "@agent-native/toolkit/editor"
@@ -666,8 +615,7 @@
           "to": "@agent-native/core/client/integrations"
         },
         "displayableComposerModeMessage": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "emailToColor": {
           "to": "@agent-native/core/client/collab"
@@ -682,25 +630,21 @@
           "to": "@agent-native/core/client/host"
         },
         "escapePromptAttachmentAttribute": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "executeRealtimeVoiceTool": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "exitSelectionMode": {
           "to": "@agent-native/core/client/host"
         },
         "extractRealtimeVoiceFunctionCalls": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "focusAgentChat": "focusAgentChat",
         "formatGuidedAnswersForAgent": "formatGuidedAnswersForAgent",
         "formatPromptWithAttachments": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "generateTabId": "generateTabId",
         "getAgentSettingsSearchTabs": {
@@ -710,8 +654,7 @@
           "to": "@agent-native/core/client/hooks"
         },
         "getComposerSubmitIntentForEnterKey": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "getEditorMarkdown": {
           "to": "@agent-native/toolkit/editor"
@@ -727,12 +670,10 @@
         },
         "getOtherGuidedAnswerText": "getOtherGuidedAnswerText",
         "getRegistryBlockSlashDescription": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "getRegistryBlockSlashSearchText": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "getThemeInitScript": {
           "to": "@agent-native/core/client/ui"
@@ -741,8 +682,7 @@
           "to": "@agent-native/toolkit/editor"
         },
         "handleComposerFileDrop": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "hasGuidedAnswer": "hasGuidedAnswer",
         "injectSessionReplayIframeBootstrap": {
@@ -750,8 +690,7 @@
         },
         "insertAgentComposerReference": "insertAgentComposerReference",
         "insertComposerHardBreakAndScrollIntoView": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "installRouteChunkRecovery": {
           "to": "@agent-native/core/client/route-chunk-recovery"
@@ -772,8 +711,7 @@
           "to": "@agent-native/core/client/host"
         },
         "isInlineableAgentPromptFile": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "isOtherGuidedAnswer": "isOtherGuidedAnswer",
         "isReconcileLeadClient": {
@@ -833,15 +771,13 @@
           "to": "@agent-native/toolkit/editor"
         },
         "readAgentPromptAttachment": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "readClientAppState": {
           "to": "@agent-native/core/client/hooks"
         },
         "readRealtimeVoiceContext": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "registerActionChatRenderer": "registerActionChatRenderer",
         "removeAgentChatContextItem": "removeAgentChatContextItem",
@@ -886,8 +822,7 @@
         },
         "updateMcpAppModelContext": "updateMcpAppModelContext",
         "uploadEditorImage": {
-          "to": "@agent-native/core/client/uploads",
-          "status": "planned"
+          "to": "@agent-native/core/client/uploads"
         },
         "useActionMutation": {
           "to": "@agent-native/core/client/hooks"
@@ -957,8 +892,7 @@
           "to": "@agent-native/core/client/i18n"
         },
         "useMentionSearch": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "usePinchZoom": {
           "to": "@agent-native/core/client/hooks"
@@ -967,16 +901,13 @@
           "to": "@agent-native/core/client/collab"
         },
         "useRealtimeVoiceMode": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useRealtimeVoiceModeCopy": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useRealtimeVoiceModeOptional": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useRecentEdits": {
           "to": "@agent-native/core/client/collab"
@@ -985,8 +916,7 @@
           "to": "@agent-native/core/client/hooks"
         },
         "useRegistryBlockData": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         },
         "useReplyReviewComment": {
           "to": "@agent-native/core/client/review"
@@ -1022,236 +952,178 @@
       "to": "@agent-native/core/client/agent-chat",
       "symbols": {
         "AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AGENT_PROMPT_MAX_INLINE_TEXT_CHARS": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentComposerFrame": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentComposerFrameProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentComposerLayoutVariant": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "AgentPromptAttachment": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "ComposerSubmitIntent": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "FileReference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "FileResult": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "MentionItem": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "MentionPopover": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "MentionReference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposer": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposerFile": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposerProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "PromptComposerSubmitOptions": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "ReadAgentPromptAttachmentOptions": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeApi": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeBoundary": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeCopy": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeDock": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeDockProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeEntry": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeEntryProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeInlineSettings": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeProvider": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeProviderProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeSelectSetting": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeSettingOption": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceModeState": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceSessionAnswer": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "RealtimeVoiceToolResult": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "Reference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "SkillReference": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "SkillResult": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "SlashCommand": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposer": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposerHandle": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposerProps": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "TiptapComposerSubmitOptions": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "canSubmitComposerContent": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "createRealtimeVoiceSession": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "createRealtimeVoiceSessionWithCapability": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "displayableComposerModeMessage": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "escapePromptAttachmentAttribute": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "executeRealtimeVoiceTool": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "extractRealtimeVoiceFunctionCalls": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "formatPromptWithAttachments": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "getComposerSubmitIntentForEnterKey": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "handleComposerFileDrop": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "insertComposerHardBreakAndScrollIntoView": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "isInlineableAgentPromptFile": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "readAgentPromptAttachment": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "readRealtimeVoiceContext": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useMentionSearch": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useRealtimeVoiceMode": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useRealtimeVoiceModeCopy": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         },
         "useRealtimeVoiceModeOptional": {
-          "to": "@agent-native/core/client/composer",
-          "status": "planned"
+          "to": "@agent-native/core/client/composer"
         }
       }
     },
@@ -1312,8 +1184,7 @@
         "createRegistryBlockNode": "createRegistryBlockNode",
         "RegistryBlockNodeView": "RegistryBlockNodeView",
         "RegistryBlockDataProvider": {
-          "to": "@agent-native/core/blocks",
-          "status": "planned"
+          "to": "@agent-native/core/blocks"
         },
         "useRegistryBlockData": "useRegistryBlockData",
         "CreateRegistryBlockNodeOptions": "CreateRegistryBlockNodeOptions",
@@ -1326,8 +1197,7 @@
         "uploadEditorImage": {
           "to": "@agent-native/core/client/uploads"
         }
-      },
-      "status": "planned"
+      }
     },
     "@agent-native/core/client/rich-markdown-editor": {
       "to": "@agent-native/toolkit/editor",
@@ -1386,8 +1256,7 @@
         "createRegistryBlockNode": "createRegistryBlockNode",
         "RegistryBlockNodeView": "RegistryBlockNodeView",
         "RegistryBlockDataProvider": {
-          "to": "@agent-native/core/blocks",
-          "status": "planned"
+          "to": "@agent-native/core/blocks"
         },
         "useRegistryBlockData": "useRegistryBlockData",
         "CreateRegistryBlockNodeOptions": "CreateRegistryBlockNodeOptions",
@@ -1400,15 +1269,13 @@
         "uploadEditorImage": {
           "to": "@agent-native/core/client/uploads"
         }
-      },
-      "status": "planned"
+      }
     },
     "@agent-native/core/testing": {
       "to": "@agent-native/core/testing",
       "symbols": {
         "DragHandle": {
-          "to": "@agent-native/toolkit/editor",
-          "status": "planned"
+          "to": "@agent-native/toolkit/editor"
         }
       }
     },

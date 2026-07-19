@@ -21,32 +21,15 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { setAgentChatContextItem } from "../agent-chat.js";
-import { agentNativePath } from "../api-path.js";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "../components/ui/popover.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
-import { useOrg } from "../org/hooks.js";
-import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
-import {
-  useCreateMcpServer,
-  type McpServerScope,
-} from "../resources/use-mcp-servers.js";
+import { Popover, PopoverTrigger, PopoverContent } from "../ui/popover.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import {
   createAssetPickerHandoffId,
   isExternalAssetPickerUrl,
   standaloneAssetPickerUrl,
 } from "./asset-picker-url.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { ComposerMode } from "./types.js";
 
 interface ComposerPlusMenuProps {
@@ -91,7 +74,9 @@ interface AssetPickerPayload {
 }
 
 function assetPickerUrl() {
-  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const env =
+    (import.meta as ImportMeta & { env?: Record<string, string | undefined> })
+      .env ?? {};
   return env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL || DEFAULT_ASSETS_PICKER_URL;
 }
 
@@ -265,24 +250,27 @@ function ComposerPlusMenuFull({
   onSelectMode,
   onAttachmentError,
 }: Pick<ComposerPlusMenuProps, "onSelectMode" | "onAttachmentError">) {
-  const t = useT();
+  const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
+  const resources = adapters.resources!;
   const composerRuntime = useComposerRuntime();
   const [open, setOpen] = useState(false);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
   const showMcpIntegrations = useMemo(
-    () => isMcpIntegrationCatalogAvailable(),
-    [],
+    () => resources.isMcpIntegrationAvailable!(),
+    [resources],
   );
 
-  const { data: org } = useOrg();
+  const { data: org } = resources.useOrg!();
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const hasOrg = !!org?.orgId;
-  const defaultMcpScope: McpServerScope =
+  const defaultMcpScope: "org" | "user" =
     hasOrg && canCreateOrgMcp ? "org" : "user";
-  const createMcp = useCreateMcpServer();
+  const createMcp = resources.useCreateMcpServer!();
+  const McpIntegrationDialog = resources.McpIntegrationDialog;
 
   const fileUploadRef = useRef<HTMLInputElement>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
@@ -369,16 +357,19 @@ function ComposerPlusMenuFull({
     setSkillUploadBusy(true);
     setSkillUploadStatus(null);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/resources"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path,
-          content: skillUploadContent,
-          mimeType: "text/markdown",
-          shared: false,
-        }),
-      });
+      const res = await fetch(
+        adapters.resolvePath!("/_agent-native/resources"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path,
+            content: skillUploadContent,
+            mimeType: "text/markdown",
+            shared: false,
+          }),
+        },
+      );
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         throw new Error(body || `Upload failed (${res.status})`);
@@ -724,14 +715,16 @@ function ComposerPlusMenuFull({
           )}
         </PopoverContent>
       </Popover>
-      <McpIntegrationDialog
-        open={mcpDialogOpen}
-        onOpenChange={setMcpDialogOpen}
-        defaultScope={defaultMcpScope}
-        canCreateOrgMcp={canCreateOrgMcp}
-        hasOrg={hasOrg}
-        onCreateMcpServer={(args) => createMcp.mutateAsync(args)}
-      />
+      {McpIntegrationDialog ? (
+        <McpIntegrationDialog
+          open={mcpDialogOpen}
+          onOpenChange={setMcpDialogOpen}
+          defaultScope={defaultMcpScope}
+          canCreateOrgMcp={canCreateOrgMcp}
+          hasOrg={hasOrg}
+          onCreateMcpServer={(args: unknown) => createMcp.mutateAsync(args)}
+        />
+      ) : null}
       <AssetsPickerModal
         open={assetsPickerOpen}
         onOpenChange={setAssetsPickerOpen}
@@ -747,6 +740,7 @@ function AssetsPickerModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const adapters = useComposerRuntimeAdapters();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const standaloneWindowRef = useRef<Window | null>(null);
   const [pickerReady, setPickerReady] = useState(false);
@@ -848,7 +842,7 @@ function AssetsPickerModal({
         event.data.payload && typeof event.data.payload === "object"
           ? assetString((event.data.payload as AssetPickerPayload).assetId)
           : null;
-      setAgentChatContextItem({
+      adapters.agentChat!.setContextItem!({
         key: `asset-image:${assetId ?? url}`,
         title: `Image: ${title}`,
         context: assetContext(event.data.payload, url),
@@ -870,6 +864,7 @@ function AssetsPickerModal({
     };
   }, [
     configurePicker,
+    adapters,
     externalPicker,
     onOpenChange,
     open,

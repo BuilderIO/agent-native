@@ -1,4 +1,15 @@
-import type { BlockRegistry, BlockSpec } from "../blocks/index.js";
+export interface RegistrySlashBlockSpec {
+  type: string;
+  label: string;
+  description: string;
+  notionCompatible?: boolean;
+}
+
+export interface RegistrySlashBlockRegistry<
+  TSpec extends RegistrySlashBlockSpec = RegistrySlashBlockSpec,
+> {
+  list: (placement: "block") => TSpec[];
+}
 
 const COMPACT_REGISTRY_BLOCK_DESCRIPTIONS: Record<string, string> = {
   callout: "Emphasized note",
@@ -28,7 +39,7 @@ const COMPACT_REGISTRY_BLOCK_DESCRIPTIONS: Record<string, string> = {
  * row should scan like a command palette, not a block reference page.
  */
 export function getRegistryBlockSlashDescription(
-  spec: Pick<BlockSpec, "type" | "description">,
+  spec: Pick<RegistrySlashBlockSpec, "type" | "description">,
 ): string {
   return (
     COMPACT_REGISTRY_BLOCK_DESCRIPTIONS[spec.type] ??
@@ -38,7 +49,7 @@ export function getRegistryBlockSlashDescription(
 
 /** Searchable text for registry block slash items, including raw type keywords. */
 export function getRegistryBlockSlashSearchText(
-  spec: Pick<BlockSpec, "type" | "label" | "description">,
+  spec: Pick<RegistrySlashBlockSpec, "type" | "label" | "description">,
 ): string {
   return [spec.label, spec.description, spec.type]
     .filter(Boolean)
@@ -63,7 +74,11 @@ export function getRegistryBlockSlashSearchText(
  * Notion filter wiring, the one-item-per-spec mapping) lives here so adding a
  * new library block only touches the registry, never the slash builders.
  */
-export interface BuildRegistryBlockSlashItemsOptions<TItem, TEditor> {
+export interface BuildRegistryBlockSlashItemsOptions<
+  TItem,
+  TEditor,
+  TSpec extends RegistrySlashBlockSpec = RegistrySlashBlockSpec,
+> {
   /**
    * When `true`, only specs the predicate accepts are offered (the open document
    * is linked to a Notion page, so blocks that can't round-trip to NFM are
@@ -75,20 +90,20 @@ export interface BuildRegistryBlockSlashItemsOptions<TItem, TEditor> {
    * `notionCompatible` flag (content's rule). Plan passes a predicate that unions
    * in prose-only NFM analogs not carried as registry flags.
    */
-  isNotionCompatible?: (spec: BlockSpec) => boolean;
+  isNotionCompatible?: (spec: TSpec) => boolean;
   /** Build one app-shaped slash item from a surviving block spec. */
-  toItem: (spec: BlockSpec, insert: (editor: TEditor) => void) => TItem;
+  toItem: (spec: TSpec, insert: (editor: TEditor) => void) => TItem;
   /**
    * Optional app-level capability gate. Use this for blocks whose schema is
    * registered for parse/render compatibility but whose authoring experience is
    * not available in this editor yet.
    */
-  includeSpec?: (spec: BlockSpec) => boolean;
+  includeSpec?: (spec: TSpec) => boolean;
   /**
    * Insert this spec's block atom into the editor. Plan inserts a `planBlock`
    * node; content inserts a `registryBlock` node seeded with inline `__raw`.
    */
-  insertBlock: (editor: TEditor, spec: BlockSpec) => void;
+  insertBlock: (editor: TEditor, spec: TSpec) => void;
 }
 
 /**
@@ -96,9 +111,13 @@ export interface BuildRegistryBlockSlashItemsOptions<TItem, TEditor> {
  * app prepends its own prose/base commands and wraps the result in its own item
  * type via {@link BuildRegistryBlockSlashItemsOptions.toItem}.
  */
-export function buildRegistryBlockSlashItems<TItem, TEditor>(
-  registry: BlockRegistry,
-  options: BuildRegistryBlockSlashItemsOptions<TItem, TEditor>,
+export function buildRegistryBlockSlashItems<
+  TItem,
+  TEditor,
+  TSpec extends RegistrySlashBlockSpec = RegistrySlashBlockSpec,
+>(
+  registry: RegistrySlashBlockRegistry<TSpec>,
+  options: BuildRegistryBlockSlashItemsOptions<TItem, TEditor, TSpec>,
 ): TItem[] {
   const isCompatible =
     options.isNotionCompatible ?? ((spec) => Boolean(spec.notionCompatible));

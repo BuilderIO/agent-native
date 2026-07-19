@@ -186,6 +186,13 @@ for the connector usage, the normalized event stream, and when to reach for
 Use `@agent-native/core/client/composer` when you need to place the same chat
 field used by the sidebar inside custom UI.
 
+Toolkit owns the shared Tiptap and composer UI implementation. The
+`@agent-native/core/client/composer` entry is its framework-wired wrapper: it
+binds the Core runtime adapters used by attachments, mentions, skills, voice,
+and model selection. Reusable packages that need portable bare UI can import
+`@agent-native/toolkit/composer` instead, but must render it inside
+`ComposerRuntimeAdaptersProvider` and supply the required framework services.
+
 | API                               | Use when                                                                                                                                                            |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | You need a ready-to-submit chat field with attachments, slash commands, references, pasted-text handling, draft persistence, voice input, and submission semantics. |

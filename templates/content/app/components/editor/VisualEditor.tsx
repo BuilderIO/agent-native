@@ -1,14 +1,12 @@
+import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
 import {
   usePresence,
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  RegistryBlockDataProvider,
-  type RegistryBlockSideMapBlock,
-} from "@agent-native/core/client/rich-markdown-editor";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
+import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   createSharedEditorExtensions,
   useCollabReconcile,

@@ -179,8 +179,10 @@ para el uso del conector, el flujo de eventos normalizado y cuándo alcanzarlo
 
 ## Campo de chat y compositor {#composer}
 
-Utiliza `@agent-native/core/client/composer` cuando necesites realizar el mismo chat
-campo utilizado por la barra lateral dentro de UI personalizado.
+Usa `@agent-native/core/client/composer` cuando necesites el mismo campo de chat
+que usa la barra lateral en una UI personalizada. `@agent-native/toolkit/composer`
+ofrece la implementación portátil y sin integración de Tiptap y UI; para servicios del framework,
+envuélvela con `ComposerRuntimeAdaptersProvider` y proporciona los servicios. Core es la capa ya conectada para adjuntos, menciones, habilidades, voz y selección de modelos.
 
 | API                               | Usar cuando                                                                                                                                                                                          |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

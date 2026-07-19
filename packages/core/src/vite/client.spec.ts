@@ -1175,7 +1175,14 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain(
       "@agent-native/core > @shadcn/react/message-scroller",
     );
-    expect(deps).toContain("@agent-native/core > @tiptap/react");
+    expect(deps).not.toContain("@agent-native/core > @tiptap/react");
+    expect(deps).not.toContain("@agent-native/core > @radix-ui/react-dialog");
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-dropdown-menu",
+    );
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-hover-card",
+    );
     expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
     expect(deps).toContain("@agent-native/core > @xterm/xterm");
     expect(deps).toContain("@agent-native/core > i18next");
@@ -1271,10 +1278,17 @@ describe("local-core dev aliases and router dedupe", () => {
       "@agent-native/core/client/automation": "client/automation/index.ts",
       "@agent-native/core/client/changelog": "client/changelog/index.ts",
       "@agent-native/core/client/dev-overlay": "client/dev-overlay/index.ts",
+      "@agent-native/core/client/editor": "client/tombstone/editor.ts",
       "@agent-native/core/client/feature-flags":
         "client/feature-flags/index.ts",
       "@agent-native/core/client/rich-markdown-editor":
-        "client/rich-markdown-editor/index.ts",
+        "client/tombstone/rich-markdown-editor.ts",
+      "@agent-native/core/client/components/ui/dialog":
+        "client/tombstone/ui-dialog.ts",
+      "@agent-native/core/client/components/AgentPresenceChip":
+        "client/tombstone/agent-presence-chip.ts",
+      "@agent-native/core/client/visual-style-controls":
+        "client/tombstone/visual-style-controls.ts",
       "@agent-native/core/client/hooks": "client/hooks/index.ts",
       "@agent-native/core/client/host": "client/host/index.ts",
       "@agent-native/core/client/integrations": "client/integrations/index.ts",

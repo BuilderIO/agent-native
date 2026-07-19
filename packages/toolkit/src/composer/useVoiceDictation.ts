@@ -23,8 +23,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   applyVoiceContextReplacements,
   type VoiceContextPack,
-} from "../../voice/index.js";
-import { agentNativePath } from "../api-path.js";
+  useComposerRuntimeAdapters,
+} from "./runtime-adapters.js";
 
 export type VoiceProvider =
   | "auto"
@@ -56,16 +56,10 @@ type VoiceContextPackSource =
 
 const PREFS_KEY = "voice-transcription-prefs";
 const CLEANUP_PREFS_KEY = "voice-cleanup-prefs";
-const PREFS_URL = agentNativePath(
-  `/_agent-native/application-state/${PREFS_KEY}`,
-);
-const CLEANUP_PREFS_URL = agentNativePath(
-  `/_agent-native/application-state/${CLEANUP_PREFS_KEY}`,
-);
-const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
-const GOOGLE_REALTIME_SESSION_URL = agentNativePath(
-  "/_agent-native/transcribe-stream/session",
-);
+const PREFS_URL = `/_agent-native/application-state/${PREFS_KEY}`;
+const CLEANUP_PREFS_URL = `/_agent-native/application-state/${CLEANUP_PREFS_KEY}`;
+const TRANSCRIBE_URL = "/_agent-native/transcribe-voice";
+const GOOGLE_REALTIME_SESSION_URL = "/_agent-native/transcribe-stream/session";
 const GOOGLE_REALTIME_WS_PROTOCOL = "google-realtime.v1";
 function isVoiceProvider(value: unknown): value is VoiceProvider {
   return (
@@ -132,10 +126,12 @@ export interface VoiceDictationApi {
   dismissError: () => void;
 }
 
-async function readVoicePrefs(): Promise<VoicePrefs> {
-  const cleanupPrefs = await readVoiceCleanupPrefs();
+async function readVoicePrefs(
+  resolvePath: (path: string) => string,
+): Promise<VoicePrefs> {
+  const cleanupPrefs = await readVoiceCleanupPrefs(resolvePath);
   try {
-    const res = await fetch(PREFS_URL);
+    const res = await fetch(resolvePath(PREFS_URL));
     if (!res.ok) {
       return {
         provider: await defaultProvider(),
@@ -180,9 +176,11 @@ async function readVoicePrefs(): Promise<VoicePrefs> {
   };
 }
 
-async function readVoiceCleanupPrefs(): Promise<VoiceCleanupPrefs> {
+async function readVoiceCleanupPrefs(
+  resolvePath: (path: string) => string,
+): Promise<VoiceCleanupPrefs> {
   try {
-    const res = await fetch(CLEANUP_PREFS_URL);
+    const res = await fetch(resolvePath(CLEANUP_PREFS_URL));
     if (!res.ok) return {};
     const body = (await res.json()) as
       | VoiceCleanupPrefs
@@ -256,14 +254,21 @@ async function cleanupRecognizedText({
   provider,
   instructions,
   contextPack,
+  resolvePath,
+  replaceContext,
 }: {
   text: string;
   provider: VoiceProvider;
   instructions?: string;
   contextPack?: VoiceContextPack;
+  resolvePath: (path: string) => string;
+  replaceContext: (
+    text: string,
+    context: VoiceContextPack | undefined,
+  ) => string;
 }): Promise<string> {
   if (provider === "browser") {
-    return applyVoiceContextReplacements(text, contextPack);
+    return replaceContext(text, contextPack);
   }
 
   const form = new FormData();
@@ -274,7 +279,7 @@ async function cleanupRecognizedText({
   }
   appendVoiceContext(form, contextPack);
 
-  const res = await fetch(TRANSCRIBE_URL, {
+  const res = await fetch(resolvePath(TRANSCRIBE_URL), {
     method: "POST",
     body: form,
   });
@@ -359,6 +364,10 @@ function voiceDictationSpeechErrorMessage(error: string | undefined): string {
 export function useVoiceDictation(
   options: UseVoiceDictationOptions,
 ): VoiceDictationApi {
+  const adapters = useComposerRuntimeAdapters();
+  const resolvePath = adapters.resolvePath!;
+  const replaceContext =
+    adapters.voice!.applyContextReplacements ?? applyVoiceContextReplacements;
   const { onTranscript, onError, onLiveUpdate, contextPack } = options;
   const onTranscriptRef = useRef(onTranscript);
   const onErrorRef = useRef(onError);
@@ -574,7 +583,7 @@ export function useVoiceDictation(
             form.append("instructions", instructions.trim());
           }
           appendVoiceContext(form, await getVoiceContextPack());
-          const res = await fetch(TRANSCRIBE_URL, {
+          const res = await fetch(resolvePath(TRANSCRIBE_URL), {
             method: "POST",
             body: form,
           });
@@ -668,7 +677,14 @@ export function useVoiceDictation(
         }
       }
     },
-    [startMeter, startTimer, teardown, failWith, getVoiceContextPack],
+    [
+      startMeter,
+      startTimer,
+      teardown,
+      failWith,
+      getVoiceContextPack,
+      resolvePath,
+    ],
   );
 
   const startBrowser = useCallback(
@@ -743,6 +759,8 @@ export function useVoiceDictation(
                 provider: prefs.provider,
                 instructions: prefs.instructions,
                 contextPack: await getVoiceContextPack(),
+                resolvePath,
+                replaceContext,
               });
             } catch {
               finalText = text;
@@ -760,7 +778,15 @@ export function useVoiceDictation(
       setState("recording");
       recognition.start();
     },
-    [startMeter, startTimer, teardown, failWith, getVoiceContextPack],
+    [
+      startMeter,
+      startTimer,
+      teardown,
+      failWith,
+      getVoiceContextPack,
+      replaceContext,
+      resolvePath,
+    ],
   );
 
   const startGoogleRealtime = useCallback(
@@ -773,7 +799,7 @@ export function useVoiceDictation(
         return;
       }
 
-      const sessionRes = await fetch(GOOGLE_REALTIME_SESSION_URL, {
+      const sessionRes = await fetch(resolvePath(GOOGLE_REALTIME_SESSION_URL), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -842,6 +868,8 @@ export function useVoiceDictation(
                   provider: prefs.provider,
                   instructions: prefs.instructions,
                   contextPack: await getVoiceContextPack(),
+                  resolvePath,
+                  replaceContext,
                 });
               } catch {
                 cleanedText = text;
@@ -999,7 +1027,15 @@ export function useVoiceDictation(
         }
       };
     },
-    [startMeter, startTimer, teardown, failWith, getVoiceContextPack],
+    [
+      startMeter,
+      startTimer,
+      teardown,
+      failWith,
+      getVoiceContextPack,
+      replaceContext,
+      resolvePath,
+    ],
   );
 
   const start = useCallback(async () => {
@@ -1008,7 +1044,7 @@ export function useVoiceDictation(
     setState("starting");
     cancelledRef.current = false;
 
-    const prefs = await readVoicePrefs();
+    const prefs = await readVoicePrefs(resolvePath);
     const pref = prefs.provider;
     setProvider(pref);
 

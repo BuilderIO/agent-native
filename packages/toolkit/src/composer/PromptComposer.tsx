@@ -28,15 +28,7 @@ import {
   type ReactNode,
 } from "react";
 
-import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
-import { BuilderSetupCard, BuilderSetupContent } from "../chat/run-recovery.js";
-import { TooltipProvider } from "../components/ui/tooltip.js";
-import {
-  fetchAgentEngineConfiguredState,
-  useAgentEngineConfigured,
-} from "../use-agent-engine-configured.js";
-import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
+import { TooltipProvider } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
 import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
@@ -47,6 +39,11 @@ import {
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
+import {
+  type EngineModelGroup,
+  type ReasoningEffort,
+  useComposerRuntimeAdapters,
+} from "./runtime-adapters.js";
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
@@ -482,6 +479,10 @@ function PromptComposerInner({
   onConnectLocalRuntime,
   composerRef,
 }: PromptComposerProps) {
+  const adapters = useComposerRuntimeAdapters();
+  const modelsAdapter = adapters.models!;
+  const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
+  const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
   const hostManagedModels = Boolean(
@@ -489,7 +490,7 @@ function PromptComposerInner({
   );
   const resolvedModelStatusChecksEnabled =
     modelStatusChecksEnabled ?? !hostManagedModels;
-  const models = useChatModels({
+  const models = modelsAdapter.useChatModels!({
     enabled: showModelSelector && resolvedModelStatusChecksEnabled,
   });
   const composerModel = showModelSelector
@@ -514,7 +515,7 @@ function PromptComposerInner({
   const handleEffortChange = showModelSelector
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
-  const agentEngineConfigured = useAgentEngineConfigured(
+  const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
     resolvedModelStatusChecksEnabled,
   );
   const missingApiKey = agentEngineConfigured.missing;
@@ -535,7 +536,7 @@ function PromptComposerInner({
     const state =
       agentEngineConfigured.state === "missing"
         ? "missing"
-        : await fetchAgentEngineConfiguredState(
+        : await modelsAdapter.fetchAgentEngineConfiguredState!(
             resolvedModelStatusChecksEnabled,
             {
               timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
@@ -547,6 +548,7 @@ function PromptComposerInner({
   }, [
     agentEngineConfigured.state,
     bounceMissingKeySetup,
+    modelsAdapter,
     resolvedModelStatusChecksEnabled,
   ]);
 
@@ -592,7 +594,7 @@ function PromptComposerInner({
 
   return (
     <>
-      {missingApiKey && !useInlineMissingKeySetup ? (
+      {missingApiKey && !useInlineMissingKeySetup && BuilderSetupCard ? (
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
           bouncePulse={missingKeyBouncePulse}
@@ -600,7 +602,7 @@ function PromptComposerInner({
           layout="sidebar"
         />
       ) : null}
-      {missingApiKey && useInlineMissingKeySetup ? (
+      {missingApiKey && useInlineMissingKeySetup && BuilderSetupContent ? (
         <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
           <BuilderSetupContent
             onConnected={handleBuilderConnected}
@@ -676,6 +678,8 @@ function PromptComposerInner({
  * without needing the outer chat to be mounted.
  */
 export function PromptComposer(props: PromptComposerProps) {
+  const StaleIndexBoundary =
+    useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
   const attachmentAdapter = useMemo(
     () =>
       new CompositeAttachmentAdapter([
@@ -701,12 +705,12 @@ export function PromptComposer(props: PromptComposerProps) {
           className="contents"
           style={{ display: "contents" }}
         >
-          <AssistantUiStaleIndexErrorBoundary
+          <StaleIndexBoundary
             resetKey={resetKey}
             componentName="PromptComposer"
           >
             <PromptComposerInner {...props} />
-          </AssistantUiStaleIndexErrorBoundary>
+          </StaleIndexBoundary>
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
     </TooltipProvider>

@@ -40,7 +40,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useUploadResource } from "../uploads/use-upload-resource.js";

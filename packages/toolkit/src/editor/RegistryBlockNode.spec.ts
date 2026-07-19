@@ -116,7 +116,7 @@ describe("RegistryBlockNode keyboard guard", () => {
 
       const textInputHandled = editor.view.someProp(
         "handleTextInput",
-        (handler) => handler(editor.view, 0, 0, "typed"),
+        (handler) => handler(editor.view, 0, 0, "typed", () => editor.state.tr),
       );
       expect(textInputHandled).toBe(true);
       expect(planBlockSnapshot(editor)).toEqual(beforeAtom);

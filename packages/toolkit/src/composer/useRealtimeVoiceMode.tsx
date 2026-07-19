@@ -10,15 +10,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { requestAgentChatThreadOpen } from "../agent-chat.js";
-import {
-  SIDEBAR_STATE_CHANGE_EVENT,
-  type AgentSidebarStateChangeDetail,
-} from "../agent-sidebar-state.js";
-import { agentNativePath } from "../api-path.js";
-import { readClientAppState, setClientAppState } from "../application-state.js";
-import { getBrowserTabId } from "../browser-tab-id.js";
-import { useT } from "../i18n.js";
 import {
   createRealtimeVoiceAudioLevelStore,
   normalizeRealtimeVoiceRms,
@@ -31,6 +22,7 @@ import {
   type RealtimeVoiceModeCopy,
   type RealtimeVoiceModeState,
 } from "./RealtimeVoiceMode.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 
 const REALTIME_VOICE_STATE_KEY = "realtime-voice-session";
 const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
@@ -602,7 +594,7 @@ export async function createRealtimeVoiceSessionWithCapability(
   options: RealtimeVoiceSessionOptions = {},
 ): Promise<RealtimeVoiceSessionAnswer> {
   const preferences = options.preferences;
-  const response = await fetch(agentNativePath(REALTIME_VOICE_SESSION_PATH), {
+  const response = await fetch(REALTIME_VOICE_SESSION_PATH, {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -656,7 +648,7 @@ export async function executeRealtimeVoiceTool(input: {
   capability?: string;
   signal?: AbortSignal;
 }): Promise<RealtimeVoiceToolResult> {
-  const response = await fetch(agentNativePath(REALTIME_VOICE_TOOL_PATH), {
+  const response = await fetch(REALTIME_VOICE_TOOL_PATH, {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -1014,7 +1006,7 @@ export function listenForRealtimeVoicePageHide(
   return () => window.removeEventListener("pagehide", cleanup);
 }
 
-function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
+function voiceCopy(t: (key: string) => string): RealtimeVoiceModeCopy {
   return {
     entryButtonLabel: t("agentPanel.voiceMode.entryButtonLabel"),
     promptTitle: t("agentPanel.voiceMode.promptTitle"),
@@ -1093,14 +1085,15 @@ function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
 }
 
 export function useRealtimeVoiceModeCopy(): RealtimeVoiceModeCopy {
-  const t = useT();
-  return useMemo(() => voiceCopy(t), [t]);
+  const { translate: t } = useComposerRuntimeAdapters();
+  return useMemo(() => voiceCopy(t!), [t]);
 }
 
 function useRealtimeVoiceModeController(
   browserTabId?: string,
   copy?: RealtimeVoiceModeCopy,
 ): RealtimeVoiceModeApi {
+  const adapters = useComposerRuntimeAdapters();
   const [state, setState] = useState<"idle" | RealtimeVoiceModeState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
@@ -1169,7 +1162,9 @@ function useRealtimeVoiceModeController(
   const hydratePreferences = useCallback(async () => {
     if (preferencesHydratedRef.current) return;
     try {
-      const stored = await readClientAppState(REALTIME_VOICE_PREFERENCES_KEY);
+      const stored = await adapters.voice!.readAppState!(
+        REALTIME_VOICE_PREFERENCES_KEY,
+      );
       if (!preferencesEditedRef.current && stored != null) {
         const next = normalizeRealtimeVoicePreferences(stored);
         preferencesRef.current = next;
@@ -1180,7 +1175,7 @@ function useRealtimeVoiceModeController(
     } finally {
       preferencesHydratedRef.current = true;
     }
-  }, []);
+  }, [adapters]);
 
   const syncAppState = useCallback(
     (nextState: "idle" | RealtimeVoiceModeState) => {
@@ -1198,11 +1193,11 @@ function useRealtimeVoiceModeController(
               lastUserText: lastUserTextRef.current || undefined,
               lastAssistantText: lastAssistantTextRef.current || undefined,
             };
-      void setClientAppState(REALTIME_VOICE_STATE_KEY, value, {
-        requestSource: REALTIME_VOICE_REQUEST_SOURCE,
-      }).catch(() => undefined);
+      void Promise.resolve(
+        adapters.voice!.setAppState!(REALTIME_VOICE_STATE_KEY, value),
+      ).catch(() => undefined);
     },
-    [browserTabId],
+    [adapters, browserTabId],
   );
 
   const transition = useCallback(
@@ -1214,20 +1209,24 @@ function useRealtimeVoiceModeController(
     [syncAppState],
   );
 
-  const savePreferences = useCallback((next: RealtimeVoicePreferences) => {
-    preferencesEditedRef.current = true;
-    preferencesHydratedRef.current = true;
-    preferencesRef.current = next;
-    setPreferences(next);
-    preferenceWriteChainRef.current = preferenceWriteChainRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        await setClientAppState(REALTIME_VOICE_PREFERENCES_KEY, next, {
-          requestSource: REALTIME_VOICE_REQUEST_SOURCE,
-        });
-      })
-      .catch(() => undefined);
-  }, []);
+  const savePreferences = useCallback(
+    (next: RealtimeVoicePreferences) => {
+      preferencesEditedRef.current = true;
+      preferencesHydratedRef.current = true;
+      preferencesRef.current = next;
+      setPreferences(next);
+      preferenceWriteChainRef.current = preferenceWriteChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          await adapters.voice!.setAppState!(
+            REALTIME_VOICE_PREFERENCES_KEY,
+            next,
+          );
+        })
+        .catch(() => undefined);
+    },
+    [adapters],
+  );
 
   const updateLivePreferences = useCallback(
     (next: RealtimeVoicePreferences, includeVoice = false) => {
@@ -1846,7 +1845,7 @@ function useRealtimeVoiceModeController(
         activeThreadId,
       )
     ) {
-      requestAgentChatThreadOpen({
+      adapters.agentChat!.requestThreadOpen!({
         threadId: transcriptThreadId,
         // The request is delivered asynchronously. Re-checking this at the
         // receiver prevents a navigation that happened during that gap from
@@ -1857,7 +1856,7 @@ function useRealtimeVoiceModeController(
       window.dispatchEvent(new Event("agent-panel:open"));
     }
     transition("idle");
-  }, [cleanupTransport, transition]);
+  }, [adapters, cleanupTransport, transition]);
 
   const toggleChat = useCallback(() => {
     setChatVisible((current) => !current);
@@ -1885,17 +1884,12 @@ function useRealtimeVoiceModeController(
   }, [refreshMicrophones, setMicrophone]);
 
   useEffect(() => {
-    const onSidebarState = (event: Event) => {
-      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
-        .detail;
+    return adapters.voice!.subscribeSidebarState!((detail) => {
       if (detail && typeof detail.open === "boolean") {
         setChatVisible(detail.open);
       }
-    };
-    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, onSidebarState);
-    return () =>
-      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, onSidebarState);
-  }, []);
+    });
+  }, [adapters]);
 
   useEffect(() => {
     const stopListening = listenForRealtimeVoicePageHide(cleanupTransport);
@@ -1935,9 +1929,10 @@ export function RealtimeVoiceModeProvider({
   children,
   browserTabId,
 }: RealtimeVoiceModeProviderProps) {
+  const adapters = useComposerRuntimeAdapters();
   const resolvedBrowserTabId = useMemo(
-    () => browserTabId ?? getBrowserTabId(),
-    [browserTabId],
+    () => browserTabId ?? adapters.voice!.getBrowserTabId!(),
+    [adapters, browserTabId],
   );
   const copy = useRealtimeVoiceModeCopy();
   const voice = useRealtimeVoiceModeController(resolvedBrowserTabId, copy);
@@ -2087,9 +2082,36 @@ export async function readRealtimeVoiceContext(): Promise<{
   navigation: unknown;
   url: unknown;
 }> {
+  return readRealtimeVoiceContextWith({});
+}
+
+export async function readRealtimeVoiceContextWith(options: {
+  readAppState?: (key: string) => Promise<unknown> | unknown;
+  resolvePath?: (path: string) => string;
+}): Promise<{ navigation: unknown; url: unknown }> {
+  if (options.readAppState) {
+    const [navigation, url] = await Promise.all([
+      Promise.resolve(options.readAppState("navigation")).catch(() => null),
+      Promise.resolve(options.readAppState("__url__")).catch(() => null),
+    ]);
+    return { navigation, url };
+  }
+  const resolvePath = options.resolvePath ?? ((path: string) => path);
+  const read = async (key: string) => {
+    const response = await fetch(
+      resolvePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as { value?: unknown } | unknown;
+    return body && typeof body === "object" && "value" in body
+      ? ((body as { value?: unknown }).value ?? null)
+      : body;
+  };
   const [navigation, url] = await Promise.all([
-    readClientAppState("navigation").catch(() => null),
-    readClientAppState("__url__").catch(() => null),
+    read("navigation").catch(() => null),
+    read("__url__").catch(() => null),
   ]);
   return { navigation, url };
 }

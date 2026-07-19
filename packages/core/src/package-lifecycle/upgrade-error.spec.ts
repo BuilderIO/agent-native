@@ -43,6 +43,45 @@ describe("AgentNativeUpgradeError", () => {
     );
   });
 
+  it("renders manifest symbol overrides in runtime and type messages", () => {
+    const source = renderTombstoneModule({
+      from: "@agent-native/core/client/editor",
+      manifest: {
+        sinceVersion: "0.111.0",
+        moves: {
+          "@agent-native/core/client/editor": {
+            to: "@agent-native/toolkit/editor",
+            symbols: {
+              SharedRichEditor: "SharedRichEditor",
+              RegistryBlockDataProvider: {
+                to: "@agent-native/core/blocks",
+              },
+              uploadEditorImage: {
+                to: "@agent-native/core/client/uploads",
+              },
+            },
+          },
+        },
+      },
+      helperImport: "../../package-lifecycle/upgrade-error.js",
+      valueExports: [
+        "SharedRichEditor",
+        "RegistryBlockDataProvider",
+        "uploadEditorImage",
+      ],
+    });
+
+    expect(source).toContain(
+      'throwMovedAgentNativeModule("@agent-native/core/client/editor", "@agent-native/toolkit/editor", {"RegistryBlockDataProvider":"@agent-native/core/blocks","uploadEditorImage":"@agent-native/core/client/uploads"})',
+    );
+    expect(source).toContain(
+      `DeprecatedExport<"@agent-native/core/client/editor moved to @agent-native/core/blocks. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}">`,
+    );
+    expect(source).toContain(
+      `DeprecatedExport<"@agent-native/core/client/editor moved to @agent-native/core/client/uploads. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}">`,
+    );
+  });
+
   it("requires an exact manifest move before generating a tombstone", () => {
     expect(() =>
       renderTombstoneModule({
@@ -78,6 +117,20 @@ describe("AgentNativeUpgradeError", () => {
     );
     expect(error.message).toBe(
       `@agent-native/core/client/old moved to @agent-native/toolkit/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+    );
+  });
+
+  it("gives agents exact symbol destinations for split modules", () => {
+    const error = new AgentNativeUpgradeError(
+      "@agent-native/core/client/editor",
+      "@agent-native/toolkit/editor",
+      {
+        uploadEditorImage: "@agent-native/core/client/uploads",
+        RegistryBlockDataProvider: "@agent-native/core/blocks",
+      },
+    );
+    expect(error.message).toBe(
+      `@agent-native/core/client/editor exports moved to multiple entrypoints: RegistryBlockDataProvider -> @agent-native/core/blocks; uploadEditorImage -> @agent-native/core/client/uploads; all other exports -> @agent-native/toolkit/editor. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
     );
   });
 
@@ -129,6 +182,39 @@ describe("AgentNativeUpgradeError", () => {
     expect(execution.status).not.toBe(0);
     expect(execution.stderr).toContain(
       `@fixture/removed moved to @fixture/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+    );
+  });
+
+  it("keeps the shipped editor tombstone error in a minified bundle", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-editor-tombstone-"));
+    roots.push(root);
+    const output = path.join(root, "bundle.mjs");
+
+    await build({
+      entryPoints: [
+        fileURLToPath(
+          new URL("../client/tombstone/editor.ts", import.meta.url),
+        ),
+      ],
+      outfile: output,
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      minify: true,
+    });
+
+    const execution = spawnSync(process.execPath, [output], {
+      encoding: "utf-8",
+    });
+    expect(execution.status).not.toBe(0);
+    expect(execution.stderr).toContain(
+      "RegistryBlockDataProvider -> @agent-native/core/blocks",
+    );
+    expect(execution.stderr).toContain(
+      "uploadEditorImage -> @agent-native/core/client/uploads",
+    );
+    expect(execution.stderr).toContain(
+      `all other exports -> @agent-native/toolkit/editor. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
     );
   });
 });

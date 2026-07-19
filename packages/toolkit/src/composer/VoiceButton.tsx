@@ -15,17 +15,9 @@ import {
   IconX,
 } from "@tabler/icons-react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
-import {
-  type VoiceProviderStatus,
-  useVoiceProviderStatus,
-} from "../voice-provider-status.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import {
   useRealtimeVoiceModeCopy,
   useRealtimeVoiceModeOptional,
@@ -49,7 +41,7 @@ export interface VoiceButtonProps {
 }
 
 export function isRealtimeVoiceSetupRequired(
-  status: VoiceProviderStatus | null,
+  status: { builder?: boolean; openai?: boolean } | null,
   builderConfigured: boolean | null,
 ): boolean {
   return (
@@ -61,11 +53,12 @@ export function isRealtimeVoiceSetupRequired(
 }
 
 export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
+  const adapters = useComposerRuntimeAdapters();
   const { state, start, stop, supported } = voice;
   const realtimeVoice = useRealtimeVoiceModeOptional();
   const realtimeCopy = useRealtimeVoiceModeCopy();
-  const voiceProviders = useVoiceProviderStatus();
-  const builderConnect = useBuilderConnectFlow({
+  const voiceProviders = adapters.voice!.useProviderStatus!();
+  const builderConnect = adapters.builder!.useConnectFlow!({
     trackingSource: "realtime_voice",
     trackingFlow: "voice_transcription",
     onConnected: () => voiceProviders.refresh(),

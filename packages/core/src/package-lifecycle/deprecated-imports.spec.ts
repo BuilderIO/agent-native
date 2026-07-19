@@ -32,7 +32,7 @@ describe("scanDeprecatedImports", () => {
     expect(isMigrationManifestActive(manifest, "0.112.0")).toBe(true);
   });
 
-  it("keeps the framework-wired composer on its focused Core entry", () => {
+  it("activates the root-barrel move to the framework-wired composer entry", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest).not.toBeNull();
     expect(manifest?.sinceVersion).toBe("0.110.0");
@@ -47,11 +47,11 @@ describe("scanDeprecatedImports", () => {
         : null,
     ).toMatchObject({
       to: "@agent-native/core/client/composer",
-      status: "planned",
+      status: "active",
     });
   });
 
-  it("prepublishes the split editor adapter destinations as planned", () => {
+  it("activates the split editor adapter destinations", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     const clientMove = manifest?.moves["@agent-native/core/client"];
     const adapterSymbols = [
@@ -70,18 +70,18 @@ describe("scanDeprecatedImports", () => {
     ];
 
     expect(manifest?.moves["@agent-native/core/client/editor"]?.status).toBe(
-      "planned",
+      undefined,
     );
     expect(
       manifest?.moves["@agent-native/core/client/rich-markdown-editor"]?.status,
-    ).toBe("planned");
+    ).toBeUndefined();
     expect(clientMove).toBeDefined();
     for (const symbol of adapterSymbols) {
       expect(
         clientMove
           ? resolveMigrationSymbolMove(clientMove, symbol)?.status
           : null,
-      ).toBe("planned");
+      ).toBe("active");
     }
     for (const specifier of [
       "@agent-native/core/client/editor",
@@ -93,13 +93,13 @@ describe("scanDeprecatedImports", () => {
         move ? resolveMigrationSymbolMove(move, "RichMarkdownEditor") : null,
       ).toMatchObject({
         to: "@agent-native/toolkit/editor",
-        status: "planned",
+        status: "active",
       });
       expect(
         move ? resolveMigrationSymbolMove(move, "uploadEditorImage") : null,
       ).toMatchObject({
         to: "@agent-native/core/client/uploads",
-        status: "planned",
+        status: "active",
       });
       expect(
         move
@@ -107,14 +107,25 @@ describe("scanDeprecatedImports", () => {
           : null,
       ).toMatchObject({
         to: "@agent-native/core/blocks",
-        status: "planned",
+        status: "active",
+      });
+      expect(
+        move
+          ? resolveMigrationSymbolMove(move, "RegistryBlockDataProvider")
+          : null,
+      ).toMatchObject({
+        to: "@agent-native/core/blocks",
+        status: "active",
       });
     }
+    const testingMove = manifest?.moves["@agent-native/core/testing"];
     expect(
-      manifest?.moves["@agent-native/core/testing"]?.symbols?.DragHandle,
+      testingMove
+        ? resolveMigrationSymbolMove(testingMove, "DragHandle")
+        : null,
     ).toMatchObject({
       to: "@agent-native/toolkit/editor",
-      status: "planned",
+      status: "active",
     });
   });
 
