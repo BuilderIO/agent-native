@@ -1249,6 +1249,7 @@ export const contentEncryptedVaultCiphertextStaging = table(
     objectId: text("object_id"),
     revisionId: text("revision_id"),
     jobId: text("job_id"),
+    grantId: text("grant_id"),
     recoveryWrapHash: text("recovery_wrap_hash"),
     evidenceKind: text("evidence_kind"),
     evidenceHash: text("evidence_hash"),

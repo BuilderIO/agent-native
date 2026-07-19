@@ -1340,6 +1340,12 @@ const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_enrollment_sas_decision_unique
         ON content_encrypted_vault_enrollment_ceremonies (sas_decision_id)`,
     },
+    {
+      version: 91,
+      name: "content-private-vault-grant-ciphertext-staging",
+      sql: `ALTER TABLE content_encrypted_vault_ciphertext_staging
+        ADD COLUMN IF NOT EXISTS grant_id TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

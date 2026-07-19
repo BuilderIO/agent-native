@@ -16,6 +16,7 @@ export const PRIVATE_VAULT_CIPHERTEXT_STAGE_TTL_MS = 24 * 60 * 60 * 1000;
 export const PRIVATE_VAULT_CIPHERTEXT_CLAIM_MS = 5 * 60 * 1000;
 export const PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART = "recovery-wrap";
 export const PRIVATE_VAULT_CONTROL_EVIDENCE_STAGE_PART = "control-evidence";
+export const PRIVATE_VAULT_GRANT_STAGE_PART = "grant";
 
 export type PrivateVaultCiphertextStagePhase =
   | "active"
@@ -41,6 +42,7 @@ const stageCoordinateSchema = protectedCiphertextCoordinateSchema.refine(
   (coordinate) =>
     (coordinate.kind === "object" && coordinate.part === "header") ||
     coordinate.kind === "job" ||
+    coordinate.kind === "grant" ||
     coordinate.kind === "recovery-wrap" ||
     coordinate.kind === "control-evidence",
   "Only object revision headers, job request/results, recovery wraps, and control evidence may be staged",
@@ -48,7 +50,9 @@ const stageCoordinateSchema = protectedCiphertextCoordinateSchema.refine(
 
 export type PrivateVaultStageCoordinate = Extract<
   ProtectedCiphertextCoordinate,
-  { kind: "object" | "job" | "recovery-wrap" | "control-evidence" }
+  {
+    kind: "object" | "job" | "grant" | "recovery-wrap" | "control-evidence";
+  }
 >;
 
 export interface PrivateVaultCiphertextStage {
@@ -164,6 +168,8 @@ function stageValues(entry: PrivateVaultCiphertextStage) {
     revisionId:
       entry.coordinate.kind === "object" ? entry.coordinate.revisionId : null,
     jobId: entry.coordinate.kind === "job" ? entry.coordinate.jobId : null,
+    grantId:
+      entry.coordinate.kind === "grant" ? entry.coordinate.grantId : null,
     recoveryWrapHash:
       entry.coordinate.kind === "recovery-wrap"
         ? entry.coordinate.recoveryWrapHash
@@ -179,9 +185,11 @@ function stageValues(entry: PrivateVaultCiphertextStage) {
     part:
       entry.coordinate.kind === "recovery-wrap"
         ? PRIVATE_VAULT_RECOVERY_WRAP_STAGE_PART
-        : entry.coordinate.kind === "control-evidence"
-          ? PRIVATE_VAULT_CONTROL_EVIDENCE_STAGE_PART
-          : entry.coordinate.part,
+        : entry.coordinate.kind === "grant"
+          ? PRIVATE_VAULT_GRANT_STAGE_PART
+          : entry.coordinate.kind === "control-evidence"
+            ? PRIVATE_VAULT_CONTROL_EVIDENCE_STAGE_PART
+            : entry.coordinate.part,
     stagedAt: entry.stagedAt,
     expiresAt: entry.expiresAt,
     phase: entry.phase,
@@ -200,6 +208,7 @@ function parseRow(
     row.objectId !== null &&
     row.revisionId !== null &&
     row.jobId === null &&
+    row.grantId === null &&
     row.recoveryWrapHash === null &&
     row.evidenceKind === null &&
     row.evidenceHash === null
@@ -216,6 +225,7 @@ function parseRow(
     row.objectId === null &&
     row.revisionId === null &&
     row.jobId !== null &&
+    row.grantId === null &&
     row.recoveryWrapHash === null &&
     row.evidenceKind === null &&
     row.evidenceHash === null
@@ -231,6 +241,7 @@ function parseRow(
     row.objectId === null &&
     row.revisionId === null &&
     row.jobId === null &&
+    row.grantId === null &&
     row.recoveryWrapHash !== null &&
     row.evidenceKind === null &&
     row.evidenceHash === null &&
@@ -246,6 +257,7 @@ function parseRow(
     row.objectId === null &&
     row.revisionId === null &&
     row.jobId === null &&
+    row.grantId === null &&
     row.recoveryWrapHash === null &&
     (row.evidenceKind === "genesis" || row.evidenceKind === "recovery") &&
     row.evidenceHash !== null &&
@@ -256,6 +268,22 @@ function parseRow(
       vaultId: row.vaultId,
       evidenceKind: row.evidenceKind,
       evidenceHash: row.evidenceHash,
+    };
+  } else if (
+    row.coordinateKind === "grant" &&
+    row.objectId === null &&
+    row.revisionId === null &&
+    row.jobId === null &&
+    row.grantId !== null &&
+    row.recoveryWrapHash === null &&
+    row.evidenceKind === null &&
+    row.evidenceHash === null &&
+    row.part === PRIVATE_VAULT_GRANT_STAGE_PART
+  ) {
+    physicalCoordinate = {
+      kind: "grant",
+      vaultId: row.vaultId,
+      grantId: row.grantId,
     };
   } else {
     throw new Error(
@@ -388,9 +416,11 @@ export const sqlPrivateVaultCiphertextStagingStore: PrivateVaultCiphertextStagin
             ? entry.coordinate.objectId
             : entry.coordinate.kind === "job"
               ? entry.coordinate.jobId
-              : entry.coordinate.kind === "recovery-wrap"
-                ? entry.coordinate.recoveryWrapHash
-                : entry.coordinate.evidenceHash;
+              : entry.coordinate.kind === "grant"
+                ? entry.coordinate.grantId
+                : entry.coordinate.kind === "recovery-wrap"
+                  ? entry.coordinate.recoveryWrapHash
+                  : entry.coordinate.evidenceHash;
         const [parentTombstone] = await tx
           .select({ id: schema.contentEncryptedVaultRetentionQueue.id })
           .from(schema.contentEncryptedVaultRetentionQueue)
@@ -658,6 +688,28 @@ export const sqlPrivateVaultCiphertextStagingStore: PrivateVaultCiphertextStagin
           )
           .limit(1);
         return Boolean(binding);
+      }
+
+      if (entry.coordinate.kind === "grant") {
+        const [grant] = await getDb()
+          .select({ grantId: schema.contentEncryptedVaultGrants.grantId })
+          .from(schema.contentEncryptedVaultGrants)
+          .where(
+            and(
+              eq(
+                schema.contentEncryptedVaultGrants.grantId,
+                entry.coordinate.grantId,
+              ),
+              eq(schema.contentEncryptedVaultGrants.vaultId, entry.vaultId),
+              eq(
+                schema.contentEncryptedVaultGrants.ownerEmail,
+                entry.ownerEmail,
+              ),
+              eq(schema.contentEncryptedVaultGrants.orgId, entry.orgId),
+            ),
+          )
+          .limit(1);
+        return Boolean(grant);
       }
 
       const table =
