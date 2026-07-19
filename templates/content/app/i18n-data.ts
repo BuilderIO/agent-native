@@ -3937,6 +3937,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
 
 const localFilesMessagesByLocale = {
   "zh-CN": {
+    interruptedPicker:
+      "上次文件夹选择器未能完成，因此已在此浏览器配置文件中停用。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedElectron:
       "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedBrowser:
@@ -3983,6 +3985,8 @@ const localFilesMessagesByLocale = {
     removing: "正在移除...",
   },
   "es-ES": {
+    interruptedPicker:
+      "El selector de carpetas no terminó la última vez, por lo que se ha desactivado en este perfil del navegador. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedElectron:
       "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedBrowser:
@@ -4031,6 +4035,8 @@ const localFilesMessagesByLocale = {
     removing: "Quitando...",
   },
   "fr-FR": {
+    interruptedPicker:
+      "Le sélecteur de dossiers ne s’est pas terminé la dernière fois. Il a donc été désactivé dans ce profil de navigateur. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedElectron:
       "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedBrowser:
@@ -4080,6 +4086,8 @@ const localFilesMessagesByLocale = {
     removing: "Suppression...",
   },
   "de-DE": {
+    interruptedPicker:
+      "Die Ordnerauswahl wurde beim letzten Mal nicht abgeschlossen und ist daher in diesem Browserprofil deaktiviert. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedElectron:
       "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedBrowser:
@@ -4127,6 +4135,8 @@ const localFilesMessagesByLocale = {
     removing: "Wird entfernt...",
   },
   "ja-JP": {
+    interruptedPicker:
+      "前回フォルダーピッカーが完了しなかったため、このブラウザプロフィールでは無効になっています。Agent Native Desktop、Chrome、Edge、または別の Chromium ブラウザを使用してください。",
     unsupportedElectron:
       "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     unsupportedBrowser:
@@ -4175,6 +4185,8 @@ const localFilesMessagesByLocale = {
     removing: "削除中...",
   },
   "ko-KR": {
+    interruptedPicker:
+      "지난번에 폴더 선택기가 완료되지 않아 이 브라우저 프로필에서 비활성화되었습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedElectron:
       "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedBrowser:
@@ -4223,6 +4235,8 @@ const localFilesMessagesByLocale = {
     removing: "제거 중...",
   },
   "pt-BR": {
+    interruptedPicker:
+      "O seletor de pastas não foi concluído da última vez, por isso foi desativado neste perfil do navegador. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedElectron:
       "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedBrowser:
@@ -4271,6 +4285,8 @@ const localFilesMessagesByLocale = {
     removing: "Removendo...",
   },
   "hi-IN": {
+    interruptedPicker:
+      "पिछली बार फ़ोल्डर पिकर पूरा नहीं हुआ था, इसलिए इसे इस ब्राउज़र प्रोफ़ाइल में बंद कर दिया गया है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedElectron:
       "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedBrowser:
@@ -4318,6 +4334,8 @@ const localFilesMessagesByLocale = {
     removing: "हटाया जा रहा है...",
   },
   "ar-SA": {
+    interruptedPicker:
+      "لم يكتمل منتقي المجلدات في المرة السابقة، لذلك تم تعطيله في ملف تعريف المتصفح هذا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedElectron:
       "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedBrowser:
