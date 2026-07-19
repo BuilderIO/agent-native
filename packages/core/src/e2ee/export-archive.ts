@@ -18,7 +18,8 @@ import {
 const COMMON = E2EE_ENVELOPE_FIELDS.common;
 const EXPORT = E2EE_ENVELOPE_FIELDS.exportArchive;
 const TYPE = "export-archive";
-const MAX_ENCODED_BYTES = E2EE_SIZE_LIMITS.exportPlaintextBytes + 64 * 1024;
+export const ANC_V1_EXPORT_ARCHIVE_MAX_ENCODED_BYTES =
+  E2EE_SIZE_LIMITS.exportPlaintextBytes + 64 * 1024;
 
 export class AncV1ExportArchiveError extends Error {
   constructor() {
@@ -121,7 +122,7 @@ function headerMap(metadata: AncV1ExportArchiveMetadata, nonce: Uint8Array) {
 function decode(encoded: Uint8Array) {
   if (
     !(encoded instanceof Uint8Array) ||
-    encoded.byteLength > MAX_ENCODED_BYTES
+    encoded.byteLength > ANC_V1_EXPORT_ARCHIVE_MAX_ENCODED_BYTES
   )
     fail();
   let map: ReadonlyMap<number, AncV1CanonicalValue>;
@@ -129,7 +130,7 @@ function decode(encoded: Uint8Array) {
     map = decodeAncV1Envelope(
       encoded,
       [...Object.values(COMMON), ...Object.values(EXPORT)],
-      { maxBytes: MAX_ENCODED_BYTES },
+      { maxBytes: ANC_V1_EXPORT_ARCHIVE_MAX_ENCODED_BYTES },
     );
   } catch {
     return fail();

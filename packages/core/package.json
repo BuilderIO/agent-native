@@ -13,7 +13,8 @@
     "directory": "packages/core"
   },
   "bin": {
-    "agent-native": "bin/agent-native.js"
+    "agent-native": "bin/agent-native.js",
+    "agent-native-private-vault-recover": "bin/agent-native-private-vault-recover.js"
   },
   "files": [
     "bin",

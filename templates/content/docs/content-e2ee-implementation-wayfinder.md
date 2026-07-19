@@ -1318,6 +1318,19 @@ Scope:
 - Deliberate legacy-plaintext cleanup ceremony and backup-retention disclosure.
 - No destructive startup migration and no production `drizzle-kit push`.
 
+Implementation checkpoint (2026-07-18): the frozen `anc/v1` export archive now
+has matching Core and signed-native seal/open vectors, and signed Desktop can
+seal an archive using a recovery phrase collected wholly inside native UI. The
+published Core package also carries a separate
+`agent-native-private-vault-recover` binary: it has no telemetry or network
+imports, accepts the phrase only through hidden TTY bytes (never arguments,
+environment, or a pipe), derives the root locally, authenticates the archive,
+and atomically creates a non-overwriting mode-0600 plaintext file. Its synthetic
+round trip, invalid checksum, existing-file, and output-symlink cases are
+executable tests. The canonical migration payload and export-before-cleanup
+wiring remain part of this milestone; the existence of the decryptor alone is
+not migration proof.
+
 Exit gate:
 
 - A synthetic legacy vault migrates, verifies, exports, recovers, resumes after interruption, rolls back before cleanup, and proves what remains in backups.
