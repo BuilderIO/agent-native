@@ -1,4 +1,5 @@
 import { execFile as execFileCallback, spawn } from "node:child_process";
+import { isAbsolute } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
@@ -12,14 +13,29 @@ const DRIVER_TOOLS = "Read,Glob,Grep,Edit,Write";
 const DEFAULT_MAX_EVENTS = 2_000;
 const DEFAULT_MAX_STREAM_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_STDERR_BYTES = 128 * 1024;
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
+const DEFAULT_TERMINATION_GRACE_MS = 2_000;
+const DEFAULT_FORCE_SETTLE_MS = 250;
+const MAX_ERROR_MESSAGE_LENGTH = 200;
 
-const API_FALLBACK_ENV_KEYS = [
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_BASE_URL",
-  "CLAUDE_CODE_USE_BEDROCK",
-  "CLAUDE_CODE_USE_VERTEX",
-  "CLAUDE_CODE_USE_FOUNDRY",
+const SAFE_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "TERM",
+  "NO_COLOR",
+  "FORCE_COLOR",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  // Claude Code uses this as its config root; HOME remains required for its
+  // default config and macOS Keychain-backed subscription login.
+  "CLAUDE_CONFIG_DIR",
 ] as const;
 
 export type ClaudeCodeParticipantRole = "watchdog" | "driver";
@@ -35,10 +51,6 @@ export interface ClaudeCodeParticipantSession {
   sessionId?: string;
   resumeSessionId?: string;
   persist?: boolean;
-}
-
-export interface ClaudeCodeParticipantSettings {
-  statusLineCommand?: string;
 }
 
 export interface ClaudeCodeParticipantEvent {
@@ -72,7 +84,7 @@ export interface ClaudeCodeParticipantSpawnOptions {
 }
 
 export type ClaudeCodeParticipantSpawn = (
-  command: "claude",
+  command: string,
   args: string[],
   options: ClaudeCodeParticipantSpawnOptions,
 ) => ClaudeCodeParticipantChild;
@@ -83,15 +95,26 @@ export interface RunClaudeCodeParticipantOptions {
   cwd: string;
   model?: string;
   session?: ClaudeCodeParticipantSession;
-  settings?: ClaudeCodeParticipantSettings;
+  /** Either the fixed CLI name or an absolute executable path for packaged apps. */
+  command?: string;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   maxEvents?: number;
   maxStreamBytes?: number;
   maxStderrBytes?: number;
+  timeoutMs?: number;
+  terminationGraceMs?: number;
+  forceSettleMs?: number;
   onEvent?: (event: ClaudeCodeParticipantEvent) => void;
-  preflight?: () => Promise<ClaudeCodeSubscriptionStatus>;
+  preflight?: (
+    context: ClaudeCodeParticipantPreflightContext,
+  ) => Promise<ClaudeCodeSubscriptionStatus>;
   spawnProcess?: ClaudeCodeParticipantSpawn;
+}
+
+export interface ClaudeCodeParticipantPreflightContext {
+  command: string;
+  env: NodeJS.ProcessEnv;
 }
 
 export class ClaudeCodeSubscriptionRequiredError extends Error {
@@ -101,11 +124,25 @@ export class ClaudeCodeSubscriptionRequiredError extends Error {
   }
 }
 
-export async function readClaudeCodeSubscriptionStatus(): Promise<ClaudeCodeSubscriptionStatus> {
-  const { stdout } = await execFile("claude", ["auth", "status", "--json"], {
-    encoding: "utf8",
-    maxBuffer: 128 * 1024,
-  });
+export interface ClaudeCodeSubscriptionStatusOptions {
+  command?: string;
+  env?: NodeJS.ProcessEnv;
+  execute?: typeof execFile;
+}
+
+export async function readClaudeCodeSubscriptionStatus(
+  options: ClaudeCodeSubscriptionStatusOptions = {},
+): Promise<ClaudeCodeSubscriptionStatus> {
+  const execute = options.execute ?? execFile;
+  const { stdout } = await execute(
+    resolveCommand(options.command, "claude"),
+    ["auth", "status", "--json"],
+    {
+      encoding: "utf8",
+      maxBuffer: 128 * 1024,
+      env: safeEnvironment(options.env ?? process.env),
+    },
+  );
   const parsed = JSON.parse(stdout) as unknown;
   const status = asRecord(parsed);
   if (!status || typeof status.loggedIn !== "boolean") {
@@ -123,19 +160,20 @@ export async function runClaudeCodeParticipant(
   options: RunClaudeCodeParticipantOptions,
 ): Promise<ClaudeCodeParticipantResult> {
   validateInput(options);
-  const subscription = await (
-    options.preflight ?? readClaudeCodeSubscriptionStatus
-  )();
+  const env = safeEnvironment(options.env ?? process.env);
+  const command = resolveCommand(options.command, "claude");
+  const subscription = await (options.preflight
+    ? options.preflight({ command, env })
+    : readClaudeCodeSubscriptionStatus({ command, env }));
   assertClaudeCodeSubscription(subscription);
   if (options.signal?.aborted) throw createAbortError();
 
   const args = buildClaudeCodeParticipantArgs(options);
-  const env = withoutApiFallback(options.env ?? process.env);
   const spawnProcess =
     options.spawnProcess ??
     ((command, commandArgs, spawnOptions) =>
       spawn(command, commandArgs, spawnOptions));
-  const child = spawnProcess("claude", args, {
+  const child = spawnProcess(command, args, {
     cwd: options.cwd,
     env,
     shell: false,
@@ -146,10 +184,7 @@ export async function runClaudeCodeParticipant(
 }
 
 export function buildClaudeCodeParticipantArgs(
-  options: Pick<
-    RunClaudeCodeParticipantOptions,
-    "role" | "model" | "session" | "settings"
-  >,
+  options: Pick<RunClaudeCodeParticipantOptions, "role" | "model" | "session">,
 ): string[] {
   const args = [
     "--print",
@@ -184,17 +219,7 @@ export function buildClaudeCodeParticipantArgs(
   const resumeSessionId = readString(options.session?.resumeSessionId);
   if (sessionId) args.push("--session-id", sessionId);
   if (resumeSessionId) args.push("--resume", resumeSessionId);
-  if (options.session?.persist === false) args.push("--no-session-persistence");
-
-  const statusLineCommand = readString(options.settings?.statusLineCommand);
-  if (statusLineCommand) {
-    args.push(
-      "--settings",
-      JSON.stringify({
-        statusLine: { type: "command", command: statusLineCommand },
-      }),
-    );
-  }
+  if (options.session?.persist !== true) args.push("--no-session-persistence");
   return args;
 }
 
@@ -211,7 +236,17 @@ function collectClaudeCodeParticipantResult(
     options.maxStderrBytes,
     DEFAULT_MAX_STDERR_BYTES,
   );
+  const timeoutMs = boundedDuration(options.timeoutMs, DEFAULT_TIMEOUT_MS);
+  const terminationGraceMs = boundedDuration(
+    options.terminationGraceMs,
+    DEFAULT_TERMINATION_GRACE_MS,
+  );
+  const forceSettleMs = boundedDuration(
+    options.forceSettleMs,
+    DEFAULT_FORCE_SETTLE_MS,
+  );
   const decoder = new StringDecoder("utf8");
+  const stderrDecoder = new StringDecoder("utf8");
   const events: ClaudeCodeParticipantEvent[] = [];
   let pending = "";
   let streamBytes = 0;
@@ -222,19 +257,46 @@ function collectClaudeCodeParticipantResult(
 
   return new Promise((resolve, reject) => {
     let settled = false;
-    const cleanup = () => options.signal?.removeEventListener("abort", abort);
+    let terminationTimer: NodeJS.Timeout | undefined;
+    let forceSettleTimer: NodeJS.Timeout | undefined;
+    const timeoutTimer = setTimeout(() => {
+      stopWithError(new Error(`Claude Code timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+    timeoutTimer.unref?.();
+    const cleanup = () => {
+      options.signal?.removeEventListener("abort", abort);
+      clearTimeout(timeoutTimer);
+      if (terminationTimer) clearTimeout(terminationTimer);
+      if (forceSettleTimer) clearTimeout(forceSettleTimer);
+    };
     const finishError = (error: Error) => {
       if (settled) return;
       settled = true;
       cleanup();
-      reject(error);
+      reject(safeError(error));
     };
     const stopWithError = (error: Error) => {
       if (fatalError) return;
       fatalError = error;
+      terminationTimer = setTimeout(() => {
+        if (settled) return;
+        forceSettleTimer = setTimeout(() => {
+          finishError(fatalError ?? error);
+        }, forceSettleMs);
+        forceSettleTimer.unref?.();
+        child.kill("SIGKILL");
+      }, terminationGraceMs);
+      terminationTimer.unref?.();
       child.kill("SIGTERM");
     };
     const abort = () => stopWithError(createAbortError());
+    const streamError = (error: Error) => {
+      if (!settled) stopWithError(error);
+    };
+
+    child.stdin.on("error", streamError);
+    child.stdout.on("error", streamError);
+    child.stderr.on("error", streamError);
 
     if (options.signal) {
       if (options.signal.aborted) abort();
@@ -263,14 +325,13 @@ function collectClaudeCodeParticipantResult(
       }
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
-      const text = chunk.toString();
+      const encoded = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       const remaining = Math.max(0, maxStderrBytes - stderrBytes);
       if (remaining === 0) {
         stderrTruncated = true;
         return;
       }
-      const encoded = Buffer.from(text);
-      stderr += encoded.subarray(0, remaining).toString();
+      stderr += stderrDecoder.write(encoded.subarray(0, remaining));
       stderrBytes += Math.min(encoded.length, remaining);
       if (encoded.length > remaining) stderrTruncated = true;
     });
@@ -279,6 +340,7 @@ function collectClaudeCodeParticipantResult(
       if (settled) return;
       try {
         pending += decoder.end();
+        stderr += stderrDecoder.end();
         if (pending.trim()) {
           consumeJsonLine(pending, events, maxEvents, options.onEvent);
         }
@@ -292,7 +354,7 @@ function collectClaudeCodeParticipantResult(
       if (exitCode !== 0) {
         finishError(
           new Error(
-            `Claude Code exited with ${exitSignal ?? exitCode ?? "unknown"}${stderr ? `: ${stderr.trim()}` : ""}`,
+            `Claude Code exited with ${exitSignal ?? exitCode ?? "unknown"}${stderr ? `: ${summarizeStderr(stderr)}` : ""}`,
           ),
         );
         return;
@@ -302,11 +364,15 @@ function collectClaudeCodeParticipantResult(
       resolve({
         exitCode: 0,
         events,
-        stderr,
+        stderr: sanitizeStderr(stderr),
         stderrTruncated,
       });
     });
-    child.stdin.end(options.prompt);
+    try {
+      child.stdin.end(options.prompt);
+    } catch (error) {
+      stopWithError(toError(error));
+    }
   });
 }
 
@@ -359,10 +425,12 @@ function assertClaudeCodeSubscription(
   }
 }
 
-function withoutApiFallback(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env = { ...input };
-  for (const key of API_FALLBACK_ENV_KEYS) delete env[key];
-  return env;
+function safeEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    SAFE_ENVIRONMENT_KEYS.flatMap((key) =>
+      typeof input[key] === "string" ? [[key, input[key]]] : [],
+    ),
+  );
 }
 
 function validateInput(options: RunClaudeCodeParticipantOptions): void {
@@ -372,12 +440,31 @@ function validateInput(options: RunClaudeCodeParticipantOptions): void {
   if (options.session?.sessionId && options.session.resumeSessionId) {
     throw new Error("Choose either a new Claude session id or a resume id.");
   }
+  resolveCommand(options.command, "claude");
 }
 
 function boundedLimit(value: number | undefined, maximum: number): number {
   return Number.isSafeInteger(value) && (value ?? 0) > 0
     ? Math.min(value as number, maximum)
     : maximum;
+}
+
+function boundedDuration(value: number | undefined, fallback: number): number {
+  return Number.isSafeInteger(value) && (value ?? 0) > 0
+    ? Math.min(value as number, DEFAULT_TIMEOUT_MS)
+    : fallback;
+}
+
+function resolveCommand(
+  command: string | undefined,
+  defaultCommand: string,
+): string {
+  const value = readString(command) ?? defaultCommand;
+  if (value === defaultCommand) return value;
+  if (value.includes("\0") || !isAbsolute(value)) {
+    throw new Error("Claude Code command must be an absolute executable path.");
+  }
+  return value;
 }
 
 function createAbortError(): Error {
@@ -388,6 +475,29 @@ function createAbortError(): Error {
 
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
+}
+
+function safeError(error: Error): Error {
+  const safe = new Error(summarizeStderr(error.message));
+  safe.name = error.name;
+  return safe;
+}
+
+function summarizeStderr(value: string): string {
+  return sanitizeStderr(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
+
+function sanitizeStderr(value: string): string {
+  return value
+    .replace(/\bBearer\s+\S+/gi, "Bearer <redacted>")
+    .replace(
+      /(["']?)([A-Za-z_]*(?:token|key|secret|password)[A-Za-z_]*)\1\s*([=:])\s*(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi,
+      '$1$2$1$3"<redacted>"',
+    )
+    .replace(/\b(?:sk|rk)-[A-Za-z0-9_-]{8,}\b/g, "<redacted>");
 }
 
 function readString(value: unknown): string | undefined {
