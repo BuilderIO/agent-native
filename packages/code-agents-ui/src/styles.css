@@ -1035,13 +1035,10 @@
   gap: 6px;
 }
 
-/* The Multi-Frontier control shares the compact composer toolbar. Keep its two
-   text controls quiet and sized to their labels rather than the toolbar's
-   icon-button rule. */
 .code-agents-multi-frontier-control {
   min-width: 0;
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   gap: 2px;
 }
@@ -1051,7 +1048,7 @@
   .code-agents-multi-frontier-mode-select {
   min-width: 0;
   max-width: 9.5rem;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
@@ -1068,6 +1065,7 @@
 .code-agents-standard-composer
   .code-agents-multi-frontier-control
   button:not(.desktop-select-trigger) {
+  flex: 0 0 auto;
   width: auto;
   min-width: 0;
   max-width: 7rem;
