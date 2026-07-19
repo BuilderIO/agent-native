@@ -27,6 +27,7 @@ export interface PrivateVaultMigrationLedgerProjection {
   readonly migrationId: string;
   readonly vaultId: string;
   readonly state: MigrationState;
+  readonly sourceSnapshotHash: string;
   readonly sourceCount: number;
   readonly verifiedCount: number;
   readonly cutoverManifestObjectId: string | null;
@@ -35,9 +36,11 @@ export interface PrivateVaultMigrationLedgerProjection {
 }
 
 export interface PrivateVaultMigrationItemProjection {
+  readonly migrationId: string;
   readonly sourceDocumentId: string;
   readonly parentSourceDocumentId: string | null;
   readonly objectId: string;
+  readonly sourceDigest: string;
   readonly state: "pending" | "sealed" | "verified" | "cleaned";
   readonly sealedRevisionId: string | null;
   readonly sealedCiphertextHash: string | null;
@@ -57,7 +60,7 @@ export interface PrivateVaultMigrationSourceProjection {
   readonly updatedAt: string;
 }
 
-interface MigrationSnapshot {
+export interface MigrationSnapshot {
   readonly ledger: PrivateVaultMigrationLedgerProjection;
   readonly items: readonly PrivateVaultMigrationItemProjection[];
 }
@@ -472,7 +475,7 @@ export class PrivateVaultContentMigrationRuntime {
       parentId,
       title: source.title,
       content: source.content,
-      description: source.description || null,
+      description: source.description,
       icon: source.icon,
       position: source.position,
       isFavorite: source.isFavorite,

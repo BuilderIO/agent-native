@@ -30,6 +30,7 @@ function fixture(allowed = true) {
     })),
     listLegacyMigrationCandidates: vi.fn(async () => ["legacy-document"]),
     migrateLegacyContent: vi.fn(async () => ({ state: "cutover" })),
+    exportLegacyMigration: vi.fn(async () => ({ exportId: "55".repeat(16) })),
     setApplicationState: vi.fn(),
   };
   return {
@@ -73,6 +74,9 @@ describe("signed Private Content IPC", () => {
       mode: "start",
       sourceDocumentIds: ["legacy-document"],
     });
+    await source.handlers.exportMigration(event, {
+      migrationId: "55".repeat(16),
+    });
     await source.handlers.setApplicationState(event, {
       view: "editor",
       documentId,
@@ -109,6 +113,9 @@ describe("signed Private Content IPC", () => {
     expect(source.runtime.migrateLegacyContent).toHaveBeenCalledWith({
       sourceDocumentIds: ["legacy-document"],
     });
+    expect(source.runtime.exportLegacyMigration).toHaveBeenCalledWith(
+      "55".repeat(16),
+    );
     expect(source.runtime.setApplicationState).toHaveBeenCalledWith({
       view: "editor",
       documentId,
@@ -144,6 +151,11 @@ describe("signed Private Content IPC", () => {
       source.handlers.migrate({} as never, {
         mode: "start",
         sourceDocumentIds: [],
+      }),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(
+      source.handlers.exportMigration({} as never, {
+        migrationId: "not-a-migration",
       }),
     ).resolves.toMatchObject({ ok: false });
     await expect(

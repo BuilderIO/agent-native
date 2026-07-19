@@ -175,6 +175,7 @@ import { createPrivateVaultContentEnrollmentRuntime } from "./private-vault/cont
 import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
 import { createPrivateVaultContentJobActionRegistry } from "./private-vault/content-job-action-registry";
 import { PrivateVaultContentMcpBridge } from "./private-vault/content-mcp-server";
+import { PrivateVaultLocalMigrationArchiveWriter } from "./private-vault/content-migration-archive-writer";
 import {
   createPrivateVaultContentRuntime,
   type PrivateVaultContentRuntime,
@@ -5798,6 +5799,24 @@ function resolvePrivateVaultContentRuntime() {
         runtime: createPrivateVaultContentRuntime({
           session: contentSession,
           origin,
+          archiveWriter: new PrivateVaultLocalMigrationArchiveWriter(
+            async (suggestedName) => {
+              if (!mainWindow) return null;
+              const selected = await dialog.showSaveDialog(mainWindow, {
+                title: "Save Private Vault recovery export",
+                defaultPath: path.join(app.getPath("downloads"), suggestedName),
+                buttonLabel: "Save encrypted export",
+                filters: [
+                  {
+                    name: "Private Vault export",
+                    extensions: ["anpvault"],
+                  },
+                ],
+                properties: ["createDirectory"],
+              });
+              return selected.canceled ? null : selected.filePath;
+            },
+          ),
           brokerActions: {
             create: async (vaultId) =>
               createPrivateVaultContentJobActionRegistry({

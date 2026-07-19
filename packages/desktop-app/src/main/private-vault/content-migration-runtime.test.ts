@@ -20,6 +20,7 @@ import {
   type PrivateVaultMigrationItemProjection,
   type PrivateVaultMigrationLedgerProjection,
   type PrivateVaultMigrationSourceProjection,
+  type MigrationSnapshot,
 } from "./content-migration-runtime.js";
 
 const vaultId = "21".repeat(16);
@@ -58,9 +59,11 @@ const sources: PrivateVaultMigrationSourceProjection[] = [
 function fixture() {
   const items: PrivateVaultMigrationItemProjection[] = sources.map(
     (source, index) => ({
+      migrationId,
       sourceDocumentId: source.id,
       parentSourceDocumentId: source.parentId,
       objectId: (index === 0 ? "51" : "52").repeat(16),
+      sourceDigest: (index === 0 ? "61" : "62").repeat(32),
       state: "pending",
       sealedRevisionId: null,
       sealedCiphertextHash: null,
@@ -70,6 +73,7 @@ function fixture() {
     migrationId,
     vaultId,
     state: "preflight",
+    sourceSnapshotHash: "71".repeat(32),
     sourceCount: items.length,
     verifiedCount: 0,
     cutoverManifestObjectId: manifestObjectId,
@@ -77,8 +81,9 @@ function fixture() {
     cutoverManifestCiphertextHash: null,
   };
   const events: string[] = [];
+  const active = vi.fn(async () => null as MigrationSnapshot | null);
   const hosted: PrivateVaultMigrationHostedClient = {
-    active: vi.fn(async () => null),
+    active,
     candidates: vi.fn(async () => sources.map((source) => source.id)),
     preflight: vi.fn(async () => structuredClone(ledger)),
     status: vi.fn(async () => ({
@@ -185,6 +190,7 @@ function fixture() {
   return {
     runtime,
     hosted,
+    active,
     objects,
     index,
     items,
@@ -210,7 +216,7 @@ describe("Private Vault signed-Desktop migration copier", () => {
 
   it("adopts an active preflight ledger instead of creating a second migration", async () => {
     const source = fixture();
-    source.hosted.active.mockResolvedValueOnce({
+    source.active.mockResolvedValueOnce({
       ledger: structuredClone(source.ledger()),
       items: structuredClone(source.items),
     });
@@ -257,6 +263,14 @@ describe("Private Vault signed-Desktop migration copier", () => {
         }),
       ]),
     );
+    const rootRevisionId = source.items[0]!.sealedRevisionId!;
+    await expect(
+      source.index.readDocument(
+        vaultId,
+        source.items[0]!.objectId,
+        rootRevisionId,
+      ),
+    ).resolves.toMatchObject({ description: "" });
     expect(source.events.indexOf("cutover")).toBeLessThan(
       source.events.indexOf("local-manifest"),
     );

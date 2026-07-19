@@ -184,6 +184,10 @@ describe("PrivateContentSurface privacy disclosure", () => {
       ok: true as const,
       value: { state: "cutover", migrationId: "31".repeat(16) },
     }));
+    const exportMigration = vi.fn(async () => ({
+      ok: true as const,
+      value: { exportId: "41".repeat(16), objectCount: 2 },
+    }));
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -206,6 +210,7 @@ describe("PrivateContentSurface privacy disclosure", () => {
             value: ["legacy-root", "legacy-child"],
           })),
           migrate,
+          exportMigration,
         },
       },
     });
@@ -248,5 +253,21 @@ describe("PrivateContentSurface privacy disclosure", () => {
     expect(container.textContent).toContain(
       "Standard Cloud originals remain until export and recovery are proven.",
     );
+    const exportButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Create recovery export",
+    );
+    await act(async () => {
+      exportButton?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(exportMigration).toHaveBeenCalledWith({
+      migrationId: "31".repeat(16),
+    });
+    expect(JSON.stringify(exportMigration.mock.calls)).not.toContain("vaultId");
+    expect(container.textContent).toContain(
+      "Standard Cloud originals still remain until this exact archive passes a recovery drill.",
+    );
+    expect(container.textContent).not.toContain("Delete Standard Cloud");
   });
 });

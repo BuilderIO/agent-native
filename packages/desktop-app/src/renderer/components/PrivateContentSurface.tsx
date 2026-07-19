@@ -184,6 +184,14 @@ function privateMigrationCandidateIds(value: unknown): string[] {
     : [];
 }
 
+function privateMigrationId(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const migrationId = (value as { migrationId?: unknown }).migrationId;
+  return typeof migrationId === "string" && /^[0-9a-f]{32}$/.test(migrationId)
+    ? migrationId
+    : null;
+}
+
 function privateGrants(value: unknown): DesktopPrivateContentGrantSummary[] {
   if (!value || typeof value !== "object") return [];
   const grants = (value as { grants?: unknown }).grants;
@@ -301,6 +309,8 @@ export default function PrivateContentSurface({
   );
   const [migrationLoading, setMigrationLoading] = useState(false);
   const [migrating, setMigrating] = useState(false);
+  const [migrationId, setMigrationId] = useState<string | null>(null);
+  const [exportingMigration, setExportingMigration] = useState(false);
   const [revokingGrantRef, setRevokingGrantRef] = useState<string | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
     null,
@@ -614,10 +624,38 @@ export default function PrivateContentSurface({
       );
       return;
     }
+    const completedMigrationId = privateMigrationId(response.value);
+    if (!completedMigrationId) {
+      setMigrating(false);
+      setMessage(
+        "Migration proof was incomplete. Standard Cloud remains unchanged.",
+      );
+      return;
+    }
+    setMigrationId(completedMigrationId);
     await Promise.all([loadList(), loadMigrationCandidates()]);
     setMigrating(false);
     setMessage(
       "Encrypted copies verified and cut over. Standard Cloud originals remain until export and recovery are proven.",
+    );
+  };
+
+  const exportStandardCloudMigration = async () => {
+    if (!migrationId) return;
+    setExportingMigration(true);
+    setMessage("");
+    const response = await window.electronAPI.privateContent.exportMigration({
+      migrationId,
+    });
+    setExportingMigration(false);
+    if (!response.ok) {
+      setMessage(
+        "The encrypted recovery export was not saved. Standard Cloud originals remain unchanged.",
+      );
+      return;
+    }
+    setMessage(
+      "Encrypted recovery export saved. Standard Cloud originals still remain until this exact archive passes a recovery drill.",
     );
   };
 
@@ -798,6 +836,17 @@ export default function PrivateContentSurface({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            {migrationId ? (
+              <button
+                disabled={exportingMigration}
+                onClick={() => void exportStandardCloudMigration()}
+                type="button"
+              >
+                {exportingMigration
+                  ? "Creating recovery export…"
+                  : "Create recovery export"}
+              </button>
+            ) : null}
           </details>
           <details
             className="private-content-reader-details"

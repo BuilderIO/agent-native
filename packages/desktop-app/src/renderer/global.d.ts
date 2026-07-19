@@ -715,6 +715,11 @@ interface ElectronAPI {
     ): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
+    exportMigration(
+      request: import("@shared/ipc-channels").DesktopPrivateContentMigrationExportRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
     setApplicationState(
       state: import("@shared/ipc-channels").DesktopPrivateContentApplicationState,
     ): Promise<

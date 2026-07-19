@@ -38,6 +38,9 @@ function harness() {
     listCandidates: vi.fn(async () => ["legacy-document"]),
     migrate: vi.fn(async () => ({ state: "cutover" })),
   };
+  const migrationExport = {
+    export: vi.fn(async () => ({ exportId: "44".repeat(16) })),
+  };
   return {
     actions,
     broker,
@@ -46,6 +49,7 @@ function harness() {
     factory,
     requester,
     migration,
+    migrationExport,
     runtime: new PrivateVaultContentRuntime({
       descriptor: { read: vi.fn(async () => ({ vaultId })) },
       documents: documents as never,
@@ -53,6 +57,7 @@ function harness() {
       broker: factory as never,
       requester,
       migration,
+      migrationExport,
     }),
   };
 }
@@ -74,6 +79,13 @@ describe("PrivateVaultContentRuntime", () => {
       source.runtime.listLegacyMigrationCandidates(),
     ).resolves.toEqual(["legacy-document"]);
     expect(source.migration.listCandidates).toHaveBeenCalledWith(vaultId);
+    await expect(
+      source.runtime.exportLegacyMigration("33".repeat(16)),
+    ).resolves.toEqual({ exportId: "44".repeat(16) });
+    expect(source.migrationExport.export).toHaveBeenCalledWith(
+      vaultId,
+      "33".repeat(16),
+    );
   });
 
   it("starts documents before a separately constructed broker registry", async () => {

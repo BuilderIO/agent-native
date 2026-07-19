@@ -8,9 +8,13 @@ import {
 } from "./content-broker-runtime.js";
 import { PrivateVaultContentDocumentRuntime } from "./content-document-runtime.js";
 import type { PrivateVaultContentSession } from "./content-genesis-transport.js";
+import {
+  PrivateVaultContentMigrationExportRuntime,
+  type PrivateVaultMigrationArchiveWriter,
+} from "./content-migration-export.js";
 import { PrivateVaultContentMigrationRuntime } from "./content-migration-runtime.js";
 import { PrivateVaultContentMigrationTransport } from "./content-migration-transport.js";
-import { createPrivateVaultContentObjectRuntime } from "./content-object-runtime.js";
+import { PrivateVaultContentObjectRuntime } from "./content-object-runtime.js";
 import { PrivateVaultContentObjectTransport } from "./content-object-transport.js";
 import {
   createPrivateVaultContentRequesterRuntime,
@@ -18,6 +22,7 @@ import {
 } from "./content-requester-runtime.js";
 import { PrivateVaultContentRuntimeTransport } from "./content-runtime-transport.js";
 import { createEncryptedContentIndexStore } from "./encrypted-content-index-store.js";
+import { createPrivateVaultNativeServiceClient } from "./native-service-client.js";
 
 interface BrokerLifecycle {
   start(): Promise<void>;
@@ -50,6 +55,10 @@ interface MigrationSurface {
     readonly sourceDocumentIds?: readonly string[];
     readonly migrationId?: string;
   }): Promise<unknown>;
+}
+
+interface MigrationExportSurface {
+  export(vaultId: string, migrationId: string): Promise<unknown>;
 }
 
 type PrivateContentDocuments = DocumentLifecycle &
@@ -87,6 +96,7 @@ export class PrivateVaultContentRuntime {
   ) => BrokerLifecycle;
   readonly #requester: RequesterSurface;
   readonly #migration: MigrationSurface;
+  readonly #migrationExport: MigrationExportSurface;
   #active: {
     vaultId: string;
     broker: BrokerLifecycle | null;
@@ -105,6 +115,7 @@ export class PrivateVaultContentRuntime {
     broker: (actions: PrivateVaultLocalActionRegistry) => BrokerLifecycle;
     requester: RequesterSurface;
     migration: MigrationSurface;
+    migrationExport: MigrationExportSurface;
   }) {
     this.#descriptor = input.descriptor;
     this.#documents = input.documents;
@@ -112,6 +123,7 @@ export class PrivateVaultContentRuntime {
     this.#broker = input.broker;
     this.#requester = input.requester;
     this.#migration = input.migration;
+    this.#migrationExport = input.migrationExport;
   }
 
   start(): Promise<void> {
@@ -234,6 +246,18 @@ export class PrivateVaultContentRuntime {
     }
   }
 
+  async exportLegacyMigration(migrationId: string) {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#migrationExport.export(
+        this.#active.vaultId,
+        migrationId,
+      );
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
   applicationState(): DesktopPrivateContentApplicationState {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     return this.#applicationState;
@@ -277,17 +301,20 @@ export function createPrivateVaultContentRuntime(input: {
   brokerActions: {
     create(vaultId: string): Promise<PrivateVaultLocalActionRegistry | null>;
   };
+  archiveWriter: PrivateVaultMigrationArchiveWriter;
 }): PrivateVaultContentRuntime {
   const index = createEncryptedContentIndexStore();
   const transport = new PrivateVaultContentObjectTransport(input);
-  const objects = createPrivateVaultContentObjectRuntime();
+  const native = createPrivateVaultNativeServiceClient();
+  const objects = new PrivateVaultContentObjectRuntime(native);
+  const migrationHosted = new PrivateVaultContentMigrationTransport(input);
   const documents = new PrivateVaultContentDocumentRuntime({
     index,
     transport,
     objects,
   });
   const migration = new PrivateVaultContentMigrationRuntime({
-    hosted: new PrivateVaultContentMigrationTransport(input),
+    hosted: migrationHosted,
     index,
     objects: {
       sealAndUpload: (request) =>
@@ -295,6 +322,15 @@ export function createPrivateVaultContentRuntime(input: {
       downloadAndOpen: (request) =>
         objects.downloadAndOpen({ transport, ...request }),
     },
+  });
+  const migrationExport = new PrivateVaultContentMigrationExportRuntime({
+    hosted: migrationHosted,
+    objects: {
+      downloadAndOpen: (request) =>
+        objects.downloadAndOpen({ transport, ...request }),
+    },
+    native,
+    writer: input.archiveWriter,
   });
   const descriptor = new PrivateVaultContentRuntimeTransport(input);
   const requester: PrivateVaultContentRequesterRuntime =
@@ -310,5 +346,6 @@ export function createPrivateVaultContentRuntime(input: {
       createPrivateVaultContentBrokerRuntime({ ...input, actions }),
     requester,
     migration,
+    migrationExport,
   });
 }

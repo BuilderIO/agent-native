@@ -1,6 +1,7 @@
 import {
   IPC,
   type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentMigrationExportRequest,
   type DesktopPrivateContentMigrationRequest,
   type DesktopPrivateContentRestoreVersionRequest,
   type DesktopPrivateContentResult,
@@ -60,6 +61,7 @@ type RuntimeSurface = Pick<
   | "revokeAgentGrant"
   | "listLegacyMigrationCandidates"
   | "migrateLegacyContent"
+  | "exportLegacyMigration"
   | "setApplicationState"
 > & {
   documents(): {
@@ -244,6 +246,17 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
             : { migrationId: request.migrationId },
         );
       }),
+    exportMigration: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const request = z
+          .object({ migrationId: opaqueIdSchema })
+          .strict()
+          .parse(
+            arguments_[0],
+          ) satisfies DesktopPrivateContentMigrationExportRequest;
+        return runtime(event).exportLegacyMigration(request.migrationId);
+      }),
     setApplicationState: (
       event: IpcMainInvokeEvent,
       ...arguments_: unknown[]
@@ -292,6 +305,10 @@ export function registerContentPrivateRuntimeIpc(input: {
     handlers.migrationCandidates,
   );
   ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_MIGRATE, handlers.migrate);
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_EXPORT_MIGRATION,
+    handlers.exportMigration,
+  );
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE,
     handlers.setApplicationState,

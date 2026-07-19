@@ -42,6 +42,7 @@ import {
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentMigrationExportRequest,
   type DesktopPrivateContentMigrationRequest,
   type DesktopPrivateContentApplicationState,
   type DesktopPrivateContentRestoreVersionRequest,
@@ -171,6 +172,10 @@ const electronAPI = {
       request: DesktopPrivateContentMigrationRequest,
     ): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_MIGRATE, request),
+    exportMigration: (
+      request: DesktopPrivateContentMigrationExportRequest,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_EXPORT_MIGRATION, request),
     setApplicationState: (
       state: DesktopPrivateContentApplicationState,
     ): Promise<DesktopPrivateContentResult<null>> =>
