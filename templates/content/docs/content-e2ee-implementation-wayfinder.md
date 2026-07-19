@@ -1178,6 +1178,15 @@ wipe transferred request buffers, and return only ciphertext or bounded
 plaintext plus public revision metadata. Twenty-two focused client tests and
 the packaged addon build pass; no key-returning operation exists.
 
+The Desktop object relay now composes native seal/open with the authenticated
+hosted ciphertext transport and wipes transient ciphertext and plaintext copies
+on both successful and rejected bindings. It remains an internal main-process
+capability. In particular, the remote Content webview preload exports no
+`sealObject` or `openObject` method: origin checks are not a substitute for the
+brief's bundled, signed trusted UI boundary. The eventual document registry and
+UI must invoke this runtime from signed Desktop code, never remotely deployed
+app JavaScript.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

@@ -41,7 +41,6 @@ describe("Content Private Vault IPC", () => {
         vaultId: "00112233445566778899aabbccddeeff",
         head: { sequence: 7, hash: "42".repeat(32) },
       }),
-      objectContextForEvent: () => null,
     });
 
     await expect(handlers.create(event)).resolves.toEqual({
@@ -76,7 +75,6 @@ describe("Content Private Vault IPC", () => {
         vaultId: "00112233445566778899aabbccddeeff",
         head: { sequence: 7, hash: "42".repeat(32) },
       }),
-      objectContextForEvent: () => null,
     });
 
     await expect(
@@ -102,7 +100,6 @@ describe("Content Private Vault IPC", () => {
     const denied = createContentPrivateVaultIpcHandlers({
       coordinatorForEvent: () => null,
       recoveryForEvent: () => null,
-      objectContextForEvent: () => null,
     });
     const failed = createContentPrivateVaultIpcHandlers({
       coordinatorForEvent: () =>
@@ -117,7 +114,6 @@ describe("Content Private Vault IPC", () => {
       recoveryForEvent: async () => {
         throw new Error("sensitive internal detail");
       },
-      objectContextForEvent: () => null,
     });
     const expected = {
       ok: false,
@@ -129,73 +125,5 @@ describe("Content Private Vault IPC", () => {
     await expect(failed.resume(event)).resolves.toEqual(expected);
     await expect(denied.recover(event)).resolves.toEqual(expected);
     await expect(failed.recover(event)).resolves.toEqual(expected);
-  });
-
-  it("exposes only bounded seal-upload and download-open workflows", async () => {
-    const sealAndUpload = vi.fn(async () => ({
-      revisionId: "30".repeat(32),
-      epoch: 7,
-      plaintextLength: 16,
-      ciphertextByteLength: 512,
-    }));
-    const downloadAndOpen = vi.fn(async () => ({
-      plaintext: Uint8Array.from(Buffer.from('{"title":"Moon"}')),
-      epoch: 7,
-      writerEndpointId: "40".repeat(16),
-      metadata: {},
-    }));
-    const context = {
-      runtime: { sealAndUpload, downloadAndOpen },
-      transport: {},
-    };
-    const handlers = createContentPrivateVaultIpcHandlers({
-      coordinatorForEvent: () => null,
-      recoveryForEvent: () => null,
-      objectContextForEvent: () => context as never,
-    });
-    const sealRequest = {
-      vaultId: "10".repeat(16),
-      objectId: "20".repeat(16),
-      revision: 3,
-      plaintext: Uint8Array.from(Buffer.from('{"title":"Moon"}')),
-    };
-    await expect(handlers.sealObject(event, sealRequest)).resolves.toEqual({
-      ok: true,
-      revisionId: "30".repeat(32),
-      epoch: 7,
-      plaintextLength: 16,
-      ciphertextByteLength: 512,
-    });
-    await expect(
-      handlers.openObject(event, {
-        vaultId: sealRequest.vaultId,
-        objectId: sealRequest.objectId,
-        revision: 3,
-        revisionId: "30".repeat(32),
-      }),
-    ).resolves.toMatchObject({
-      ok: true,
-      epoch: 7,
-      writerEndpointId: "40".repeat(16),
-    });
-    expect(sealAndUpload).toHaveBeenCalledWith({
-      transport: context.transport,
-      ...sealRequest,
-    });
-
-    await expect(
-      handlers.sealObject(event, { ...sealRequest, extra: true }),
-    ).resolves.toMatchObject({ ok: false });
-    await expect(
-      handlers.openObject(event, {
-        vaultId: sealRequest.vaultId,
-        objectId: sealRequest.objectId,
-        revision: 3,
-        revisionId: "30".repeat(32),
-        ciphertext: Uint8Array.of(1),
-      }),
-    ).resolves.toMatchObject({ ok: false });
-    expect(sealAndUpload).toHaveBeenCalledOnce();
-    expect(downloadAndOpen).toHaveBeenCalledOnce();
   });
 });

@@ -17,6 +17,10 @@ const desktopRoot = join(currentDirectory, "..", "..", "..");
 const nativeRoot = join(desktopRoot, "native", "private-vault-xpc-client");
 const nativeSource = readFileSync(join(nativeRoot, "addon.mm"), "utf8");
 const serviceRoot = join(desktopRoot, "native", "private-vault-service");
+const webviewPreloadSource = readFileSync(
+  join(desktopRoot, "src", "preload", "webview.ts"),
+  "utf8",
+);
 const serviceSource = readFileSync(join(serviceRoot, "main.m"), "utf8");
 const serviceIdentity = readFileSync(
   join(serviceRoot, "PrivateVaultServiceIdentity.h"),
@@ -38,6 +42,13 @@ function clientFor(value: unknown) {
 }
 
 describe("Private Vault native service client", () => {
+  it("does not expose object plaintext operations to remote app webviews", () => {
+    expect(webviewPreloadSource).not.toContain("sealObject");
+    expect(webviewPreloadSource).not.toContain("openObject");
+    expect(webviewPreloadSource).not.toContain("SEAL_OBJECT");
+    expect(webviewPreloadSource).not.toContain("OPEN_OBJECT");
+  });
+
   it("normalizes the exact health, lock, and unlock service contracts", async () => {
     await expect(
       clientFor({
