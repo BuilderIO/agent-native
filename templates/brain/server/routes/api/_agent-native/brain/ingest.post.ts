@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../../../../db/index.js";
 import {
+  BrainCaptureBlockedError,
   createCapture,
   parseJson,
   serializeCapture,
@@ -110,22 +111,41 @@ export default defineEventHandler(async (event) => {
       orgId: source.orgId ?? undefined,
     },
     async () => {
-      const capture = await createCapture({
-        sourceId: source.id,
-        externalId: payload.externalId,
-        title: payload.title,
-        kind: "transcript",
-        content: textFromPayload(payload),
-        capturedAt: payload.occurredAt,
-        metadata: {
-          sourceKey: payload.sourceKey,
-          participants: payload.participants,
-          segments: payload.segments ?? [],
-          sourceUrl: payload.sourceUrl,
-          tags: payload.tags,
-          raw: payload.raw,
-        },
-      });
+      let capture;
+      try {
+        capture = await createCapture({
+          sourceId: source.id,
+          externalId: payload.externalId,
+          title: payload.title,
+          kind: "transcript",
+          content: textFromPayload(payload),
+          capturedAt: payload.occurredAt,
+          metadata: {
+            sourceKey: payload.sourceKey,
+            participants: payload.participants,
+            segments: payload.segments ?? [],
+            sourceUrl: payload.sourceUrl,
+            tags: payload.tags,
+            raw: payload.raw,
+          },
+          audience: {
+            kind: "meeting",
+            memberEmails: payload.participants.filter(
+              (participant): participant is string =>
+                typeof participant === "string",
+            ),
+            upstreamRefHash: payload.externalId,
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof BrainCaptureBlockedError)) throw error;
+        return {
+          ok: true,
+          sourceId: source.id,
+          capture: null,
+          sensitivityReceipt: error.receipt,
+        };
+      }
 
       return {
         ok: true,

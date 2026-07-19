@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
+  BrainCaptureBlockedError,
   createCapture,
   ensureManualSource,
   serializeCapture,
@@ -29,20 +30,36 @@ export default defineAction({
     const source = args.sourceId
       ? null
       : await ensureManualSource(args.sourceTitle);
-    const capture = await createCapture({
-      sourceId: args.sourceId ?? source!.id,
-      externalId: args.externalId,
-      title: args.title,
-      kind: "transcript",
-      content: args.transcript,
-      capturedAt: args.capturedAt,
-      metadata: {
-        ...(args.metadata ?? {}),
-        participants: args.participants,
-        sourceUrl: args.sourceUrl,
-        tags: args.tags,
-      },
-    });
+    let capture;
+    try {
+      capture = await createCapture({
+        sourceId: args.sourceId ?? source!.id,
+        externalId: args.externalId,
+        title: args.title,
+        kind: "transcript",
+        content: args.transcript,
+        capturedAt: args.capturedAt,
+        metadata: {
+          ...(args.metadata ?? {}),
+          participants: args.participants,
+          sourceUrl: args.sourceUrl,
+          tags: args.tags,
+        },
+        audience: {
+          kind: "meeting",
+          memberEmails: args.participants,
+          upstreamRefHash: args.externalId,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof BrainCaptureBlockedError)) throw error;
+      return {
+        source: source ? serializeSource(source) : undefined,
+        capture: undefined,
+        sensitivityReceipt: error.receipt,
+        nextAction: undefined,
+      };
+    }
     return {
       source: source ? serializeSource(source) : undefined,
       capture: serializeCapture(capture),

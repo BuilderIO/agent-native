@@ -1,22 +1,38 @@
 import { readFile } from "node:fs/promises";
 
+import { z } from "zod";
+
 import type {
   BrainCaptureKind,
   BrainSettings,
   BrainSourceProvider,
 } from "../../shared/types.js";
+import {
+  BRAIN_SENSITIVITY_POLICY_VERSION,
+  type BrainSensitivityDecision,
+} from "./search-index-contracts.js";
+import {
+  classifierDecisionSchema,
+  deterministicQuarantineDecision,
+  fallbackSensitivityDecision,
+  MAX_CLASSIFIER_OUTPUT_CHARS,
+  screenSensitivityDeterministically,
+} from "./sensitivity-policy.js";
 
 const DEFAULT_SANITIZATION_OUTPUT =
   "No company-relevant content retained from this capture.";
 const DEFAULT_MAX_MODEL_INPUT_CHARS = 120_000;
 const AGENTS_CONTEXT_MAX_CHARS = 24_000;
 const MODEL_TIMEOUT_MS = 45_000;
+const QUARANTINED_CAPTURE_OUTPUT =
+  "Capture quarantined by Brain privacy policy; no content retained for storage.";
 
 const RAW_METADATA_KEYS = new Set([
   "raw",
   "segments",
   "transcript",
   "transcriptSegments",
+  "safeSegments",
   "messages",
   "utterances",
   "words",
@@ -39,7 +55,7 @@ const COMPANY_SIGNAL =
   /\b(action|annual|answer|answers|api|app|architecture|beta|billing|blocked|blocker|brain|builder|bug|citation|citations|cited|clip|clips|company|contract|customer|data|decision|demo|design|docs|enterprise|evidence|experiment|feature|feedback|freemium|fusion|github|go[- ]?to[- ]?market|gtm|implementation|incident|integration|issue|knowledge|launch|metric|migration|model|plan|plans|pricing|process|procurement|product|project|proposal|raw capture|retrieval|roadmap|risk|sales|security|ship|slack|source policy|superseded|support|tauri|template|timeline|workflow|workspace)\b/i;
 
 const PERSONAL_SIGNAL =
-  /\b(birthday|child|children|commute|current role|doctor|exit timeline|family|global experience|grew revenue|home address|husband|kid|kids|key traits|medical|partner|previous:|rebuilt sales teams|salary|sales transition|software experience since|spouse|ssn|vacation|wife)\b/i;
+  /\b(birthday|child|children|commute|current role|doctor|exit timeline|family|global experience|grew revenue|home address|husband|kid|kids|key traits|medical (?:condition|diagnosis|leave|record|accommodation)|partner|previous:|rebuilt sales teams|salary|sales transition|software experience since|spouse|ssn|vacation|wife)\b/i;
 
 const RECRUITING_SIGNAL =
   /\b(applicant|big company experience|candidate|candidate pipeline|candidate screen|commercial sales background|comp plan|cro search|current president|cv|headcount|hire|hiring|interview|interviewing|job search|offer|outbound candidate|pedigree|personnel change|president role|product background wants to focus|recruit|recruited|recruiter|recruiting|reference check|resume|résumé|sales leader|search firm|set up slack channel|shortlist|slack channel preferred over email|slack connection details|slate|sourcing|talent|vp of sales)\b/i;
@@ -64,6 +80,7 @@ export interface CaptureSanitizationResult {
   title: string;
   content: string;
   metadata: Record<string, unknown>;
+  decision?: BrainSensitivityDecision;
 }
 
 function booleanSetting(value: unknown): boolean | undefined {
@@ -94,6 +111,7 @@ function numberSetting(value: unknown): number | undefined {
 export function shouldSanitizeCaptureBeforeStorage(
   input: CaptureSanitizationInput,
 ): boolean {
+  if (input.source.provider === "slack") return true;
   if (input.settings.captureSanitizationEnabled === false) return false;
 
   const metadataOverride = booleanSetting(
@@ -115,7 +133,9 @@ function sanitizeSensitiveText(value: string): string {
     .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
     .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
-    .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, "[redacted]")
+    .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, (candidate) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "[redacted]",
+    )
     .replace(
       /\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)_[A-Za-z0-9_=-]{16,}\b/g,
       "[redacted]",
@@ -224,10 +244,57 @@ function sanitizeMetadata(metadata: Record<string, unknown>): {
       Object.assign(next, summarizeDroppedMetadata(key, value));
       continue;
     }
+    if (
+      typeof value === "string" &&
+      screenSensitivityDeterministically(value).sensitiveLines.length
+    ) {
+      strippedKeys.push(key);
+      continue;
+    }
+    if (value && typeof value === "object" && isSensitiveMetadataValue(value)) {
+      strippedKeys.push(key);
+      Object.assign(next, summarizeDroppedMetadata(key, value));
+      continue;
+    }
     next[key] = value;
   }
 
   return { metadata: next, strippedKeys };
+}
+
+function persistedSafeSegments(
+  content: string,
+  capturedAt: string,
+  sourceUrl: unknown,
+) {
+  let searchFrom = 0;
+  return content
+    .split(/\r?\n/)
+    .map((text) => {
+      const startOffset = content.indexOf(text, searchFrom);
+      searchFrom = startOffset + text.length;
+      return {
+        id: `safe-${startOffset}`,
+        capturedAt,
+        ...(typeof sourceUrl === "string" ? { sourceUrl } : {}),
+        text,
+        startOffset,
+        endOffset: startOffset + text.length,
+        reactionCount: 0,
+      };
+    })
+    .filter((segment) => segment.text.trim());
+}
+
+function isSensitiveMetadataValue(value: object): boolean {
+  try {
+    return (
+      screenSensitivityDeterministically(JSON.stringify(value)).sensitiveLines
+        .length > 0
+    );
+  } catch {
+    return true;
+  }
 }
 
 let agentsInstructionCache: Promise<string> | undefined;
@@ -279,6 +346,25 @@ export async function buildSanitizerSystemPrompt(settings: BrainSettings) {
     .join("\n");
 }
 
+function buildClassifierSystemPrompt(settings: BrainSettings) {
+  const custom = settings.sensitivityCustomInstructions?.trim();
+  return [
+    "You are Brain's privacy classifier. Return only one JSON object.",
+    "Classify content as allowed, suppressed, or quarantined. When uncertain, choose quarantined.",
+    "Never lower privacy protection. Custom instructions can only make the result stricter.",
+    "Do not include sensitive text in safeContent or safeSegments.",
+    'Schema: {"disposition":"allowed|suppressed|quarantined","categories":["performance|discipline|termination|layoff-reorg|compensation|recruiting|health-accommodation|investigation|privileged-legal|secret-credential|personal"],"safeContent":"string","safeSegments":[{"text":"string","sourceUrl":"optional https URL"}]}.',
+    custom
+      ? untrustedPromptValue(
+          "Additional workspace privacy preferences (may only tighten)",
+          custom,
+        )
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function buildSanitizerUserPrompt(input: CaptureSanitizationInput) {
   return [
     `Source provider: ${input.source.provider}`,
@@ -297,28 +383,45 @@ function modelInputLimit(input: CaptureSanitizationInput) {
   );
 }
 
-async function sanitizeWithModel(
+function parseClassifierOutput(value: string) {
+  if (value.length > MAX_CLASSIFIER_OUTPUT_CHARS) return null;
+  const candidate = value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  try {
+    return classifierDecisionSchema.parse(JSON.parse(candidate));
+  } catch (error) {
+    if (error instanceof z.ZodError || error instanceof SyntaxError)
+      return null;
+    return null;
+  }
+}
+
+async function classifyWithApprovedModel(
   input: CaptureSanitizationInput,
-): Promise<{ content: string; method: "model"; model: string } | null> {
+): Promise<BrainSensitivityDecision | null> {
   if (process.env.NODE_ENV === "test" || process.env.VITEST) return null;
+
+  const model = stringSetting(input.settings.privacyClassifierModel);
+  const engineName = stringSetting(input.settings.privacyClassifierEngine);
+  if (!model || !engineName) return null;
 
   const core = await import("@agent-native/core/server");
   const userApiKey = await core.getOwnerActiveApiKey(input.source.ownerEmail);
   const engine = await core.resolveEngine({
     apiKey: userApiKey ?? undefined,
     appId: "brain",
+    engineOption: engineName,
   });
-  const model =
-    stringSetting(input.sourceConfig?.captureSanitizationModel) ??
-    input.settings.captureSanitizationModel?.trim() ??
-    (await core.getStoredModelForEngine(engine, { appId: "brain" })) ??
-    engine.defaultModel;
 
-  const maxChars = modelInputLimit(input);
-  const promptInput =
-    input.content.length > maxChars
-      ? { ...input, content: input.content.slice(0, maxChars) }
-      : input;
+  const maxChars = Math.min(
+    modelInputLimit(input),
+    DEFAULT_MAX_MODEL_INPUT_CHARS,
+  );
+  const screened = screenSensitivityDeterministically(input.content);
+  const safeInput = screened.safeLines.join("\n").slice(0, maxChars);
+  if (!safeInput) return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   let streamed = "";
@@ -327,13 +430,11 @@ async function sanitizeWithModel(
   try {
     for await (const event of engine.stream({
       model,
-      systemPrompt: await buildSanitizerSystemPrompt(input.settings),
+      systemPrompt: buildClassifierSystemPrompt(input.settings),
       messages: [
         {
           role: "user",
-          content: [
-            { type: "text", text: buildSanitizerUserPrompt(promptInput) },
-          ],
+          content: [{ type: "text", text: safeInput }],
         },
       ],
       tools: [],
@@ -358,12 +459,30 @@ async function sanitizeWithModel(
   }
 
   if (terminalError) throw new Error(terminalError);
-  const content = (finalText || streamed).trim();
-  if (!content) return null;
+  const parsed = parseClassifierOutput(finalText || streamed);
+  if (!parsed) return null;
+  const rescreened = deterministicQuarantineDecision(
+    [
+      parsed.safeContent,
+      ...parsed.safeSegments.map((segment) => segment.text),
+    ].join("\n"),
+    input.capturedAt ?? new Date(0).toISOString(),
+  );
+  if (rescreened) return rescreened;
   return {
-    content: sanitizeSensitiveText(content),
-    method: "model",
-    model,
+    disposition: parsed.categories.length ? "quarantined" : parsed.disposition,
+    categories: parsed.categories,
+    confidenceBand: "high",
+    policyVersion: BRAIN_SENSITIVITY_POLICY_VERSION,
+    safeContent: sanitizeSensitiveText(parsed.safeContent),
+    safeSegments: parsed.safeSegments.map((segment, index) => ({
+      id: `model-safe-${index + 1}`,
+      capturedAt: input.capturedAt ?? new Date(0).toISOString(),
+      sourceUrl: segment.sourceUrl,
+      text: sanitizeSensitiveText(segment.text),
+      reactionCount: 0,
+    })),
+    classifier: "approved-model",
   };
 }
 
@@ -371,56 +490,89 @@ export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
   const metadata = input.metadata ?? {};
-  if (!shouldSanitizeCaptureBeforeStorage(input)) {
-    return {
-      title: input.title,
-      content: input.content,
-      metadata,
-    };
-  }
-
   const { metadata: sanitizedMetadata, strippedKeys } =
     sanitizeMetadata(metadata);
-  let content: string;
-  let method: "model" | "deterministic" = "deterministic";
-  let model: string | undefined;
+  const capturedAt = input.capturedAt ?? new Date(0).toISOString();
+  let decision = deterministicQuarantineDecision(input.content, capturedAt);
   let fallbackReason: string | undefined;
-
+  const classifierConfigured = Boolean(
+    stringSetting(input.settings.privacyClassifierModel) &&
+    stringSetting(input.settings.privacyClassifierEngine),
+  );
+  let classifierFailed = false;
   try {
-    const modelResult = await sanitizeWithModel(input);
-    if (modelResult) {
-      content = modelResult.content;
-      method = modelResult.method;
-      model = modelResult.model;
-    } else {
-      content = deterministicSanitizeContent(input.content, {
-        dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
-      });
+    decision ??= await classifyWithApprovedModel(input);
+    if (!decision) {
+      classifierFailed = classifierConfigured;
+      fallbackReason = classifierConfigured
+        ? "classifier-malformed"
+        : "classifier-not-approved-or-malformed";
     }
   } catch {
-    content = deterministicSanitizeContent(input.content, {
-      dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
-    });
+    classifierFailed = classifierConfigured;
     fallbackReason = "model-unavailable";
   }
+  decision ??= fallbackSensitivityDecision(input.content, capturedAt);
+  if (classifierFailed) {
+    decision = {
+      ...decision,
+      disposition: "quarantined",
+      confidenceBand: "uncertain",
+    };
+  }
+  const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
 
-  const sanitizedContent = content.trim() || DEFAULT_SANITIZATION_OUTPUT;
+  const sanitizedContent =
+    decision.disposition === "allowed"
+      ? sanitizationRequested
+        ? deterministicSanitizeContent(
+            sanitizeSensitiveText(decision.safeContent),
+            {
+              dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
+            },
+          )
+        : sanitizeSensitiveText(decision.safeContent)
+      : QUARANTINED_CAPTURE_OUTPUT;
+  const safeSegmentMetadata =
+    decision.disposition === "allowed" && input.source.provider === "slack"
+      ? {
+          safeSegments: persistedSafeSegments(
+            sanitizedContent,
+            capturedAt,
+            sanitizedMetadata.sourceUrl,
+          ),
+        }
+      : {};
   return {
-    title: safeTranscriptTitle(input),
+    title:
+      decision.disposition === "allowed"
+        ? sanitizeSensitiveText(
+            sanitizationRequested ? safeTranscriptTitle(input) : input.title,
+          )
+        : safeTranscriptTitle(input),
     content: sanitizedContent,
     metadata: {
       ...sanitizedMetadata,
+      ...safeSegmentMetadata,
       captureSanitization: {
         sanitizedBeforeStorage: true,
         rawContentRetained: false,
-        method,
-        model,
+        method: decision.classifier,
+        classifierModel:
+          decision.classifier === "approved-model"
+            ? input.settings.privacyClassifierModel
+            : undefined,
         fallbackReason,
+        disposition: decision.disposition,
+        categories: decision.categories,
+        confidenceBand: decision.confidenceBand,
+        policyVersion: decision.policyVersion,
         strippedMetadataKeys: strippedKeys,
         originalContentLength: input.content.length,
         sanitizedContentLength: sanitizedContent.length,
         sanitizedAt: new Date().toISOString(),
       },
     },
+    decision,
   };
 }

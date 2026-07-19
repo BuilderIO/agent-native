@@ -4,21 +4,29 @@ import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { ensureCaptureAudience } from "../server/lib/audiences.js";
 import {
   contentHash,
   getAccessibleCapture,
+  invalidateDerivedForCapture,
   nowIso,
   parseJson,
   readBrainSettings,
+  recordBlockedCapture,
   stableJson,
 } from "../server/lib/brain.js";
 import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
+import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
 import { idSchema, stringArrayCliSchema } from "./_schemas.js";
 
 function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);
+}
+
+function canEditSource(role: "viewer" | "editor" | "admin" | "owner") {
+  return role === "editor" || role === "admin" || role === "owner";
 }
 
 async function findDerivedCitationRefs(captureId: string) {
@@ -95,35 +103,51 @@ export default defineAction({
       const source =
         sourceAccess.resource as typeof schema.brainSources.$inferSelect;
       const captures = await db
-        .select()
+        .select({ id: schema.brainRawCaptures.id })
         .from(schema.brainRawCaptures)
         .where(
           args.includeNonTranscript
-            ? eq(schema.brainRawCaptures.sourceId, source.id)
+            ? and(
+                eq(schema.brainRawCaptures.sourceId, source.id),
+                eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+              )
             : and(
                 eq(schema.brainRawCaptures.sourceId, source.id),
                 eq(schema.brainRawCaptures.kind, "transcript"),
+                eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
               ),
         )
         .orderBy(desc(schema.brainRawCaptures.capturedAt))
         .limit(args.limit);
-      for (const capture of captures) rows.push({ capture, source });
+      for (const candidate of captures) {
+        const access = await getAccessibleCapture(candidate.id);
+        if (!access) continue;
+        rows.push({ capture: access.capture, source: access.source });
+      }
     }
 
     if (args.captureIds?.length) {
       const captures = await db
-        .select()
+        .select({ id: schema.brainRawCaptures.id })
         .from(schema.brainRawCaptures)
-        .where(inArray(schema.brainRawCaptures.id, args.captureIds))
+        .where(
+          and(
+            inArray(schema.brainRawCaptures.id, args.captureIds),
+            eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+          ),
+        )
         .limit(args.captureIds.length);
-      for (const capture of captures) {
-        if (!args.includeNonTranscript && capture.kind !== "transcript") {
+      for (const candidate of captures) {
+        const access = await getAccessibleCapture(candidate.id);
+        if (!access || !canEditSource(access.role)) continue;
+        if (
+          !args.includeNonTranscript &&
+          access.capture.kind !== "transcript"
+        ) {
           continue;
         }
-        const access = await getAccessibleCapture(capture.id);
-        if (!access) continue;
         rows.push({
-          capture,
+          capture: access.capture,
           source: access.source,
         });
       }
@@ -139,26 +163,6 @@ export default defineAction({
       const hasDerivedRefs =
         derivedRefs.knowledgeIds.length > 0 ||
         derivedRefs.proposalIds.length > 0;
-      if (!args.dryRun && hasDerivedRefs && !args.allowCitationDrift) {
-        results.push({
-          id: row.capture.id,
-          sourceId: row.capture.sourceId,
-          externalId: row.capture.externalId,
-          title: row.capture.title,
-          capturedAt: row.capture.capturedAt,
-          beforeLength,
-          afterLength: beforeLength,
-          method: "skipped-derived-citations",
-          rawContentRetained: true,
-          skipped: true,
-          skipReason:
-            "Capture already has derived knowledge/proposals citing its current text. Run with dryRun first, then re-distill or pass allowCitationDrift=true intentionally.",
-          dependentKnowledgeIds: derivedRefs.knowledgeIds,
-          dependentProposalIds: derivedRefs.proposalIds,
-          preview: reviewPreview(row.capture.content),
-        });
-        continue;
-      }
       const sanitized = await sanitizeCaptureForStorage({
         kind: row.capture.kind as BrainCaptureKind,
         title: row.capture.title,
@@ -183,17 +187,120 @@ export default defineAction({
       const sanitizer = sanitized.metadata.captureSanitization as
         | Record<string, unknown>
         | undefined;
+      if (
+        !args.dryRun &&
+        sanitized.decision &&
+        sanitized.decision.disposition !== "allowed"
+      ) {
+        await recordBlockedCapture({
+          id: row.capture.id,
+          existing: row.capture,
+          source: row.source,
+          values: {
+            id: row.capture.id,
+            sourceId: row.capture.sourceId,
+            externalId: row.capture.externalId,
+            title: row.capture.title,
+            kind: row.capture.kind as BrainCaptureKind,
+            content: row.capture.content,
+            metadata: parseJson<Record<string, unknown>>(
+              row.capture.metadataJson,
+              {},
+            ),
+            capturedAt: row.capture.capturedAt,
+            status: row.capture.status,
+          },
+          decision: sanitized.decision,
+          retentionHours: settings.quarantineRetentionHours ?? 72,
+        });
+        results.push({
+          id: row.capture.id,
+          sourceId: row.capture.sourceId,
+          externalId: row.capture.externalId,
+          title: "Privacy-blocked capture",
+          capturedAt: row.capture.capturedAt,
+          beforeLength,
+          afterLength: 0,
+          method: sanitizer?.method ?? "deterministic",
+          rawContentRetained: false,
+          skipped: false,
+          dependentKnowledgeIds: derivedRefs.knowledgeIds,
+          dependentProposalIds: derivedRefs.proposalIds,
+          preview: "",
+        });
+        continue;
+      }
       if (!args.dryRun) {
+        const nextContentHash = await contentHash(sanitized.content);
+        let aclHash = row.capture.audienceAclHash;
+        if (!aclHash && sanitized.decision?.disposition === "allowed") {
+          aclHash = (
+            await ensureCaptureAudience({
+              captureId: row.capture.id,
+              source: row.source,
+              memberEmails:
+                row.source.visibility === "org"
+                  ? undefined
+                  : [row.source.ownerEmail],
+            })
+          ).aclHash;
+        }
         await db
           .update(schema.brainRawCaptures)
           .set({
             title: sanitized.title,
-            content: sanitized.content,
-            contentHash: await contentHash(sanitized.content),
+            content:
+              sanitized.decision?.disposition === "allowed"
+                ? sanitized.content
+                : "",
+            contentHash:
+              sanitized.decision?.disposition === "allowed"
+                ? nextContentHash
+                : await contentHash(""),
             metadataJson: stableJson(sanitized.metadata),
+            sensitivityDisposition:
+              sanitized.decision?.disposition === "allowed"
+                ? "allowed"
+                : "pending",
+            sensitivityPolicyVersion: sanitized.decision?.policyVersion ?? null,
+            audienceAclHash:
+              sanitized.decision?.disposition === "allowed" ? aclHash : null,
+            status:
+              sanitized.decision?.disposition === "allowed"
+                ? row.capture.status
+                : "ignored",
             updatedAt: nowIso(),
           })
           .where(eq(schema.brainRawCaptures.id, row.capture.id));
+        if (
+          hasDerivedRefs &&
+          (sanitized.decision?.disposition !== "allowed" ||
+            row.capture.contentHash !== nextContentHash)
+        ) {
+          await invalidateDerivedForCapture(row.capture.id);
+        }
+        await enqueueCaptureInvalidation({
+          captureId: row.capture.id,
+          sourceId: row.capture.sourceId,
+          reason:
+            sanitized.decision?.disposition === "allowed"
+              ? "content-changed"
+              : "sensitivity-changed",
+          previous: {
+            contentHash: row.capture.contentHash ?? undefined,
+            sensitivityPolicyVersion:
+              row.capture.sensitivityPolicyVersion ?? undefined,
+            aclHash: row.capture.audienceAclHash ?? undefined,
+          },
+          next:
+            sanitized.decision?.disposition === "allowed" && aclHash
+              ? {
+                  contentHash: nextContentHash,
+                  sensitivityPolicyVersion: sanitized.decision.policyVersion,
+                  aclHash,
+                }
+              : undefined,
+        });
       }
       results.push({
         id: row.capture.id,
@@ -204,7 +311,7 @@ export default defineAction({
         beforeLength,
         afterLength: sanitized.content.length,
         method: sanitizer?.method ?? "not-sanitized",
-        rawContentRetained: sanitizer?.rawContentRetained ?? true,
+        rawContentRetained: sanitizer?.rawContentRetained ?? false,
         skipped: false,
         dependentKnowledgeIds: derivedRefs.knowledgeIds,
         dependentProposalIds: derivedRefs.proposalIds,

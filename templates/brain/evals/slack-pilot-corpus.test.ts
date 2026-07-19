@@ -65,6 +65,9 @@ const mocks = vi.hoisted(() => {
       "importedBy",
       "status",
       "distilledAt",
+      "sensitivityDisposition",
+      "sensitivityPolicyVersion",
+      "audienceAclHash",
       "createdAt",
       "updatedAt",
     ]),
@@ -72,6 +75,8 @@ const mocks = vi.hoisted(() => {
       "id",
       "sourceId",
       "captureId",
+      "audienceId",
+      "audienceAclHash",
       "kind",
       "title",
       "body",
@@ -95,6 +100,12 @@ const mocks = vi.hoisted(() => {
       "updatedAt",
     ]),
     brainKnowledgeShares: table("brainKnowledgeShares", ["id"]),
+    brainCaptureAudiences: table("brainCaptureAudiences", [
+      "id",
+      "captureId",
+      "audienceId",
+      "aclHash",
+    ]),
   };
 
   const rows = {
@@ -218,6 +229,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: vi.fn(),
 }));
 
+vi.mock("../server/lib/audiences.js", () => ({
+  listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
   desc: (column: Column) => ({ column }),
@@ -280,6 +295,9 @@ function resetRows() {
       importedBy: "owner@example.test",
       status: "distilled",
       distilledAt: timestamp,
+      sensitivityDisposition: "allowed",
+      sensitivityPolicyVersion: "1",
+      audienceAclHash: "acl-hash",
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -287,6 +305,8 @@ function resetRows() {
       id: `knowledge-${fixture.id}`,
       sourceId: SLACK_PILOT_SOURCE.id,
       captureId,
+      audienceId: "aud_org",
+      audienceAclHash: "acl-hash",
       kind: "decision",
       title: fixture.title,
       body: fixture.body,
