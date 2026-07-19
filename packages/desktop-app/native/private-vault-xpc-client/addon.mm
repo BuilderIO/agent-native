@@ -75,6 +75,7 @@ enum class PVOperation {
   CreateGrant,
   ListGrants,
   ListMembers,
+  BrokerKey,
   RevokeGrant,
   SealJob,
   OpenResult,
@@ -1071,6 +1072,31 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     return parsed;
   }
 
+  if (operation == PVOperation::BrokerKey) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "endpointId",
+        "signingPublicKey",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *endpointID = PVGetString(reply, "endpointId");
+    if (!PVHasExactKeys(reply, keys, 7) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "verified") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(endpointID, 32) ||
+        !PVCopyBoundedData(reply, "signingPublicKey", 32, parsed.body) ||
+        parsed.body.size() != 32) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.endpointID, endpointID, 33);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
   if (operation == PVOperation::SealJob) {
     const char *const keys[] = {
         "version", "ok", "requestId", "state", "vaultId", "jobId",
@@ -1934,6 +1960,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "list_grants"
                           : request->operation == PVOperation::ListMembers
                               ? "list_members"
+                          : request->operation == PVOperation::BrokerKey
+                              ? "broker_key"
                           : request->operation == PVOperation::SealJob
                               ? "seal_job"
                           : request->operation == PVOperation::OpenResult
@@ -2013,6 +2041,7 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::RevokeGrant ||
       request->operation == PVOperation::ListGrants ||
       request->operation == PVOperation::ListMembers ||
+      request->operation == PVOperation::BrokerKey ||
       request->operation == PVOperation::SealExport ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
@@ -2236,6 +2265,7 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::RevokeGrant ||
                 request->operation == PVOperation::ListGrants ||
                 request->operation == PVOperation::ListMembers ||
+                request->operation == PVOperation::BrokerKey ||
                 request->operation == PVOperation::SealExport ||
                 request->operation == PVOperation::SealJob ||
                 request->operation == PVOperation::OpenResult ||
@@ -2458,6 +2488,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "list_grants"
                 : request->operation == PVOperation::ListMembers
                     ? "list_members"
+                : request->operation == PVOperation::BrokerKey
+                    ? "broker_key"
                 : request->operation == PVOperation::SealJob
                     ? "seal_job"
                 : request->operation == PVOperation::OpenResult
@@ -2634,6 +2666,20 @@ void PVComplete(napi_env env, napi_status status, void *data) {
           napi_set_named_property(env, result, "members", members) != napi_ok)
         request->failure = PVFailure::ServiceError;
       if (request->failure != PVFailure::None) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::BrokerKey) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "endpointId", request->endpointID);
+      if (!PVSetBuffer(env, result, "signingPublicKey", request->body)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",
@@ -3012,6 +3058,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::ListGrants;
   } else if (strcmp(operation, "list_members") == 0) {
     request->operation = PVOperation::ListMembers;
+  } else if (strcmp(operation, "broker_key") == 0) {
+    request->operation = PVOperation::BrokerKey;
   } else if (strcmp(operation, "seal_job") == 0) {
     request->operation = PVOperation::SealJob;
   } else if (strcmp(operation, "open_result") == 0) {
@@ -3071,6 +3119,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::RevokeGrant ? 3
       : request->operation == PVOperation::ListGrants ? 2
       : request->operation == PVOperation::ListMembers ? 2
+      : request->operation == PVOperation::BrokerKey ? 2
       : request->operation == PVOperation::SealJob ? 7
       : request->operation == PVOperation::OpenResult ? 6
       : request->operation == PVOperation::OpenJob ? 7
@@ -3103,6 +3152,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::RevokeGrant ||
       request->operation == PVOperation::ListGrants ||
       request->operation == PVOperation::ListMembers ||
+      request->operation == PVOperation::BrokerKey ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
       request->operation == PVOperation::OpenJob ||

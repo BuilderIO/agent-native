@@ -1914,6 +1914,58 @@ static void PVListVaultMembers(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVBrokerVerificationKey(xpc_connection_t peer,
+                                    xpc_object_t message,
+                                    const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *localEndpointId = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *epoch = nil;
+        if (!PVObjectEndpointContext(vaultId, &state, &localEndpointId,
+                                     &signing, &epoch) ||
+            signing == nil || epoch == nil || state == nil ||
+            localEndpointId.length != 16) {
+            if (signing != nil) [signing close];
+            if (epoch != nil) [epoch close];
+            PVSendError(peer, message, "broker_key_failed");
+            return;
+        }
+        BOOL signingClosed =
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL epochClosed =
+            [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL secretsClosed = signingClosed && epochClosed;
+        AncPrivateVaultControlLogMember *broker = nil;
+        for (AncPrivateVaultControlLogMember *member in state.activeMembers) {
+            if ([member.role isEqualToString:@"broker"] && member.unattended) {
+                if (broker != nil) {
+                    broker = nil;
+                    break;
+                }
+                broker = member;
+            }
+        }
+        if (!secretsClosed || broker == nil ||
+            PVLookupIDData(broker.endpointId.UTF8String).length != 16 ||
+            broker.signingPublicKey.length != 32) {
+            PVSendError(peer, message, "broker_key_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "verified");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "endpointId",
+                                  broker.endpointId.UTF8String);
+        xpc_dictionary_set_data(reply, "signingPublicKey",
+                                broker.signingPublicKey.bytes,
+                                broker.signingPublicKey.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVSealExportArchive(xpc_connection_t peer, xpc_object_t message,
                                 const PVRequest *request) {
     @autoreleasepool {
@@ -3102,6 +3154,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "list_members") == 0) {
                 PVListVaultMembers(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "broker_key") == 0) {
+                PVBrokerVerificationKey(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "revoke_grant") == 0) {

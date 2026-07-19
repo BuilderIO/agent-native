@@ -201,6 +201,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool createGrant = strcmp(operation, "create_grant") == 0;
     bool listGrants = strcmp(operation, "list_grants") == 0;
     bool listMembers = strcmp(operation, "list_members") == 0;
+    bool brokerKey = strcmp(operation, "broker_key") == 0;
     bool revokeGrant = strcmp(operation, "revoke_grant") == 0;
     bool sealJob = strcmp(operation, "seal_job") == 0;
     bool openResult = strcmp(operation, "open_result") == 0;
@@ -225,7 +226,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !confirmGenesis && !listGenesis && !inspectAdmission &&
         !authorizeAdmission && !acceptAdmission && !finalizeGenesis &&
         !acceptBootstrap && !recoverBegin && !recoverPage && !recoverStatus &&
-        !openJob && !createGrant && !listGrants && !listMembers &&
+        !openJob && !createGrant && !listGrants && !listMembers && !brokerKey &&
         !revokeGrant && !sealJob && !openResult && !sealResult &&
         !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
@@ -312,7 +313,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         request->jobID = xpc_dictionary_get_string(message, "jobId");
         request->jobHash = xpc_dictionary_get_string(message, "jobHash");
         request->senderEndpointID = sender;
-    } else if (listGrants || listMembers) {
+    } else if (listGrants || listMembers || brokerKey) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {

@@ -34,6 +34,24 @@ function harness() {
       grantRef,
     })),
   };
+  const disclosures = {
+    list: vi.fn(async () => [
+      {
+        disclosureId: "66".repeat(16),
+        endpointId: "77".repeat(16),
+        jobId: "88".repeat(16),
+        grantId: "99".repeat(16),
+        resourceId: "aa".repeat(16),
+        operation: "search-documents",
+        providerId: "codex-cli",
+        destination: "gpt-5.6",
+        outcome: "allowed" as const,
+        issuedAt: 1_784_000_000,
+        expiresAt: 1_784_000_300,
+        serverReceivedAt: "2026-07-18T00:00:00.000Z",
+      },
+    ]),
+  };
   const migration = {
     listCandidates: vi.fn(async () => ["legacy-document"]),
     migrate: vi.fn(async () => ({ state: "cutover" })),
@@ -48,6 +66,7 @@ function harness() {
     brokerActions,
     factory,
     requester,
+    disclosures,
     migration,
     migrationExport,
     runtime: new PrivateVaultContentRuntime({
@@ -56,6 +75,7 @@ function harness() {
       brokerActions,
       broker: factory as never,
       requester,
+      disclosures,
       migration,
       migrationExport,
     }),
@@ -203,12 +223,19 @@ describe("PrivateVaultContentRuntime", () => {
     await expect(source.runtime.listVaultMembers()).resolves.toEqual({
       members: [],
     });
+    await expect(source.runtime.listDisclosureActivity()).resolves.toEqual([
+      expect.objectContaining({
+        operation: "search-documents",
+        outcome: "allowed",
+      }),
+    ]);
     await expect(source.runtime.revokeAgentGrant(grantRef)).resolves.toEqual({
       state: "revoked",
       grantRef,
     });
     expect(source.requester.listContentGrants).toHaveBeenCalledWith(vaultId);
     expect(source.requester.listVaultMembers).toHaveBeenCalledWith(vaultId);
+    expect(source.disclosures.list).toHaveBeenCalledWith(vaultId);
     expect(source.requester.revokeContentGrant).toHaveBeenCalledWith(
       vaultId,
       grantRef,

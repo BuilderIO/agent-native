@@ -63,6 +63,7 @@ type NativeOperation =
   | "revoke_grant"
   | "list_grants"
   | "list_members"
+  | "broker_key"
   | "seal_job"
   | "open_result"
   | "open_job"
@@ -106,6 +107,9 @@ export interface PrivateVaultNativeServiceClient
   ): Promise<NativeRevokedContentGrantResult>;
   listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult>;
   listVaultMembers(vaultId: string): Promise<NativeListedVaultMembersResult>;
+  brokerVerificationKey(
+    vaultId: string,
+  ): Promise<NativeBrokerVerificationKeyResult>;
   sealExportArchive(
     input: NativeSealExportArchiveInput,
   ): Promise<NativeSealedExportArchiveResult>;
@@ -247,6 +251,16 @@ export interface NativeListedVaultMembersResult {
   readonly state: "listed";
   readonly vaultId: string;
   readonly members: readonly NativeVaultMemberSummary[];
+}
+
+export interface NativeBrokerVerificationKeyResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "broker_key";
+  readonly state: "verified";
+  readonly vaultId: string;
+  readonly endpointId: string;
+  readonly signingPublicKey: Uint8Array;
 }
 
 export interface NativeSealExportArchiveInput {
@@ -1415,6 +1429,40 @@ function parseListedVaultMembers(
   });
 }
 
+function parseBrokerVerificationKey(
+  value: unknown,
+  vaultId: string,
+): NativeBrokerVerificationKeyResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "endpointId",
+      "signingPublicKey",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "broker_key" ||
+    value.state !== "verified" ||
+    value.vaultId !== vaultId ||
+    !isLowerHex(value.endpointId, 32) ||
+    !(value.signingPublicKey instanceof Uint8Array) ||
+    value.signingPublicKey.byteLength !== 32
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "broker_key" as const,
+    state: "verified" as const,
+    vaultId,
+    endpointId: value.endpointId,
+    signingPublicKey: value.signingPublicKey.slice(),
+  });
+}
+
 function parseSealedExportArchive(
   value: unknown,
   input: NativeSealExportArchiveInput,
@@ -1989,6 +2037,24 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         const addon = await this.#addon;
         return parseListedVaultMembers(
           await addon.request("list_members", vaultId),
+          vaultId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  brokerVerificationKey(
+    vaultId: string,
+  ): Promise<NativeBrokerVerificationKeyResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseBrokerVerificationKey(
+          await addon.request("broker_key", vaultId),
           vaultId,
         );
       } catch {

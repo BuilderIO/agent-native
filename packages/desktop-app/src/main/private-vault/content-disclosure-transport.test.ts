@@ -80,7 +80,7 @@ function hostedResponse(url: string, value: unknown): Response {
       "content-length": String(Buffer.byteLength(body)),
     }),
     arrayBuffer: async () => Buffer.from(body),
-  } as Response;
+  } as unknown as Response;
 }
 
 describe("Private Vault disclosure activity transport", () => {

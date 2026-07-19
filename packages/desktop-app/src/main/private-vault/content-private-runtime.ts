@@ -6,6 +6,11 @@ import {
   createPrivateVaultContentBrokerRuntime,
   type PrivateVaultContentBrokerRuntime,
 } from "./content-broker-runtime.js";
+import {
+  PrivateVaultContentDisclosureTransport,
+  verifyPrivateVaultDisclosureActivity,
+  type PrivateVaultVerifiedDisclosureActivity,
+} from "./content-disclosure-transport.js";
 import { PrivateVaultContentDocumentRuntime } from "./content-document-runtime.js";
 import type { PrivateVaultContentSession } from "./content-genesis-transport.js";
 import {
@@ -61,6 +66,14 @@ interface MigrationExportSurface {
   export(vaultId: string, migrationId: string): Promise<unknown>;
 }
 
+
+
+interface DisclosureSurface {
+  list(
+    vaultId: string,
+  ): Promise<readonly PrivateVaultVerifiedDisclosureActivity[]>;
+}
+
 type PrivateContentDocuments = DocumentLifecycle &
   Pick<
     PrivateVaultContentDocumentRuntime,
@@ -95,6 +108,7 @@ export class PrivateVaultContentRuntime {
     actions: PrivateVaultLocalActionRegistry,
   ) => BrokerLifecycle;
   readonly #requester: RequesterSurface;
+  readonly #disclosures: DisclosureSurface;
   readonly #migration: MigrationSurface;
   readonly #migrationExport: MigrationExportSurface;
   #active: {
@@ -114,6 +128,7 @@ export class PrivateVaultContentRuntime {
     };
     broker: (actions: PrivateVaultLocalActionRegistry) => BrokerLifecycle;
     requester: RequesterSurface;
+    disclosures: DisclosureSurface;
     migration: MigrationSurface;
     migrationExport: MigrationExportSurface;
   }) {
@@ -122,6 +137,7 @@ export class PrivateVaultContentRuntime {
     this.#brokerActions = input.brokerActions;
     this.#broker = input.broker;
     this.#requester = input.requester;
+    this.#disclosures = input.disclosures;
     this.#migration = input.migration;
     this.#migrationExport = input.migrationExport;
   }
@@ -189,6 +205,15 @@ export class PrivateVaultContentRuntime {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     try {
       return await this.#requester.listVaultMembers(this.#active.vaultId);
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
+  async listDisclosureActivity() {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#disclosures.list(this.#active.vaultId);
     } catch {
       throw new PrivateVaultContentRuntimeError();
     }
@@ -306,6 +331,22 @@ export function createPrivateVaultContentRuntime(input: {
   const index = createEncryptedContentIndexStore();
   const transport = new PrivateVaultContentObjectTransport(input);
   const native = createPrivateVaultNativeServiceClient();
+  const disclosureTransport = new PrivateVaultContentDisclosureTransport(input);
+  const disclosures: DisclosureSurface = {
+    async list(vaultId) {
+      const [rows, broker] = await Promise.all([
+        disclosureTransport.list(vaultId),
+        native.brokerVerificationKey(vaultId),
+      ]);
+      if (rows.some((row) => row.endpointId !== broker.endpointId))
+        throw new PrivateVaultContentRuntimeError();
+      return verifyPrivateVaultDisclosureActivity({
+        vaultId,
+        brokerSigningPublicKey: broker.signingPublicKey,
+        rows,
+      });
+    },
+  };
   const objects = new PrivateVaultContentObjectRuntime(native);
   const migrationHosted = new PrivateVaultContentMigrationTransport(input);
   const documents = new PrivateVaultContentDocumentRuntime({
@@ -345,6 +386,7 @@ export function createPrivateVaultContentRuntime(input: {
     broker: (actions) =>
       createPrivateVaultContentBrokerRuntime({ ...input, actions }),
     requester,
+    disclosures,
     migration,
     migrationExport,
   });

@@ -777,6 +777,36 @@ describe("Private Vault native service client", () => {
     );
   });
 
+  it("returns the current broker verification key from the native trust root", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const endpointId = "11112222333344445555666677778888";
+    const signingPublicKey = Buffer.alloc(32, 7);
+    const request = vi.fn(
+      async (): Promise<unknown> => ({
+        version: 3,
+        operation: "broker_key",
+        state: "verified",
+        vaultId,
+        endpointId,
+        signingPublicKey,
+      }),
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    await expect(client.brokerVerificationKey(vaultId)).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "broker_key",
+      state: "verified",
+      vaultId,
+      endpointId,
+      signingPublicKey,
+    });
+    expect(request).toHaveBeenCalledWith("broker_key", vaultId);
+  });
+
   it("seals an export through native phrase collection and clears its working plaintext", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const exportId = "ffeeddccbbaa99887766554433221100";

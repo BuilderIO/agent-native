@@ -135,6 +135,14 @@ int main(void) {
          strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
   xpc_release(listMembers);
 
+  xpc_object_t brokerKey =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "broker_key", "request-broker-key");
+  xpc_dictionary_set_string(brokerKey, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(brokerKey, &parsed) == PVRequestValid &&
+         strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  xpc_release(brokerKey);
+
   xpc_object_t sealExport =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_export", "request-seal-export");
   xpc_dictionary_set_string(sealExport, "vaultId",

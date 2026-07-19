@@ -244,6 +244,59 @@ function privateMembers(value: unknown): DesktopPrivateContentVaultMember[] {
   );
 }
 
+interface PrivateDisclosureActivity {
+  readonly disclosureId: string;
+  readonly endpointId: string;
+  readonly jobId: string;
+  readonly grantId: string;
+  readonly resourceId: string;
+  readonly operation: string;
+  readonly providerId: string;
+  readonly destination: string;
+  readonly outcome: "allowed" | "failed";
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly serverReceivedAt: string;
+}
+
+function privateDisclosures(value: unknown): PrivateDisclosureActivity[] {
+  if (!Array.isArray(value) || value.length > 50) throw new Error();
+  const seen = new Set<string>();
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw new Error();
+    const record = item as Record<string, unknown>;
+    const token = (candidate: unknown) =>
+      typeof candidate === "string" && /^[\x21-\x7e]{1,160}$/u.test(candidate);
+    const id = (candidate: unknown) =>
+      typeof candidate === "string" && /^[0-9a-f]{32}$/u.test(candidate);
+    if (
+      Object.keys(record).sort().join("\0") !==
+        "destination\0disclosureId\0endpointId\0expiresAt\0grantId\0issuedAt\0jobId\0operation\0outcome\0providerId\0resourceId\0serverReceivedAt" ||
+      !id(record.disclosureId) ||
+      seen.has(record.disclosureId as string) ||
+      !id(record.endpointId) ||
+      !id(record.jobId) ||
+      !id(record.grantId) ||
+      !id(record.resourceId) ||
+      !token(record.operation) ||
+      !token(record.providerId) ||
+      !token(record.destination) ||
+      (record.outcome !== "allowed" && record.outcome !== "failed") ||
+      !Number.isSafeInteger(record.issuedAt) ||
+      (record.issuedAt as number) <= 0 ||
+      !Number.isSafeInteger(record.expiresAt) ||
+      (record.expiresAt as number) <= (record.issuedAt as number) ||
+      typeof record.serverReceivedAt !== "string" ||
+      new Date(record.serverReceivedAt).toISOString() !==
+        record.serverReceivedAt
+    )
+      throw new Error();
+    seen.add(record.disclosureId as string);
+    return record as unknown as PrivateDisclosureActivity;
+  });
+}
+
 function shortIdentity(value: string) {
   return `${value.slice(0, 6)}…${value.slice(-6)}`;
 }
@@ -301,8 +354,12 @@ export default function PrivateContentSurface({
   const [members, setMembers] = useState<DesktopPrivateContentVaultMember[]>(
     [],
   );
+  const [disclosures, setDisclosures] = useState<PrivateDisclosureActivity[]>(
+    [],
+  );
   const [grantsLoading, setGrantsLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [disclosuresLoading, setDisclosuresLoading] = useState(false);
   const [enrollingBroker, setEnrollingBroker] = useState(false);
   const [migrationCandidateIds, setMigrationCandidateIds] = useState<string[]>(
     [],
@@ -345,6 +402,21 @@ export default function PrivateContentSurface({
       setMessage("Enrolled devices could not be verified on this device.");
     } finally {
       setMembersLoading(false);
+    }
+  }, []);
+
+  const loadDisclosures = useCallback(async () => {
+    setDisclosuresLoading(true);
+    try {
+      const response =
+        await window.electronAPI.privateContent.listDisclosures();
+      if (!response.ok) throw new Error();
+      setDisclosures(privateDisclosures(response.value));
+    } catch {
+      setDisclosures([]);
+      setMessage("Recent model access could not be verified on this device.");
+    } finally {
+      setDisclosuresLoading(false);
     }
   }, []);
 
@@ -852,7 +924,11 @@ export default function PrivateContentSurface({
             className="private-content-reader-details"
             onToggle={(event) => {
               if (event.currentTarget.open)
-                void Promise.all([loadGrants(), loadMembers()]);
+                void Promise.all([
+                  loadGrants(),
+                  loadMembers(),
+                  loadDisclosures(),
+                ]);
             }}
           >
             <summary>Who can read?</summary>
@@ -863,6 +939,35 @@ export default function PrivateContentSurface({
                 <strong>Encrypted work queue</strong>
               </div>
               <span>{brokerActivity(health)}</span>
+            </div>
+            <div className="private-content-grants">
+              <div className="private-content-grants-heading">
+                <IconUserShield size={15} aria-hidden="true" />
+                <strong>Recent model access</strong>
+              </div>
+              <span>Verified on this Mac from the broker’s signed proof.</span>
+              {disclosuresLoading ? (
+                <span>Checking signed disclosures…</span>
+              ) : disclosures.length === 0 ? (
+                <span>No recent model disclosure is recorded.</span>
+              ) : (
+                disclosures.map((item) => (
+                  <div
+                    className="private-content-member"
+                    key={item.disclosureId}
+                  >
+                    <strong>
+                      {item.outcome === "allowed"
+                        ? `${item.operation} shared`
+                        : `${item.operation} failed closed`}
+                    </strong>
+                    <span>
+                      {item.providerId} → {item.destination} ·{" "}
+                      {new Date(item.issuedAt * 1000).toLocaleString()}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
             <div className="private-content-grants">
               <div className="private-content-grants-heading">

@@ -132,6 +132,25 @@ describe("PrivateContentSurface privacy disclosure", () => {
               ],
             },
           })),
+          listDisclosures: vi.fn(async () => ({
+            ok: true,
+            value: [
+              {
+                disclosureId: "55".repeat(16),
+                endpointId: "66".repeat(16),
+                jobId: "77".repeat(16),
+                grantId: "88".repeat(16),
+                resourceId: "99".repeat(16),
+                operation: "search-documents",
+                providerId: "openai",
+                destination: "gpt-5.6",
+                outcome: "allowed",
+                issuedAt: 1_784_000_000,
+                expiresAt: 1_784_000_300,
+                serverReceivedAt: "2026-07-18T00:00:00.000Z",
+              },
+            ],
+          })),
           revokeGrant,
           enrollPersonalBroker: vi.fn(async () => ({
             ok: true,
@@ -159,6 +178,12 @@ describe("PrivateContentSurface privacy disclosure", () => {
     expect(container.textContent).toContain("Agent 222222…222222");
     expect(container.textContent).toContain("This Mac");
     expect(container.textContent).toContain("Enroll personal agent");
+    expect(container.textContent).toContain("Recent model access");
+    expect(container.textContent).toContain(
+      "Verified on this Mac from the broker’s signed proof.",
+    );
+    expect(container.textContent).toContain("search-documents shared");
+    expect(container.textContent).toContain("openai → gpt-5.6");
     expect(container.textContent).toContain(
       "Broker offline; hosted ciphertext may be waiting",
     );

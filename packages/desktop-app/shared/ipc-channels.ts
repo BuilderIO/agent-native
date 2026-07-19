@@ -84,6 +84,8 @@ export const IPC = {
     "content-private-runtime:restore-version",
   CONTENT_PRIVATE_RUNTIME_LIST_GRANTS: "content-private-runtime:list-grants",
   CONTENT_PRIVATE_RUNTIME_LIST_MEMBERS: "content-private-runtime:list-members",
+  CONTENT_PRIVATE_RUNTIME_LIST_DISCLOSURES:
+    "content-private-runtime:list-disclosures",
   CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT: "content-private-runtime:revoke-grant",
   CONTENT_PRIVATE_RUNTIME_MIGRATION_CANDIDATES:
     "content-private-runtime:migration-candidates",
