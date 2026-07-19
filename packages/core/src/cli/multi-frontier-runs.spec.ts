@@ -6,11 +6,18 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   activateStoredMultiFrontierDriver,
+  appendMultiFrontierArtifact,
   appendMultiFrontierParticipantEvent,
   canApplyMultiFrontierParticipantEvent,
+  compactMultiFrontierParticipantEvents,
   createMultiFrontierRun,
+  getMultiFrontierArtifact,
+  getMultiFrontierParticipantEventRetention,
   getMultiFrontierRun,
+  listMultiFrontierArtifacts,
   listMultiFrontierParticipantEvents,
+  MAX_MULTI_FRONTIER_ARTIFACTS_PER_RUN,
+  multiFrontierArtifactsDir,
   multiFrontierRunsStoreRoot,
   reactivateStoredMultiFrontierDriver,
   recoverStoredMultiFrontierRun,
@@ -224,6 +231,335 @@ describe("multi-frontier run store", () => {
         ],
       }),
     ).toThrow("Multi-frontier run already exists: no-overwrite");
+  });
+
+  it("persists bounded append-only coordinator artifacts with safe references", () => {
+    const root = useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const proposal = appendMultiFrontierArtifact({
+      id: "proposal-1",
+      collaborationId: run.collaborationId,
+      kind: "proposal",
+      participantId: "claude",
+      title: "Use a single coordinator",
+      summary: "The desktop main process owns durable run-state mutations.",
+      contentHash: "a".repeat(64),
+      fileRefs: ["packages/core/src/cli/multi-frontier-runs.ts"],
+      testSummary: [
+        {
+          name: "multi-frontier store",
+          status: "passed",
+          summary: "Recovers into read-only paused state.",
+        },
+      ],
+      createdAt: "2026-07-19T16:00:00.000Z",
+    });
+    expect(proposal).toMatchObject({ accepted: true, deduplicated: false });
+    expect(getMultiFrontierArtifact(run.collaborationId, "proposal-1")).toEqual(
+      expect.objectContaining({
+        kind: "proposal",
+        fileRefs: ["packages/core/src/cli/multi-frontier-runs.ts"],
+      }),
+    );
+    expect(getMultiFrontierRun(run.collaborationId)?.proposalIds).toEqual([
+      "proposal-1",
+    ]);
+    expect(
+      fs.statSync(
+        path.join(
+          root,
+          "multi-frontier",
+          "artifacts",
+          run.collaborationId,
+          "proposal-1.json",
+        ),
+      ).mode & 0o777,
+    ).toBe(0o600);
+
+    expect(
+      appendMultiFrontierArtifact({
+        id: "review-1",
+        collaborationId: run.collaborationId,
+        kind: "review",
+        title: "Review retention",
+        summary: "The event journal exposes a snapshot-required replay marker.",
+        supersedesArtifactId: "proposal-1",
+      }),
+    ).toMatchObject({ accepted: true, deduplicated: false });
+    expect(
+      listMultiFrontierArtifacts(run.collaborationId).map(
+        (artifact) => artifact.id,
+      ),
+    ).toEqual(["proposal-1", "review-1"]);
+
+    expect(
+      appendMultiFrontierArtifact({
+        id: "proposal-1",
+        collaborationId: run.collaborationId,
+        kind: "proposal",
+        participantId: "claude",
+        title: "Use a single coordinator",
+        summary: "The desktop main process owns durable run-state mutations.",
+        contentHash: "a".repeat(64),
+        fileRefs: ["packages/core/src/cli/multi-frontier-runs.ts"],
+        testSummary: [
+          {
+            name: "multi-frontier store",
+            status: "passed",
+            summary: "Recovers into read-only paused state.",
+          },
+        ],
+        createdAt: "2026-07-19T16:00:00.000Z",
+      }),
+    ).toMatchObject({ accepted: true, deduplicated: true });
+  });
+
+  it("rejects unbounded or provider-payload artifact fields without changing state", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    expect(() =>
+      appendMultiFrontierArtifact({
+        id: "bad-payload",
+        collaborationId: run.collaborationId,
+        kind: "proposal",
+        title: "Payload",
+        summary: "A summary.",
+        payload: { accessToken: "example-token" },
+      } as never),
+    ).toThrow("allowlisted summary fields");
+    expect(() =>
+      appendMultiFrontierArtifact({
+        id: "bad-diff",
+        collaborationId: run.collaborationId,
+        kind: "proposal",
+        title: "Diff",
+        summary: "diff --git a/private.txt b/private.txt\n+secret",
+      }),
+    ).toThrow("artifact summary");
+    expect(() =>
+      appendMultiFrontierArtifact({
+        id: "bad-file-ref",
+        collaborationId: run.collaborationId,
+        kind: "review",
+        title: "Review",
+        summary: "A bounded review.",
+        fileRefs: ["../../.codex/auth.json"],
+      }),
+    ).toThrow("file references");
+    expect(
+      appendMultiFrontierArtifact({
+        id: "dangling-supersession",
+        collaborationId: run.collaborationId,
+        kind: "review",
+        title: "Review",
+        summary: "A bounded review.",
+        supersedesArtifactId: "not-present",
+      }),
+    ).toMatchObject({
+      accepted: false,
+      reason: "missing-superseded-artifact",
+    });
+    expect(getMultiFrontierRun(run.collaborationId)?.proposalIds).toEqual([]);
+    expect(listMultiFrontierArtifacts(run.collaborationId)).toEqual([]);
+  });
+
+  it("repairs a matching artifact reference after a crash between artifact and run writes", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const artifact = {
+      schemaVersion: 1,
+      id: "orphaned-proposal",
+      collaborationId: run.collaborationId,
+      kind: "proposal" as const,
+      createdAt: "2026-07-19T16:00:00.000Z",
+      title: "Recovered proposal",
+      summary: "This record was written before the run reference.",
+    };
+    const artifactPath = path.join(
+      multiFrontierArtifactsDir(),
+      run.collaborationId,
+      `${artifact.id}.json`,
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, JSON.stringify(artifact));
+
+    const { schemaVersion: _schemaVersion, ...input } = artifact;
+    expect(appendMultiFrontierArtifact(input)).toMatchObject({
+      accepted: true,
+      deduplicated: true,
+      run: { proposalIds: [artifact.id] },
+    });
+    expect(getMultiFrontierRun(run.collaborationId)?.proposalIds).toEqual([
+      artifact.id,
+    ]);
+  });
+
+  it("compacts participant events into a replay-marked bounded tail", () => {
+    const root = useTempCodeAgentsHome();
+    const run = createActiveRun();
+    for (const id of ["event-1", "event-2", "event-3", "event-4"]) {
+      expect(
+        appendMultiFrontierParticipantEvent({
+          id,
+          collaborationId: run.collaborationId,
+          participantId: "claude",
+          permission: "read_only",
+        }),
+      ).toMatchObject({ accepted: true });
+    }
+    const retention = compactMultiFrontierParticipantEvents(
+      run.collaborationId,
+      {
+        maxEventCount: 2,
+        maxBytes: 1_024,
+      },
+    );
+    expect(retention).toMatchObject({
+      retainedEventCount: 2,
+      droppedEventCount: 2,
+      truncated: true,
+      replay: { requiresSnapshot: true, firstRetainedEventId: "event-3" },
+    });
+    expect(retention?.retainedByteCount).toBeLessThanOrEqual(1_024);
+    expect(
+      listMultiFrontierParticipantEvents(run.collaborationId).map(
+        (event) => event.id,
+      ),
+    ).toEqual(["event-3", "event-4"]);
+    expect(
+      getMultiFrontierParticipantEventRetention(run.collaborationId),
+    ).toEqual(retention);
+    expect(
+      fs.statSync(
+        path.join(
+          root,
+          "multi-frontier",
+          "events",
+          `${run.collaborationId}.jsonl`,
+        ),
+      ).mode & 0o777,
+    ).toBe(0o600);
+    expect(
+      fs.statSync(
+        path.join(
+          root,
+          "multi-frontier",
+          "events",
+          `${run.collaborationId}.retention.json`,
+        ),
+      ).mode & 0o777,
+    ).toBe(0o600);
+  });
+
+  it("uses UTF-8 serialized bytes as well as event count for journal retention", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const eventIds = ["a", "b", "c", "d"].map(
+      (suffix) => `event-${suffix.repeat(180)}`,
+    );
+    for (const id of eventIds) {
+      appendMultiFrontierParticipantEvent({
+        id,
+        collaborationId: run.collaborationId,
+        participantId: "claude",
+        permission: "read_only",
+      });
+    }
+    const retention = compactMultiFrontierParticipantEvents(
+      run.collaborationId,
+      {
+        maxEventCount: 4,
+        maxBytes: 1_024,
+      },
+    );
+    expect(retention).toMatchObject({
+      retainedEventCount: 3,
+      droppedEventCount: 1,
+      retainedByteCount: expect.any(Number),
+      replay: {
+        requiresSnapshot: true,
+        firstRetainedEventId: eventIds[1],
+      },
+    });
+    expect(retention?.retainedByteCount).toBeLessThanOrEqual(1_024);
+  });
+
+  it("keeps the newest contiguous tail when an oversized middle event reaches the byte cap", () => {
+    useTempCodeAgentsHome();
+    const participantId = `participant-${"p".repeat(170)}`;
+    const run = createMultiFrontierRun({
+      collaborationId: "contiguous-tail",
+      phase: "implementing",
+      approval: { state: "approved" },
+      participants: [
+        {
+          participantId,
+          provider: "openai",
+          runtime: "codex",
+          role: "driver",
+          permission: "workspace_write",
+          status: "running",
+        },
+      ],
+    });
+    activateStoredMultiFrontierDriver(run.collaborationId, participantId);
+    const middleId = `event-${"m".repeat(180)}`;
+    for (const id of ["older", middleId, "newest"]) {
+      appendMultiFrontierParticipantEvent({
+        id,
+        collaborationId: run.collaborationId,
+        participantId,
+        permission: "read_only",
+      });
+    }
+    const retention = compactMultiFrontierParticipantEvents(
+      run.collaborationId,
+      {
+        maxEventCount: 4,
+        maxBytes: 512,
+      },
+    );
+    expect(retention).toMatchObject({
+      retainedEventCount: 1,
+      replay: {
+        requiresSnapshot: true,
+        firstRetainedEventId: "newest",
+      },
+    });
+    expect(listMultiFrontierParticipantEvents(run.collaborationId)).toEqual([
+      expect.objectContaining({ id: "newest" }),
+    ]);
+  });
+
+  it("rejects new artifacts after the per-run retention cap without deleting records", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    for (let index = 0; index < MAX_MULTI_FRONTIER_ARTIFACTS_PER_RUN; index++) {
+      expect(
+        appendMultiFrontierArtifact({
+          id: `proposal-${index}`,
+          collaborationId: run.collaborationId,
+          kind: "proposal",
+          title: "Bounded proposal",
+          summary: "A concise durable coordination summary.",
+        }),
+      ).toMatchObject({ accepted: true });
+    }
+    expect(
+      appendMultiFrontierArtifact({
+        id: "proposal-overflow",
+        collaborationId: run.collaborationId,
+        kind: "proposal",
+        title: "Overflow proposal",
+        summary: "This must not evict an active artifact.",
+      }),
+    ).toMatchObject({ accepted: false, reason: "artifact-limit-reached" });
+    expect(listMultiFrontierArtifacts(run.collaborationId)).toHaveLength(
+      MAX_MULTI_FRONTIER_ARTIFACTS_PER_RUN,
+    );
+    expect(
+      getMultiFrontierArtifact(run.collaborationId, "proposal-0"),
+    ).not.toBeNull();
   });
 });
 
