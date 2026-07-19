@@ -41,6 +41,9 @@ import {
   type DesktopAppRuntimeStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
+  type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentResult,
+  type DesktopPrivateContentUpdateRequest,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -79,6 +82,35 @@ const electronAPI = {
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
   webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
+
+  /** Signed-shell Private Content bridge; absent from hosted webview preload. */
+  privateContent: {
+    start: (): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_START),
+    stop: (): Promise<DesktopPrivateContentResult<null>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_STOP),
+    health: (): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_HEALTH),
+    list: (): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_LIST),
+    get: (id: string): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_GET, id),
+    search: (
+      query: string,
+      limit?: number,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_SEARCH, { query, limit }),
+    create: (
+      request: DesktopPrivateContentCreateRequest,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_CREATE, request),
+    update: (
+      request: DesktopPrivateContentUpdateRequest,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_UPDATE, request),
+    delete: (id: string): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_DELETE, id),
+  },
 
   /** Window chrome controls */
   windowControls: {

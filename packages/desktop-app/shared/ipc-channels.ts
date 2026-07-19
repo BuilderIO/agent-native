@@ -61,6 +61,17 @@ export const IPC = {
   CONTENT_PRIVATE_VAULT_RESUME_GENESIS: "content-private-vault:resume-genesis",
   CONTENT_PRIVATE_VAULT_RECOVER: "content-private-vault:recover",
 
+  /** Signed Desktop Private Content surface (never hosted webview preload) */
+  CONTENT_PRIVATE_RUNTIME_START: "content-private-runtime:start",
+  CONTENT_PRIVATE_RUNTIME_STOP: "content-private-runtime:stop",
+  CONTENT_PRIVATE_RUNTIME_HEALTH: "content-private-runtime:health",
+  CONTENT_PRIVATE_RUNTIME_LIST: "content-private-runtime:list",
+  CONTENT_PRIVATE_RUNTIME_GET: "content-private-runtime:get",
+  CONTENT_PRIVATE_RUNTIME_SEARCH: "content-private-runtime:search",
+  CONTENT_PRIVATE_RUNTIME_CREATE: "content-private-runtime:create",
+  CONTENT_PRIVATE_RUNTIME_UPDATE: "content-private-runtime:update",
+  CONTENT_PRIVATE_RUNTIME_DELETE: "content-private-runtime:delete",
+
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
@@ -332,6 +343,52 @@ export type DesktopPrivateVaultResumeGenesisResult =
 
 export type DesktopPrivateVaultRecoveryResult =
   | { ok: true; vaultId: string; sequence: number; headHash: string }
+  | { ok: false; error: string };
+
+export interface DesktopPrivateContentDocument {
+  id: string;
+  parentId: string | null;
+  title: string;
+  content: string;
+  description: string | null;
+  icon: string | null;
+  position: number;
+  isFavorite: boolean;
+  hideFromSearch: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopPrivateContentSummary extends Omit<
+  DesktopPrivateContentDocument,
+  "content"
+> {
+  contentPreview: string;
+  contentLength: number;
+}
+
+export interface DesktopPrivateContentCreateRequest {
+  title: string;
+  content?: string;
+  description?: string | null;
+  parentId?: string | null;
+  icon?: string | null;
+}
+
+export interface DesktopPrivateContentUpdateRequest {
+  id: string;
+  title?: string;
+  content?: string;
+  description?: string | null;
+  parentId?: string | null;
+  icon?: string | null;
+  position?: number;
+  isFavorite?: boolean;
+  hideFromSearch?: boolean;
+}
+
+export type DesktopPrivateContentResult<T> =
+  | { ok: true; value: T }
   | { ok: false; error: string };
 
 export type CodeAgentRunStatus =

@@ -44,6 +44,7 @@ describe("PrivateVaultContentRuntime", () => {
     expect(source.factory).toHaveBeenCalledWith(source.actions);
     expect(source.runtime.health()).toEqual({
       vaultId,
+      brokerState: "online",
       broker: { state: "running" },
     });
     await source.runtime.stop();
@@ -51,14 +52,16 @@ describe("PrivateVaultContentRuntime", () => {
     expect(source.documents.close).toHaveBeenCalledOnce();
   });
 
-  it("closes document plaintext state when broker startup fails", async () => {
+  it("keeps endpoint documents open while a failed broker stays offline", async () => {
     const source = harness();
     source.broker.start.mockRejectedValueOnce(new Error("locked"));
-    await expect(source.runtime.start()).rejects.toBeInstanceOf(
-      PrivateVaultContentRuntimeError,
-    );
-    expect(source.documents.close).toHaveBeenCalledOnce();
-    expect(source.runtime.health()).toBeNull();
+    await expect(source.runtime.start()).resolves.toBeUndefined();
+    expect(source.documents.close).not.toHaveBeenCalled();
+    expect(source.runtime.health()).toEqual({
+      vaultId,
+      brokerState: "offline",
+      broker: null,
+    });
   });
 
   it("serializes lifecycle transitions", async () => {

@@ -22,6 +22,17 @@ interface DocumentLifecycle {
   close(): void;
 }
 
+type PrivateContentDocuments = DocumentLifecycle &
+  Pick<
+    PrivateVaultContentDocumentRuntime,
+    | "listDocuments"
+    | "getDocument"
+    | "searchDocuments"
+    | "createDocument"
+    | "updateDocument"
+    | "deleteDocument"
+  >;
+
 export class PrivateVaultContentRuntimeError extends Error {
   constructor() {
     super("Private Content runtime unavailable");
@@ -35,21 +46,25 @@ export class PrivateVaultContentRuntimeError extends Error {
  */
 export class PrivateVaultContentRuntime {
   readonly #descriptor: { read(): Promise<{ vaultId: string }> };
-  readonly #documents: DocumentLifecycle;
+  readonly #documents: PrivateContentDocuments;
   readonly #brokerActions: {
-    create(vaultId: string): Promise<PrivateVaultLocalActionRegistry>;
+    create(vaultId: string): Promise<PrivateVaultLocalActionRegistry | null>;
   };
   readonly #broker: (
     actions: PrivateVaultLocalActionRegistry,
   ) => BrokerLifecycle;
-  #active: { vaultId: string; broker: BrokerLifecycle } | null = null;
+  #active: {
+    vaultId: string;
+    broker: BrokerLifecycle | null;
+    brokerState: "online" | "offline";
+  } | null = null;
   #transition: Promise<void> | null = null;
 
   constructor(input: {
     descriptor: { read(): Promise<{ vaultId: string }> };
-    documents: DocumentLifecycle;
+    documents: PrivateContentDocuments;
     brokerActions: {
-      create(vaultId: string): Promise<PrivateVaultLocalActionRegistry>;
+      create(vaultId: string): Promise<PrivateVaultLocalActionRegistry | null>;
     };
     broker: (actions: PrivateVaultLocalActionRegistry) => BrokerLifecycle;
   }) {
@@ -74,7 +89,7 @@ export class PrivateVaultContentRuntime {
     const active = this.#active;
     this.#active = null;
     try {
-      await active?.broker.stop();
+      await active?.broker?.stop();
     } catch {
       throw new PrivateVaultContentRuntimeError();
     } finally {
@@ -87,22 +102,38 @@ export class PrivateVaultContentRuntime {
     return active
       ? Object.freeze({
           vaultId: active.vaultId,
-          broker: active.broker.health(),
+          brokerState: active.brokerState,
+          broker: active.broker?.health() ?? null,
         })
       : null;
   }
 
+  documents(): PrivateContentDocuments {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    return this.#documents;
+  }
+
   async #start(): Promise<void> {
-    let broker: BrokerLifecycle | null = null;
     try {
       const descriptor = await this.#descriptor.read();
       await this.#documents.initialize(descriptor.vaultId);
-      const actions = await this.#brokerActions.create(descriptor.vaultId);
-      broker = this.#broker(actions);
-      await broker.start();
-      this.#active = { vaultId: descriptor.vaultId, broker };
+      let broker: BrokerLifecycle | null = null;
+      try {
+        const actions = await this.#brokerActions.create(descriptor.vaultId);
+        if (actions) {
+          broker = this.#broker(actions);
+          await broker.start();
+        }
+      } catch {
+        await broker?.stop().catch(() => undefined);
+        broker = null;
+      }
+      this.#active = {
+        vaultId: descriptor.vaultId,
+        broker,
+        brokerState: broker ? "online" : "offline",
+      };
     } catch {
-      await broker?.stop().catch(() => undefined);
       this.#documents.close();
       throw new PrivateVaultContentRuntimeError();
     }
@@ -113,7 +144,7 @@ export function createPrivateVaultContentRuntime(input: {
   session: PrivateVaultContentSession;
   origin: string;
   brokerActions: {
-    create(vaultId: string): Promise<PrivateVaultLocalActionRegistry>;
+    create(vaultId: string): Promise<PrivateVaultLocalActionRegistry | null>;
   };
 }): PrivateVaultContentRuntime {
   const documents: PrivateVaultContentDocumentRuntime =

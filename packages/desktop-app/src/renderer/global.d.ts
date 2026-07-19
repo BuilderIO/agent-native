@@ -620,6 +620,47 @@ interface ElectronAPI {
   };
   webviewPreloadPath: string;
 
+  privateContent: {
+    start(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    stop(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<null>
+    >;
+    health(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    list(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    get(
+      id: string,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    search(
+      query: string,
+      limit?: number,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    create(
+      request: import("@shared/ipc-channels").DesktopPrivateContentCreateRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    update(
+      request: import("@shared/ipc-channels").DesktopPrivateContentUpdateRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    delete(
+      id: string,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+  };
+
   windowControls: {
     minimize(): void;
     maximize(): void;

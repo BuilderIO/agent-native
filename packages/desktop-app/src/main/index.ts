@@ -159,6 +159,7 @@ import {
 import { registerAppsIpc } from "./ipc/apps";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerContentPrivateRuntimeIpc } from "./ipc/content-private-runtime";
 import { registerContentPrivateVaultIpc } from "./ipc/content-private-vault";
 import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
@@ -171,6 +172,10 @@ import {
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
 import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
+import {
+  createPrivateVaultContentRuntime,
+  type PrivateVaultContentRuntime,
+} from "./private-vault/content-private-runtime";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -5711,6 +5716,38 @@ function isContentFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
 
 const privateVaultContentGenesisRuntime =
   createPrivateVaultContentGenesisRuntime();
+let privateVaultContentRuntime: {
+  origin: string;
+  runtime: PrivateVaultContentRuntime;
+} | null = null;
+
+function contentPrivateRuntimeForEvent(event: IpcMainInvokeEvent) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return null;
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  const origin = contentApp ? getAppOrigin(contentApp) : null;
+  if (!origin) return null;
+  try {
+    if (new URL(origin).protocol !== "https:") return null;
+    if (privateVaultContentRuntime?.origin !== origin) {
+      void privateVaultContentRuntime?.runtime.stop().catch(() => undefined);
+      privateVaultContentRuntime = {
+        origin,
+        runtime: createPrivateVaultContentRuntime({
+          session: session.fromPartition("persist:app-content"),
+          origin,
+          // Until an ordinary broker enrollment has been promoted, endpoint
+          // Content remains available and protected work queues stay offline.
+          brokerActions: { create: async () => null },
+        }),
+      };
+    }
+    return privateVaultContentRuntime.runtime;
+  } catch {
+    return null;
+  }
+}
 
 function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
   if (!isContentFilesWebviewSender(event)) return null;
@@ -7916,6 +7953,12 @@ registerContentFilesIpc({
 registerContentPrivateVaultIpc({
   coordinatorForEvent: contentPrivateVaultCoordinatorForEvent,
   recoveryForEvent: contentPrivateVaultRecoveryForEvent,
+});
+
+// Plaintext CRUD is exposed only to the bundled, signed shell renderer. The
+// hosted Content webview preload deliberately has no matching bridge.
+registerContentPrivateRuntimeIpc({
+  runtimeForEvent: contentPrivateRuntimeForEvent,
 });
 
 // ---------- IPC: Frame settings ----------
