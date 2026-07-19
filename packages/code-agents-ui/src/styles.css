@@ -1063,8 +1063,9 @@
 }
 
 .code-agents-standard-composer
+  [data-agent-composer-slot="toolbar"]
   .code-agents-multi-frontier-control
-  button:not(.desktop-select-trigger) {
+  button.code-agents-multi-frontier-participants {
   flex: 0 0 auto;
   width: auto;
   min-width: 0;

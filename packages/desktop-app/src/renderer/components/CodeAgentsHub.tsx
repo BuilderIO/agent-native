@@ -960,7 +960,7 @@ export function MultiFrontierModeControl({
         onValueChange={onModeChange}
       >
         <SelectTrigger
-          className="code-agents-mode-select code-agents-multi-frontier-mode-select"
+          className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"
         >
           <SelectValue />

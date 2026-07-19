@@ -178,6 +178,11 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
     const participants = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Participants",
     );
+    expect(
+      participants?.classList.contains(
+        "code-agents-multi-frontier-participants",
+      ),
+    ).toBe(true);
     await act(async () => {
       participants?.dispatchEvent(
         new MouseEvent("pointerdown", { bubbles: true, button: 0 }),

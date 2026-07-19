@@ -121,6 +121,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(
       trigger?.classList.contains("code-agents-multi-frontier-mode-select"),
     ).toBe(true);
+    expect(trigger?.classList.contains("desktop-select-trigger")).toBe(true);
     expect(
       Array.from(container.querySelectorAll("button")).find(
         (button) => button.textContent === "Connect",

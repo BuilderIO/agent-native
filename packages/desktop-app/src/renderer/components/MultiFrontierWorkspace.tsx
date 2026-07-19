@@ -359,7 +359,7 @@ export function MultiFrontierParticipantSettings({
           type="button"
           size="sm"
           variant={allConnected ? "outline" : "default"}
-          className="shrink-0 whitespace-nowrap"
+          className="code-agents-multi-frontier-participants shrink-0 whitespace-nowrap"
         >
           {allConnected ? "Participants" : "Connect"}
         </Button>
