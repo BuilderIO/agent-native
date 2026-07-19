@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, account-authorized first-device genesis, mnemonic-proven recovery, exact fresh-device custody promotion, and fresh-Mac broker enrollment through a native-verified public control projection have executable proof; broker replacement and revocation, complete packaging, the protected Content product slice, and fork-level assurance remain pending
+Status: the complete first-beta implementation is assembled on the isolated fork with executable protocol, native custody, broker, protected Content, migration/recovery, disclosure, revocation, and signed-release assurance proof; completion remains gated on the exact deployed synthetic lifecycle, a signed and notarized candidate artifact, provider retention evidence, and independent implementation-review closure
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -1562,11 +1562,20 @@ To honor the preference for one production PR without weakening the security bou
 - Attach proof artifacts and exact failing/passing security properties to each PR.
 - Do not count “merged behind a flag” as “safe to enable.”
 
-## Ready-to-work boundary
+## Current completion boundary
 
-The brief is complete enough to enter `/work`. The repository F3/F4 pass and unauthenticated production preflight are complete, but the credentialed production exposure inventory remains a PR 1 entry gate. After that gate closes, work lands baseline PRs 1–2 upstream. Before implementation PR 3 opens, the team converts the settled M1/M2 policies into the exact field, retention, and deletion tables required by the entry-gate map. Before PR 4 opens, M3 selects and reviews the cryptographic architecture. Before PR 5 opens, the team converts the settled device and recovery contracts into executable ceremonies and vectors.
+The shaped implementation stack and its repository work are complete through
+the PR 8 assurance candidate. The remaining work is evidence, not an unresolved
+product decision: freeze one exact integration SHA, run the full synthetic
+runbook against its fork-owned deployment and database, verify a signed and
+notarized macOS artifact from that same source, record provider retention and
+deletion horizons, and close or explicitly bound independent review findings.
+Real-vault migration and the E2EE claim remain unauthorized until those facts
+are tied to the exact candidate.
 
-Those are named deliverables inside the work plan, not unresolved product forks. If an implementation finding would require server-held recovery keys, hosted plaintext vault-agent loops, browser vault access, a broader metadata allowance, or a plaintext fallback, work stops and returns to shaping.
+If an evidence run would require server-held recovery keys, hosted plaintext
+vault-agent loops, browser vault access, a broader metadata allowance, or a
+plaintext fallback, work stops and returns to shaping.
 
 ## Out of scope for the first implementation stack
 
@@ -1580,4 +1589,9 @@ Those are named deliverables inside the work plan, not unresolved product forks.
 
 ## Decision
 
-Complete the credentialed phase of the [production exposure inventory](./content-production-exposure-inventory-2026-07-16.md) and land baseline security PRs 1–2 upstream. Then use an integration fork for six sequential E2EE milestone PRs with one active review at a time, and mirror the exact reviewed commit graph into one same-repository upstream E2EE production PR. This preserves one-PR delivery for the E2EE feature without holding known isolation fixes hostage to it. Keep the final merge disabled until official previews, independent assurance, synthetic canaries, and exact-account rollout succeed.
+Keep the assembled implementation on the fork integration branch until the PR
+7 deployment drill and PR 8 exact-target assurance gates pass against one
+immutable SHA. Then mirror that reviewed commit graph without modification into
+one same-repository upstream E2EE production PR. Keep merge and real-user
+enrollment disabled until official previews, independent assurance, synthetic
+canaries, and exact-account rollout succeed.
