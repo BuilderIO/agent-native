@@ -171,7 +171,7 @@ export function ContentFilesSidebarView({
   const hierarchyItems = data?.properties.some(
     (property) => property.definition.systemRole === "files_parent",
   )
-    ? data.items
+    ? items
     : undefined;
   return (
     <div className="min-w-0">

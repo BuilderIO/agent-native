@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -28,6 +28,8 @@ type Document = Pick<
   typeof schema.documents.$inferSelect,
   "id" | "spaceId" | "parentId" | "ownerEmail" | "orgId"
 >;
+
+const FILES_SYSTEM_PROPERTIES_VERSION = 2;
 
 const SYSTEM_PROPERTY_SPECS = [
   {
@@ -64,7 +66,7 @@ export function filesParentPropertyId(databaseId: string) {
   return systemPropertyId(databaseId, "files_parent");
 }
 
-function defaultFilesRootFilter(databaseId: string) {
+function legacyFilesRootFilter(databaseId: string) {
   return {
     key: filesParentPropertyId(databaseId),
     label: "Parent",
@@ -74,32 +76,36 @@ function defaultFilesRootFilter(databaseId: string) {
 }
 
 export function defaultFilesDatabaseViewConfig(
-  databaseId: string,
+  _databaseId: string,
 ): ContentDatabaseViewConfig {
-  const config = defaultDatabaseViewConfig("table");
-  const filters = [defaultFilesRootFilter(databaseId)];
-  return {
-    ...config,
-    filters,
-    views: config.views.map((view) => ({ ...view, filters })),
-  };
+  return defaultDatabaseViewConfig("table");
 }
 
 export function migrateFilesDatabaseViewConfig(
   config: ContentDatabaseViewConfig,
   databaseId: string,
+  options: { removeLegacyRootFilter?: boolean } = {},
 ): ContentDatabaseViewConfig {
   const legacyKindPropertyId = legacyFilesKindPropertyId(databaseId);
+  const legacyRootFilter = legacyFilesRootFilter(databaseId);
   const migrateFilters = (
     filters: ContentDatabaseViewConfig["filters"],
   ): ContentDatabaseViewConfig["filters"] =>
     filters.flatMap((filter) => {
+      if (
+        options.removeLegacyRootFilter &&
+        filter.key === legacyRootFilter.key &&
+        filter.operator === legacyRootFilter.operator &&
+        filter.value === legacyRootFilter.value
+      ) {
+        return [];
+      }
       if (filter.key !== legacyKindPropertyId) return [filter];
       if (
         filter.operator === "does_not_equal" &&
         filter.value === "database_row"
       ) {
-        return [defaultFilesRootFilter(databaseId)];
+        return [];
       }
       return [];
     });
@@ -211,7 +217,11 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
   const parsedStored = parseDatabaseViewConfig(args.database.viewConfigJson);
   const normalizedStored = serializeDatabaseViewConfig(parsedStored);
   const migratedStored = serializeDatabaseViewConfig(
-    migrateFilesDatabaseViewConfig(parsedStored, args.database.id),
+    migrateFilesDatabaseViewConfig(parsedStored, args.database.id, {
+      removeLegacyRootFilter:
+        args.database.filesSystemPropertiesSeeded <
+        FILES_SYSTEM_PROPERTIES_VERSION,
+    }),
   );
   const untouchedLegacyDefaults = new Set([
     serializeDatabaseViewConfig(defaultDatabaseViewConfig("sidebar")),
@@ -228,7 +238,8 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
     missingDefinitions.length === 0 &&
     !adoptedLegacySource &&
     viewConfigJson === args.database.viewConfigJson &&
-    args.database.filesSystemPropertiesSeeded === 1
+    args.database.filesSystemPropertiesSeeded ===
+      FILES_SYSTEM_PROPERTIES_VERSION
   ) {
     return;
   }
@@ -236,7 +247,7 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
     .update(schema.contentDatabases)
     .set({
       viewConfigJson,
-      filesSystemPropertiesSeeded: 1,
+      filesSystemPropertiesSeeded: FILES_SYSTEM_PROPERTIES_VERSION,
       updatedAt: now,
     })
     .where(eq(schema.contentDatabases.id, args.database.id));
@@ -250,7 +261,10 @@ export async function repairFilesSystemPropertyDefinitions() {
     .where(
       and(
         eq(schema.contentDatabases.systemRole, "files"),
-        eq(schema.contentDatabases.filesSystemPropertiesSeeded, 0),
+        lt(
+          schema.contentDatabases.filesSystemPropertiesSeeded,
+          FILES_SYSTEM_PROPERTIES_VERSION,
+        ),
         isNull(schema.contentDatabases.deletedAt),
       ),
     );

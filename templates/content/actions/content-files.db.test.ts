@@ -114,6 +114,71 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
+  it("removes the retired Parent default from legacy personal Files views", async () => {
+    const { putUserSetting, deleteUserSetting } =
+      await import("@agent-native/core/settings");
+    const {
+      personalDatabaseViewSettingKey,
+      PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+    } = await import("./_content-database-personal-view.js");
+    const { filesParentPropertyId } =
+      await import("./_files-system-properties.js");
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const settingKey = personalDatabaseViewSettingKey(filesDatabase.id);
+    await putUserSetting(OWNER, settingKey, {
+      version: 1,
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          filters: [
+            {
+              key: filesParentPropertyId(filesDatabase.id),
+              label: "Parent",
+              operator: "is_empty",
+              value: "",
+            },
+            {
+              key: "name",
+              label: "Name",
+              operator: "contains",
+              value: "today",
+            },
+          ],
+          filterMode: "and",
+        },
+      ],
+    });
+    try {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        getContentDatabasePersonalViewAction.run(
+          {
+            databaseId: filesDatabase.id,
+          },
+          { userEmail: OWNER } as any,
+        ),
+      );
+      expect(result.overrides).toMatchObject({
+        version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+        views: [
+          {
+            sorts: [{ key: "name", direction: "asc" }],
+            filters: [
+              {
+                key: "name",
+                operator: "contains",
+                value: "today",
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      await deleteUserSetting(OWNER, settingKey);
+    }
+  });
+
   it("exposes stable, derived Parent and Source properties", async () => {
     const spaceId = personalContentSpaceId(OWNER);
     const filesDatabase = await getFilesDatabase(spaceId);
@@ -213,13 +278,7 @@ describe("Content Files membership reconciliation", () => {
     expect(definitions.has("files_kind")).toBe(false);
     expect(definitions.get("files_parent")).toMatchObject({ editable: false });
     expect(definitions.get("files_source")).toMatchObject({ editable: false });
-    expect(response.database.viewConfig.views[0]?.filters).toEqual([
-      expect.objectContaining({
-        key: definitions.get("files_parent")?.definition.id,
-        operator: "is_empty",
-        value: "",
-      }),
-    ]);
+    expect(response.database.viewConfig.views[0]?.filters).toEqual([]);
     const child = response.items.find(
       (item) => item.document.id === "system-property-child",
     )!;
@@ -633,8 +692,8 @@ describe("Content Files membership reconciliation", () => {
       .select()
       .from(schema.contentDatabases)
       .where(eq(schema.contentDatabases.id, filesDatabase.id));
-    expect(repaired.filesSystemPropertiesSeeded).toBe(1);
-    expect(repaired.viewConfigJson).toContain('"operator":"is_empty"');
+    expect(repaired.filesSystemPropertiesSeeded).toBe(2);
+    expect(repaired.viewConfigJson).not.toContain('"operator":"is_empty"');
     expect(repaired.viewConfigJson).not.toContain("database_row");
 
     await getDb()
@@ -693,15 +752,7 @@ describe("Content Files membership reconciliation", () => {
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, filesDatabase.id));
       const parsed = JSON.parse(migrated.viewConfigJson);
-      expect(parsed.views[0].filters).toEqual([
-        {
-          key: filesParentPropertyId(filesDatabase.id),
-          label: "Parent",
-          operator: "is_empty",
-          value: "",
-        },
-        savedTitleFilter,
-      ]);
+      expect(parsed.views[0].filters).toEqual([savedTitleFilter]);
     } finally {
       await getDb()
         .update(schema.contentDatabases)

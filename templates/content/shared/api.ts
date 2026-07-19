@@ -341,6 +341,8 @@ export interface ContentDatabaseViewConfig {
   columnWidths: Record<string, number>;
 }
 
+export const CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION = 2;
+
 export interface ContentDatabasePersonalViewOverrides {
   version: number;
   activeViewId?: string;

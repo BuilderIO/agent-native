@@ -32,6 +32,7 @@ import type {
   Document,
   DocumentTreeNode,
 } from "@shared/api";
+import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
   IconBrain,
   IconFolder,
@@ -200,6 +201,7 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
 }
 
 type SidebarSectionId =
+  | "favorites"
   | "local-files"
   | "shared-copies"
   | "private"
@@ -212,6 +214,7 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
 const EXPANDED_WORKSPACES_STORAGE_KEY = "content-sidebar-expanded-workspaces";
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
+  favorites: false,
   "local-files": false,
   "shared-copies": false,
   private: false,
@@ -223,6 +226,7 @@ function normalizeCollapsedSections(
   value: Partial<Record<SidebarSectionId, boolean>> | null | undefined,
 ): CollapsedSectionsState {
   return {
+    favorites: value?.favorites ?? false,
     "local-files": value?.["local-files"] ?? false,
     "shared-copies": value?.["shared-copies"] ?? false,
     private: value?.private ?? false,
@@ -293,7 +297,9 @@ function WorkspaceFilesSection({
             updateFilesPersonalView.mutate({
               databaseId: space.filesDatabaseId,
               overrides: {
-                version: current?.version ?? 1,
+                version:
+                  current?.version ??
+                  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
                 activeViewId: viewId,
                 views: current?.views ?? [],
               },
@@ -1383,7 +1389,9 @@ export function DocumentSidebar({
                 updateWorkspaceCatalogPersonalView.mutate({
                   databaseId: workspaceCatalogDatabaseId,
                   overrides: {
-                    version: current?.version ?? 1,
+                    version:
+                      current?.version ??
+                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
                     activeViewId: viewId,
                     views: current?.views ?? [],
                   },
@@ -1728,34 +1736,47 @@ export function DocumentSidebar({
               {/* Favorites */}
               {showFavorites && (
                 <div className="mb-2 min-w-0 px-2">
-                  <div className="flex h-7 min-w-0 items-center ps-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <button
+                    type="button"
+                    aria-expanded={!collapsedSections.favorites}
+                    className="flex h-7 w-full min-w-0 items-center rounded-md ps-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                    onClick={() => toggleSection("favorites")}
+                  >
                     <span className="flex size-7 shrink-0 items-center justify-center">
-                      <IconStar size={11} />
+                      <IconChevronRight
+                        size={12}
+                        className={cn(
+                          "transition-transform rtl:-scale-x-100",
+                          !collapsedSections.favorites && "rotate-90",
+                        )}
+                      />
                     </span>
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconStar size={11} className="me-2 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-start">
                       {t("sidebar.favorites")}
                     </span>
-                  </div>
-                  {favorites.map((doc) => (
-                    <FavoriteDocumentItem
-                      key={doc.id}
-                      document={doc}
-                      active={doc.id === activeDocumentId}
-                      sidebarWidth={favoriteRowWidth}
-                      onSelect={() => {
-                        navigateToDocument(doc.id);
-                        onNavigate?.();
-                      }}
-                      onCreateChildPage={() => void handleCreatePage(doc.id)}
-                      onCreateChildDatabase={() =>
-                        void handleCreateDatabase(doc.id)
-                      }
-                      onRemoveFavorite={() =>
-                        handleToggleFavorite(doc.id, false)
-                      }
-                      onDelete={() => void handleDelete(doc.id)}
-                    />
-                  ))}
+                  </button>
+                  {!collapsedSections.favorites &&
+                    favorites.map((doc) => (
+                      <FavoriteDocumentItem
+                        key={doc.id}
+                        document={doc}
+                        active={doc.id === activeDocumentId}
+                        sidebarWidth={favoriteRowWidth}
+                        onSelect={() => {
+                          navigateToDocument(doc.id);
+                          onNavigate?.();
+                        }}
+                        onCreateChildPage={() => void handleCreatePage(doc.id)}
+                        onCreateChildDatabase={() =>
+                          void handleCreateDatabase(doc.id)
+                        }
+                        onRemoveFavorite={() =>
+                          handleToggleFavorite(doc.id, false)
+                        }
+                        onDelete={() => void handleDelete(doc.id)}
+                      />
+                    ))}
                 </div>
               )}
 

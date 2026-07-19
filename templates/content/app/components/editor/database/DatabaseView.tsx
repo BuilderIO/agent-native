@@ -52,6 +52,7 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import {
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
@@ -348,7 +349,8 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 const DATABASE_ADVANCED_FILTER_GROUP_ID = "advanced";
-export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION = 1;
+export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION;
 export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
 export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
 

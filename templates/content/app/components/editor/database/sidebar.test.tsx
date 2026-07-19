@@ -93,7 +93,7 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("font-semibold");
   });
 
-  it("renders parented Files pages beneath filtered roots", () => {
+  it("renders parented Files pages beneath supplied hierarchy roots", () => {
     const rootItem = item("parent", "Page one");
     const childItem = item("child", "Page two", "parent");
     const grandchildItem = item("grandchild", "Page three", "child");
@@ -150,6 +150,66 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain('href="/page/child"');
     expect(markup).toContain("Page three");
     expect(markup).toContain('aria-current="page"');
+  });
+
+  it("does not reinsert descendants excluded by a Files filter", () => {
+    const parent = item("parent", "Parent");
+    const child = item("child", "Child", "parent");
+    const matchingSibling = item("matching", "Matching");
+    const data = {
+      database: {
+        viewConfig: {
+          version: 1,
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              filters: [
+                {
+                  key: "name",
+                  label: "Name",
+                  operator: "contains",
+                  value: "ing",
+                },
+              ],
+              sorts: [],
+              filterMode: "and",
+            },
+          ],
+        },
+      },
+      items: [parent, child, matchingSibling],
+      properties: [
+        {
+          definition: { id: "parent", systemRole: "files_parent" },
+        },
+      ],
+    } as unknown as ContentDatabaseResponse;
+
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={data}
+            overrides={null}
+            isLoading={false}
+            labels={{
+              loadingLabel: "Loading",
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain("Matching");
+    expect(markup).not.toContain(">Parent<");
+    expect(markup).not.toContain(">Child<");
   });
 
   it("lets a saved database view render workspace roots inside its groups", () => {

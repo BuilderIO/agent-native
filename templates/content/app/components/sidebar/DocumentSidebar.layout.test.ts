@@ -312,10 +312,13 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("const favoriteRowWidth =");
     expect(sidebar).toContain("{showFavorites && (");
+    expect(sidebar).toContain('toggleSection("favorites")');
+    expect(sidebar).toContain("!collapsedSections.favorites &&");
+    expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
     expect(sidebar).toContain("<FavoriteDocumentItem");
     expect(treeItem).toContain("export function FavoriteDocumentItem");
-    expect(sidebar).toContain("items-center ps-1 text-[10px]");
+    expect(sidebar).toContain("items-center rounded-md ps-1 text-[10px]");
     expect(treeItem).toContain('paddingInlineStart: "26px"');
     expect(treeItem).toContain('? "font-semibold text-foreground"');
     expect(treeItem).not.toContain(
