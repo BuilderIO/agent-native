@@ -146,6 +146,19 @@ export type PrivateVaultContentManifest = z.infer<
   typeof privateVaultContentManifestSchema
 >;
 
+export const privateVaultLocalManifestHeadSchema = z
+  .object({
+    version: z.literal(1),
+    objectId: opaqueIdSchema,
+    revisionId: opaqueIdSchema,
+    manifest: privateVaultContentManifestSchema,
+  })
+  .strict();
+
+export type PrivateVaultLocalManifestHead = z.infer<
+  typeof privateVaultLocalManifestHeadSchema
+>;
+
 function encodeCanonical<T>(schema: z.ZodType<T>, value: unknown): Uint8Array {
   const encoded = new TextEncoder().encode(JSON.stringify(schema.parse(value)));
   if (encoded.byteLength > E2EE_SIZE_LIMITS.objectPlaintextBytes) {
@@ -199,4 +212,16 @@ export function decodePrivateVaultContentManifest(
   bytes: Uint8Array,
 ): PrivateVaultContentManifest {
   return decodeCanonical(privateVaultContentManifestSchema, bytes);
+}
+
+export function encodePrivateVaultLocalManifestHead(
+  value: PrivateVaultLocalManifestHead,
+): Uint8Array {
+  return encodeCanonical(privateVaultLocalManifestHeadSchema, value);
+}
+
+export function decodePrivateVaultLocalManifestHead(
+  bytes: Uint8Array,
+): PrivateVaultLocalManifestHead {
+  return decodeCanonical(privateVaultLocalManifestHeadSchema, bytes);
 }

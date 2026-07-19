@@ -15,14 +15,15 @@ import { app, safeStorage } from "electron";
 
 import {
   decodePrivateVaultContentDocument,
-  decodePrivateVaultContentManifest,
+  decodePrivateVaultLocalManifestHead,
   encodePrivateVaultContentDocument,
-  encodePrivateVaultContentManifest,
+  encodePrivateVaultLocalManifestHead,
   type PrivateVaultContentDocument,
-  type PrivateVaultContentManifest,
+  type PrivateVaultLocalManifestHead,
 } from "./content-document-codec.js";
 
 const OPAQUE_ID = /^[0-9a-f]{32}$/;
+const OPAQUE_REVISION_ID = /^[0-9a-f]{64}$/;
 const MAXIMUM_PLAINTEXT_BYTES = 1024 * 1024;
 const MAXIMUM_CIPHERTEXT_BYTES = 2 * 1024 * 1024;
 
@@ -41,6 +42,12 @@ export interface ContentIndexCipher {
 
 function opaqueId(value: string): string {
   if (!OPAQUE_ID.test(value)) throw new EncryptedContentIndexStoreError();
+  return value;
+}
+
+function opaqueRevisionId(value: string): string {
+  if (!OPAQUE_REVISION_ID.test(value))
+    throw new EncryptedContentIndexStoreError();
   return value;
 }
 
@@ -66,23 +73,23 @@ export class EncryptedContentIndexStore {
 
   async readManifest(
     vaultId: string,
-  ): Promise<PrivateVaultContentManifest | null> {
+  ): Promise<PrivateVaultLocalManifestHead | null> {
     const bytes = await this.#read(vaultId, "manifest.enc");
     if (!bytes) return null;
     try {
-      const manifest = decodePrivateVaultContentManifest(bytes);
-      if (manifest.vaultId !== vaultId)
+      const head = decodePrivateVaultLocalManifestHead(bytes);
+      if (head.manifest.vaultId !== vaultId)
         throw new EncryptedContentIndexStoreError();
-      return manifest;
+      return head;
     } finally {
       bytes.fill(0);
     }
   }
 
-  async writeManifest(manifest: PrivateVaultContentManifest): Promise<void> {
-    const bytes = encodePrivateVaultContentManifest(manifest);
+  async writeManifest(head: PrivateVaultLocalManifestHead): Promise<void> {
+    const bytes = encodePrivateVaultLocalManifestHead(head);
     try {
-      await this.#write(manifest.vaultId, "manifest.enc", bytes);
+      await this.#write(head.manifest.vaultId, "manifest.enc", bytes);
     } finally {
       bytes.fill(0);
     }
@@ -91,8 +98,12 @@ export class EncryptedContentIndexStore {
   async readDocument(
     vaultId: string,
     objectId: string,
+    revisionId: string,
   ): Promise<PrivateVaultContentDocument | null> {
-    const bytes = await this.#read(vaultId, `${opaqueId(objectId)}.enc`);
+    const bytes = await this.#read(
+      vaultId,
+      `${opaqueId(objectId)}--${opaqueRevisionId(revisionId)}.enc`,
+    );
     if (!bytes) return null;
     try {
       const document = decodePrivateVaultContentDocument(bytes);
@@ -105,11 +116,16 @@ export class EncryptedContentIndexStore {
 
   async writeDocument(
     vaultId: string,
+    revisionId: string,
     document: PrivateVaultContentDocument,
   ): Promise<void> {
     const bytes = encodePrivateVaultContentDocument(document);
     try {
-      await this.#write(vaultId, `${opaqueId(document.id)}.enc`, bytes);
+      await this.#write(
+        vaultId,
+        `${opaqueId(document.id)}--${opaqueRevisionId(revisionId)}.enc`,
+        bytes,
+      );
     } finally {
       bytes.fill(0);
     }
@@ -121,16 +137,16 @@ export class EncryptedContentIndexStore {
     if (!directory) return Object.freeze([]);
     try {
       const entries = await readdir(directory, { withFileTypes: true });
-      const ids: string[] = [];
+      const ids = new Set<string>();
       for (const entry of entries) {
         if (entry.name === "manifest.enc") continue;
         if (!entry.isFile() || entry.isSymbolicLink())
           throw new EncryptedContentIndexStoreError();
-        const match = /^([0-9a-f]{32})\.enc$/.exec(entry.name);
+        const match = /^([0-9a-f]{32})--[0-9a-f]{64}\.enc$/.exec(entry.name);
         if (!match) throw new EncryptedContentIndexStoreError();
-        ids.push(match[1]);
+        ids.add(match[1]);
       }
-      return Object.freeze(ids.sort());
+      return Object.freeze([...ids].sort());
     } catch (error) {
       if (error instanceof EncryptedContentIndexStoreError) throw error;
       throw new EncryptedContentIndexStoreError();
@@ -141,11 +157,26 @@ export class EncryptedContentIndexStore {
     this.#assertReady();
     const directory = await this.#vaultDirectory(vaultId, false);
     if (!directory) return;
-    await rm(path.join(directory, `${opaqueId(objectId)}.enc`), {
-      force: true,
-    }).catch(() => {
-      throw new EncryptedContentIndexStoreError();
-    });
+    const prefix = `${opaqueId(objectId)}--`;
+    await readdir(directory, { withFileTypes: true })
+      .then((entries) =>
+        Promise.all(
+          entries
+            .filter(
+              (entry) =>
+                entry.isFile() &&
+                !entry.isSymbolicLink() &&
+                entry.name.startsWith(prefix) &&
+                /^[0-9a-f]{32}--[0-9a-f]{64}\.enc$/.test(entry.name),
+            )
+            .map((entry) =>
+              rm(path.join(directory, entry.name), { force: true }),
+            ),
+        ),
+      )
+      .catch(() => {
+        throw new EncryptedContentIndexStoreError();
+      });
   }
 
   close(): void {

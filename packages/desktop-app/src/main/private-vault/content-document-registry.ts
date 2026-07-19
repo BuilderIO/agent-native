@@ -183,13 +183,18 @@ export class PrivateVaultContentRegistry {
     manifest: PrivateVaultContentManifest;
     documents: Map<string, PrivateVaultContentDocument>;
   }> {
-    const manifest = await this.#index.readManifest(vaultId);
-    if (!manifest || manifest.vaultId !== vaultId)
+    const head = await this.#index.readManifest(vaultId);
+    if (!head || head.manifest.vaultId !== vaultId)
       throw new PrivateVaultContentRegistryError();
+    const manifest = head.manifest;
     const loaded = await Promise.all(
       manifest.documents.map(async (entry) => ({
         entry,
-        document: await this.#index.readDocument(vaultId, entry.objectId),
+        document: await this.#index.readDocument(
+          vaultId,
+          entry.objectId,
+          entry.revisions.at(-1)!.revisionId,
+        ),
       })),
     );
     const documents = new Map<string, PrivateVaultContentDocument>();

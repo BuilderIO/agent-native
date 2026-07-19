@@ -74,9 +74,17 @@ function fixture() {
     manifest,
     documents,
     index: {
-      readManifest: async () => manifest,
-      readDocument: async (_vaultId: string, objectId: string) =>
-        documents.get(objectId) ?? null,
+      readManifest: async () => ({
+        version: 1 as const,
+        objectId: "66".repeat(16),
+        revisionId: "77".repeat(32),
+        manifest,
+      }),
+      readDocument: async (
+        _vaultId: string,
+        objectId: string,
+        _revisionId: string,
+      ) => documents.get(objectId) ?? null,
     },
   };
 }

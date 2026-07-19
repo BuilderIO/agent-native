@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   decodePrivateVaultContentDocument,
   decodePrivateVaultContentManifest,
+  decodePrivateVaultLocalManifestHead,
   encodePrivateVaultContentDocument,
   encodePrivateVaultContentManifest,
+  encodePrivateVaultLocalManifestHead,
   privateVaultContentDocumentSchema,
   privateVaultContentManifestSchema,
 } from "./content-document-codec";
@@ -64,6 +66,20 @@ describe("Private Vault Content plaintext codecs", () => {
         encodePrivateVaultContentManifest(fixture),
       ),
     ).toEqual(fixture);
+  });
+
+  it("round-trips the OS-encrypted local manifest coordinate", () => {
+    const head = {
+      version: 1 as const,
+      objectId,
+      revisionId,
+      manifest: manifestFixture(),
+    };
+    expect(
+      decodePrivateVaultLocalManifestHead(
+        encodePrivateVaultLocalManifestHead(head),
+      ),
+    ).toEqual(head);
   });
 
   it("rejects noncanonical, unknown, and malformed document payloads", () => {

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type {
   PrivateVaultContentDocument,
   PrivateVaultContentManifest,
+  PrivateVaultLocalManifestHead,
 } from "./content-document-codec.js";
 import {
   EncryptedContentIndexStore,
@@ -61,6 +62,10 @@ function manifest(): PrivateVaultContentManifest {
   };
 }
 
+function manifestHead(): PrivateVaultLocalManifestHead {
+  return { version: 1, objectId, revisionId, manifest: manifest() };
+}
+
 async function store() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "anc-content-index-"));
   directories.push(directory);
@@ -81,17 +86,17 @@ afterEach(async () => {
 describe("EncryptedContentIndexStore", () => {
   it("atomically stores an encrypted manifest and document cache", async () => {
     const fixture = await store();
-    await fixture.store.writeManifest(manifest());
-    await fixture.store.writeDocument(vaultId, document());
+    await fixture.store.writeManifest(manifestHead());
+    await fixture.store.writeDocument(vaultId, revisionId, document());
 
-    expect(await fixture.store.readManifest(vaultId)).toEqual(manifest());
-    expect(await fixture.store.readDocument(vaultId, objectId)).toEqual(
-      document(),
-    );
+    expect(await fixture.store.readManifest(vaultId)).toEqual(manifestHead());
+    expect(
+      await fixture.store.readDocument(vaultId, objectId, revisionId),
+    ).toEqual(document());
     expect(await fixture.store.listDocumentIds(vaultId)).toEqual([objectId]);
 
     const raw = await readFile(
-      path.join(fixture.directory, vaultId, `${objectId}.enc`),
+      path.join(fixture.directory, vaultId, `${objectId}--${revisionId}.enc`),
       "utf8",
     );
     expect(raw).not.toContain("Needle title");
@@ -100,11 +105,13 @@ describe("EncryptedContentIndexStore", () => {
 
   it("deletes a cached document without deleting the manifest", async () => {
     const fixture = await store();
-    await fixture.store.writeManifest(manifest());
-    await fixture.store.writeDocument(vaultId, document());
+    await fixture.store.writeManifest(manifestHead());
+    await fixture.store.writeDocument(vaultId, revisionId, document());
     await fixture.store.deleteDocument(vaultId, objectId);
-    expect(await fixture.store.readDocument(vaultId, objectId)).toBeNull();
-    expect(await fixture.store.readManifest(vaultId)).toEqual(manifest());
+    expect(
+      await fixture.store.readDocument(vaultId, objectId, revisionId),
+    ).toBeNull();
+    expect(await fixture.store.readManifest(vaultId)).toEqual(manifestHead());
   });
 
   it("fails closed for unavailable encryption and use after close", async () => {
@@ -139,7 +146,7 @@ describe("EncryptedContentIndexStore", () => {
     );
 
     const second = await store();
-    await second.store.writeManifest(manifest());
+    await second.store.writeManifest(manifestHead());
     const { writeFile } = await import("node:fs/promises");
     await writeFile(path.join(second.directory, vaultId, "surprise.txt"), "x");
     await expect(second.store.listDocumentIds(vaultId)).rejects.toBeInstanceOf(
