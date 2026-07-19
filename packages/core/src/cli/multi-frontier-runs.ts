@@ -344,6 +344,7 @@ export function recoverMultiFrontierRun(
     phase: "paused",
     participants: state.participants.map((participant) => ({
       ...participant,
+      role: "watchdog",
       permission: "read_only",
       status: participant.status === "running" ? "waiting" : participant.status,
     })),
@@ -645,10 +646,11 @@ export function appendMultiFrontierParticipantEvent(
     };
     appendParticipantEvent(event);
     compactParticipantEventJournal(input.collaborationId);
-    const participants = input.status
+    const status = input.status;
+    const participants = status
       ? current.participants.map((candidate) =>
           candidate.participantId === input.participantId
-            ? { ...candidate, status: input.status }
+            ? { ...candidate, status }
             : candidate,
         )
       : current.participants;

@@ -108,8 +108,18 @@ describe("multi-frontier run store", () => {
       phase: "paused",
       driver: { participantId: "codex", generation: 1, leaseState: "revoked" },
       participants: [
-        { participantId: "codex", permission: "read_only", status: "waiting" },
-        { participantId: "claude", permission: "read_only", status: "waiting" },
+        {
+          participantId: "codex",
+          role: "watchdog",
+          permission: "read_only",
+          status: "waiting",
+        },
+        {
+          participantId: "claude",
+          role: "watchdog",
+          permission: "read_only",
+          status: "waiting",
+        },
       ],
       recovery: {
         resumablePhase: "implementing",
