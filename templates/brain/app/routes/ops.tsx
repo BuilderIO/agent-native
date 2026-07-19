@@ -44,6 +44,7 @@ import {
   type BrainDistillationQueueStatus,
   type BrainOpsQueueItem,
   type BrainOpsQueueResponse,
+  type BrainHealthResponse,
   statusLabel,
 } from "@/lib/brain";
 import { cn } from "@/lib/utils";
@@ -135,6 +136,21 @@ export default function OpsRoute() {
     RetryDistillationResponse,
     RetryDistillationRequest
   >("retry-distillation" as any);
+  const healthQuery = useActionQuery<BrainHealthResponse>(
+    "get-brain-health" as any,
+    {} as any,
+    { refetchInterval: 30_000 },
+  );
+  const semantic = (
+    healthQuery.data as BrainHealthResponse & {
+      semanticIndex?: {
+        coverage?: number;
+        embeddingLag?: number;
+        aclFreshness?: number;
+        suppressed?: number;
+      };
+    }
+  )?.semanticIndex;
 
   const items = (queueQuery.data?.items ?? []) as BrainOpsQueueItemWithReason[];
   const summary = queueQuery.data?.summary ?? emptySummary;
@@ -376,6 +392,37 @@ export default function OpsRoute() {
             tone={selectedRetryableIds.length ? "warning" : "good"}
           />
         </div>
+
+        <section className="grid gap-3 rounded-md border border-border bg-muted/20 p-4">
+          <div>
+            <p className="text-sm font-medium">{t("ops.semanticIndex")}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t("ops.semanticIndexDescription")}
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label={t("ops.indexCoverage")}
+              value={semantic?.coverage ?? "—"}
+              detail={t("ops.adminOnly")}
+            />
+            <MetricCard
+              label={t("ops.embeddingLag")}
+              value={semantic?.embeddingLag ?? "—"}
+              detail={t("ops.adminOnly")}
+            />
+            <MetricCard
+              label={t("ops.aclFreshness")}
+              value={semantic?.aclFreshness ?? "—"}
+              detail={t("ops.adminOnly")}
+            />
+            <MetricCard
+              label={t("ops.suppressed")}
+              value={semantic?.suppressed ?? "—"}
+              detail={t("ops.adminOnly")}
+            />
+          </div>
+        </section>
 
         <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">

@@ -97,7 +97,13 @@ export interface ReviewItem {
     url?: string | null;
     timestampMs?: number | null;
   }>;
-  status?: "pending" | "queued" | "approved" | "rejected" | "needs_changes";
+  status?:
+    | "pending"
+    | "queued"
+    | "approved"
+    | "rejected"
+    | "needs_changes"
+    | "quarantine";
   visibility?: string;
   reviewerNotes?: string | null;
   createdBy?: string | null;
@@ -182,6 +188,8 @@ export interface SearchEverythingResult {
   confidence?: number | null;
   updatedAt?: string | null;
   score?: number | null;
+  matchLane?: "semantic" | "keyword" | "hybrid" | string | null;
+  retrievalReason?: string | null;
 }
 
 export interface SearchEverythingResponse {
@@ -195,6 +203,20 @@ export interface SearchEverythingResponse {
     providers?: string[];
     statuses?: string[];
   };
+}
+
+export interface BrainProject {
+  id: string;
+  title: string;
+  description?: string | null;
+  visibility?: string | null;
+  sourceIds?: string[];
+  isDefault?: boolean;
+  updatedAt?: string | null;
+}
+
+export interface BrainProjectsResponse {
+  projects?: BrainProject[];
 }
 
 export interface ReviewQueueResponse {
@@ -867,6 +889,11 @@ export interface BrainSettings {
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
   notifyOnSourceErrors?: boolean;
+  privacyClassifierModel?: string;
+  privacyClassifierEngine?: string;
+  sensitivityCustomInstructions?: string;
+  publicChannelExclusionPatterns?: string[];
+  quarantineRetentionHours?: number;
 }
 
 export interface SettingsResponse {
@@ -951,6 +978,11 @@ export const defaultSettings: BrainSettings = {
   requireCitations: true,
   autoArchiveResolved: true,
   notifyOnSourceErrors: true,
+  privacyClassifierModel: "",
+  privacyClassifierEngine: "",
+  sensitivityCustomInstructions: "",
+  publicChannelExclusionPatterns: [],
+  quarantineRetentionHours: 72,
 };
 
 export function viewFromPath(pathname: string): BrainView {

@@ -21,20 +21,16 @@ describe("Postgres creative-context FTS", () => {
   it("filters every Postgres candidate through accessible chunk ids", async () => {
     isPostgres.mockReturnValue(true);
     const db = {
-      execute: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-        .mockResolvedValueOnce({
-          rows: [{ chunk_id: "allowed", item_version_id: "v1", score: 0.8 }],
-          rowsAffected: 0,
-        }),
+      execute: vi.fn().mockResolvedValueOnce({
+        rows: [{ chunk_id: "allowed", item_version_id: "v1", score: 0.8 }],
+        rowsAffected: 0,
+      }),
     };
     const hits = await queryPostgresFts(db, {
       query: "pricing slide",
       allowedChunkIds: ["allowed"],
     });
-    const query = db.execute.mock.calls[2]?.[0] as {
+    const query = db.execute.mock.calls[0]?.[0] as {
       sql: string;
       args: unknown[];
     };
@@ -46,19 +42,15 @@ describe("Postgres creative-context FTS", () => {
   it("can search the global FTS index before access-scoped hydration", async () => {
     isPostgres.mockReturnValue(true);
     const db = {
-      execute: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-        .mockResolvedValueOnce({
-          rows: [{ chunk_id: "late", item_version_id: "v9", score: 0.9 }],
-          rowsAffected: 0,
-        }),
+      execute: vi.fn().mockResolvedValueOnce({
+        rows: [{ chunk_id: "late", item_version_id: "v9", score: 0.9 }],
+        rowsAffected: 0,
+      }),
     };
     const hits = await queryPostgresFts(db, {
       query: "pricing slide",
     });
-    const query = db.execute.mock.calls[2]?.[0] as {
+    const query = db.execute.mock.calls[0]?.[0] as {
       sql: string;
       args: unknown[];
     };

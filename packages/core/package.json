@@ -65,6 +65,8 @@
     "./integrations": "./dist/integrations/index.js",
     "./ingestion": "./dist/ingestion/index.js",
     "./search-utils": "./dist/search-utils/index.js",
+    "./search": "./dist/search/index.js",
+    "./embeddings": "./dist/embeddings/index.js",
     "./automation": "./dist/automation/index.js",
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
