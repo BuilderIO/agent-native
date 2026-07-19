@@ -91,7 +91,7 @@ elif [[ " $* " == *" -dv "* ]]; then
 elif [[ " $* " == *" -dr "* ]]; then
   identifier="com.agentnative.desktop"
   [[ "$path" == *.xpc ]] && identifier="com.agentnative.desktop.private-vault-service"
-  printf 'designated => identifier "%s" and anchor apple generic\\n' "$identifier" >&2
+  printf 'designated => identifier "%s" and anchor apple generic and certificate leaf[subject.OU] = "%s"\\n' "$identifier" "\${MOCK_REQUIREMENT_TEAM_ID:-W3PMF2T3MW}" >&2
 fi`,
       );
       command("lipo", "exit 0");
@@ -112,7 +112,11 @@ fi`,
         "scripts",
         "verify-private-vault-signed-app.sh",
       );
-      const run = (team?: string, extraGroup = false) =>
+      const run = (
+        team?: string,
+        extraGroup = false,
+        requirementTeam?: string,
+      ) =>
         spawnSync("bash", [verifier, app], {
           encoding: "utf8",
           env: {
@@ -120,6 +124,9 @@ fi`,
             PATH: `${bin}:${process.env.PATH ?? ""}`,
             ...(team ? { MOCK_TEAM_ID: team } : {}),
             ...(extraGroup ? { MOCK_EXTRA_GROUP: "1" } : {}),
+            ...(requirementTeam
+              ? { MOCK_REQUIREMENT_TEAM_ID: requirementTeam }
+              : {}),
           },
         });
 
@@ -132,6 +139,16 @@ fi`,
       const rejected = run("NOT_THE_RELEASE_TEAM");
       expect(rejected.status).toBe(1);
       expect(rejected.stderr).toContain(
+        "Private Vault signed-app verification failed",
+      );
+
+      const wrongRequirementRejected = run(
+        undefined,
+        false,
+        "NOT_THE_RELEASE_TEAM",
+      );
+      expect(wrongRequirementRejected.status).toBe(1);
+      expect(wrongRequirementRejected.stderr).toContain(
         "Private Vault signed-app verification failed",
       );
 

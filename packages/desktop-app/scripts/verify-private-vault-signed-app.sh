@@ -50,12 +50,18 @@ verify_signature() {
   grep -Fq "TeamIdentifier=$TEAM_ID" <<<"$detail" || fail
   grep -Fq "Identifier=$identifier" <<<"$detail" || fail
   grep -Fq "identifier \"$identifier\"" <<<"$requirement" || fail
+  grep -Fq "anchor apple generic" <<<"$requirement" || fail
+  grep -Fq "certificate leaf[subject.OU] = \"$TEAM_ID\"" <<<"$requirement" || fail
 }
 
 verify_team() {
   local detail
+  local requirement
   detail="$(codesign -dv --verbose=4 "$1" 2>&1)"
+  requirement="$(codesign -dr - "$1" 2>&1)"
   grep -Fq "TeamIdentifier=$TEAM_ID" <<<"$detail" || fail
+  grep -Fq "anchor apple generic" <<<"$requirement" || fail
+  grep -Fq "certificate leaf[subject.OU] = \"$TEAM_ID\"" <<<"$requirement" || fail
 }
 
 verify_signature "$APP" "com.agentnative.desktop"

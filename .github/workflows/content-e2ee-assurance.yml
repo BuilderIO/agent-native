@@ -3,26 +3,19 @@ name: Content E2EE assurance
 on:
   push:
     branches: [codex/content-e2ee-foundation]
-    paths:
-      - ".github/workflows/content-e2ee-assurance.yml"
-      - "packages/core/src/e2ee/**"
-      - "packages/private-vault-broker/**"
-      - "packages/desktop-app/native/private-vault-*/**"
-      - "packages/desktop-app/native/build-private-vault-*.sh"
-      - "packages/desktop-app/scripts/*private-vault*"
-      - "packages/desktop-app/src/main/private-vault/**"
-      - "packages/desktop-app/src/main/ipc/content-private-*.ts"
-      - "packages/desktop-app/src/preload/**"
-      - "packages/desktop-app/src/renderer/components/PrivateContentSurface*"
-      - "templates/content/actions/*private-vault*"
-      - "templates/content/server/**/*private-vault*"
-      - "templates/content/shared/*private-vault*"
   pull_request:
     branches: [main, codex/content-e2ee-foundation]
     paths:
       - ".github/workflows/content-e2ee-assurance.yml"
+      - ".github/actions/restore-dist-cache/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/core/package.json"
       - "packages/core/src/e2ee/**"
+      - "packages/private-vault-broker/package.json"
       - "packages/private-vault-broker/**"
+      - "packages/desktop-app/package.json"
       - "packages/desktop-app/native/private-vault-*/**"
       - "packages/desktop-app/native/build-private-vault-*.sh"
       - "packages/desktop-app/scripts/*private-vault*"
@@ -31,6 +24,7 @@ on:
       - "packages/desktop-app/src/preload/**"
       - "packages/desktop-app/src/renderer/components/PrivateContentSurface*"
       - "templates/content/actions/*private-vault*"
+      - "templates/content/package.json"
       - "templates/content/server/**/*private-vault*"
       - "templates/content/shared/*private-vault*"
   workflow_dispatch:
