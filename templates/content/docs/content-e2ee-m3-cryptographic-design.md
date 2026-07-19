@@ -585,9 +585,11 @@ authorizer, fresh control head, SAS transcript, endpoint identity, recipient
 bound EEK wrap, and exact membership edge are verified before the membership
 append and activation receipt commit atomically. A retry must reproduce the
 same bytes, and a first-broker offer is rejected whenever replayed authority
-already contains an active broker. The remaining lifecycle gate is the native
-candidate/authorizer ceremony, explicit SAS confirmation, custody activation,
-broker replacement, and the encrypted Content action registry. The canonical
+already contains an active broker. Candidate-side native preparation, attended
+SAS confirmation, custody activation, and mismatch destruction are executable.
+The remaining lifecycle gate is authorizer-side native challenge/authorization
+production, hosted/Desktop ceremony orchestration, broker replacement, and the
+encrypted Content action registry. The canonical
 Content action executor, native-bound semantic operation/resource coordinates,
 cookie-free signed transport, authenticated runtime discovery, OS-encrypted
 content-free checkpoint store, revocation verifier, and fail-closed Desktop

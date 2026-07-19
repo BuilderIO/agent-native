@@ -960,7 +960,8 @@ retries remain idempotent while a different offer, changed decision, or attempt
 to resurrect the candidate conflicts. The public offer artifact is deleted
 last; an injected failure at that final deletion proves a retry resumes from the
 durable receipt and already-destroyed custody, then completes cleanup. Codec,
-repository, and end-to-end coordinator corpora pass on Apple Silicon.
+repository, and end-to-end coordinator corpora pass on Apple Silicon and Intel;
+the production Apple Silicon XPC service also builds from this boundary.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault
