@@ -33,6 +33,7 @@ export interface ScreenMemoryConfig {
   sampleIntervalSeconds: number;
   captureMode: RewindCaptureMode;
   reviewBeforeSending: boolean;
+  autoPreviewBeforeSending: boolean;
   agentClipRetention: RewindAgentClipRetention;
   excludedBundleIds: string[];
   excludePrivateWindows: boolean;

@@ -120,8 +120,31 @@ describe("local Screen Memory helpers", () => {
     });
   });
 
-  it("redacts paths and credentials and logs the exact bounded packet", async () => {
+  it("redacts paths and credentials and logs only a content-free receipt", async () => {
     const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "egress.jsonl"),
+      `${JSON.stringify({
+        requestId: "legacy-request",
+        occurredAt: "2026-06-29T11:59:00.000Z",
+        state: "prepared",
+        packet: {
+          question: "legacy private question",
+          evidence: [
+            {
+              id: "legacy-evidence",
+              momentId: "legacy-moment",
+              sourceType: "transcript",
+              capturedAt: "2026-06-29T11:58:00.000Z",
+              excerpt: "legacy private excerpt",
+            },
+          ],
+        },
+        evidenceCount: 1,
+        packetBytes: 100,
+        error: null,
+      })}\n`,
+    );
     await writeFile(
       join(root, "context.jsonl"),
       `${JSON.stringify({
@@ -146,10 +169,36 @@ describe("local Screen Memory helpers", () => {
       .map((line) => JSON.parse(line));
     expect(events.map((event) => event.state)).toEqual([
       "prepared",
+      "prepared",
       "completed",
     ]);
-    expect(events[0].packet).toEqual(result.egress.packet);
+    expect(events[1]).toMatchObject({
+      operation: "agent-query",
+      receipt: {
+        evidence: [
+          expect.objectContaining({
+            id: result.evidence[0]?.id,
+            capturedAt: "2026-06-29T12:00:00.000Z",
+          }),
+        ],
+      },
+    });
+    expect(events[1].receipt).not.toHaveProperty("excerpt");
+    expect(events[1].receipt).not.toHaveProperty("question");
     expect(log).not.toContain("super-secret");
+    expect(log).not.toContain("legacy private question");
+    expect(log).not.toContain("legacy private excerpt");
+    expect(events[0]).toMatchObject({
+      requestId: "legacy-request",
+      receipt: {
+        evidence: [
+          expect.objectContaining({
+            id: "legacy-evidence",
+            capturedAt: "2026-06-29T11:58:00.000Z",
+          }),
+        ],
+      },
+    });
     expect(log).not.toContain(options.env.AGENT_NATIVE_SCREEN_MEMORY_DIR);
   });
 

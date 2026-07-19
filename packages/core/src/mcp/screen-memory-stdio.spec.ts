@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  appendLocalEvidenceReceipt,
   contactSheetRangeIsValid,
   projectScreenMemoryChapterCandidate,
   redactCredentialText,
@@ -155,7 +156,10 @@ describe("Screen Memory stdio MCP tools", () => {
                 sourceKind: "focused-control",
                 keywords: [
                   "verification code",
-                  ...Array.from({ length: 12 }, (_, index) => `filler-${index}`),
+                  ...Array.from(
+                    { length: 12 },
+                    (_, index) => `filler-${index}`,
+                  ),
                   "global data model",
                 ],
                 confidence: 0.95,
@@ -481,18 +485,55 @@ describe("Screen Memory stdio MCP tools", () => {
     expect(contactSheetRangeIsValid(15 * 60_000, false)).toBe(false);
   });
 
-  it("keeps activity receipts path-free and byte-free", async () => {
+  it("keeps frame activity receipts content-free while retaining bounded provenance", async () => {
     const store = await mkdtemp(join(tmpdir(), "screen-memory-chapters-"));
-    // The receipt helper is exercised by the integration handler; the public log format must never expose either token.
-    await writeFile(
-      join(store, "egress.jsonl"),
-      JSON.stringify({
-        operation: "frame-at",
-        frameCount: 1,
-        reason: "inspect",
-      }) + "\n",
-    );
+    appendLocalEvidenceReceipt(store, "frame-at", [
+      {
+        timestamp: "2026-07-19T12:00:00.000Z",
+        segmentId: "segment-opaque-123",
+      },
+    ]);
     const receipt = await readFile(join(store, "egress.jsonl"), "utf8");
-    expect(receipt).not.toMatch(/\.mp4|bytes|path/i);
+    expect(JSON.parse(receipt)).toMatchObject({
+      operation: "frame-at",
+      receipt: {
+        frames: [
+          {
+            timestamp: "2026-07-19T12:00:00.000Z",
+            segmentId: "segment-opaque-123",
+          },
+        ],
+      },
+    });
+    expect(receipt).not.toMatch(/\.mp4|mediaPath|reason|"packet"/i);
+  });
+
+  it("records every contact-sheet frame timestamp and opaque segment reference", async () => {
+    const store = await mkdtemp(join(tmpdir(), "screen-memory-chapters-"));
+    appendLocalEvidenceReceipt(store, "contact-sheet", [
+      {
+        timestamp: "2026-07-19T12:00:00.000Z",
+        segmentId: "segment-opaque-123",
+      },
+      {
+        timestamp: "2026-07-19T12:01:00.000Z",
+        segmentId: "segment-opaque-456",
+      },
+    ]);
+
+    const event = JSON.parse(
+      await readFile(join(store, "egress.jsonl"), "utf8"),
+    );
+    expect(event.receipt.frames).toEqual([
+      {
+        timestamp: "2026-07-19T12:00:00.000Z",
+        segmentId: "segment-opaque-123",
+      },
+      {
+        timestamp: "2026-07-19T12:01:00.000Z",
+        segmentId: "segment-opaque-456",
+      },
+    ]);
+    expect(JSON.stringify(event)).not.toMatch(/\.mp4|mediaPath|"packet"/i);
   });
 });

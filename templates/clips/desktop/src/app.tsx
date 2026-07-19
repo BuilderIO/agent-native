@@ -226,15 +226,17 @@ interface RewindEgressEvent {
   evidenceCount: number;
   packetBytes: number;
   error?: string | null;
-  packet?: {
-    question: string;
-    evidence: Array<{
+  operation?: string | null;
+  receipt?: {
+    evidence?: Array<{
       id: string;
       momentId: string;
-      sourceType: "app-context" | "transcript" | "ocr";
+      sourceType: "app-context" | "transcript" | "ocr" | "chapter";
       capturedAt?: string | null;
-      excerpt: string;
     }>;
+    frames?: Array<{ timestamp: string; segmentId: string }>;
+    mediaInterval?: { startAt: string; endAt: string };
+    reviewRequired?: boolean;
   } | null;
 }
 
@@ -298,6 +300,7 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   sampleIntervalSeconds: 10,
   captureMode: "visuals" as const,
   reviewBeforeSending: true,
+  autoPreviewBeforeSending: true,
   agentClipRetention: "forever" as const,
   excludedBundleIds: [
     "com.1password.1password",
@@ -894,6 +897,7 @@ export function App() {
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
   const agentHandoffProcessingRef = useRef<string | null>(null);
+  const agentHandoffPreviewedRef = useRef<Set<string>>(new Set());
   const rewindExtensionProcessingRef = useRef<Set<string>>(new Set());
   const [agentHandoffPreviewBusy, setAgentHandoffPreviewBusy] = useState(false);
   const [agentHandoffPreviewError, setAgentHandoffPreviewError] = useState<
@@ -1335,6 +1339,29 @@ export function App() {
     [],
   );
 
+  const previewAgentHandoff = useCallback(
+    async (request: RewindAgentHandoffRequest) => {
+      setAgentHandoffPreviewBusy(true);
+      setAgentHandoffPreviewError(null);
+      try {
+        await invoke("rewind_agent_handoff_preview", {
+          requestId: request.requestId,
+          startedAt: request.startAt,
+          endedAt: request.endAt,
+          includeMic: request.includeMicrophone,
+          includeSystemAudio: request.includeSystemAudio,
+        });
+      } catch (error) {
+        setAgentHandoffPreviewError(
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        setAgentHandoffPreviewBusy(false);
+      }
+    },
+    [],
+  );
+
   const processAgentHandoff = useCallback(
     async (request: RewindAgentHandoffRequest) => {
       if (agentHandoffProcessingRef.current === request.requestId) return;
@@ -1546,7 +1573,18 @@ export function App() {
           getCurrentWindow()
             .setFocus()
             .catch(() => {});
-          if (!request.reviewRequired) void processAgentHandoff(request);
+          if (!request.reviewRequired) {
+            void processAgentHandoff(request);
+          } else if (
+            featureConfig?.screenMemory?.autoPreviewBeforeSending !== false &&
+            !agentHandoffPreviewedRef.current.has(request.requestId)
+          ) {
+            // Polling and config refreshes can rerender this surface. Mark the
+            // request before preparing QuickTime so one approval request opens
+            // one local preview, while leaving the manual control available.
+            agentHandoffPreviewedRef.current.add(request.requestId);
+            void previewAgentHandoff(request);
+          }
         })
         .catch(() => {});
     };
@@ -1556,7 +1594,13 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [agentHandoff, featureConfig?.screenMemory?.enabled, processAgentHandoff]);
+  }, [
+    agentHandoff,
+    featureConfig?.screenMemory?.autoPreviewBeforeSending,
+    featureConfig?.screenMemory?.enabled,
+    previewAgentHandoff,
+    processAgentHandoff,
+  ]);
 
   useEffect(() => {
     if (featureConfig?.screenMemory?.enabled !== true) return;
@@ -3226,25 +3270,7 @@ export function App() {
                 type="button"
                 className="secondary"
                 disabled={agentHandoffPreviewBusy}
-                onClick={async () => {
-                  setAgentHandoffPreviewBusy(true);
-                  setAgentHandoffPreviewError(null);
-                  try {
-                    await invoke("rewind_agent_handoff_preview", {
-                      requestId: agentHandoff.requestId,
-                      startedAt: agentHandoff.startAt,
-                      endedAt: agentHandoff.endAt,
-                      includeMic: agentHandoff.includeMicrophone,
-                      includeSystemAudio: agentHandoff.includeSystemAudio,
-                    });
-                  } catch (error) {
-                    setAgentHandoffPreviewError(
-                      error instanceof Error ? error.message : String(error),
-                    );
-                  } finally {
-                    setAgentHandoffPreviewBusy(false);
-                  }
-                }}
+                onClick={() => void previewAgentHandoff(agentHandoff)}
               >
                 {agentHandoffPreviewBusy
                   ? "Preparing preview…"
@@ -6168,6 +6194,24 @@ function Setup({
                 label="Review visual and audio ranges before sending"
               />
             </div>
+            <div className="rewind-setting-row rewind-agent-row">
+              <SettingLabel
+                label="Open local preview automatically"
+                hint="When review is on, prepare the selected range in QuickTime when an agent asks for it."
+              />
+              <Switch
+                on={screenMemory.autoPreviewBeforeSending}
+                disabled={
+                  screenMemoryConfigBusy || !screenMemory.reviewBeforeSending
+                }
+                onChange={(enabled) =>
+                  void setScreenMemoryConfig({
+                    autoPreviewBeforeSending: enabled,
+                  })
+                }
+                label="Open a local preview automatically before sending"
+              />
+            </div>
             <p className="rewind-boundary-note">
               Asking your agent authorizes bounded matching text. Raw Rewind
               files stay local. If this review is off, an agent-requested media
@@ -6893,33 +6937,44 @@ function Setup({
                         </span>
                         <strong>
                           {event.evidenceCount} item
-                          {event.evidenceCount === 1 ? "" : "s"} ·{" "}
-                          {event.packetBytes} B
+                          {event.evidenceCount === 1 ? "" : "s"}
                         </strong>
                       </summary>
                       <div className="setup-advanced-body">
-                        {event.packet ? (
-                          <>
-                            <p className="setup-hint">
-                              <strong>Question:</strong> {event.packet.question}
-                            </p>
-                            {event.packet.evidence.map((evidence) => (
-                              <p className="setup-hint" key={evidence.id}>
-                                <strong>{evidence.sourceType}</strong>
-                                {evidence.capturedAt
-                                  ? ` · ${new Date(evidence.capturedAt).toLocaleTimeString()}`
-                                  : ""}
-                                <br />
-                                {evidence.excerpt}
-                              </p>
-                            ))}
-                          </>
-                        ) : (
-                          <p className="setup-hint">
-                            This completion record refers to the prepared packet
-                            with request ID {event.requestId}.
+                        <p className="setup-hint">
+                          <strong>{event.operation ?? "Agent access"}</strong>
+                          {" · "}Request {event.requestId}
+                        </p>
+                        {event.receipt?.evidence?.map((evidence) => (
+                          <p className="setup-hint" key={evidence.id}>
+                            <strong>{evidence.sourceType}</strong>
+                            {evidence.capturedAt
+                              ? ` · ${new Date(evidence.capturedAt).toLocaleTimeString()}`
+                              : ""}
+                            <br />
+                            Evidence {evidence.id} · moment {evidence.momentId}
                           </p>
-                        )}
+                        ))}
+                        {event.receipt?.frames?.map((frame) => (
+                          <p className="setup-hint" key={frame.timestamp}>
+                            <strong>Local frame</strong>
+                            {` · ${new Date(frame.timestamp).toLocaleTimeString()}`}
+                            <br />
+                            Segment {frame.segmentId}
+                          </p>
+                        ))}
+                        {event.receipt?.mediaInterval ? (
+                          <p className="setup-hint">
+                            <strong>Private Clip range</strong>
+                            {` · ${new Date(event.receipt.mediaInterval.startAt).toLocaleTimeString()}–${new Date(event.receipt.mediaInterval.endAt).toLocaleTimeString()}`}
+                          </p>
+                        ) : null}
+                        {!event.receipt ? (
+                          <p className="setup-hint">
+                            This completion record refers to the prepared
+                            receipt with request ID {event.requestId}.
+                          </p>
+                        ) : null}
                         {event.error ? (
                           <p className="setup-warning">{event.error}</p>
                         ) : null}
