@@ -713,12 +713,25 @@ interface ElectronAPI {
     migrationCandidates(): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
+    migrationStatus(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
     migrate(
       request: import("@shared/ipc-channels").DesktopPrivateContentMigrationRequest,
     ): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
     exportMigration(
+      request: import("@shared/ipc-channels").DesktopPrivateContentMigrationExportRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    verifyMigrationRecovery(
+      request: import("@shared/ipc-channels").DesktopPrivateContentMigrationExportRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    cleanupMigration(
       request: import("@shared/ipc-channels").DesktopPrivateContentMigrationExportRequest,
     ): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>

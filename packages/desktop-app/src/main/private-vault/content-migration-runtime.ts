@@ -96,6 +96,10 @@ export interface PrivateVaultMigrationHostedClient {
     readonly revisionId: string;
     readonly ciphertextHash: string;
   }): Promise<PrivateVaultMigrationLedgerProjection>;
+  cleanup(
+    vaultId: string,
+    migrationId: string,
+  ): Promise<PrivateVaultMigrationLedgerProjection>;
 }
 
 export interface PrivateVaultMigrationObjectGateway {
@@ -182,6 +186,28 @@ export class PrivateVaultContentMigrationRuntime {
     )
       fail();
     return Object.freeze([...ids]);
+  }
+
+  active(vaultId: string): Promise<MigrationSnapshot | null> {
+    return this.#hosted.active(vaultId);
+  }
+
+  cleanup(
+    vaultId: string,
+    migrationId: string,
+  ): Promise<PrivateVaultMigrationLedgerProjection> {
+    return this.#serialize(vaultId, async () => {
+      const snapshot = await this.#hosted.status(vaultId, migrationId);
+      this.#validateSnapshot(vaultId, snapshot);
+      if (snapshot.ledger.state === "cleaned") return snapshot.ledger;
+      if (snapshot.ledger.state !== "cleanup_eligible") fail();
+      // Re-open the committed manifest and every encrypted document immediately
+      // before asking hosted Content to remove the Standard Cloud originals.
+      await this.#installCutover(vaultId, migrationId);
+      const cleaned = await this.#hosted.cleanup(vaultId, migrationId);
+      if (cleaned.state !== "cleaned") fail();
+      return cleaned;
+    });
   }
 
   migrate(input: {

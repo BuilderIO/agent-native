@@ -148,9 +148,7 @@ export class PrivateVaultContentMigrationTransport implements PrivateVaultMigrat
         .object({
           operation: z.literal("candidates"),
           sourceCount: z.number().int().nonnegative().max(10_000),
-          sourceDocumentIds: z
-            .array(z.string().min(1).max(256))
-            .max(10_000),
+          sourceDocumentIds: z.array(z.string().min(1).max(256)).max(10_000),
         })
         .strict(),
       await this.#post({ vaultId, operation: "candidates" }),
@@ -243,6 +241,47 @@ export class PrivateVaultContentMigrationTransport implements PrivateVaultMigrat
     return this.#ledger(
       await this.#post({ ...input, operation: "cutover" }),
       "cutover",
+    );
+  }
+
+  async exportEvidence(vaultId: string, migrationId: string) {
+    const parsed = this.#parse(
+      z
+        .object({
+          operation: z.literal("evidence"),
+          evidence: z
+            .object({
+              exportId: opaqueIdSchema,
+              exportBundleHash: digestSchema,
+              plaintextHash: digestSchema,
+              sourceSnapshotHash: digestSchema,
+              objectCount: z.number().int().positive().max(10_000),
+            })
+            .strict(),
+        })
+        .strict(),
+      await this.#post({ vaultId, operation: "evidence", migrationId }),
+    );
+    return parsed.evidence;
+  }
+
+  async recordCleanupProof(input: {
+    vaultId: string;
+    migrationId: string;
+    exportBundleHash: string;
+    recoveryDrillId: string;
+    backupDisclosureVersion: string;
+  }) {
+    return this.#ledger(
+      await this.#post({ ...input, operation: "record-cleanup-proof" }),
+      "record-cleanup-proof",
+    );
+  }
+
+  async cleanup(vaultId: string, migrationId: string) {
+    return this.#ledger(
+      await this.#post({ vaultId, operation: "cleanup", migrationId }),
+      "cleanup",
     );
   }
 

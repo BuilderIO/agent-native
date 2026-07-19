@@ -163,6 +163,18 @@ int main(void) {
          parsed.recoveryMnemonicLength == 6);
   xpc_release(sealExport);
 
+  xpc_object_t openExport =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "open_export", "request-open-export");
+  xpc_dictionary_set_string(openExport, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  xpc_dictionary_set_data(openExport, "recoveryMnemonic", "phrase", 6);
+  xpc_dictionary_set_data(openExport, "exportArchive", "archive", 7);
+  assert(PVParseRequest(openExport, &parsed) == PVRequestValid &&
+         strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0 &&
+         parsed.exportArchiveLength == 7 &&
+         parsed.recoveryMnemonicLength == 6);
+  xpc_release(openExport);
+
   const uint8_t requesterPayload[] = {'{', '}', '\n'};
   xpc_object_t sealJob =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_job", "request-seal-job");

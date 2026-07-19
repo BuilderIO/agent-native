@@ -2037,6 +2037,77 @@ static void PVSealExportArchive(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVOpenExportArchive(xpc_connection_t peer, xpc_object_t message,
+                                const PVRequest *request) {
+    @autoreleasepool {
+        NSData *vaultID = PVLookupIDData(request->vaultID);
+        NSData *mnemonic = request->recoveryMnemonic == NULL
+                               ? nil
+                               : [NSData dataWithBytesNoCopy:
+                                             (void *)request->recoveryMnemonic
+                                                        length:request
+                                                                   ->recoveryMnemonicLength
+                                                  freeWhenDone:NO];
+        NSData *archive = request->exportArchive == NULL
+                              ? nil
+                              : [NSData dataWithBytesNoCopy:
+                                            (void *)request->exportArchive
+                                                       length:request
+                                                                  ->exportArchiveLength
+                                                 freeWhenDone:NO];
+        AncPrivateVaultMnemonicStatus mnemonicStatus;
+        AncPrivateVaultGuardedMemory *entropy =
+            mnemonic == nil
+                ? nil
+                : AncPrivateVaultMnemonicDecode(mnemonic, &mnemonicStatus);
+        AncPrivateVaultRecoveryAuthorityStatus recoveryStatus;
+        AncPrivateVaultGuardedMemory *root =
+            entropy == nil || vaultID == nil
+                ? nil
+                : AncPrivateVaultDeriveRecoveryRoot(
+                      entropy, vaultID, &recoveryStatus);
+        AncPrivateVaultExportArchiveStatus archiveStatus;
+        AncPrivateVaultExportArchiveMetadata *verified =
+            root == nil || archive == nil
+                ? nil
+                : AncPrivateVaultVerifyExportArchive(
+                      archive, vaultID, root, &archiveStatus);
+        BOOL rootClosed =
+            root == nil || [root close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL entropyClosed = entropy == nil ||
+                             [entropy close] ==
+                                 AncPrivateVaultGuardedMemoryStatusOK;
+        NSString *exportID =
+            verified == nil ? nil : PVVaultIDHex(verified.exportId);
+        NSString *snapshot =
+            verified == nil ? nil : PVHex(verified.sourceSnapshotHash);
+        NSString *plaintextHash =
+            verified == nil ? nil : PVHex(verified.plaintextHash);
+        if (verified == nil || !rootClosed || !entropyClosed ||
+            archiveStatus != AncPrivateVaultExportArchiveStatusOK ||
+            exportID.length != 32 || snapshot.length != 64 ||
+            plaintextHash.length != 64 ||
+            ![verified.vaultId isEqualToData:vaultID] ||
+            verified.objectCount == 0 ||
+            verified.objectCount > UINT64_C(9007199254740991)) {
+            PVSendError(peer, message, "export_verification_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "verified");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "exportId", exportID.UTF8String);
+        xpc_dictionary_set_string(reply, "sourceSnapshotHash",
+                                  snapshot.UTF8String);
+        xpc_dictionary_set_uint64(reply, "objectCount",
+                                  verified.objectCount);
+        xpc_dictionary_set_string(reply, "plaintextHash",
+                                  plaintextHash.UTF8String);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVSealContentJob(xpc_connection_t peer, xpc_object_t message,
                              const PVRequest *request) {
     @autoreleasepool {
@@ -3166,6 +3237,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "seal_export") == 0) {
                 PVSealExportArchive(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "open_export") == 0) {
+                PVOpenExportArchive(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "seal_job") == 0) {

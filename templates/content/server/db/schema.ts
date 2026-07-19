@@ -1390,3 +1390,43 @@ export const contentEncryptedVaultMigrationItems = table(
     ),
   ],
 );
+
+/** Endpoint-attested, content-free proof that one exact migration export was
+ * saved or independently opened with the recovery phrase. */
+export const contentEncryptedVaultMigrationEvidence = table(
+  "content_encrypted_vault_migration_evidence",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    migrationId: text("migration_id").notNull(),
+    evidenceId: text("evidence_id").notNull(),
+    evidenceKind: text("evidence_kind").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    exportId: text("export_id").notNull(),
+    exportBundleHash: text("export_bundle_hash").notNull(),
+    plaintextHash: text("plaintext_hash").notNull(),
+    sourceSnapshotHash: text("source_snapshot_hash").notNull(),
+    objectCount: integer("object_count").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (evidence) => [
+    uniqueIndex("content_encrypted_vault_migration_evidence_unique").on(
+      evidence.ownerEmail,
+      evidence.orgId,
+      evidence.vaultId,
+      evidence.migrationId,
+      evidence.evidenceKind,
+      evidence.evidenceId,
+    ),
+    index("content_encrypted_vault_migration_evidence_export_idx").on(
+      evidence.ownerEmail,
+      evidence.orgId,
+      evidence.vaultId,
+      evidence.migrationId,
+      evidence.exportBundleHash,
+      evidence.evidenceKind,
+    ),
+  ],
+);

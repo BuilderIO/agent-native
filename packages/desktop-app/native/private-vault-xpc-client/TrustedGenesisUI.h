@@ -17,4 +17,7 @@ bool PVTrustedRecoveryCollectPhrase(const char *vaultID,
 bool PVTrustedExportCollectPhrase(const char *vaultID,
                                   std::vector<uint8_t> &recoveryPhrase);
 
+bool PVTrustedExportVerifyPhrase(const char *vaultID,
+                                 std::vector<uint8_t> &recoveryPhrase);
+
 #endif

@@ -60,6 +60,14 @@ AncPrivateVaultOpenExportArchive(
     AncPrivateVaultGuardedMemory *recoveryRoot,
     AncPrivateVaultExportArchiveStatus *_Nullable status);
 
+/* Recovery-drill verification intentionally returns metadata only. Decrypted
+ * bytes are authenticated and zeroized inside this call. */
+FOUNDATION_EXPORT AncPrivateVaultExportArchiveMetadata *_Nullable
+AncPrivateVaultVerifyExportArchive(
+    NSData *encodedArchive, NSData *expectedVaultId,
+    AncPrivateVaultGuardedMemory *recoveryRoot,
+    AncPrivateVaultExportArchiveStatus *_Nullable status);
+
 FOUNDATION_EXPORT NSString *AncPrivateVaultExportArchiveCategory(
     AncPrivateVaultExportArchiveStatus status);
 

@@ -54,10 +54,27 @@ function harness() {
   };
   const migration = {
     listCandidates: vi.fn(async () => ["legacy-document"]),
+    active: vi.fn(
+      async () =>
+        null as {
+          ledger: {
+            migrationId: string;
+            state: string;
+            sourceCount: number;
+          };
+        } | null,
+    ),
+    cleanup: vi.fn(async () => ({ state: "cleaned" })),
     migrate: vi.fn(async () => ({ state: "cutover" })),
   };
   const migrationExport = {
     export: vi.fn(async () => ({ exportId: "44".repeat(16) })),
+  };
+  const migrationRecovery = {
+    verify: vi.fn(async () => ({ recoveryDrillId: "55".repeat(16) })),
+  };
+  const migrationEvidence = {
+    exportEvidence: vi.fn(async () => ({ exportId: "44".repeat(16) })),
   };
   return {
     actions,
@@ -69,6 +86,8 @@ function harness() {
     disclosures,
     migration,
     migrationExport,
+    migrationRecovery,
+    migrationEvidence,
     runtime: new PrivateVaultContentRuntime({
       descriptor: { read: vi.fn(async () => ({ vaultId })) },
       documents: documents as never,
@@ -78,6 +97,8 @@ function harness() {
       disclosures,
       migration,
       migrationExport,
+      migrationRecovery,
+      migrationEvidence,
     }),
   };
 }
@@ -103,6 +124,44 @@ describe("PrivateVaultContentRuntime", () => {
       source.runtime.exportLegacyMigration("33".repeat(16)),
     ).resolves.toEqual({ exportId: "44".repeat(16) });
     expect(source.migrationExport.export).toHaveBeenCalledWith(
+      vaultId,
+      "33".repeat(16),
+    );
+    await expect(
+      source.runtime.verifyLegacyMigrationRecovery("33".repeat(16)),
+    ).resolves.toEqual({ recoveryDrillId: "55".repeat(16) });
+    expect(source.migrationRecovery.verify).toHaveBeenCalledWith(
+      vaultId,
+      "33".repeat(16),
+    );
+    await expect(
+      source.runtime.cleanupLegacyMigration("33".repeat(16)),
+    ).resolves.toEqual({ state: "cleaned" });
+    expect(source.migration.cleanup).toHaveBeenCalledWith(
+      vaultId,
+      "33".repeat(16),
+    );
+  });
+
+  it("reconstructs attended migration ceremony state after restart", async () => {
+    const source = harness();
+    source.migration.active.mockResolvedValueOnce({
+      ledger: {
+        migrationId: "33".repeat(16),
+        state: "cutover",
+        sourceCount: 2,
+      },
+    });
+    await source.runtime.start();
+    await expect(source.runtime.legacyMigrationStatus()).resolves.toEqual({
+      current: {
+        migrationId: "33".repeat(16),
+        state: "cutover",
+        sourceCount: 2,
+        exportSaved: true,
+      },
+    });
+    expect(source.migrationEvidence.exportEvidence).toHaveBeenCalledWith(
       vaultId,
       "33".repeat(16),
     );

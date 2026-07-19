@@ -94,6 +94,7 @@ enum class PVOperation {
   SealJobObject,
   OpenJobObject,
   SealExport,
+  OpenExport,
 };
 enum class PVFailure {
   None,
@@ -164,6 +165,8 @@ struct PVParsedReply {
   char objectID[33] = {0};
   char contentType[121] = {0};
   char exportID[33] = {0};
+  char sourceSnapshotHash[65] = {0};
+  char plaintextHash[65] = {0};
   uint64_t custodyGeneration = 0;
   uint64_t activeEpoch = 0;
   uint64_t sequence = 0;
@@ -176,6 +179,7 @@ struct PVParsedReply {
   uint64_t expiresAt = 0;
   uint64_t objectRevision = 0;
   uint64_t plaintextLength = 0;
+  uint64_t exportObjectCount = 0;
   bool complete = false;
   std::vector<uint8_t> body;
   std::vector<uint8_t> grantID;
@@ -298,6 +302,7 @@ struct PVAsyncRequest {
   char contentType[121] = {0};
   char exportID[33] = {0};
   char sourceSnapshotHash[65] = {0};
+  char plaintextHash[65] = {0};
   char accountID[161] = {0};
   char workspaceID[161] = {0};
   char endpointID[33] = {0};
@@ -339,6 +344,7 @@ struct PVAsyncRequest {
   std::vector<uint8_t> disclosureScopeHash;
   std::vector<uint8_t> objectPayload;
   std::vector<uint8_t> exportPlaintext;
+  std::vector<uint8_t> exportArchive;
   std::vector<uint8_t> writerEndpointID;
   std::vector<uint8_t> revisionID;
   std::vector<uint8_t> sasTranscriptHash;
@@ -389,6 +395,8 @@ struct PVAsyncRequest {
       PVClearBytes(objectPayload);
     if (!exportPlaintext.empty())
       PVClearBytes(exportPlaintext);
+    if (!exportArchive.empty())
+      PVClearBytes(exportArchive);
     if (!writerEndpointID.empty())
       PVClearBytes(writerEndpointID);
     if (!revisionID.empty())
@@ -816,6 +824,41 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     memcpy(parsed.state, state, strlen(state) + 1);
     memcpy(parsed.vaultID, vaultID, 33);
     memcpy(parsed.exportID, exportID, 33);
+    parsed.failure = PVFailure::None;
+    return parsed;
+  }
+
+  if (operation == PVOperation::OpenExport) {
+    const char *const keys[] = {
+        "version", "ok", "requestId", "state", "vaultId", "exportId",
+        "sourceSnapshotHash", "objectCount", "plaintextHash",
+    };
+    const char *state = PVGetString(reply, "state");
+    const char *vaultID = PVGetString(reply, "vaultId");
+    const char *exportID = PVGetString(reply, "exportId");
+    const char *snapshot = PVGetString(reply, "sourceSnapshotHash");
+    const char *plaintextHash = PVGetString(reply, "plaintextHash");
+    xpc_object_t objectCount = xpc_dictionary_get_value(reply, "objectCount");
+    if (!PVHasExactKeys(reply, keys, 9) ||
+        !PVRequestIDMatches(reply, requestID) || state == nullptr ||
+        strcmp(state, "verified") != 0 || !PVIsLowerHex(vaultID, 32) ||
+        expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(exportID, 32) || !PVIsLowerHex(snapshot, 64) ||
+        !PVIsLowerHex(plaintextHash, 64) || objectCount == nullptr ||
+        xpc_get_type(objectCount) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "objectCount") == 0 ||
+        xpc_dictionary_get_uint64(reply, "objectCount") >
+            UINT64_C(9007199254740991)) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.exportID, exportID, 33);
+    memcpy(parsed.sourceSnapshotHash, snapshot, 65);
+    memcpy(parsed.plaintextHash, plaintextHash, 65);
+    parsed.exportObjectCount =
+        xpc_dictionary_get_uint64(reply, "objectCount");
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -1994,6 +2037,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "open_job_object"
                           : request->operation == PVOperation::SealExport
                               ? "seal_export"
+                          : request->operation == PVOperation::OpenExport
+                              ? "open_export"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -2043,6 +2088,7 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::ListMembers ||
       request->operation == PVOperation::BrokerKey ||
       request->operation == PVOperation::SealExport ||
+      request->operation == PVOperation::OpenExport ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenResult ||
       request->operation == PVOperation::OpenJob ||
@@ -2099,6 +2145,14 @@ void PVExecute(napi_env env, void *data) {
     xpc_dictionary_set_data(message, "exportPlaintext",
                             request->exportPlaintext.data(),
                             request->exportPlaintext.size());
+    xpc_dictionary_set_data(message, "recoveryMnemonic",
+                            request->recoveryMnemonic.data(),
+                            request->recoveryMnemonic.size());
+  }
+  if (request->operation == PVOperation::OpenExport) {
+    xpc_dictionary_set_data(message, "exportArchive",
+                            request->exportArchive.data(),
+                            request->exportArchive.size());
     xpc_dictionary_set_data(message, "recoveryMnemonic",
                             request->recoveryMnemonic.data(),
                             request->recoveryMnemonic.size());
@@ -2235,7 +2289,8 @@ void PVExecute(napi_env env, void *data) {
   xpc_release(message);
 
   const int64_t timeout =
-      request->operation == PVOperation::SealExport
+      request->operation == PVOperation::SealExport ||
+              request->operation == PVOperation::OpenExport
           ? 60LL * NSEC_PER_SEC
       : request->operation == PVOperation::RevokeGrant
           ? 22LL * NSEC_PER_SEC
@@ -2267,6 +2322,7 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::ListMembers ||
                 request->operation == PVOperation::BrokerKey ||
                 request->operation == PVOperation::SealExport ||
+                request->operation == PVOperation::OpenExport ||
                 request->operation == PVOperation::SealJob ||
                 request->operation == PVOperation::OpenResult ||
                 request->operation == PVOperation::SealJobObject ||
@@ -2368,12 +2424,17 @@ void PVExecute(napi_env env, void *data) {
     memcpy(request->contentType, parsed.contentType,
            sizeof(request->contentType));
     memcpy(request->exportID, parsed.exportID, sizeof(request->exportID));
+    memcpy(request->sourceSnapshotHash, parsed.sourceSnapshotHash,
+           sizeof(request->sourceSnapshotHash));
+    memcpy(request->plaintextHash, parsed.plaintextHash,
+           sizeof(request->plaintextHash));
     request->hostedEpoch = parsed.hostedEpoch;
     request->hostedRetryCount = parsed.hostedRetryCount;
     request->issuedAt = parsed.issuedAt;
     request->expiresAt = parsed.expiresAt;
     request->objectRevision = parsed.objectRevision;
     request->plaintextLength = parsed.plaintextLength;
+    request->exportObjectCount = parsed.exportObjectCount;
     request->revisionID = std::move(parsed.revisionID);
     request->grantID = std::move(parsed.grantID);
     request->grantRefBytes = std::move(parsed.grantRefBytes);
@@ -2524,6 +2585,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "open_job_object"
                 : request->operation == PVOperation::SealExport
                     ? "seal_export"
+                : request->operation == PVOperation::OpenExport
+                    ? "open_export"
                     : "finalize_genesis");
     if (request->operation != PVOperation::OpenJob &&
         request->operation != PVOperation::SealResult &&
@@ -2558,6 +2621,14 @@ void PVComplete(napi_env env, napi_status status, void *data) {
         delete request;
         return;
       }
+    } else if (request->operation == PVOperation::OpenExport) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "exportId", request->exportID);
+      PVSetString(env, result, "sourceSnapshotHash",
+                  request->sourceSnapshotHash);
+      PVSetString(env, result, "plaintextHash", request->plaintextHash);
+      PVSetSafeInteger(env, result, "objectCount",
+                       request->exportObjectCount);
     } else if (request->operation == PVOperation::CreateGrant) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "recipientEndpointId",
@@ -3094,6 +3165,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::OpenJobObject;
   } else if (strcmp(operation, "seal_export") == 0) {
     request->operation = PVOperation::SealExport;
+  } else if (strcmp(operation, "open_export") == 0) {
+    request->operation = PVOperation::OpenExport;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -3137,6 +3210,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::SealJobObject ? 8
       : request->operation == PVOperation::OpenJobObject ? 7
       : request->operation == PVOperation::SealExport ? 7
+      : request->operation == PVOperation::OpenExport ? 3
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -3168,7 +3242,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::OpenObject ||
       request->operation == PVOperation::SealJobObject ||
       request->operation == PVOperation::OpenJobObject ||
-      request->operation == PVOperation::SealExport) {
+      request->operation == PVOperation::SealExport ||
+      request->operation == PVOperation::OpenExport) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||
@@ -3221,6 +3296,23 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->exportCreatedAt = static_cast<uint64_t>(createdAt);
     request->exportObjectCount = static_cast<uint64_t>(objectCount);
     exportPlaintext = static_cast<const uint8_t *>(bytes);
+  }
+  const uint8_t *exportArchive = nullptr;
+  size_t exportArchiveLength = 0;
+  if (request->operation == PVOperation::OpenExport) {
+    void *bytes = nullptr;
+    bool isBuffer = false;
+    if (napi_is_buffer(env, argv[2], &isBuffer) != napi_ok || !isBuffer ||
+        napi_get_buffer_info(env, argv[2], &bytes, &exportArchiveLength) !=
+            napi_ok ||
+        bytes == nullptr || exportArchiveLength == 0 ||
+        exportArchiveLength > PV_EXPORT_ARCHIVE_MAXIMUM_BYTES) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
+    exportArchive = static_cast<const uint8_t *>(bytes);
   }
   const uint8_t *sealedJobPayload = nullptr;
   size_t sealedJobPayloadLength = 0;
@@ -3796,6 +3888,33 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     std::vector<uint8_t> recoveryPhrase;
     const bool collected =
         PVTrustedExportCollectPhrase(request->vaultID, recoveryPhrase);
+    if (!collected || recoveryPhrase.empty() ||
+        recoveryPhrase.size() > PV_GENESIS_MNEMONIC_MAXIMUM_BYTES) {
+      if (!recoveryPhrase.empty())
+        PVClearBytes(recoveryPhrase);
+      gRequestGate.release();
+      delete request;
+      napi_throw_error(env, nullptr,
+                       "Private Vault native service request failed");
+      return nullptr;
+    }
+    request->recoveryMnemonic = std::move(recoveryPhrase);
+  }
+
+  if (request->operation == PVOperation::OpenExport) {
+    try {
+      request->exportArchive.assign(exportArchive,
+                                    exportArchive + exportArchiveLength);
+    } catch (...) {
+      gRequestGate.release();
+      delete request;
+      napi_throw_error(env, nullptr,
+                       "Private Vault native service request failed");
+      return nullptr;
+    }
+    std::vector<uint8_t> recoveryPhrase;
+    const bool collected =
+        PVTrustedExportVerifyPhrase(request->vaultID, recoveryPhrase);
     if (!collected || recoveryPhrase.empty() ||
         recoveryPhrase.size() > PV_GENESIS_MNEMONIC_MAXIMUM_BYTES) {
       if (!recoveryPhrase.empty())

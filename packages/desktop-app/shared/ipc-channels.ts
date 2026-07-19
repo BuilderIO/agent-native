@@ -89,9 +89,15 @@ export const IPC = {
   CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT: "content-private-runtime:revoke-grant",
   CONTENT_PRIVATE_RUNTIME_MIGRATION_CANDIDATES:
     "content-private-runtime:migration-candidates",
+  CONTENT_PRIVATE_RUNTIME_MIGRATION_STATUS:
+    "content-private-runtime:migration-status",
   CONTENT_PRIVATE_RUNTIME_MIGRATE: "content-private-runtime:migrate",
   CONTENT_PRIVATE_RUNTIME_EXPORT_MIGRATION:
     "content-private-runtime:export-migration",
+  CONTENT_PRIVATE_RUNTIME_VERIFY_MIGRATION_RECOVERY:
+    "content-private-runtime:verify-migration-recovery",
+  CONTENT_PRIVATE_RUNTIME_CLEANUP_MIGRATION:
+    "content-private-runtime:cleanup-migration",
   CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE:
     "content-private-runtime:set-application-state",
 

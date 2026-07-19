@@ -96,6 +96,8 @@ typedef struct {
     size_t objectPayloadLength;
     const void *exportPlaintext;
     size_t exportPlaintextLength;
+    const void *exportArchive;
+    size_t exportArchiveLength;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);

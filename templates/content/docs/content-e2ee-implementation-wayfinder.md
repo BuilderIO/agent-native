@@ -1401,6 +1401,29 @@ source vector. Signed-Desktop export ceremony wiring and the full
 export-before-cleanup drill remain part of this milestone; the existence of the
 format and decryptor alone is not migration proof.
 
+Implementation checkpoint (2026-07-19): signed Desktop now builds the recovery
+archive only from the exact verified encrypted revisions bound into the cutover
+ledger, writes it as a non-overwriting mode-0600 local file, and appends an
+attended-endpoint-signed, content-free export attestation. A separate native
+`open_export` ceremony asks for the exact archive and all recovery words in
+signed OS UI, authenticates and decrypts inside the native custody service,
+zeroes recovered plaintext, and returns only the export commitments. Desktop
+matches those commitments to the stored export attestation, records a second
+endpoint-signed recovery-drill attestation, and only then advances the durable
+ledger to `cleanup_eligible` with the versioned backup-retention disclosure.
+The ceremony is restart-safe: Desktop reconstructs the active migration,
+whether an export was attested, and whether recovery has been proven from
+durable hosted evidence rather than renderer memory. Plaintext cleanup remains
+a separate irreversible native-Desktop confirmation. Immediately before that
+request, Desktop re-opens the committed encrypted manifest and every migrated
+document; the server then deletes only unchanged, scope-bound Standard Cloud
+rows. An all-deleted retry is idempotent, while partial absence or changed
+source digests fail closed. Unit, database, route, IPC/UI, Core codec, native
+protocol/archive, and signed native build checks cover this implementation.
+The remaining PR 7 exit evidence is a deployed synthetic full-lifecycle drill,
+including interruption and rollback, plus provider-specific proof of what
+encrypted ciphertext and metadata may remain in backups.
+
 Exit gate:
 
 - A synthetic legacy vault migrates, verifies, exports, recovers, resumes after interruption, rolls back before cleanup, and proves what remains in backups.

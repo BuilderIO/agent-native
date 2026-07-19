@@ -858,6 +858,48 @@ describe("Private Vault native service client", () => {
     expect(plaintext).toEqual(Uint8Array.from([0x7b, 0x7d]));
   });
 
+  it("opens an export for a content-free native recovery proof and clears its working archive", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const archive = Uint8Array.from([0xa1, 1, 1]);
+    let capturedArchive: Buffer | undefined;
+    const request = vi.fn(async (...arguments_: unknown[]) => {
+      capturedArchive = arguments_[2] as Buffer;
+      return {
+        version: 3,
+        operation: "open_export",
+        state: "verified",
+        vaultId,
+        exportId: "ffeeddccbbaa99887766554433221100",
+        sourceSnapshotHash: "ab".repeat(32),
+        objectCount: 2,
+        plaintextHash: "cd".repeat(32),
+      };
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(
+      client.openExportArchive({ vaultId, archive }),
+    ).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "open_export",
+      state: "verified",
+      vaultId,
+      exportId: "ffeeddccbbaa99887766554433221100",
+      sourceSnapshotHash: "ab".repeat(32),
+      objectCount: 2,
+      plaintextHash: "cd".repeat(32),
+    });
+    expect(request).toHaveBeenCalledWith(
+      "open_export",
+      vaultId,
+      expect.any(Buffer),
+    );
+    expect(capturedArchive).toEqual(Buffer.alloc(3));
+    expect(archive).toEqual(Uint8Array.from([0xa1, 1, 1]));
+  });
+
   it("seals one semantically encoded job and binds the native reply", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const jobId = "ffeeddccbbaa99887766554433221100";

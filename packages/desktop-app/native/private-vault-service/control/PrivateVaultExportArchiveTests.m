@@ -78,6 +78,11 @@ static int TestVectorAndRoundTrip(void) {
   CHECK(status == AncPrivateVaultExportArchiveStatusOK && opened != nil);
   CHECK([opened.plaintext isEqualToData:plaintext]);
   CHECK([opened.metadata.sourceSnapshotHash isEqualToData:Filled(32, 0x33)]);
+  AncPrivateVaultExportArchiveMetadata *verified =
+      AncPrivateVaultVerifyExportArchive(sealed.encodedArchive, vaultId, root,
+                                         &status);
+  CHECK(status == AncPrivateVaultExportArchiveStatusOK && verified != nil);
+  CHECK([verified.plaintextHash isEqualToData:opened.metadata.plaintextHash]);
   CHECK(GuardedEquals(root, 0x44));
   CHECK([root close] == AncPrivateVaultGuardedMemoryStatusOK);
   return 0;
@@ -94,6 +99,9 @@ static int TestAuthenticationAndStrictDecoding(void) {
   AncPrivateVaultGuardedMemory *wrongRoot = GuardedFilled(0x45);
   CHECK(AncPrivateVaultOpenExportArchive(sealed.encodedArchive, vaultId,
                                          wrongRoot, &status) == nil);
+  CHECK(status == AncPrivateVaultExportArchiveStatusAuthentication);
+  CHECK(AncPrivateVaultVerifyExportArchive(sealed.encodedArchive, vaultId,
+                                           wrongRoot, &status) == nil);
   CHECK(status == AncPrivateVaultExportArchiveStatusAuthentication);
   CHECK(AncPrivateVaultOpenExportArchive(sealed.encodedArchive,
                                          Filled(16, 0x12), root,

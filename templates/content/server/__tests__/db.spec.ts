@@ -201,7 +201,7 @@ describe("content database migrations", () => {
     expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
     expect(
       source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
-    ).toHaveLength(18);
+    ).toHaveLength(19);
     expect(source).toContain(
       "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
     );
@@ -491,6 +491,28 @@ describe("content database migrations", () => {
     );
     expect(migration).not.toMatch(
       /DROP TABLE|RENAME TO|private_key|recovery_secret|transcript_bytes/i,
+    );
+  });
+
+  it("adds content-free endpoint-attested migration recovery evidence", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const start = source.indexOf(
+      'name: "content-private-vault-migration-evidence"',
+    );
+    const migration = source.slice(start, source.indexOf("`,\n    },", start));
+
+    expect(source).toContain("version: 111");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS content_encrypted_vault_migration_evidence",
+    );
+    expect(migration).toContain("endpoint_id TEXT NOT NULL");
+    expect(migration).toContain("export_bundle_hash TEXT NOT NULL");
+    expect(migration).toContain("plaintext_hash TEXT NOT NULL");
+    expect(migration).not.toMatch(
+      /plaintext_bytes|recovery_phrase|private_key/i,
     );
   });
 });

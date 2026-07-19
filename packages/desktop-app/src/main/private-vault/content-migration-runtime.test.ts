@@ -132,6 +132,10 @@ function fixture() {
       };
       return structuredClone(ledger);
     }),
+    cleanup: vi.fn(async () => {
+      ledger = { ...ledger, state: "cleaned" };
+      return structuredClone(ledger);
+    }),
   };
   const stored = new Map<
     string,
@@ -278,6 +282,21 @@ describe("Private Vault signed-Desktop migration copier", () => {
     expect(
       source.openedBuffers.every((bytes) => bytes.every((byte) => byte === 0)),
     ).toBe(true);
+  });
+
+  it("re-opens every encrypted object before attended source cleanup", async () => {
+    const source = fixture();
+    await source.runtime.migrate({
+      vaultId,
+      sourceDocumentIds: ["root", "child"],
+    });
+    source.setLedger({ ...source.ledger(), state: "cleanup_eligible" });
+    source.objects.downloadAndOpen.mockClear();
+    await expect(
+      source.runtime.cleanup(vaultId, migrationId),
+    ).resolves.toMatchObject({ state: "cleaned" });
+    expect(source.objects.downloadAndOpen).toHaveBeenCalledTimes(3);
+    expect(source.hosted.cleanup).toHaveBeenCalledWith(vaultId, migrationId);
   });
 
   it("resumes a crash after hosted cutover by hydrating exact ciphertext before local visibility", async () => {

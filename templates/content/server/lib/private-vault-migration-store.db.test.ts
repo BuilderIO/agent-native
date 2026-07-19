@@ -27,6 +27,7 @@ const timestamp = "2026-07-19T06:00:00.000Z";
 let getDb: (typeof import("../db/index.js"))["getDb"];
 let schema: typeof import("../db/schema.js");
 let store: (typeof import("./private-vault-migration-store.js"))["sqlPrivateVaultMigrationStore"];
+let evidenceStore: (typeof import("./private-vault-migration-evidence-store.js"))["sqlPrivateVaultMigrationEvidenceStore"];
 
 function ledger(
   overrides: Partial<PrivateVaultMigrationLedger> = {},
@@ -75,6 +76,8 @@ beforeAll(async () => {
   await (await import("../plugins/db.js")).default(undefined as never);
   store = (await import("./private-vault-migration-store.js"))
     .sqlPrivateVaultMigrationStore;
+  evidenceStore = (await import("./private-vault-migration-evidence-store.js"))
+    .sqlPrivateVaultMigrationEvidenceStore;
   await getDb().insert(schema.contentEncryptedVaults).values({
     vaultId: scope.vaultId,
     ownerEmail: scope.ownerEmail,
@@ -194,6 +197,46 @@ describe("Private Vault SQL migration ledger", () => {
     const rows = await getDb()
       .select()
       .from(schema.contentEncryptedVaultMigrationItems);
+    const serialized = JSON.stringify(rows);
+    expect(serialized).not.toContain("Private title sentinel");
+    expect(serialized).not.toContain("Private body sentinel");
+    expect(serialized).not.toContain("export plaintext");
+  });
+
+  it("stores content-free evidence idempotently inside the exact tenant scope", async () => {
+    const exported = {
+      scope,
+      endpointId: "a1".repeat(16),
+      kind: "export" as const,
+      migrationId,
+      evidenceId: "a2".repeat(16),
+      exportId: "a2".repeat(16),
+      exportBundleHash: "a3".repeat(32),
+      plaintextHash: "a4".repeat(32),
+      sourceSnapshotHash: "41".repeat(32),
+      objectCount: 2,
+      createdAt: timestamp,
+    };
+    await expect(evidenceStore.put(exported)).resolves.toBe("stored");
+    await expect(evidenceStore.put(exported)).resolves.toBe("existing");
+    await expect(
+      evidenceStore.put({ ...exported, plaintextHash: "ff".repeat(32) }),
+    ).resolves.toBe("conflict");
+    await expect(
+      evidenceStore.getExport(scope, migrationId, exported.exportBundleHash),
+    ).resolves.toMatchObject({
+      endpointId: exported.endpointId,
+      exportId: exported.exportId,
+    });
+    await expect(
+      evidenceStore.getLatestExport(
+        { ...scope, ownerEmail: "other@example.test" },
+        migrationId,
+      ),
+    ).resolves.toBeNull();
+    const rows = await getDb()
+      .select()
+      .from(schema.contentEncryptedVaultMigrationEvidence);
     const serialized = JSON.stringify(rows);
     expect(serialized).not.toContain("Private title sentinel");
     expect(serialized).not.toContain("Private body sentinel");

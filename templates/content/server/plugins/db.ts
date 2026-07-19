@@ -1441,6 +1441,35 @@ const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_signed_disclosures_job_unique
         ON content_encrypted_vault_signed_disclosures (vault_id, job_id)`,
     },
+    {
+      version: 111,
+      name: "content-private-vault-migration-evidence",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_migration_evidence (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        migration_id TEXT NOT NULL,
+        evidence_id TEXT NOT NULL,
+        evidence_kind TEXT NOT NULL,
+        endpoint_id TEXT NOT NULL,
+        export_id TEXT NOT NULL,
+        export_bundle_hash TEXT NOT NULL,
+        plaintext_hash TEXT NOT NULL,
+        source_snapshot_hash TEXT NOT NULL,
+        object_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (migration_id) REFERENCES content_encrypted_vault_migrations(migration_id) ON DELETE CASCADE,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_migration_evidence_unique
+        ON content_encrypted_vault_migration_evidence
+        (owner_email, org_id, vault_id, migration_id, evidence_kind, evidence_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_migration_evidence_export_idx
+        ON content_encrypted_vault_migration_evidence
+        (owner_email, org_id, vault_id, migration_id, export_bundle_hash, evidence_kind)`,
+    },
   ],
   { table: "content_migrations" },
 );

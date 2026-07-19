@@ -138,6 +138,7 @@ describe("Private Vault Standard Cloud migration source", () => {
     ).rejects.toBeInstanceOf(PrivateVaultMigrationError);
     expect(await getDb().select().from(schema.documents)).toHaveLength(2);
     await expect(source.cleanup(scope, commitments)).resolves.toBeUndefined();
+    await expect(source.cleanup(scope, commitments)).resolves.toBeUndefined();
     const remaining = await getDb().select().from(schema.documents);
     expect(remaining).toHaveLength(0);
     expect(JSON.stringify(remaining)).not.toContain("Legacy body sentinel");

@@ -79,7 +79,8 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 strcmp(key, "createdAt") == 0 ||
                 strcmp(key, "sourceSnapshotHash") == 0 ||
                 strcmp(key, "objectCount") == 0 ||
-                strcmp(key, "exportPlaintext") == 0) {
+                strcmp(key, "exportPlaintext") == 0 ||
+                strcmp(key, "exportArchive") == 0) {
                 return true;
             }
             if (strcmp(key, "unsignedProof") == 0) return true;
@@ -221,6 +222,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool sealJobObject = strcmp(operation, "seal_job_object") == 0;
     bool openJobObject = strcmp(operation, "open_job_object") == 0;
     bool sealExport = strcmp(operation, "seal_export") == 0;
+    bool openExport = strcmp(operation, "open_export") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
@@ -233,7 +235,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
         !activateEnrollment && !enrollmentBootstrap && !sealObject &&
         !openObject && !sealJobObject &&
-        !openJobObject && !sealExport) {
+        !openJobObject && !sealExport && !openExport) {
         return PVRequestUnsupportedOperation;
     }
 
@@ -289,6 +291,20 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         request->sourceSnapshotHash = snapshot;
         request->exportCreatedAt = createdAt;
         request->exportObjectCount = objectCount;
+    } else if (openExport) {
+        if (fieldCount != 6 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVReadBoundedData(message, "recoveryMnemonic",
+                               PV_GENESIS_MNEMONIC_MAXIMUM_BYTES,
+                               &request->recoveryMnemonic,
+                               &request->recoveryMnemonicLength) ||
+            !PVReadBoundedData(message, "exportArchive",
+                               PV_EXPORT_PLAINTEXT_MAXIMUM_BYTES + 64 * 1024,
+                               &request->exportArchive,
+                               &request->exportArchiveLength)) {
+            return PVRequestInvalid;
+        }
     } else if (openResult) {
         xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
         xpc_object_t senderValue =
@@ -738,9 +754,9 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                 completeResult || pendingResult || prepareEnrollment ||
                 challengeEnrollment || inspectEnrollment ||
                 authorizeEnrollment || activateEnrollment ||
-                enrollmentBootstrap || listGrants || listMembers ||
+                enrollmentBootstrap || listGrants || listMembers || brokerKey ||
                 revokeGrant || sealObject ||
-                openObject || sealExport
+                openObject || sealExport || openExport
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =

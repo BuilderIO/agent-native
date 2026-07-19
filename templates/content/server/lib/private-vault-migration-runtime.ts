@@ -5,9 +5,10 @@ import {
 } from "@agent-native/core/server/request-context";
 
 import { CONTENT_PRIVATE_VAULT_MIGRATION_FLAG } from "../../shared/private-vault-feature-flags.js";
+import { privateVaultMigrationEvidenceService } from "./private-vault-migration-evidence-runtime.js";
 import { sqlPrivateVaultMigrationSource } from "./private-vault-migration-source.js";
 import { sqlPrivateVaultMigrationStore } from "./private-vault-migration-store.js";
-import { privateVaultMigrationCiphertextTarget } from "./private-vault-migration-target.js";
+import { createPrivateVaultMigrationCiphertextTarget } from "./private-vault-migration-target.js";
 import { PrivateVaultMigrationCoordinator } from "./private-vault-migration.js";
 import {
   PrivateVaultObjectNotFoundError,
@@ -17,7 +18,12 @@ import {
 export const privateVaultMigrationCoordinator =
   new PrivateVaultMigrationCoordinator(
     sqlPrivateVaultMigrationSource,
-    privateVaultMigrationCiphertextTarget,
+    createPrivateVaultMigrationCiphertextTarget({
+      verifyExportEvidence: (input) =>
+        privateVaultMigrationEvidenceService.verifyExport(input),
+      verifyRecoveryDrillEvidence: (input) =>
+        privateVaultMigrationEvidenceService.verifyRecoveryDrill(input),
+    }),
     sqlPrivateVaultMigrationStore,
   );
 

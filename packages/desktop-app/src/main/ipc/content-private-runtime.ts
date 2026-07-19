@@ -61,8 +61,11 @@ type RuntimeSurface = Pick<
   | "listDisclosureActivity"
   | "revokeAgentGrant"
   | "listLegacyMigrationCandidates"
+  | "legacyMigrationStatus"
   | "migrateLegacyContent"
   | "exportLegacyMigration"
+  | "verifyLegacyMigrationRecovery"
+  | "cleanupLegacyMigration"
   | "setApplicationState"
 > & {
   documents(): {
@@ -240,6 +243,11 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
         exactNoArguments(arguments_);
         return runtime(event).listLegacyMigrationCandidates();
       }),
+    migrationStatus: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        exactNoArguments(arguments_);
+        return runtime(event).legacyMigrationStatus();
+      }),
     migrate: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
       result(async () => {
         if (arguments_.length !== 1) throw new Error();
@@ -262,6 +270,33 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
             arguments_[0],
           ) satisfies DesktopPrivateContentMigrationExportRequest;
         return runtime(event).exportLegacyMigration(request.migrationId);
+      }),
+    verifyMigrationRecovery: (
+      event: IpcMainInvokeEvent,
+      ...arguments_: unknown[]
+    ) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const request = z
+          .object({ migrationId: opaqueIdSchema })
+          .strict()
+          .parse(
+            arguments_[0],
+          ) satisfies DesktopPrivateContentMigrationExportRequest;
+        return runtime(event).verifyLegacyMigrationRecovery(
+          request.migrationId,
+        );
+      }),
+    cleanupMigration: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const request = z
+          .object({ migrationId: opaqueIdSchema })
+          .strict()
+          .parse(
+            arguments_[0],
+          ) satisfies DesktopPrivateContentMigrationExportRequest;
+        return runtime(event).cleanupLegacyMigration(request.migrationId);
       }),
     setApplicationState: (
       event: IpcMainInvokeEvent,
@@ -314,10 +349,22 @@ export function registerContentPrivateRuntimeIpc(input: {
     IPC.CONTENT_PRIVATE_RUNTIME_MIGRATION_CANDIDATES,
     handlers.migrationCandidates,
   );
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_MIGRATION_STATUS,
+    handlers.migrationStatus,
+  );
   ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_MIGRATE, handlers.migrate);
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_EXPORT_MIGRATION,
     handlers.exportMigration,
+  );
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_VERIFY_MIGRATION_RECOVERY,
+    handlers.verifyMigrationRecovery,
+  );
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_CLEANUP_MIGRATION,
+    handlers.cleanupMigration,
   );
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE,

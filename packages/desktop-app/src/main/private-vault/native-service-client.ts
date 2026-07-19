@@ -81,7 +81,8 @@ type NativeOperation =
   | "open_object"
   | "seal_job_object"
   | "open_job_object"
-  | "seal_export";
+  | "seal_export"
+  | "open_export";
 
 interface NativeAddon {
   request(
@@ -113,6 +114,9 @@ export interface PrivateVaultNativeServiceClient
   sealExportArchive(
     input: NativeSealExportArchiveInput,
   ): Promise<NativeSealedExportArchiveResult>;
+  openExportArchive(
+    input: NativeOpenExportArchiveInput,
+  ): Promise<NativeOpenedExportArchiveResult>;
   sealContentJob(
     input: NativeSealContentJobInput,
   ): Promise<NativeSealedContentJobResult>;
@@ -280,6 +284,23 @@ export interface NativeSealedExportArchiveResult {
   readonly vaultId: string;
   readonly exportId: string;
   readonly archive: Uint8Array;
+}
+
+export interface NativeOpenExportArchiveInput {
+  readonly vaultId: string;
+  readonly archive: Uint8Array;
+}
+
+export interface NativeOpenedExportArchiveResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "open_export";
+  readonly state: "verified";
+  readonly vaultId: string;
+  readonly exportId: string;
+  readonly sourceSnapshotHash: string;
+  readonly objectCount: number;
+  readonly plaintextHash: string;
 }
 
 export interface NativeSealContentJobInput {
@@ -1498,6 +1519,46 @@ function parseSealedExportArchive(
   });
 }
 
+function parseOpenedExportArchive(
+  value: unknown,
+  input: NativeOpenExportArchiveInput,
+): NativeOpenedExportArchiveResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "exportId",
+      "sourceSnapshotHash",
+      "objectCount",
+      "plaintextHash",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "open_export" ||
+    value.state !== "verified" ||
+    value.vaultId !== input.vaultId ||
+    !isLowerHex(value.exportId, 32) ||
+    !isLowerHex(value.sourceSnapshotHash, 64) ||
+    !Number.isSafeInteger(value.objectCount) ||
+    (value.objectCount as number) <= 0 ||
+    !isLowerHex(value.plaintextHash, 64)
+  )
+    throw new PrivateVaultNativeServiceClientError();
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "open_export" as const,
+    state: "verified" as const,
+    vaultId: input.vaultId,
+    exportId: value.exportId,
+    sourceSnapshotHash: value.sourceSnapshotHash,
+    objectCount: value.objectCount as number,
+    plaintextHash: value.plaintextHash,
+  });
+}
+
 function parseSealedContentJob(
   value: unknown,
   input: NativeSealContentJobInput,
@@ -2099,6 +2160,33 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
         plaintext.fill(0);
+      }
+    });
+  }
+
+  openExportArchive(
+    input: NativeOpenExportArchiveInput,
+  ): Promise<NativeOpenedExportArchiveResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !(input.archive instanceof Uint8Array) ||
+      input.archive.byteLength === 0 ||
+      input.archive.byteLength >
+        E2EE_SIZE_LIMITS.exportPlaintextBytes + 64 * 1024
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    const archive = Buffer.from(input.archive);
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseOpenedExportArchive(
+          await addon.request("open_export", input.vaultId, archive),
+          input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        archive.fill(0);
       }
     });
   }

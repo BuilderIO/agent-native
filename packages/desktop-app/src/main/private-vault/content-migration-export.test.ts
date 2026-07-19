@@ -164,12 +164,14 @@ function fixture() {
       savedArchive = archive.slice();
     }),
   };
+  const evidence = { append: vi.fn(async () => ({ state: "stored" })) };
   const status = vi.fn(async () => structuredClone(snapshot));
   const runtime = new PrivateVaultContentMigrationExportRuntime({
     hosted: { status },
     objects,
     native,
     writer,
+    evidence,
     now: () => new Date(timestamp),
     exportId: () => "81".repeat(16),
   });
@@ -180,6 +182,7 @@ function fixture() {
     objects,
     native,
     writer,
+    evidence,
     openedBuffers,
     sealedPlaintext: () => sealedPlaintext,
     archiveWorking: () => archiveWorking,
@@ -246,6 +249,16 @@ describe("Private Vault signed-Desktop migration export", () => {
     expect(source.writer.save).toHaveBeenCalledWith(
       expect.objectContaining({
         suggestedName: expect.stringMatching(/\.anpvault$/),
+      }),
+    );
+    expect(source.evidence.append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "export",
+        vaultId,
+        migrationId,
+        exportId: "81".repeat(16),
+        sourceSnapshotHash: source.snapshot.ledger.sourceSnapshotHash,
+        objectCount: 2,
       }),
     );
     expect(source.savedArchive()).toEqual(Uint8Array.of(0xa4, 1, 2, 3));

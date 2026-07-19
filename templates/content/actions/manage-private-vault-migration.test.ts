@@ -16,12 +16,16 @@ const runtime = vi.hoisted(() => ({
     cleanup: vi.fn(),
   },
 }));
+const evidence = vi.hoisted(() => ({ latestExport: vi.fn() }));
 
 vi.mock("../server/lib/private-vault-migration-runtime.js", () => ({
   requirePrivateVaultMigrationActionScope: (...args: unknown[]) =>
     runtime.requireScope(...args),
   getPrivateVaultMigration: (...args: unknown[]) => runtime.get(...args),
   privateVaultMigrationCoordinator: runtime.coordinator,
+}));
+vi.mock("../server/lib/private-vault-migration-evidence-runtime.js", () => ({
+  privateVaultMigrationEvidenceService: evidence,
 }));
 
 import action, {
@@ -46,6 +50,13 @@ describe("manage-private-vault-migration action", () => {
     runtime.coordinator.listCandidates.mockResolvedValue(["source-doc"]);
     runtime.coordinator.active.mockResolvedValue(null);
     runtime.get.mockResolvedValue({ ledger, items: [] });
+    evidence.latestExport.mockResolvedValue({
+      exportId: "61".repeat(16),
+      exportBundleHash: "62".repeat(32),
+      plaintextHash: "63".repeat(32),
+      sourceSnapshotHash: "64".repeat(32),
+      objectCount: 1,
+    });
   });
 
   it("is not exposed to an agent and suppresses migration inputs from audit", () => {
@@ -68,6 +79,12 @@ describe("manage-private-vault-migration action", () => {
       sourceDocumentIds: ["source-doc"],
     });
     expect(runtime.coordinator.listCandidates).toHaveBeenCalledWith(scope);
+
+    await action.run(
+      { vaultId, operation: "evidence", migrationId },
+      {} as never,
+    );
+    expect(evidence.latestExport).toHaveBeenCalledWith(scope, migrationId);
 
     await action.run(
       { vaultId, operation: "preflight", sourceDocumentIds: ["source-doc"] },
@@ -125,6 +142,25 @@ describe("manage-private-vault-migration action", () => {
       scope,
       migrationId,
     );
+
+    await action.run(
+      {
+        vaultId,
+        operation: "record-cleanup-proof",
+        migrationId,
+        exportBundleHash: "71".repeat(32),
+        recoveryDrillId: "72".repeat(16),
+        backupDisclosureVersion: "content-private-vault-backup-retention-v1",
+      },
+      {} as never,
+    );
+    expect(runtime.coordinator.recordCleanupProof).toHaveBeenCalledWith({
+      scope,
+      migrationId,
+      exportBundleHash: "71".repeat(32),
+      recoveryDrillId: "72".repeat(16),
+      backupDisclosureVersion: "content-private-vault-backup-retention-v1",
+    });
   });
 
   it("returns source plaintext only for the explicit read-source operation", async () => {

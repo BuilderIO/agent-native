@@ -363,6 +363,79 @@ AncPrivateVaultOpenedExportArchive *AncPrivateVaultOpenExportArchive(
   return result;
 }
 
+AncPrivateVaultExportArchiveMetadata *AncPrivateVaultVerifyExportArchive(
+    NSData *encodedArchive, NSData *expectedVaultId,
+    AncPrivateVaultGuardedMemory *recoveryRoot,
+    AncPrivateVaultExportArchiveStatus *status) {
+  SetStatus(status, AncPrivateVaultExportArchiveStatusInvalid);
+  NSMutableData *exportKey =
+      [NSMutableData dataWithLength:ANC_PV_KEY_BYTES];
+  NSMutableData *plaintext = nil;
+  AncPrivateVaultExportArchiveMetadata *result = nil;
+  @try {
+    if (!Exact(expectedVaultId, 16) || recoveryRoot.length != 32 ||
+        recoveryRoot.isClosed)
+      @throw [NSException exceptionWithName:@"AncInvalid" reason:nil userInfo:nil];
+    NSDictionary<NSString *, id> *decoded = Decode(encodedArchive);
+    AncPrivateVaultExportArchiveMetadata *metadata = decoded[@"metadata"];
+    NSData *nonce = decoded[@"nonce"];
+    NSData *ciphertext = decoded[@"ciphertext"];
+    if (metadata == nil || !Same(metadata.vaultId, expectedVaultId))
+      @throw [NSException exceptionWithName:@"AncAuthentication"
+                                     reason:nil
+                                   userInfo:nil];
+    NSData *header = EncodeMap(HeaderMap(metadata, nonce));
+    if (header == nil)
+      @throw [NSException exceptionWithName:@"AncEncoding" reason:nil userInfo:nil];
+    NSData *aad = DomainData(kExportArchiveDomain,
+                             sizeof kExportArchiveDomain, header);
+    if (aad == nil)
+      @throw [NSException exceptionWithName:@"AncEncoding" reason:nil userInfo:nil];
+    __block BOOL derived = NO;
+    AncPrivateVaultGuardedMemoryStatus borrowed =
+        [recoveryRoot borrow:^BOOL(uint8_t *root, size_t length) {
+          derived = length == ANC_PV_KEY_BYTES &&
+                    anc_pv_blake2b_256_keyed(
+                        exportKey.mutableBytes, kExportKeyDomain,
+                        sizeof kExportKeyDomain,
+                        root) == ANC_PV_CRYPTO_OK;
+          return derived;
+        }];
+    plaintext = [NSMutableData
+        dataWithLength:ciphertext.length - ANC_PV_AUTH_BYTES];
+    size_t plaintextLength = 0;
+    if (borrowed != AncPrivateVaultGuardedMemoryStatusOK || !derived)
+      @throw [NSException exceptionWithName:@"AncCrypto" reason:nil userInfo:nil];
+    if (anc_pv_export_xchacha20poly1305_decrypt(
+            plaintext.mutableBytes, plaintext.length, &plaintextLength,
+            ciphertext.bytes, ciphertext.length, aad.bytes, aad.length,
+            nonce.bytes, exportKey.bytes) != ANC_PV_CRYPTO_OK ||
+        plaintextLength != plaintext.length)
+      @throw [NSException exceptionWithName:@"AncAuthentication"
+                                     reason:nil
+                                   userInfo:nil];
+    NSData *hash = PlaintextHash(plaintext);
+    if (hash == nil || !Same(hash, metadata.plaintextHash))
+      @throw [NSException exceptionWithName:@"AncAuthentication"
+                                     reason:nil
+                                   userInfo:nil];
+    result = metadata;
+    SetStatus(status, AncPrivateVaultExportArchiveStatusOK);
+  } @catch (NSException *exception) {
+    if ([exception.name isEqualToString:@"AncEncoding"])
+      SetStatus(status, AncPrivateVaultExportArchiveStatusEncoding);
+    else if ([exception.name isEqualToString:@"AncCrypto"])
+      SetStatus(status, AncPrivateVaultExportArchiveStatusCrypto);
+    else if ([exception.name isEqualToString:@"AncAuthentication"])
+      SetStatus(status, AncPrivateVaultExportArchiveStatusAuthentication);
+  } @finally {
+    anc_pv_zeroize(exportKey.mutableBytes, exportKey.length);
+    if (plaintext.length > 0)
+      anc_pv_zeroize(plaintext.mutableBytes, plaintext.length);
+  }
+  return result;
+}
+
 NSString *AncPrivateVaultExportArchiveCategory(
     AncPrivateVaultExportArchiveStatus status) {
   switch (status) {

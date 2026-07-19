@@ -213,6 +213,14 @@ describe("PrivateContentSurface privacy disclosure", () => {
       ok: true as const,
       value: { exportId: "41".repeat(16), objectCount: 2 },
     }));
+    const verifyMigrationRecovery = vi.fn(async () => ({
+      ok: true as const,
+      value: { recoveryDrillId: "51".repeat(16) },
+    }));
+    const cleanupMigration = vi.fn(async () => ({
+      ok: true as const,
+      value: { state: "cleaned" },
+    }));
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -234,8 +242,14 @@ describe("PrivateContentSurface privacy disclosure", () => {
             ok: true,
             value: ["legacy-root", "legacy-child"],
           })),
+          migrationStatus: vi.fn(async () => ({
+            ok: true,
+            value: { current: null },
+          })),
           migrate,
           exportMigration,
+          verifyMigrationRecovery,
+          cleanupMigration,
         },
       },
     });
@@ -293,6 +307,114 @@ describe("PrivateContentSurface privacy disclosure", () => {
     expect(container.textContent).toContain(
       "Standard Cloud originals still remain until this exact archive passes a recovery drill.",
     );
-    expect(container.textContent).not.toContain("Delete Standard Cloud");
+    const recoveryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Run recovery drill",
+    );
+    await act(async () => recoveryButton?.click());
+    expect(document.body.textContent).toContain(
+      "Hosted storage providers may retain encrypted ciphertext and metadata",
+    );
+    const verifyRecovery = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Choose export and verify",
+    );
+    await act(async () => {
+      verifyRecovery?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(verifyMigrationRecovery).toHaveBeenCalledWith({
+      migrationId: "31".repeat(16),
+    });
+    expect(container.textContent).toContain(
+      "Standard Cloud originals still remain until a separate deletion confirmation.",
+    );
+    expect(cleanupMigration).not.toHaveBeenCalled();
+    const cleanupButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Delete Standard Cloud originals",
+    );
+    await act(async () => cleanupButton?.click());
+    expect(document.body.textContent).toContain(
+      "This is the irreversible cleanup step.",
+    );
+    const confirmCleanup = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Permanently delete originals",
+    );
+    await act(async () => {
+      confirmCleanup?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(cleanupMigration).toHaveBeenCalledWith({
+      migrationId: "31".repeat(16),
+    });
+    expect(JSON.stringify(cleanupMigration.mock.calls)).not.toContain(
+      "vaultId",
+    );
+    expect(container.textContent).toContain(
+      "Standard Cloud originals were deleted after the encrypted vault and independent recovery path were re-verified.",
+    );
+  });
+
+  it("reconstructs an interrupted migration and offers resume before export", async () => {
+    const migrationId = "31".repeat(16);
+    const migrate = vi.fn(async () => ({
+      ok: true as const,
+      value: { state: "cutover", migrationId },
+    }));
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        privateContent: {
+          health: vi.fn(async () => ({
+            ok: true,
+            value: { brokerState: "offline", broker: null },
+          })),
+          list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
+          listGrants: vi.fn(async () => ({ ok: true, value: { grants: [] } })),
+          listMembers: vi.fn(async () => ({
+            ok: true,
+            value: { members: [] },
+          })),
+          migrationCandidates: vi.fn(async () => ({ ok: true, value: [] })),
+          migrationStatus: vi.fn(async () => ({
+            ok: true,
+            value: {
+              current: {
+                migrationId,
+                state: "copying",
+                sourceCount: 2,
+                exportSaved: false,
+              },
+            },
+          })),
+          migrate,
+        },
+      },
+    });
+    await act(async () => {
+      root.render(<PrivateContentSurface onClose={vi.fn()} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const summary = [...container.querySelectorAll("summary")].find(
+      (candidate) => candidate.textContent === "Move from Standard Cloud",
+    );
+    await act(async () => {
+      summary?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Resume migration");
+    expect(container.textContent).not.toContain("Create recovery export");
+    const resume = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Resume migration",
+    );
+    await act(async () => {
+      resume?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(migrate).toHaveBeenCalledWith({ mode: "resume", migrationId });
+    expect(container.textContent).toContain("Create recovery export");
   });
 });

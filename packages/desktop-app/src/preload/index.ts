@@ -170,6 +170,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT, grantRef),
     migrationCandidates: (): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_MIGRATION_CANDIDATES),
+    migrationStatus: (): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_MIGRATION_STATUS),
     migrate: (
       request: DesktopPrivateContentMigrationRequest,
     ): Promise<DesktopPrivateContentResult<unknown>> =>
@@ -178,6 +180,20 @@ const electronAPI = {
       request: DesktopPrivateContentMigrationExportRequest,
     ): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_EXPORT_MIGRATION, request),
+    verifyMigrationRecovery: (
+      request: DesktopPrivateContentMigrationExportRequest,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_RUNTIME_VERIFY_MIGRATION_RECOVERY,
+        request,
+      ),
+    cleanupMigration: (
+      request: DesktopPrivateContentMigrationExportRequest,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_RUNTIME_CLEANUP_MIGRATION,
+        request,
+      ),
     setApplicationState: (
       state: DesktopPrivateContentApplicationState,
     ): Promise<DesktopPrivateContentResult<null>> =>

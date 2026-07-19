@@ -226,6 +226,7 @@ async function hasUnsupportedRows(
 async function readFrozenSources(
   scope: PrivateVaultMigrationScope,
   sourceDocumentIds: readonly string[],
+  allowAllMissing = false,
 ) {
   const rows = await getDb()
     .select()
@@ -233,6 +234,7 @@ async function readFrozenSources(
     .where(
       and(sourceScope(scope), inArray(schema.documents.id, sourceDocumentIds)),
     );
+  if (allowAllMissing && rows.length === 0) return [];
   if (
     rows.length !== sourceDocumentIds.length ||
     rows.some(
@@ -293,17 +295,22 @@ export const sqlPrivateVaultMigrationSource: PrivateVaultMigrationSource = {
     ];
     if (sourceDocumentIds.length !== sources.length)
       throw new PrivateVaultMigrationError();
-    const frozen = await readFrozenSources(scope, sourceDocumentIds);
+    const frozen = await readFrozenSources(scope, sourceDocumentIds, true);
     const expected = new Map(
       sources.map((source) => [source.sourceDocumentId, source.sourceDigest]),
     );
     if (
+      (frozen.length !== 0 && frozen.length !== sources.length) ||
       frozen.some(
         (source) =>
           hashPrivateVaultMigrationSource(source) !== expected.get(source.id),
       )
     )
       throw new PrivateVaultMigrationError();
+    // A retry after the delete committed but before the ledger transition is
+    // complete. Treat only the all-gone case as idempotent; partial absence is
+    // ambiguous and remains fail-closed.
+    if (frozen.length === 0) return;
     await getDb().transaction(async (tx) => {
       const deleted = await tx
         .delete(schema.documents)

@@ -30,8 +30,13 @@ function fixture(allowed = true) {
       grantRef,
     })),
     listLegacyMigrationCandidates: vi.fn(async () => ["legacy-document"]),
+    legacyMigrationStatus: vi.fn(async () => ({ current: null })),
     migrateLegacyContent: vi.fn(async () => ({ state: "cutover" })),
     exportLegacyMigration: vi.fn(async () => ({ exportId: "55".repeat(16) })),
+    verifyLegacyMigrationRecovery: vi.fn(async () => ({
+      recoveryDrillId: "66".repeat(16),
+    })),
+    cleanupLegacyMigration: vi.fn(async () => ({ state: "cleaned" })),
     setApplicationState: vi.fn(),
   };
   return {
@@ -72,11 +77,18 @@ describe("signed Private Content IPC", () => {
     await source.handlers.listDisclosures(event);
     await source.handlers.revokeGrant(event, "44".repeat(32));
     await source.handlers.migrationCandidates(event);
+    await source.handlers.migrationStatus(event);
     await source.handlers.migrate(event, {
       mode: "start",
       sourceDocumentIds: ["legacy-document"],
     });
     await source.handlers.exportMigration(event, {
+      migrationId: "55".repeat(16),
+    });
+    await source.handlers.verifyMigrationRecovery(event, {
+      migrationId: "55".repeat(16),
+    });
+    await source.handlers.cleanupMigration(event, {
       migrationId: "55".repeat(16),
     });
     await source.handlers.setApplicationState(event, {
@@ -113,10 +125,17 @@ describe("signed Private Content IPC", () => {
       "44".repeat(32),
     );
     expect(source.runtime.listLegacyMigrationCandidates).toHaveBeenCalledOnce();
+    expect(source.runtime.legacyMigrationStatus).toHaveBeenCalledOnce();
     expect(source.runtime.migrateLegacyContent).toHaveBeenCalledWith({
       sourceDocumentIds: ["legacy-document"],
     });
     expect(source.runtime.exportLegacyMigration).toHaveBeenCalledWith(
+      "55".repeat(16),
+    );
+    expect(source.runtime.verifyLegacyMigrationRecovery).toHaveBeenCalledWith(
+      "55".repeat(16),
+    );
+    expect(source.runtime.cleanupLegacyMigration).toHaveBeenCalledWith(
       "55".repeat(16),
     );
     expect(source.runtime.setApplicationState).toHaveBeenCalledWith({
@@ -158,6 +177,11 @@ describe("signed Private Content IPC", () => {
     ).resolves.toMatchObject({ ok: false });
     await expect(
       source.handlers.exportMigration({} as never, {
+        migrationId: "not-a-migration",
+      }),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(
+      source.handlers.verifyMigrationRecovery({} as never, {
         migrationId: "not-a-migration",
       }),
     ).resolves.toMatchObject({ ok: false });

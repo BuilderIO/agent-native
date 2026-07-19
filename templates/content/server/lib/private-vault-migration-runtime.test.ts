@@ -29,7 +29,13 @@ vi.mock("./private-vault-migration-store.js", () => ({
   sqlPrivateVaultMigrationStore: { get: vi.fn() },
 }));
 vi.mock("./private-vault-migration-target.js", () => ({
-  privateVaultMigrationCiphertextTarget: {},
+  createPrivateVaultMigrationCiphertextTarget: vi.fn(() => ({})),
+}));
+vi.mock("./private-vault-migration-evidence-runtime.js", () => ({
+  privateVaultMigrationEvidenceService: {
+    verifyExport: vi.fn(),
+    verifyRecoveryDrill: vi.fn(),
+  },
 }));
 
 import { CONTENT_PRIVATE_VAULT_MIGRATION_FLAG } from "../../shared/private-vault-feature-flags.js";

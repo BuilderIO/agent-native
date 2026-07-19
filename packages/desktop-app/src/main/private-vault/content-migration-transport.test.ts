@@ -163,6 +163,28 @@ describe("Private Vault migration hosted action transport", () => {
     );
   });
 
+  it("requests cleanup only through the authenticated action surface", async () => {
+    let requestBody: Uint8Array | undefined;
+    const session = {
+      fetch: vi.fn(async (_url: string, init: RequestInit) => {
+        requestBody = Uint8Array.from(init.body as Uint8Array);
+        return response({ operation: "cleanup", ledger: ledger("cleaned") });
+      }),
+    };
+    const transport = new PrivateVaultContentMigrationTransport({
+      session,
+      origin,
+    });
+    await expect(
+      transport.cleanup(vaultId, migrationId),
+    ).resolves.toMatchObject({ state: "cleaned" });
+    expect(JSON.parse(Buffer.from(requestBody!).toString("utf8"))).toEqual({
+      vaultId,
+      operation: "cleanup",
+      migrationId,
+    });
+  });
+
   it("rejects redirects, alternate origins, malformed lengths, and insecure origins", async () => {
     expect(
       () =>

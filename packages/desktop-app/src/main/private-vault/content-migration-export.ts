@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { E2EE_SIZE_LIMITS } from "@agent-native/core/e2ee";
+import type { AncV1MigrationEvidence } from "@agent-native/core/e2ee";
 import { z } from "zod";
 
 import { decodePrivateVaultContentDocument } from "./content-document-codec.js";
@@ -184,6 +185,10 @@ export interface PrivateVaultMigrationArchiveWriter {
   }): Promise<void>;
 }
 
+interface MigrationEvidenceWriter {
+  append(evidence: AncV1MigrationEvidence): Promise<unknown>;
+}
+
 export class PrivateVaultContentMigrationExportRuntime {
   readonly #hosted: Pick<PrivateVaultMigrationHostedClient, "status">;
   readonly #objects: Pick<
@@ -192,6 +197,7 @@ export class PrivateVaultContentMigrationExportRuntime {
   >;
   readonly #native: NativeExportSealer;
   readonly #writer: PrivateVaultMigrationArchiveWriter;
+  readonly #evidence: MigrationEvidenceWriter;
   readonly #now: () => Date;
   readonly #exportId: () => string;
 
@@ -200,6 +206,7 @@ export class PrivateVaultContentMigrationExportRuntime {
     objects: Pick<PrivateVaultMigrationObjectGateway, "downloadAndOpen">;
     native: NativeExportSealer;
     writer: PrivateVaultMigrationArchiveWriter;
+    evidence: MigrationEvidenceWriter;
     now?: () => Date;
     exportId?: () => string;
   }) {
@@ -207,6 +214,7 @@ export class PrivateVaultContentMigrationExportRuntime {
     this.#objects = input.objects;
     this.#native = input.native;
     this.#writer = input.writer;
+    this.#evidence = input.evidence;
     this.#now = input.now ?? (() => new Date());
     this.#exportId = input.exportId ?? (() => randomBytes(16).toString("hex"));
   }
@@ -295,6 +303,19 @@ export class PrivateVaultContentMigrationExportRuntime {
       await this.#writer.save({
         suggestedName: `private-content-${created.toISOString().slice(0, 10)}-${exportId.slice(0, 8)}.anpvault`,
         archive,
+      });
+      await this.#evidence.append({
+        version: 1,
+        suite: "anc/v1",
+        type: "migration-evidence",
+        kind: "export",
+        vaultId,
+        migrationId,
+        exportId,
+        exportBundleHash: archiveSha256,
+        plaintextHash: plaintextSha256,
+        sourceSnapshotHash: snapshot.ledger.sourceSnapshotHash,
+        objectCount: documents.length,
       });
       return Object.freeze({
         exportId,

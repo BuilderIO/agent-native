@@ -19,6 +19,7 @@ export * from "./genesis-account-admission.js";
 export * from "./interoperability-vectors.js";
 export * from "./job-envelope-codecs.js";
 export * from "./lifecycle-codecs.js";
+export * from "./migration-evidence-codec.js";
 export * from "./object-envelope-codecs.js";
 export * from "./portable-crypto.js";
 export * from "./recovery-ceremony-codecs.js";

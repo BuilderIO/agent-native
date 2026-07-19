@@ -192,6 +192,49 @@ function privateMigrationId(value: unknown): string | null {
     : null;
 }
 
+interface PrivateMigrationStatus {
+  readonly migrationId: string;
+  readonly state:
+    | "preflight"
+    | "copying"
+    | "verifying"
+    | "ready_for_cutover"
+    | "cutover"
+    | "cleanup_eligible";
+  readonly sourceCount: number;
+  readonly exportSaved: boolean;
+}
+
+function privateMigrationStatus(value: unknown): PrivateMigrationStatus | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const current = (value as { current?: unknown }).current;
+  if (current === null) return null;
+  if (!current || typeof current !== "object" || Array.isArray(current))
+    throw new Error();
+  const record = current as Record<string, unknown>;
+  const states = new Set<PrivateMigrationStatus["state"]>([
+    "preflight",
+    "copying",
+    "verifying",
+    "ready_for_cutover",
+    "cutover",
+    "cleanup_eligible",
+  ]);
+  if (
+    Object.keys(record).length !== 4 ||
+    typeof record.migrationId !== "string" ||
+    !/^[0-9a-f]{32}$/u.test(record.migrationId) ||
+    typeof record.state !== "string" ||
+    !states.has(record.state as PrivateMigrationStatus["state"]) ||
+    !Number.isSafeInteger(record.sourceCount) ||
+    (record.sourceCount as number) < 1 ||
+    (record.sourceCount as number) > 10_000 ||
+    typeof record.exportSaved !== "boolean"
+  )
+    throw new Error();
+  return record as unknown as PrivateMigrationStatus;
+}
+
 function privateGrants(value: unknown): DesktopPrivateContentGrantSummary[] {
   if (!value || typeof value !== "object") return [];
   const grants = (value as { grants?: unknown }).grants;
@@ -367,7 +410,15 @@ export default function PrivateContentSurface({
   const [migrationLoading, setMigrationLoading] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [migrationId, setMigrationId] = useState<string | null>(null);
+  const [migrationState, setMigrationState] = useState<
+    PrivateMigrationStatus["state"] | null
+  >(null);
   const [exportingMigration, setExportingMigration] = useState(false);
+  const [migrationExportSaved, setMigrationExportSaved] = useState(false);
+  const [verifyingRecovery, setVerifyingRecovery] = useState(false);
+  const [migrationRecoveryVerified, setMigrationRecoveryVerified] =
+    useState(false);
+  const [cleaningMigration, setCleaningMigration] = useState(false);
   const [revokingGrantRef, setRevokingGrantRef] = useState<string | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
     null,
@@ -434,6 +485,17 @@ export default function PrivateContentSurface({
     }
   }, []);
 
+  const loadMigrationStatus = useCallback(async () => {
+    const response = await window.electronAPI.privateContent.migrationStatus();
+    if (!response.ok) throw new Error();
+    const current = privateMigrationStatus(response.value);
+    setMigrationId(current?.migrationId ?? null);
+    setMigrationState(current?.state ?? null);
+    setMigrationExportSaved(current?.exportSaved ?? false);
+    setMigrationRecoveryVerified(current?.state === "cleanup_eligible");
+    return current;
+  }, []);
+
   const syncApplicationState = useCallback(
     async (next: DesktopPrivateContentApplicationState) => {
       const response =
@@ -458,12 +520,17 @@ export default function PrivateContentSurface({
     setHealth(privateContentHealth(response.value));
     setState("open");
     try {
-      await Promise.all([loadList(), loadGrants(), loadMembers()]);
+      await Promise.all([
+        loadList(),
+        loadGrants(),
+        loadMembers(),
+        loadMigrationStatus(),
+      ]);
     } catch {
       setState("error");
       setMessage("Private documents could not be verified on this device.");
     }
-  }, [loadGrants, loadList, loadMembers]);
+  }, [loadGrants, loadList, loadMembers, loadMigrationStatus]);
 
   const runVaultCeremony = async (kind: Exclude<CeremonyState, null>) => {
     setCeremony(kind);
@@ -705,6 +772,9 @@ export default function PrivateContentSurface({
       return;
     }
     setMigrationId(completedMigrationId);
+    setMigrationState("cutover");
+    setMigrationExportSaved(false);
+    setMigrationRecoveryVerified(false);
     await Promise.all([loadList(), loadMigrationCandidates()]);
     setMigrating(false);
     setMessage(
@@ -726,8 +796,79 @@ export default function PrivateContentSurface({
       );
       return;
     }
+    setMigrationExportSaved(true);
     setMessage(
       "Encrypted recovery export saved. Standard Cloud originals still remain until this exact archive passes a recovery drill.",
+    );
+  };
+
+  const verifyStandardCloudRecovery = async () => {
+    if (!migrationId || !migrationExportSaved) return;
+    setVerifyingRecovery(true);
+    setMessage("");
+    const response =
+      await window.electronAPI.privateContent.verifyMigrationRecovery({
+        migrationId,
+      });
+    setVerifyingRecovery(false);
+    if (!response.ok) {
+      setMessage(
+        "Recovery was not proven. Standard Cloud originals remain unchanged.",
+      );
+      return;
+    }
+    setMessage(
+      "This exact export passed its recovery drill. Standard Cloud originals still remain until a separate deletion confirmation.",
+    );
+    setMigrationRecoveryVerified(true);
+    setMigrationState("cleanup_eligible");
+  };
+
+  const resumeStandardCloudMigration = async () => {
+    if (!migrationId) return;
+    setMigrating(true);
+    setMessage("");
+    const response = await window.electronAPI.privateContent.migrate({
+      mode: "resume",
+      migrationId,
+    });
+    setMigrating(false);
+    if (!response.ok || privateMigrationId(response.value) !== migrationId) {
+      setMessage(
+        "Migration remains paused safely. Standard Cloud originals remain unchanged.",
+      );
+      return;
+    }
+    setMigrationState("cutover");
+    setMigrationExportSaved(false);
+    setMigrationRecoveryVerified(false);
+    await Promise.all([loadList(), loadMigrationCandidates()]);
+    setMessage(
+      "Encrypted copies verified and cut over. Standard Cloud originals remain until export and recovery are proven.",
+    );
+  };
+
+  const cleanupStandardCloudMigration = async () => {
+    if (!migrationId || !migrationRecoveryVerified) return;
+    setCleaningMigration(true);
+    setMessage("");
+    const response = await window.electronAPI.privateContent.cleanupMigration({
+      migrationId,
+    });
+    setCleaningMigration(false);
+    if (!response.ok) {
+      setMessage(
+        "Standard Cloud originals were not confirmed deleted. The encrypted vault and recovery export remain intact.",
+      );
+      return;
+    }
+    setMigrationId(null);
+    setMigrationState(null);
+    setMigrationExportSaved(false);
+    setMigrationRecoveryVerified(false);
+    await Promise.all([loadList(), loadMigrationCandidates()]);
+    setMessage(
+      "Standard Cloud originals were deleted after the encrypted vault and independent recovery path were re-verified.",
     );
   };
 
@@ -849,7 +990,15 @@ export default function PrivateContentSurface({
           <details
             className="private-content-migration-details"
             onToggle={(event) => {
-              if (event.currentTarget.open) void loadMigrationCandidates();
+              if (event.currentTarget.open)
+                void Promise.all([
+                  loadMigrationCandidates(),
+                  loadMigrationStatus(),
+                ]).catch(() =>
+                  setMessage(
+                    "Standard Cloud migration could not be inspected safely.",
+                  ),
+                );
             }}
           >
             <summary>Move from Standard Cloud</summary>
@@ -870,45 +1019,56 @@ export default function PrivateContentSurface({
               cuts over. Originals are not deleted until a separate export and
               recovery drill succeeds.
             </span>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button
-                  disabled={
-                    migrationLoading ||
-                    migrating ||
-                    migrationCandidateIds.length === 0
-                  }
-                  type="button"
-                >
-                  {migrating ? "Migrating…" : "Review migration"}
-                </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Encrypt these Standard Cloud documents?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Signed Desktop will read {migrationCandidateIds.length}{" "}
-                    document
-                    {migrationCandidateIds.length === 1 ? "" : "s"}, encrypt and
-                    verify each one, then publish one encrypted manifest.
-                    Unsupported comments, databases, shares, media, and source
-                    connections stop the migration. No plaintext is deleted in
-                    this step.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Keep Standard Cloud</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => void migrateStandardCloud()}
+            {!migrationId ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    disabled={
+                      migrationLoading ||
+                      migrating ||
+                      migrationCandidateIds.length === 0
+                    }
+                    type="button"
                   >
-                    Encrypt and verify
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            {migrationId ? (
+                    {migrating ? "Migrating…" : "Review migration"}
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Encrypt these Standard Cloud documents?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Signed Desktop will read {migrationCandidateIds.length}{" "}
+                      document
+                      {migrationCandidateIds.length === 1 ? "" : "s"}, encrypt
+                      and verify each one, then publish one encrypted manifest.
+                      Unsupported comments, databases, shares, media, and source
+                      connections stop the migration. No plaintext is deleted in
+                      this step.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep Standard Cloud</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void migrateStandardCloud()}
+                    >
+                      Encrypt and verify
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : migrationState !== "cutover" &&
+              migrationState !== "cleanup_eligible" ? (
+              <button
+                disabled={migrating}
+                onClick={() => void resumeStandardCloudMigration()}
+                type="button"
+              >
+                {migrating ? "Resuming migration…" : "Resume migration"}
+              </button>
+            ) : null}
+            {migrationId && migrationState === "cutover" ? (
               <button
                 disabled={exportingMigration}
                 onClick={() => void exportStandardCloudMigration()}
@@ -918,6 +1078,77 @@ export default function PrivateContentSurface({
                   ? "Creating recovery export…"
                   : "Create recovery export"}
               </button>
+            ) : null}
+            {migrationExportSaved && migrationState === "cutover" ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button disabled={verifyingRecovery} type="button">
+                    {verifyingRecovery
+                      ? "Verifying recovery…"
+                      : "Run recovery drill"}
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Prove this recovery export before cleanup?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Choose the exact encrypted export you just saved, then
+                      enter all 24 recovery words in the signed native window.
+                      The phrase and recovered document text never return to
+                      Content. If you later delete Standard Cloud originals,
+                      this archive and your recovery words become the
+                      independent recovery path. Hosted storage providers may
+                      retain encrypted ciphertext and metadata for their normal
+                      backup-retention period.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep originals</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void verifyStandardCloudRecovery()}
+                    >
+                      Choose export and verify
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
+            {migrationRecoveryVerified ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button disabled={cleaningMigration} type="button">
+                    {cleaningMigration
+                      ? "Deleting originals…"
+                      : "Delete Standard Cloud originals"}
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Permanently delete the Standard Cloud originals?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This is the irreversible cleanup step. Desktop will first
+                      re-open the committed encrypted manifest and every
+                      migrated document. Content will then delete only the
+                      unchanged Standard Cloud originals bound to this migration
+                      proof. They cannot be rolled back after deletion; your
+                      encrypted vault plus the exact recovery export and 24
+                      recovery words become the remaining paths to this content.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep originals</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void cleanupStandardCloudMigration()}
+                    >
+                      Permanently delete originals
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
           </details>
           <details

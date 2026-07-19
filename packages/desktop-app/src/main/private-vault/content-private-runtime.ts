@@ -13,10 +13,13 @@ import {
 } from "./content-disclosure-transport.js";
 import { PrivateVaultContentDocumentRuntime } from "./content-document-runtime.js";
 import type { PrivateVaultContentSession } from "./content-genesis-transport.js";
+import type { PrivateVaultMigrationArchiveReader } from "./content-migration-archive-reader.js";
+import { PrivateVaultMigrationEvidenceTransport } from "./content-migration-evidence-transport.js";
 import {
   PrivateVaultContentMigrationExportRuntime,
   type PrivateVaultMigrationArchiveWriter,
 } from "./content-migration-export.js";
+import { PrivateVaultMigrationRecoveryRuntime } from "./content-migration-recovery.js";
 import { PrivateVaultContentMigrationRuntime } from "./content-migration-runtime.js";
 import { PrivateVaultContentMigrationTransport } from "./content-migration-transport.js";
 import { PrivateVaultContentObjectRuntime } from "./content-object-runtime.js";
@@ -55,6 +58,14 @@ interface RequesterSurface {
 
 interface MigrationSurface {
   listCandidates(vaultId: string): Promise<readonly string[]>;
+  active(vaultId: string): Promise<{
+    readonly ledger: {
+      readonly migrationId: string;
+      readonly state: string;
+      readonly sourceCount: number;
+    };
+  } | null>;
+  cleanup(vaultId: string, migrationId: string): Promise<unknown>;
   migrate(input: {
     readonly vaultId: string;
     readonly sourceDocumentIds?: readonly string[];
@@ -66,7 +77,13 @@ interface MigrationExportSurface {
   export(vaultId: string, migrationId: string): Promise<unknown>;
 }
 
+interface MigrationRecoverySurface {
+  verify(vaultId: string, migrationId: string): Promise<unknown>;
+}
 
+interface MigrationEvidenceSurface {
+  exportEvidence(vaultId: string, migrationId: string): Promise<unknown>;
+}
 
 interface DisclosureSurface {
   list(
@@ -111,6 +128,8 @@ export class PrivateVaultContentRuntime {
   readonly #disclosures: DisclosureSurface;
   readonly #migration: MigrationSurface;
   readonly #migrationExport: MigrationExportSurface;
+  readonly #migrationRecovery: MigrationRecoverySurface;
+  readonly #migrationEvidence: MigrationEvidenceSurface;
   #active: {
     vaultId: string;
     broker: BrokerLifecycle | null;
@@ -131,6 +150,8 @@ export class PrivateVaultContentRuntime {
     disclosures: DisclosureSurface;
     migration: MigrationSurface;
     migrationExport: MigrationExportSurface;
+    migrationRecovery: MigrationRecoverySurface;
+    migrationEvidence: MigrationEvidenceSurface;
   }) {
     this.#descriptor = input.descriptor;
     this.#documents = input.documents;
@@ -140,6 +161,8 @@ export class PrivateVaultContentRuntime {
     this.#disclosures = input.disclosures;
     this.#migration = input.migration;
     this.#migrationExport = input.migrationExport;
+    this.#migrationRecovery = input.migrationRecovery;
+    this.#migrationEvidence = input.migrationEvidence;
   }
 
   start(): Promise<void> {
@@ -271,6 +294,32 @@ export class PrivateVaultContentRuntime {
     }
   }
 
+  async legacyMigrationStatus() {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      const current = await this.#migration.active(this.#active.vaultId);
+      if (!current) return Object.freeze({ current: null });
+      const { migrationId, state, sourceCount } = current.ledger;
+      let exportSaved = state === "cleanup_eligible" || state === "cleaned";
+      if (!exportSaved && state === "cutover") {
+        exportSaved = await this.#migrationEvidence
+          .exportEvidence(this.#active.vaultId, migrationId)
+          .then(() => true)
+          .catch(() => false);
+      }
+      return Object.freeze({
+        current: Object.freeze({
+          migrationId,
+          state,
+          sourceCount,
+          exportSaved,
+        }),
+      });
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
   async exportLegacyMigration(migrationId: string) {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     try {
@@ -278,6 +327,27 @@ export class PrivateVaultContentRuntime {
         this.#active.vaultId,
         migrationId,
       );
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
+  async verifyLegacyMigrationRecovery(migrationId: string) {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#migrationRecovery.verify(
+        this.#active.vaultId,
+        migrationId,
+      );
+    } catch {
+      throw new PrivateVaultContentRuntimeError();
+    }
+  }
+
+  async cleanupLegacyMigration(migrationId: string) {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    try {
+      return await this.#migration.cleanup(this.#active.vaultId, migrationId);
     } catch {
       throw new PrivateVaultContentRuntimeError();
     }
@@ -327,6 +397,7 @@ export function createPrivateVaultContentRuntime(input: {
     create(vaultId: string): Promise<PrivateVaultLocalActionRegistry | null>;
   };
   archiveWriter: PrivateVaultMigrationArchiveWriter;
+  archiveReader: PrivateVaultMigrationArchiveReader;
 }): PrivateVaultContentRuntime {
   const index = createEncryptedContentIndexStore();
   const transport = new PrivateVaultContentObjectTransport(input);
@@ -349,6 +420,10 @@ export function createPrivateVaultContentRuntime(input: {
   };
   const objects = new PrivateVaultContentObjectRuntime(native);
   const migrationHosted = new PrivateVaultContentMigrationTransport(input);
+  const migrationEvidence = new PrivateVaultMigrationEvidenceTransport({
+    ...input,
+    native,
+  });
   const documents = new PrivateVaultContentDocumentRuntime({
     index,
     transport,
@@ -372,6 +447,13 @@ export function createPrivateVaultContentRuntime(input: {
     },
     native,
     writer: input.archiveWriter,
+    evidence: migrationEvidence,
+  });
+  const migrationRecovery = new PrivateVaultMigrationRecoveryRuntime({
+    hosted: migrationHosted,
+    evidence: migrationEvidence,
+    native,
+    reader: input.archiveReader,
   });
   const descriptor = new PrivateVaultContentRuntimeTransport(input);
   const requester: PrivateVaultContentRequesterRuntime =
@@ -389,5 +471,7 @@ export function createPrivateVaultContentRuntime(input: {
     disclosures,
     migration,
     migrationExport,
+    migrationRecovery,
+    migrationEvidence: migrationHosted,
   });
 }

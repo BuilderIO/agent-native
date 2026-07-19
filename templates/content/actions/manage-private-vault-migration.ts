@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { opaqueIdSchema } from "@agent-native/core/e2ee";
 import { z } from "zod";
 
+import { privateVaultMigrationEvidenceService } from "../server/lib/private-vault-migration-evidence-runtime.js";
 import {
   getPrivateVaultMigration,
   privateVaultMigrationCoordinator,
@@ -27,6 +28,13 @@ export const managePrivateVaultMigrationSchema = z.discriminatedUnion(
       .object({
         ...base,
         operation: z.literal("candidates"),
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        operation: z.literal("evidence"),
+        migrationId: opaqueIdSchema,
       })
       .strict(),
     z
@@ -111,6 +119,15 @@ export default defineAction({
           operation: args.operation,
           sourceCount: sourceDocumentIds.length,
           sourceDocumentIds,
+        };
+      }
+      case "evidence": {
+        return {
+          operation: args.operation,
+          evidence: await privateVaultMigrationEvidenceService.latestExport(
+            scope,
+            args.migrationId,
+          ),
         };
       }
       case "preflight": {
