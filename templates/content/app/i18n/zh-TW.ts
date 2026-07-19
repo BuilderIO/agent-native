@@ -53,6 +53,42 @@ const messages = {
     agentDescription:
       "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
     openAgentSettings: "開啟代理設定",
+    privateVault: {
+      title: "私人保險庫",
+      description:
+        "端對端加密確保檔案內容只能由受信任的端點讀取。復原詞由 Mac 原生應用程式收集，絕不會進入 Content、瀏覽器或代理提示。",
+      create: "建立加密保險庫",
+      openDesktop: "開啟桌面應用程式進行設定",
+      existing: "已有保險庫",
+      finishSetup: "在這台 Mac 上完成設定",
+      recover: "使用復原詞復原",
+      readyTitle: "加密保險庫已就緒",
+      readyDescription:
+        "此瀏覽器可以知道保險庫存在，但無法讀取標題、檔案內容或私人搜尋索引。請開啟 Agent Native Desktop，並在 Content 分頁中選擇私人保險庫。",
+      trustedEndpointReady: "這台 Mac 現在是加密保險庫的受信任端點。",
+      noPending: "沒有待處理的保險庫程序。",
+      ceremonyComplete: "加密保險庫程序已完成。",
+      addThisMac: "將這台 Mac 新增為代理",
+      approveAnotherMac: "核准另一台 Mac",
+      candidateTitle: "將這台 Mac 新增到私人保險庫",
+      candidateDescription:
+        "將此公開邀請複製到現有的受信任 Mac。驗證碼只會顯示在兩台 Mac 的 Agent Native 原生視窗中。",
+      authorizerTitle: "核准另一台 Mac",
+      authorizerDescription:
+        "貼上新 Mac 的公開邀請。核准前，Agent Native 會在受信任的原生視窗中顯示驗證碼。",
+      invitationLabel: "公開註冊邀請",
+      invitationPlaceholder: "貼上新 Mac 的邀請",
+      copyInvitation: "複製邀請",
+      checkProgress: "檢查進度",
+      continueEnrollment: "繼續註冊",
+      copied: "公開邀請已複製。",
+      awaitingAuthorizer: "正在等待現有的受信任 Mac 建立驗證挑戰。",
+      awaitingCandidate: "挑戰已建立。請在新 Mac 上繼續並比較原生驗證碼。",
+      awaitingAuthorization: "驗證碼一致。請返回受信任 Mac 完成核准。",
+      authorizationCommitted: "核准已提交。請在新 Mac 上完成註冊。",
+      brokerActive: "這台 Mac 現在是有效的私人保險庫代理。",
+      enrollmentUnavailable: "私人保險庫註冊無法繼續。沒有金鑰或驗證碼被揭露。",
+    },
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",
@@ -558,6 +594,7 @@ const messages = {
     agentHelp: "請幫忙處理這個。",
   },
   publicDocument: {
+    metaTitle: "公開檔案",
     chat: "Chat",
     privateDescription:
       "Pide al propietario que lo comparta con tu cuenta o espacio de trabajo antes de abrir este enlace.",

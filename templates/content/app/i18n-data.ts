@@ -2916,6 +2916,48 @@ const enUS = {
     agentDescription:
       "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
     openAgentSettings: "Open agent settings",
+    privateVault: {
+      title: "Private vault",
+      description:
+        "End-to-end encryption keeps document contents readable only on trusted endpoints. Recovery words are collected by the native Mac app and never enter Content, the browser, or an agent prompt.",
+      create: "Create encrypted vault",
+      openDesktop: "Open desktop app to set up",
+      existing: "Already have a vault",
+      finishSetup: "Finish setup on this Mac",
+      recover: "Recover with recovery words",
+      readyTitle: "Encrypted vault ready",
+      readyDescription:
+        "This browser can see that a vault exists, but it cannot read titles, document bodies, or the private search index. Open Agent Native Desktop and choose Private Vault in the Content tab.",
+      trustedEndpointReady:
+        "This Mac is now a trusted endpoint for your encrypted vault.",
+      noPending: "There are no pending vault ceremonies.",
+      ceremonyComplete: "Your encrypted vault ceremony is complete.",
+      addThisMac: "Add this Mac as a broker",
+      approveAnotherMac: "Approve another Mac",
+      candidateTitle: "Add this Mac to your private vault",
+      candidateDescription:
+        "Copy this public invitation to an existing trusted Mac. The verification code appears only in native Agent Native windows on the two Macs.",
+      authorizerTitle: "Approve another Mac",
+      authorizerDescription:
+        "Paste the public invitation from the new Mac. Agent Native will show the verification code in a trusted native window before anything is approved.",
+      invitationLabel: "Public enrollment invitation",
+      invitationPlaceholder: "Paste the invitation from the new Mac",
+      copyInvitation: "Copy invitation",
+      checkProgress: "Check progress",
+      continueEnrollment: "Continue enrollment",
+      copied: "The public invitation was copied.",
+      awaitingAuthorizer:
+        "Waiting for an existing trusted Mac to create the verification challenge.",
+      awaitingCandidate:
+        "Challenge created. Continue on the new Mac and compare the native verification code.",
+      awaitingAuthorization:
+        "Codes matched. Return to the existing trusted Mac to finish approval.",
+      authorizationCommitted:
+        "Approval committed. Finish enrollment on the new Mac.",
+      brokerActive: "This Mac is now an active Private Vault broker.",
+      enrollmentUnavailable:
+        "Private Vault is unavailable in this Content surface. No keys or verification codes were exposed.",
+    },
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -3070,6 +3112,7 @@ const enUS = {
     agentHelp: "Please help with this.",
   },
   publicDocument: {
+    metaTitle: "Public document",
     chat: "Chat",
     privateDescription:
       "Ask the owner to share it with your account or workspace before opening this link.",
@@ -8796,7 +8839,45 @@ export const messagesByLocale = {
       agentDescription:
         "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
       openAgentSettings: "打开代理设置",
+      privateVault: {
+        title: "私人保险库",
+        description:
+          "端到端加密确保文档内容只能由受信任的端点读取。恢复词由 Mac 原生应用收集，绝不会进入 Content、浏览器或代理提示。",
+        create: "创建加密保险库",
+        openDesktop: "打开桌面应用进行设置",
+        existing: "已有保险库",
+        finishSetup: "在这台 Mac 上完成设置",
+        recover: "使用恢复词恢复",
+        readyTitle: "加密保险库已就绪",
+        readyDescription:
+          "此浏览器可以知道保险库存在，但无法读取标题、文档正文或私人搜索索引。请打开 Agent Native Desktop，并在 Content 标签中选择私人保险库。",
+        trustedEndpointReady: "这台 Mac 现在是加密保险库的受信任端点。",
+        noPending: "没有待处理的保险库仪式。",
+        ceremonyComplete: "加密保险库仪式已完成。",
+        addThisMac: "将这台 Mac 添加为代理",
+        approveAnotherMac: "批准另一台 Mac",
+        candidateTitle: "将这台 Mac 添加到私人保险库",
+        candidateDescription:
+          "将此公开邀请复制到一台现有的受信任 Mac。验证码只会显示在两台 Mac 的 Agent Native 原生窗口中。",
+        authorizerTitle: "批准另一台 Mac",
+        authorizerDescription:
+          "粘贴新 Mac 的公开邀请。批准前，Agent Native 会在受信任的原生窗口中显示验证码。",
+        invitationLabel: "公开注册邀请",
+        invitationPlaceholder: "粘贴新 Mac 的邀请",
+        copyInvitation: "复制邀请",
+        checkProgress: "检查进度",
+        continueEnrollment: "继续注册",
+        copied: "公开邀请已复制。",
+        awaitingAuthorizer: "正在等待现有的受信任 Mac 创建验证挑战。",
+        awaitingCandidate: "挑战已创建。请在新 Mac 上继续并比较原生验证码。",
+        awaitingAuthorization: "验证码一致。请返回现有的受信任 Mac 完成批准。",
+        authorizationCommitted: "批准已提交。请在新 Mac 上完成注册。",
+        brokerActive: "这台 Mac 现在是有效的私人保险库代理。",
+        enrollmentUnavailable:
+          "私人保险库注册无法继续。没有密钥或验证码被泄露。",
+      },
     },
+    publicDocument: { metaTitle: "公开文档" },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
       publicSuggestionSummary: "总结此文档",
@@ -8981,7 +9062,50 @@ export const messagesByLocale = {
       agentDescription:
         "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Abrir ajustes del agente",
+      privateVault: {
+        title: "Bóveda privada",
+        description:
+          "El cifrado de extremo a extremo permite leer los documentos solo en dispositivos de confianza. Las palabras de recuperación se recogen en la app nativa de Mac y nunca entran en Content, el navegador ni un mensaje del agente.",
+        create: "Crear bóveda cifrada",
+        openDesktop: "Abrir la app de escritorio para configurar",
+        existing: "Ya tengo una bóveda",
+        finishSetup: "Terminar la configuración en este Mac",
+        recover: "Recuperar con palabras de recuperación",
+        readyTitle: "Bóveda cifrada lista",
+        readyDescription:
+          "Este navegador sabe que existe una bóveda, pero no puede leer títulos, documentos ni el índice privado. Abre Agent Native Desktop y elige Bóveda privada en la pestaña Content.",
+        trustedEndpointReady:
+          "Este Mac ya es un dispositivo de confianza para tu bóveda cifrada.",
+        noPending: "No hay ceremonias de bóveda pendientes.",
+        ceremonyComplete: "La ceremonia de la bóveda cifrada ha terminado.",
+        addThisMac: "Añadir este Mac como agente",
+        approveAnotherMac: "Aprobar otro Mac",
+        candidateTitle: "Añadir este Mac a tu bóveda privada",
+        candidateDescription:
+          "Copia esta invitación pública a un Mac de confianza. El código de verificación solo aparece en ventanas nativas de Agent Native en ambos Mac.",
+        authorizerTitle: "Aprobar otro Mac",
+        authorizerDescription:
+          "Pega la invitación pública del Mac nuevo. Agent Native mostrará el código en una ventana nativa de confianza antes de aprobar nada.",
+        invitationLabel: "Invitación pública de inscripción",
+        invitationPlaceholder: "Pega la invitación del Mac nuevo",
+        copyInvitation: "Copiar invitación",
+        checkProgress: "Comprobar progreso",
+        continueEnrollment: "Continuar inscripción",
+        copied: "Se copió la invitación pública.",
+        awaitingAuthorizer:
+          "Esperando a que un Mac de confianza cree el desafío de verificación.",
+        awaitingCandidate:
+          "Desafío creado. Continúa en el Mac nuevo y compara el código nativo.",
+        awaitingAuthorization:
+          "Los códigos coinciden. Vuelve al Mac de confianza para terminar la aprobación.",
+        authorizationCommitted:
+          "Aprobación confirmada. Termina la inscripción en el Mac nuevo.",
+        brokerActive: "Este Mac ya es un agente activo de la bóveda privada.",
+        enrollmentUnavailable:
+          "No se pudo continuar la inscripción. No se expusieron claves ni códigos de verificación.",
+      },
     },
+    publicDocument: { metaTitle: "Documento público" },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
       publicSuggestionSummary: "Resume este documento",
@@ -9169,7 +9293,50 @@ export const messagesByLocale = {
       agentDescription:
         "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
       openAgentSettings: "Ouvrir les paramètres de l’agent",
+      privateVault: {
+        title: "Coffre privé",
+        description:
+          "Le chiffrement de bout en bout réserve la lecture des documents aux appareils approuvés. Les mots de récupération sont saisis dans l’app Mac native et n’entrent jamais dans Content, le navigateur ou une invite d’agent.",
+        create: "Créer un coffre chiffré",
+        openDesktop: "Ouvrir l’app de bureau pour configurer",
+        existing: "J’ai déjà un coffre",
+        finishSetup: "Terminer la configuration sur ce Mac",
+        recover: "Récupérer avec les mots de récupération",
+        readyTitle: "Coffre chiffré prêt",
+        readyDescription:
+          "Ce navigateur sait qu’un coffre existe, mais ne peut lire ni titres, ni documents, ni index privé. Ouvrez Agent Native Desktop et choisissez Coffre privé dans l’onglet Content.",
+        trustedEndpointReady:
+          "Ce Mac est maintenant un appareil approuvé pour votre coffre chiffré.",
+        noPending: "Aucune cérémonie de coffre n’est en attente.",
+        ceremonyComplete: "La cérémonie du coffre chiffré est terminée.",
+        addThisMac: "Ajouter ce Mac comme agent",
+        approveAnotherMac: "Approuver un autre Mac",
+        candidateTitle: "Ajouter ce Mac à votre coffre privé",
+        candidateDescription:
+          "Copiez cette invitation publique sur un Mac déjà approuvé. Le code de vérification n’apparaît que dans les fenêtres natives d’Agent Native sur les deux Mac.",
+        authorizerTitle: "Approuver un autre Mac",
+        authorizerDescription:
+          "Collez l’invitation publique du nouveau Mac. Agent Native affichera le code dans une fenêtre native approuvée avant toute autorisation.",
+        invitationLabel: "Invitation publique d’inscription",
+        invitationPlaceholder: "Collez l’invitation du nouveau Mac",
+        copyInvitation: "Copier l’invitation",
+        checkProgress: "Vérifier l’avancement",
+        continueEnrollment: "Continuer l’inscription",
+        copied: "L’invitation publique a été copiée.",
+        awaitingAuthorizer:
+          "En attente de la création du défi par un Mac déjà approuvé.",
+        awaitingCandidate:
+          "Défi créé. Continuez sur le nouveau Mac et comparez le code natif.",
+        awaitingAuthorization:
+          "Les codes correspondent. Revenez sur le Mac approuvé pour terminer.",
+        authorizationCommitted:
+          "Autorisation enregistrée. Terminez sur le nouveau Mac.",
+        brokerActive: "Ce Mac est maintenant un agent actif du coffre privé.",
+        enrollmentUnavailable:
+          "L’inscription n’a pas pu continuer. Aucune clé ni aucun code n’a été exposé.",
+      },
     },
+    publicDocument: { metaTitle: "Document public" },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
       publicSuggestionSummary: "Résume ce document",
@@ -9355,7 +9522,52 @@ export const messagesByLocale = {
       agentDescription:
         "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
       openAgentSettings: "Agent-Einstellungen öffnen",
+      privateVault: {
+        title: "Privater Tresor",
+        description:
+          "Ende-zu-Ende-Verschlüsselung macht Dokumente nur auf vertrauenswürdigen Geräten lesbar. Wiederherstellungswörter werden von der nativen Mac-App erfasst und gelangen nie in Content, den Browser oder einen Agent-Prompt.",
+        create: "Verschlüsselten Tresor erstellen",
+        openDesktop: "Desktop-App zum Einrichten öffnen",
+        existing: "Ich habe bereits einen Tresor",
+        finishSetup: "Einrichtung auf diesem Mac abschließen",
+        recover: "Mit Wiederherstellungswörtern wiederherstellen",
+        readyTitle: "Verschlüsselter Tresor bereit",
+        readyDescription:
+          "Dieser Browser erkennt den Tresor, kann aber weder Titel, Dokumente noch den privaten Suchindex lesen. Öffne Agent Native Desktop und wähle Privater Tresor im Content-Tab.",
+        trustedEndpointReady:
+          "Dieser Mac ist jetzt ein vertrauenswürdiges Gerät für deinen Tresor.",
+        noPending: "Es gibt keine ausstehenden Tresor-Zeremonien.",
+        ceremonyComplete:
+          "Die Zeremonie des verschlüsselten Tresors ist abgeschlossen.",
+        addThisMac: "Diesen Mac als Agent hinzufügen",
+        approveAnotherMac: "Anderen Mac genehmigen",
+        candidateTitle: "Diesen Mac zum privaten Tresor hinzufügen",
+        candidateDescription:
+          "Kopiere diese öffentliche Einladung auf einen bereits vertrauenswürdigen Mac. Der Prüfcode erscheint nur in nativen Agent-Native-Fenstern auf beiden Macs.",
+        authorizerTitle: "Anderen Mac genehmigen",
+        authorizerDescription:
+          "Füge die öffentliche Einladung des neuen Macs ein. Agent Native zeigt den Prüfcode vor der Genehmigung in einem vertrauenswürdigen nativen Fenster.",
+        invitationLabel: "Öffentliche Einladung zur Aufnahme",
+        invitationPlaceholder: "Einladung des neuen Macs einfügen",
+        copyInvitation: "Einladung kopieren",
+        checkProgress: "Fortschritt prüfen",
+        continueEnrollment: "Aufnahme fortsetzen",
+        copied: "Die öffentliche Einladung wurde kopiert.",
+        awaitingAuthorizer:
+          "Ein vertrauenswürdiger Mac muss die Prüfaufgabe erstellen.",
+        awaitingCandidate:
+          "Prüfaufgabe erstellt. Fahre auf dem neuen Mac fort und vergleiche den nativen Code.",
+        awaitingAuthorization:
+          "Die Codes stimmen überein. Schließe die Genehmigung auf dem vertrauenswürdigen Mac ab.",
+        authorizationCommitted:
+          "Genehmigung gespeichert. Schließe die Aufnahme auf dem neuen Mac ab.",
+        brokerActive:
+          "Dieser Mac ist jetzt ein aktiver Agent des privaten Tresors.",
+        enrollmentUnavailable:
+          "Die Aufnahme konnte nicht fortgesetzt werden. Es wurden keine Schlüssel oder Prüfcodes offengelegt.",
+      },
     },
+    publicDocument: { metaTitle: "Öffentliches Dokument" },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
       publicSuggestionSummary: "Fasse dieses Dokument zusammen",
@@ -9541,7 +9753,51 @@ export const messagesByLocale = {
       agentDescription:
         "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェント設定を開く",
+      privateVault: {
+        title: "プライベート保管庫",
+        description:
+          "エンドツーエンド暗号化により、信頼済み端末だけがドキュメントを読めます。復元用単語は Mac のネイティブアプリで入力され、Content、ブラウザ、エージェントのプロンプトには入りません。",
+        create: "暗号化保管庫を作成",
+        openDesktop: "デスクトップアプリで設定",
+        existing: "保管庫を持っている",
+        finishSetup: "この Mac で設定を完了",
+        recover: "復元用単語で復元",
+        readyTitle: "暗号化保管庫の準備完了",
+        readyDescription:
+          "ブラウザは保管庫の存在を確認できますが、タイトル、本文、非公開検索インデックスは読めません。Agent Native Desktop を開き、Content タブでプライベート保管庫を選択してください。",
+        trustedEndpointReady:
+          "この Mac は暗号化保管庫の信頼済み端末になりました。",
+        noPending: "保留中の保管庫セレモニーはありません。",
+        ceremonyComplete: "暗号化保管庫のセレモニーが完了しました。",
+        addThisMac: "この Mac をエージェントとして追加",
+        approveAnotherMac: "別の Mac を承認",
+        candidateTitle: "この Mac をプライベート保管庫に追加",
+        candidateDescription:
+          "この公開招待を既存の信頼済み Mac にコピーしてください。確認コードは両方の Mac の Agent Native ネイティブウィンドウにのみ表示されます。",
+        authorizerTitle: "別の Mac を承認",
+        authorizerDescription:
+          "新しい Mac の公開招待を貼り付けます。承認前に、Agent Native が信頼済みネイティブウィンドウに確認コードを表示します。",
+        invitationLabel: "公開登録招待",
+        invitationPlaceholder: "新しい Mac の招待を貼り付け",
+        copyInvitation: "招待をコピー",
+        checkProgress: "進行状況を確認",
+        continueEnrollment: "登録を続ける",
+        copied: "公開招待をコピーしました。",
+        awaitingAuthorizer:
+          "既存の信頼済み Mac が確認チャレンジを作成するのを待っています。",
+        awaitingCandidate:
+          "チャレンジを作成しました。新しい Mac で続け、ネイティブ確認コードを比較してください。",
+        awaitingAuthorization:
+          "コードが一致しました。信頼済み Mac に戻って承認を完了してください。",
+        authorizationCommitted:
+          "承認を記録しました。新しい Mac で登録を完了してください。",
+        brokerActive:
+          "この Mac はプライベート保管庫の有効なエージェントになりました。",
+        enrollmentUnavailable:
+          "登録を続行できませんでした。鍵や確認コードは公開されていません。",
+      },
     },
+    publicDocument: { metaTitle: "公開ドキュメント" },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
       publicSuggestionSummary: "このドキュメントを要約",
@@ -9718,7 +9974,50 @@ export const messagesByLocale = {
       agentDescription:
         "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 설정 열기",
+      privateVault: {
+        title: "비공개 보관함",
+        description:
+          "종단 간 암호화로 신뢰할 수 있는 기기에서만 문서를 읽을 수 있습니다. 복구 단어는 Mac 기본 앱에서만 입력되며 Content, 브라우저 또는 에이전트 프롬프트에 들어가지 않습니다.",
+        create: "암호화 보관함 만들기",
+        openDesktop: "데스크톱 앱에서 설정",
+        existing: "이미 보관함이 있음",
+        finishSetup: "이 Mac에서 설정 완료",
+        recover: "복구 단어로 복구",
+        readyTitle: "암호화 보관함 준비됨",
+        readyDescription:
+          "브라우저는 보관함의 존재만 확인하며 제목, 문서 본문 또는 비공개 검색 색인을 읽을 수 없습니다. Agent Native Desktop의 Content 탭에서 비공개 보관함을 선택하세요.",
+        trustedEndpointReady:
+          "이 Mac은 이제 암호화 보관함의 신뢰할 수 있는 기기입니다.",
+        noPending: "대기 중인 보관함 절차가 없습니다.",
+        ceremonyComplete: "암호화 보관함 절차가 완료되었습니다.",
+        addThisMac: "이 Mac을 에이전트로 추가",
+        approveAnotherMac: "다른 Mac 승인",
+        candidateTitle: "이 Mac을 비공개 보관함에 추가",
+        candidateDescription:
+          "이 공개 초대를 기존의 신뢰할 수 있는 Mac으로 복사하세요. 확인 코드는 두 Mac의 Agent Native 기본 창에만 표시됩니다.",
+        authorizerTitle: "다른 Mac 승인",
+        authorizerDescription:
+          "새 Mac의 공개 초대를 붙여넣으세요. 승인 전에 Agent Native가 신뢰할 수 있는 기본 창에 확인 코드를 표시합니다.",
+        invitationLabel: "공개 등록 초대",
+        invitationPlaceholder: "새 Mac의 초대 붙여넣기",
+        copyInvitation: "초대 복사",
+        checkProgress: "진행 상황 확인",
+        continueEnrollment: "등록 계속",
+        copied: "공개 초대를 복사했습니다.",
+        awaitingAuthorizer:
+          "기존의 신뢰할 수 있는 Mac이 확인 요청을 만들기를 기다리는 중입니다.",
+        awaitingCandidate:
+          "요청이 생성되었습니다. 새 Mac에서 계속하고 기본 확인 코드를 비교하세요.",
+        awaitingAuthorization:
+          "코드가 일치합니다. 신뢰할 수 있는 Mac으로 돌아가 승인을 완료하세요.",
+        authorizationCommitted:
+          "승인이 기록되었습니다. 새 Mac에서 등록을 완료하세요.",
+        brokerActive: "이 Mac은 이제 비공개 보관함의 활성 에이전트입니다.",
+        enrollmentUnavailable:
+          "등록을 계속할 수 없습니다. 키나 확인 코드는 노출되지 않았습니다.",
+      },
     },
+    publicDocument: { metaTitle: "공개 문서" },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
       publicSuggestionSummary: "이 문서 요약",
@@ -9903,7 +10202,50 @@ export const messagesByLocale = {
       agentDescription:
         "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Abrir configurações do agente",
+      privateVault: {
+        title: "Cofre privado",
+        description:
+          "A criptografia de ponta a ponta permite ler documentos apenas em dispositivos confiáveis. As palavras de recuperação são coletadas no app nativo do Mac e nunca entram no Content, no navegador nem em um prompt do agente.",
+        create: "Criar cofre criptografado",
+        openDesktop: "Abrir o app para configurar",
+        existing: "Já tenho um cofre",
+        finishSetup: "Concluir configuração neste Mac",
+        recover: "Recuperar com palavras de recuperação",
+        readyTitle: "Cofre criptografado pronto",
+        readyDescription:
+          "O navegador sabe que o cofre existe, mas não lê títulos, documentos nem o índice privado. Abra o Agent Native Desktop e escolha Cofre privado na aba Content.",
+        trustedEndpointReady:
+          "Este Mac agora é um dispositivo confiável para seu cofre criptografado.",
+        noPending: "Não há cerimônias de cofre pendentes.",
+        ceremonyComplete: "A cerimônia do cofre criptografado foi concluída.",
+        addThisMac: "Adicionar este Mac como agente",
+        approveAnotherMac: "Aprovar outro Mac",
+        candidateTitle: "Adicionar este Mac ao seu cofre privado",
+        candidateDescription:
+          "Copie este convite público para um Mac confiável existente. O código de verificação aparece apenas nas janelas nativas do Agent Native nos dois Macs.",
+        authorizerTitle: "Aprovar outro Mac",
+        authorizerDescription:
+          "Cole o convite público do novo Mac. O Agent Native mostrará o código em uma janela nativa confiável antes da aprovação.",
+        invitationLabel: "Convite público de inscrição",
+        invitationPlaceholder: "Cole o convite do novo Mac",
+        copyInvitation: "Copiar convite",
+        checkProgress: "Verificar progresso",
+        continueEnrollment: "Continuar inscrição",
+        copied: "O convite público foi copiado.",
+        awaitingAuthorizer:
+          "Aguardando um Mac confiável criar o desafio de verificação.",
+        awaitingCandidate:
+          "Desafio criado. Continue no novo Mac e compare o código nativo.",
+        awaitingAuthorization:
+          "Os códigos conferem. Volte ao Mac confiável para concluir a aprovação.",
+        authorizationCommitted:
+          "Aprovação registrada. Conclua a inscrição no novo Mac.",
+        brokerActive: "Este Mac agora é um agente ativo do cofre privado.",
+        enrollmentUnavailable:
+          "Não foi possível continuar a inscrição. Nenhuma chave ou código foi exposto.",
+      },
     },
+    publicDocument: { metaTitle: "Documento público" },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
       publicSuggestionSummary: "Resuma este documento",
@@ -10078,7 +10420,48 @@ export const messagesByLocale = {
       agentDescription:
         "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
       openAgentSettings: "एजेंट सेटिंग्स खोलें",
+      privateVault: {
+        title: "निजी वॉल्ट",
+        description:
+          "एंड-टू-एंड एन्क्रिप्शन से दस्तावेज़ केवल भरोसेमंद डिवाइस पर पढ़े जा सकते हैं। रिकवरी शब्द मूल Mac ऐप में लिए जाते हैं और Content, ब्राउज़र या एजेंट प्रॉम्प्ट में कभी नहीं जाते।",
+        create: "एन्क्रिप्टेड वॉल्ट बनाएँ",
+        openDesktop: "सेटअप के लिए डेस्कटॉप ऐप खोलें",
+        existing: "मेरे पास पहले से वॉल्ट है",
+        finishSetup: "इस Mac पर सेटअप पूरा करें",
+        recover: "रिकवरी शब्दों से पुनर्प्राप्त करें",
+        readyTitle: "एन्क्रिप्टेड वॉल्ट तैयार है",
+        readyDescription:
+          "ब्राउज़र वॉल्ट का अस्तित्व देख सकता है, लेकिन शीर्षक, दस्तावेज़ या निजी खोज सूचकांक नहीं पढ़ सकता। Agent Native Desktop खोलें और Content टैब में निजी वॉल्ट चुनें।",
+        trustedEndpointReady: "यह Mac अब आपके एन्क्रिप्टेड वॉल्ट का भरोसेमंद डिवाइस है।",
+        noPending: "कोई वॉल्ट प्रक्रिया लंबित नहीं है।",
+        ceremonyComplete: "एन्क्रिप्टेड वॉल्ट की प्रक्रिया पूरी हो गई है।",
+        addThisMac: "इस Mac को एजेंट के रूप में जोड़ें",
+        approveAnotherMac: "दूसरे Mac को मंज़ूरी दें",
+        candidateTitle: "इस Mac को अपने निजी वॉल्ट में जोड़ें",
+        candidateDescription:
+          "इस सार्वजनिक आमंत्रण को किसी मौजूदा भरोसेमंद Mac पर कॉपी करें। सत्यापन कोड केवल दोनों Mac की मूल Agent Native विंडो में दिखाई देता है।",
+        authorizerTitle: "दूसरे Mac को मंज़ूरी दें",
+        authorizerDescription:
+          "नए Mac का सार्वजनिक आमंत्रण पेस्ट करें। मंज़ूरी से पहले Agent Native भरोसेमंद मूल विंडो में सत्यापन कोड दिखाएगा।",
+        invitationLabel: "सार्वजनिक नामांकन आमंत्रण",
+        invitationPlaceholder: "नए Mac का आमंत्रण पेस्ट करें",
+        copyInvitation: "आमंत्रण कॉपी करें",
+        checkProgress: "प्रगति जाँचें",
+        continueEnrollment: "नामांकन जारी रखें",
+        copied: "सार्वजनिक आमंत्रण कॉपी हो गया।",
+        awaitingAuthorizer:
+          "भरोसेमंद Mac द्वारा सत्यापन चुनौती बनाए जाने की प्रतीक्षा है।",
+        awaitingCandidate:
+          "चुनौती बन गई। नए Mac पर जारी रखें और मूल सत्यापन कोड मिलाएँ।",
+        awaitingAuthorization:
+          "कोड मेल खाते हैं। मंज़ूरी पूरी करने के लिए भरोसेमंद Mac पर लौटें।",
+        authorizationCommitted: "मंज़ूरी दर्ज हो गई। नए Mac पर नामांकन पूरा करें।",
+        brokerActive: "यह Mac अब निजी वॉल्ट का सक्रिय एजेंट है।",
+        enrollmentUnavailable:
+          "नामांकन जारी नहीं रह सका। कोई कुंजी या सत्यापन कोड उजागर नहीं हुआ।",
+      },
     },
+    publicDocument: { metaTitle: "सार्वजनिक दस्तावेज़" },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
       publicSuggestionSummary: "इस document का सारांश दें",
@@ -10254,7 +10637,48 @@ export const messagesByLocale = {
       agentDescription:
         "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "فتح إعدادات الوكيل",
+      privateVault: {
+        title: "الخزنة الخاصة",
+        description:
+          "يجعل التشفير التام المستندات مقروءة فقط على الأجهزة الموثوقة. تُجمع كلمات الاسترداد في تطبيق Mac الأصلي ولا تدخل إلى Content أو المتصفح أو مطالبة الوكيل.",
+        create: "إنشاء خزنة مشفرة",
+        openDesktop: "فتح تطبيق سطح المكتب للإعداد",
+        existing: "لدي خزنة بالفعل",
+        finishSetup: "إكمال الإعداد على هذا الـ Mac",
+        recover: "الاسترداد باستخدام كلمات الاسترداد",
+        readyTitle: "الخزنة المشفرة جاهزة",
+        readyDescription:
+          "يمكن للمتصفح معرفة وجود الخزنة، لكنه لا يقرأ العناوين أو المستندات أو فهرس البحث الخاص. افتح Agent Native Desktop واختر الخزنة الخاصة في تبويب Content.",
+        trustedEndpointReady: "أصبح هذا الـ Mac جهازًا موثوقًا لخزنتك المشفرة.",
+        noPending: "لا توجد مراسم خزنة معلقة.",
+        ceremonyComplete: "اكتملت مراسم الخزنة المشفرة.",
+        addThisMac: "إضافة هذا الـ Mac كوكيل",
+        approveAnotherMac: "الموافقة على Mac آخر",
+        candidateTitle: "إضافة هذا الـ Mac إلى خزنتك الخاصة",
+        candidateDescription:
+          "انسخ هذه الدعوة العامة إلى Mac موثوق حالي. لا يظهر رمز التحقق إلا في نوافذ Agent Native الأصلية على الجهازين.",
+        authorizerTitle: "الموافقة على Mac آخر",
+        authorizerDescription:
+          "الصق الدعوة العامة من الـ Mac الجديد. سيعرض Agent Native رمز التحقق في نافذة أصلية موثوقة قبل أي موافقة.",
+        invitationLabel: "دعوة تسجيل عامة",
+        invitationPlaceholder: "الصق دعوة الـ Mac الجديد",
+        copyInvitation: "نسخ الدعوة",
+        checkProgress: "التحقق من التقدم",
+        continueEnrollment: "متابعة التسجيل",
+        copied: "تم نسخ الدعوة العامة.",
+        awaitingAuthorizer: "بانتظار Mac موثوق لإنشاء تحدي التحقق.",
+        awaitingCandidate:
+          "تم إنشاء التحدي. تابع على الـ Mac الجديد وقارن رمز التحقق الأصلي.",
+        awaitingAuthorization:
+          "الرمزان متطابقان. عد إلى الـ Mac الموثوق لإكمال الموافقة.",
+        authorizationCommitted:
+          "تم تثبيت الموافقة. أكمل التسجيل على الـ Mac الجديد.",
+        brokerActive: "أصبح هذا الـ Mac وكيلًا نشطًا للخزنة الخاصة.",
+        enrollmentUnavailable:
+          "تعذرت متابعة التسجيل. لم يتم كشف أي مفاتيح أو رموز تحقق.",
+      },
     },
+    publicDocument: { metaTitle: "مستند عام" },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",
       publicSuggestionSummary: "لخص هذا المستند",

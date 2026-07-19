@@ -171,6 +171,7 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import { createPrivateVaultContentEnrollmentRuntime } from "./private-vault/content-enrollment-runtime";
 import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
 import { createPrivateVaultContentJobActionRegistry } from "./private-vault/content-job-action-registry";
 import {
@@ -5717,6 +5718,8 @@ function isContentFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
 
 const privateVaultContentGenesisRuntime =
   createPrivateVaultContentGenesisRuntime();
+const privateVaultContentEnrollmentRuntime =
+  createPrivateVaultContentEnrollmentRuntime();
 let privateVaultContentRuntime: {
   origin: string;
   runtime: PrivateVaultContentRuntime;
@@ -5789,6 +5792,24 @@ function contentPrivateVaultRecoveryForEvent(event: IpcMainInvokeEvent) {
   try {
     if (new URL(origin).protocol !== "https:") return null;
     return privateVaultContentGenesisRuntime.recover({
+      session: event.sender.session,
+      origin,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function contentPrivateVaultEnrollmentRolesForEvent(event: IpcMainInvokeEvent) {
+  if (!isContentFilesWebviewSender(event)) return null;
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  const origin = contentApp ? getAppOrigin(contentApp) : null;
+  if (!origin) return null;
+  try {
+    if (new URL(origin).protocol !== "https:") return null;
+    return privateVaultContentEnrollmentRuntime.roles({
       session: event.sender.session,
       origin,
     });
@@ -7965,6 +7986,10 @@ registerContentFilesIpc({
 registerContentPrivateVaultIpc({
   coordinatorForEvent: contentPrivateVaultCoordinatorForEvent,
   recoveryForEvent: contentPrivateVaultRecoveryForEvent,
+  enrollmentCandidateForEvent: (event) =>
+    contentPrivateVaultEnrollmentRolesForEvent(event)?.candidate ?? null,
+  enrollmentAuthorizerForEvent: (event) =>
+    contentPrivateVaultEnrollmentRolesForEvent(event)?.authorizer ?? null,
 });
 
 // Plaintext CRUD is exposed only to the bundled, signed shell renderer. The

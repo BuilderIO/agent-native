@@ -12,6 +12,11 @@ import {
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultAdvanceBrokerAuthorizerResult,
+  type DesktopPrivateVaultAdvanceBrokerCandidateResult,
+  type DesktopPrivateVaultBeginBrokerEnrollmentRequest,
+  type DesktopPrivateVaultBeginBrokerEnrollmentResult,
+  type DesktopPrivateVaultEnrollmentInvitationRequest,
   type DesktopPrivateVaultRecoveryResult,
   type DesktopPrivateVaultResumeGenesisResult,
   type DesktopPlanFilesChooseFolderRequest,
@@ -105,6 +110,27 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS),
     recover: (): Promise<DesktopPrivateVaultRecoveryResult> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RECOVER),
+    beginBrokerEnrollment: (
+      request: DesktopPrivateVaultBeginBrokerEnrollmentRequest,
+    ): Promise<DesktopPrivateVaultBeginBrokerEnrollmentResult> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_VAULT_BEGIN_BROKER_ENROLLMENT,
+        request,
+      ),
+    advanceBrokerCandidate: (
+      request: DesktopPrivateVaultEnrollmentInvitationRequest,
+    ): Promise<DesktopPrivateVaultAdvanceBrokerCandidateResult> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_VAULT_ADVANCE_BROKER_CANDIDATE,
+        request,
+      ),
+    advanceBrokerAuthorizer: (
+      request: DesktopPrivateVaultEnrollmentInvitationRequest,
+    ): Promise<DesktopPrivateVaultAdvanceBrokerAuthorizerResult> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_VAULT_ADVANCE_BROKER_AUTHORIZER,
+        request,
+      ),
   },
 };
 

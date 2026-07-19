@@ -35,6 +35,12 @@ Detailed document editing, Notion, storage, and UI rules live in
   context is unclear.
 - Use framework sharing actions for document visibility and grants.
 - Keep public/exported content server-renderable where relevant.
+- Private Vault enrollment is an attended desktop trust ceremony, not an app
+  action. Agents may navigate the user to Settings and explain the steps, but
+  must never synthesize a verification decision, request a SAS code or recovery
+  words, or claim enrollment succeeded without the native result. The
+  enrollment invitation is public; keys and SAS values remain inside signed
+  native windows.
 
 ## Application State
 

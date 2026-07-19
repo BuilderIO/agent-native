@@ -40,6 +40,10 @@ actions, and an optional local-file source of truth.
   running, treat this skill as repo-editing guidance. Edit configured
   `.md`/`.mdx` files directly, preserve frontmatter and MDX imports, and tell
   the user the Content action surface was not available.
+- Private Vault setup and new-device enrollment deliberately have no agent
+  action. You may open or point the user to Content Settings, but the human must
+  move the public invitation and complete both native verification windows.
+  Never ask for recovery words or a verification code in chat.
 
 ## Action Examples
 

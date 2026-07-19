@@ -14,6 +14,7 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import { messagesByLocale } from "@/i18n-data";
 
 import {
   buildContentDocumentAgentDiscovery,
@@ -34,7 +35,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = () => [
-  { title: "Public document" },
+  { title: messagesByLocale["en-US"].publicDocument.metaTitle },
 ];
 
 function formatUpdatedAt(value: string) {

@@ -60,6 +60,12 @@ export const IPC = {
   CONTENT_PRIVATE_VAULT_CREATE_GENESIS: "content-private-vault:create-genesis",
   CONTENT_PRIVATE_VAULT_RESUME_GENESIS: "content-private-vault:resume-genesis",
   CONTENT_PRIVATE_VAULT_RECOVER: "content-private-vault:recover",
+  CONTENT_PRIVATE_VAULT_BEGIN_BROKER_ENROLLMENT:
+    "content-private-vault:begin-broker-enrollment",
+  CONTENT_PRIVATE_VAULT_ADVANCE_BROKER_CANDIDATE:
+    "content-private-vault:advance-broker-candidate",
+  CONTENT_PRIVATE_VAULT_ADVANCE_BROKER_AUTHORIZER:
+    "content-private-vault:advance-broker-authorizer",
 
   /** Signed Desktop Private Content surface (never hosted webview preload) */
   CONTENT_PRIVATE_RUNTIME_START: "content-private-runtime:start",
@@ -343,6 +349,32 @@ export type DesktopPrivateVaultResumeGenesisResult =
 
 export type DesktopPrivateVaultRecoveryResult =
   | { ok: true; vaultId: string; sequence: number; headHash: string }
+  | { ok: false; error: string };
+
+export interface DesktopPrivateVaultBeginBrokerEnrollmentRequest {
+  vaultId: string;
+}
+
+export interface DesktopPrivateVaultEnrollmentInvitationRequest {
+  invitation: string;
+}
+
+export type DesktopPrivateVaultBeginBrokerEnrollmentResult =
+  | { ok: true; state: "awaiting-authorizer"; invitation: string }
+  | { ok: false; error: string };
+
+export type DesktopPrivateVaultAdvanceBrokerCandidateResult =
+  | {
+      ok: true;
+      state: "awaiting-authorizer";
+      invitation: string;
+    }
+  | { ok: true; state: "awaiting-authorization" }
+  | { ok: true; state: "active"; vaultId: string }
+  | { ok: false; error: string };
+
+export type DesktopPrivateVaultAdvanceBrokerAuthorizerResult =
+  | { ok: true; state: "awaiting-candidate" | "committed" }
   | { ok: false; error: string };
 
 export interface DesktopPrivateContentDocument {

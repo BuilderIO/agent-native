@@ -35,7 +35,7 @@ export default function SettingsRoute() {
       },
       {
         id: "content-private-vault",
-        label: "Private vault",
+        label: t("settings.privateVault.title"),
         keywords: "security privacy encryption e2ee recovery vault",
         hash: "private-vault",
       },
