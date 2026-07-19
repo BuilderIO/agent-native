@@ -172,6 +172,7 @@ import {
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
 import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
+import { createPrivateVaultContentJobActionRegistry } from "./private-vault/content-job-action-registry";
 import {
   createPrivateVaultContentRuntime,
   type PrivateVaultContentRuntime,
@@ -5737,14 +5738,20 @@ function contentPrivateRuntimeForEvent(event: IpcMainInvokeEvent) {
     if (new URL(origin).protocol !== "https:") return null;
     if (privateVaultContentRuntime?.origin !== origin) {
       void privateVaultContentRuntime?.runtime.stop().catch(() => undefined);
+      const contentSession = session.fromPartition("persist:app-content");
       privateVaultContentRuntime = {
         origin,
         runtime: createPrivateVaultContentRuntime({
-          session: session.fromPartition("persist:app-content"),
+          session: contentSession,
           origin,
-          // Until an ordinary broker enrollment has been promoted, endpoint
-          // Content remains available and protected work queues stay offline.
-          brokerActions: { create: async () => null },
+          brokerActions: {
+            create: async (vaultId) =>
+              createPrivateVaultContentJobActionRegistry({
+                vaultId,
+                session: contentSession,
+                origin,
+              }),
+          },
         }),
       };
     }
