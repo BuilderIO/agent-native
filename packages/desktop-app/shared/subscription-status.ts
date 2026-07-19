@@ -150,6 +150,9 @@ export function normalizeSubscriptionStatus(
     .map((meter, index) => normalizeMeter(meter, index))
     .filter((meter): meter is SubscriptionRateLimitMeter => meter !== null);
   const plan = normalizePlan(input.plan);
+  const updatedAt = readIsoTimestamp(telemetryInput?.updatedAt);
+  const contextWindow = normalizeContextWindow(telemetryInput?.contextWindow);
+  const credits = normalizeCredits(telemetryInput?.credits);
 
   const status: SubscriptionStatus = {
     schemaVersion: 1,
@@ -160,10 +163,14 @@ export function normalizeSubscriptionStatus(
     telemetry: {
       state: telemetryState,
       source,
-      capabilities: normalizeCapabilities(
-        telemetryInput?.capabilities,
-        Boolean(plan),
-      ),
+      capabilities: deriveCapabilities({
+        hasPlan: Boolean(plan),
+        meters,
+        contextWindow,
+        credits,
+        telemetryState,
+        updatedAt,
+      }),
       meters,
     },
   };
@@ -172,36 +179,41 @@ export function normalizeSubscriptionStatus(
   assignString(status, "connectionMessage", input.connectionMessage);
   if (plan) status.plan = plan;
 
-  assignTimestamp(status.telemetry, "updatedAt", telemetryInput?.updatedAt);
+  if (updatedAt) status.telemetry.updatedAt = updatedAt;
   assignTimestamp(status.telemetry, "staleAt", telemetryInput?.staleAt);
   assignString(
     status.telemetry,
     "sourceVersion",
     telemetryInput?.sourceVersion,
   );
-  const contextWindow = normalizeContextWindow(telemetryInput?.contextWindow);
   if (contextWindow) status.telemetry.contextWindow = contextWindow;
-  const credits = normalizeCredits(telemetryInput?.credits);
   if (credits) status.telemetry.credits = credits;
   const error = normalizeError(telemetryInput?.error);
   if (error) status.telemetry.error = error;
   return status;
 }
 
-function normalizeCapabilities(
-  value: unknown,
-  hasPlan: boolean,
-): SubscriptionTelemetryCapabilities {
-  const input = asRecord(value);
+function deriveCapabilities(input: {
+  hasPlan: boolean;
+  meters: readonly SubscriptionRateLimitMeter[];
+  contextWindow?: SubscriptionContextWindow;
+  credits?: SubscriptionCredits;
+  telemetryState: SubscriptionTelemetryState;
+  updatedAt?: string;
+}): SubscriptionTelemetryCapabilities {
   return {
     ...EMPTY_CAPABILITIES,
     account: false,
-    plan: hasPlan,
-    rateLimits: input?.rateLimits === true,
-    modelTierRateLimits: input?.modelTierRateLimits === true,
-    contextWindow: input?.contextWindow === true,
-    credits: input?.credits === true,
-    liveUpdates: input?.liveUpdates === true,
+    plan: input.hasPlan,
+    rateLimits: input.meters.some(
+      (meter) => meter.kind === "five-hour" || meter.kind === "weekly",
+    ),
+    modelTierRateLimits: input.meters.some(
+      (meter) => meter.kind === "model-tier-weekly",
+    ),
+    contextWindow: Boolean(input.contextWindow),
+    credits: Boolean(input.credits),
+    liveUpdates: input.telemetryState === "live" && Boolean(input.updatedAt),
   };
 }
 

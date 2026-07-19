@@ -151,7 +151,7 @@ describe("subscription status contract", () => {
       account: false,
       plan: false,
       rateLimits: true,
-      modelTierRateLimits: false,
+      modelTierRateLimits: true,
       contextWindow: true,
       credits: false,
       liveUpdates: false,
@@ -250,6 +250,38 @@ describe("subscription status contract", () => {
       state: "error",
       meters: [],
       error: { code: "PROCESS_EXIT", message: "Provider process exited." },
+    });
+  });
+
+  it("strips capability claims that have no normalized telemetry evidence", () => {
+    const status = normalizeSubscriptionStatus({
+      schemaVersion: 1,
+      providerId: "codex",
+      connectionState: "connected",
+      telemetry: {
+        state: "live",
+        source: "codex-app-server",
+        capabilities: {
+          account: true,
+          plan: true,
+          rateLimits: true,
+          modelTierRateLimits: true,
+          contextWindow: true,
+          credits: true,
+          liveUpdates: true,
+        },
+        meters: [],
+      },
+    });
+
+    expect(status?.telemetry.capabilities).toEqual({
+      account: false,
+      plan: false,
+      rateLimits: false,
+      modelTierRateLimits: false,
+      contextWindow: false,
+      credits: false,
+      liveUpdates: false,
     });
   });
 
