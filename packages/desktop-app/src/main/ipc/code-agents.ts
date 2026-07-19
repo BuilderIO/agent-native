@@ -39,17 +39,19 @@ import {
 } from "electron";
 
 import {
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+} from "../code-agent-transcript-ipc.js";
+import {
   getComputerPermissionStatus,
   requestAccessibilityPermission,
   runComputerSetupAction,
 } from "../computer-control";
-import {
-  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
-  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
-  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
-  type CodeAgentTranscriptSubscription,
-  type CodeAgentTranscriptSubscriptionBatch,
-} from "../index";
+import type {
+  CodeAgentTranscriptSubscription,
+  CodeAgentTranscriptSubscriptionBatch,
+} from "../index.js";
 
 export interface CodeAgentsIpcDeps {
   isObject: (value: unknown) => value is Record<string, unknown>;
@@ -241,16 +243,14 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       event.sender.once("destroyed", () => {
         removeCodeAgentTranscriptSubscription(subscriptionId);
       });
-      if (result.status !== "ok" || result.error) {
-        sendCodeAgentTranscriptSubscriptionBatch(subscription, {
-          status: result.status,
-          runId: result.runId ?? runId,
-          events: [],
-          eventFile: result.eventFile,
-          reason: "subscribe",
-          error: result.error,
-        });
-      }
+      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
+        status: result.status,
+        runId: result.runId ?? runId,
+        events: result.events,
+        eventFile: result.eventFile,
+        reason: "snapshot",
+        error: result.error,
+      });
     },
   );
 

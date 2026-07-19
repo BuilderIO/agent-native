@@ -138,6 +138,12 @@ import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+} from "./code-agent-transcript-ipc.js";
+import { boundedCodeAgentTranscriptSnapshot } from "./code-agent-transcript-window.js";
+import {
   getCodexLoginLaunchSpec,
   spawnDetached,
 } from "./codex-login-launcher.js";
@@ -255,12 +261,11 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
-export const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
-  "code-agents:subscribe-transcript";
-export const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
-  "code-agents:unsubscribe-transcript";
-export const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL =
-  "code-agents:transcript-events";
+export {
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+};
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -2777,7 +2782,7 @@ function sortTranscriptEvents(
     .map(({ event }) => event);
 }
 
-function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
+function readAllCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
   const record: Record<string, unknown> =
     typeof input === "string" ? { runId: input } : isObject(input) ? input : {};
   const runId = normalizeCodeAgentRunId(record.runId);
@@ -2801,6 +2806,14 @@ function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
     runId,
     events: sortTranscriptEvents(events),
     eventFile: codeAgentEventFilePath(runId) ?? undefined,
+  };
+}
+
+function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
+  const result = readAllCodeAgentTranscript(input);
+  return {
+    ...result,
+    events: boundedCodeAgentTranscriptSnapshot(result.events),
   };
 }
 
@@ -2859,12 +2872,6 @@ function appendCodeAgentAssistantDeltaEvent(runId: string, text: string): void {
 function initializeCodeAgentTranscriptSubscriptionKeys(
   subscription: CodeAgentTranscriptSubscription,
 ): CodeAgentTranscriptResult {
-  const result = readCodeAgentTranscript({ runId: subscription.runId });
-  subscription.knownEventKeys = new Set(
-    result.events.map(codeAgentTranscriptEventKey),
-  );
-  // Set up byte-offset tailing for the primary event file so subsequent
-  // flushes only read appended bytes.
   const tailFile = codeAgentEventFilePath(subscription.runId);
   if (tailFile) {
     subscription.tailedFilePath = tailFile;
@@ -2876,7 +2883,15 @@ function initializeCodeAgentTranscriptSubscriptionKeys(
       subscription.fileOffset = 0;
     }
   }
-  return result;
+
+  const fullResult = readAllCodeAgentTranscript({ runId: subscription.runId });
+  subscription.knownEventKeys = new Set(
+    fullResult.events.map(codeAgentTranscriptEventKey),
+  );
+  return {
+    ...fullResult,
+    events: boundedCodeAgentTranscriptSnapshot(fullResult.events),
+  };
 }
 
 function removeCodeAgentTranscriptSubscription(subscriptionId: string): void {
@@ -2939,7 +2954,7 @@ function flushCodeAgentTranscriptSubscription(
 
   // Fallback path: full re-read (used when no primary file is established,
   // e.g. run records with inline events only).
-  const result = readCodeAgentTranscript({ runId: subscription.runId });
+  const result = readAllCodeAgentTranscript({ runId: subscription.runId });
   const nextKnownEventKeys = new Set<string>();
   const events: CodeAgentTranscriptEvent[] = [];
 
