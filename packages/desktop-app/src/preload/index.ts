@@ -46,6 +46,14 @@ import {
   type DesktopPrivateContentRestoreVersionRequest,
   type DesktopPrivateContentResult,
   type DesktopPrivateContentUpdateRequest,
+  type DesktopPrivateVaultAdvanceBrokerAuthorizerResult,
+  type DesktopPrivateVaultAdvanceBrokerCandidateResult,
+  type DesktopPrivateVaultBeginBrokerEnrollmentRequest,
+  type DesktopPrivateVaultBeginBrokerEnrollmentResult,
+  type DesktopPrivateVaultCreateGenesisResult,
+  type DesktopPrivateVaultEnrollmentInvitationRequest,
+  type DesktopPrivateVaultRecoveryResult,
+  type DesktopPrivateVaultResumeGenesisResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -87,6 +95,33 @@ const electronAPI = {
 
   /** Signed-shell Private Content bridge; absent from hosted webview preload. */
   privateContent: {
+    createVault: (): Promise<DesktopPrivateVaultCreateGenesisResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_CREATE_GENESIS),
+    resumeVaultSetup: (): Promise<DesktopPrivateVaultResumeGenesisResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS),
+    recoverVault: (): Promise<DesktopPrivateVaultRecoveryResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RECOVER),
+    beginBrokerEnrollment: (
+      request: DesktopPrivateVaultBeginBrokerEnrollmentRequest,
+    ): Promise<DesktopPrivateVaultBeginBrokerEnrollmentResult> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_VAULT_BEGIN_BROKER_ENROLLMENT,
+        request,
+      ),
+    advanceBrokerCandidate: (
+      request: DesktopPrivateVaultEnrollmentInvitationRequest,
+    ): Promise<DesktopPrivateVaultAdvanceBrokerCandidateResult> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_VAULT_ADVANCE_BROKER_CANDIDATE,
+        request,
+      ),
+    advanceBrokerAuthorizer: (
+      request: DesktopPrivateVaultEnrollmentInvitationRequest,
+    ): Promise<DesktopPrivateVaultAdvanceBrokerAuthorizerResult> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_VAULT_ADVANCE_BROKER_AUTHORIZER,
+        request,
+      ),
     start: (): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_START),
     stop: (): Promise<DesktopPrivateContentResult<null>> =>

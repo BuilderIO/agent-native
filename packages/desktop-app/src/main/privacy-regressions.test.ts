@@ -61,6 +61,8 @@ describe("desktop passive-access regressions", () => {
       "event.senderFrame !== mainWindow.webContents.mainFrame",
     );
     expect(webviewPreload).not.toContain("privateContent");
+    expect(webviewPreload).not.toContain("privateVault");
+    expect(webviewPreload).not.toContain("CONTENT_PRIVATE_VAULT_");
     expect(webviewPreload).not.toContain("CONTENT_PRIVATE_RUNTIME_");
   });
 

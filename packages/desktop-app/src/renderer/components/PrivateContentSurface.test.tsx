@@ -21,6 +21,18 @@ describe("PrivateContentSurface privacy disclosure", () => {
       configurable: true,
       value: {
         privateContent: {
+          createVault: vi.fn(async () => ({
+            ok: false,
+            error: "unavailable",
+          })),
+          resumeVaultSetup: vi.fn(async () => ({
+            ok: false,
+            error: "unavailable",
+          })),
+          recoverVault: vi.fn(async () => ({
+            ok: false,
+            error: "unavailable",
+          })),
           health: vi.fn(async () => ({ ok: false, error: "locked" })),
           list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
         },
@@ -55,6 +67,9 @@ describe("PrivateContentSurface privacy disclosure", () => {
       "The model provider you choose can read that specific text.",
     );
     expect(container.textContent).not.toMatch(/zero.knowledge/i);
+    expect(container.textContent).toContain(
+      "Recovery words never enter this renderer or the hosted Content app.",
+    );
   });
 
   it("shows standing agent grants and requires an accessible revoke confirmation", async () => {

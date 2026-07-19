@@ -1353,6 +1353,17 @@ Standard Cloud. This makes the unsupported beta boundary visible before an
 agent guesses at a standard Content workflow. MCP integration tests prove the
 blocked call is an error and the action runner remains untouched.
 
+Vault creation, interrupted-genesis recovery, mnemonic recovery, and broker
+enrollment orchestration are no longer exposed by the remotely loaded Content
+webview preload. The same narrow IPC methods now exist only on the signed shell
+preload, and main process resolvers accept only the main frame while using the
+isolated authenticated Content session for ciphertext transport. The signed
+Private Vault lock screen can create, finish, or recover a vault; secret entry
+and confirmation remain in native AppKit windows. Hosted settings therefore
+fall back to a content-free “open Desktop” state and cannot initiate a native
+ceremony. Privacy regressions statically reject both the bridge name and every
+Private Vault ceremony channel in the webview preload.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

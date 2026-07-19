@@ -5832,7 +5832,12 @@ async function initializePrivateContentMcpBridge(): Promise<void> {
 }
 
 function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
-  if (!isContentFilesWebviewSender(event)) return null;
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return null;
   const contentApp = loadAppsForAuthContext().find(
     (candidate) => candidate.id === "content" && candidate.enabled !== false,
   );
@@ -5841,7 +5846,7 @@ function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
   try {
     if (new URL(origin).protocol !== "https:") return null;
     return privateVaultContentGenesisRuntime.coordinator({
-      session: event.sender.session,
+      session: session.fromPartition("persist:app-content"),
       origin,
     });
   } catch {
@@ -5850,7 +5855,12 @@ function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
 }
 
 function contentPrivateVaultRecoveryForEvent(event: IpcMainInvokeEvent) {
-  if (!isContentFilesWebviewSender(event)) return null;
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return null;
   const contentApp = loadAppsForAuthContext().find(
     (candidate) => candidate.id === "content" && candidate.enabled !== false,
   );
@@ -5859,7 +5869,7 @@ function contentPrivateVaultRecoveryForEvent(event: IpcMainInvokeEvent) {
   try {
     if (new URL(origin).protocol !== "https:") return null;
     return privateVaultContentGenesisRuntime.recover({
-      session: event.sender.session,
+      session: session.fromPartition("persist:app-content"),
       origin,
     });
   } catch {
@@ -5868,7 +5878,12 @@ function contentPrivateVaultRecoveryForEvent(event: IpcMainInvokeEvent) {
 }
 
 function contentPrivateVaultEnrollmentRolesForEvent(event: IpcMainInvokeEvent) {
-  if (!isContentFilesWebviewSender(event)) return null;
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return null;
   const contentApp = loadAppsForAuthContext().find(
     (candidate) => candidate.id === "content" && candidate.enabled !== false,
   );
@@ -5877,7 +5892,7 @@ function contentPrivateVaultEnrollmentRolesForEvent(event: IpcMainInvokeEvent) {
   try {
     if (new URL(origin).protocol !== "https:") return null;
     return privateVaultContentEnrollmentRuntime.roles({
-      session: event.sender.session,
+      session: session.fromPartition("persist:app-content"),
       origin,
     });
   } catch {

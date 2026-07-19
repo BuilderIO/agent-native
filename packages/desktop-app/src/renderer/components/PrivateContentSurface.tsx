@@ -37,6 +37,7 @@ import {
 } from "./ui/alert-dialog.js";
 
 type SurfaceState = "locked" | "opening" | "open" | "error";
+type CeremonyState = "creating" | "resuming" | "recovering" | null;
 type BrokerState =
   | "running"
   | "offline"
@@ -263,6 +264,7 @@ export default function PrivateContentSurface({
   onClose: () => void;
 }) {
   const [state, setState] = useState<SurfaceState>("locked");
+  const [ceremony, setCeremony] = useState<CeremonyState>(null);
   const [health, setHealth] = useState<PrivateContentHealth | null>(null);
   const [documents, setDocuments] = useState<DesktopPrivateContentSummary[]>(
     [],
@@ -349,6 +351,26 @@ export default function PrivateContentSurface({
       setMessage("Private documents could not be verified on this device.");
     }
   }, [loadGrants, loadList, loadMembers]);
+
+  const runVaultCeremony = async (kind: Exclude<CeremonyState, null>) => {
+    setCeremony(kind);
+    setMessage("");
+    const result =
+      kind === "creating"
+        ? await window.electronAPI.privateContent.createVault()
+        : kind === "resuming"
+          ? await window.electronAPI.privateContent.resumeVaultSetup()
+          : await window.electronAPI.privateContent.recoverVault();
+    if (!result.ok) {
+      setCeremony(null);
+      setMessage(
+        "The native vault ceremony did not complete. No plaintext fallback was used.",
+      );
+      return;
+    }
+    setCeremony(null);
+    await open();
+  };
 
   useEffect(() => {
     const refreshHealth = () =>
@@ -550,13 +572,43 @@ export default function PrivateContentSurface({
           <PrivateContentDisclosure />
           <button
             className="private-content-primary"
-            disabled={state === "opening"}
+            disabled={state === "opening" || ceremony !== null}
             onClick={() => void open()}
             type="button"
           >
             <IconLock size={16} />
             {state === "opening" ? "Opening…" : "Unlock on this device"}
           </button>
+          <details className="private-content-setup-details">
+            <summary>Set up or recover Private Vault</summary>
+            <p>
+              These ceremonies run in signed native windows. Recovery words
+              never enter this renderer or the hosted Content app.
+            </p>
+            <div>
+              <button
+                disabled={ceremony !== null}
+                onClick={() => void runVaultCeremony("creating")}
+                type="button"
+              >
+                {ceremony === "creating" ? "Creating…" : "Create new vault"}
+              </button>
+              <button
+                disabled={ceremony !== null}
+                onClick={() => void runVaultCeremony("resuming")}
+                type="button"
+              >
+                {ceremony === "resuming" ? "Finishing…" : "Finish setup"}
+              </button>
+              <button
+                disabled={ceremony !== null}
+                onClick={() => void runVaultCeremony("recovering")}
+                type="button"
+              >
+                {ceremony === "recovering" ? "Recovering…" : "Recover vault"}
+              </button>
+            </div>
+          </details>
           {message && <p className="private-content-message">{message}</p>}
         </div>
       </section>

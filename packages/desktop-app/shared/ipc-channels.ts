@@ -56,7 +56,7 @@ export const IPC = {
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
 
-  /** Trusted Content Private Vault ceremony (Content webview -> main/native UI) */
+  /** Trusted Content Private Vault ceremony (signed Desktop shell -> main/native UI) */
   CONTENT_PRIVATE_VAULT_CREATE_GENESIS: "content-private-vault:create-genesis",
   CONTENT_PRIVATE_VAULT_RESUME_GENESIS: "content-private-vault:resume-genesis",
   CONTENT_PRIVATE_VAULT_RECOVER: "content-private-vault:recover",

@@ -648,6 +648,42 @@ body {
   background: #1a1d24;
 }
 
+.private-content-setup-details {
+  width: min(440px, 100%);
+  color: #aeb5c5;
+  font-size: 11px;
+}
+
+.private-content-setup-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.private-content-setup-details p {
+  line-height: 1.5;
+}
+
+.private-content-setup-details > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.private-content-setup-details button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d9dde7;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.private-content-setup-details button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .private-content-reader-details {
   width: 100%;
   padding-bottom: 8px;

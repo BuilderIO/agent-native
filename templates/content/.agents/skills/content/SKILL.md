@@ -42,7 +42,9 @@ actions, and an optional local-file source of truth.
   the user the Content action surface was not available.
 - Private Vault setup and new-device enrollment deliberately have no agent
   action. You may open or point the user to Content Settings, but the human must
-  move the public invitation and complete both native verification windows.
+  use the signed Desktop Private Vault surface, move any public invitation, and
+  complete both native verification windows. Hosted Content settings cannot
+  initiate creation, recovery, or enrollment.
   Never ask for recovery words or a verification code in chat.
 - When Desktop exposes the authenticated `agent-native-private-content` MCP
   server, use its normal Content action names exactly as you would use the

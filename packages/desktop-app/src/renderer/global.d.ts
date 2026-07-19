@@ -621,6 +621,30 @@ interface ElectronAPI {
   webviewPreloadPath: string;
 
   privateContent: {
+    createVault(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultCreateGenesisResult
+    >;
+    resumeVaultSetup(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultResumeGenesisResult
+    >;
+    recoverVault(): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultRecoveryResult
+    >;
+    beginBrokerEnrollment(
+      request: import("@shared/ipc-channels").DesktopPrivateVaultBeginBrokerEnrollmentRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultBeginBrokerEnrollmentResult
+    >;
+    advanceBrokerCandidate(
+      request: import("@shared/ipc-channels").DesktopPrivateVaultEnrollmentInvitationRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultAdvanceBrokerCandidateResult
+    >;
+    advanceBrokerAuthorizer(
+      request: import("@shared/ipc-channels").DesktopPrivateVaultEnrollmentInvitationRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateVaultAdvanceBrokerAuthorizerResult
+    >;
     start(): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
