@@ -300,9 +300,10 @@ describe("Content space provisioning", () => {
     const files = databases.find(
       (database: any) => database.systemRole === "files",
     );
+    expect(files.title).toBe("Personal");
     expect(JSON.parse(files.viewConfigJson)).toMatchObject({
       activeViewId: "default",
-      views: [{ id: "default", type: "sidebar", name: "Sidebar" }],
+      views: [{ id: "default", type: "table", name: "Table" }],
     });
     const filesSelfItems = await getDb()
       .select()
@@ -425,7 +426,7 @@ describe("Content space provisioning", () => {
     ]);
   });
 
-  it("propagates organization renames to the space and workspace reference", async () => {
+  it("preserves the Content workspace name when the organization is renamed", async () => {
     const orgId = "org-renamed";
     const spaceId = organizationContentSpaceId(orgId);
     await addOrganization(orgId, "Before rename");
@@ -452,7 +453,7 @@ describe("Content space provisioning", () => {
       .select()
       .from(schema.contentSpaces)
       .where(eq(schema.contentSpaces.id, spaceId));
-    expect(space?.name).toBe("After rename");
+    expect(space?.name).toBe("Before rename");
 
     const [reference] = await getDb()
       .select({ title: schema.documents.title })
@@ -470,7 +471,7 @@ describe("Content space provisioning", () => {
           eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
         ),
       );
-    expect(reference?.title).toBe("After rename");
+    expect(reference?.title).toBe("Before rename");
   });
 
   it("lets an ordinary member provision organization Files on first login", async () => {

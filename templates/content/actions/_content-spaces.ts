@@ -156,7 +156,7 @@ async function ensureSystemDatabase(args: {
         viewConfigJson: serializeDatabaseViewConfig(
           args.role === "files"
             ? defaultFilesDatabaseViewConfig(ids.databaseId)
-            : defaultDatabaseViewConfig("sidebar"),
+            : defaultDatabaseViewConfig("table"),
         ),
         createdAt: args.now,
         updatedAt: args.now,
@@ -177,6 +177,17 @@ async function ensureSystemDatabase(args: {
     throw new Error(
       `Unable to provision ${args.role} database for Content space`,
     );
+  if (args.role === "files" && database.title === "Files") {
+    await args.db
+      .update(schema.contentDatabases)
+      .set({ title: args.title, updatedAt: args.now })
+      .where(eq(schema.contentDatabases.id, database.id));
+    await args.db
+      .update(schema.documents)
+      .set({ title: args.title, updatedAt: args.now })
+      .where(eq(schema.documents.id, database.documentId));
+    database.title = args.title;
+  }
   await ensureFilesSystemPropertyDefinitions({
     database,
     db: args.db,
@@ -243,21 +254,21 @@ export async function provisionContentSpaces(
   };
 
   await db.transaction(async (tx: Db) => {
+    const [personalSpace] = await tx
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, personalSpaceId));
     const personalFiles = await ensureSystemDatabase({
       db: tx,
       spaceId: personalSpaceId,
       ownerEmail: email,
       orgId: null,
-      title: "Files",
+      title: personalSpace?.name ?? "Personal",
       role: "files",
       visibility: "private",
       now,
       created: result.created,
     });
-    const [personalSpace] = await tx
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, personalSpaceId));
     if (!personalSpace) {
       await tx
         .insert(schema.contentSpaces)
@@ -295,7 +306,7 @@ export async function provisionContentSpaces(
     const spaces = [
       {
         id: personalSpaceId,
-        name: "Personal",
+        name: personalSpace?.name ?? "Personal",
         ownerEmail: email,
         orgId: null as string | null,
         createdBy: email,
@@ -314,21 +325,22 @@ export async function provisionContentSpaces(
       })),
     ];
     for (const space of spaces.slice(1)) {
+      const [existingSpace] = await tx
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, space.id));
+      if (existingSpace) space.name = existingSpace.name;
       const files = await ensureSystemDatabase({
         db: tx,
         spaceId: space.id,
         ownerEmail: space.ownerEmail,
         orgId: space.orgId,
-        title: "Files",
+        title: space.name,
         role: "files",
         visibility: "org",
         now,
         created: result.created,
       });
-      const [existingSpace] = await tx
-        .select()
-        .from(schema.contentSpaces)
-        .where(eq(schema.contentSpaces.id, space.id));
       if (!existingSpace) {
         await tx
           .insert(schema.contentSpaces)
@@ -341,14 +353,11 @@ export async function provisionContentSpaces(
           })
           .onConflictDoNothing();
         result.created.spaces += 1;
-      } else if (
-        existingSpace.name !== space.name ||
-        existingSpace.filesDatabaseId !== files.id
-      ) {
+      }
+      if (existingSpace && existingSpace.filesDatabaseId !== files.id) {
         await tx
           .update(schema.contentSpaces)
           .set({
-            name: space.name,
             filesDatabaseId: files.id,
             updatedAt: now,
           })
@@ -508,26 +517,27 @@ async function provisionOwnedContentSpace(
 
   const provisioned = await withPositionLock<{
     files: typeof schema.contentDatabases.$inferSelect;
+    name: string;
     catalogDatabaseId: string;
     catalogItemId: string;
     catalogDocumentId: string;
   }>(`contentSpace:${spaceId}`, () =>
     db.transaction(async (tx: Db) => {
+      const [existingSpace] = await tx
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId));
       const sourceFiles = await ensureSystemDatabase({
         db: tx,
         spaceId,
         ownerEmail: email,
         orgId: null,
-        title: "Files",
+        title: existingSpace?.name ?? name,
         role: "files",
         visibility: "private",
         now,
         created,
       });
-      const [existingSpace] = await tx
-        .select()
-        .from(schema.contentSpaces)
-        .where(eq(schema.contentSpaces.id, spaceId));
       if (
         existingSpace &&
         input.kind === "user" &&
@@ -572,7 +582,6 @@ async function provisionOwnedContentSpace(
           "Workspace request ID is already bound to another name",
         );
       }
-
       const referenceDocumentId = opaqueId(
         "content_workspace_reference",
         `${email}:${spaceId}`,
@@ -585,7 +594,7 @@ async function provisionOwnedContentSpace(
           ownerEmail: email,
           orgId: null,
           parentId: catalogIds.documentId,
-          title: name,
+          title: canonicalSpace.name,
           content: "",
           description: "",
           position: 0,
@@ -597,10 +606,10 @@ async function provisionOwnedContentSpace(
         },
         created,
       );
-      if (createdSpace || input.kind !== "user") {
+      if (createdSpace) {
         await tx
           .update(schema.documents)
-          .set({ title: name, updatedAt: now })
+          .set({ title: canonicalSpace.name, updatedAt: now })
           .where(eq(schema.documents.id, referenceDocumentId));
       }
 
@@ -695,6 +704,7 @@ async function provisionOwnedContentSpace(
       }
       return {
         files: sourceFiles,
+        name: canonicalSpace.name,
         catalogDatabaseId: catalogIds.databaseId,
         catalogItemId,
         catalogDocumentId: referenceDocumentId,
@@ -711,6 +721,7 @@ async function provisionOwnedContentSpace(
   });
   return {
     spaceId,
+    name: provisioned.name,
     filesDatabaseId: provisioned.files.id,
     catalogDatabaseId: provisioned.catalogDatabaseId,
     catalogItemId: provisioned.catalogItemId,

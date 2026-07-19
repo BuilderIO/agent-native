@@ -84,7 +84,7 @@ export function filesKindPropertyId(databaseId: string) {
 export function defaultFilesDatabaseViewConfig(
   databaseId: string,
 ): ContentDatabaseViewConfig {
-  const config = defaultDatabaseViewConfig("sidebar");
+  const config = defaultDatabaseViewConfig("table");
   const filters = [
     {
       key: filesKindPropertyId(databaseId),
@@ -198,15 +198,15 @@ export async function ensureFilesSystemPropertyDefinitions(args: {
   const normalizedStored = serializeDatabaseViewConfig(
     parseDatabaseViewConfig(args.database.viewConfigJson),
   );
-  const untouchedLegacyDefault = serializeDatabaseViewConfig(
-    defaultDatabaseViewConfig("sidebar"),
-  );
-  const viewConfigJson =
-    normalizedStored === untouchedLegacyDefault
-      ? serializeDatabaseViewConfig(
-          defaultFilesDatabaseViewConfig(args.database.id),
-        )
-      : args.database.viewConfigJson;
+  const untouchedLegacyDefaults = new Set([
+    serializeDatabaseViewConfig(defaultDatabaseViewConfig("sidebar")),
+    serializeDatabaseViewConfig(defaultDatabaseViewConfig("table")),
+  ]);
+  const viewConfigJson = untouchedLegacyDefaults.has(normalizedStored)
+    ? serializeDatabaseViewConfig(
+        defaultFilesDatabaseViewConfig(args.database.id),
+      )
+    : args.database.viewConfigJson;
   await db
     .update(schema.contentDatabases)
     .set({

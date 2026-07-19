@@ -460,7 +460,7 @@ function DatabaseSidebarRow({
         </Link>
 
         {(hasMenuActions || canCreateChild) && (
-          <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-muted px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <div className="pointer-events-none absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 shadow-sm group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

@@ -31,6 +31,10 @@ const { schema } = vi.hoisted(() => ({
       documentId: "contentDatabaseItems.documentId",
       ownerEmail: "contentDatabaseItems.ownerEmail",
     },
+    contentSpaceCatalogItems: {
+      id: "contentSpaceCatalogItems.id",
+      documentId: "contentSpaceCatalogItems.documentId",
+    },
     documentPropertyDefinitions: {
       id: "documentPropertyDefinitions.id",
       databaseId: "documentPropertyDefinitions.databaseId",

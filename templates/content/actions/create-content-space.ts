@@ -28,7 +28,6 @@ export default defineAction({
       ...result,
       filesDocumentId: systemIdsForContentSpace(result.spaceId, "files")
         .documentId,
-      name,
       kind: "user" as const,
     };
   },

@@ -120,7 +120,6 @@ import {
   IconGripVertical,
   IconLayoutKanban,
   IconLayoutGrid,
-  IconLayoutSidebar,
   IconList,
   IconLock,
   IconMinus,
@@ -263,7 +262,6 @@ import { VisualEditor } from "../VisualEditor";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
-import { DatabaseSidebarView } from "./sidebar";
 import { DatabaseTimelineView } from "./TimelineView";
 
 export interface DatabaseViewProps {
@@ -343,7 +341,6 @@ const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "timeline",
   "calendar",
   "form",
-  "sidebar",
 ];
 const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "preview",
@@ -827,6 +824,10 @@ function DatabaseTable({
   );
   const sorts = activeView.sorts;
   const filters = activeView.filters;
+  const visibleFilters = useMemo(
+    () => userVisibleDatabaseFilters(filters, orderedProperties),
+    [filters, orderedProperties],
+  );
   const filterMode = activeView.filterMode ?? "and";
   const columnWidths = activeView.columnWidths;
   const databaseGroupProperty = useMemo(
@@ -916,6 +917,11 @@ function DatabaseTable({
     searchQuery,
     sorts,
     filters,
+  );
+  const visibleConstraintCount = activeDatabaseConstraintCount(
+    searchQuery,
+    sorts,
+    visibleFilters,
   );
   const requiresCompleteClientDataset =
     activeConstraintCount > 0 ||
@@ -1649,7 +1655,7 @@ function DatabaseTable({
   function clearSearchAndFilters() {
     setSearchQuery("");
     setSearchOpen(false);
-    setActiveFilters([]);
+    setActiveFilters(hiddenSystemDatabaseFilters(filters, properties));
   }
 
   function setActiveColumnWidths(
@@ -2130,28 +2136,6 @@ function DatabaseTable({
     orderedProperties,
     visibleItems,
   ]);
-  const sidebarGroups = useMemo(
-    () =>
-      databaseVisibleGroups(
-        databaseViewItemGroups(
-          visibleItems,
-          orderedProperties,
-          activeView.groupByPropertyId,
-        ),
-        activeView.hideEmptyGroups === true,
-      ),
-    [
-      activeView.groupByPropertyId,
-      activeView.hideEmptyGroups,
-      orderedProperties,
-      visibleItems,
-    ],
-  );
-  const sidebarIsGrouped = useMemo(
-    () => !!databaseViewGroupingProperty(activeView, orderedProperties),
-    [activeView, orderedProperties],
-  );
-
   useEffect(() => {
     if (!data?.database.id) return;
     if (personalView.isLoading) return;
@@ -2330,7 +2314,7 @@ function DatabaseTable({
             onSortsChange={setActiveSorts}
           />
           <FilterMenu
-            filters={filters}
+            filters={visibleFilters}
             properties={orderedProperties}
             inlineOpen={inlineFilterControlsOpen}
             open={toolbarFilterOpen}
@@ -2441,7 +2425,7 @@ function DatabaseTable({
         filters={filters}
         filterMode={filterMode}
         properties={properties}
-        constraintCount={activeConstraintCount}
+        constraintCount={visibleConstraintCount}
         forceShow={inlineFilterControlsOpen}
         addFilterOpen={inlineAddFilterOpen}
         openSortIndex={inlineSortOpenIndex}
@@ -2477,7 +2461,7 @@ function DatabaseTable({
           setSearchQuery("");
           setSearchOpen(false);
           setActiveSorts([]);
-          setActiveFilters([]);
+          setActiveFilters(hiddenSystemDatabaseFilters(filters, properties));
           setInlineFilterControlsOpen(false);
           setInlineAddFilterOpen(false);
           setInlineFilterOpenIndex(null);
@@ -2560,22 +2544,6 @@ function DatabaseTable({
           onPreview={previewItemPage}
           onDeletedPreviewItem={handleDeletedPreviewItem}
           onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "sidebar" ? (
-        <DatabaseSidebarView
-          key={activeView.id}
-          groups={sidebarGroups}
-          grouped={sidebarIsGrouped}
-          isLoading={isDatabaseViewLoading}
-          hasActiveConstraints={hasResultConstraints}
-          openPagesIn={activeView.openPagesIn ?? "preview"}
-          loadingLabel={dbText("loadingList")}
-          noMatchesLabel={dbText("noRowsMatchThisView")}
-          clearLabel={dbText("clearSearchAndFilters")}
-          navigationLabel={dbText("databasePagePreview")}
-          untitledLabel={dbText("untitled")}
-          onClearResultConstraints={clearSearchAndFilters}
-          onPreview={previewItemPage}
         />
       ) : activeView.type === "list" ? (
         <DatabaseListView
@@ -5754,17 +5722,19 @@ function DatabaseActiveConstraintsBar({
   onResetPersonalChanges: () => void;
   onSaveForEveryone: () => void;
 }) {
+  const filterEntries = filters
+    .map((filter, index) => ({ filter, index }))
+    .filter(({ filter }) => !isHiddenSystemDatabaseFilter(filter, properties));
   if (
     !forceShow &&
     constraintCount === 0 &&
-    filters.length === 0 &&
+    filterEntries.length === 0 &&
     !hasPersonalQueryChanges
   )
     return null;
   const hasSearchOrSortConstraints =
     searchQuery.trim().length > 0 || sorts.length > 0;
   const showViewActionControls = hasPersonalQueryChanges;
-  const filterEntries = filters.map((filter, index) => ({ filter, index }));
   const advancedFilterEntries = filterEntries.filter(({ filter }) =>
     isAdvancedDatabaseFilter(filter),
   );
@@ -5831,7 +5801,7 @@ function DatabaseActiveConstraintsBar({
       ))}
       <DatabaseAddFilterButton
         open={addFilterOpen}
-        filters={filters}
+        filters={filterEntries.map(({ filter }) => filter)}
         properties={properties}
         onOpenChange={onAddFilterOpenChange}
         onAddFilter={(key, label) => {
@@ -13159,18 +13129,22 @@ function normalizeClientDatabaseView(
   value: Partial<ContentDatabaseView> | null | undefined,
 ) {
   if (!value || typeof value.id !== "string" || !value.id.trim()) return null;
+  const retiredSidebar = value.type === "sidebar";
   const type =
     value.type === "board" ||
     value.type === "list" ||
     value.type === "gallery" ||
     value.type === "calendar" ||
     value.type === "timeline" ||
-    value.type === "form" ||
-    value.type === "sidebar"
+    value.type === "form"
       ? value.type
       : "table";
   return createDatabaseView(
-    typeof value.name === "string" ? value.name : databaseViewDefaultName(type),
+    typeof value.name === "string"
+      ? retiredSidebar && value.name.trim() === "Sidebar"
+        ? "Table"
+        : value.name
+      : databaseViewDefaultName(type),
     value.id,
     {
       sorts: Array.isArray(value.sorts)
@@ -13702,7 +13676,6 @@ function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "calendar") return IconCalendar;
   if (type === "timeline") return IconTimeline;
   if (type === "form") return IconForms;
-  if (type === "sidebar") return IconLayoutSidebar;
   return IconTable;
 }
 
@@ -13713,7 +13686,6 @@ function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
   if (type === "form") return "Form";
-  if (type === "sidebar") return "Sidebar";
   return "Table";
 }
 
@@ -16390,6 +16362,38 @@ export function activeDatabaseConstraintCount(
     (searchQuery.trim() ? 1 : 0) +
     sorts.length +
     filters.filter(isActiveFilter).length
+  );
+}
+
+export function isHiddenSystemDatabaseFilter(
+  filter: DatabaseFilter,
+  properties: DocumentProperty[],
+) {
+  const property = properties.find(
+    (candidate) => candidate.definition.id === filter.key,
+  );
+  return (
+    property?.definition.systemRole === "files_kind" &&
+    filter.operator === "does_not_equal" &&
+    filter.value === "database_row"
+  );
+}
+
+export function hiddenSystemDatabaseFilters(
+  filters: DatabaseFilter[],
+  properties: DocumentProperty[],
+) {
+  return filters.filter((filter) =>
+    isHiddenSystemDatabaseFilter(filter, properties),
+  );
+}
+
+export function userVisibleDatabaseFilters(
+  filters: DatabaseFilter[],
+  properties: DocumentProperty[],
+) {
+  return filters.filter(
+    (filter) => !isHiddenSystemDatabaseFilter(filter, properties),
   );
 }
 

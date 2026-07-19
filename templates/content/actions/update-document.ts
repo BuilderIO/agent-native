@@ -9,7 +9,7 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -454,67 +454,117 @@ export default defineAction({
       if (iconChanged) updates.icon = args.icon;
       if (favoriteChanged) updates.isFavorite = args.isFavorite ? 1 : 0;
 
-      if (useContentCas) {
-        const applied = await db
-          .update(schema.documents)
-          .set(updates)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
-            ),
-          )
-          .returning({ id: schema.documents.id });
-
-        if (!applied || applied.length === 0) {
-          // Someone else's write landed after the caller's snapshot. Don't
-          // apply this save at all (title/icon/favorite included — a partial
-          // apply would desync the fields from what the caller believes it
-          // just sent) and hand back the current server row instead so the
-          // caller can reconcile.
-          const [current] = await db
-            .select()
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id));
-          return {
-            conflict: true,
-            id,
-            document: {
-              id: current.id,
-              urlPath: `/page/${current.id}`,
-              parentId: current.parentId,
-              title: current.title,
-              content: current.content,
-              description: current.description,
-              icon: current.icon,
-              position: current.position,
-              isFavorite: parseDocumentFavorite(current.isFavorite),
-              hideFromSearch: parseDocumentHideFromSearch(
-                current.hideFromSearch,
+      let contentCasConflict = false;
+      await db.transaction(async (tx) => {
+        if (useContentCas) {
+          const applied = await tx
+            .update(schema.documents)
+            .set(updates)
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
               ),
-              visibility: current.visibility,
-              accessRole: access.role,
-              canEdit: true,
-              canManage: canManageRole(access.role),
-              createdAt: current.createdAt,
-              updatedAt: current.updatedAt,
-              source: serializeDocumentSource(current),
-              softDeletedDatabaseIds: [],
-            },
-          };
+            )
+            .returning({ id: schema.documents.id });
+          if (!applied || applied.length === 0) {
+            contentCasConflict = true;
+            return;
+          }
+        } else {
+          await tx
+            .update(schema.documents)
+            .set(updates)
+            .where(eq(schema.documents.id, id));
         }
-      } else {
-        await db
-          .update(schema.documents)
-          .set(updates)
-          .where(eq(schema.documents.id, id));
-      }
 
-      if (titleChanged && args.title !== undefined) {
-        await db
-          .update(schema.contentDatabases)
-          .set({ title: args.title, updatedAt: updates.updatedAt as string })
-          .where(eq(schema.contentDatabases.documentId, id));
+        if (titleChanged && args.title !== undefined) {
+          const [database] = await tx
+            .select({
+              id: schema.contentDatabases.id,
+              spaceId: schema.contentDatabases.spaceId,
+              systemRole: schema.contentDatabases.systemRole,
+            })
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.documentId, id));
+          if (database) {
+            const title =
+              database.systemRole === "files"
+                ? args.title.trim() || "Untitled"
+                : args.title;
+            await tx
+              .update(schema.contentDatabases)
+              .set({ title, updatedAt: updates.updatedAt as string })
+              .where(eq(schema.contentDatabases.id, database.id));
+            if (database.systemRole === "files" && database.spaceId) {
+              await tx
+                .update(schema.documents)
+                .set({ title, updatedAt: updates.updatedAt as string })
+                .where(eq(schema.documents.id, id));
+              await tx
+                .update(schema.contentSpaces)
+                .set({ name: title, updatedAt: updates.updatedAt as string })
+                .where(eq(schema.contentSpaces.id, database.spaceId));
+              const catalogReferences = await tx
+                .select({
+                  documentId: schema.contentSpaceCatalogItems.documentId,
+                })
+                .from(schema.contentSpaceCatalogItems)
+                .where(
+                  eq(schema.contentSpaceCatalogItems.spaceId, database.spaceId),
+                );
+              if (catalogReferences.length > 0) {
+                await tx
+                  .update(schema.documents)
+                  .set({ title, updatedAt: updates.updatedAt as string })
+                  .where(
+                    inArray(
+                      schema.documents.id,
+                      catalogReferences.map(
+                        (reference) => reference.documentId,
+                      ),
+                    ),
+                  );
+              }
+            }
+          }
+        }
+      });
+
+      if (contentCasConflict) {
+        // Someone else's write landed after the caller's snapshot. Don't
+        // apply this save at all (title/icon/favorite included — a partial
+        // apply would desync the fields from what the caller believes it
+        // just sent) and hand back the current server row instead so the
+        // caller can reconcile.
+        const [current] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        return {
+          conflict: true,
+          id,
+          document: {
+            id: current.id,
+            urlPath: `/page/${current.id}`,
+            parentId: current.parentId,
+            title: current.title,
+            content: current.content,
+            description: current.description,
+            icon: current.icon,
+            position: current.position,
+            isFavorite: parseDocumentFavorite(current.isFavorite),
+            hideFromSearch: parseDocumentHideFromSearch(current.hideFromSearch),
+            visibility: current.visibility,
+            accessRole: access.role,
+            canEdit: true,
+            canManage: canManageRole(access.role),
+            createdAt: current.createdAt,
+            updatedAt: current.updatedAt,
+            source: serializeDocumentSource(current),
+            softDeletedDatabaseIds: [],
+          },
+        };
       }
 
       if (contentChanged) {
