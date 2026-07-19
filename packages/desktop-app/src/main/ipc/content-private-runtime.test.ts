@@ -26,6 +26,7 @@ function fixture(allowed = true) {
       state: "revoked",
       grantRef,
     })),
+    setApplicationState: vi.fn(),
   };
   return {
     documents,
@@ -62,6 +63,10 @@ describe("signed Private Content IPC", () => {
     });
     await source.handlers.listGrants(event);
     await source.handlers.revokeGrant(event, "44".repeat(32));
+    await source.handlers.setApplicationState(event, {
+      view: "editor",
+      documentId,
+    });
 
     expect(source.documents.createDocument).toHaveBeenCalledWith(
       vaultId,
@@ -89,6 +94,10 @@ describe("signed Private Content IPC", () => {
     expect(source.runtime.revokeAgentGrant).toHaveBeenCalledWith(
       "44".repeat(32),
     );
+    expect(source.runtime.setApplicationState).toHaveBeenCalledWith({
+      view: "editor",
+      documentId,
+    });
   });
 
   it("collapses untrusted senders and malformed arguments", async () => {
@@ -116,8 +125,16 @@ describe("signed Private Content IPC", () => {
     await expect(
       source.handlers.revokeGrant({} as never, "not-a-grant-ref"),
     ).resolves.toMatchObject({ ok: false });
+    await expect(
+      source.handlers.setApplicationState({} as never, {
+        view: "editor",
+        documentId,
+        title: "must not enter application state",
+      }),
+    ).resolves.toMatchObject({ ok: false });
     expect(source.documents.getDocument).not.toHaveBeenCalled();
     expect(source.documents.createDocument).not.toHaveBeenCalled();
     expect(source.runtime.revokeAgentGrant).not.toHaveBeenCalled();
+    expect(source.runtime.setApplicationState).not.toHaveBeenCalled();
   });
 });

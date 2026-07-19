@@ -34,10 +34,19 @@ const updateSchema = createSchema
     hideFromSearch: z.boolean().optional(),
   })
   .strict();
+const applicationStateSchema = z.discriminatedUnion("view", [
+  z.object({ view: z.literal("list") }).strict(),
+  z.object({ view: z.literal("editor"), documentId: opaqueIdSchema }).strict(),
+]);
 
 type RuntimeSurface = Pick<
   PrivateVaultContentRuntime,
-  "ensureStarted" | "stop" | "health" | "listAgentGrants" | "revokeAgentGrant"
+  | "ensureStarted"
+  | "stop"
+  | "health"
+  | "listAgentGrants"
+  | "revokeAgentGrant"
+  | "setApplicationState"
 > & {
   documents(): {
     listDocuments(vaultId: string): Promise<unknown>;
@@ -197,6 +206,16 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
         const grantRef = revisionIdSchema.parse(arguments_[0]);
         return runtime(event).revokeAgentGrant(grantRef);
       }),
+    setApplicationState: (
+      event: IpcMainInvokeEvent,
+      ...arguments_: unknown[]
+    ) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const state = applicationStateSchema.parse(arguments_[0]);
+        runtime(event).setApplicationState(state);
+        return null;
+      }),
   };
 }
 
@@ -225,5 +244,9 @@ export function registerContentPrivateRuntimeIpc(input: {
   ipcMain.handle(
     IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT,
     handlers.revokeGrant,
+  );
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE,
+    handlers.setApplicationState,
   );
 }

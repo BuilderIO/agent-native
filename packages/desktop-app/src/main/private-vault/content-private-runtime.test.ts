@@ -109,6 +109,22 @@ describe("PrivateVaultContentRuntime", () => {
       }),
     ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
     await source.runtime.start();
+    expect(source.runtime.applicationState()).toEqual({ view: "list" });
+    source.runtime.setApplicationState({
+      view: "editor",
+      documentId: "33".repeat(16),
+    });
+    await expect(
+      source.runtime.runAgentAction({
+        actionName: "view-screen",
+        args: {},
+        subjectAgentId,
+      }),
+    ).resolves.toEqual({
+      view: "editor",
+      documentId: "33".repeat(16),
+    });
+    expect(source.requester.runAction).not.toHaveBeenCalled();
     await expect(
       source.runtime.runAgentAction({
         actionName: "list-documents",

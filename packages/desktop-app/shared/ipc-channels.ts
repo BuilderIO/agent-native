@@ -83,6 +83,8 @@ export const IPC = {
     "content-private-runtime:restore-version",
   CONTENT_PRIVATE_RUNTIME_LIST_GRANTS: "content-private-runtime:list-grants",
   CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT: "content-private-runtime:revoke-grant",
+  CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE:
+    "content-private-runtime:set-application-state",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -448,6 +450,10 @@ export interface DesktopPrivateContentGrantSummary {
   revoked: boolean;
   pendingRevocation: boolean;
 }
+
+export type DesktopPrivateContentApplicationState =
+  | { view: "list" }
+  | { view: "editor"; documentId: string };
 
 export type DesktopPrivateContentResult<T> =
   | { ok: true; value: T }

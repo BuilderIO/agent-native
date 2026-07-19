@@ -1,4 +1,5 @@
 import type { PrivateVaultLocalActionRegistry } from "@agent-native/private-vault-broker";
+import type { DesktopPrivateContentApplicationState } from "@shared/ipc-channels";
 
 import { PrivateVaultContentBrokerRuntimeTransport } from "./content-broker-runtime-transport.js";
 import {
@@ -76,6 +77,9 @@ export class PrivateVaultContentRuntime {
     broker: BrokerLifecycle | null;
   } | null = null;
   #transition: Promise<void> | null = null;
+  #applicationState: DesktopPrivateContentApplicationState = Object.freeze({
+    view: "list",
+  });
 
   constructor(input: {
     descriptor: { read(): Promise<{ vaultId: string }> };
@@ -113,6 +117,7 @@ export class PrivateVaultContentRuntime {
     await this.#transition;
     const active = this.#active;
     this.#active = null;
+    this.#applicationState = Object.freeze({ view: "list" });
     try {
       await active?.broker?.stop();
     } catch {
@@ -165,11 +170,22 @@ export class PrivateVaultContentRuntime {
     subjectAgentId: string;
   }) {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    if (input.actionName === "view-screen") return this.applicationState();
     try {
       return await this.#requester.runAction(input);
     } catch {
       throw new PrivateVaultContentRuntimeError();
     }
+  }
+
+  applicationState(): DesktopPrivateContentApplicationState {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    return this.#applicationState;
+  }
+
+  setApplicationState(state: DesktopPrivateContentApplicationState): void {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    this.#applicationState = Object.freeze({ ...state });
   }
 
   async #start(): Promise<void> {
@@ -191,6 +207,7 @@ export class PrivateVaultContentRuntime {
         vaultId: descriptor.vaultId,
         broker,
       };
+      this.#applicationState = Object.freeze({ view: "list" });
     } catch {
       this.#documents.close();
       throw new PrivateVaultContentRuntimeError();

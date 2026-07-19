@@ -17,6 +17,8 @@ const MAXIMUM_MCP_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAXIMUM_MCP_RESULT_BYTES = 2 * 1024 * 1024;
 
 const ACTIONS = {
+  "view-screen":
+    "Read the local Private Content navigation state without document text.",
   "list-documents": "List private encrypted Content documents.",
   "search-documents": "Search private encrypted Content locally.",
   "get-document": "Read one private encrypted Content document.",
@@ -188,6 +190,7 @@ export class PrivateVaultContentMcpBridge {
           },
           annotations: {
             readOnlyHint: [
+              "view-screen",
               "list-documents",
               "search-documents",
               "get-document",

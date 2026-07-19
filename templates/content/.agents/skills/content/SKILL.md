@@ -49,6 +49,10 @@ actions, and an optional local-file source of truth.
   standard Content action surface. The signed Desktop app decrypts only the
   minimum request and result on an enrolled endpoint; hosted Content stores
   opaque coordinates and ciphertext.
+- Private Content `view-screen` returns only the local list/editor view and an
+  optional opaque document ID. It never returns a title, snippet, search query,
+  or unsaved draft through application state. Use `get-document` or
+  `pull-document` when the user asks you to read the selected private page.
 - Private Content never silently falls back to Standard Cloud, local-file
   editing, or a hosted Content action. If the private action surface is locked,
   revoked, offline, or unavailable, stop and say that the private operation did

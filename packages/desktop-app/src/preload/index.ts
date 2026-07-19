@@ -42,6 +42,7 @@ import {
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentApplicationState,
   type DesktopPrivateContentRestoreVersionRequest,
   type DesktopPrivateContentResult,
   type DesktopPrivateContentUpdateRequest,
@@ -123,6 +124,13 @@ const electronAPI = {
       grantRef: string,
     ): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_REVOKE_GRANT, grantRef),
+    setApplicationState: (
+      state: DesktopPrivateContentApplicationState,
+    ): Promise<DesktopPrivateContentResult<null>> =>
+      ipcRenderer.invoke(
+        IPC.CONTENT_PRIVATE_RUNTIME_SET_APPLICATION_STATE,
+        state,
+      ),
   },
 
   /** Window chrome controls */

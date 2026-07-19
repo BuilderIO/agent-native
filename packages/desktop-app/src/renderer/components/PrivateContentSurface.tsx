@@ -1,4 +1,5 @@
 import type {
+  DesktopPrivateContentApplicationState,
   DesktopPrivateContentDocument,
   DesktopPrivateContentGrantSummary,
   DesktopPrivateContentSummary,
@@ -262,6 +263,16 @@ export default function PrivateContentSurface({
     }
   }, []);
 
+  const syncApplicationState = useCallback(
+    async (next: DesktopPrivateContentApplicationState) => {
+      const response =
+        await window.electronAPI.privateContent.setApplicationState(next);
+      if (!response.ok)
+        setMessage("Agent context could not be synchronized on this device.");
+    },
+    [],
+  );
+
   const open = useCallback(async () => {
     setState("opening");
     setMessage("");
@@ -307,6 +318,7 @@ export default function PrivateContentSurface({
     setTitle(document.title);
     setContent(document.content);
     setMessage("");
+    await syncApplicationState({ view: "editor", documentId: document.id });
   };
 
   const save = async () => {
@@ -386,6 +398,7 @@ export default function PrivateContentSurface({
     setConfirmDelete(false);
     setShowVersions(false);
     setVersions([]);
+    await syncApplicationState({ view: "list" });
     await loadList();
   };
 
@@ -427,6 +440,7 @@ export default function PrivateContentSurface({
   };
 
   const lock = async () => {
+    await syncApplicationState({ view: "list" });
     await window.electronAPI.privateContent.stop();
     setDocuments([]);
     setSelected(null);
@@ -437,6 +451,11 @@ export default function PrivateContentSurface({
     setHealth(null);
     setGrants([]);
     setState("locked");
+  };
+
+  const closePrivateContent = async () => {
+    await syncApplicationState({ view: "list" });
+    onClose();
   };
 
   const revokeGrant = async (grantRef: string) => {
@@ -625,7 +644,7 @@ export default function PrivateContentSurface({
               )}
             </div>
           </details>
-          <button onClick={onClose} type="button">
+          <button onClick={() => void closePrivateContent()} type="button">
             Standard Cloud
           </button>
           <button onClick={() => void lock()} type="button">

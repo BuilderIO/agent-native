@@ -35,6 +35,10 @@ describe("Private Vault Content MCP bridge", () => {
     );
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain("search-documents");
+    expect(tools.tools.map((tool) => tool.name)).toContain("view-screen");
+    expect(
+      tools.tools.find((tool) => tool.name === "view-screen")?.annotations,
+    ).toMatchObject({ readOnlyHint: true, openWorldHint: false });
     expect(
       tools.tools.find((tool) => tool.name === "search-documents")?.inputSchema,
     ).not.toHaveProperty("properties.subjectAgentId");
