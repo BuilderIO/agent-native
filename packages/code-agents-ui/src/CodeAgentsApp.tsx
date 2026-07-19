@@ -180,6 +180,58 @@ export type CodeAgentsRenderAppSurface = (input: {
   refreshKey: number;
 }) => React.ReactNode;
 
+export interface CodeAgentsNewSessionExtensionSubmitInput {
+  prompt: string;
+  cwd?: string;
+  attachments: CodeAgentPromptAttachment[];
+}
+
+export interface CodeAgentsNewSessionExtensionSubmitResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+  detailId?: string;
+}
+
+export interface CodeAgentsNewSessionExtensionModeControlInput {
+  permissionMode: CodeAgentPermissionMode;
+  onPermissionModeChange: (mode: CodeAgentPermissionMode) => void;
+}
+
+export interface CodeAgentsNewSessionExtension {
+  /** The extension always owns the new-session selector; active routes submits and detail. */
+  active: boolean;
+  disabled?: boolean;
+  /** Rendered in place of the standard Plan/Auto picker. */
+  renderModeControl?(
+    input: CodeAgentsNewSessionExtensionModeControlInput,
+  ): React.ReactNode | undefined;
+  /** Opt in only when the extension needs the standard model picker. */
+  showModelSelector?: boolean;
+  submit(
+    input: CodeAgentsNewSessionExtensionSubmitInput,
+  ): Promise<CodeAgentsNewSessionExtensionSubmitResult>;
+  renderDetail?(input: {
+    detailId: string;
+    onClose: () => void;
+  }): React.ReactNode;
+}
+
+export function resolveNewSessionExtensionComposerState(
+  extension?: CodeAgentsNewSessionExtension,
+): {
+  active: boolean;
+  useDefaultModeControl: boolean;
+  showModelSelector: boolean;
+} {
+  const active = extension?.active === true;
+  return {
+    active,
+    useDefaultModeControl: !extension,
+    showModelSelector: active ? extension.showModelSelector === true : true,
+  };
+}
+
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
@@ -190,6 +242,8 @@ export interface CodeAgentsAppProps {
   brandIconUrl?: string;
   onOpenSettings?: () => void;
   renderAppSurface?: CodeAgentsRenderAppSurface;
+  newSessionExtension?: CodeAgentsNewSessionExtension;
+  openDetailRequest?: { detailId: string; nonce: number };
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
@@ -324,16 +378,37 @@ export default function CodeAgentsApp({
   brandIconUrl,
   onOpenSettings,
   renderAppSurface,
+  newSessionExtension,
+  openDetailRequest,
 }: CodeAgentsAppProps) {
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
+    string | null
+  >(null);
+  const activeNewSessionExtension = newSessionExtension?.active
+    ? newSessionExtension
+    : null;
+  const newSessionExtensionComposerState =
+    resolveNewSessionExtensionComposerState(newSessionExtension);
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
   );
+
+  useEffect(() => {
+    if (activeNewSessionExtension) return;
+    setSelectedExtensionDetailId(null);
+  }, [activeNewSessionExtension]);
+
+  useEffect(() => {
+    if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
+    setSelectedRunId(null);
+    setSelectedExtensionDetailId(openDetailRequest.detailId);
+  }, [activeNewSessionExtension, openDetailRequest]);
   const selectedRunUsesAppSurface = selectedRun
     ? isMigrationRun(selectedRun)
     : false;
@@ -712,6 +787,7 @@ export default function CodeAgentsApp({
             retryResult.run!,
             ...current.filter((run) => run.id !== retryResult.run!.id),
           ]);
+          setSelectedExtensionDetailId(null);
           setSelectedRunId(retryResult.run.id);
           await loadTranscript(retryResult.run.id, true);
         }
@@ -818,6 +894,7 @@ export default function CodeAgentsApp({
     if (!openRequest) return;
     const nextGoal = getCodeAgentGoal(openRequest.goalId);
     if (nextGoal) setSelectedGoalId(nextGoal.id);
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(openRequest.runId ?? null);
     setWorkbenchOpen(true);
     setSearchPanelOpen(false);
@@ -1090,6 +1167,7 @@ export default function CodeAgentsApp({
     );
     if (matchingGoal) {
       setSelectedGoalId(matchingGoal.id);
+      setSelectedExtensionDetailId(null);
       setSelectedRunId(null);
       setWorkbenchOpen(false);
       setSearchPanelOpen(false);
@@ -1103,6 +1181,7 @@ export default function CodeAgentsApp({
       (skill) => skill.name.toLowerCase() === normalized,
     );
     setSelectedGoalId("task");
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
@@ -1159,6 +1238,7 @@ export default function CodeAgentsApp({
     setRuns((current) =>
       current.some((item) => item.id === run.id) ? current : [run, ...current],
     );
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(run.id);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
@@ -1257,6 +1337,7 @@ export default function CodeAgentsApp({
 
   function openSelectedGoal() {
     setSelectedGoalId("task");
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
@@ -1302,6 +1383,51 @@ export default function CodeAgentsApp({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
+    if (activeNewSessionExtension) {
+      const prompt = preparedPrompt.trim();
+      if (!prompt) {
+        toast("Describe an outcome first", { duration: 1800 });
+        return;
+      }
+      setCreatingRun(true);
+      try {
+        const result = await activeNewSessionExtension.submit({
+          prompt,
+          cwd: selectedProjectPath || undefined,
+          attachments,
+        });
+        if (!result.ok) {
+          toast(result.message ?? "Could not start the chat", {
+            description: result.error,
+            duration: 3600,
+          });
+          return;
+        }
+        if (result.detailId && !activeNewSessionExtension.renderDetail) {
+          toast("Could not open the collaboration", {
+            description: "This session mode does not provide a detail view.",
+            duration: 3600,
+          });
+          return;
+        }
+        setNewPrompt("");
+        setNewPromptSeed((seed) => seed + 1);
+        setSelectedRunId(null);
+        setSelectedExtensionDetailId(result.detailId ?? null);
+        setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
+        if (result.message) toast(result.message, { duration: 2200 });
+      } catch (err) {
+        toast("Could not start the chat", {
+          description: err instanceof Error ? err.message : String(err),
+          duration: 3600,
+        });
+      } finally {
+        setCreatingRun(false);
+      }
+      return;
+    }
     if (providerGate.blocked) {
       toast("Connect a model provider first", {
         description: providerGate.description,
@@ -1342,6 +1468,7 @@ export default function CodeAgentsApp({
       setNewPrompt("");
       setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
+      setSelectedExtensionDetailId(null);
       setSelectedRunId(result.run.id);
       if (typedGoal.id !== selectedGoal.id) {
         setSelectedGoalId(typedGoal.id);
@@ -1601,12 +1728,14 @@ export default function CodeAgentsApp({
               activeId={selectedRunId}
               onSelect={(id) => {
                 markRunsViewed([id]);
+                setSelectedExtensionDetailId(null);
                 setSelectedRunId(id);
                 setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
               onOpen={(id) => {
                 markRunsViewed([id]);
+                setSelectedExtensionDetailId(null);
                 setSelectedRunId(id);
                 setWorkbenchOpen(true);
                 setSearchPanelOpen(false);
@@ -1735,7 +1864,14 @@ export default function CodeAgentsApp({
                       </div>
                     )}
 
-                    {selectedRun ? (
+                    {activeNewSessionExtension &&
+                    selectedExtensionDetailId &&
+                    activeNewSessionExtension.renderDetail ? (
+                      activeNewSessionExtension.renderDetail({
+                        detailId: selectedExtensionDetailId,
+                        onClose: openSelectedGoal,
+                      })
+                    ) : selectedRun ? (
                       <RunDetailCard
                         host={host}
                         run={selectedRun}
@@ -1766,7 +1902,7 @@ export default function CodeAgentsApp({
                     ) : (
                       <div className="code-agents-start">
                         <h2>What outcome do you want?</h2>
-                        {providerGate.blocked && (
+                        {!activeNewSessionExtension && providerGate.blocked && (
                           <ProviderGateNotice
                             description={providerGate.description}
                             connecting={builderConnecting}
@@ -1788,16 +1924,44 @@ export default function CodeAgentsApp({
                           permissionMode={newRunPermissionMode}
                           modelSelection={selectedModelSelection}
                           modelOptions={modelOptions}
-                          slashCommands={slashCommands}
-                          disabled={providerGate.blocked}
+                          slashCommands={
+                            activeNewSessionExtension ? [] : slashCommands
+                          }
+                          disabled={
+                            activeNewSessionExtension
+                              ? activeNewSessionExtension.disabled
+                              : providerGate.blocked
+                          }
+                          modeControl={newSessionExtension?.renderModeControl?.(
+                            {
+                              permissionMode: newRunPermissionMode,
+                              onPermissionModeChange: setNewRunPermissionMode,
+                            },
+                          )}
+                          useDefaultModeControl={
+                            newSessionExtensionComposerState.useDefaultModeControl
+                          }
+                          showModelSelector={
+                            newSessionExtensionComposerState.showModelSelector
+                          }
                           onPromptChange={setNewPrompt}
                           onPermissionModeChange={setNewRunPermissionMode}
                           onModelSelectionChange={setModelSelection}
-                          onSlashCommand={handleSlashCommand}
+                          onSlashCommand={
+                            activeNewSessionExtension
+                              ? undefined
+                              : handleSlashCommand
+                          }
                           onSubmit={createRunFromPrompt}
-                          onConnectProvider={connectBuilderProvider}
+                          onConnectProvider={
+                            activeNewSessionExtension
+                              ? undefined
+                              : connectBuilderProvider
+                          }
                           onConnectLocalRuntime={
-                            codexCliAvailable ? connectLocalRuntime : undefined
+                            !activeNewSessionExtension && codexCliAvailable
+                              ? connectLocalRuntime
+                              : undefined
                           }
                         />
                         {(projects.length > 0 || canChooseProjectFolder) && (
@@ -2203,6 +2367,9 @@ function NewSessionComposer({
   modelOptions,
   slashCommands,
   disabled,
+  modeControl,
+  useDefaultModeControl,
+  showModelSelector,
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
@@ -2220,10 +2387,13 @@ function NewSessionComposer({
   modelOptions: CodeAgentModelOption[];
   slashCommands: SlashCommand[];
   disabled?: boolean;
+  modeControl?: React.ReactNode;
+  useDefaultModeControl?: boolean;
+  showModelSelector?: boolean;
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onSlashCommand: (command: string) => void;
+  onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
@@ -2244,6 +2414,9 @@ function NewSessionComposer({
       placeholder="Describe a task or ask a question"
       variant="hero"
       disabled={disabled}
+      modeControl={modeControl}
+      useDefaultModeControl={useDefaultModeControl}
+      showModelSelector={showModelSelector}
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
@@ -2276,6 +2449,9 @@ function CodeAgentComposer({
   onStop,
   onConnectProvider,
   onConnectLocalRuntime,
+  modeControl: modeControlOverride,
+  useDefaultModeControl = true,
+  showModelSelector = true,
 }: {
   prompt: string;
   promptSeed?: string | number;
@@ -2301,6 +2477,9 @@ function CodeAgentComposer({
   onStop?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  modeControl?: React.ReactNode;
+  useDefaultModeControl?: boolean;
+  showModelSelector?: boolean;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
@@ -2311,12 +2490,14 @@ function CodeAgentComposer({
     [],
   );
 
-  const modeControl = (
+  const modeControl = useDefaultModeControl ? (
     <RunModeSelect
       value={permissionMode}
       onChange={onPermissionModeChange}
       compact
     />
+  ) : (
+    modeControlOverride
   );
 
   const stopButton =
@@ -2352,10 +2533,15 @@ function CodeAgentComposer({
       initialTextKey={promptSeed}
       modeControl={modeControl}
       actionButton={stopButton}
-      availableModels={availableModels}
-      selectedModel={normalizedModel.model ?? "auto"}
-      selectedEngine={normalizedModel.engine ?? "auto"}
-      selectedEffort={normalizedModel.effort}
+      showModelSelector={showModelSelector}
+      availableModels={showModelSelector ? availableModels : undefined}
+      selectedModel={
+        showModelSelector ? (normalizedModel.model ?? "auto") : undefined
+      }
+      selectedEngine={
+        showModelSelector ? (normalizedModel.engine ?? "auto") : undefined
+      }
+      selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
         onModelSelectionChange({
           engine,
