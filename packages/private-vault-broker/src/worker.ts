@@ -1,10 +1,13 @@
 import {
+  ancV1BytesToHex,
+  decodeAncV1BrokerDisclosureResponse,
   decodeAncV1BrokerAckResponse,
   decodeAncV1BrokerClaimResponse,
   decodeAncV1BrokerRequestFrame,
   decodeAncV1BrokerResultResponse,
   decodeAncV1BrokerRetryResponse,
   encodeAncV1BrokerAckRequest,
+  encodeAncV1BrokerDisclosureRequest,
   encodeAncV1BrokerClaimRequest,
   encodeAncV1BrokerRequestRequest,
   encodeAncV1BrokerResultFrame,
@@ -55,7 +58,7 @@ export interface PrivateVaultBrokerWorkerOptions {
   >;
   readonly transport: Pick<
     SignedHostedBrokerTransport,
-    "claim" | "request" | "ack" | "retry" | "result"
+    "claim" | "request" | "ack" | "retry" | "result" | "disclosure"
   >;
   readonly executor: PrivateVaultBrokerActionExecutor;
   readonly crypto?: AncV1CryptoProvider;
@@ -126,6 +129,29 @@ export class PrivateVaultBrokerWorker {
       if (recovery.pending) {
         const pending = recovery.pending;
         try {
+          const disclosureReceipt = decodeAncV1BrokerDisclosureResponse(
+            await this.#transport.disclosure(
+              encodeAncV1BrokerDisclosureRequest({
+                ...base,
+                type: "broker-disclosure-request",
+                vaultId: this.#vaultId,
+                endpointId: this.#endpointId,
+                jobId: pending.jobId,
+                grantId: ancV1BytesToHex(pending.grantId),
+                resourceId: ancV1BytesToHex(pending.resourceId),
+                operation: pending.operationName,
+                providerId: pending.providerId,
+                destination: pending.destination,
+                outcome: pending.state === "completed" ? "allowed" : "failed",
+                signedEnvelope: pending.disclosureEnvelope,
+              }),
+            ),
+          );
+          if (
+            disclosureReceipt.disclosureId !==
+            ancV1BytesToHex(pending.disclosureId)
+          )
+            throw new PrivateVaultBrokerWorkerError();
           const receipt = decodeAncV1BrokerResultResponse(
             await this.#transport.result(
               encodeAncV1BrokerResultFrame(
@@ -163,6 +189,12 @@ export class PrivateVaultBrokerWorker {
           return { state: pending.state, jobId: pending.jobId };
         } finally {
           this.#crypto.zeroize(pending.resultEnvelope);
+          this.#crypto.zeroize(pending.disclosureEnvelope);
+          this.#crypto.zeroize(pending.disclosureId);
+          this.#crypto.zeroize(pending.grantId);
+          this.#crypto.zeroize(pending.grantRef);
+          this.#crypto.zeroize(pending.resourceId);
+          this.#crypto.zeroize(pending.scopeHash);
         }
       }
       const claim = decodeAncV1BrokerClaimResponse(
@@ -225,6 +257,10 @@ export class PrivateVaultBrokerWorker {
 
       let executionPayload: Uint8Array | null = null;
       let sealed: Uint8Array | null = null;
+      let disclosureEnvelope: Uint8Array | null = null;
+      let disclosureId: Uint8Array | null = null;
+      let grantRef: Uint8Array | null = null;
+      let scopeHash: Uint8Array | null = null;
       try {
         const execution = await this.#executor.execute({
           payload,
@@ -248,7 +284,32 @@ export class PrivateVaultBrokerWorker {
           resultPayload: executionPayload,
         });
         sealed = sealedResult.resultEnvelope;
+        disclosureEnvelope = sealedResult.disclosureEnvelope;
+        disclosureId = sealedResult.disclosureId;
+        grantRef = sealedResult.grantRef;
+        scopeHash = sealedResult.scopeHash;
         if (!(sealed instanceof Uint8Array)) {
+          throw new PrivateVaultBrokerWorkerError();
+        }
+        const disclosureReceipt = decodeAncV1BrokerDisclosureResponse(
+          await this.#transport.disclosure(
+            encodeAncV1BrokerDisclosureRequest({
+              ...base,
+              type: "broker-disclosure-request",
+              vaultId: this.#vaultId,
+              endpointId: this.#endpointId,
+              jobId: claimed.jobId,
+              grantId: claimed.grantId,
+              resourceId: ancV1BytesToHex(opened.resourceId),
+              operation: opened.operationName,
+              providerId: sealedResult.providerId,
+              destination: sealedResult.destination,
+              outcome: execution.state === "completed" ? "allowed" : "failed",
+              signedEnvelope: disclosureEnvelope,
+            }),
+          ),
+        );
+        if (disclosureReceipt.disclosureId !== ancV1BytesToHex(disclosureId)) {
           throw new PrivateVaultBrokerWorkerError();
         }
         const receipt = decodeAncV1BrokerResultResponse(
@@ -293,6 +354,10 @@ export class PrivateVaultBrokerWorker {
         this.#crypto.zeroize(payload);
         if (executionPayload) this.#crypto.zeroize(executionPayload);
         if (sealed) this.#crypto.zeroize(sealed);
+        if (disclosureEnvelope) this.#crypto.zeroize(disclosureEnvelope);
+        if (disclosureId) this.#crypto.zeroize(disclosureId);
+        if (grantRef) this.#crypto.zeroize(grantRef);
+        if (scopeHash) this.#crypto.zeroize(scopeHash);
       }
     } catch {
       if (!claimed) throw new PrivateVaultBrokerWorkerError();

@@ -62,6 +62,7 @@ static BOOL BrokerPath(NSString *value) {
       @"/api/private-vault/jobs/broker/ack",
       @"/api/private-vault/jobs/broker/retry",
       @"/api/private-vault/jobs/broker/result",
+      @"/api/private-vault/jobs/broker/disclosure",
     ]];
   });
   return [paths containsObject:value];
@@ -135,6 +136,17 @@ static BOOL IsContentActionName(NSString *value) {
 @property(nonatomic) uint64_t retryCount;
 @property(nonatomic) NSString *algorithmId;
 @property(nonatomic) NSData *resultEnvelope;
+@property(nonatomic) NSData *disclosureEnvelope;
+@property(nonatomic) NSData *disclosureId;
+@property(nonatomic) NSData *grantId;
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) NSData *resourceId;
+@property(nonatomic) NSString *operation;
+@property(nonatomic) NSString *providerId;
+@property(nonatomic) NSString *destination;
+@property(nonatomic) NSData *scopeHash;
+@property(nonatomic) uint64_t issuedAt;
+@property(nonatomic) uint64_t expiresAt;
 @end
 @implementation AncPrivateVaultPendingResult
 @end
@@ -469,6 +481,7 @@ static BOOL IsContentActionName(NSString *value) {
 
 - (AncPrivateVaultJobProcessorStatus)
     recoverPendingHostedResultForVaultId:(NSString *)vaultId
+                              nowSeconds:(uint64_t)nowSeconds
                                     result:(AncPrivateVaultPendingResult **)result {
   if (result != NULL) *result = nil;
   if (vaultId.length != 32)
@@ -489,9 +502,49 @@ static BOOL IsContentActionName(NSString *value) {
         vaultBytes == nil || job.jobId.length != 16 ||
         job.jobHash.length != 32 || job.resultHash.length != 32 ||
         job.resultState == nil || job.hostedEpoch == 0 ||
-        job.hostedRetryCount > 100 || job.hostedAlgorithmId.length == 0) {
+        job.hostedRetryCount > 100 || job.hostedAlgorithmId.length == 0 ||
+        job.grantRef.length != 32 || job.resourceId.length != 16 ||
+        job.operation.length == 0 || job.disclosureEnvelope.length == 0 ||
+        job.disclosureProviderId.length == 0 ||
+        job.disclosureDestination.length == 0) {
       return;
     }
+    AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+    if ([_authorityStore loadVaultId:vaultId checkpoint:&checkpoint error:nil] !=
+            AncPrivateVaultAuthorityStoreStatusOK || checkpoint == nil)
+      return;
+    uint64_t nowMs = nowSeconds * 1000;
+    if (checkpoint.snapshot.verifiedAtMs > nowMs ||
+        nowMs - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000)
+      return;
+    AncPrivateVaultAuthorityMember *broker = nil;
+    for (AncPrivateVaultAuthorityMember *member in checkpoint.snapshot.activeMembers)
+      if ([member.role isEqualToString:@"broker"] && member.unattended) {
+        if (broker != nil) return;
+        broker = member;
+      }
+    if (broker.signingPublicKey.length != 32) return;
+    AncPrivateVaultRevocableGrantContext *grant = nil;
+    indexStatus = [_grantIndex resolveGrantForRevocationRef:job.grantRef
+                                                    vaultId:vaultId
+                                                    context:&grant];
+    if (indexStatus != AncPrivateVaultGrantIndexStatusOK || grant == nil ||
+        grant.grant.grantId.length != 16)
+      return;
+    NSData *scopeHash = AncPrivateVaultDisclosureScopeHash(
+        job.resourceId, job.operation);
+    AncPrivateVaultDisclosureCodecStatus disclosureStatus;
+    AncPrivateVaultVerifiedDisclosure *disclosure =
+        scopeHash.length == 32
+            ? AncPrivateVaultVerifyDisclosureEnvelope(
+                  job.disclosureEnvelope, vaultBytes, job.grantRef, nowSeconds,
+                  broker.signingPublicKey.bytes, &disclosureStatus)
+            : nil;
+    if (disclosure == nil ||
+        ![disclosure.providerId isEqualToString:job.disclosureProviderId] ||
+        ![disclosure.destination isEqualToString:job.disclosureDestination] ||
+        ![disclosure.scopeHash isEqualToData:scopeHash])
+      return;
     NSData *envelope = nil;
     AncPrivateVaultResultSpoolStatus spoolStatus =
         [_resultSpool loadEnvelopeForVaultId:vaultBytes jobId:job.jobId
@@ -508,6 +561,17 @@ static BOOL IsContentActionName(NSString *value) {
     pending.retryCount = job.hostedRetryCount;
     pending.algorithmId = [job.hostedAlgorithmId copy];
     pending.resultEnvelope = [envelope copy];
+    pending.disclosureEnvelope = [job.disclosureEnvelope copy];
+    pending.disclosureId = [disclosure.disclosureId copy];
+    pending.grantId = [grant.grant.grantId copy];
+    pending.grantRef = [job.grantRef copy];
+    pending.resourceId = [job.resourceId copy];
+    pending.operation = [job.operation copy];
+    pending.providerId = [disclosure.providerId copy];
+    pending.destination = [disclosure.destination copy];
+    pending.scopeHash = [scopeHash copy];
+    pending.issuedAt = disclosure.issuedAt;
+    pending.expiresAt = disclosure.expiresAt;
     status = AncPrivateVaultJobProcessorStatusOK;
   });
   if (status == AncPrivateVaultJobProcessorStatusOK && result != NULL)

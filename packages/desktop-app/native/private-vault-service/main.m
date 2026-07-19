@@ -454,7 +454,10 @@ static void PVPendingResult(xpc_connection_t peer, xpc_object_t message,
             [NSString stringWithUTF8String:request->vaultID];
         AncPrivateVaultPendingResult *pending = nil;
         AncPrivateVaultJobProcessorStatus status = [gJobProcessor
-            recoverPendingHostedResultForVaultId:vaultID result:&pending];
+            recoverPendingHostedResultForVaultId:vaultID
+                                      nowSeconds:
+                                          (uint64_t)floor(NSDate.date.timeIntervalSince1970)
+                                          result:&pending];
         if (status != AncPrivateVaultJobProcessorStatusOK) {
             PVSendError(peer, message, "pending_result_denied");
             return;
@@ -467,7 +470,14 @@ static void PVPendingResult(xpc_connection_t peer, xpc_object_t message,
             NSString *jobID = PVHex(pending.jobId);
             NSString *jobHash = PVHex(pending.jobHash);
             if (jobID.length != 32 || jobHash.length != 64 ||
-                pending.resultEnvelope.length == 0) {
+                pending.resultEnvelope.length == 0 ||
+                pending.disclosureEnvelope.length == 0 ||
+                pending.disclosureId.length != 16 ||
+                pending.grantId.length != 16 || pending.grantRef.length != 32 ||
+                pending.resourceId.length != 16 || pending.scopeHash.length != 32 ||
+                pending.operation.length == 0 || pending.providerId.length == 0 ||
+                pending.destination.length == 0 || pending.issuedAt == 0 ||
+                pending.expiresAt <= pending.issuedAt) {
                 PVSendError(peer, message, "pending_result_denied");
                 return;
             }
@@ -483,6 +493,28 @@ static void PVPendingResult(xpc_connection_t peer, xpc_object_t message,
             xpc_dictionary_set_data(reply, "resultEnvelope",
                                     pending.resultEnvelope.bytes,
                                     pending.resultEnvelope.length);
+            xpc_dictionary_set_data(reply, "disclosureEnvelope",
+                                    pending.disclosureEnvelope.bytes,
+                                    pending.disclosureEnvelope.length);
+            xpc_dictionary_set_data(reply, "disclosureId",
+                                    pending.disclosureId.bytes,
+                                    pending.disclosureId.length);
+            xpc_dictionary_set_data(reply, "grantId", pending.grantId.bytes,
+                                    pending.grantId.length);
+            xpc_dictionary_set_data(reply, "grantRef", pending.grantRef.bytes,
+                                    pending.grantRef.length);
+            xpc_dictionary_set_data(reply, "resourceId", pending.resourceId.bytes,
+                                    pending.resourceId.length);
+            xpc_dictionary_set_string(reply, "operationName",
+                                      pending.operation.UTF8String);
+            xpc_dictionary_set_string(reply, "providerId",
+                                      pending.providerId.UTF8String);
+            xpc_dictionary_set_string(reply, "destination",
+                                      pending.destination.UTF8String);
+            xpc_dictionary_set_data(reply, "scopeHash", pending.scopeHash.bytes,
+                                    pending.scopeHash.length);
+            xpc_dictionary_set_uint64(reply, "issuedAt", pending.issuedAt);
+            xpc_dictionary_set_uint64(reply, "expiresAt", pending.expiresAt);
         }
         xpc_connection_send_message(peer, reply);
     }

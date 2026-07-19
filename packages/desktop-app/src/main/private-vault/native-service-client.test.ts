@@ -1137,6 +1137,17 @@ describe("Private Vault native service client", () => {
       retryCount: 0,
       algorithmId: "anc-v1-job",
       resultEnvelope: Buffer.from([0xa1, 0x01, 0x01]),
+      disclosureEnvelope: Buffer.from([0xa1, 0x02, 0x02]),
+      disclosureId: Buffer.alloc(16, 0x10),
+      grantId: Buffer.alloc(16, 0x20),
+      grantRef: Buffer.alloc(32, 0x30),
+      resourceId: Buffer.alloc(16, 0x40),
+      operationName: "get-document",
+      providerId: "codex-cli",
+      destination: "gpt-5.6",
+      scopeHash: Buffer.alloc(32, 0x50),
+      issuedAt: 1721111200,
+      expiresAt: 1721111800,
     }));
     const client = createPrivateVaultNativeServiceClientForTest(async () => ({
       request,

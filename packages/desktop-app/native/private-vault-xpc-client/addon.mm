@@ -20,7 +20,7 @@
   "anchor apple generic and identifier \"" PV_SERVICE_IDENTIFIER               \
   "\" and certificate leaf[subject.OU] = \"" PV_SERVICE_TEAM_IDENTIFIER "\""
 #define PV_PROTOCOL_VERSION 3
-#define PV_MAXIMUM_REPLY_FIELDS 12
+#define PV_MAXIMUM_REPLY_FIELDS 24
 #define PV_MAXIMUM_REPLY_STRING_BYTES 64
 #define PV_GENESIS_CONFIRMATION_MAXIMUM_BYTES (64 * 1024)
 #define PV_GENESIS_TRANSCRIPT_MAXIMUM_BYTES (4 * 1024)
@@ -155,6 +155,8 @@ struct PVParsedReply {
   char resultState[10] = {0};
   char algorithmID[161] = {0};
   char operationName[121] = {0};
+  char providerID[161] = {0};
+  char destination[161] = {0};
   char candidateEndpointID[33] = {0};
   char sasCode[12] = {0};
   char offerHash[65] = {0};
@@ -178,6 +180,9 @@ struct PVParsedReply {
   std::vector<uint8_t> grantID;
   std::vector<uint8_t> grantRefBytes;
   std::vector<uint8_t> resourceID;
+  std::vector<uint8_t> disclosureEnvelope;
+  std::vector<uint8_t> disclosureID;
+  std::vector<uint8_t> disclosureScopeHash;
   std::vector<uint8_t> writerEndpointID;
   std::vector<uint8_t> revisionID;
   std::vector<uint8_t> sasTranscriptHash;
@@ -283,6 +288,8 @@ struct PVAsyncRequest {
   char resultState[10] = {0};
   char algorithmID[161] = {0};
   char operationName[121] = {0};
+  char providerID[161] = {0};
+  char destination[161] = {0};
   char candidateEndpointID[33] = {0};
   char sasCode[12] = {0};
   char offerHash[65] = {0};
@@ -326,6 +333,9 @@ struct PVAsyncRequest {
   std::vector<uint8_t> jobEnvelope;
   std::vector<uint8_t> resultPayload;
   std::vector<uint8_t> resourceID;
+  std::vector<uint8_t> disclosureEnvelope;
+  std::vector<uint8_t> disclosureID;
+  std::vector<uint8_t> disclosureScopeHash;
   std::vector<uint8_t> objectPayload;
   std::vector<uint8_t> exportPlaintext;
   std::vector<uint8_t> writerEndpointID;
@@ -368,6 +378,12 @@ struct PVAsyncRequest {
       PVClearBytes(resultPayload);
     if (!resourceID.empty())
       PVClearBytes(resourceID);
+    if (!disclosureEnvelope.empty())
+      PVClearBytes(disclosureEnvelope);
+    if (!disclosureID.empty())
+      PVClearBytes(disclosureID);
+    if (!disclosureScopeHash.empty())
+      PVClearBytes(disclosureScopeHash);
     if (!objectPayload.empty())
       PVClearBytes(objectPayload);
     if (!exportPlaintext.empty())
@@ -1348,15 +1364,42 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     return parsed;
   }
   if (operation == PVOperation::SealResult) {
-    const char *const keys[] = {"version", "ok", "requestId",
-                                "resultEnvelope"};
-    if (!PVHasExactKeys(reply, keys, 4) ||
+    const char *const keys[] = {
+        "version", "ok", "requestId", "resultEnvelope",
+        "disclosureEnvelope", "disclosureId", "grantRef", "providerId",
+        "destination", "scopeHash", "issuedAt", "expiresAt"};
+    const char *providerID = PVGetString(reply, "providerId");
+    const char *destination = PVGetString(reply, "destination");
+    xpc_object_t issued = xpc_dictionary_get_value(reply, "issuedAt");
+    xpc_object_t expires = xpc_dictionary_get_value(reply, "expiresAt");
+    if (!PVHasExactKeys(reply, keys, 12) ||
         !PVRequestIDMatches(reply, requestID) ||
         !PVCopyBoundedData(reply, "resultEnvelope",
-                           PV_JOB_ENVELOPE_MAXIMUM_BYTES, parsed.body)) {
+                           PV_JOB_ENVELOPE_MAXIMUM_BYTES, parsed.body) ||
+        !PVCopyBoundedData(reply, "disclosureEnvelope", 64 * 1024,
+                           parsed.disclosureEnvelope) ||
+        !PVCopyBoundedData(reply, "disclosureId", 16,
+                           parsed.disclosureID) ||
+        parsed.disclosureID.size() != 16 ||
+        !PVCopyBoundedData(reply, "grantRef", 32, parsed.grantRefBytes) ||
+        parsed.grantRefBytes.size() != 32 ||
+        !PVStringIsBounded(providerID, 160) ||
+        !PVStringIsBounded(destination, 160) ||
+        !PVCopyBoundedData(reply, "scopeHash", 32,
+                           parsed.disclosureScopeHash) ||
+        parsed.disclosureScopeHash.size() != 32 || issued == nullptr ||
+        xpc_get_type(issued) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "issuedAt") == 0 ||
+        expires == nullptr || xpc_get_type(expires) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "expiresAt") <=
+            xpc_dictionary_get_uint64(reply, "issuedAt")) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
+    memcpy(parsed.providerID, providerID, strlen(providerID) + 1);
+    memcpy(parsed.destination, destination, strlen(destination) + 1);
+    parsed.issuedAt = xpc_dictionary_get_uint64(reply, "issuedAt");
+    parsed.expiresAt = xpc_dictionary_get_uint64(reply, "expiresAt");
     parsed.failure = PVFailure::None;
     return parsed;
   }
@@ -1401,14 +1444,21 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     const char *const keys[] = {
         "version", "ok", "requestId", "state", "jobId", "jobHash",
         "resultState", "epoch", "retryCount", "algorithmId",
-        "resultEnvelope"};
+        "resultEnvelope", "disclosureEnvelope", "disclosureId", "grantId",
+        "grantRef", "resourceId", "operationName", "providerId",
+        "destination", "scopeHash", "issuedAt", "expiresAt"};
     const char *jobID = PVGetString(reply, "jobId");
     const char *jobHash = PVGetString(reply, "jobHash");
     const char *resultState = PVGetString(reply, "resultState");
     const char *algorithmID = PVGetString(reply, "algorithmId");
+    const char *operationName = PVGetString(reply, "operationName");
+    const char *providerID = PVGetString(reply, "providerId");
+    const char *destination = PVGetString(reply, "destination");
     xpc_object_t epoch = xpc_dictionary_get_value(reply, "epoch");
     xpc_object_t retry = xpc_dictionary_get_value(reply, "retryCount");
-    if (!PVHasExactKeys(reply, keys, 11) ||
+    xpc_object_t issued = xpc_dictionary_get_value(reply, "issuedAt");
+    xpc_object_t expires = xpc_dictionary_get_value(reply, "expiresAt");
+    if (!PVHasExactKeys(reply, keys, 22) ||
         !PVRequestIDMatches(reply, requestID) || state == nullptr ||
         strcmp(state, "pending") != 0 || !PVIsLowerHex(jobID, 32) ||
         !PVIsLowerHex(jobHash, 64) || resultState == nullptr ||
@@ -1419,12 +1469,39 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
         xpc_dictionary_get_uint64(reply, "epoch") == 0 || retry == nullptr ||
         xpc_get_type(retry) != XPC_TYPE_UINT64 ||
         xpc_dictionary_get_uint64(reply, "retryCount") > 100 ||
+        !PVStringIsBounded(operationName, 120) ||
+        !PVStringIsBounded(providerID, 160) ||
+        !PVStringIsBounded(destination, 160) || issued == nullptr ||
+        xpc_get_type(issued) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "issuedAt") == 0 ||
+        expires == nullptr || xpc_get_type(expires) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "expiresAt") <=
+            xpc_dictionary_get_uint64(reply, "issuedAt") ||
         !PVCopyBoundedData(reply, "resultEnvelope",
-                           PV_JOB_ENVELOPE_MAXIMUM_BYTES, parsed.body)) {
+                           PV_JOB_ENVELOPE_MAXIMUM_BYTES, parsed.body) ||
+        !PVCopyBoundedData(reply, "disclosureEnvelope", 64 * 1024,
+                           parsed.disclosureEnvelope) ||
+        !PVCopyBoundedData(reply, "disclosureId", 16,
+                           parsed.disclosureID) ||
+        parsed.disclosureID.size() != 16 ||
+        !PVCopyBoundedData(reply, "grantId", 16, parsed.grantID) ||
+        parsed.grantID.size() != 16 ||
+        !PVCopyBoundedData(reply, "grantRef", 32, parsed.grantRefBytes) ||
+        parsed.grantRefBytes.size() != 32 ||
+        !PVCopyBoundedData(reply, "resourceId", 16, parsed.resourceID) ||
+        parsed.resourceID.size() != 16 ||
+        !PVCopyBoundedData(reply, "scopeHash", 32,
+                           parsed.disclosureScopeHash) ||
+        parsed.disclosureScopeHash.size() != 32) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
     memcpy(parsed.state, state, strlen(state) + 1);
+    memcpy(parsed.operationName, operationName, strlen(operationName) + 1);
+    memcpy(parsed.providerID, providerID, strlen(providerID) + 1);
+    memcpy(parsed.destination, destination, strlen(destination) + 1);
+    parsed.issuedAt = xpc_dictionary_get_uint64(reply, "issuedAt");
+    parsed.expiresAt = xpc_dictionary_get_uint64(reply, "expiresAt");
     memcpy(parsed.jobID, jobID, 33);
     memcpy(parsed.jobHash, jobHash, 65);
     memcpy(parsed.resultState, resultState, strlen(resultState) + 1);
@@ -2249,6 +2326,10 @@ void PVExecute(napi_env env, void *data) {
            sizeof(request->algorithmID));
     memcpy(request->operationName, parsed.operationName,
            sizeof(request->operationName));
+    memcpy(request->providerID, parsed.providerID,
+           sizeof(request->providerID));
+    memcpy(request->destination, parsed.destination,
+           sizeof(request->destination));
     memcpy(request->candidateEndpointID, parsed.candidateEndpointID,
            sizeof(request->candidateEndpointID));
     memcpy(request->sasCode, parsed.sasCode, sizeof(request->sasCode));
@@ -2266,6 +2347,9 @@ void PVExecute(napi_env env, void *data) {
     request->revisionID = std::move(parsed.revisionID);
     request->grantID = std::move(parsed.grantID);
     request->grantRefBytes = std::move(parsed.grantRefBytes);
+    request->disclosureEnvelope = std::move(parsed.disclosureEnvelope);
+    request->disclosureID = std::move(parsed.disclosureID);
+    request->disclosureScopeHash = std::move(parsed.disclosureScopeHash);
     request->grants = std::move(parsed.grants);
     request->members = std::move(parsed.members);
     request->sasTranscriptHash = std::move(parsed.sasTranscriptHash);
@@ -2694,7 +2778,17 @@ void PVComplete(napi_env env, napi_status status, void *data) {
         return;
       }
     } else if (request->operation == PVOperation::SealResult) {
-      if (!PVSetBuffer(env, result, "resultEnvelope", request->body)) {
+      PVSetString(env, result, "providerId", request->providerID);
+      PVSetString(env, result, "destination", request->destination);
+      PVSetSafeInteger(env, result, "issuedAt", request->issuedAt);
+      PVSetSafeInteger(env, result, "expiresAt", request->expiresAt);
+      if (!PVSetBuffer(env, result, "resultEnvelope", request->body) ||
+          !PVSetBuffer(env, result, "disclosureEnvelope",
+                       request->disclosureEnvelope) ||
+          !PVSetBuffer(env, result, "disclosureId", request->disclosureID) ||
+          !PVSetBuffer(env, result, "grantRef", request->grantRefBytes) ||
+          !PVSetBuffer(env, result, "scopeHash",
+                       request->disclosureScopeHash)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",
@@ -2725,7 +2819,20 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       PVSetSafeInteger(env, result, "epoch", request->hostedEpoch);
       PVSetSafeInteger(env, result, "retryCount", request->hostedRetryCount);
       PVSetString(env, result, "algorithmId", request->algorithmID);
-      if (!PVSetBuffer(env, result, "resultEnvelope", request->body)) {
+      PVSetString(env, result, "operationName", request->operationName);
+      PVSetString(env, result, "providerId", request->providerID);
+      PVSetString(env, result, "destination", request->destination);
+      PVSetSafeInteger(env, result, "issuedAt", request->issuedAt);
+      PVSetSafeInteger(env, result, "expiresAt", request->expiresAt);
+      if (!PVSetBuffer(env, result, "resultEnvelope", request->body) ||
+          !PVSetBuffer(env, result, "disclosureEnvelope",
+                       request->disclosureEnvelope) ||
+          !PVSetBuffer(env, result, "disclosureId", request->disclosureID) ||
+          !PVSetBuffer(env, result, "grantId", request->grantID) ||
+          !PVSetBuffer(env, result, "grantRef", request->grantRefBytes) ||
+          !PVSetBuffer(env, result, "resourceId", request->resourceID) ||
+          !PVSetBuffer(env, result, "scopeHash",
+                       request->disclosureScopeHash)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",

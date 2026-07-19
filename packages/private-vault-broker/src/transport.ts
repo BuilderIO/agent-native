@@ -16,6 +16,7 @@ export const BROKER_JOB_PATHS = Object.freeze({
   ack: "/api/private-vault/jobs/broker/ack",
   retry: "/api/private-vault/jobs/broker/retry",
   result: "/api/private-vault/jobs/broker/result",
+  disclosure: "/api/private-vault/jobs/broker/disclosure",
 } as const);
 
 export type BrokerJobPath =
@@ -359,6 +360,14 @@ export class SignedHostedBrokerTransport {
   result(body: Uint8Array): Promise<Uint8Array> {
     return this.#post(
       BROKER_JOB_PATHS.result,
+      body,
+      BROKER_CONTROL_RESPONSE_MAX_BYTES,
+    );
+  }
+
+  disclosure(body: Uint8Array): Promise<Uint8Array> {
+    return this.#post(
+      BROKER_JOB_PATHS.disclosure,
       body,
       BROKER_CONTROL_RESPONSE_MAX_BYTES,
     );

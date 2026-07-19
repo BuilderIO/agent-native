@@ -1,11 +1,13 @@
 import {
   decodeAncV1BrokerAckRequest,
   decodeAncV1BrokerClaimRequest,
+  decodeAncV1BrokerDisclosureRequest,
   decodeAncV1BrokerRequestRequest,
   decodeAncV1BrokerResultFrame,
   decodeAncV1BrokerRetryRequest,
   encodeAncV1BrokerAckResponse,
   encodeAncV1BrokerClaimResponse,
+  encodeAncV1BrokerDisclosureResponse,
   encodeAncV1BrokerRequestFrame,
   encodeAncV1BrokerResultResponse,
   encodeAncV1BrokerRetryResponse,
@@ -21,9 +23,9 @@ import {
 } from "./worker.js";
 
 const base = { version: 1 as const, suite: "anc/v1" as const };
-const vaultId = "vault_12345678";
-const endpointId = "broker_12345678";
-const jobId = "job_12345678";
+const vaultId = "11".repeat(16);
+const endpointId = "22".repeat(16);
+const jobId = "33".repeat(16);
 const jobHash = "11".repeat(32);
 
 function trackedCrypto() {
@@ -82,6 +84,7 @@ function successFixture() {
         type: "broker-job-claim-response",
         job: {
           jobId,
+          grantId: "44".repeat(16),
           epoch: 1,
           retryCount: 0,
           algorithmId: "anc-v1-job",
@@ -120,6 +123,25 @@ function successFixture() {
       });
     }),
     retry: vi.fn(),
+    disclosure: vi.fn(async (body: Uint8Array) => {
+      const request = decodeAncV1BrokerDisclosureRequest(body);
+      expect(request).toMatchObject({
+        vaultId,
+        endpointId,
+        jobId,
+        grantId: "44".repeat(16),
+        operation: "get-document",
+        providerId: "codex-cli",
+        destination: "gpt-5.6",
+        outcome: "allowed",
+      });
+      return encodeAncV1BrokerDisclosureResponse({
+        ...base,
+        type: "broker-disclosure-response",
+        disclosureId: "00".repeat(16),
+        state: "stored",
+      });
+    }),
     result: vi.fn(async (body: Uint8Array) => {
       expect(decodeAncV1BrokerResultFrame(body)).toEqual({
         metadata: {
@@ -242,6 +264,7 @@ describe("PrivateVaultBrokerWorker", () => {
       request: vi.fn(),
       ack: vi.fn(),
       retry: vi.fn(),
+      disclosure: vi.fn(),
       result: vi.fn(),
     };
     const native = {
@@ -330,6 +353,17 @@ describe("PrivateVaultBrokerWorker", () => {
         retryCount: 0,
         algorithmId: "anc-v1-job",
         resultEnvelope: pendingEnvelope,
+        disclosureEnvelope: Uint8Array.of(51, 52, 53),
+        disclosureId: new Uint8Array(16),
+        grantId: new Uint8Array(16).fill(0x44),
+        grantRef: new Uint8Array(32).fill(0x45),
+        resourceId: new Uint8Array(16),
+        operationName: "get-document",
+        providerId: "codex-cli",
+        destination: "gpt-5.6",
+        scopeHash: new Uint8Array(32),
+        issuedAt: 1,
+        expiresAt: 2,
       },
     });
     fixture.transport.result.mockImplementationOnce(async (body) => {
@@ -358,6 +392,7 @@ describe("PrivateVaultBrokerWorker", () => {
     expect(fixture.transport.claim).not.toHaveBeenCalled();
     expect(fixture.executor.execute).not.toHaveBeenCalled();
     expect(fixture.native.openHostedJob).not.toHaveBeenCalled();
+    expect(fixture.transport.disclosure).toHaveBeenCalledOnce();
     expect(fixture.transport.result).toHaveBeenCalledOnce();
     expect(fixture.native.acknowledgeHostedResult).toHaveBeenCalledOnce();
     expect(pendingEnvelope).toEqual(new Uint8Array(3));

@@ -594,6 +594,7 @@ int main(void) {
            jobContext.resultHash.length == 32);
     AncPrivateVaultPendingResult *pendingResult = nil;
     assert([processor recoverPendingHostedResultForVaultId:kVaultId
+                                                nowSeconds:1721111203
                                                     result:&pendingResult] ==
                AncPrivateVaultJobProcessorStatusOK &&
            [pendingResult.jobId isEqualToData:Pattern(0x06, 16)] &&
@@ -602,7 +603,20 @@ int main(void) {
            pendingResult.epoch == 1 && pendingResult.retryCount == 0 &&
            [pendingResult.algorithmId isEqualToString:@"anc-v1-job"] &&
            [pendingResult.resultEnvelope
-               isEqualToData:resultEnvelope.resultEnvelope]);
+               isEqualToData:resultEnvelope.resultEnvelope] &&
+           [pendingResult.disclosureEnvelope
+               isEqualToData:resultEnvelope.disclosureEnvelope] &&
+           [pendingResult.disclosureId
+               isEqualToData:resultEnvelope.disclosureId] &&
+           pendingResult.grantId.length == 16 &&
+           [pendingResult.grantRef isEqualToData:resultEnvelope.grantRef] &&
+           pendingResult.resourceId.length == 16 &&
+           [pendingResult.operation isEqualToString:@"get-document"] &&
+           [pendingResult.providerId isEqualToString:@"codex-cli"] &&
+           [pendingResult.destination isEqualToString:@"gpt-5.6"] &&
+           [pendingResult.scopeHash isEqualToData:resultEnvelope.scopeHash] &&
+           pendingResult.issuedAt == resultEnvelope.issuedAt &&
+           pendingResult.expiresAt == resultEnvelope.expiresAt);
     assert([processor acknowledgeHostedResultForVaultId:kVaultId
                                                    jobId:Pattern(0x06, 16)
                                                   jobHash:authorizedJobHash
@@ -620,6 +634,7 @@ int main(void) {
            AncPrivateVaultJobProcessorStatusOK);
     pendingResult = nil;
     assert([processor recoverPendingHostedResultForVaultId:kVaultId
+                                                nowSeconds:1721111203
                                                     result:&pendingResult] ==
                AncPrivateVaultJobProcessorStatusOK &&
            pendingResult == nil);

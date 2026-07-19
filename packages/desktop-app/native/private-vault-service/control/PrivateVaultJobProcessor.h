@@ -35,6 +35,17 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
 @property(nonatomic, readonly) uint64_t retryCount;
 @property(nonatomic, readonly) NSString *algorithmId;
 @property(nonatomic, readonly) NSData *resultEnvelope;
+@property(nonatomic, readonly) NSData *disclosureEnvelope;
+@property(nonatomic, readonly) NSData *disclosureId;
+@property(nonatomic, readonly) NSData *grantId;
+@property(nonatomic, readonly) NSData *grantRef;
+@property(nonatomic, readonly) NSData *resourceId;
+@property(nonatomic, readonly) NSString *operation;
+@property(nonatomic, readonly) NSString *providerId;
+@property(nonatomic, readonly) NSString *destination;
+@property(nonatomic, readonly) NSData *scopeHash;
+@property(nonatomic, readonly) uint64_t issuedAt;
+@property(nonatomic, readonly) uint64_t expiresAt;
 @end
 
 @interface AncPrivateVaultSealedResult : NSObject
@@ -86,6 +97,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
 /** Returns one exact encrypted result that must be idempotently resubmitted. */
 - (AncPrivateVaultJobProcessorStatus)
     recoverPendingHostedResultForVaultId:(NSString *)vaultId
+                              nowSeconds:(uint64_t)nowSeconds
                                     result:
                                         (AncPrivateVaultPendingResult *_Nullable
                                              *_Nullable)result;

@@ -191,6 +191,17 @@ export type NativeRecoverHostedResultResult =
       readonly retryCount: number;
       readonly algorithmId: string;
       readonly resultEnvelope: Uint8Array;
+      readonly disclosureEnvelope: Uint8Array;
+      readonly disclosureId: Uint8Array;
+      readonly grantId: Uint8Array;
+      readonly grantRef: Uint8Array;
+      readonly resourceId: Uint8Array;
+      readonly operationName: string;
+      readonly providerId: string;
+      readonly destination: string;
+      readonly scopeHash: Uint8Array;
+      readonly issuedAt: number;
+      readonly expiresAt: number;
     };
   };
 
@@ -948,6 +959,17 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
         "retryCount",
         "algorithmId",
         "resultEnvelope",
+        "disclosureEnvelope",
+        "disclosureId",
+        "grantId",
+        "grantRef",
+        "resourceId",
+        "operationName",
+        "providerId",
+        "destination",
+        "scopeHash",
+        "issuedAt",
+        "expiresAt",
       ]);
       if (
         typeof pending.jobHash !== "string" ||
@@ -961,19 +983,47 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
         typeof pending.algorithmId !== "string" ||
         pending.algorithmId.length === 0 ||
         pending.algorithmId.length > 160 ||
-        !/^[\x21-\x7e]+$/.test(pending.algorithmId)
+        !/^[\x21-\x7e]+$/.test(pending.algorithmId) ||
+        typeof pending.operationName !== "string" ||
+        pending.operationName.length === 0 ||
+        pending.operationName.length > 120 ||
+        typeof pending.providerId !== "string" ||
+        pending.providerId.length === 0 ||
+        pending.providerId.length > 160 ||
+        typeof pending.destination !== "string" ||
+        pending.destination.length === 0 ||
+        pending.destination.length > 160
       )
         fail("invalid_result");
       let resultEnvelope: Uint8Array;
+      let disclosureEnvelope: Uint8Array;
+      let disclosureId: Uint8Array;
+      let grantId: Uint8Array;
+      let grantRef: Uint8Array;
+      let resourceId: Uint8Array;
+      let scopeHash: Uint8Array;
       try {
         resultEnvelope = resultBytes(
           pending.resultEnvelope,
           1,
           PRIVATE_VAULT_NATIVE_SERVICE_LIMITS.hostedResultEnvelopeBytes,
         );
+        disclosureEnvelope = resultBytes(
+          pending.disclosureEnvelope,
+          1,
+          64 * 1024,
+        );
+        disclosureId = resultBytes(pending.disclosureId, 16, 16);
+        grantId = resultBytes(pending.grantId, 16, 16);
+        grantRef = resultBytes(pending.grantRef, 32, 32);
+        resourceId = resultBytes(pending.resourceId, 16, 16);
+        scopeHash = resultBytes(pending.scopeHash, 32, 32);
       } catch {
         fail("invalid_result");
       }
+      const issuedAt = safePositiveInteger(pending.issuedAt);
+      const expiresAt = safePositiveInteger(pending.expiresAt);
+      if (expiresAt <= issuedAt) fail("invalid_result");
       return {
         ...base(operation),
         pending: {
@@ -984,6 +1034,17 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
           retryCount: pending.retryCount as number,
           algorithmId: pending.algorithmId,
           resultEnvelope,
+          disclosureEnvelope,
+          disclosureId,
+          grantId,
+          grantRef,
+          resourceId,
+          operationName: pending.operationName,
+          providerId: pending.providerId,
+          destination: pending.destination,
+          scopeHash,
+          issuedAt,
+          expiresAt,
         },
       };
     }

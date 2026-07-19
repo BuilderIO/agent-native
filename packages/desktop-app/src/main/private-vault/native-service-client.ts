@@ -1684,6 +1684,17 @@ function parsePendingResult(value: unknown): NativeRecoverHostedResultResult {
       "retryCount",
       "algorithmId",
       "resultEnvelope",
+      "disclosureEnvelope",
+      "disclosureId",
+      "grantId",
+      "grantRef",
+      "resourceId",
+      "operationName",
+      "providerId",
+      "destination",
+      "scopeHash",
+      "issuedAt",
+      "expiresAt",
     ]) ||
     !isLowerHex(value.jobId, 32) ||
     typeof value.jobHash !== "string" ||
@@ -1700,7 +1711,33 @@ function parsePendingResult(value: unknown): NativeRecoverHostedResultResult {
     !/^[\x21-\x7e]+$/.test(value.algorithmId) ||
     !(value.resultEnvelope instanceof Uint8Array) ||
     value.resultEnvelope.byteLength === 0 ||
-    value.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes
+    value.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes ||
+    !(value.disclosureEnvelope instanceof Uint8Array) ||
+    value.disclosureEnvelope.byteLength === 0 ||
+    value.disclosureEnvelope.byteLength > 64 * 1024 ||
+    !(value.disclosureId instanceof Uint8Array) ||
+    value.disclosureId.byteLength !== 16 ||
+    !(value.grantId instanceof Uint8Array) ||
+    value.grantId.byteLength !== 16 ||
+    !(value.grantRef instanceof Uint8Array) ||
+    value.grantRef.byteLength !== 32 ||
+    !(value.resourceId instanceof Uint8Array) ||
+    value.resourceId.byteLength !== 16 ||
+    typeof value.operationName !== "string" ||
+    value.operationName.length === 0 ||
+    value.operationName.length > 120 ||
+    typeof value.providerId !== "string" ||
+    value.providerId.length === 0 ||
+    value.providerId.length > 160 ||
+    typeof value.destination !== "string" ||
+    value.destination.length === 0 ||
+    value.destination.length > 160 ||
+    !(value.scopeHash instanceof Uint8Array) ||
+    value.scopeHash.byteLength !== 32 ||
+    !Number.isSafeInteger(value.issuedAt) ||
+    (value.issuedAt as number) <= 0 ||
+    !Number.isSafeInteger(value.expiresAt) ||
+    (value.expiresAt as number) <= (value.issuedAt as number)
   )
     throw new PrivateVaultNativeServiceClientError();
   return {
@@ -1715,6 +1752,17 @@ function parsePendingResult(value: unknown): NativeRecoverHostedResultResult {
       retryCount: value.retryCount as number,
       algorithmId: value.algorithmId,
       resultEnvelope: value.resultEnvelope.slice(),
+      disclosureEnvelope: value.disclosureEnvelope.slice(),
+      disclosureId: value.disclosureId.slice(),
+      grantId: value.grantId.slice(),
+      grantRef: value.grantRef.slice(),
+      resourceId: value.resourceId.slice(),
+      operationName: value.operationName,
+      providerId: value.providerId,
+      destination: value.destination,
+      scopeHash: value.scopeHash.slice(),
+      issuedAt: value.issuedAt as number,
+      expiresAt: value.expiresAt as number,
     },
   };
 }
