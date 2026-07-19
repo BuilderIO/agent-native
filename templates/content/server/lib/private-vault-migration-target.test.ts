@@ -12,7 +12,7 @@ const scope: PrivateVaultMigrationScope = {
   vaultId: "21".repeat(16),
 };
 const objectId = "31".repeat(16);
-const revisionId = "41".repeat(16);
+const revisionId = "41".repeat(32);
 
 function objectService(ciphertext = Uint8Array.of(1, 2, 3, 4)) {
   return {

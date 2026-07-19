@@ -2,6 +2,7 @@ import { E2EE_SIZE_LIMITS, opaqueIdSchema } from "@agent-native/core/e2ee";
 import { z } from "zod";
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
+const revisionIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const timestampSchema = z.string().datetime({ offset: true });
 const sourceDocumentIdSchema = z.string().min(1).max(256);
 const boundedTextSchema = z.string().max(1024 * 1024);
@@ -16,7 +17,7 @@ export const privateVaultMigrationExportDocumentSchema = z
     parentSourceDocumentId: sourceDocumentIdSchema.nullable(),
     objectId: opaqueIdSchema,
     sourceDigest: digestSchema,
-    sealedRevisionId: opaqueIdSchema,
+    sealedRevisionId: revisionIdSchema,
     sealedCiphertextHash: digestSchema,
     title: boundedTextSchema,
     content: boundedTextSchema,
@@ -42,7 +43,7 @@ export const privateVaultMigrationExportPayloadSchema = z
     migrationId: opaqueIdSchema,
     sourceSnapshotHash: digestSchema,
     cutoverManifestObjectId: opaqueIdSchema,
-    cutoverManifestRevisionId: opaqueIdSchema,
+    cutoverManifestRevisionId: revisionIdSchema,
     cutoverManifestCiphertextHash: digestSchema,
     createdAt: timestampSchema,
     documents: z

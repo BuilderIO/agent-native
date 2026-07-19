@@ -110,7 +110,7 @@ describe("Private Vault SQL migration ledger", () => {
     const verifiedFirst = privateVaultMigrationItemSchema.parse({
       ...items[0],
       state: "verified",
-      sealedRevisionId: "71".repeat(16),
+      sealedRevisionId: "71".repeat(32),
       sealedCiphertextHash: "81".repeat(32),
       verifiedAt: timestamp,
     });
@@ -124,7 +124,7 @@ describe("Private Vault SQL migration ledger", () => {
     const verifiedSecond = privateVaultMigrationItemSchema.parse({
       ...items[1],
       state: "verified",
-      sealedRevisionId: "72".repeat(16),
+      sealedRevisionId: "72".repeat(32),
       sealedCiphertextHash: "82".repeat(32),
       verifiedAt: timestamp,
     });
@@ -150,7 +150,7 @@ describe("Private Vault SQL migration ledger", () => {
     const cutover = ledger({
       state: "cutover",
       verifiedCount: 2,
-      cutoverManifestRevisionId: "43".repeat(16),
+      cutoverManifestRevisionId: "43".repeat(32),
       cutoverManifestCiphertextHash: "44".repeat(32),
       cutoverAt: timestamp,
     });
@@ -162,7 +162,7 @@ describe("Private Vault SQL migration ledger", () => {
     const eligible = ledger({
       state: "cleanup_eligible",
       verifiedCount: 2,
-      cutoverManifestRevisionId: "43".repeat(16),
+      cutoverManifestRevisionId: "43".repeat(32),
       cutoverManifestCiphertextHash: "44".repeat(32),
       cutoverAt: timestamp,
       exportBundleHash: "91".repeat(32),

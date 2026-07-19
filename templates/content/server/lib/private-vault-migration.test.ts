@@ -243,7 +243,7 @@ describe("Private Vault resumable migration coordinator", () => {
         scope,
         migrationId: ledger.migrationId,
         sourceDocumentId: "root",
-        revisionId: "31".repeat(16),
+        revisionId: "31".repeat(32),
         ciphertextHash: "ff".repeat(32),
       }),
     ).rejects.toBeInstanceOf(PrivateVaultMigrationError);
@@ -251,7 +251,7 @@ describe("Private Vault resumable migration coordinator", () => {
       scope,
       migrationId: ledger.migrationId,
       sourceDocumentId: "root",
-      revisionId: "31".repeat(16),
+      revisionId: "31".repeat(32),
       ciphertextHash: "41".repeat(32),
     });
     expect(first).toMatchObject({ state: "verifying", verifiedCount: 1 });
@@ -260,7 +260,7 @@ describe("Private Vault resumable migration coordinator", () => {
         scope,
         migrationId: ledger.migrationId,
         sourceDocumentId: "root",
-        revisionId: "31".repeat(16),
+        revisionId: "31".repeat(32),
         ciphertextHash: "41".repeat(32),
       }),
     ).toEqual(first);
@@ -272,7 +272,7 @@ describe("Private Vault resumable migration coordinator", () => {
       scope,
       migrationId: ledger.migrationId,
       sourceDocumentId: "child",
-      revisionId: "32".repeat(16),
+      revisionId: "32".repeat(32),
       ciphertextHash: "41".repeat(32),
     });
     expect(ready).toMatchObject({
@@ -284,7 +284,7 @@ describe("Private Vault resumable migration coordinator", () => {
         scope,
         migrationId: ledger.migrationId,
         objectId: "ff".repeat(16),
-        revisionId: "33".repeat(16),
+        revisionId: "33".repeat(32),
         ciphertextHash: "42".repeat(32),
       }),
     ).rejects.toBeInstanceOf(PrivateVaultMigrationError);
@@ -293,12 +293,12 @@ describe("Private Vault resumable migration coordinator", () => {
         scope,
         migrationId: ledger.migrationId,
         objectId: ledger.cutoverManifestObjectId!,
-        revisionId: "33".repeat(16),
+        revisionId: "33".repeat(32),
         ciphertextHash: "42".repeat(32),
       }),
     ).resolves.toMatchObject({
       state: "cutover",
-      cutoverManifestRevisionId: "33".repeat(16),
+      cutoverManifestRevisionId: "33".repeat(32),
       cutoverManifestCiphertextHash: "42".repeat(32),
       cutoverAt: now,
     });
@@ -313,14 +313,14 @@ describe("Private Vault resumable migration coordinator", () => {
         scope,
         migrationId: ledger.migrationId,
         sourceDocumentId,
-        revisionId: (index ? "32" : "31").repeat(16),
+        revisionId: (index ? "32" : "31").repeat(32),
         ciphertextHash: "41".repeat(32),
       });
     await coordinator.cutover({
       scope,
       migrationId: ledger.migrationId,
       objectId: ledger.cutoverManifestObjectId!,
-      revisionId: "33".repeat(16),
+      revisionId: "33".repeat(32),
       ciphertextHash: "42".repeat(32),
     });
     await expect(
@@ -361,7 +361,7 @@ describe("Private Vault resumable migration coordinator", () => {
       scope,
       migrationId: ledger.migrationId,
       sourceDocumentId: "root",
-      revisionId: "31".repeat(16),
+      revisionId: "31".repeat(32),
       ciphertextHash: "41".repeat(32),
     });
     await expect(
@@ -386,7 +386,7 @@ describe("Private Vault resumable migration coordinator", () => {
       scope,
       migrationId: ledger.migrationId,
       sourceDocumentId: "root",
-      revisionId: "31".repeat(16),
+      revisionId: "31".repeat(32),
       ciphertextHash: "41".repeat(32),
     });
     const rollback = target.rollback as ReturnType<typeof vi.fn>;

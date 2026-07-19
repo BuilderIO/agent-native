@@ -65,7 +65,7 @@ describe("manage-private-vault-migration action", () => {
         operation: "verify-item",
         migrationId,
         sourceDocumentId: "source-doc",
-        revisionId: "41".repeat(16),
+        revisionId: "41".repeat(32),
         ciphertextHash: "51".repeat(32),
       },
       {} as never,
@@ -74,7 +74,7 @@ describe("manage-private-vault-migration action", () => {
       scope,
       migrationId,
       sourceDocumentId: "source-doc",
-      revisionId: "41".repeat(16),
+      revisionId: "41".repeat(32),
       ciphertextHash: "51".repeat(32),
     });
 
@@ -86,7 +86,7 @@ describe("manage-private-vault-migration action", () => {
         operation: "cutover",
         migrationId,
         objectId: "41".repeat(16),
-        revisionId: "42".repeat(16),
+        revisionId: "42".repeat(32),
         ciphertextHash: "43".repeat(32),
       },
       {} as never,
@@ -96,7 +96,7 @@ describe("manage-private-vault-migration action", () => {
       scope,
       migrationId,
       objectId: "41".repeat(16),
-      revisionId: "42".repeat(16),
+      revisionId: "42".repeat(32),
       ciphertextHash: "43".repeat(32),
     });
     expect(runtime.coordinator.rollback).toHaveBeenCalledWith(
@@ -138,6 +138,16 @@ describe("manage-private-vault-migration action", () => {
         operation: "status",
         migrationId,
         recoveryPhrase: "never",
+      }).success,
+    ).toBe(false);
+    expect(
+      managePrivateVaultMigrationSchema.safeParse({
+        vaultId,
+        operation: "verify-item",
+        migrationId,
+        sourceDocumentId: "source-doc",
+        revisionId: "41".repeat(16),
+        ciphertextHash: "51".repeat(32),
       }).success,
     ).toBe(false);
   });

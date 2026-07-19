@@ -70,7 +70,7 @@ function verifiedItems(
       objectId: (index === 0 ? "41" : "42").repeat(16),
       sourceDigest: hashPrivateVaultMigrationSource(source),
       state: "verified",
-      sealedRevisionId: (index === 0 ? "51" : "52").repeat(16),
+      sealedRevisionId: (index === 0 ? "51" : "52").repeat(32),
       sealedCiphertextHash: (index === 0 ? "61" : "62").repeat(32),
       verifiedAt: timestamp,
       cleanupAt: null,
@@ -89,7 +89,7 @@ function fixture() {
     sourceCount: items.length,
     verifiedCount: items.length,
     cutoverManifestObjectId: "71".repeat(16),
-    cutoverManifestRevisionId: "72".repeat(16),
+    cutoverManifestRevisionId: "72".repeat(32),
     cutoverManifestCiphertextHash: "73".repeat(32),
     exportBundleHash: null,
     exportVerifiedAt: null,
@@ -121,7 +121,7 @@ describe("Private Vault canonical migration export", () => {
       migrationId: ledger.migrationId,
       sourceSnapshotHash: ledger.sourceSnapshotHash,
       cutoverManifestObjectId: "71".repeat(16),
-      cutoverManifestRevisionId: "72".repeat(16),
+      cutoverManifestRevisionId: "72".repeat(32),
       cutoverManifestCiphertextHash: "73".repeat(32),
       createdAt: timestamp,
     });
@@ -141,12 +141,12 @@ describe("Private Vault canonical migration export", () => {
       isFavorite: true,
       hideFromSearch: true,
       objectId: "41".repeat(16),
-      sealedRevisionId: "51".repeat(16),
+      sealedRevisionId: "51".repeat(32),
       sealedCiphertextHash: "61".repeat(32),
     });
     expect(bundle.objectCount).toBe(2);
     expect(bundle.plaintextSha256).toBe(
-      "0f5f87a6f4dd9765b40ee18652fa5d8ffbb274065a2998c77ea1ffaa8f467188",
+      "83f137776a4b2e7c7ff30b413cf0f2eb4fa15a58adf35c8ec3e9bfc48401a1b4",
     );
     expect(createHash("sha256").update(bundle.plaintext).digest("hex")).toBe(
       bundle.plaintextSha256,

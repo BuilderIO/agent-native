@@ -58,7 +58,7 @@ describe("Private Vault migration contract", () => {
       ...base,
       state: "cutover" as const,
       verifiedCount: 2,
-      cutoverManifestRevisionId: "43".repeat(16),
+      cutoverManifestRevisionId: "43".repeat(32),
       cutoverManifestCiphertextHash: "44".repeat(32),
       cutoverAt: timestamp,
     };
@@ -111,7 +111,7 @@ describe("Private Vault migration contract", () => {
         objectId: "61".repeat(16),
         sourceDigest: "71".repeat(32),
         state: "verified",
-        sealedRevisionId: "81".repeat(16),
+        sealedRevisionId: "81".repeat(32),
         sealedCiphertextHash: "91".repeat(32),
         verifiedAt: timestamp,
         cleanupAt: null,

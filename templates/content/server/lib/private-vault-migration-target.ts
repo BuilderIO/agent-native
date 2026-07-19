@@ -92,13 +92,14 @@ export function createPrivateVaultMigrationCiphertextTarget(
     input: Parameters<PrivateVaultMigrationCiphertextTarget["verify"]>[0],
     expectedObjectType: "document" | "vault-manifest",
   ): Promise<boolean> {
-    if (!validDigest(input.ciphertextHash)) return false;
+    if (!validDigest(input.ciphertextHash) || !validDigest(input.revisionId))
+      return false;
     let ciphertext: Uint8Array | undefined;
     try {
       const result = await objects.getRevision(
         input.scope,
         opaqueIdSchema.parse(input.objectId),
-        opaqueIdSchema.parse(input.revisionId),
+        input.revisionId,
       );
       ciphertext = result.ciphertext;
       return (

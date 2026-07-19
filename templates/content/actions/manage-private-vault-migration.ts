@@ -11,6 +11,7 @@ import { PRIVATE_VAULT_BACKUP_RETENTION_DISCLOSURE_VERSION } from "../server/lib
 
 const sourceDocumentIdSchema = z.string().min(1).max(256);
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
+const revisionIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const base = { vaultId: opaqueIdSchema };
 
 export const managePrivateVaultMigrationSchema = z.discriminatedUnion(
@@ -36,7 +37,7 @@ export const managePrivateVaultMigrationSchema = z.discriminatedUnion(
         operation: z.literal("cutover"),
         migrationId: opaqueIdSchema,
         objectId: opaqueIdSchema,
-        revisionId: opaqueIdSchema,
+        revisionId: revisionIdSchema,
         ciphertextHash: digestSchema,
       })
       .strict(),
@@ -54,7 +55,7 @@ export const managePrivateVaultMigrationSchema = z.discriminatedUnion(
         operation: z.literal("verify-item"),
         migrationId: opaqueIdSchema,
         sourceDocumentId: sourceDocumentIdSchema,
-        revisionId: opaqueIdSchema,
+        revisionId: revisionIdSchema,
         ciphertextHash: digestSchema,
       })
       .strict(),

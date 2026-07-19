@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const timestampSchema = z.string().datetime({ offset: true });
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
+const revisionIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const sourceDocumentIdSchema = z.string().min(1).max(256);
 
 export const privateVaultMigrationStateSchema = z.enum([
@@ -33,7 +34,7 @@ export const privateVaultMigrationLedgerSchema = z
     sourceCount: z.number().int().nonnegative().max(10_000),
     verifiedCount: z.number().int().nonnegative().max(10_000),
     cutoverManifestObjectId: opaqueIdSchema.nullable(),
-    cutoverManifestRevisionId: opaqueIdSchema.nullable(),
+    cutoverManifestRevisionId: revisionIdSchema.nullable(),
     cutoverManifestCiphertextHash: digestSchema.nullable(),
     exportBundleHash: digestSchema.nullable(),
     exportVerifiedAt: timestampSchema.nullable(),
@@ -65,7 +66,7 @@ export const privateVaultMigrationItemSchema = z
     objectId: opaqueIdSchema,
     sourceDigest: digestSchema,
     state: privateVaultMigrationItemStateSchema,
-    sealedRevisionId: opaqueIdSchema.nullable(),
+    sealedRevisionId: revisionIdSchema.nullable(),
     sealedCiphertextHash: digestSchema.nullable(),
     verifiedAt: timestampSchema.nullable(),
     cleanupAt: timestampSchema.nullable(),
