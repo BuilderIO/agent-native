@@ -12,17 +12,18 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   ContentFilesSidebarView,
   DatabaseSidebarView,
+  databaseSidebarItemTree,
   databaseSidebarRows,
 } from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
 
-const item = (id: string, title: string) =>
+const item = (id: string, title: string, parentId: string | null = null) =>
   ({
     id: `item-${id}`,
     databaseId: "database",
     document: {
       id,
-      parentId: null,
+      parentId,
       title,
       content: "",
       icon: null,
@@ -83,6 +84,65 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("Project");
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain("font-semibold");
+  });
+
+  it("renders parented Files pages beneath filtered roots", () => {
+    const rootItem = item("parent", "Page one");
+    const childItem = item("child", "Page two", "parent");
+    const grandchildItem = item("grandchild", "Page three", "child");
+
+    expect(
+      databaseSidebarItemTree(
+        [rootItem],
+        [rootItem, childItem, grandchildItem],
+      ),
+    ).toMatchObject([
+      {
+        item: { document: { id: "parent" } },
+        children: [
+          {
+            item: { document: { id: "child" } },
+            children: [{ item: { document: { id: "grandchild" } } }],
+          },
+        ],
+      },
+    ]);
+
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <DatabaseSidebarView
+            groups={[
+              {
+                id: "all",
+                label: "All pages",
+                items: [rootItem],
+                property: null,
+                value: "all",
+              },
+            ]}
+            hierarchyItems={[rootItem, childItem, grandchildItem]}
+            grouped={false}
+            isLoading={false}
+            hasActiveConstraints
+            openPagesIn="full_page"
+            loadingLabel="Loading list"
+            noMatchesLabel="No rows match this view"
+            clearLabel="Clear"
+            navigationLabel="Database pages"
+            untitledLabel="Untitled"
+            onClearResultConstraints={() => {}}
+            onPreview={() => {}}
+            activeDocumentId="child"
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="Collapse Page one"');
+    expect(markup).toContain('href="/page/child"');
+    expect(markup).toContain("Page three");
+    expect(markup).toContain('aria-current="page"');
   });
 
   it("lets a saved database view render workspace roots inside its groups", () => {

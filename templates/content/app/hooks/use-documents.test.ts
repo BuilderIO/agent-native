@@ -10,6 +10,9 @@ import {
   isDocumentUpdateConflict,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
+  patchDocumentCaches,
+  patchDocumentInDatabaseCache,
+  patchDocumentInListDocumentsCache,
   restoreQuerySnapshots,
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
@@ -205,6 +208,73 @@ describe("optimistic document favorites", () => {
 
     expect(queryClient.getQueryData(documentKey)).toEqual(originalDocument);
     expect(queryClient.getQueryData(listKey)).toEqual(originalList);
+  });
+});
+
+describe("optimistic document titles", () => {
+  it("renames matching sidebar documents and Files rows immediately", () => {
+    const list = [doc("a", null), doc("b", null)];
+    const database = {
+      items: [
+        {
+          id: "item-a",
+          databaseId: "files",
+          position: 0,
+          document: doc("a", null),
+          properties: [],
+        },
+      ],
+    } as any;
+
+    expect(
+      patchDocumentInListDocumentsCache(list, "a", { title: "Page one" }),
+    ).toEqual([{ ...doc("a", null), title: "Page one" }, doc("b", null)]);
+    expect(
+      patchDocumentInDatabaseCache(database, "a", { title: "Page one" })
+        ?.items[0].document.title,
+    ).toBe("Page one");
+    expect(database.items[0].document.title).toBe("a");
+  });
+
+  it("updates every sidebar-facing cache before the save round trip", () => {
+    const queryClient = new QueryClient();
+    const databaseKey = [
+      "action",
+      "get-content-database",
+      { databaseId: "files" },
+    ] as const;
+    queryClient.setQueryData(documentQueryKey("a"), doc("a", null));
+    queryClient.setQueryData(
+      ["action", "list-documents", undefined],
+      [doc("a", null)],
+    );
+    queryClient.setQueryData(databaseKey, {
+      items: [
+        {
+          id: "item-a",
+          databaseId: "files",
+          position: 0,
+          document: doc("a", null),
+          properties: [],
+        },
+      ],
+    });
+
+    patchDocumentCaches(queryClient, "a", { title: "Page one" });
+
+    expect(
+      queryClient.getQueryData<Document>(documentQueryKey("a"))?.title,
+    ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<Document[]>([
+        "action",
+        "list-documents",
+        undefined,
+      ])?.[0].title,
+    ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<any>(databaseKey)?.items[0].document.title,
+    ).toBe("Page one");
   });
 });
 

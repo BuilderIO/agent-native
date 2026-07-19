@@ -317,7 +317,10 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("export function FavoriteDocumentItem");
     expect(sidebar).toContain("items-center ps-1 text-[10px]");
     expect(treeItem).toContain('paddingInlineStart: "26px"');
-    expect(treeItem).toContain('"border-primary bg-accent font-medium');
+    expect(treeItem).toContain('? "font-semibold text-foreground"');
+    expect(treeItem).not.toContain(
+      '"border-primary bg-accent font-medium text-accent-foreground"',
+    );
     expect(treeItem).toContain("Remove from favorites");
     expect(treeItem).toContain("aria-label={`Open ${title}`}");
     expect(treeItem).toContain("onClick={(event) => event.stopPropagation()}");

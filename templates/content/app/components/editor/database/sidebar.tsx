@@ -168,6 +168,11 @@ export function ContentFilesSidebarView({
     ),
     activeView.hideEmptyGroups === true,
   );
+  const hierarchyItems = data?.properties.some(
+    (property) => property.definition.systemRole === "files_parent",
+  )
+    ? data.items
+    : undefined;
   return (
     <div className="min-w-0">
       {viewConfig.views.length > 1 && (
@@ -211,6 +216,7 @@ export function ContentFilesSidebarView({
         onDeleteItem={onDeleteItem}
         onToggleFavorite={onToggleFavorite}
         renderItem={renderItem}
+        hierarchyItems={hierarchyItems}
         scroll={scroll}
       />
     </div>
@@ -232,6 +238,7 @@ export function DatabaseSidebarView({
   onDeleteItem,
   onToggleFavorite,
   renderItem,
+  hierarchyItems,
   scroll = true,
   loadingLabel,
   noMatchesLabel,
@@ -253,6 +260,7 @@ export function DatabaseSidebarView({
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   renderItem?: (item: ContentDatabaseItem) => ReactNode;
+  hierarchyItems?: ContentDatabaseItem[];
   scroll?: boolean;
   loadingLabel: string;
   noMatchesLabel: string;
@@ -263,7 +271,14 @@ export function DatabaseSidebarView({
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [collapsedDocumentIds, setCollapsedDocumentIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const items = groups.flatMap((group) => group.items);
+  const itemTree =
+    !grouped && hierarchyItems
+      ? databaseSidebarItemTree(items, hierarchyItems)
+      : null;
 
   function setGroupOpen(groupId: string, open: boolean) {
     setCollapsedGroupIds((current) => {
@@ -272,6 +287,46 @@ export function DatabaseSidebarView({
       else next.add(groupId);
       return next;
     });
+  }
+
+  function setDocumentOpen(documentId: string, open: boolean) {
+    setCollapsedDocumentIds((current) => {
+      const next = new Set(current);
+      if (open) next.delete(documentId);
+      else next.add(documentId);
+      return next;
+    });
+  }
+
+  function renderTreeNode(node: DatabaseSidebarItemTreeNode, depth: number) {
+    const open = !collapsedDocumentIds.has(node.item.document.id);
+    return (
+      <div key={node.item.id} className="min-w-0">
+        <DatabaseSidebarRow
+          item={node.item}
+          openPagesIn={openPagesIn}
+          onPreview={onPreview}
+          onOpenItem={onOpenItem}
+          active={node.item.document.id === activeDocumentId}
+          onCreateChildPage={onCreateChildPage}
+          onCreateChildDatabase={onCreateChildDatabase}
+          onDeleteItem={onDeleteItem}
+          onToggleFavorite={onToggleFavorite}
+          untitledLabel={untitledLabel}
+          depth={depth}
+          hasChildren={node.children.length > 0}
+          expanded={open}
+          onToggleExpanded={(nextOpen) =>
+            setDocumentOpen(node.item.document.id, nextOpen)
+          }
+        />
+        {open && node.children.length > 0 ? (
+          <div>
+            {node.children.map((child) => renderTreeNode(child, depth + 1))}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -350,27 +405,29 @@ export function DatabaseSidebarView({
               </Collapsible>
             );
           })
-        : items.map((item) =>
-            renderItem ? (
-              <div key={item.id} className="min-w-0">
-                {renderItem(item)}
-              </div>
-            ) : (
-              <DatabaseSidebarRow
-                key={item.id}
-                item={item}
-                openPagesIn={openPagesIn}
-                onPreview={onPreview}
-                onOpenItem={onOpenItem}
-                active={item.document.id === activeDocumentId}
-                onCreateChildPage={onCreateChildPage}
-                onCreateChildDatabase={onCreateChildDatabase}
-                onDeleteItem={onDeleteItem}
-                onToggleFavorite={onToggleFavorite}
-                untitledLabel={untitledLabel}
-              />
-            ),
-          )}
+        : itemTree
+          ? itemTree.map((node) => renderTreeNode(node, 0))
+          : items.map((item) =>
+              renderItem ? (
+                <div key={item.id} className="min-w-0">
+                  {renderItem(item)}
+                </div>
+              ) : (
+                <DatabaseSidebarRow
+                  key={item.id}
+                  item={item}
+                  openPagesIn={openPagesIn}
+                  onPreview={onPreview}
+                  onOpenItem={onOpenItem}
+                  active={item.document.id === activeDocumentId}
+                  onCreateChildPage={onCreateChildPage}
+                  onCreateChildDatabase={onCreateChildDatabase}
+                  onDeleteItem={onDeleteItem}
+                  onToggleFavorite={onToggleFavorite}
+                  untitledLabel={untitledLabel}
+                />
+              ),
+            )}
     </nav>
   );
   return scroll ? (
@@ -391,6 +448,10 @@ function DatabaseSidebarRow({
   onDeleteItem,
   onToggleFavorite,
   untitledLabel,
+  depth = 0,
+  hasChildren = false,
+  expanded = false,
+  onToggleExpanded,
 }: {
   item: ContentDatabaseItem;
   openPagesIn: ContentDatabaseOpenPagesIn;
@@ -402,6 +463,10 @@ function DatabaseSidebarRow({
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   untitledLabel: string;
+  depth?: number;
+  hasChildren?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: (open: boolean) => void;
 }) {
   const t = useT();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -439,12 +504,32 @@ function DatabaseSidebarRow({
   return (
     <>
       <div className="group relative min-w-0">
+        {hasChildren ? (
+          <button
+            type="button"
+            className="absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            style={{ insetInlineStart: `${depth * 18}px` }}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`}
+            aria-expanded={expanded}
+            onClick={() => onToggleExpanded?.(!expanded)}
+          >
+            <IconChevronRight
+              className={cn(
+                "size-3.5 transition-transform",
+                expanded && "rotate-90",
+              )}
+            />
+          </button>
+        ) : null}
         <Link
           to={`/page/${item.document.id}`}
           className={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded px-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            item.document.icon ? "pl-1" : "pl-1.5",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            active && "font-semibold text-foreground",
           )}
+          style={{
+            paddingInlineStart: `${depth * 18 + (hasChildren ? 28 : 6)}px`,
+          }}
           onClick={handleClick}
           aria-current={active ? "page" : undefined}
         >
@@ -458,7 +543,6 @@ function DatabaseSidebarRow({
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
-              active && "font-semibold",
               (hasMenuActions || canCreateChild) && "pe-12",
             )}
           >
@@ -572,4 +656,45 @@ function DatabaseSidebarRow({
 
 export function databaseSidebarRows(groups: DatabaseBoardGroup[]) {
   return groups.flatMap((group) => group.items);
+}
+
+export interface DatabaseSidebarItemTreeNode {
+  item: ContentDatabaseItem;
+  children: DatabaseSidebarItemTreeNode[];
+}
+
+export function databaseSidebarItemTree(
+  rootItems: ContentDatabaseItem[],
+  allItems: ContentDatabaseItem[],
+): DatabaseSidebarItemTreeNode[] {
+  const childrenByParentId = new Map<string, ContentDatabaseItem[]>();
+  for (const item of allItems) {
+    const parentId = item.document.parentId;
+    if (!parentId) continue;
+    childrenByParentId.set(parentId, [
+      ...(childrenByParentId.get(parentId) ?? []),
+      item,
+    ]);
+  }
+  const emitted = new Set<string>();
+  const visit = (
+    item: ContentDatabaseItem,
+    ancestors: Set<string>,
+  ): DatabaseSidebarItemTreeNode | null => {
+    const documentId = item.document.id;
+    if (emitted.has(documentId) || ancestors.has(documentId)) return null;
+    emitted.add(documentId);
+    const nextAncestors = new Set(ancestors).add(documentId);
+    return {
+      item,
+      children: (childrenByParentId.get(documentId) ?? []).flatMap((child) => {
+        const node = visit(child, nextAncestors);
+        return node ? [node] : [];
+      }),
+    };
+  };
+  return rootItems.flatMap((item) => {
+    const node = visit(item, new Set());
+    return node ? [node] : [];
+  });
 }

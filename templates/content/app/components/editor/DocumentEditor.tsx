@@ -54,6 +54,7 @@ import {
 } from "@/hooks/use-content-database";
 import {
   isDocumentUpdateConflict,
+  patchDocumentCaches,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -747,6 +748,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
       } catch (error) {
+        if (updates.title !== undefined) {
+          patchDocumentCaches(queryClient, documentId, {
+            title: lastSavedTitleRef.current.title,
+          });
+        }
         if (!isLinkedLocalSource) throw error;
         toast.warning(t("editor.localFileSavedHistoryNotUpdated"), {
           description:
@@ -1162,9 +1168,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     (newTitle: string) => {
       if (!editorCanEdit) return;
       setLocalTitle(newTitle);
+      patchDocumentCaches(queryClient, documentId, { title: newTitle });
       debouncedSave(newTitle, localContentRef.current);
     },
-    [debouncedSave, editorCanEdit],
+    [debouncedSave, documentId, editorCanEdit, queryClient],
   );
 
   const handleContentChange = useCallback(
