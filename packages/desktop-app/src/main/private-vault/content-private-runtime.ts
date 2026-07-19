@@ -33,6 +33,8 @@ interface RequesterSurface {
     actionName: string;
     args: unknown;
     subjectAgentId: string;
+    disclosureProviderId: string;
+    disclosureDestination: string;
   }): Promise<unknown>;
   listContentGrants(vaultId: string): Promise<unknown>;
   listVaultMembers(vaultId: string): Promise<unknown>;
@@ -182,6 +184,8 @@ export class PrivateVaultContentRuntime {
     actionName: string;
     args: unknown;
     subjectAgentId: string;
+    disclosureProviderId: string;
+    disclosureDestination: string;
   }) {
     if (!this.#active) throw new PrivateVaultContentRuntimeError();
     if (input.actionName === "view-screen") return this.applicationState();

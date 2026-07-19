@@ -14,15 +14,17 @@ describe("private-vault Content action executor", () => {
     const encoded = encodePrivateVaultActionRequest({
       actionName: "get-document",
       args: { z: 2, id: "document_12345678" },
+      disclosure: { providerId: "codex-cli", destination: "gpt-5.6" },
     });
     expect(decoder.decode(encoded)).toBe(
-      '{"version":1,"type":"content-action","actionName":"get-document","args":{"id":"document_12345678","z":2}}',
+      '{"version":2,"type":"content-action","actionName":"get-document","args":{"id":"document_12345678","z":2},"disclosure":{"providerId":"codex-cli","destination":"gpt-5.6"}}',
     );
     expect(decodePrivateVaultActionRequest(encoded)).toEqual({
-      version: 1,
+      version: 2,
       type: "content-action",
       actionName: "get-document",
       args: { id: "document_12345678", z: 2 },
+      disclosure: { providerId: "codex-cli", destination: "gpt-5.6" },
     });
   });
 
@@ -48,6 +50,7 @@ describe("private-vault Content action executor", () => {
       payload: encodePrivateVaultActionRequest({
         actionName: "get-document",
         args: { id: "document_12345678" },
+        disclosure: { providerId: "codex-cli", destination: "gpt-5.6" },
       }),
       jobId: "job_12345678",
       jobHash: "11".repeat(32),

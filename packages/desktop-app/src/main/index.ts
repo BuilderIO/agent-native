@@ -3180,22 +3180,29 @@ function desktopComputerChildEnv(
   }
 }
 
-function privateContentSubjectAgentId(
+function privateContentAgentIdentity(
   runRecord: Record<string, unknown> | null | undefined,
-): string {
+): {
+  subjectAgentId: string;
+  disclosureProviderId: string;
+  disclosureDestination: string;
+} {
   const metadata = isObject(runRecord?.metadata)
     ? runRecord.metadata
     : undefined;
   const steering = isObject(metadata?.steering) ? metadata.steering : metadata;
+  const disclosureProviderId = getRecordString(steering, "engine") ?? "auto";
+  const disclosureDestination = getRecordString(steering, "model") ?? "auto";
   const identity = JSON.stringify([
-    getRecordString(steering, "engine") ?? "auto",
-    getRecordString(steering, "model") ?? "auto",
+    disclosureProviderId,
+    disclosureDestination,
   ]);
-  return createHash("sha256")
+  const subjectAgentId = createHash("sha256")
     .update("agent-native/private-vault/desktop-agent-subject/v1\0")
     .update(identity)
     .digest("hex")
     .slice(0, 32);
+  return { subjectAgentId, disclosureProviderId, disclosureDestination };
 }
 
 function desktopPrivateContentChildEnv(
@@ -3204,9 +3211,14 @@ function desktopPrivateContentChildEnv(
 ): NodeJS.ProcessEnv {
   if (!desktopPrivateContentMcpBridge) return {};
   try {
+    const identity = privateContentAgentIdentity(runRecord);
     const registration = desktopPrivateContentMcpBridge.registerRun(
       runId,
-      privateContentSubjectAgentId(runRecord),
+      identity.subjectAgentId,
+      {
+        providerId: identity.disclosureProviderId,
+        destination: identity.disclosureDestination,
+      },
     );
     return {
       AGENT_NATIVE_DESKTOP_CHILD: "1",

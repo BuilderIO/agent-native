@@ -14,10 +14,14 @@ export class PrivateVaultActionExecutorError extends Error {
 }
 
 export interface PrivateVaultActionRequest {
-  readonly version: 1;
+  readonly version: 2;
   readonly type: "content-action";
   readonly actionName: string;
   readonly args: unknown;
+  readonly disclosure: {
+    readonly providerId: string;
+    readonly destination: string;
+  };
 }
 
 export interface PrivateVaultAuthorizedActionContext {
@@ -89,17 +93,39 @@ function exactKeys(
   }
 }
 
+function scopeText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    encoder.encode(value).byteLength <= 160 &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
+}
+
 export function encodePrivateVaultActionRequest(input: {
   readonly actionName: string;
   readonly args: unknown;
+  readonly disclosure: {
+    readonly providerId: string;
+    readonly destination: string;
+  };
 }): Uint8Array {
-  if (!ACTION_NAME.test(input.actionName)) fail();
+  if (
+    !ACTION_NAME.test(input.actionName) ||
+    !scopeText(input.disclosure.providerId) ||
+    !scopeText(input.disclosure.destination)
+  )
+    fail();
   const encoded = encoder.encode(
     JSON.stringify({
-      version: 1,
+      version: 2,
       type: "content-action",
       actionName: input.actionName,
       args: plainJson(input.args),
+      disclosure: {
+        providerId: input.disclosure.providerId,
+        destination: input.disclosure.destination,
+      },
     }),
   );
   if (encoded.byteLength > E2EE_SIZE_LIMITS.jobPayloadBytes) fail();
@@ -121,20 +147,35 @@ export function decodePrivateVaultActionRequest(
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) fail();
     const record = parsed as Record<string, unknown>;
-    exactKeys(record, ["actionName", "args", "type", "version"]);
+    exactKeys(record, ["actionName", "args", "disclosure", "type", "version"]);
+    const disclosure = record.disclosure;
     if (
-      record.version !== 1 ||
+      record.version !== 2 ||
       record.type !== "content-action" ||
       typeof record.actionName !== "string" ||
-      !ACTION_NAME.test(record.actionName)
+      !ACTION_NAME.test(record.actionName) ||
+      !disclosure ||
+      typeof disclosure !== "object" ||
+      Array.isArray(disclosure)
     ) {
       fail();
     }
+    const disclosureRecord = disclosure as Record<string, unknown>;
+    exactKeys(disclosureRecord, ["destination", "providerId"]);
+    if (
+      !scopeText(disclosureRecord.providerId) ||
+      !scopeText(disclosureRecord.destination)
+    )
+      fail();
     const result = {
-      version: 1 as const,
+      version: 2 as const,
       type: "content-action" as const,
       actionName: record.actionName,
       args: plainJson(record.args),
+      disclosure: Object.freeze({
+        providerId: disclosureRecord.providerId,
+        destination: disclosureRecord.destination,
+      }),
     };
     if (
       text !==
@@ -143,6 +184,7 @@ export function decodePrivateVaultActionRequest(
         type: result.type,
         actionName: result.actionName,
         args: result.args,
+        disclosure: result.disclosure,
       })
     ) {
       fail();

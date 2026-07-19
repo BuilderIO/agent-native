@@ -52,6 +52,8 @@ interface GrantCache {
   readonly vaultId: string;
   readonly recipientEndpointId: string;
   readonly subjectAgentId: string;
+  readonly disclosureProviderId: string;
+  readonly disclosureDestination: string;
   readonly grantId: string;
   readonly grantRef: string;
   readonly expiresAt: number;
@@ -160,6 +162,8 @@ export class PrivateVaultContentRequesterRuntime {
     actionName: string;
     args: unknown;
     subjectAgentId: string;
+    disclosureProviderId: string;
+    disclosureDestination: string;
   }) {
     let actionRequest: Uint8Array | null = null;
     let semanticPayload: Uint8Array | null = null;
@@ -175,10 +179,19 @@ export class PrivateVaultContentRequesterRuntime {
         input.actionName,
         input.args,
       );
-      const grant = await this.#grantFor(descriptor, input.subjectAgentId);
+      const grant = await this.#grantFor(
+        descriptor,
+        input.subjectAgentId,
+        input.disclosureProviderId,
+        input.disclosureDestination,
+      );
       actionRequest = encodePrivateVaultActionRequest({
         actionName: input.actionName,
         args: input.args,
+        disclosure: {
+          providerId: input.disclosureProviderId,
+          destination: input.disclosureDestination,
+        },
       });
       semanticPayload = encodeAncV1SemanticJobPayload({
         resourceId: resource,
@@ -259,21 +272,31 @@ export class PrivateVaultContentRequesterRuntime {
   async #grantFor(
     descriptor: PrivateVaultContentBrokerRuntimeDescriptor,
     subjectAgentId: string,
+    disclosureProviderId: string,
+    disclosureDestination: string,
   ): Promise<GrantCache> {
     const nowSeconds = Math.floor(this.#now() / 1000);
-    const key = `${descriptor.vaultId}:${descriptor.endpointId}:${subjectAgentId}`;
+    const key = `${descriptor.vaultId}:${descriptor.endpointId}:${subjectAgentId}:${disclosureProviderId}:${disclosureDestination}`;
     const cached = this.#grants.get(key);
     if (
       cached?.vaultId === descriptor.vaultId &&
       cached.recipientEndpointId === descriptor.endpointId &&
       cached.subjectAgentId === subjectAgentId &&
+      cached.disclosureProviderId === disclosureProviderId &&
+      cached.disclosureDestination === disclosureDestination &&
       cached.expiresAt > nowSeconds + JOB_LIFETIME_SECONDS &&
       !this.#revokedGrantRefs.has(cached.grantRef)
     )
       return cached;
     const existingFlight = this.#grantFlights.get(key);
     if (existingFlight) return existingFlight;
-    const flight = this.#createGrant(descriptor, subjectAgentId, nowSeconds);
+    const flight = this.#createGrant(
+      descriptor,
+      subjectAgentId,
+      disclosureProviderId,
+      disclosureDestination,
+      nowSeconds,
+    );
     this.#grantFlights.set(key, flight);
     try {
       const grant = await flight;
@@ -288,6 +311,8 @@ export class PrivateVaultContentRequesterRuntime {
   async #createGrant(
     descriptor: PrivateVaultContentBrokerRuntimeDescriptor,
     subjectAgentId: string,
+    disclosureProviderId: string,
+    disclosureDestination: string,
     nowSeconds: number,
   ): Promise<GrantCache> {
     const created: NativeCreatedContentGrantResult =
@@ -314,6 +339,8 @@ export class PrivateVaultContentRequesterRuntime {
         vaultId: descriptor.vaultId,
         recipientEndpointId: descriptor.endpointId,
         subjectAgentId,
+        disclosureProviderId,
+        disclosureDestination,
         grantId,
         grantRef,
         expiresAt: created.expiresAt,

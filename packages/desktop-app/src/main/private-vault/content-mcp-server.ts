@@ -96,6 +96,8 @@ type ActionName = keyof typeof ACTIONS;
 interface RunContext {
   readonly runId: string;
   readonly subjectAgentId: string;
+  readonly disclosureProviderId: string;
+  readonly disclosureDestination: string;
 }
 
 export interface PrivateVaultContentMcpRegistration {
@@ -112,6 +114,8 @@ export class PrivateVaultContentMcpBridge {
     actionName: ActionName;
     args: unknown;
     subjectAgentId: string;
+    disclosureProviderId: string;
+    disclosureDestination: string;
   }) => Promise<unknown>;
   #httpServer?: HttpServer;
   #url?: string;
@@ -121,6 +125,8 @@ export class PrivateVaultContentMcpBridge {
       actionName: ActionName;
       args: unknown;
       subjectAgentId: string;
+      disclosureProviderId: string;
+      disclosureDestination: string;
     }): Promise<unknown>;
     token?: () => string;
   }) {
@@ -149,15 +155,27 @@ export class PrivateVaultContentMcpBridge {
   registerRun(
     runId: string,
     subjectAgentId: string,
+    disclosure: { providerId: string; destination: string },
   ): PrivateVaultContentMcpRegistration {
-    if (!this.#url || !runId.trim() || !lowerHex(subjectAgentId, 16))
+    if (
+      !this.#url ||
+      !runId.trim() ||
+      !lowerHex(subjectAgentId, 16) ||
+      !scopeText(disclosure.providerId) ||
+      !scopeText(disclosure.destination)
+    )
       throw new Error("Private Content agent bridge unavailable");
     this.#removeRun(runId);
     const bearerToken = this.#token();
     if (!/^[A-Za-z0-9_-]{32,}$/.test(bearerToken))
       throw new Error("Private Content agent bridge unavailable");
     const tokenHash = hash(bearerToken);
-    this.#contextsByTokenHash.set(tokenHash, { runId, subjectAgentId });
+    this.#contextsByTokenHash.set(tokenHash, {
+      runId,
+      subjectAgentId,
+      disclosureProviderId: disclosure.providerId,
+      disclosureDestination: disclosure.destination,
+    });
     this.#tokenHashesByRun.set(runId, new Set([tokenHash]));
     return Object.freeze({ url: this.#url, bearerToken });
   }
@@ -265,6 +283,8 @@ export class PrivateVaultContentMcpBridge {
             actionName,
             args,
             subjectAgentId: context.subjectAgentId,
+            disclosureProviderId: context.disclosureProviderId,
+            disclosureDestination: context.disclosureDestination,
           });
           const text = JSON.stringify(result);
           if (Buffer.byteLength(text) > MAXIMUM_MCP_RESULT_BYTES)
@@ -316,6 +336,15 @@ export class PrivateVaultContentMcpBridge {
 
 function lowerHex(value: string, bytes: number): boolean {
   return value.length === bytes * 2 && /^[0-9a-f]+$/.test(value);
+}
+
+function scopeText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    Buffer.byteLength(value) <= 160 &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
 }
 
 function hash(value: string): string {

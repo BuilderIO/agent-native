@@ -7,6 +7,10 @@ import {
 
 const vaultId = "11".repeat(16);
 const subjectAgentId = "22".repeat(16);
+const disclosure = {
+  disclosureProviderId: "codex-cli",
+  disclosureDestination: "gpt-5.6",
+} as const;
 
 function harness() {
   const actions = { "list-documents": { run: vi.fn() } };
@@ -104,6 +108,7 @@ describe("PrivateVaultContentRuntime", () => {
         actionName: "list-documents",
         args: {},
         subjectAgentId,
+        ...disclosure,
       }),
     ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
     await source.runtime.start();
@@ -117,6 +122,7 @@ describe("PrivateVaultContentRuntime", () => {
         actionName: "view-screen",
         args: {},
         subjectAgentId,
+        ...disclosure,
       }),
     ).resolves.toEqual({
       view: "editor",
@@ -128,12 +134,14 @@ describe("PrivateVaultContentRuntime", () => {
         actionName: "list-documents",
         args: {},
         subjectAgentId,
+        ...disclosure,
       }),
     ).resolves.toEqual({ id: "result" });
     expect(source.requester.runAction).toHaveBeenCalledWith({
       actionName: "list-documents",
       args: {},
       subjectAgentId,
+      ...disclosure,
     });
     await source.runtime.stop();
     await expect(
@@ -141,6 +149,7 @@ describe("PrivateVaultContentRuntime", () => {
         actionName: "list-documents",
         args: {},
         subjectAgentId,
+        ...disclosure,
       }),
     ).rejects.toBeInstanceOf(PrivateVaultContentRuntimeError);
   });

@@ -23,7 +23,10 @@ describe("Private Vault Content MCP bridge", () => {
     active.push({ bridge });
     const url = await bridge.start();
     const subjectAgentId = "aa".repeat(16);
-    const registration = bridge.registerRun("run-1", subjectAgentId);
+    const registration = bridge.registerRun("run-1", subjectAgentId, {
+      providerId: "codex-cli",
+      destination: "gpt-5.6",
+    });
     const client = new Client({ name: "test", version: "1.0.0" });
     active[0]!.client = client;
     await client.connect(
@@ -60,6 +63,8 @@ describe("Private Vault Content MCP bridge", () => {
       actionName: "search-documents",
       args: { query: "private", subjectAgentId: "ff".repeat(16) },
       subjectAgentId,
+      disclosureProviderId: "codex-cli",
+      disclosureDestination: "gpt-5.6",
     });
 
     const capabilities = await client.callTool({
@@ -97,8 +102,16 @@ describe("Private Vault Content MCP bridge", () => {
     });
     active.push({ bridge });
     await bridge.start();
-    expect(() => bridge.registerRun("run", "not-an-id")).toThrow();
-    const registration = bridge.registerRun("run", "aa".repeat(16));
+    expect(() =>
+      bridge.registerRun("run", "not-an-id", {
+        providerId: "codex-cli",
+        destination: "gpt-5.6",
+      }),
+    ).toThrow();
+    const registration = bridge.registerRun("run", "aa".repeat(16), {
+      providerId: "codex-cli",
+      destination: "gpt-5.6",
+    });
     bridge.revokeRun("run");
     const response = await fetch(registration.url, {
       method: "POST",

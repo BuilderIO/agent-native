@@ -21,11 +21,16 @@ const descriptor = {
   head: { sequence: 7, hash: "ab".repeat(32) },
 } as const;
 const subjectAgentId = "aa".repeat(16);
+const disclosure = {
+  disclosureProviderId: "codex-cli",
+  disclosureDestination: "gpt-5.6",
+} as const;
 
 describe("Content requester runtime", () => {
   it("round-trips a normal Content action through native grant and job custody", async () => {
     let actionName = "";
     let actionArgs: unknown;
+    let actionDisclosure: unknown;
     const native = {
       createContentGrant: vi.fn(async () => ({
         version: 1,
@@ -46,6 +51,7 @@ describe("Content requester runtime", () => {
         const action = decodePrivateVaultActionRequest(semantic.body);
         actionName = action.actionName;
         actionArgs = action.args;
+        actionDisclosure = action.disclosure;
         return {
           version: 1,
           suite: "anc/v1",
@@ -107,10 +113,15 @@ describe("Content requester runtime", () => {
         actionName: "get-document",
         args: { id: "33".repeat(16) },
         subjectAgentId,
+        ...disclosure,
       }),
     ).resolves.toEqual({ title: "Secret" });
     expect(actionName).toBe("get-document");
     expect(actionArgs).toEqual({ id: "33".repeat(16) });
+    expect(actionDisclosure).toEqual({
+      providerId: "codex-cli",
+      destination: "gpt-5.6",
+    });
     expect(native.createContentGrant).toHaveBeenCalledOnce();
     expect(transport.putGrant).toHaveBeenCalledOnce();
     expect(transport.putJob).toHaveBeenCalledOnce();
@@ -129,13 +140,19 @@ describe("Content requester runtime", () => {
       transport: {} as PrivateVaultContentRequesterTransport,
     });
     await expect(
-      runtime.runAction({ actionName: "run-shell", args: {}, subjectAgentId }),
+      runtime.runAction({
+        actionName: "run-shell",
+        args: {},
+        subjectAgentId,
+        ...disclosure,
+      }),
     ).rejects.toEqual(new PrivateVaultContentRequesterRuntimeError());
     await expect(
       runtime.runAction({
         actionName: "get-document",
         args: { id: "no" },
         subjectAgentId,
+        ...disclosure,
       }),
     ).rejects.toEqual(new PrivateVaultContentRequesterRuntimeError());
     expect(native.createContentGrant).not.toHaveBeenCalled();
@@ -190,11 +207,12 @@ describe("Content requester runtime", () => {
       actionName: "list-document-versions",
       args: { documentId },
       subjectAgentId,
+      ...disclosure,
     });
     expect(resourceId).toBe(documentId);
   });
 
-  it("never shares a standing grant between different agent subjects", async () => {
+  it("never shares a standing grant across agent or disclosure identities", async () => {
     const seenAgents: string[] = [];
     const native = {
       createContentGrant: vi.fn(async (input: { subjectAgentId: string }) => {
@@ -241,20 +259,32 @@ describe("Content requester runtime", () => {
         actionName: "list-documents",
         args: {},
         subjectAgentId,
+        ...disclosure,
       }),
       runtime.runAction({
         actionName: "list-documents",
         args: {},
         subjectAgentId: secondAgentId,
+        ...disclosure,
+      }),
+      runtime.runAction({
+        actionName: "list-documents",
+        args: {},
+        subjectAgentId,
+        ...disclosure,
+        disclosureDestination: "claude-sonnet-5",
       }),
     ]);
     await runtime.runAction({
       actionName: "list-documents",
       args: {},
       subjectAgentId,
+      ...disclosure,
     });
-    expect(seenAgents.sort()).toEqual([subjectAgentId, secondAgentId].sort());
-    expect(native.createContentGrant).toHaveBeenCalledTimes(2);
+    expect(seenAgents.sort()).toEqual(
+      [subjectAgentId, subjectAgentId, secondAgentId].sort(),
+    );
+    expect(native.createContentGrant).toHaveBeenCalledTimes(3);
   });
 
   it("drops a revoked standing grant before the next agent action", async () => {
@@ -318,6 +348,7 @@ describe("Content requester runtime", () => {
         actionName: "list-documents",
         args: {},
         subjectAgentId,
+        ...disclosure,
       });
     await run();
     await expect(
