@@ -14,6 +14,10 @@ import {
   type DesktopPrivateVaultCreateGenesisResult,
   type DesktopPrivateVaultRecoveryResult,
   type DesktopPrivateVaultResumeGenesisResult,
+  type DesktopPrivateVaultOpenObjectRequest,
+  type DesktopPrivateVaultOpenObjectResult,
+  type DesktopPrivateVaultSealObjectRequest,
+  type DesktopPrivateVaultSealObjectResult,
   type DesktopPlanFilesChooseFolderRequest,
   type DesktopPlanFilesClearFolderRequest,
   type DesktopPlanFilesFolderRequest,
@@ -105,6 +109,14 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RESUME_GENESIS),
     recover: (): Promise<DesktopPrivateVaultRecoveryResult> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_RECOVER),
+    sealObject: (
+      request: DesktopPrivateVaultSealObjectRequest,
+    ): Promise<DesktopPrivateVaultSealObjectResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_SEAL_OBJECT, request),
+    openObject: (
+      request: DesktopPrivateVaultOpenObjectRequest,
+    ): Promise<DesktopPrivateVaultOpenObjectResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_VAULT_OPEN_OBJECT, request),
   },
 };
 

@@ -171,6 +171,8 @@ import {
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
 import { createPrivateVaultContentGenesisRuntime } from "./private-vault/content-genesis-runtime";
+import { createPrivateVaultContentObjectRuntime } from "./private-vault/content-object-runtime";
+import { PrivateVaultContentObjectTransport } from "./private-vault/content-object-transport";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -5711,6 +5713,8 @@ function isContentFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
 
 const privateVaultContentGenesisRuntime =
   createPrivateVaultContentGenesisRuntime();
+const privateVaultContentObjectRuntime =
+  createPrivateVaultContentObjectRuntime();
 
 function contentPrivateVaultCoordinatorForEvent(event: IpcMainInvokeEvent) {
   if (!isContentFilesWebviewSender(event)) return null;
@@ -5743,6 +5747,27 @@ function contentPrivateVaultRecoveryForEvent(event: IpcMainInvokeEvent) {
       session: event.sender.session,
       origin,
     });
+  } catch {
+    return null;
+  }
+}
+
+function contentPrivateVaultObjectContextForEvent(event: IpcMainInvokeEvent) {
+  if (!isContentFilesWebviewSender(event)) return null;
+  const contentApp = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "content" && candidate.enabled !== false,
+  );
+  const origin = contentApp ? getAppOrigin(contentApp) : null;
+  if (!origin) return null;
+  try {
+    if (new URL(origin).protocol !== "https:") return null;
+    return {
+      runtime: privateVaultContentObjectRuntime,
+      transport: new PrivateVaultContentObjectTransport({
+        session: event.sender.session,
+        origin,
+      }),
+    };
   } catch {
     return null;
   }
@@ -7916,6 +7941,7 @@ registerContentFilesIpc({
 registerContentPrivateVaultIpc({
   coordinatorForEvent: contentPrivateVaultCoordinatorForEvent,
   recoveryForEvent: contentPrivateVaultRecoveryForEvent,
+  objectContextForEvent: contentPrivateVaultObjectContextForEvent,
 });
 
 // ---------- IPC: Frame settings ----------

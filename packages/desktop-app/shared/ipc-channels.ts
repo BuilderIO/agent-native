@@ -60,6 +60,8 @@ export const IPC = {
   CONTENT_PRIVATE_VAULT_CREATE_GENESIS: "content-private-vault:create-genesis",
   CONTENT_PRIVATE_VAULT_RESUME_GENESIS: "content-private-vault:resume-genesis",
   CONTENT_PRIVATE_VAULT_RECOVER: "content-private-vault:recover",
+  CONTENT_PRIVATE_VAULT_SEAL_OBJECT: "content-private-vault:seal-object",
+  CONTENT_PRIVATE_VAULT_OPEN_OBJECT: "content-private-vault:open-object",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -332,6 +334,40 @@ export type DesktopPrivateVaultResumeGenesisResult =
 
 export type DesktopPrivateVaultRecoveryResult =
   | { ok: true; vaultId: string; sequence: number; headHash: string }
+  | { ok: false; error: string };
+
+export interface DesktopPrivateVaultSealObjectRequest {
+  vaultId: string;
+  objectId: string;
+  revision: number;
+  plaintext: Uint8Array;
+  parentRevisionIds?: string[];
+}
+
+export interface DesktopPrivateVaultOpenObjectRequest {
+  vaultId: string;
+  objectId: string;
+  revision: number;
+  revisionId: string;
+}
+
+export type DesktopPrivateVaultSealObjectResult =
+  | {
+      ok: true;
+      revisionId: string;
+      epoch: number;
+      plaintextLength: number;
+      ciphertextByteLength: number;
+    }
+  | { ok: false; error: string };
+
+export type DesktopPrivateVaultOpenObjectResult =
+  | {
+      ok: true;
+      plaintext: Uint8Array;
+      epoch: number;
+      writerEndpointId: string;
+    }
   | { ok: false; error: string };
 
 export type CodeAgentRunStatus =
