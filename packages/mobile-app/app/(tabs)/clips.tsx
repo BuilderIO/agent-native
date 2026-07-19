@@ -1,11 +1,11 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Text, View } from "react-native";
 
 import AppWebView from "@/components/AppWebView";
 import { NativeClipsLibraryScreen } from "@/components/NativeClipsLibrary";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import { hasClipsSessionToken } from "@/lib/clips-api";
 import {
   CLIPS_SESSION_OWNER_KEY,
@@ -49,10 +49,12 @@ export default function ClipsTab() {
 
   if (authState === "checking") {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loading}>
+      <SafeAreaView className="flex-1 bg-background-dark">
+        <View className="items-center flex-1 justify-center">
           <ActivityIndicator color="#c7f36b" />
-          <Text style={styles.loadingText}>Opening Clips…</Text>
+          <Text className="text-status-gray text-[13px] mt-2.5">
+            Opening Clips…
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -74,7 +76,7 @@ export default function ClipsTab() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView className="flex-1 bg-background-dark">
       <AppWebView
         url={getAppUrl(clips)}
         captureSessionToken
@@ -84,12 +86,3 @@ export default function ClipsTab() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0b0b0c",
-  },
-  loading: { alignItems: "center", flex: 1, justifyContent: "center" },
-  loadingText: { color: "#71717a", fontSize: 13, marginTop: 10 },
-});

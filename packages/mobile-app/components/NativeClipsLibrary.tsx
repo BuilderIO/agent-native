@@ -24,13 +24,12 @@ import {
   RefreshControl,
   ScrollView,
   Share,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
+import { SafeAreaView } from "@/components/uniwind-interop";
 import { ClipsApiError } from "@/lib/clips-api";
 import {
   addNativeClipComment,
@@ -90,7 +89,7 @@ function ClipArtwork({
 }) {
   const thumbnailUrl = resolveTrustedClipsUrl(recording.thumbnailUrl);
   return (
-    <View style={styles.artwork}>
+    <View className="w-31.5 h-20.5 rounded-xl border border-border-dark overflow-hidden items-center justify-center bg-card-dark">
       {thumbnailUrl ? (
         <Image
           accessibilityIgnoresInvertColors
@@ -101,13 +100,16 @@ function ClipArtwork({
               ? { headers: { Authorization: `Bearer ${sessionToken}` } }
               : {}),
           }}
-          style={StyleSheet.absoluteFill}
+          className="absolute inset-0"
         />
       ) : (
         <IconVideo color="#71717a" size={26} strokeWidth={1.5} />
       )}
-      <View style={styles.durationBadge}>
-        <Text style={styles.durationText}>
+      <View className="absolute bottom-1.5 right-1.5 px-1.25 py-0.5 rounded bg-black/75">
+        <Text
+          style={{ fontVariant: ["tabular-nums"] }}
+          className="text-white text-xxs font-mono"
+        >
           {formatClipDuration(recording.durationMs)}
         </Text>
       </View>
@@ -131,29 +133,34 @@ function ClipRow({
       accessibilityHint="Opens this clip for playback and comments"
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.clipRow,
-        pressed && styles.clipRowPressed,
-      ]}
+      className="flex-row gap-3.25 py-3 active:opacity-75"
     >
       <ClipArtwork recording={recording} sessionToken={sessionToken} />
-      <View style={styles.clipCopy}>
-        <Text numberOfLines={2} style={styles.clipTitle}>
+      <View className="flex-1 justify-center min-w-0">
+        <Text
+          numberOfLines={2}
+          className="text-white text-sm font-bold leading-5"
+        >
           {recording.title}
         </Text>
         {snippet ? (
-          <Text numberOfLines={2} style={styles.snippet}>
+          <Text
+            numberOfLines={2}
+            className="text-text-muted text-xs leading-4 mt-0.75"
+          >
             {snippet}
           </Text>
         ) : null}
-        <View style={styles.metadataRow}>
-          <Text style={styles.metadataText}>
+        <View className="flex-row items-center gap-1 mt-2">
+          <Text className="text-text-muted text-xxs">
             {formatClipDate(recording.createdAt)}
           </Text>
-          <Text style={styles.metadataDivider}>·</Text>
+          <Text className="text-text-muted text-xxs">·</Text>
           <IconEye color="#71717a" size={13} strokeWidth={1.7} />
-          <Text style={styles.metadataText}>{recording.viewCount}</Text>
-          <Text style={styles.metadataDivider}>·</Text>
+          <Text className="text-text-muted text-xxs">
+            {recording.viewCount}
+          </Text>
+          <Text className="text-text-muted text-xxs">·</Text>
           <VisibilityIcon visibility={recording.visibility} />
         </View>
       </View>
@@ -171,22 +178,22 @@ function EmptyLibrary({
   onRecord: () => void;
 }) {
   return (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIcon}>
+    <View className="flex-1 items-center justify-center px-7 py-18">
+      <View className="w-14 h-14 rounded-2xl bg-accent-green-dim items-center justify-center mb-4.5">
         {searching ? (
           <IconSearch color="#c7f36b" size={25} strokeWidth={1.7} />
         ) : (
           <IconVideo color="#c7f36b" size={25} strokeWidth={1.7} />
         )}
       </View>
-      <Text style={styles.emptyTitle}>
+      <Text className="text-white text-lg font-bold text-center">
         {searching
           ? "No matching clips"
           : view === "shared"
             ? "Nothing shared with you yet"
             : "Your library is ready"}
       </Text>
-      <Text style={styles.emptyDescription}>
+      <Text className="text-status-gray text-sm leading-5 mt-1.75 max-w-[310px] text-center">
         {searching
           ? "Try a title, transcript phrase, or comment."
           : view === "shared"
@@ -197,10 +204,12 @@ function EmptyLibrary({
         <Pressable
           accessibilityRole="button"
           onPress={onRecord}
-          style={styles.emptyButton}
+          className="px-4 py-2.75 bg-primary rounded-xl flex-row items-center justify-center gap-1.75 mt-5 active:opacity-75"
         >
           <IconCamera color="#0b0b0c" size={17} strokeWidth={2} />
-          <Text style={styles.emptyButtonText}>Record a clip</Text>
+          <Text className="text-background-dark text-sm font-bold">
+            Record a clip
+          </Text>
         </Pressable>
       ) : null}
     </View>
@@ -220,25 +229,27 @@ function ClipComment({
   const author =
     comment.authorName ?? comment.authorEmail?.split("@")[0] ?? "Viewer";
   return (
-    <View style={styles.commentCard}>
-      <View style={styles.commentHeader}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
+    <View className="bg-background-dark border border-border-dark rounded-xl p-3">
+      <View className="flex-row items-center gap-2.25">
+        <View className="w-7.5 h-7.5 rounded-full bg-gray-charcoal items-center justify-center">
+          <Text className="text-white text-xs font-extrabold">
             {author.slice(0, 1).toUpperCase()}
           </Text>
         </View>
-        <View style={styles.commentIdentity}>
-          <Text numberOfLines={1} style={styles.commentAuthor}>
+        <View className="flex-1 min-w-0">
+          <Text numberOfLines={1} className="text-text-light text-sm font-bold">
             {author}
           </Text>
-          <Text style={styles.commentTime}>
+          <Text className="text-text-muted text-xxs mt-0.5">
             {formatClipDuration(comment.videoTimestampMs)} ·{" "}
             {formatClipDate(comment.createdAt)}
           </Text>
         </View>
       </View>
-      <Text style={styles.commentContent}>{comment.content}</Text>
-      <View style={styles.commentReactions}>
+      <Text className="text-text-light text-sm leading-5 mt-2.5">
+        {comment.content}
+      </Text>
+      <View className="flex-row flex-wrap gap-1.5 mt-2.5">
         {reactions.map((reaction) => (
           <Pressable
             accessibilityLabel={`React ${reaction.emoji}, ${reaction.count}`}
@@ -246,9 +257,9 @@ function ClipComment({
             disabled={reacting}
             key={reaction.emoji}
             onPress={() => onReact(reaction.emoji)}
-            style={styles.commentReaction}
+            className="bg-gray-charcoal border border-border-dark rounded-xl px-2 py-1 active:opacity-75"
           >
-            <Text style={styles.commentReactionText}>
+            <Text className="text-text-light text-xxs">
               {reaction.emoji} {reaction.count}
             </Text>
           </Pressable>
@@ -258,9 +269,9 @@ function ClipComment({
           accessibilityRole="button"
           disabled={reacting}
           onPress={() => onReact("👍")}
-          style={styles.commentReaction}
+          className="bg-gray-charcoal border border-border-dark rounded-xl px-2 py-1 active:opacity-75"
         >
-          <Text style={styles.commentReactionText}>👍 +</Text>
+          <Text className="text-text-light text-xxs">👍 +</Text>
         </Pressable>
       </View>
     </View>
@@ -402,19 +413,19 @@ function NativeClipPlayerContent({
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={82}
-      style={styles.flex}
+      className="flex-1"
     >
       <ScrollView
-        contentContainerStyle={styles.playerContent}
+        contentContainerClassName="pb-15 px-4.5 pt-2.5"
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.playerHeader}>
+        <View className="flex-row items-center justify-between mb-3">
           <Pressable
             accessibilityLabel="Back to Clips library"
             accessibilityRole="button"
             hitSlop={10}
             onPress={onBack}
-            style={styles.iconButton}
+            className="w-10.5 h-10.5 rounded-xl bg-card-dark border border-border-dark items-center justify-center active:opacity-75"
           >
             <IconArrowLeft color="#f4f4f5" size={21} strokeWidth={1.8} />
           </Pressable>
@@ -423,18 +434,20 @@ function NativeClipPlayerContent({
             accessibilityRole="button"
             disabled={sharing}
             onPress={() => void shareClip()}
-            style={styles.shareButton}
+            className="h-10.5 px-3.5 bg-primary rounded-xl flex-row items-center justify-center gap-1.75 active:opacity-75"
           >
             {sharing ? (
               <ActivityIndicator color="#0b0b0c" size="small" />
             ) : (
               <IconShare3 color="#0b0b0c" size={17} strokeWidth={2} />
             )}
-            <Text style={styles.shareButtonText}>Share</Text>
+            <Text className="text-background-dark text-sm font-bold">
+              Share
+            </Text>
           </Pressable>
         </View>
 
-        <View style={styles.playerFrame}>
+        <View className="aspect-video w-full rounded-2xl border border-border-dark bg-black overflow-hidden">
           {source ? (
             <VideoView
               allowsPictureInPicture
@@ -442,44 +455,46 @@ function NativeClipPlayerContent({
               fullscreenOptions={{ enable: true }}
               nativeControls
               player={player}
-              style={StyleSheet.absoluteFill}
+              className="absolute inset-0"
             />
           ) : (
-            <View style={styles.playerUnavailable}>
+            <View className="flex-1 items-center justify-center p-5">
               <IconVideo color="#71717a" size={30} strokeWidth={1.5} />
-              <Text style={styles.playerUnavailableTitle}>
+              <Text className="text-text-light text-sm font-bold mt-2.25">
                 Video is still processing
               </Text>
-              <Text style={styles.playerUnavailableCopy}>
+              <Text className="text-text-muted text-xs mt-1">
                 Pull to refresh the library in a moment.
               </Text>
             </View>
           )}
         </View>
 
-        <Text style={styles.playerTitle}>{detail.recording.title}</Text>
-        <View style={styles.playerMetadata}>
-          <Text style={styles.playerMetadataText}>
+        <Text className="text-white text-2xl font-bold mt-4.5 tracking-tight leading-7">
+          {detail.recording.title}
+        </Text>
+        <View className="flex-row items-center gap-1.25 mt-1.75">
+          <Text className="text-text-muted text-xs">
             {formatClipDate(detail.recording.createdAt)}
           </Text>
-          <Text style={styles.metadataDivider}>·</Text>
-          <Text style={styles.playerMetadataText}>
+          <Text className="text-text-muted text-xs">·</Text>
+          <Text className="text-text-muted text-xs">
             {formatClipDuration(detail.recording.durationMs)}
           </Text>
-          <Text style={styles.metadataDivider}>·</Text>
-          <Text style={styles.playerMetadataText}>
+          <Text className="text-text-muted text-xs">·</Text>
+          <Text className="text-text-muted text-xs">
             {detail.recording.viewCount} views
           </Text>
         </View>
 
         {detail.recording.description ? (
-          <Text style={styles.playerDescription}>
+          <Text className="text-text-muted text-sm leading-5 mt-3.5">
             {detail.recording.description}
           </Text>
         ) : null}
 
         {detail.recording.enableReactions ? (
-          <View style={styles.videoReactions}>
+          <View className="flex-row items-center gap-2 mt-4.5">
             {VIDEO_REACTIONS.map((emoji) => (
               <Pressable
                 accessibilityLabel={`React ${emoji} at the current video time`}
@@ -487,17 +502,17 @@ function NativeClipPlayerContent({
                 disabled={reactingKey !== null}
                 key={emoji}
                 onPress={() => void reactToVideo(emoji)}
-                style={styles.videoReaction}
+                className="w-10.5 h-9 rounded-full bg-card-dark border border-border-dark items-center justify-center active:opacity-75"
               >
                 {reactingKey === `video:${emoji}` ? (
                   <ActivityIndicator color="#f4f4f5" size="small" />
                 ) : (
-                  <Text style={styles.videoReactionText}>{emoji}</Text>
+                  <Text className="text-lg">{emoji}</Text>
                 )}
               </Pressable>
             ))}
             {detail.reactions.length > 0 ? (
-              <Text style={styles.reactionCount}>
+              <Text className="text-text-muted text-xs ml-0.75">
                 {detail.reactions.length} reaction
                 {detail.reactions.length === 1 ? "" : "s"}
               </Text>
@@ -505,10 +520,10 @@ function NativeClipPlayerContent({
           </View>
         ) : null}
 
-        <View style={styles.commentsHeader}>
-          <View style={styles.commentsTitleRow}>
+        <View className="flex-row items-center justify-between border-t border-border-dark mt-6 pt-5">
+          <View className="flex-row items-center gap-2">
             <IconMessageCircle color="#f4f4f5" size={19} strokeWidth={1.8} />
-            <Text style={styles.commentsTitle}>
+            <Text className="text-white text-base font-bold">
               Comments{" "}
               {detail.comments.length > 0 ? detail.comments.length : ""}
             </Text>
@@ -524,7 +539,7 @@ function NativeClipPlayerContent({
         </View>
 
         {detail.recording.enableComments ? (
-          <View style={styles.commentComposer}>
+          <View className="flex-row items-end gap-2 bg-card-dark border border-border-dark rounded-xl p-1.75 mt-3.5">
             <TextInput
               accessibilityLabel="Add a comment"
               maxLength={4000}
@@ -532,7 +547,7 @@ function NativeClipPlayerContent({
               onChangeText={setComment}
               placeholder="Comment at the current video time…"
               placeholderTextColor="#71717a"
-              style={styles.commentInput}
+              className="flex-1 text-white text-sm leading-5 max-h-27.5 min-h-9.5 px-1.75 py-2"
               value={comment}
             />
             <Pressable
@@ -540,10 +555,9 @@ function NativeClipPlayerContent({
               accessibilityRole="button"
               disabled={!comment.trim() || commenting}
               onPress={() => void submitComment()}
-              style={[
-                styles.sendButton,
-                (!comment.trim() || commenting) && styles.sendButtonDisabled,
-              ]}
+              className={`w-9.5 h-9.5 rounded bg-primary items-center justify-center active:opacity-75 ${
+                !comment.trim() || commenting ? "opacity-35" : ""
+              }`}
             >
               {commenting ? (
                 <ActivityIndicator color="#0b0b0c" size="small" />
@@ -553,14 +567,18 @@ function NativeClipPlayerContent({
             </Pressable>
           </View>
         ) : (
-          <Text style={styles.commentsDisabled}>
+          <Text className="text-text-muted text-sm mt-3.25">
             The owner turned comments off for this clip.
           </Text>
         )}
 
-        {notice ? <Text style={styles.inlineError}>{notice}</Text> : null}
+        {notice ? (
+          <Text className="text-error-text text-xs leading-4 mt-2.5">
+            {notice}
+          </Text>
+        ) : null}
 
-        <View style={styles.commentList}>
+        <View className="gap-2.5 mt-3.5">
           {detail.comments.map((item) => (
             <ClipComment
               comment={item}
@@ -570,7 +588,7 @@ function NativeClipPlayerContent({
             />
           ))}
           {detail.comments.length === 0 ? (
-            <Text style={styles.noComments}>
+            <Text className="text-text-muted text-sm leading-5 py-3 text-center">
               No comments yet. Start the conversation at the moment that
               matters.
             </Text>
@@ -622,30 +640,41 @@ function NativeClipPlayer({
 
   if (loading) {
     return (
-      <View style={styles.centeredState}>
+      <View className="flex-1 items-center justify-center px-7.5 bg-background-dark">
         <ActivityIndicator color="#c7f36b" />
-        <Text style={styles.centeredCopy}>Opening clip…</Text>
+        <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
+          Opening clip…
+        </Text>
       </View>
     );
   }
 
   if (!detail || !sessionToken) {
     return (
-      <View style={styles.centeredState}>
-        <Text style={styles.centeredTitle}>Couldn’t open this clip</Text>
-        <Text style={styles.centeredCopy}>{error}</Text>
-        <View style={styles.errorActions}>
-          <Pressable onPress={onBack} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Back</Text>
+      <View className="flex-1 items-center justify-center px-7.5 bg-background-dark">
+        <Text className="text-white text-lg font-bold text-center">
+          Couldn’t open this clip
+        </Text>
+        <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
+          {error}
+        </Text>
+        <View className="flex-row gap-2.5 mt-5">
+          <Pressable
+            onPress={onBack}
+            className="border border-gray-border-medium rounded-xl px-4.5 py-2.5 active:opacity-75"
+          >
+            <Text className="text-white text-sm font-bold">Back</Text>
           </Pressable>
           <Pressable
             onPress={() => {
               setLoading(true);
               void load();
             }}
-            style={styles.primaryButton}
+            className="bg-primary rounded-xl px-4.5 py-2.5 active:opacity-75"
           >
-            <Text style={styles.primaryButtonText}>Try again</Text>
+            <Text className="text-background-dark text-sm font-bold">
+              Try again
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -772,20 +801,17 @@ export default function NativeClipsLibrary({
 
   return (
     <FlatList
-      contentContainerStyle={[
-        styles.libraryContent,
-        visibleRecordings.length === 0 && styles.libraryContentEmpty,
-      ]}
+      contentContainerClassName={`pb-8 px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
       data={visibleRecordings}
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
+      ItemSeparatorComponent={() => <View className="h-px bg-border-dark" />}
       keyboardDismissMode="on-drag"
       keyboardShouldPersistTaps="handled"
       keyExtractor={(item) => item.id}
       ListEmptyComponent={
         loading || searching ? (
-          <View style={styles.loadingLibrary}>
+          <View className="flex-1 items-center justify-center pt-18">
             <ActivityIndicator color="#c7f36b" />
-            <Text style={styles.centeredCopy}>
+            <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
               {searching ? "Searching everything…" : "Loading your clips…"}
             </Text>
           </View>
@@ -798,24 +824,33 @@ export default function NativeClipsLibrary({
         )
       }
       ListHeaderComponent={
-        <View style={styles.libraryHeader}>
-          <View style={styles.titleRow}>
+        <View className="pb-2.5 pt-4">
+          <View className="flex-row items-center justify-between mb-5">
             <View>
-              <Text style={styles.eyebrow}>CLIPS</Text>
-              <Text style={styles.libraryTitle}>Your recordings</Text>
+              <Text
+                style={{ letterSpacing: 1.4 }}
+                className="text-primary text-xxs font-extrabold uppercase"
+              >
+                CLIPS
+              </Text>
+              <Text className="text-white text-3xl font-bold tracking-tight mt-0.75">
+                Your recordings
+              </Text>
             </View>
             <Pressable
               accessibilityLabel="Record a new clip"
               accessibilityRole="button"
               onPress={() => router.push("/capture/video" as never)}
-              style={styles.recordButton}
+              className="flex-row items-center gap-1.75 bg-primary rounded-xl px-3.5 h-10.5 active:opacity-75"
             >
               <IconCamera color="#0b0b0c" size={17} strokeWidth={2} />
-              <Text style={styles.recordButtonText}>Record</Text>
+              <Text className="text-background-dark text-sm font-bold">
+                Record
+              </Text>
             </Pressable>
           </View>
 
-          <View style={styles.searchBox}>
+          <View className="flex-row items-center gap-2.25 bg-card-dark border border-border-dark rounded-xl px-3.25 h-11.5">
             <IconSearch color="#71717a" size={18} strokeWidth={1.8} />
             <TextInput
               accessibilityLabel="Search clips"
@@ -825,7 +860,7 @@ export default function NativeClipsLibrary({
               placeholder="Search titles, transcripts, comments"
               placeholderTextColor="#71717a"
               returnKeyType="search"
-              style={styles.searchInput}
+              className="flex-1 text-white text-sm py-2.5"
               value={query}
             />
             {searching ? (
@@ -834,7 +869,7 @@ export default function NativeClipsLibrary({
           </View>
 
           {!query.trim() ? (
-            <View style={styles.segmentedControl}>
+            <View className="flex-row bg-card-dark rounded-xl p-0.75 mt-3.5">
               {(["library", "shared"] as const).map((item) => (
                 <Pressable
                   accessibilityRole="tab"
@@ -844,16 +879,14 @@ export default function NativeClipsLibrary({
                     setLoading(true);
                     setView(item);
                   }}
-                  style={[
-                    styles.segment,
-                    view === item && styles.segmentSelected,
-                  ]}
+                  className={`flex-1 items-center rounded-lg px-2.5 py-2 active:opacity-75 ${
+                    view === item ? "bg-[#303033]" : ""
+                  }`}
                 >
                   <Text
-                    style={[
-                      styles.segmentText,
-                      view === item && styles.segmentTextSelected,
-                    ]}
+                    className={`text-sm font-semibold ${
+                      view === item ? "text-white" : "text-text-muted"
+                    }`}
                   >
                     {item === "library" ? "My clips" : "Shared with me"}
                   </Text>
@@ -861,14 +894,16 @@ export default function NativeClipsLibrary({
               ))}
             </View>
           ) : (
-            <Text style={styles.searchScope}>
+            <Text className="text-text-muted text-xs mt-2.5">
               Searching every clip you can access
             </Text>
           )}
 
           {error ? (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>{error}</Text>
+            <View className="flex-row items-center gap-2.5 bg-error-bg border border-error-border rounded-lg p-2.75 mt-3">
+              <Text className="flex-1 text-error-text text-xs leading-4">
+                {error}
+              </Text>
               <Pressable
                 accessibilityLabel="Retry loading clips"
                 accessibilityRole="button"
@@ -903,398 +938,8 @@ export default function NativeClipsLibrary({
 
 export function NativeClipsLibraryScreen(props: NativeClipsLibraryProps) {
   return (
-    <SafeAreaView edges={["top"]} style={styles.safeArea}>
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <NativeClipsLibrary {...props} />
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  safeArea: { flex: 1, backgroundColor: "#0b0b0c" },
-  libraryContent: { paddingBottom: 32, paddingHorizontal: 20 },
-  libraryContentEmpty: { flexGrow: 1 },
-  libraryHeader: { paddingBottom: 10, paddingTop: 16 },
-  titleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  eyebrow: {
-    color: "#c7f36b",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-  },
-  libraryTitle: {
-    color: "#f4f4f5",
-    fontSize: 28,
-    fontWeight: "700",
-    letterSpacing: -0.8,
-    marginTop: 3,
-  },
-  recordButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 12,
-    flexDirection: "row",
-    gap: 7,
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  recordButtonText: { color: "#0b0b0c", fontSize: 14, fontWeight: "700" },
-  searchBox: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 13,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 9,
-    minHeight: 46,
-    paddingHorizontal: 13,
-  },
-  searchInput: { color: "#f4f4f5", flex: 1, fontSize: 15, paddingVertical: 10 },
-  segmentedControl: {
-    backgroundColor: "#18181b",
-    borderRadius: 11,
-    flexDirection: "row",
-    marginTop: 14,
-    padding: 3,
-  },
-  segment: {
-    alignItems: "center",
-    borderRadius: 8,
-    flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  segmentSelected: { backgroundColor: "#303033" },
-  segmentText: { color: "#71717a", fontSize: 13, fontWeight: "600" },
-  segmentTextSelected: { color: "#f4f4f5" },
-  searchScope: { color: "#71717a", fontSize: 12, marginTop: 10 },
-  errorBanner: {
-    alignItems: "center",
-    backgroundColor: "#2a1517",
-    borderColor: "#7f1d1d",
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 12,
-    padding: 11,
-  },
-  errorBannerText: { color: "#fca5a5", flex: 1, fontSize: 12, lineHeight: 17 },
-  clipRow: { flexDirection: "row", gap: 13, paddingVertical: 12 },
-  clipRowPressed: { opacity: 0.72 },
-  artwork: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 82,
-    justifyContent: "center",
-    overflow: "hidden",
-    width: 126,
-  },
-  durationBadge: {
-    backgroundColor: "rgba(0,0,0,0.78)",
-    borderRadius: 5,
-    bottom: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    position: "absolute",
-    right: 6,
-  },
-  durationText: {
-    color: "#f4f4f5",
-    fontSize: 10,
-    fontVariant: ["tabular-nums"],
-  },
-  clipCopy: { flex: 1, justifyContent: "center", minWidth: 0 },
-  clipTitle: {
-    color: "#f4f4f5",
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 20,
-  },
-  snippet: { color: "#a1a1aa", fontSize: 12, lineHeight: 16, marginTop: 3 },
-  metadataRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-    marginTop: 8,
-  },
-  metadataText: { color: "#71717a", fontSize: 11 },
-  metadataDivider: { color: "#52525b", fontSize: 11 },
-  separator: { backgroundColor: "#202023", height: StyleSheet.hairlineWidth },
-  loadingLibrary: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    paddingTop: 72,
-  },
-  emptyState: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    paddingVertical: 72,
-  },
-  emptyIcon: {
-    alignItems: "center",
-    backgroundColor: "#1b2214",
-    borderRadius: 18,
-    height: 56,
-    justifyContent: "center",
-    marginBottom: 18,
-    width: 56,
-  },
-  emptyTitle: {
-    color: "#f4f4f5",
-    fontSize: 19,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  emptyDescription: {
-    color: "#71717a",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 7,
-    maxWidth: 310,
-    textAlign: "center",
-  },
-  emptyButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 12,
-    flexDirection: "row",
-    gap: 7,
-    marginTop: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  emptyButtonText: { color: "#0b0b0c", fontSize: 14, fontWeight: "700" },
-  centeredState: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 30,
-  },
-  centeredTitle: {
-    color: "#f4f4f5",
-    fontSize: 19,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  centeredCopy: {
-    color: "#71717a",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 10,
-    textAlign: "center",
-  },
-  errorActions: { flexDirection: "row", gap: 10, marginTop: 20 },
-  secondaryButton: {
-    borderColor: "#3f3f46",
-    borderRadius: 11,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  secondaryButtonText: { color: "#f4f4f5", fontSize: 14, fontWeight: "700" },
-  primaryButton: {
-    backgroundColor: "#c7f36b",
-    borderRadius: 11,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  primaryButtonText: { color: "#0b0b0c", fontSize: 14, fontWeight: "700" },
-  playerContent: { paddingBottom: 60, paddingHorizontal: 18, paddingTop: 10 },
-  playerHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  iconButton: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 42,
-    justifyContent: "center",
-    width: 42,
-  },
-  shareButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 12,
-    flexDirection: "row",
-    gap: 7,
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  shareButtonText: { color: "#0b0b0c", fontSize: 14, fontWeight: "700" },
-  playerFrame: {
-    aspectRatio: 16 / 9,
-    backgroundColor: "#000",
-    borderColor: "#27272a",
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: "hidden",
-    width: "100%",
-  },
-  playerUnavailable: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    padding: 20,
-  },
-  playerUnavailableTitle: {
-    color: "#d4d4d8",
-    fontSize: 14,
-    fontWeight: "700",
-    marginTop: 9,
-  },
-  playerUnavailableCopy: { color: "#71717a", fontSize: 12, marginTop: 4 },
-  playerTitle: {
-    color: "#f4f4f5",
-    fontSize: 23,
-    fontWeight: "700",
-    letterSpacing: -0.5,
-    lineHeight: 29,
-    marginTop: 18,
-  },
-  playerMetadata: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 5,
-    marginTop: 7,
-  },
-  playerMetadataText: { color: "#71717a", fontSize: 12 },
-  playerDescription: {
-    color: "#a1a1aa",
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 14,
-  },
-  videoReactions: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 18,
-  },
-  videoReaction: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#303033",
-    borderRadius: 18,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: "center",
-    width: 42,
-  },
-  videoReactionText: { fontSize: 18 },
-  reactionCount: { color: "#71717a", fontSize: 11, marginLeft: 3 },
-  commentsHeader: {
-    alignItems: "center",
-    borderTopColor: "#27272a",
-    borderTopWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 24,
-    paddingTop: 20,
-  },
-  commentsTitleRow: { alignItems: "center", flexDirection: "row", gap: 8 },
-  commentsTitle: { color: "#f4f4f5", fontSize: 16, fontWeight: "700" },
-  commentComposer: {
-    alignItems: "flex-end",
-    backgroundColor: "#18181b",
-    borderColor: "#303033",
-    borderRadius: 13,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 14,
-    padding: 7,
-  },
-  commentInput: {
-    color: "#f4f4f5",
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-    maxHeight: 110,
-    minHeight: 38,
-    paddingHorizontal: 7,
-    paddingVertical: 8,
-  },
-  sendButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 9,
-    height: 38,
-    justifyContent: "center",
-    width: 38,
-  },
-  sendButtonDisabled: { opacity: 0.35 },
-  inlineError: {
-    color: "#fca5a5",
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 10,
-  },
-  commentsDisabled: { color: "#71717a", fontSize: 13, marginTop: 13 },
-  commentList: { gap: 10, marginTop: 14 },
-  commentCard: {
-    backgroundColor: "#141416",
-    borderColor: "#27272a",
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-  },
-  commentHeader: { alignItems: "center", flexDirection: "row", gap: 9 },
-  avatar: {
-    alignItems: "center",
-    backgroundColor: "#303033",
-    borderRadius: 15,
-    height: 30,
-    justifyContent: "center",
-    width: 30,
-  },
-  avatarText: { color: "#f4f4f5", fontSize: 12, fontWeight: "800" },
-  commentIdentity: { flex: 1, minWidth: 0 },
-  commentAuthor: { color: "#d4d4d8", fontSize: 13, fontWeight: "700" },
-  commentTime: { color: "#71717a", fontSize: 10, marginTop: 2 },
-  commentContent: {
-    color: "#d4d4d8",
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 10,
-  },
-  commentReactions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 10,
-  },
-  commentReaction: {
-    backgroundColor: "#202023",
-    borderColor: "#303033",
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  commentReactionText: { color: "#d4d4d8", fontSize: 11 },
-  noComments: {
-    color: "#71717a",
-    fontSize: 13,
-    lineHeight: 19,
-    paddingVertical: 12,
-    textAlign: "center",
-  },
-});

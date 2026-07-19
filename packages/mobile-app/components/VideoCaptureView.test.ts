@@ -29,8 +29,9 @@ vi.mock("react-native", () => ({
   Text: vi.fn(),
   View: vi.fn(),
 }));
-vi.mock("react-native-safe-area-context", () => ({
+vi.mock("@/components/uniwind-interop", () => ({
   SafeAreaView: vi.fn(),
+  WebView: vi.fn(),
 }));
 vi.mock("@/lib/mobile-state-api", () => ({
   setMobileCaptureStateBestEffort: vi.fn(),

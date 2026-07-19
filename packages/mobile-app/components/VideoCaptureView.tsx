@@ -29,14 +29,13 @@ import {
   Linking,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
   type AppStateStatus,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 import IOSBroadcastPicker from "@/components/IOSBroadcastPicker";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import { createCaptureId } from "@/lib/capture-id";
 import { shouldStopVideoForAppState } from "@/lib/capture-lifecycle";
 import {
@@ -209,11 +208,9 @@ function RoundIconButton({
       disabled={disabled}
       hitSlop={10}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.iconButton,
-        pressed && !disabled && styles.buttonPressed,
-        disabled && styles.buttonDisabled,
-      ]}
+      className={`w-12 h-12 rounded-full items-center justify-center bg-[rgba(18,18,18,0.72)] border-[0.5px] border-[rgba(255,255,255,0.18)] active:opacity-70 ${
+        disabled ? "opacity-45" : ""
+      }`}
     >
       {children}
     </Pressable>
@@ -596,10 +593,10 @@ export function VideoCaptureView({
 
   if (!permissionsLoaded) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingState}>
+      <SafeAreaView className="flex-1 bg-background-dark">
+        <View className="flex-1 items-center justify-center gap-3.5">
           <ActivityIndicator size="large" color="#FFFFFF" />
-          <Text style={styles.loadingText}>Preparing camera…</Text>
+          <Text className="text-gray-light text-sm">Preparing camera…</Text>
         </View>
       </SafeAreaView>
     );
@@ -611,8 +608,11 @@ export function VideoCaptureView({
       (!microphoneGranted && microphonePermission.canAskAgain === false);
 
     return (
-      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-        <View style={styles.permissionHeader}>
+      <SafeAreaView
+        className="flex-1 bg-background-dark"
+        edges={["top", "bottom"]}
+      >
+        <View className="px-4.5 pt-2">
           <RoundIconButton
             accessibilityLabel="Cancel video capture"
             onPress={cancel}
@@ -621,20 +621,27 @@ export function VideoCaptureView({
           </RoundIconButton>
         </View>
 
-        <View style={styles.permissionContent}>
-          <View style={styles.permissionIcon} accessible={false}>
+        <View className="flex-1 items-center justify-center px-7 pb-16">
+          <View
+            className="w-18 h-18 rounded-3xl items-center justify-center mb-5 bg-[#1C1C1C] border border-gray-border-light"
+            accessible={false}
+          >
             <IconCamera size={34} color="#FFFFFF" strokeWidth={1.7} />
           </View>
-          <Text style={styles.permissionTitle}>Camera & microphone</Text>
-          <Text style={styles.permissionDescription}>
+          <Text className="text-white text-3xl font-bold tracking-tight text-center">
+            Camera & microphone
+          </Text>
+          <Text className="text-text-muted text-base leading-5 text-center mt-2.5 mb-6">
             Allow both to record a video with sound. You can still choose an
             existing video without recording.
           </Text>
 
           {message && (
-            <View style={styles.permissionMessage}>
+            <View className="w-full max-w-sm flex-row items-start gap-2 mb-4 px-3.5 py-3 rounded-2xl bg-warning-red-bg border border-warning-red-border">
               <IconAlertCircle size={18} color="#FF7A6B" strokeWidth={2} />
-              <Text style={styles.permissionMessageText}>{message}</Text>
+              <Text className="flex-1 text-banner-error-text text-xs leading-4">
+                {message}
+              </Text>
             </View>
           )}
 
@@ -643,13 +650,12 @@ export function VideoCaptureView({
               accessibilityRole="button"
               accessibilityLabel="Open device Settings"
               onPress={() => void openSettings()}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                pressed && styles.buttonPressed,
-              ]}
+              className="w-full max-w-sm h-13 flex-row items-center justify-center gap-2 rounded-2xl bg-white active:opacity-70"
             >
               <IconSettings size={20} color="#111111" strokeWidth={2} />
-              <Text style={styles.primaryButtonText}>Open Settings</Text>
+              <Text className="text-background-pure text-base font-bold">
+                Open Settings
+              </Text>
             </Pressable>
           ) : (
             <Pressable
@@ -658,18 +664,16 @@ export function VideoCaptureView({
               accessibilityState={{ busy: isRequestingPermission }}
               disabled={isRequestingPermission}
               onPress={() => void requestCaptureAccess()}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                pressed && styles.buttonPressed,
-                isRequestingPermission && styles.buttonDisabled,
-              ]}
+              className={`w-full max-w-sm h-13 flex-row items-center justify-center gap-2 rounded-2xl bg-white active:opacity-70 ${isRequestingPermission ? "opacity-45" : ""}`}
             >
               {isRequestingPermission ? (
                 <ActivityIndicator size="small" color="#111111" />
               ) : (
                 <IconCamera size={20} color="#111111" strokeWidth={2} />
               )}
-              <Text style={styles.primaryButtonText}>Allow access</Text>
+              <Text className="text-background-pure text-base font-bold">
+                Allow access
+              </Text>
             </Pressable>
           )}
 
@@ -679,18 +683,16 @@ export function VideoCaptureView({
             accessibilityState={{ busy: isImporting }}
             disabled={isImporting || isDelivering}
             onPress={() => void importVideo()}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              pressed && styles.buttonPressed,
-              (isImporting || isDelivering) && styles.buttonDisabled,
-            ]}
+            className={`w-full max-w-sm h-13 flex-row items-center justify-center gap-2 mt-3 rounded-2xl bg-gray-dark border border-gray-border-light active:opacity-70 ${isImporting || isDelivering ? "opacity-45" : ""}`}
           >
             {isImporting ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <IconPhoto size={20} color="#FFFFFF" strokeWidth={2} />
             )}
-            <Text style={styles.secondaryButtonText}>Choose from library</Text>
+            <Text className="text-white text-base font-semibold">
+              Choose from library
+            </Text>
           </Pressable>
 
           {repairTarget === "library" && (
@@ -698,12 +700,11 @@ export function VideoCaptureView({
               accessibilityRole="button"
               accessibilityLabel="Open Settings for photo library access"
               onPress={() => void openSettings()}
-              style={({ pressed }) => [
-                styles.repairLink,
-                pressed && styles.buttonPressed,
-              ]}
+              className="px-3 py-3.5 active:opacity-70"
             >
-              <Text style={styles.repairLinkText}>Repair library access</Text>
+              <Text className="text-text-muted text-sm font-semibold">
+                Repair library access
+              </Text>
             </Pressable>
           )}
         </View>
@@ -712,8 +713,11 @@ export function VideoCaptureView({
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      <View style={styles.preview}>
+    <SafeAreaView
+      className="flex-1 bg-background-dark"
+      edges={["top", "bottom"]}
+    >
+      <View className="flex-1 overflow-hidden bg-background-pure">
         <CameraView
           ref={cameraRef}
           accessible={false}
@@ -723,7 +727,7 @@ export function VideoCaptureView({
           mode="video"
           mute={false}
           responsiveOrientationWhenOrientationLocked
-          style={StyleSheet.absoluteFill}
+          className="absolute inset-0"
           videoStabilizationMode="auto"
           onCameraReady={() => {
             setCameraReady(true);
@@ -736,12 +740,18 @@ export function VideoCaptureView({
         />
 
         {!cameraReady && appState === "active" && (
-          <View style={styles.cameraLoading} pointerEvents="none">
+          <View
+            className="absolute inset-0 items-center justify-center bg-background-pure"
+            pointerEvents="none"
+          >
             <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
         )}
 
-        <View style={styles.topControls} pointerEvents="box-none">
+        <View
+          className="absolute top-0 left-0 right-0 flex-row items-center justify-between px-4.5 pt-3"
+          pointerEvents="box-none"
+        >
           <RoundIconButton
             accessibilityLabel="Cancel video capture"
             onPress={cancel}
@@ -757,28 +767,36 @@ export function VideoCaptureView({
                 ? `Recording ${formatDuration(elapsedMs)}`
                 : "Video camera ready"
             }
-            style={[
-              styles.statusPill,
-              isRecording && styles.statusPillRecording,
-            ]}
+            className={`min-w-20 h-9.5 flex-row items-center justify-center gap-2 px-3.5 rounded-full bg-overlay-dark border border-overlay-border ${
+              isRecording
+                ? "bg-status-recording-bg border-status-recording-border"
+                : ""
+            }`}
           >
-            {isRecording && <View style={styles.recordingDot} />}
-            <Text style={styles.statusText}>
+            {isRecording && (
+              <View className="w-2 h-2 rounded-full bg-status-recording-dot" />
+            )}
+            <Text className="text-white text-sm font-bold font-[tabular-nums]">
               {isRecording ? formatDuration(elapsedMs) : "Video"}
             </Text>
           </View>
 
-          <View style={styles.topControlSpacer} />
+          <View className="w-12 h-12" />
         </View>
 
-        <View style={styles.bottomPanel} pointerEvents="box-none">
+        <View
+          className="absolute left-0 right-0 bottom-0 px-4.5 pt-4.5 pb-3.5 bg-panel-bg"
+          pointerEvents="box-none"
+        >
           {message && (
             <View
               accessibilityLiveRegion="assertive"
-              style={styles.errorBanner}
+              className="flex-row items-center gap-2.25 mb-4.5 px-3.5 py-2.75 rounded-xl bg-banner-error-bg border border-banner-error-border"
             >
               <IconAlertCircle size={18} color="#FF8A7D" strokeWidth={2} />
-              <Text style={styles.errorBannerText}>{message}</Text>
+              <Text className="flex-1 text-banner-error-text text-xs leading-4">
+                {message}
+              </Text>
               {repairTarget && (
                 <Pressable
                   accessibilityRole="button"
@@ -786,7 +804,7 @@ export function VideoCaptureView({
                   onPress={() => void openSettings()}
                   hitSlop={8}
                 >
-                  <Text style={styles.errorBannerAction}>Settings</Text>
+                  <Text className="text-white text-xs font-bold">Settings</Text>
                 </Pressable>
               )}
               {!repairTarget && pendingMedia && (
@@ -797,14 +815,14 @@ export function VideoCaptureView({
                   onPress={() => void deliverMedia(pendingMedia)}
                   hitSlop={8}
                 >
-                  <Text style={styles.errorBannerAction}>Retry</Text>
+                  <Text className="text-white text-xs font-bold">Retry</Text>
                 </Pressable>
               )}
             </View>
           )}
 
-          <View style={styles.captureControls}>
-            <View style={styles.sideControl}>
+          <View className="flex-row items-start justify-between">
+            <View className="w-19 items-center gap-1.75 pt-2.5">
               <RoundIconButton
                 accessibilityLabel="Switch camera"
                 accessibilityHint={`Switch to the ${facing === "front" ? "back" : "front"} camera`}
@@ -813,10 +831,12 @@ export function VideoCaptureView({
               >
                 <IconCameraRotate size={24} color="#FFFFFF" strokeWidth={1.8} />
               </RoundIconButton>
-              <Text style={styles.controlLabel}>Flip</Text>
+              <Text className="text-text-medium-light text-xs font-semibold">
+                Flip
+              </Text>
             </View>
 
-            <View style={styles.recordControl}>
+            <View className="min-w-24 items-center gap-2">
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -839,24 +859,21 @@ export function VideoCaptureView({
                 onPress={
                   isRecording ? stopRecording : () => void startRecording()
                 }
-                style={({ pressed }) => [
-                  styles.recordButton,
-                  pressed && !isBusy && styles.recordButtonPressed,
-                  (!cameraReady || isBusy) && styles.buttonDisabled,
-                ]}
+                className={`w-20 h-20 rounded-full items-center justify-center bg-record-border-outer border-2 border-white active:scale-95 ${
+                  !cameraReady || isBusy ? "opacity-45" : ""
+                }`}
               >
                 {isStopping || isDelivering ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <View
-                    style={[
-                      styles.recordButtonInner,
-                      isRecording && styles.recordButtonStop,
-                    ]}
+                    className={`w-16 h-16 rounded-full bg-status-recording-dot ${
+                      isRecording ? "w-7 h-7 rounded-lg" : ""
+                    }`}
                   />
                 )}
               </Pressable>
-              <Text style={styles.recordLabel}>
+              <Text className="text-white text-xs font-bold">
                 {isStopping || isDelivering
                   ? "Finishing…"
                   : isRecording
@@ -865,7 +882,7 @@ export function VideoCaptureView({
               </Text>
             </View>
 
-            <View style={styles.sideControl}>
+            <View className="w-19 items-center gap-1.75 pt-2.5">
               <RoundIconButton
                 accessibilityLabel="Choose an existing video"
                 accessibilityHint="Opens your photo library"
@@ -878,16 +895,18 @@ export function VideoCaptureView({
                   <IconPhoto size={24} color="#FFFFFF" strokeWidth={1.8} />
                 )}
               </RoundIconButton>
-              <Text style={styles.controlLabel}>Library</Text>
+              <Text className="text-text-medium-light text-xs font-semibold">
+                Library
+              </Text>
             </View>
           </View>
           {Platform.OS === "ios" && !isRecording ? (
-            <View style={styles.screenCaptureRow}>
-              <View style={styles.screenCaptureCopy}>
-                <Text style={styles.screenCaptureTitle}>
+            <View className="items-center border-t border-divider-light flex-row gap-3 mt-3.5 pt-3">
+              <View className="flex-1">
+                <Text className="text-white text-sm font-bold">
                   Record your screen
                 </Text>
-                <Text style={styles.screenCaptureDescription}>
+                <Text className="text-text-muted text-xs leading-4 mt-0.75">
                   Capture other apps with ReplayKit, system audio, and optional
                   microphone.
                 </Text>
@@ -902,298 +921,3 @@ export function VideoCaptureView({
 }
 
 export default VideoCaptureView;
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#090909",
-  },
-  preview: {
-    flex: 1,
-    overflow: "hidden",
-    backgroundColor: "#111111",
-  },
-  loadingState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 14,
-  },
-  loadingText: {
-    color: "#9A9A9A",
-    fontSize: 14,
-  },
-  permissionHeader: {
-    paddingHorizontal: 18,
-    paddingTop: 8,
-  },
-  permissionContent: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 30,
-    paddingBottom: 70,
-  },
-  permissionIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 22,
-    backgroundColor: "#1C1C1C",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#333333",
-  },
-  permissionTitle: {
-    color: "#FFFFFF",
-    fontSize: 25,
-    lineHeight: 31,
-    fontWeight: "700",
-    letterSpacing: -0.4,
-    textAlign: "center",
-  },
-  permissionDescription: {
-    maxWidth: 340,
-    marginTop: 10,
-    marginBottom: 24,
-    color: "#A6A6A6",
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-  },
-  permissionMessage: {
-    width: "100%",
-    maxWidth: 360,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 9,
-    marginBottom: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: "#271715",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#63332D",
-  },
-  permissionMessageText: {
-    flex: 1,
-    color: "#F1B1A9",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  primaryButton: {
-    width: "100%",
-    maxWidth: 360,
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-  },
-  primaryButtonText: {
-    color: "#111111",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  secondaryButton: {
-    width: "100%",
-    maxWidth: 360,
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
-    marginTop: 12,
-    borderRadius: 16,
-    backgroundColor: "#1A1A1A",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#333333",
-  },
-  secondaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  repairLink: {
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-  },
-  repairLinkText: {
-    color: "#BEBEBE",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  topControls: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 12,
-  },
-  topControlSpacer: {
-    width: 48,
-    height: 48,
-  },
-  iconButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(18, 18, 18, 0.72)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255, 255, 255, 0.18)",
-  },
-  statusPill: {
-    minWidth: 82,
-    height: 38,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    borderRadius: 19,
-    backgroundColor: "rgba(18, 18, 18, 0.72)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255, 255, 255, 0.18)",
-  },
-  statusPillRecording: {
-    backgroundColor: "rgba(30, 12, 10, 0.88)",
-    borderColor: "rgba(255, 102, 87, 0.5)",
-  },
-  recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#FF5D4D",
-  },
-  statusText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-    fontVariant: ["tabular-nums"],
-  },
-  cameraLoading: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#111111",
-  },
-  bottomPanel: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 14,
-    backgroundColor: "rgba(8, 8, 8, 0.76)",
-  },
-  errorBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    marginBottom: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 14,
-    backgroundColor: "rgba(37, 18, 16, 0.96)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#62322C",
-  },
-  errorBannerText: {
-    flex: 1,
-    color: "#F1B1A9",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  errorBannerAction: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  captureControls: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-  },
-  screenCaptureRow: {
-    alignItems: "center",
-    borderTopColor: "rgba(255, 255, 255, 0.14)",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 14,
-    paddingTop: 12,
-  },
-  screenCaptureCopy: { flex: 1 },
-  screenCaptureTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
-  screenCaptureDescription: {
-    color: "#A6A6A6",
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-  },
-  sideControl: {
-    width: 76,
-    alignItems: "center",
-    gap: 7,
-    paddingTop: 10,
-  },
-  controlLabel: {
-    color: "#D2D2D2",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  recordControl: {
-    minWidth: 96,
-    alignItems: "center",
-    gap: 8,
-  },
-  recordButton: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
-  },
-  recordButtonInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#FF5D4D",
-  },
-  recordButtonStop: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-  },
-  recordLabel: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  buttonPressed: {
-    opacity: 0.72,
-  },
-  recordButtonPressed: {
-    transform: [{ scale: 0.96 }],
-  },
-  buttonDisabled: {
-    opacity: 0.45,
-  },
-});

@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 
 import { saveSessionToken } from "@/lib/session-token-store";
 
@@ -19,7 +19,7 @@ export default function OAuthComplete() {
   }>();
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       if (token) {
         const expectedState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
         await AsyncStorage.removeItem(OAUTH_STATE_KEY);
@@ -32,17 +32,8 @@ export default function OAuthComplete() {
   }, [state, token]);
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 justify-center items-center bg-background-dark">
       <ActivityIndicator size="large" color="#ffffff" />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-  },
-});

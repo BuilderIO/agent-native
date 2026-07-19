@@ -1,14 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import {
-  View,
-  StyleSheet,
-  ActivityIndicator,
-  Linking,
-  AppState,
-} from "react-native";
-import { WebView } from "react-native-webview";
+import { View, ActivityIndicator, Linking, AppState } from "react-native";
+import type { WebView as WebViewRef } from "react-native-webview";
 
+import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import {
   clearSessionToken,
@@ -89,7 +84,7 @@ export default function AppWebView({
   sessionTokenKey = SESSION_TOKEN_KEY,
   sessionOwnerKey,
 }: AppWebViewProps) {
-  const webviewRef = useRef<WebView>(null);
+  const webviewRef = useRef<WebViewRef>(null);
   const [loading, setLoading] = useState(true);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const lastTokenRef = useRef<string | null>(null);
@@ -196,7 +191,7 @@ export default function AppWebView({
           // Only open external hosts in Safari — anything else is ignored
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
             rememberOAuthState(msg.url);
-            Linking.openURL(msg.url);
+            void Linking.openURL(msg.url);
           }
         }
       } catch {
@@ -233,11 +228,11 @@ export default function AppWebView({
   }, [sessionToken, url]);
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 bg-background-pure">
       <WebView
         ref={webviewRef}
         source={{ uri: webviewUrl }}
-        style={styles.webview}
+        className="flex-1 bg-background-pure"
         onLoadStart={() => setLoading(true)}
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
@@ -251,31 +246,10 @@ export default function AppWebView({
         pullToRefreshEnabled
       />
       {loading && (
-        <View style={styles.loadingOverlay}>
+        <View className="absolute inset-0 justify-center items-center bg-background-pure">
           <ActivityIndicator size="large" color="#ffffff" />
         </View>
       )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-  },
-});
