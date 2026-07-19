@@ -161,6 +161,7 @@ describe("Private Vault native service client", () => {
   it("keeps enrollment decisions inside the trusted native operation", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const challenge = new Uint8Array([0xa1, 0x01, 0x03]);
+    const sasDecision = new Uint8Array([0xa1, 0x01, 0x05]);
     const authorization = new Uint8Array([0xa1, 0x01, 0x04]);
     const request = vi.fn(async (operation: string) => {
       if (operation === "prepare_enroll") {
@@ -185,7 +186,12 @@ describe("Private Vault native service client", () => {
         };
       }
       if (operation === "confirm_enroll") {
-        return { version: 3, operation, state: "confirmed" };
+        return {
+          version: 3,
+          operation,
+          state: "confirmed",
+          sasDecision: Buffer.from(sasDecision),
+        };
       }
       if (operation === "authorize_enroll") {
         return {
@@ -228,6 +234,7 @@ describe("Private Vault native service client", () => {
       suite: "anc/v1",
       operation: "confirm_enroll",
       state: "confirmed",
+      sasDecision,
     });
     await expect(
       client.buildBrokerEnrollmentAuthorization({ vaultId, challenge }),

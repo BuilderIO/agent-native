@@ -645,21 +645,27 @@ bool PVConfirmTrustedEnrollment(PVAsyncRequest *request) {
       xpc_release(decideReply);
     return false;
   }
-  const char *const decideKeys[] = {"version", "ok", "requestId", "state"};
+  const char *const decideKeys[] = {
+      "version", "ok", "requestId", "state", "sasDecision",
+  };
   const char *decidedState = PVGetString(decideReply, "state");
   version = xpc_dictionary_get_value(decideReply, "version");
   ok = xpc_dictionary_get_value(decideReply, "ok");
   const bool decided =
-      PVHasExactKeys(decideReply, decideKeys, 4) && version != nullptr &&
+      PVHasExactKeys(decideReply, decideKeys, 5) && version != nullptr &&
       xpc_get_type(version) == XPC_TYPE_INT64 &&
       xpc_dictionary_get_int64(decideReply, "version") ==
           PV_PROTOCOL_VERSION &&
       ok != nullptr && xpc_get_type(ok) == XPC_TYPE_BOOL &&
       xpc_dictionary_get_bool(decideReply, "ok") &&
       PVRequestIDMatches(decideReply, decideRequestID) &&
-      decidedState != nullptr && strcmp(decidedState, decisionName) == 0;
-  if (decided)
+      decidedState != nullptr && strcmp(decidedState, decisionName) == 0 &&
+      PVCopyBoundedData(decideReply, "sasDecision", 2048, request->body);
+  if (decided) {
     memcpy(request->state, decidedState, strlen(decidedState) + 1);
+  } else if (!request->body.empty()) {
+    PVClearBytes(request->body);
+  }
   xpc_release(decideReply);
   return decided;
 }
@@ -1824,6 +1830,18 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                            ? "challenge"
                            : "authorization",
                        request->body)) {
+        napi_value message;
+        napi_value error;
+        PVCreateString(env, "Private Vault native service request failed",
+                       &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, request->deferred, error);
+        napi_delete_async_work(env, request->work);
+        delete request;
+        return;
+      }
+    } else if (request->operation == PVOperation::ConfirmEnrollment) {
+      if (!PVSetBuffer(env, result, "sasDecision", request->body)) {
         napi_value message;
         napi_value error;
         PVCreateString(env, "Private Vault native service request failed",

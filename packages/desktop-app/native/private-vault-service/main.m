@@ -1924,6 +1924,8 @@ static void PVDecideEnrollment(xpc_connection_t peer, xpc_object_t message,
             return;
         xpc_dictionary_set_string(reply, "state",
                                   confirmed ? "confirmed" : "mismatch");
+        xpc_dictionary_set_data(reply, "sasDecision", receipt.encodedReceipt.bytes,
+                                receipt.encodedReceipt.length);
         xpc_connection_send_message(peer, reply);
     }
 }

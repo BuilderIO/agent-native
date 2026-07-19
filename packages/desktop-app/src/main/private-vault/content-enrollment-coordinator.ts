@@ -89,8 +89,27 @@ export class PrivateVaultContentEnrollmentCoordinator {
             vaultId,
             challenge.slice(),
           );
+          status = await this.#hosted.publishSasDecision(
+            prepared.offerHash,
+            prepared.offer.slice(),
+            decision.sasDecision.slice(),
+          );
           if (decision.state === "mismatch") {
+            if (
+              status.phase !== "rejected" ||
+              !status.sasDecision ||
+              !same(status.sasDecision, decision.sasDecision)
+            ) {
+              throw new Error();
+            }
             throw new PrivateVaultContentEnrollmentRejectedError();
+          }
+          if (
+            (status.phase !== "confirmed" && status.phase !== "committed") ||
+            !status.sasDecision ||
+            !same(status.sasDecision, decision.sasDecision)
+          ) {
+            throw new Error();
           }
           const built = await this.#native.buildBrokerEnrollmentAuthorization({
             vaultId,

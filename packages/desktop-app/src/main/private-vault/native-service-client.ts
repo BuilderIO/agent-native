@@ -234,6 +234,7 @@ export interface NativeConfirmEnrollmentResult {
   readonly suite: typeof SERVICE_SUITE;
   readonly operation: "confirm_enroll";
   readonly state: "confirmed" | "mismatch";
+  readonly sasDecision: Uint8Array;
 }
 
 export interface NativeActivateEnrollmentResult {
@@ -505,10 +506,11 @@ function parsePrepareEnrollment(
 function parseConfirmEnrollment(value: unknown): NativeConfirmEnrollmentResult {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["version", "operation", "state"]) ||
+    !hasExactKeys(value, ["version", "operation", "state", "sasDecision"]) ||
     value.version !== XPC_PROTOCOL_VERSION ||
     value.operation !== "confirm_enroll" ||
-    (value.state !== "confirmed" && value.state !== "mismatch")
+    (value.state !== "confirmed" && value.state !== "mismatch") ||
+    !(value.sasDecision instanceof Uint8Array)
   ) {
     throw new PrivateVaultNativeServiceClientError();
   }
@@ -517,6 +519,7 @@ function parseConfirmEnrollment(value: unknown): NativeConfirmEnrollmentResult {
     suite: SERVICE_SUITE,
     operation: "confirm_enroll",
     state: value.state,
+    sasDecision: copyBoundedBytes(value.sasDecision, 2 * 1024),
   });
 }
 

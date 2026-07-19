@@ -12,6 +12,7 @@ const vaultId = "00".repeat(16);
 const offerHash = "11".repeat(32);
 const offer = Uint8Array.of(1, 2);
 const challenge = Uint8Array.of(3, 4);
+const sasDecision = Uint8Array.of(7, 8);
 const authorization = Uint8Array.of(5, 6);
 
 function native(
@@ -42,6 +43,7 @@ function native(
           suite: "anc/v1",
           operation: "confirm_enroll",
           state: decision,
+          sasDecision,
         }) as const,
     ),
     buildBrokerEnrollmentAuthorization: vi.fn(async () => ({
@@ -64,11 +66,17 @@ function native(
   };
 }
 
-function status(phase: "offer" | "challenge" | "committed") {
+function status(
+  phase: "offer" | "challenge" | "confirmed" | "rejected" | "committed",
+) {
   return {
     phase,
     offer,
     challenge: phase === "offer" ? null : challenge,
+    sasDecision:
+      phase === "confirmed" || phase === "rejected" || phase === "committed"
+        ? sasDecision
+        : null,
     authorization: phase === "committed" ? authorization : null,
     controlEntryId: phase === "committed" ? "44".repeat(16) : null,
     controlEntryHash: phase === "committed" ? "55".repeat(32) : null,
@@ -82,6 +90,7 @@ describe("PrivateVaultContentEnrollmentCoordinator", () => {
     const hosted = {
       publishOffer: vi.fn(async () => status("offer")),
       publishChallenge: vi.fn(async () => status("challenge")),
+      publishSasDecision: vi.fn(async () => status("confirmed")),
       publishAuthorization: vi.fn(async () => status("committed")),
     } as unknown as PrivateVaultContentEnrollmentTransport;
     const coordinator = new PrivateVaultContentEnrollmentCoordinator({
@@ -103,6 +112,11 @@ describe("PrivateVaultContentEnrollmentCoordinator", () => {
       vaultId,
       challenge,
     });
+    expect(hosted.publishSasDecision).toHaveBeenCalledWith(
+      offerHash,
+      offer,
+      sasDecision,
+    );
     expect(operator.activateBrokerEnrollment).toHaveBeenCalledWith(
       vaultId,
       challenge,
@@ -131,6 +145,7 @@ describe("PrivateVaultContentEnrollmentCoordinator", () => {
     const operator = native("mismatch");
     const hosted = {
       publishOffer: vi.fn(async () => status("challenge")),
+      publishSasDecision: vi.fn(async () => status("rejected")),
     } as unknown as PrivateVaultContentEnrollmentTransport;
     const coordinator = new PrivateVaultContentEnrollmentCoordinator({
       native: operator,
