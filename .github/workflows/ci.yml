@@ -220,6 +220,28 @@ jobs:
       - name: Run brain evals
         run: pnpm test:brain-evals
 
+  brain-privacy-evals:
+    name: Brain privacy leakage evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Block privacy leaks and false positives
+        run: pnpm test:brain-privacy-evals
+
   build:
     name: Build
     runs-on: ubuntu-latest

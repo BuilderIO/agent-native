@@ -42,6 +42,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
+  type BrainProjectsResponse,
   type KnowledgeRow,
   type SearchEverythingResponse,
   type SearchEverythingResult,
@@ -83,6 +84,7 @@ export default function SearchRoute() {
   const type = params.get("type") ?? "all";
   const provider = params.get("provider") ?? "all";
   const status = params.get("status") ?? "all";
+  const projectId = params.get("projectId") ?? "all";
   const limit = params.get("limit") ?? "25";
 
   const actionParams = useMemo(
@@ -90,16 +92,21 @@ export default function SearchRoute() {
       query: query.trim() || undefined,
       type: type === "all" ? undefined : type,
       provider: provider === "all" ? undefined : provider,
+      projectId: projectId === "all" ? undefined : projectId,
       status: status === "all" ? undefined : status,
       limit: Number.parseInt(limit, 10) || 25,
     }),
-    [limit, provider, query, status, type],
+    [limit, projectId, provider, query, status, type],
   );
 
   const searchQuery = useActionQuery<SearchEverythingResponse>(
     "search-everything" as any,
     actionParams as any,
     { enabled: Boolean(query.trim()), retry: false },
+  );
+  const projectsQuery = useActionQuery<BrainProjectsResponse>(
+    "list-projects" as any,
+    {} as any,
   );
 
   const results = useMemo(
@@ -110,6 +117,7 @@ export default function SearchRoute() {
     Boolean(query.trim()) ||
     type !== "all" ||
     provider !== "all" ||
+    projectId !== "all" ||
     status !== "all";
   const groupedResults = useMemo(() => groupResults(results), [results]);
   const resultFacets = useMemo(
@@ -168,6 +176,24 @@ export default function SearchRoute() {
             </div>
 
             <div className="brain-search-filter-grid grid gap-2">
+              <Select
+                value={projectId}
+                onValueChange={(value) => updateParam("projectId", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("searchPage.project")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("searchPage.allProjects")}
+                  </SelectItem>
+                  {(projectsQuery.data?.projects ?? []).map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select
                 value={type}
                 onValueChange={(value) => updateParam("type", value)}
@@ -346,6 +372,9 @@ function SearchResultRow({
                 {displayLabel(sourceProvider)}
               </Badge>
             ) : null}
+            {result.matchLane ? (
+              <Badge variant="outline">{result.matchLane}</Badge>
+            ) : null}
           </div>
           <h3 className="mt-3 text-base font-semibold leading-6 text-foreground">
             {result.title || t("searchPage.untitledResult")}
@@ -356,7 +385,9 @@ function SearchResultRow({
           {whyMatched ? (
             <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
               <IconCircleCheck className="size-3.5 shrink-0 text-foreground" />
-              <span className="truncate">{whyMatched}</span>
+              <span className="truncate">
+                {result.retrievalReason ?? whyMatched}
+              </span>
             </div>
           ) : null}
         </div>

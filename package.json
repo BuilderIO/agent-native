@@ -34,6 +34,7 @@
     "test:core-integration": "pnpm --filter @agent-native/core exec vitest --run src/agent/engine/translate-ai-sdk.integration.spec.ts src/agent/run-loop-with-resume.integration.spec.ts src/client/extensions/AgentNativeExtensionFrame.e2e.spec.ts src/client/session-replay-iframe.e2e.spec.ts src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts src/scripts/db/scope-isolation.e2e.spec.ts src/server/csrf-plugin-ordering.integration.spec.ts src/server/embedded.integration.spec.ts --maxWorkers=25% --passWithNoTests",
     "test:plan-e2e": "pnpm --filter plan exec vitest --run actions/create-visual-recap.e2e.spec.ts --passWithNoTests",
     "test:brain-evals": "pnpm --filter brain eval:ci",
+    "test:brain-privacy-evals": "pnpm --filter brain privacy:eval",
     "test:content-parity": "pnpm --filter content test:parity-capabilities",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
     "qa:headless-onramp": "tsx scripts/qa-headless-onramp-smoke.ts",
