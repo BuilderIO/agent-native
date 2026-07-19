@@ -191,6 +191,14 @@ export interface MultiFrontierStoredRun extends MultiFrontierRunState {
   updatedAt: string;
 }
 
+/**
+ * The desktop main-process coordinator is the sole caller of this transition
+ * boundary. Its callback receives a detached snapshot, never renderer input.
+ */
+export type MultiFrontierCoordinatorTransition = (
+  current: MultiFrontierStoredRun,
+) => MultiFrontierRunState | MultiFrontierStoredRun | null;
+
 export type AppendMultiFrontierParticipantEventResult =
   | {
       accepted: true;
@@ -357,6 +365,82 @@ export function recoverStoredMultiFrontierRun(
   return mutateStoredMultiFrontierRun(collaborationId, input.now, (current) => {
     const recovered = recoverMultiFrontierRun(current, input);
     return recovered === current ? current : recovered;
+  });
+}
+
+/**
+ * Applies one durable coordinator-owned state transition under the run lock.
+ * A state-shaped result retains proposal and review references by default;
+ * returning a full stored record is the explicit escape hatch for a
+ * coordinator operation that intentionally changes those references.
+ */
+export function transitionStoredMultiFrontierRun(
+  collaborationId: string,
+  updatedAt: string,
+  transition: MultiFrontierCoordinatorTransition,
+): MultiFrontierStoredRun | null {
+  assertSafeId(collaborationId, "collaboration id");
+  assertTimestamp(updatedAt, "transition time");
+  if (typeof transition !== "function") {
+    throw new Error("Invalid multi-frontier coordinator transition.");
+  }
+
+  return mutateStoredMultiFrontierRun(collaborationId, updatedAt, (current) => {
+    const candidate = transition(cloneStoredMultiFrontierRun(current));
+    if (candidate === null) return null;
+    if (isThenable(candidate)) {
+      throw new Error(
+        "Multi-frontier coordinator transitions must be synchronous.",
+      );
+    }
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error("Invalid multi-frontier coordinator transition state.");
+    }
+
+    const isFullStoredRun = hasStoredRunTimestamps(candidate);
+    if (
+      !isFullStoredRun &&
+      (Object.hasOwn(candidate, "createdAt") ||
+        Object.hasOwn(candidate, "updatedAt"))
+    ) {
+      throw new Error("Invalid multi-frontier coordinator transition state.");
+    }
+    if (
+      candidate.schemaVersion !== current.schemaVersion ||
+      candidate.collaborationId !== current.collaborationId
+    ) {
+      throw new Error(
+        "Multi-frontier coordinator transitions cannot change run identity.",
+      );
+    }
+    if (isFullStoredRun) {
+      if (!isCompleteMultiFrontierStoredRun(candidate)) {
+        throw new Error("Invalid multi-frontier coordinator transition state.");
+      }
+      if (candidate.createdAt !== current.createdAt) {
+        throw new Error(
+          "Multi-frontier coordinator transitions cannot change creation time.",
+        );
+      }
+    }
+
+    const nextState: MultiFrontierRunState = {
+      ...candidate,
+      ...(isFullStoredRun
+        ? {}
+        : {
+            proposalIds: [...current.proposalIds],
+            reviewIds: [...current.reviewIds],
+          }),
+    };
+    if (!isCompleteMultiFrontierRunState(nextState)) {
+      throw new Error("Invalid multi-frontier coordinator transition state.");
+    }
+    return nextState;
   });
 }
 
@@ -889,36 +973,68 @@ function multiFrontierArtifactPath(
 function readStoredRun(filePath: string): MultiFrontierStoredRun | null {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
-    if (!raw || typeof raw !== "object") return null;
-    const run = raw as Partial<MultiFrontierStoredRun>;
-    if (
-      run.schemaVersion !== 1 ||
-      typeof run.collaborationId !== "string" ||
-      !SAFE_ID.test(run.collaborationId) ||
-      !isPhase(run.phase) ||
-      !isStoredRunParticipantsAndDriverValid(run.participants, run.driver) ||
-      !isApproval(run.approval) ||
-      !Array.isArray(run.checkpointIds) ||
-      !run.checkpointIds.every(
-        (checkpointId) => typeof checkpointId === "string",
-      ) ||
-      typeof run.round !== "number" ||
-      !Number.isInteger(run.round) ||
-      run.round < 1 ||
-      !isStringArray(run.proposalIds) ||
-      !isStringArray(run.reviewIds) ||
-      (run.recovery !== undefined && !isRecovery(run.recovery)) ||
-      typeof run.createdAt !== "string" ||
-      Number.isNaN(Date.parse(run.createdAt)) ||
-      typeof run.updatedAt !== "string" ||
-      Number.isNaN(Date.parse(run.updatedAt))
-    ) {
-      return null;
-    }
-    return run as MultiFrontierStoredRun;
+    return isCompleteMultiFrontierStoredRun(raw) ? raw : null;
   } catch {
     return null;
   }
+}
+
+function isCompleteMultiFrontierStoredRun(
+  value: unknown,
+): value is MultiFrontierStoredRun {
+  if (!hasStoredRunTimestamps(value)) return false;
+  return (
+    isCompleteMultiFrontierRunState(value) &&
+    !Number.isNaN(Date.parse(value.createdAt)) &&
+    !Number.isNaN(Date.parse(value.updatedAt))
+  );
+}
+
+function isCompleteMultiFrontierRunState(
+  value: unknown,
+): value is MultiFrontierRunState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const run = value as Partial<MultiFrontierRunState>;
+  return (
+    run.schemaVersion === 1 &&
+    typeof run.collaborationId === "string" &&
+    SAFE_ID.test(run.collaborationId) &&
+    isPhase(run.phase) &&
+    isStoredRunParticipantsAndDriverValid(run.participants, run.driver) &&
+    isApproval(run.approval) &&
+    Array.isArray(run.checkpointIds) &&
+    run.checkpointIds.every(
+      (checkpointId) => typeof checkpointId === "string",
+    ) &&
+    typeof run.round === "number" &&
+    Number.isInteger(run.round) &&
+    run.round >= 1 &&
+    isStringArray(run.proposalIds) &&
+    isStringArray(run.reviewIds) &&
+    (run.recovery === undefined || isRecovery(run.recovery))
+  );
+}
+
+function hasStoredRunTimestamps(
+  value: unknown,
+): value is MultiFrontierStoredRun {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const run = value as Partial<MultiFrontierStoredRun>;
+  return typeof run.createdAt === "string" && typeof run.updatedAt === "string";
+}
+
+function cloneStoredMultiFrontierRun(
+  run: MultiFrontierStoredRun,
+): MultiFrontierStoredRun {
+  return JSON.parse(JSON.stringify(run)) as MultiFrontierStoredRun;
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    Boolean(value) &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
 
 function readParticipantEvent(

@@ -21,6 +21,7 @@ import {
   multiFrontierRunsStoreRoot,
   reactivateStoredMultiFrontierDriver,
   recoverStoredMultiFrontierRun,
+  transitionStoredMultiFrontierRun,
 } from "./multi-frontier-runs.js";
 
 const tempRoots: string[] = [];
@@ -132,6 +133,172 @@ describe("multi-frontier run store", () => {
         permission: "workspace_write",
       }),
     ).toBe(false);
+  });
+
+  it("serializes coordinator transitions without losing independent participant updates", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const codexTransition = transitionStoredMultiFrontierRun(
+      run.collaborationId,
+      "2026-07-19T16:00:00.000Z",
+      (current) => {
+        const {
+          createdAt: _createdAt,
+          updatedAt: _updatedAt,
+          ...state
+        } = current;
+        return {
+          ...state,
+          participants: state.participants.map((participant) =>
+            participant.participantId === "codex"
+              ? {
+                  ...participant,
+                  sessionRef: "session-codex-2",
+                  status: "waiting",
+                }
+              : participant,
+          ),
+        };
+      },
+    );
+    const claudeTransition = transitionStoredMultiFrontierRun(
+      run.collaborationId,
+      "2026-07-19T16:00:01.000Z",
+      (current) => ({
+        ...current,
+        participants: current.participants.map((participant) =>
+          participant.participantId === "claude"
+            ? {
+                ...participant,
+                sessionRef: "session-claude-1",
+                status: "completed",
+              }
+            : participant,
+        ),
+      }),
+    );
+
+    expect(codexTransition?.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          participantId: "codex",
+          sessionRef: "session-codex-2",
+          status: "waiting",
+        }),
+      ]),
+    );
+    expect(claudeTransition?.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          participantId: "codex",
+          sessionRef: "session-codex-2",
+          status: "waiting",
+        }),
+        expect.objectContaining({
+          participantId: "claude",
+          sessionRef: "session-claude-1",
+          status: "completed",
+        }),
+      ]),
+    );
+  });
+
+  it("rejects an invalid coordinator dual-writer transition without mutating disk", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const before = getMultiFrontierRun(run.collaborationId);
+
+    expect(() =>
+      transitionStoredMultiFrontierRun(
+        run.collaborationId,
+        "2026-07-19T16:00:00.000Z",
+        (current) => ({
+          ...current,
+          participants: current.participants.map((participant) => ({
+            ...participant,
+            permission: "workspace_write",
+          })),
+        }),
+      ),
+    ).toThrow("Invalid multi-frontier coordinator transition state.");
+    expect(getMultiFrontierRun(run.collaborationId)).toEqual(before);
+  });
+
+  it("rejects coordinator attempts to change durable run identity", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const before = getMultiFrontierRun(run.collaborationId);
+
+    expect(() =>
+      transitionStoredMultiFrontierRun(
+        run.collaborationId,
+        "2026-07-19T16:00:00.000Z",
+        (current) => ({ ...current, collaborationId: "other-run" }),
+      ),
+    ).toThrow("cannot change run identity");
+    expect(() =>
+      transitionStoredMultiFrontierRun(
+        run.collaborationId,
+        "2026-07-19T16:00:01.000Z",
+        (current) => ({ ...current, createdAt: "2026-07-01T00:00:00.000Z" }),
+      ),
+    ).toThrow("cannot change creation time");
+    expect(getMultiFrontierRun(run.collaborationId)).toEqual(before);
+  });
+
+  it("retains artifact references for state-shaped coordinator transitions", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    appendMultiFrontierArtifact({
+      id: "proposal-transition",
+      collaborationId: run.collaborationId,
+      kind: "proposal",
+      title: "Proposal",
+      summary: "A bounded durable proposal.",
+    });
+    appendMultiFrontierArtifact({
+      id: "review-transition",
+      collaborationId: run.collaborationId,
+      kind: "review",
+      title: "Review",
+      summary: "A bounded durable review.",
+    });
+
+    const transitioned = transitionStoredMultiFrontierRun(
+      run.collaborationId,
+      "2026-07-19T16:00:00.000Z",
+      (current) => {
+        const {
+          createdAt: _createdAt,
+          updatedAt: _updatedAt,
+          ...state
+        } = current;
+        return {
+          ...state,
+          proposalIds: [],
+          reviewIds: [],
+          phase: "checkpoint_review",
+        };
+      },
+    );
+
+    expect(transitioned).toMatchObject({
+      proposalIds: ["proposal-transition"],
+      reviewIds: ["review-transition"],
+      phase: "checkpoint_review",
+    });
+  });
+
+  it("returns null without writing when a coordinator transition has no run", () => {
+    useTempCodeAgentsHome();
+    expect(
+      transitionStoredMultiFrontierRun(
+        "missing-run",
+        "2026-07-19T16:00:00.000Z",
+        (current) => current,
+      ),
+    ).toBeNull();
+    expect(getMultiFrontierRun("missing-run")).toBeNull();
   });
 
   it("deduplicates stable participant events after fencing the driver", () => {
