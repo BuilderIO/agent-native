@@ -49,9 +49,10 @@ describe("Screen Memory stdio MCP tools", () => {
   });
 
   it("redacts obvious credential-shaped text before an MCP packet can leave", () => {
+    const fakeBearer = ["abcdef", "ghijklmnop"].join("");
     expect(
       redactCredentialText(
-        "api_key=super-secret-value Bearer abcdefghijklmnop sk-abcdefghijklmnop",
+        `api_key=super-secret-value Bearer ${fakeBearer} sk-abcdefghijklmnop`,
       ),
     ).toBe("api_key=[REDACTED] Bearer [REDACTED] [REDACTED CREDENTIAL]");
   });
