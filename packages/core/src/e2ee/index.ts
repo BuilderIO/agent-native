@@ -8,6 +8,7 @@ export * from "./control-log-append.js";
 export * from "./control-evidence.js";
 export * from "./endpoint-request-auth.js";
 export * from "./enrollment-ceremony-codecs.js";
+export * from "./export-archive.js";
 export * from "./failure-fixtures.js";
 export * from "./failure-vectors.js";
 export * from "./genesis-ceremony-codecs.js";

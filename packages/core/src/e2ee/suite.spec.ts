@@ -60,6 +60,8 @@ describe("anc/v1 suite freeze", () => {
       "recovery-authorization",
       "recovery-authority",
       "ceremony-abort",
+      "export-key",
+      "export-archive",
     ]);
     expect(new Set(E2EE_DOMAIN_TAGS).size).toBe(E2EE_DOMAIN_TAGS.length);
     expect(E2EE_ENVELOPE_FIELDS.common).toEqual({
@@ -262,6 +264,13 @@ describe("anc/v1 suite freeze", () => {
       membershipHash: 222,
       priorEndpointIds: 223,
     });
+    expect(E2EE_ENVELOPE_FIELDS.exportArchive).toEqual({
+      sourceSnapshotHash: 460,
+      objectCount: 461,
+      plaintextHash: 462,
+      nonce: 463,
+      ciphertext: 464,
+    });
     expect(E2EE_ENVELOPE_FIELDS.result).toEqual({
       jobId: 100,
       jobHash: 101,
@@ -306,6 +315,7 @@ describe("anc/v1 suite freeze", () => {
       E2EE_SIZE_LIMITS.resultPayloadBytes + 64 * 1024,
     );
     expect(E2EE_SIZE_LIMITS.enrollmentAuthorizationBytes).toBe(256 * 1024);
+    expect(E2EE_SIZE_LIMITS.exportPlaintextBytes).toBe(256 * 1024 * 1024);
     expect(E2EE_SIZE_LIMITS.genesisBootstrapTranscriptBytes).toBe(4 * 1024);
     expect(E2EE_LIFETIME_LIMITS_SECONDS).toEqual({
       internalGrantMaximum: 2_592_000,

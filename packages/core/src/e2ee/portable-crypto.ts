@@ -148,6 +148,22 @@ export async function ancV1Hash(
   }
 }
 
+/** Derive one suite-scoped 32-byte key without reusing the recovery root. */
+export async function ancV1DeriveKey(
+  tag: E2EEDomainTag,
+  keyMaterial: Uint8Array,
+): Promise<Uint8Array> {
+  await ready();
+  const key = snapshotExactBytes(keyMaterial, 32, "Key material");
+  const context = e2eeDomainSeparationPrefix(tag);
+  try {
+    return sodium.crypto_generichash(32, context, key);
+  } finally {
+    key.fill(0);
+    context.fill(0);
+  }
+}
+
 export async function ancV1SigningKeypairFromSeed(seed: Uint8Array): Promise<{
   publicKey: Uint8Array;
   privateKey: Uint8Array;

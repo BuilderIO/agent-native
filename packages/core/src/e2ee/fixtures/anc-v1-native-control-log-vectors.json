@@ -23,11 +23,11 @@
     },
     {
       "path": "packages/core/src/e2ee/portable-crypto.ts",
-      "sha256": "8c9c54b4aead43a179ea6ad445a1335bc70bef6ca77e8a4352cf0316199c5caa"
+      "sha256": "df15fd82bc78ac4291f580215b3658442f62aa831a4167b2dd087aad95be6088"
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "2cf207f3761be5606a5ab4e72bf7acf5a08ce1b7901bc4fd5ad7f24ef4105d38"
+      "sha256": "3d6dfcb670a82e07ea2d644bf45e0880f2abd13830b6fa8f9df242ba555be351"
     }
   ],
   "domains": [

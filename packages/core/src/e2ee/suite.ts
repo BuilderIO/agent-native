@@ -44,6 +44,8 @@ export const E2EE_DOMAIN_TAGS = Object.freeze([
   "recovery-authorization",
   "recovery-authority",
   "ceremony-abort",
+  "export-key",
+  "export-archive",
 ] as const);
 
 export type E2EEDomainTag = (typeof E2EE_DOMAIN_TAGS)[number];
@@ -370,6 +372,13 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     membershipHash: 222,
     priorEndpointIds: 223,
   }),
+  exportArchive: Object.freeze({
+    sourceSnapshotHash: 460,
+    objectCount: 461,
+    plaintextHash: 462,
+    nonce: 463,
+    ciphertext: 464,
+  }),
 });
 
 /**
@@ -401,6 +410,7 @@ export const E2EE_SIZE_LIMITS = Object.freeze({
   vaultLogEntryBytes: 64 * 1024,
   enrollmentAuthorizationBytes: 256 * 1024,
   enrollmentSasDecisionBytes: 2 * 1024,
+  exportPlaintextBytes: 256 * 1024 * 1024,
 });
 
 export const E2EE_LIFETIME_LIMITS_SECONDS = Object.freeze({
