@@ -1,0 +1,409 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  getMultiFrontierRun,
+  transitionStoredMultiFrontierRun,
+} from "../../../core/src/cli/multi-frontier-runs.js";
+import {
+  normalizeMultiFrontierRendererState,
+  type MultiFrontierCreateCollaborationRequest,
+} from "../../shared/multi-frontier-ipc.js";
+import type {
+  LocalFrontierParticipant,
+  LocalFrontierParticipantEvent,
+  LocalFrontierSessionInput,
+  LocalFrontierTurnInput,
+} from "./multi-frontier-coordinator.js";
+import { MultiFrontierManager } from "./multi-frontier-manager.js";
+
+const roots: string[] = [];
+
+afterEach(() => {
+  delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+  for (const root of roots.splice(0))
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
+describe("MultiFrontierManager", () => {
+  it("runs the real coordinator/orchestrator through planning, GO, implementation, and checkpoint review", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns);
+    const created = await manager.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+
+    await manager.start(action("start", collaborationId));
+    expect(getMultiFrontierRun(collaborationId)).toMatchObject({
+      phase: "awaiting_go",
+      approval: { state: "pending" },
+    });
+
+    await manager.go(action("go", collaborationId));
+    await waitFor(() =>
+      turns.some((turn) => turn.phase === "checkpoint_review"),
+    );
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "completed",
+    );
+
+    expect(turns.some((turn) => turn.phase === "implementing")).toBe(true);
+    expect(turns.some((turn) => turn.phase === "checkpoint_review")).toBe(true);
+    expect(getMultiFrontierRun(collaborationId)).toMatchObject({
+      phase: "completed",
+      checkpointIds: [expect.any(String)],
+    });
+  });
+
+  it("recovers artifacts through the real coordinator without replaying a turn before explicit GO", async () => {
+    useStore();
+    const initialTurns: LocalFrontierTurnInput[] = [];
+    const initial = createManager(initialTurns);
+    const created = await initial.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await initial.start(action("start", collaborationId));
+    await initial.pause(action("pause", collaborationId));
+    await initial.dispose();
+
+    const recoveredTurns: LocalFrontierTurnInput[] = [];
+    const recovered = createManager(recoveredTurns);
+    await recovered.resume(action("resume", collaborationId));
+
+    expect(getMultiFrontierRun(collaborationId)).toMatchObject({
+      phase: "awaiting_go",
+      approval: { state: "pending" },
+    });
+    expect(recoveredTurns).toHaveLength(0);
+
+    await recovered.go(action("go", collaborationId));
+    await waitFor(() =>
+      recoveredTurns.some((turn) => turn.phase === "checkpoint_review"),
+    );
+    expect(recoveredTurns.some((turn) => turn.phase === "implementing")).toBe(
+      true,
+    );
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "completed",
+    );
+  });
+
+  it("keeps auto-continue out of renderer approval affordances and pauses consequential planning findings", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns, { consequential: true });
+    const created = await manager.create({
+      ...createRequest(),
+      autoContinueAfterAgreement: true,
+    });
+    const collaborationId = created.snapshot!.collaborationId;
+    await manager.start(action("start", collaborationId));
+
+    expect(getMultiFrontierRun(collaborationId)).toMatchObject({
+      phase: "paused",
+    });
+    expect(turns.some((turn) => turn.phase === "implementing")).toBe(false);
+  });
+
+  it("auto-continues directly into implementation without a transient GO state", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns);
+    const created = await manager.create({
+      ...createRequest(),
+      autoContinueAfterAgreement: true,
+    });
+    const started = await manager.start(
+      action("start", created.snapshot!.collaborationId),
+    );
+
+    expect(started.snapshot).toMatchObject({
+      phase: "implementing",
+      approvalState: "approved",
+    });
+    await waitFor(() => turns.some((turn) => turn.phase === "implementing"));
+    await waitFor(
+      () =>
+        getMultiFrontierRun(created.snapshot!.collaborationId)?.phase ===
+        "completed",
+    );
+  });
+
+  it("projects a revoked checkpoint lease without renderer driver authority", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns, {
+      snapshotTestOutput: "Checkpoint test evidence is unavailable.",
+    });
+    const created = await manager.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await manager.start(action("start", collaborationId));
+    await manager.go(action("go", collaborationId));
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "awaiting_go",
+    );
+
+    const [snapshot] = await manager.list();
+    expect(snapshot).toMatchObject({
+      collaborationId,
+      phase: "awaiting_go",
+      approvalState: "pending",
+    });
+    expect(snapshot).not.toHaveProperty("driverParticipantId");
+    expect(snapshot).not.toHaveProperty("driverGeneration");
+    expect(normalizeMultiFrontierRendererState(snapshot)).toEqual(snapshot);
+  });
+
+  it("hydrates a recovered session before subscription and forwards its background completion", async () => {
+    useStore();
+    const initial = createManager([]);
+    const created = await initial.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await initial.start(action("start", collaborationId));
+    await initial.pause(action("pause", collaborationId));
+    await initial.dispose();
+
+    const turns: LocalFrontierTurnInput[] = [];
+    const recovered = createManager(turns);
+    await recovered.list();
+    const events: unknown[] = [];
+    const unsubscribe = recovered.subscribe(collaborationId, (event) =>
+      events.push(event),
+    );
+    await recovered.resume(action("resume", collaborationId));
+    await recovered.go(action("go", collaborationId));
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "completed",
+    );
+    unsubscribe();
+
+    expect(
+      events.some(
+        (event) =>
+          typeof event === "object" &&
+          event !== null &&
+          (event as { type?: unknown }).type === "snapshot" &&
+          (event as { snapshot?: { phase?: unknown } }).snapshot?.phase ===
+            "completed",
+      ),
+    ).toBe(true);
+  });
+
+  it("restores only persisted opaque session references when hydrating a run", async () => {
+    useStore();
+    const initial = createManager([]);
+    const created = await initial.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await initial.pause(action("pause", collaborationId));
+    await initial.dispose();
+    transitionStoredMultiFrontierRun(
+      collaborationId,
+      "2026-07-19T12:00:00.000Z",
+      (run) => ({
+        ...run,
+        participants: run.participants.map((participant) => ({
+          ...participant,
+          sessionRef: `resume-${participant.participantId}`,
+        })),
+      }),
+    );
+
+    let sessionRefs: Readonly<Record<string, string>> | undefined;
+    const recovered = createManager([], {
+      onParticipants: (next) => {
+        sessionRefs = next;
+      },
+    });
+    await recovered.list();
+
+    expect(sessionRefs).toEqual({
+      "codex-1": "resume-codex-1",
+      "claude-1": "resume-claude-1",
+    });
+  });
+
+  it("requires subscriptions again before recovering a paused collaboration", async () => {
+    useStore();
+    const initial = createManager([]);
+    const created = await initial.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await initial.pause(action("pause", collaborationId));
+    await initial.dispose();
+
+    await expect(
+      createManager([], { connected: false }).resume(
+        action("resume", collaborationId),
+      ),
+    ).resolves.toMatchObject({
+      error: { message: expect.stringContaining("subscription-native") },
+    });
+  });
+
+  it("pauses an auto-continue run for consequential checkpoint findings", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns, { checkpointConsequential: true });
+    const created = await manager.create({
+      ...createRequest(),
+      autoContinueAfterAgreement: true,
+    });
+    await manager.start(action("start", created.snapshot!.collaborationId));
+    await waitFor(
+      () =>
+        getMultiFrontierRun(created.snapshot!.collaborationId)?.phase ===
+        "paused",
+    );
+
+    expect(turns.some((turn) => turn.phase === "implementing")).toBe(true);
+  });
+
+  it("admits only connected subscription participants", async () => {
+    useStore();
+    const manager = new MultiFrontierManager({
+      resolveWorkspaceCwd: async () => "/workspace",
+      isSubscriptionConnected: async () => false,
+    });
+    await expect(manager.create(createRequest())).resolves.toMatchObject({
+      error: { message: expect.stringContaining("subscription-native") },
+    });
+  });
+});
+
+function createManager(
+  turns: LocalFrontierTurnInput[],
+  options: {
+    consequential?: boolean;
+    checkpointConsequential?: boolean;
+    connected?: boolean;
+    snapshotTestOutput?: string;
+    onParticipants?: (sessionRefs: Readonly<Record<string, string>>) => void;
+  } = {},
+): MultiFrontierManager {
+  return new MultiFrontierManager({
+    resolveWorkspaceCwd: async (workspaceId) =>
+      workspaceId === "workspace-1" ? "/workspace" : null,
+    isSubscriptionConnected: async () => options.connected ?? true,
+    readRepositoryEvidence: async () => "Bounded repository evidence.",
+    snapshotWorkspace: async () => ({
+      contentRef: "workspace:checkpoint-1",
+      contentHash: "a".repeat(64),
+      testOutput: options.snapshotTestOutput ?? "Tests 1 passed.",
+    }),
+    createParticipants: ({ participants, sessionRefs }) => {
+      options.onParticipants?.(sessionRefs);
+      return [
+        participant(participants[0]!, turns, options),
+        participant(participants[1]!, turns, options),
+      ];
+    },
+  });
+}
+
+function participant(
+  config: MultiFrontierCreateCollaborationRequest["participants"][number],
+  turns: LocalFrontierTurnInput[],
+  options: {
+    consequential?: boolean;
+    checkpointConsequential?: boolean;
+  },
+): LocalFrontierParticipant {
+  return {
+    participantId: config.participantId,
+    provider: config.providerId,
+    runtime: config.providerId === "codex" ? "codex-cli" : "claude-code",
+    async start(_input: LocalFrontierSessionInput) {},
+    async resume(_input: LocalFrontierSessionInput) {},
+    async runTurn(input) {
+      turns.push(input);
+      if (input.phase === "cross_review") {
+        return {
+          text: "Cross-review complete.",
+          requiresRevision: false,
+          findings: options.consequential
+            ? [
+                {
+                  id: "scope-boundary",
+                  category: "intent_or_scope",
+                  summary: "Scope requires human direction.",
+                },
+              ]
+            : [],
+        };
+      }
+      if (input.phase === "converging") {
+        return {
+          text: "Both plans converge on the reversible implementation.",
+          agreed: true,
+        };
+      }
+      if (input.phase === "checkpoint_review") {
+        return options.checkpointConsequential
+          ? {
+              text: "Checkpoint review requires human direction.",
+              findings: [
+                {
+                  id: "checkpoint-scope-boundary",
+                  category: "security_or_privacy",
+                  summary: "Checkpoint change needs human approval.",
+                },
+              ],
+            }
+          : { text: "Checkpoint review passed.", findings: [] };
+      }
+      if (input.phase === "implementing") {
+        return { text: "Implementation completed with focused tests." };
+      }
+      return { text: `${config.providerId} proposal.` };
+    },
+    async cancel() {},
+    async dispose() {},
+    onEvent(_listener: (event: LocalFrontierParticipantEvent) => void) {
+      return () => undefined;
+    },
+  };
+}
+
+function createRequest(): MultiFrontierCreateCollaborationRequest {
+  return {
+    schemaVersion: 1,
+    requestId: "request-1",
+    action: "create",
+    workspaceId: "workspace-1",
+    prompt: "Implement the selected reversible code change.",
+    autoContinueAfterAgreement: false,
+    participants: [
+      { participantId: "codex-1", providerId: "codex" },
+      { participantId: "claude-1", providerId: "claude" },
+    ],
+  };
+}
+
+function action(
+  actionName: "start" | "go" | "pause" | "resume",
+  collaborationId: string,
+) {
+  return {
+    schemaVersion: 1 as const,
+    requestId: `request-${actionName}`,
+    action: actionName,
+    collaborationId,
+  };
+}
+
+function useStore(): void {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "multi-frontier-manager-"),
+  );
+  roots.push(root);
+  process.env.AGENT_NATIVE_CODE_AGENTS_HOME = root;
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for the collaboration cycle.");
+}

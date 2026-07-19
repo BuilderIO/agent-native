@@ -68,20 +68,24 @@ const coreRuntimeApi: CoreRuntimeApi = {
 export class CoreMultiFrontierCoordinatorStore implements LocalFrontierCoordinatorStore {
   readonly #core: CoreRuntimeApi;
   readonly #now: () => string;
+  readonly #workspaceId: string | undefined;
 
   constructor(
     options: {
       core?: CoreRuntimeApi;
       now?: () => string;
+      workspaceId?: string;
     } = {},
   ) {
     this.#core = options.core ?? coreRuntimeApi;
     this.#now = options.now ?? (() => new Date().toISOString());
+    this.#workspaceId = options.workspaceId;
   }
 
   create(state: LocalFrontierCoordinatorState): void {
     this.#core.createMultiFrontierRun({
       collaborationId: state.collaborationId,
+      ...(this.#workspaceId ? { workspaceId: this.#workspaceId } : {}),
       phase: state.phase,
       participants: toCoreParticipants(state.participants),
       approval: toCoreApproval(state),
@@ -520,6 +524,7 @@ function toCoreState(
   return {
     schemaVersion: 1,
     collaborationId: state.collaborationId,
+    ...(current.workspaceId ? { workspaceId: current.workspaceId } : {}),
     phase: state.phase,
     participants: toCoreParticipants(state.participants, current),
     driver: state.driver ? { ...state.driver } : null,

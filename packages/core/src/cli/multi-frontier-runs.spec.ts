@@ -562,6 +562,70 @@ describe("multi-frontier run store", () => {
     expect(listMultiFrontierArtifacts(run.collaborationId)).toEqual([]);
   });
 
+  it("rejects unknown, oversized, and credential-shaped orchestration projections", () => {
+    useTempCodeAgentsHome();
+    const run = createActiveRun();
+    const base = {
+      id: "orchestration-review-1",
+      kind: "cross_review" as const,
+      round: 1,
+      participantId: "claude",
+      text: "The bounded review found no blocking concern.",
+      attribution: {
+        participantIds: ["claude"],
+        sourceArtifactIds: ["proposal-1"],
+      },
+      metadata: {
+        findings: [
+          {
+            id: "finding-1",
+            rawFindingId: "finding-raw-1",
+            reviewerParticipantId: "claude",
+            category: "reversible_technical",
+            summary: "Use the existing durable transition boundary.",
+          },
+        ],
+      },
+    };
+    const append = (orchestration: unknown) =>
+      appendMultiFrontierArtifact({
+        id: "review-projection-1",
+        collaborationId: run.collaborationId,
+        kind: "review",
+        participantId: "claude",
+        title: "Cross review",
+        summary: "The bounded review found no blocking concern.",
+        orchestration,
+      } as never);
+
+    expect(() => append({ ...base, rawProviderPayload: "forbidden" })).toThrow(
+      "orchestration artifact",
+    );
+    expect(() =>
+      append({
+        ...base,
+        attribution: { ...base.attribution, accountToken: "forbidden" },
+      }),
+    ).toThrow("orchestration artifact");
+    expect(() =>
+      append({
+        ...base,
+        metadata: {
+          findings: [
+            { ...base.metadata.findings[0], rawProviderPayload: "forbidden" },
+          ],
+        },
+      }),
+    ).toThrow("orchestration artifact");
+    expect(() => append({ ...base, text: `Bearer ${"x".repeat(24)}` })).toThrow(
+      "orchestration artifact",
+    );
+    expect(() => append({ ...base, text: "x".repeat(9_000) })).toThrow(
+      "orchestration artifact",
+    );
+    expect(listMultiFrontierArtifacts(run.collaborationId)).toEqual([]);
+  });
+
   it("repairs a matching artifact reference after a crash between artifact and run writes", () => {
     useTempCodeAgentsHome();
     const run = createActiveRun();

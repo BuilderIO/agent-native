@@ -81,6 +81,8 @@ export interface MultiFrontierRecovery {
 export interface MultiFrontierRunState {
   schemaVersion: 1;
   collaborationId: string;
+  /** Opaque local workspace handle; never a filesystem path. */
+  workspaceId?: string;
   phase: MultiFrontierPhase;
   participants: MultiFrontierParticipantState[];
   driver: MultiFrontierDriverLease | null;
@@ -96,6 +98,7 @@ export interface MultiFrontierRunState {
 
 export interface CreateMultiFrontierRunInput {
   collaborationId: string;
+  workspaceId?: string;
   phase?: MultiFrontierPhase;
   participants: MultiFrontierParticipantState[];
   approval?: MultiFrontierApproval;
@@ -130,6 +133,26 @@ export interface MultiFrontierArtifactTestSummary {
   summary?: string;
 }
 
+/** A bounded, redacted projection used only for Desktop orchestrator recovery. */
+export interface MultiFrontierOrchestrationArtifact {
+  id: string;
+  kind:
+    | "proposal"
+    | "cross_review"
+    | "revision"
+    | "synthesis"
+    | "checkpoint"
+    | "watchdog_review"
+    | "finding_disposition"
+    | "completion";
+  round: number;
+  participantId?: string;
+  text: string;
+  attribution: { participantIds: string[]; sourceArtifactIds: string[] };
+  supersedesArtifactId?: string;
+  metadata?: Record<string, unknown>;
+}
+
 /**
  * A deliberately narrow coordination record. Full diffs, transcripts, and
  * provider payloads stay in their owning runtime rather than this durable
@@ -148,6 +171,7 @@ export interface PersistedMultiFrontierArtifact {
   contentHash?: string;
   fileRefs?: string[];
   testSummary?: MultiFrontierArtifactTestSummary[];
+  orchestration?: MultiFrontierOrchestrationArtifact;
 }
 
 export interface AppendMultiFrontierArtifactInput {
@@ -162,6 +186,7 @@ export interface AppendMultiFrontierArtifactInput {
   contentHash?: string;
   fileRefs?: string[];
   testSummary?: MultiFrontierArtifactTestSummary[];
+  orchestration?: MultiFrontierOrchestrationArtifact;
 }
 
 export interface MultiFrontierParticipantEventRetention {
@@ -280,6 +305,9 @@ export function createMultiFrontierRun(
   input: CreateMultiFrontierRunInput,
 ): MultiFrontierStoredRun {
   assertSafeId(input.collaborationId, "collaboration id");
+  if (input.workspaceId !== undefined) {
+    assertSafeId(input.workspaceId, "workspace id");
+  }
   assertParticipants(input.participants);
   if (getMultiFrontierRun(input.collaborationId)) {
     throw new Error(
@@ -290,6 +318,7 @@ export function createMultiFrontierRun(
   const state: MultiFrontierStoredRun = {
     schemaVersion: 1,
     collaborationId: input.collaborationId,
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     phase: input.phase ?? "proposing",
     participants: input.participants.map((participant) => ({
       ...participant,
@@ -1006,6 +1035,8 @@ function isCompleteMultiFrontierRunState(
     run.schemaVersion === 1 &&
     typeof run.collaborationId === "string" &&
     SAFE_ID.test(run.collaborationId) &&
+    (run.workspaceId === undefined ||
+      (typeof run.workspaceId === "string" && SAFE_ID.test(run.workspaceId))) &&
     isPhase(run.phase) &&
     isStoredRunParticipantsAndDriverValid(run.participants, run.driver) &&
     isApproval(run.approval) &&
@@ -1122,7 +1153,8 @@ function readArtifactValue(
     (artifact.contentHash !== undefined &&
       !SAFE_CONTENT_HASH.test(artifact.contentHash)) ||
     !isArtifactFileRefs(artifact.fileRefs) ||
-    !isArtifactTestSummaries(artifact.testSummary)
+    !isArtifactTestSummaries(artifact.testSummary) ||
+    !isOrchestrationArtifact(artifact.orchestration)
   ) {
     return null;
   }
@@ -1185,6 +1217,9 @@ function assertArtifactInput(input: AppendMultiFrontierArtifactInput): void {
   if (!isArtifactTestSummaries(input.testSummary)) {
     throw new Error("Invalid multi-frontier artifact test summary.");
   }
+  if (!isOrchestrationArtifact(input.orchestration)) {
+    throw new Error("Invalid multi-frontier orchestration artifact.");
+  }
 }
 
 function assertAllowlistedArtifactInput(
@@ -1202,6 +1237,7 @@ function assertAllowlistedArtifactInput(
     "contentHash",
     "fileRefs",
     "testSummary",
+    "orchestration",
   ]);
   if (
     !input ||
@@ -1242,6 +1278,9 @@ function toPersistedArtifact(
       : {
           testSummary: input.testSummary.map((summary) => ({ ...summary })),
         }),
+    ...(input.orchestration === undefined
+      ? {}
+      : { orchestration: cloneOrchestrationArtifact(input.orchestration) }),
   };
 }
 
@@ -1326,6 +1365,333 @@ function isArtifactTestSummaries(
             )),
       ))
   );
+}
+
+function isOrchestrationArtifact(
+  value: unknown,
+): value is MultiFrontierOrchestrationArtifact | undefined {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const artifact = value as Partial<MultiFrontierOrchestrationArtifact>;
+  return (
+    hasExactKeys(artifact, [
+      "id",
+      "kind",
+      "round",
+      "participantId",
+      "text",
+      "attribution",
+      "supersedesArtifactId",
+      "metadata",
+    ]) &&
+    isSafeId(artifact.id) &&
+    [
+      "proposal",
+      "cross_review",
+      "revision",
+      "synthesis",
+      "checkpoint",
+      "watchdog_review",
+      "finding_disposition",
+      "completion",
+    ].includes(artifact.kind ?? "") &&
+    Number.isSafeInteger(artifact.round) &&
+    artifact.round! >= 1 &&
+    artifact.round! <= 3 &&
+    (artifact.participantId === undefined ||
+      isSafeId(artifact.participantId)) &&
+    isSafeOrchestrationText(artifact.text) &&
+    isOrchestrationAttribution(artifact.attribution) &&
+    (artifact.supersedesArtifactId === undefined ||
+      isSafeId(artifact.supersedesArtifactId)) &&
+    isSafeOrchestrationMetadata(artifact.kind!, artifact.metadata)
+  );
+}
+
+function hasExactKeys(value: object, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+function isOrchestrationAttribution(
+  value: unknown,
+): value is MultiFrontierOrchestrationArtifact["attribution"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const attribution = value as Partial<
+    MultiFrontierOrchestrationArtifact["attribution"]
+  >;
+  return (
+    hasExactKeys(attribution as Record<string, unknown>, [
+      "participantIds",
+      "sourceArtifactIds",
+    ]) &&
+    isSafeIdArray(attribution.participantIds, 2) &&
+    isSafeIdArray(
+      attribution.sourceArtifactIds,
+      MAX_MULTI_FRONTIER_ARTIFACTS_PER_RUN,
+    )
+  );
+}
+
+function isSafeIdArray(value: unknown, max: number): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= max &&
+    value.every((item) => isSafeId(item))
+  );
+}
+
+function isSafeOrchestrationText(value: unknown): value is string {
+  return (
+    isArtifactSummary(value) &&
+    !/(?:bearer\s+|api[_-]?key\s*[:=]|authorization\s*[:=]|(?:sk|rk|pk)-[A-Za-z0-9_-]{12,}|refresh[_-]?token\s*[:=])/i.test(
+      value,
+    )
+  );
+}
+
+function isSafeOrchestrationMetadata(
+  kind: NonNullable<MultiFrontierOrchestrationArtifact["kind"]>,
+  value: unknown,
+): value is Record<string, unknown> | undefined {
+  const allowedKeys = metadataKeysForOrchestrationKind(kind);
+  if (allowedKeys.length === 0) return value === undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value);
+  if (
+    entries.length === 0 ||
+    entries.some(([key]) => !allowedKeys.includes(key)) ||
+    entries.some(([key]) =>
+      /(token|secret|authorization|credential|password|email|organization|account)/i.test(
+        key,
+      ),
+    )
+  ) {
+    return false;
+  }
+  try {
+    return (
+      isArtifactSummary(JSON.stringify(value)) &&
+      isValidOrchestrationMetadata(kind, value as Record<string, unknown>)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidOrchestrationMetadata(
+  kind: NonNullable<MultiFrontierOrchestrationArtifact["kind"]>,
+  metadata: Record<string, unknown>,
+): boolean {
+  if (kind === "synthesis") {
+    return (
+      typeof metadata.agreed === "boolean" &&
+      typeof metadata.deterministicallyResolved === "boolean" &&
+      (metadata.reversibleResolution === undefined ||
+        isReversibleResolution(metadata.reversibleResolution))
+    );
+  }
+  if (kind === "checkpoint") return isCheckpointBundle(metadata.bundle);
+  if (kind === "cross_review" || kind === "watchdog_review") {
+    return isFindingList(metadata.findings);
+  }
+  if (kind === "finding_disposition") {
+    return isFindingDispositionList(metadata.dispositions);
+  }
+  if (kind === "completion") {
+    return (
+      isCompletionTests(metadata.tests) &&
+      isSafeTextList(metadata.proofRefs, 40) &&
+      isSafeTextList(metadata.remainingRisks, 40)
+    );
+  }
+  return false;
+}
+
+function isFindingList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 40 &&
+    value.every((finding) => {
+      if (!finding || typeof finding !== "object" || Array.isArray(finding))
+        return false;
+      const item = finding as Record<string, unknown>;
+      return (
+        hasExactKeys(item, [
+          "id",
+          "category",
+          "summary",
+          "rawFindingId",
+          "reviewerParticipantId",
+        ]) &&
+        isSafeId(item.id) &&
+        isSafeOrchestrationText(item.summary) &&
+        isSafeId(item.rawFindingId) &&
+        isSafeId(item.reviewerParticipantId) &&
+        [
+          "reversible_technical",
+          "intent_or_scope",
+          "destructive_action",
+          "security_or_privacy",
+          "outward_effect",
+          "meaningful_cost_expansion",
+          "irreversible_architecture",
+        ].includes(item.category as string)
+      );
+    })
+  );
+}
+
+function isFindingDispositionList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 40 &&
+    value.every((disposition) => {
+      if (
+        !disposition ||
+        typeof disposition !== "object" ||
+        Array.isArray(disposition)
+      )
+        return false;
+      const item = disposition as Record<string, unknown>;
+      return (
+        hasExactKeys(item, ["findingId", "disposition", "reason"]) &&
+        isSafeId(item.findingId) &&
+        ["addressed", "rejected", "deferred"].includes(
+          item.disposition as string,
+        ) &&
+        isSafeOrchestrationText(item.reason)
+      );
+    })
+  );
+}
+
+function isReversibleResolution(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    hasExactKeys(item, [
+      "alternatives",
+      "comparator",
+      "selected",
+      "reversibility",
+    ]) &&
+    isSafeTextList(item.alternatives, 8) &&
+    isSafeOrchestrationText(item.comparator) &&
+    isSafeOrchestrationText(item.selected) &&
+    isSafeOrchestrationText(item.reversibility)
+  );
+}
+
+function isCheckpointBundle(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    hasExactKeys(item, [
+      "requestSummary",
+      "requestRef",
+      "acceptedPlanArtifactId",
+      "contentRef",
+      "contentHash",
+      "testOutput",
+      "driverSummary",
+      "openRisks",
+      "unresolvedFindingIds",
+    ]) &&
+    isSafeOrchestrationText(item.requestSummary) &&
+    (item.requestRef === undefined || isSafeId(item.requestRef)) &&
+    isSafeId(item.acceptedPlanArtifactId) &&
+    typeof item.contentRef === "string" &&
+    /^(?!\/)(?!.*\.\.)[A-Za-z0-9._/@:-]{1,512}$/.test(item.contentRef) &&
+    typeof item.contentHash === "string" &&
+    SAFE_CONTENT_HASH.test(item.contentHash) &&
+    isSafeOrchestrationText(item.testOutput) &&
+    isSafeOrchestrationText(item.driverSummary) &&
+    isSafeTextList(item.openRisks, 40) &&
+    isSafeIdArray(item.unresolvedFindingIds, 40)
+  );
+}
+
+function isCompletionTests(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 40 &&
+    value.every((test) => {
+      if (!test || typeof test !== "object" || Array.isArray(test))
+        return false;
+      const item = test as Record<string, unknown>;
+      return (
+        hasExactKeys(item, ["name", "status", "evidence"]) &&
+        isSafeOrchestrationText(item.name) &&
+        ["passed", "failed", "skipped"].includes(item.status as string) &&
+        isSafeOrchestrationText(item.evidence)
+      );
+    })
+  );
+}
+
+function isSafeTextList(value: unknown, max: number): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= max &&
+    value.every((item) => isSafeOrchestrationText(item))
+  );
+}
+
+function metadataKeysForOrchestrationKind(
+  kind: NonNullable<MultiFrontierOrchestrationArtifact["kind"]>,
+): string[] {
+  if (kind === "synthesis") {
+    return ["agreed", "deterministicallyResolved", "reversibleResolution"];
+  }
+  if (kind === "checkpoint") return ["bundle"];
+  if (kind === "cross_review" || kind === "watchdog_review") {
+    return ["findings"];
+  }
+  if (kind === "finding_disposition") return ["dispositions"];
+  if (kind === "completion") return ["tests", "proofRefs", "remainingRisks"];
+  return [];
+}
+
+function containsUnsafeOrchestrationValue(
+  value: unknown,
+  depth: number,
+): boolean {
+  if (depth > 8) return true;
+  if (typeof value === "string") return !isSafeOrchestrationText(value);
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return (
+      value.length > 40 ||
+      value.some((item) => containsUnsafeOrchestrationValue(item, depth + 1))
+    );
+  }
+  if (!value || typeof value !== "object") return true;
+  const entries = Object.entries(value);
+  return (
+    entries.length > 40 ||
+    entries.some(
+      ([key, item]) =>
+        !isBoundedText(key, 160) ||
+        /(token|secret|authorization|credential|password|email|organization|account)/i.test(
+          key,
+        ) ||
+        containsUnsafeOrchestrationValue(item, depth + 1),
+    )
+  );
+}
+
+function cloneOrchestrationArtifact(
+  artifact: MultiFrontierOrchestrationArtifact,
+): MultiFrontierOrchestrationArtifact {
+  return JSON.parse(
+    JSON.stringify(artifact),
+  ) as MultiFrontierOrchestrationArtifact;
 }
 
 function isBoundedText(value: unknown, maxBytes: number): value is string {

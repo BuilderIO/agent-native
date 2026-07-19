@@ -23,7 +23,8 @@ export type MultiFrontierOrchestrationStage =
   | "revision"
   | "synthesis"
   | "watchdog_review"
-  | "finding_disposition";
+  | "finding_disposition"
+  | "implementation";
 
 export type MultiFrontierFindingCategory =
   | "reversible_technical"
@@ -829,6 +830,45 @@ export class MultiFrontierOrchestrator {
       this.#pendingFindingIds.delete(disposition.findingId);
     }
     return artifact;
+  }
+
+  /** Runs the sole write-capable turn only after the coordinator proves its lease. */
+  async runImplementationTurn(input: {
+    operationId: string;
+    driverParticipantId: string;
+    generation: number;
+    acceptedPlanArtifactId: string;
+    instruction: string;
+  }): Promise<MultiFrontierTurnResult> {
+    assertSafeId(input.operationId, "implementation operation id");
+    assertSafeId(input.acceptedPlanArtifactId, "accepted plan artifact id");
+    if (!this.#participantIds.includes(input.driverParticipantId)) {
+      throw new Error(
+        "The implementation driver must be a collaboration participant.",
+      );
+    }
+    const trusted = await this.#trustedSnapshot();
+    if (
+      trusted.phase !== "implementing" ||
+      trusted.approval !== "approved" ||
+      trusted.approvedSynthesisArtifactId !== input.acceptedPlanArtifactId ||
+      trusted.driver?.participantId !== input.driverParticipantId ||
+      trusted.driver.generation !== input.generation ||
+      trusted.driver.leaseState !== "active"
+    ) {
+      throw new Error(
+        "Implementation requires the active approved driver lease.",
+      );
+    }
+    return this.#executeTurn({
+      operationId: input.operationId,
+      participantId: input.driverParticipantId,
+      stage: "implementation",
+      round: trusted.round,
+      generation: input.generation,
+      prompt: boundedPrompt(input.instruction),
+      artifactIds: [input.acceptedPlanArtifactId],
+    });
   }
 
   async swapDriverRole(input: {
