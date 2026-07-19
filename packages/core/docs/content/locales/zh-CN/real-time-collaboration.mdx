@@ -252,7 +252,7 @@ export default createCollabPlugin({
 ### 4.使用客户端钩子
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -425,8 +425,7 @@ import {
 返回远程参与者的反应列表和本地在线状态有效负载的设置器：
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -488,8 +487,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 每当跟随的参与者的视口发生变化时调用回调：
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -523,8 +521,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### 标准化坐标助手 {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,

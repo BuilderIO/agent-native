@@ -8,6 +8,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -18,10 +19,7 @@ import {
   DEFAULT_FUSION_SCREEN_WIDTH,
   upsertFusionScreens,
 } from "../server/lib/fusion-screens.js";
-import {
-  FULL_APP_BUILDING_ENABLED,
-  readFusionApp,
-} from "../shared/full-app.js";
+import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 export default defineAction({
   description:
@@ -49,8 +47,8 @@ export default defineAction({
       .optional()
       .describe("Iframe viewport height. Defaults to 900."),
   }),
-  run: async ({ designId, paths, width, height }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, paths, width, height }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

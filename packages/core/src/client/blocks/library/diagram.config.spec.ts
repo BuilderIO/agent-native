@@ -53,11 +53,12 @@ describe("diagram block config", () => {
         css: ".flow { display: grid; }",
         caption: "A diagram caption",
         frame: "hide",
+        renderMode: "design",
       },
     });
 
     expect(mdx).toContain(
-      '<Diagram id="diagram-1" title="Flow" caption="A diagram caption" frame="hide">',
+      '<Diagram id="diagram-1" title="Flow" caption="A diagram caption" frame="hide" renderMode="design">',
     );
     expect(mdx).toContain("```html\n<div");
     expect(mdx).toContain("```css\n.flow");
@@ -94,6 +95,11 @@ describe("diagram block config", () => {
         attributes: [
           { type: "mdxJsxAttribute", name: "caption", value: "Caption" },
           { type: "mdxJsxAttribute", name: "frame", value: "show" },
+          {
+            type: "mdxJsxAttribute",
+            name: "renderMode",
+            value: "design",
+          },
         ],
         children: [
           { type: "code", lang: "html", value: '<div class="flow">Hi</div>' },
@@ -110,6 +116,7 @@ describe("diagram block config", () => {
       data: {
         caption: "Caption",
         frame: "show",
+        renderMode: "design",
         html: '<div class="flow">Hi</div>',
         css: ".flow { color: red; }",
       },

@@ -83,7 +83,7 @@ When the user asks for a dashboard:
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionSlotId` for new panels, with legacy `config.extensionId` supported for existing direct embeds (see "Embedding An Extension As A Panel").
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
@@ -115,8 +115,27 @@ rather than forcing it into a native dashboard config.
 ## Embedding An Extension As A Panel
 
 Use `chartType: "extension"` to add an extension box alongside normal SQL
-charts. The panel skips `source` and `sql`. New boxes use a stable slot id in
-`config.extensionSlotId`:
+charts. The panel skips `source` and `sql`. For ordinary requests such as "put
+X in this dashboard," save the author-selected extension id in
+`config.extensionId`. This makes the selection part of the shared dashboard and
+keeps the widget present in scheduled report captures:
+
+```jsonc
+{
+  "id": "pipeline-widget",
+  "title": "Pipeline Widget",
+  "chartType": "extension",
+  "width": 3,
+  "config": { "extensionId": "extension-123" },
+}
+```
+
+Direct embeds receive the dashboard id, name, description, current filters,
+and panel context. Embedding does not grant extension access, so share the
+extension with the dashboard audience.
+
+Use a stable `config.extensionSlotId` only when the user explicitly wants each
+viewer to choose or install their own widget:
 
 ```text
 analytics.dashboard.<dashboard-id>.panel.<panel-id>
@@ -141,14 +160,14 @@ Empty slots show the normal install affordance instead of a broken iframe.
 
 Notes:
 
-- Slot-backed extensions receive the dashboard id, name, description, current
-  filters, and panel id/title/slot id as live context.
+- Both direct and slot-backed extensions receive dashboard and panel context.
 - Installs and extension access are per viewer. Sharing the dashboard does not
   automatically install or grant access to its extension for other viewers.
-- `config.extensionId` remains supported for legacy direct embeds. Use it only
-  when preserving an existing dashboard; new boxes should use a slot.
+- Slot installs are per-user preferences. Different viewers can see different
+  widgets, and scheduled reports running as a service identity may show an
+  empty slot. This is why slots are opt-in rather than the default.
 
-## Cloning A Legacy Direct-Extension Dashboard (e.g. per-customer copies)
+## Cloning A Direct-Extension Dashboard (e.g. per-customer copies)
 
 When the user asks for a copy of an existing extension-backed dashboard for a
 different customer/org (for example "make an Intuit version of the Roku usage
@@ -159,7 +178,7 @@ from that written file — never by pulling the body into chat context first or
 re-typing it as a `content` argument.
 
 1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
-   confirm the target panel is a legacy `chartType: "extension"` panel with
+   confirm the target panel is a `chartType: "extension"` panel with
    `config.extensionId`; grab that extension id. For a slot-backed panel, clone
    the dashboard panel with a new stable `extensionSlotId`, then target and
    install the desired extension into that slot instead of using this body-copy
@@ -405,7 +424,7 @@ type PanelInput = PanelPatch & {
   chartType: NonNullable<PanelPatch["chartType"]>;
   source?: PanelPatch["source"]; // required for non-section / non-extension panels
   sql?: string; // required for non-section / non-extension panels
-  // For chartType "extension": use config.extensionSlotId; extensionId is legacy direct embed compatibility.
+  // For chartType "extension": use config.extensionId by default; extensionSlotId is opt-in per-viewer content.
 };
 
 type PanelFilter = {

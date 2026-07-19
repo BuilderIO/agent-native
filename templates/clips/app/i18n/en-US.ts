@@ -619,6 +619,16 @@ const messages = {
     languageDescription:
       "Choose the interface language for this account. Clips remembers it across devices.",
     languageLabel: "Interface language",
+    uploadWorkspaceTitle: "Active workspace",
+    uploadWorkspaceDescription:
+      "Choose the workspace Clips uses for new recordings, including desktop uploads.",
+    uploadWorkspaceLabel: "Current workspace",
+    uploadWorkspacePlaceholder: "Choose a workspace",
+    uploadWorkspaceHint:
+      "Switching this also updates workspace-scoped Clips views.",
+    uploadWorkspaceSaving: "Saving workspace…",
+    uploadWorkspaceSaved: "Active workspace updated",
+    uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
     viewAllUpdates: "View all updates",
@@ -1357,7 +1367,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     savedLocally: "Saved locally",
     uploadFailed: "Upload failed",
     connectStorageToFinish: "Open to connect storage and finish saving.",
-    retryFromClipsMenu: "Retry from the Clips menu; no need to re-record.",
+    retryFromClipsMenu:
+      "Open Clips from the menu bar to retry this saved upload; no need to re-record.",
     removeFailedClip: "Remove this failed clip.",
     remove: "Remove",
     viewsCount: "{{count}} views",

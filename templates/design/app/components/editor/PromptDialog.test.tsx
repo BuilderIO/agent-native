@@ -18,14 +18,18 @@ interface ComposerStubProps {
   ) => void;
 }
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
-  cn: (...classes: Array<string | false | null | undefined>) =>
-    classes.filter(Boolean).join(" "),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string =>
       options ? `${key}:${JSON.stringify(options)}` : key,
+}));
+
+vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => (
     <div
       data-testid="prompt-composer"

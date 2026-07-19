@@ -1,0 +1,21 @@
+---
+title: "能力包"
+description: "管理领域能力及其清单驱动的生命周期，而不将其并入 Toolkit。"
+---
+
+# 能力包
+
+Toolkit 提供跨应用产品基础；能力包提供受限领域、actions、skills 和生命周期元数据。Scheduling 和 Creative Context 是独立能力包，而不是 Toolkit 功能套件。
+
+`@agent-native/scheduling` 参与通用清单试点。请以各包本地文档和生命周期清单作为扩展点与归属的来源。
+
+- [Scheduling 包文档](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context 包文档](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+检查、预演和 eject 规则见[包生命周期](/docs/package-lifecycle)。

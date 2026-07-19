@@ -3,7 +3,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 
-const SESSION_TOKEN_KEY = "agent-native:session-token";
+import { saveSessionToken } from "@/lib/session-token-store";
+
 const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 /**
@@ -23,7 +24,7 @@ export default function OAuthComplete() {
         const expectedState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
         await AsyncStorage.removeItem(OAUTH_STATE_KEY);
         if (expectedState && state === expectedState) {
-          await AsyncStorage.setItem(SESSION_TOKEN_KEY, token);
+          await saveSessionToken(token);
         }
       }
       router.replace("/(tabs)");

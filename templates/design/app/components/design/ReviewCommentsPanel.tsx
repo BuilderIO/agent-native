@@ -1,8 +1,8 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   ReviewThreadPanel,
   type ReviewThread,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import { IconSend } from "@tabler/icons-react";
 import { useState } from "react";

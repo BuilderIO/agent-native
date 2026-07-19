@@ -1,14 +1,16 @@
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   appApiPath,
   agentNativePath,
+} from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import {
   callAction,
-  oauthRedirectUri,
   useActionMutation,
   useActionQuery,
-  useSendToAgentChat,
-  PromptComposer,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconChevronDown,

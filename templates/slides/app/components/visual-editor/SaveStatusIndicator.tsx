@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCloudOff } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";

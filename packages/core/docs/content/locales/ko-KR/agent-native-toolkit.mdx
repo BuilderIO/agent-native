@@ -1,23 +1,15 @@
 ---
-title: "Toolkits"
-description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
+title: "Toolkit"
+description: "재사용 가능한 기반, 편집기와 캔버스, 에이전트 컨텍스트, 거버넌스, 워크스페이스 크롬, 운영 및 Toolkit 기능 모듈을 담은 균형 잡힌 카탈로그입니다."
 ---
 
 <!-- i18n-docs-ignore -->
 
-# Toolkits
+# Toolkit
 
-Toolkits are reusable, battle-tested building blocks for high-quality agentic
-applications. They turn the hard product work that repeats across apps into
-standard surfaces: realtime collaboration between humans and agents, sharing
-with humans and agents, settings, teams, setup, resources, history, review, and
-observability.
+Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가능하고 실전에서 검증된 구성 요소입니다. 앱 전반에서 반복되는 어려운 제품 작업을 사람과 에이전트 사이의 실시간 협업, 사람과 에이전트를 위한 공유, 설정, 팀, 설정 과정, 리소스, 기록, 검토, 관찰 가능성과 같은 표준 화면으로 만듭니다.
 
-Each kit packages the UI patterns, action contracts, app-state expectations,
-access boundaries, and agent-visible behavior that users expect to work
-consistently. Apps still own their domain model and visual identity; toolkits
-make the common product systems feel complete from the first version instead of
-being rebuilt in slightly different ways every time.
+각 키트는 사용자가 일관되게 동작하리라 기대하는 UI 패턴, 액션 계약, 앱 상태 기대치, 접근 경계, 에이전트에 보이는 동작을 묶습니다. 앱은 여전히 도메인 모델과 시각적 정체성을 소유합니다. Toolkit은 공통 제품 시스템을 매번 조금씩 다르게 다시 만들지 않고 첫 버전부터 완성된 느낌이 들게 합니다.
 
 <WireframeBlock id="doc-block-toolkits-index">
   <Screen
@@ -28,23 +20,23 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="키트의 위치" summary={"프레임워크 런타임은 지속적인 보장을 제공합니다. Toolkit은 그 보장을 재사용 가능한 제품 시스템으로 바꿉니다. 앱은 도메인별 데이터, 라우트, 시각적 정체성을 더합니다."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
-    actions, SQL, auth, app state, access checks, realtime transport
+    <span class="diagram-pill accent">런타임</span><br />
+    액션, SQL, 인증, 앱 상태, 접근 검사, 실시간 전송
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkits</span><br />
-    collaboration, sharing, setup, review, history, observability
+    <span class="diagram-pill accent">Toolkit</span><br />
+    협업, 공유, 설정 과정, 검토, 기록, 관찰 가능성
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
-    domain schema, routes, actions, branding, specialized workflows
+    <span class="diagram-pill accent">앱</span><br />
+    도메인 스키마, 라우트, 액션, 브랜딩, 전문 워크플로
   </div>
 </div>
 ```
@@ -68,45 +60,60 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
-## The Kits {#the-kits}
+## 카탈로그 {#catalog}
 
-| Kit                                                      | Use it for                                                                                                  |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
-| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
-| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
-| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
-| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
-| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
-| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
-| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+| 영역                     | 시작점                                             | 포함 내용                                                               |
+| ------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------- |
+| 기반                     | [UI 프리미티브](/docs/toolkit-ui)                  | 공유 컨트롤, 훅, 앱 어댑터, 셸 연결 지점.                               |
+| 편집기와 캔버스          | [편집기와 캔버스](/docs/toolkit-editors-canvases)  | 리치 편집, 구조화된 블록, 재사용 가능한 캔버스 컨트롤, Design 패턴.     |
+| 에이전트 경험과 컨텍스트 | [컨텍스트와 지식](/docs/toolkit-context-knowledge) | Context X-Ray, 리소스, 지식, 컴포저 컨텍스트 및 에이전트에 보이는 상태. |
+| 협업과 거버넌스          | [협업](/docs/toolkit-collaboration)                | 공유, 현재 상태, 검토, 기록, 감사 및 조직 경계.                         |
+| 워크스페이스 크롬        | [앱 크롬](/docs/toolkit-settings)                  | 설정, 팀, 설정 과정, 탐색, 리소스 및 에이전트 UX.                       |
+| 운영                     | [관찰 가능성](/docs/toolkit-observability)         | 사용량, 피드백, 리플레이, 진단 및 운영 가시성.                          |
+| Toolkit 기능 모듈        | [기능 패키지](/docs/toolkit-capability-packages)   | 필요 시 설치하는 도메인 패키지와 수명 주기 매니페스트.                  |
 
-## Implementation Boundary {#implementation-boundary}
+## 제품 키트 {#product-kits}
 
-Kits are product surfaces first. Some pieces are runtime-backed
-(`@agent-native/core`), some are presentation primitives
-(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
-Use the package path that owns the needed behavior, but design the user-facing
-settings, collaboration, sharing, team, review, and setup experiences as one
-coherent kit instead of exposing package boundaries in the app.
+| 키트                                             | 용도                                                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| [공유](/docs/toolkit-sharing)                    | 소유 가능한 리소스, 공유 대화 상자, 공개 범위 배지, 공유 액션, 공개/비공개/조직 접근. |
+| [협업](/docs/toolkit-collaboration)              | 실시간 편집, 현재 상태, 라이브 커서, 최근 편집 강조, 협업 실행 취소.                  |
+| [설정](/docs/toolkit-settings)                   | 앱 설정과 에이전트/프로바이더 설정을 예측 가능한 한곳에 두는 표준 설정 페이지와 탭.   |
+| [조직 및 팀](/docs/toolkit-org-team)             | 팀 페이지, 조직 전환, 초대, 조직 도메인, 역할, 앱 전환.                               |
+| [설정 및 연결](/docs/toolkit-setup-connections)  | 온보딩, 시크릿, 워크스페이스 연결, OAuth/프로바이더 준비 상태, Builder 연결.          |
+| [명령 및 탐색](/docs/toolkit-command-navigation) | 명령 메뉴, 딥 링크, 표준 앱 라우트, 사이드바와 셸 패턴.                               |
+| [리소스](/docs/toolkit-resources)                | 리소스 트리, 편집기, 파일 선택/검색, 첨부 파일, 로컬 파일 모드.                       |
+| [에이전트 UX](/docs/toolkit-agent-ux)            | 컴포저, 모델 선택기, 컨텍스트 칩, 승인, 실행 복구, 실행 트레이.                       |
+| [기록](/docs/toolkit-history)                    | 버전 기록, 감사 로그, 실행 취소/다시 실행, 복원, 변경 사항 화면.                      |
+| [댓글 및 검토](/docs/toolkit-comments-review)    | 인라인 댓글, 주석, 멘션, 해결된 스레드, 검토 상태.                                    |
+| [관찰 가능성](/docs/toolkit-observability)       | 사용량, 비용, 피드백, 재생, 오류, 실행 진단.                                          |
 
-## Foundation Pieces {#foundation-pieces}
+## 패키지 성숙도와 소유권 {#package-maturity-and-ownership}
 
-- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
-  `@agent-native/toolkit/ui/*`.
-- [App Adapters](/docs/toolkit-ui#app-adapters) show how apps wrap Toolkit pieces
-  through local `@/components/*` adapters.
-- [Shell & Hooks](/docs/toolkit-ui#shell-hooks) cover header actions, mobile hooks,
-  toasts, and small app-shell helpers.
-- [Component API](/docs/components) remains the lower-level reference for the
-  public React exports.
+- 리치 편집기는 **Toolkit** 소유입니다. 마이그레이션 동안 기존 Core import는 얇은 호환 re-export로 유지됩니다.
+- Design은 재사용 가능한 `design-tweaks`를 사용하는 **템플릿 패턴**이며, 완전한 드롭인 편집기나 캔버스가 아닙니다.
+- Blocks와 Context X-Ray 엔진은 이 단계에서 **Core 소유**로 유지됩니다. 재사용 가능한 Context X-Ray 표현은 Toolkit 소유입니다.
+- Creative Context, Scheduling, Pinpoint는 필요 시 설치하는 **Toolkit 기능 모듈**이며 별도의 npm 패키지와 수명 주기 매니페스트를 유지합니다. Dispatch는 별도 제품입니다.
 
-## Design Rule {#design-rule}
+## 구현 경계 {#implementation-boundary}
 
-Use a toolkit when the behavior repeats across apps and users expect it to feel
-standard: sharing, settings, teams, comments, history, and agent progress should
-not be slightly different in every template. Keep domain-specific data,
-workflows, labels, and visual styling in the app.
+키트는 우선 제품 화면입니다. 일부는 런타임을 기반으로 하고(`@agent-native/core`), 일부는 표현 프리미티브이며(`@agent-native/toolkit`), 앱은 보통 로컬 어댑터로 둘 다 감쌉니다. 필요한 동작을 소유하는 패키지 경로를 사용하되, 사용자 대상 설정, 협업, 공유, 팀, 검토, 설정 경험은 앱에서 패키지 경계를 드러내지 않는 하나의 일관된 키트로 설계하세요.
+
+## 기반 구성 요소 {#foundation-pieces}
+
+- [UI 프리미티브](/docs/toolkit-ui)는 `@agent-native/toolkit/ui/*`의 공유 shadcn 스타일 프리미티브를 다룹니다.
+- [앱 어댑터](/docs/toolkit-ui#app-adapters)는 앱이 로컬 `@/components/*` 어댑터로 Toolkit 구성 요소를 감싸는 방법을 보여 줍니다.
+- [셸 및 훅](/docs/toolkit-ui#shell-hooks)은 헤더 액션, 모바일 훅, 토스트, 작은 앱 셸 도우미를 다룹니다.
+- [컴포넌트 API](/docs/components)는 공개 React export의 하위 수준 참조입니다.
+
+## 설계 원칙 {#design-rule}
+
+동작이 앱 전체에서 반복되고 사용자가 표준적인 느낌을 기대한다면 Toolkit을 사용하세요. 공유, 설정, 팀, 댓글, 기록, 에이전트 진행 상황은 템플릿마다 조금씩 달라서는 안 됩니다. 도메인별 데이터, 워크플로, 라벨, 시각적 스타일은 앱에 유지하세요.
+
+## 다음 단계
+
+- [**Toolkit UI 프리미티브**](/docs/toolkit-ui) — 공유 프리미티브, 앱 어댑터, 셸 훅.
+- [**공유 키트**](/docs/toolkit-sharing) — 리소스, 공유 대화상자, 가시성을 위한 좋은 첫 키트.
+- [**템플릿 만들기**](/docs/creating-templates) — 템플릿을 처음부터 만들고 키트가 어디에 맞는지 확인합니다.
+- [**컴포넌트 API**](/docs/components) — 모든 공개 React export의 참조입니다.
+- [**패키지 수명 주기**](/docs/package-lifecycle) — manifest 기반 Toolkit 기능 모듈을 안전하게 검사, 추가, eject합니다.

@@ -84,21 +84,21 @@ function useSettledSyncVersion(version: number): number {
   return settledVersion;
 }
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  LanguagePicker,
-  appApiPath,
-  callAction,
-  appPath,
   navigateWithAgentChatViewTransition,
   useChatThreads,
+  type ChatThreadSummary,
+} from "@agent-native/core/client/agent-chat";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import {
+  callAction,
   useActionMutation,
   useChangeVersions,
-  useT,
-  type ChatThreadSummary,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 
 import {
   AlertDialog,

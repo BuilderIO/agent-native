@@ -623,6 +623,16 @@ const messages = {
     languageDescription:
       "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
     languageLabel: "لغة الواجهة",
+    uploadWorkspaceTitle: "مساحة العمل النشطة",
+    uploadWorkspaceDescription:
+      "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
+    uploadWorkspaceLabel: "مساحة العمل الحالية",
+    uploadWorkspacePlaceholder: "اختر مساحة عمل",
+    uploadWorkspaceHint:
+      "يؤدي تغييرها أيضًا إلى تحديث عروض Clips المرتبطة بمساحة العمل.",
+    uploadWorkspaceSaving: "جارٍ حفظ مساحة العمل…",
+    uploadWorkspaceSaved: "تم تحديث مساحة العمل النشطة",
+    uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
     viewAllUpdates: "عرض كل التحديثات",
@@ -1368,7 +1378,8 @@ const messages = {
     savedLocally: "حُفظ محليًا",
     uploadFailed: "فشل الرفع",
     connectStorageToFinish: "افتح للاتصال بالتخزين وإنهاء الحفظ.",
-    retryFromClipsMenu: "أعد المحاولة من قائمة Clips؛ لا حاجة لإعادة التسجيل.",
+    retryFromClipsMenu:
+      "افتح Clips من شريط القائمة لإعادة محاولة هذا الرفع المحفوظ؛ لا حاجة لإعادة التسجيل.",
     removeFailedClip: "إزالة هذا المقطع الفاشل.",
     remove: "إزالة",
     viewsCount: "{{count}} مشاهدة",

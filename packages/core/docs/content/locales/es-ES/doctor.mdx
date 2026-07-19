@@ -1,0 +1,10 @@
+---
+title: Doctor
+description: Comprobaciones de seguridad y migración.
+---
+
+# Doctor
+
+`agent-native doctor` ejecuta ocho guardas de código: las siete guardas de seguridad y `migration-manifest`. Esta última encuentra imports que aparecen en el `migration-manifest.json` instalado; no admite opt-out. Usa `agent-native doctor --only migration-manifest`, previsualiza con `npx @agent-native/core@latest upgrade --codemods` y aplica con `--yes`. La salida JSON incluye los ocho nombres en `guardsRun`.
+
+Las entradas marcadas como `planned` solo se muestran como advertencias y no se reescriben. Las entradas activas son hallazgos; el codemod solo las reescribe cuando el export de destino está instalado.

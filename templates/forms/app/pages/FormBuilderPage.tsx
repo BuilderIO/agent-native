@@ -1,12 +1,11 @@
 import {
   AgentToggleButton,
-  ShareButton,
-  appPath,
-  useFormatters,
-  useReconciledState,
   useSendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useReconciledState } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import type {
   FormField,
   FormFieldType,

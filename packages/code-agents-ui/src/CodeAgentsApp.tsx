@@ -1,20 +1,22 @@
 import {
   AssistantChat,
   ChatHistoryList,
-  PromptComposer,
   buildRepositoryFromCodeAgentTranscript,
   codeAgentTranscriptHasPendingApproval,
   createCodeAgentChatAdapter,
   isCodeAgentRunActive,
   isCredentialGapCodeAgentEvent,
   mergeCodeAgentTranscriptEvents,
-  readAgentPromptAttachment,
   type ChatHistoryItem,
   type CodeAgentChatController,
+} from "@agent-native/core/client/agent-chat";
+import {
+  PromptComposer,
+  readAgentPromptAttachment,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/composer";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,

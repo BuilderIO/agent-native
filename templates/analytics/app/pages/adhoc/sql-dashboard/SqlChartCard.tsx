@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
@@ -404,6 +404,12 @@ export function SqlChartCard({
               {editable ? (
                 <>
                   <DropdownMenuSeparator />
+                  {onEdit ? (
+                    <DropdownMenuItem onSelect={() => onEdit()}>
+                      <IconPencil className="h-4 w-4 mr-2" />
+                      {t("sidebar.edit")}
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuItem
                     onSelect={(e) => {
                       e.preventDefault();

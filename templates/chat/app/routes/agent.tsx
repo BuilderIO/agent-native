@@ -1,4 +1,8 @@
-import * as AgentClient from "@agent-native/core/client";
+import {
+  AgentChatSurface,
+  AgentTabsPage,
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 
 import { resolveAgentPageComponent } from "@/lib/agent-page";
@@ -9,9 +13,12 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  const t = AgentClient.useT();
+  const t = useT();
   useSetPageTitle(t("settings.agentTitle"));
 
-  const AgentPage = resolveAgentPageComponent(AgentClient);
+  const AgentPage = resolveAgentPageComponent({
+    AgentChatSurface,
+    AgentTabsPage,
+  });
   return <AgentPage appName={APP_TITLE} />;
 }

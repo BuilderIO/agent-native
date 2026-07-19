@@ -1,12 +1,12 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  useT,
   VisualColorPicker,
   VisualControlRow,
   VisualInspectorPanel,
   VisualInspectorSection,
   VisualScrubInput,
   VisualSegmentedControl,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
   IconAlignCenter,

@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink, IconFileText } from "@tabler/icons-react";
 import { lazy, Suspense, useMemo } from "react";
 import { Link } from "react-router";

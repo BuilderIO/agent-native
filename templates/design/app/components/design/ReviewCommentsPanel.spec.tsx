@@ -6,13 +6,14 @@ const mocks = vi.hoisted(() => ({
   latestPanelProps: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...values: Array<string | false | null | undefined>) =>
-    values.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/review", () => ({
   ReviewThreadPanel: (props: Record<string, unknown>) => {
     mocks.latestPanelProps = props;
     return <div data-review-thread-panel />;
   },
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

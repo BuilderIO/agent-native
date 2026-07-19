@@ -1,4 +1,5 @@
-import { useActionQuery, useSession, useT } from "@agent-native/core/client";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMailFast, IconUsers } from "@tabler/icons-react";
 import { useMemo } from "react";
 

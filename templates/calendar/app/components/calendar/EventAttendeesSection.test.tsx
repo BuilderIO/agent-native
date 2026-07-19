@@ -10,9 +10,7 @@ import { EventAttendeesSection } from "./EventAttendeesSection";
 
 const rsvpMutate = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...values: Array<string | undefined | false>) =>
-    values.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string): string =>

@@ -11,7 +11,14 @@ const coreClientMocks = vi.hoisted(() => ({
   useAgentRouteState: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => coreClientMocks);
+vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: coreClientMocks.getBrowserTabId,
+  setClientAppState: coreClientMocks.setClientAppState,
+}));
+
+vi.mock("@agent-native/core/client/route-state", () => ({
+  useAgentRouteState: coreClientMocks.useAgentRouteState,
+}));
 
 import { useNavigationState } from "./use-navigation-state";
 

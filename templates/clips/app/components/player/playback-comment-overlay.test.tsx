@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getActivePlaybackComments,
+  getPlaybackCommentVisibleMs,
   PlaybackCommentOverlay,
   PLAYBACK_COMMENT_VISIBLE_MS,
   type PlaybackComment,
@@ -40,6 +41,16 @@ describe("playback comment timing", () => {
         12_000 + PLAYBACK_COMMENT_VISIBLE_MS,
       ),
     ).toEqual([]);
+  });
+
+  it("scales the media-time window with playback speed", () => {
+    expect(getPlaybackCommentVisibleMs(2.5)).toBe(10_000);
+    expect(getActivePlaybackComments([comment], 12_000 + 9_999, 2.5)).toEqual([
+      comment,
+    ]);
+    expect(getActivePlaybackComments([comment], 12_000 + 10_000, 2.5)).toEqual(
+      [],
+    );
   });
 
   it("does not surface replies or resolved comments over playback", () => {

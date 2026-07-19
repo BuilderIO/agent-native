@@ -1173,14 +1173,36 @@ describe("local-core dev aliases and router dedupe", () => {
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).not.toContain("@agent-native/core/client/agent-chat");
+    expect(deps).not.toContain("@agent-native/core/client/changelog");
+    expect(deps).not.toContain("@agent-native/core/client/dev-overlay");
+    expect(deps).not.toContain("@agent-native/core/client/feature-flags");
+    expect(deps).not.toContain("@agent-native/core/client/hooks");
+    expect(deps).not.toContain("@agent-native/core/client/host");
     expect(deps).not.toContain("@agent-native/core/client/i18n");
+    expect(deps).not.toContain("@agent-native/core/client/integrations");
+    expect(deps).not.toContain("@agent-native/core/client/navigation");
+    expect(deps).not.toContain(
+      "@agent-native/core/client/route-chunk-recovery",
+    );
+    expect(deps).not.toContain("@agent-native/core/client/settings");
+    expect(deps).not.toContain("@agent-native/core/client/ui");
+    expect(deps).not.toContain("@agent-native/core/client/uploads");
+    expect(deps).not.toContain("@agent-native/core/client/widgets");
     expect(deps).toContain("@agent-native/core > @assistant-ui/react");
     expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
     expect(deps).toContain("@agent-native/core > @sentry/browser");
     expect(deps).toContain(
       "@agent-native/core > @shadcn/react/message-scroller",
     );
-    expect(deps).toContain("@agent-native/core > @tiptap/react");
+    expect(deps).not.toContain("@agent-native/core > @tiptap/react");
+    expect(deps).not.toContain("@agent-native/core > @radix-ui/react-dialog");
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-dropdown-menu",
+    );
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-hover-card",
+    );
     expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
     expect(deps).toContain("@agent-native/core > @xterm/xterm");
     expect(deps).toContain("@agent-native/core > i18next");
@@ -1198,7 +1220,7 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("pre-optimizes the i18n subpath for published core consumers", () => {
+  it("discovers focused client subpaths on demand for published consumers", () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "an-vite-optimize-i18n-"),
     );
@@ -1213,9 +1235,14 @@ describe("local-core dev aliases and router dedupe", () => {
     );
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
-    expect(deps).toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@agent-native/toolkit/collab-ui");
-    expect(deps).toContain("@agent-native/toolkit/sharing");
+    expect(deps).toContain("@agent-native/core");
+    expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).not.toContain("@agent-native/core/client/agent-chat");
+    expect(deps).not.toContain("@agent-native/core/client/composer");
+    expect(deps).not.toContain("@agent-native/core/client/hooks");
+    expect(deps).not.toContain("@agent-native/core/client/widgets");
+    expect(deps).not.toContain("@agent-native/toolkit/collab-ui");
+    expect(deps).not.toContain("@agent-native/toolkit/editor");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -1252,6 +1279,75 @@ describe("local-core dev aliases and router dedupe", () => {
             alias.replacement.endsWith("src/client/i18n.tsx"),
         ),
       ).toBe(true);
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes and aliases every source client domain subpath", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-client-domains-src-"),
+    );
+    const appDir = path.join(tmpDir, "templates", "dispatch");
+    const coreSrcDir = path.join(tmpDir, "packages", "core", "src");
+    const clientDomains = {
+      "@agent-native/core/client/agent-chat": "client/agent-chat/index.ts",
+      "@agent-native/core/client/analytics": "client/analytics/index.ts",
+      "@agent-native/core/client/automation": "client/automation/index.ts",
+      "@agent-native/core/client/changelog": "client/changelog/index.ts",
+      "@agent-native/core/client/dev-overlay": "client/dev-overlay/index.ts",
+      "@agent-native/core/client/editor": "client/tombstone/editor.ts",
+      "@agent-native/core/client/feature-flags":
+        "client/feature-flags/index.ts",
+      "@agent-native/core/client/rich-markdown-editor":
+        "client/tombstone/rich-markdown-editor.ts",
+      "@agent-native/core/client/components/ui/dialog":
+        "client/tombstone/ui-dialog.ts",
+      "@agent-native/core/client/components/AgentPresenceChip":
+        "client/tombstone/agent-presence-chip.ts",
+      "@agent-native/core/client/visual-style-controls":
+        "client/tombstone/visual-style-controls.ts",
+      "@agent-native/core/client/hooks": "client/hooks/index.ts",
+      "@agent-native/core/client/host": "client/host/index.ts",
+      "@agent-native/core/client/integrations": "client/integrations/index.ts",
+      "@agent-native/core/client/navigation": "client/navigation/index.ts",
+      "@agent-native/core/client/route-chunk-recovery":
+        "client/route-chunk-recovery/index.ts",
+      "@agent-native/core/client/settings": "client/settings/index.ts",
+      "@agent-native/core/client/ui": "client/ui/index.ts",
+      "@agent-native/core/client/uploads": "client/uploads/index.ts",
+      "@agent-native/core/client/widgets": "client/widgets/index.ts",
+    };
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(coreSrcDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(coreSrcDir, "index.ts"), "export {};\n");
+
+    try {
+      process.chdir(appDir);
+      const config = defineConfig();
+      const exclude =
+        (config.optimizeDeps as { exclude?: string[] } | undefined)?.exclude ??
+        [];
+      const aliases =
+        (
+          config.resolve as {
+            alias?: Array<{ find: RegExp; replacement: string }>;
+          }
+        )?.alias ?? [];
+
+      for (const [specifier, sourcePath] of Object.entries(clientDomains)) {
+        expect(exclude).toContain(specifier);
+        expect(
+          aliases.some(
+            (alias) =>
+              alias.find.test(specifier) &&
+              alias.replacement.endsWith(path.join("src", sourcePath)),
+          ),
+        ).toBe(true);
+      }
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

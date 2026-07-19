@@ -40,6 +40,10 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
+- For a known, read-only sibling-app operation, use `call-agent` with `action`
+  and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
+  model loop. In Analytics, use `gong-native-insights` for provider-synthesized
+  briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
 - Before generation, follow the creative-context reuse ladder in
   `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
   first, then a pinned/current pack, then narrow library search. Respect

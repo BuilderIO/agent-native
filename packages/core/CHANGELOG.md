@@ -1,5 +1,105 @@
 # @agent-native/core
 
+## 0.111.0
+
+### Minor Changes
+
+- 01a3f27: BREAKING: move the portable composer, rich editor, collaboration display, visual controls, and shared UI primitives to focused Toolkit entrypoints. Core's removed deep compatibility paths now throw an actionable migration error, and moved symbols are removed from the legacy `@agent-native/core/client` barrel. Run `npx @agent-native/core@latest upgrade --codemods --yes` to rewrite supported imports. Framework-wired composer APIs remain available from `@agent-native/core/client/composer`; bare reusable composer UI is available from `@agent-native/toolkit/composer`.
+
+### Patch Changes
+
+- Updated dependencies [01a3f27]
+  - @agent-native/toolkit@0.6.0
+
+## 0.110.3
+
+### Patch Changes
+
+- 168ce2f: Keep the framework-wired Context X-Ray panel on its existing Core entrypoint instead of suggesting an incompatible Toolkit view migration.
+
+## 0.110.2
+
+### Patch Changes
+
+- b3f04e7: Correct the prepublished registry editor migration so the framework-wired data provider remains on Core's blocks entry.
+
+## 0.110.1
+
+### Patch Changes
+
+- 8ed242f: Prepublish the complete planned composer and editor migration map so Doctor and upgrade codemods can guide apps before the breaking package flip.
+
+## 0.110.0
+
+### Minor Changes
+
+- 079e19a: Add focused client entrypoints, lazy built-in chat widgets, explicit route-chunk recovery initialization, and manifest-driven `upgrade --codemods` and doctor preflight infrastructure for upcoming package moves.
+
+### Patch Changes
+
+- Updated dependencies [079e19a]
+  - @agent-native/toolkit@0.5.1
+
+## 0.109.4
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+- Updated dependencies [b6d7f87]
+  - @agent-native/toolkit@0.5.0
+
+## 0.109.3
+
+### Patch Changes
+
+- 5199e0b: Make Chat the first and default starting point in the new-app CLI picker.
+- 5199e0b: Track browser, server, cold-start, framework-readiness, and database latency for app requests; retain action 4xx failures; parallelize legacy route bootstrap reads; and deduplicate session lookups without treating transient auth failures as signed-out sessions.
+- 5199e0b: Deliver remote-session Expo push notifications through a retrying, batched outbox worker and verify provider receipts before marking delivery complete.
+
+## 0.109.2
+
+### Patch Changes
+
+- 915c940: Allow HTML diagrams to opt into clean design rendering without the rough.js overlay.
+- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
+
+## 0.109.1
+
+### Patch Changes
+
+- d74a5a4: Return retryable responses for transient agent-chat database failures and back off active-run polling while the database recovers.
+- d74a5a4: Add bounded per-tool generation telemetry, delegated trace linkage, direct-read telemetry, and idempotent A2A submissions.
+
+## 0.109.0
+
+### Minor Changes
+
+- 6cd2c79: Add audience-bound direct invocation for explicitly exposed read-only actions so sibling apps can skip a second agent loop for bounded data operations.
+  Add shared Slack and Notion corpus recipes so cursor pagination runs inside one resumable data operation instead of one model turn per page.
+
+### Patch Changes
+
+- 6cd2c79: Prevent cross-turn chat stream splicing and link browser sessions and session replays to agent-chat threads and runs.
+- 6cd2c79: Resume existing A2A tasks after bounded waits so cross-app agents do not duplicate long-running work.
+- 6cd2c79: Make progress tracking tolerate blank optional status fields, make extension replacement guard errors retryable when the explicit intent flag is missing, expose extension readiness callbacks for host loading states, show the underlying repeated tool error in agent stop messages, and avoid MCP connection suggestions based on hidden tool payloads.
+- 6cd2c79: Show image attachments in queued agent chat messages.
+- 6cd2c79: Open shared chat-thread links in the matching full-page chat or agent sidebar.
+- 6cd2c79: Ignore stackless stale module-loader failures that are handled by route-chunk recovery instead of creating noisy error issues.
+- 6cd2c79: Keep long agent-chat tool histories compact by collapsing older calls behind a "Ran N tools" disclosure.
+- 6cd2c79: Show chat run durations in work summaries and animate their content when opening.
+
+## 0.108.0
+
+### Minor Changes
+
+- 1db27df: Add shared default-off feature flags with server-side targeting, versioned Analytics fleet-management actions, narrowly delegated A2A access, and reusable controlled editor primitives.
+
+## 0.107.2
+
+### Patch Changes
+
+- 2a4d2db: Retry messaging replies without repeating successful agent mutations, and deliver verified A2A artifact checkpoints as soon as they are durable.
+
 ## 0.107.1
 
 ### Patch Changes

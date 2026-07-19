@@ -171,11 +171,22 @@ async function processClaimedContinuation(
     ...(auth.apiKeyFallbacks ? { fallbackApiKeys: auth.apiKeyFallbacks } : {}),
   });
   const deadline = Date.now() + PROCESSOR_WAIT_MS;
+  const recoverableArtifactSecrets =
+    await resolveContinuationArtifactSecrets(continuation);
   let task: Task | null = null;
+  let latestRecoverableArtifactText: string | null = null;
 
   try {
     while (Date.now() < deadline) {
       task = await client.getTask(continuation.a2aTaskId);
+      const recoverableArtifactText = extractVerifiedRecoverableArtifactText(
+        task,
+        continuation.agentUrl,
+        recoverableArtifactSecrets,
+      );
+      if (recoverableArtifactText) {
+        latestRecoverableArtifactText = recoverableArtifactText;
+      }
       if (TERMINAL_STATES.has(task.status.state)) break;
       await reportA2AContinuationProgress(continuation, progress, task);
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -183,6 +194,17 @@ async function processClaimedContinuation(
   } catch (err) {
     if (isTransientA2APollError(err)) {
       if (shouldStopPollingRemoteTask(continuation)) {
+        if (latestRecoverableArtifactText) {
+          await deliverAndCompleteA2AContinuation(
+            continuation,
+            adapter,
+            formatRecoverableArtifactFallbackText(
+              latestRecoverableArtifactText,
+            ),
+            progress,
+          );
+          return;
+        }
         await notifyAndFailA2AContinuation(
           continuation,
           adapter,
@@ -209,6 +231,15 @@ async function processClaimedContinuation(
 
   if (!task || !TERMINAL_STATES.has(task.status.state)) {
     if (shouldStopPollingRemoteTask(continuation)) {
+      if (latestRecoverableArtifactText) {
+        await deliverAndCompleteA2AContinuation(
+          continuation,
+          adapter,
+          formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+          progress,
+        );
+        return;
+      }
       await notifyAndFailA2AContinuation(
         continuation,
         adapter,
@@ -222,6 +253,15 @@ async function processClaimedContinuation(
   }
 
   if (task.status.state !== "completed") {
+    if (latestRecoverableArtifactText) {
+      await deliverAndCompleteA2AContinuation(
+        continuation,
+        adapter,
+        formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+        progress,
+      );
+      return;
+    }
     const reason =
       extractTaskText(task) ||
       `Remote A2A task ${continuation.a2aTaskId} ended with state ${task.status.state}`;
@@ -234,6 +274,15 @@ async function processClaimedContinuation(
     continuation.agentUrl,
   );
   if (!text.trim()) {
+    if (latestRecoverableArtifactText) {
+      await deliverAndCompleteA2AContinuation(
+        continuation,
+        adapter,
+        formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+        progress,
+      );
+      return;
+    }
     await notifyAndFailA2AContinuation(
       continuation,
       adapter,
@@ -382,6 +431,8 @@ async function deliverAndCompleteA2AContinuation(
       `${deliveryContinuation.platform} response delivery timed out`,
     );
     let persistenceError: unknown;
+    const artifactSecrets =
+      await resolveContinuationArtifactSecrets(deliveryContinuation);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         await persistA2AContinuationDelivery(
@@ -389,6 +440,7 @@ async function deliverAndCompleteA2AContinuation(
           outgoing,
           deliveryReceipt,
           text,
+          artifactSecrets,
         );
         persistenceError = undefined;
         break;
@@ -463,6 +515,7 @@ async function persistA2AContinuationDelivery(
   outgoing: OutgoingMessage,
   receipt: PlatformDeliveryReceipt,
   artifactText: string,
+  artifactSecrets: readonly string[],
 ): Promise<void> {
   const mapping = await getThreadMapping(
     continuation.platform,
@@ -480,9 +533,12 @@ async function persistA2AContinuationDelivery(
   }
   if (!Array.isArray(repo.messages)) repo.messages = [];
 
-  const artifacts = extractA2AArtifactIdentities([
-    { tool: "call-agent", result: artifactText },
-  ]);
+  const artifacts = extractA2AArtifactIdentities(
+    [{ tool: "call-agent", result: artifactText }],
+    {
+      persistedArtifactSecrets: artifactSecrets,
+    },
+  );
   const metadata: Record<string, unknown> = {
     integrationDeliveryAttempted: true,
     integrationDelivery: {
@@ -726,6 +782,24 @@ async function signFreshContinuationTokens(
   return tokens;
 }
 
+async function resolveContinuationArtifactSecrets(
+  continuation: A2AContinuation,
+): Promise<string[]> {
+  const secrets: string[] = [];
+  const add = (secret: string | null | undefined) => {
+    const value = secret?.trim();
+    if (value && !secrets.includes(value)) secrets.push(value);
+  };
+  add(process.env.A2A_SECRET);
+  if (continuation.orgId) {
+    try {
+      const { getOrgA2ASecret } = await import("../org/context.js");
+      add(await getOrgA2ASecret(continuation.orgId));
+    } catch {}
+  }
+  return secrets;
+}
+
 function isLikelyJwt(token: string): boolean {
   return token.split(".").length === 3;
 }
@@ -738,6 +812,36 @@ function extractTaskText(task: Task): string {
     })
     .map((part) => part.text)
     .join("\n");
+}
+
+function extractVerifiedRecoverableArtifactText(
+  task: Task,
+  agentUrl: string,
+  artifactSecrets: readonly string[],
+): string | null {
+  if (task.status.message?.metadata?.agentNativeRecoverableArtifacts !== true) {
+    return null;
+  }
+
+  const text = formatContinuationArtifactText(extractTaskText(task), agentUrl);
+  if (!text.trim()) return null;
+
+  // Require the signed identity ledger so arbitrary peer progress prose cannot
+  // prematurely complete the continuation.
+  const artifacts = extractA2AArtifactIdentities(
+    [{ tool: "call-agent", result: text }],
+    {
+      persistedArtifactSecrets: artifactSecrets,
+    },
+  );
+  return artifacts.length > 0 ? text : null;
+}
+
+function formatRecoverableArtifactFallbackText(text: string): string {
+  return text.replace(
+    "The agent is still working on the full response, but these verified artifacts already exist:",
+    "The downstream agent did not finish its full response, but these verified artifacts already exist:",
+  );
 }
 
 function formatContinuationArtifactText(

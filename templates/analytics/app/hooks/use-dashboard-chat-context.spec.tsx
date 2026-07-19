@@ -23,7 +23,19 @@ const clientMocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("@agent-native/core/client", () => clientMocks);
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  SIDEBAR_STATE_CHANGE_EVENT: clientMocks.SIDEBAR_STATE_CHANGE_EVENT,
+  removeAgentChatContextItem: clientMocks.removeAgentChatContextItem,
+  setAgentChatContextItem: clientMocks.setAgentChatContextItem,
+  useAgentChatContext: clientMocks.useAgentChatContext,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  deleteClientAppState: clientMocks.deleteClientAppState,
+  getBrowserTabId: clientMocks.getBrowserTabId,
+  readClientAppState: clientMocks.readClientAppState,
+  setClientAppState: clientMocks.setClientAppState,
+}));
 
 import { TAB_ID } from "@/lib/tab-id";
 

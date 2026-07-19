@@ -24,7 +24,7 @@ vi.mock("./use-dev-mode.js", () => ({
   useDevMode: () => ({ isDevMode: devState.isDevMode }),
 }));
 
-vi.mock("./composer/PromptComposer.js", async () => {
+vi.mock("./composer/index.js", async () => {
   const React = await import("react");
   return {
     PromptComposer: ({

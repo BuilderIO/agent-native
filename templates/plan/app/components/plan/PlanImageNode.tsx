@@ -1,8 +1,6 @@
-import {
-  SharedImage,
-  uploadEditorImage,
-  useT,
-} from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { SharedImage } from "@agent-native/toolkit/editor";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -14,13 +12,13 @@ import { toast } from "sonner";
 import { PlanImageViewer } from "./PlanImageViewer";
 
 /**
- * The plan editor's image node. It extends the shared core `SharedImage` node —
+ * The plan editor's image node. It extends the shared Toolkit `SharedImage` node —
  * inheriting its byte-stable GFM `![alt](src)` serializer and the paste / drop /
  * `/image` upload plugin — and adds a React node view so editor images get the
  * same hover zoom button, lightbox, and three-dots menu (swap / download / copy)
  * as the read-only reader and structured image blocks.
  *
- * Plans inject this via `extraExtensions` with `features.image` off, so the core
+ * Plans inject this via `extraExtensions` with `features.image` off, so the shared
  * default image node never coexists with it. Content keeps its own richer image
  * node and is unaffected.
  */

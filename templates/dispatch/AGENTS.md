@@ -31,6 +31,11 @@ specific essentials.
   setup item is unclear.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
+- Curated workspace templates are private remix sources. Use
+  `list-curated-workspace-templates` to inspect the reviewed catalog and
+  `remix-workspace-template` to create an independent app. A remix may use
+  empty or synthetic data only; never copy source-app records, credentials,
+  secrets, or private configuration.
 - `/operations` is the focused operator console. Its Monitoring tab reuses the
   shared observability dashboard for traces, conversations, evaluations,
   experiments, and feedback; its Database tab reuses the Code-mode database

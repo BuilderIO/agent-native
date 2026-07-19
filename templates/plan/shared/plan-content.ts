@@ -367,6 +367,8 @@ export type PlanDiagramBlock = PlanBlockBase & {
      */
     html?: string;
     css?: string;
+    /** `design` forces clean HTML/CSS rendering without the sketch overlay. */
+    renderMode?: PlanVisualCanvasMode;
     caption?: string;
     /** Outer surface frame. `auto` lets the host choose the right default. */
     frame?: PlanVisualFrame;
@@ -1396,6 +1398,7 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
         message: "Diagram css must not include document or script tags.",
       })
       .optional(),
+    renderMode: visualCanvasModeSchema.optional(),
     caption: z.string().trim().max(600).optional(),
     frame: visualFrameSchema.optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),

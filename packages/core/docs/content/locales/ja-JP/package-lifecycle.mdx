@@ -19,3 +19,9 @@ agent-native package eject @agent-native/scheduling --apply
 パッケージマネージャーを実行します。競合や未知の配置は拒否し、インストール
 失敗時にはファイルとロックファイルを復元します。パイロットでは Scheduling
 のみ排出可能で、Pinpoint は対象外です。
+
+## 移行
+
+公開パッケージには移動したパスとシンボル用の `migration-manifest.json` が含まれます。`npx @agent-native/core@latest upgrade --codemods` で差分を確認し、確認後に `--yes` で適用します。CI では `agent-native doctor --only migration-manifest` を実行し、opt-out はできません。
+
+`planned` エントリは移行先より先に公開でき、ブロックしない警告として表示され、codemod は書き換えません。active な移動は、移行先の export がインストール済みの場合にのみ書き換えられます。

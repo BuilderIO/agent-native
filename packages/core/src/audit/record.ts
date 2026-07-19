@@ -31,6 +31,9 @@ export interface AuditRunContextLike {
   orgId?: string | null;
   threadId?: string;
   turnId?: string;
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
 }
 
 export interface RecordActionAuditInput {
@@ -134,6 +137,9 @@ export async function recordActionAudit(
       // otherwise to the actor (the common self-mutation case).
       ownerEmail: target?.ownerEmail ?? actorEmail,
       visibility: target?.visibility ?? "private",
+      networkProtocol: ctx?.networkProtocol ?? null,
+      networkId: ctx?.networkId ?? null,
+      networkPeer: ctx?.networkPeer ?? null,
     };
     const lineage = getIntegrationRequestContext()?.lineage;
     const integration = getIntegrationRequestContext();

@@ -1,4 +1,6 @@
-import { appBasePath, PromptComposer, useT } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";

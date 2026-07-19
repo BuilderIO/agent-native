@@ -1,4 +1,4 @@
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ListSelectionHeaderToggle } from "@/components/shared/selection/ListSelectionHeaderToggle";

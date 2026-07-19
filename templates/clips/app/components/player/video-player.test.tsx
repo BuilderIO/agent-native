@@ -17,14 +17,19 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { VideoPlayer, type VideoPlayerHandle } from "./video-player";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/analytics", () => ({
   // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
   // import `cn` from.
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
-  appBasePath: () => "",
-  agentNativePath: (path: string) => path,
   captureClientException: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

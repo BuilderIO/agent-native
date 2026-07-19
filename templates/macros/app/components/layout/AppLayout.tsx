@@ -1,13 +1,10 @@
-import {
-  AgentSidebar,
-  DevDatabaseLink,
-  FeedbackButton,
-  agentNativePath,
-  appPath,
-  useT,
-} from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import {
   IconFlame,

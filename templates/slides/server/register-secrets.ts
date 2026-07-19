@@ -95,6 +95,36 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
+  key: "LOGO_DEV_SECRET_KEY",
+  label: "Logo.dev Search Key",
+  description: "Optional server-side key for company and domain logo search.",
+  docsUrl: "https://www.logo.dev/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "LOGO_DEV_TOKEN",
+  label: "Logo.dev Publishable Token",
+  description: "Optional publishable token for rendering Logo.dev images.",
+  docsUrl: "https://www.logo.dev/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "BRANDFETCH_CLIENT_ID",
+  label: "Brandfetch Client ID",
+  description: "Optional public client ID for Brandfetch logo rendering.",
+  docsUrl: "https://developers.brandfetch.com/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
   key: "GOOGLE_CLIENT_ID",
   label: "Google OAuth Client ID",
   description: "Required for Google Docs import.",

@@ -35,262 +35,212 @@ or administrator policy can prevent a generic one-click connection.
 
 ## The integration wall {#integration-wall}
 
-These compact, self-hosted wordmarks keep the directory fast and deployable
-without a third-party logo CDN. The labels and status pills come from the same
-shipped MCP preset categories documented below.
+These self-hosted provider marks keep the directory fast and deployable
+without a third-party logo CDN. Connection details and status categories remain
+in the directory table below.
 
-<Diagram id="doc-block-integrations-wall" title="Remote MCP integrations" summary="A self-hosted logo wall of the 25 remote MCP presets currently shipped in the Agent-Native framework." frame="hide">
+<Diagram id="doc-block-integrations-wall" title="Remote MCP integrations" summary="A self-hosted logo wall of the 25 remote MCP presets currently shipped in the Agent-Native framework." frame="hide" renderMode="design">
 
 ```html
 <div class="integration-wall">
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark c7">C7</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/context7.svg" alt=""
+      /></span>
       <div><strong>Context7</strong><small>Docs &amp; reference</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag direct">No auth</span
-      ><span class="integration-tag ready">Verified</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark sentry">S</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/sentry.svg" alt=""
+      /></span>
       <div><strong>Sentry</strong><small>Errors &amp; debugging</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag token">Header / token</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark notion">N</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/notion.svg" alt=""
+      /></span>
       <div><strong>Notion</strong><small>Knowledge &amp; docs</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark semgrep">SG</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/semgrep.svg" alt=""
+      /></span>
       <div><strong>Semgrep</strong><small>Security scanning</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag direct">No auth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark linear">L</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/linear.svg" alt=""
+      /></span>
       <div><strong>Linear</strong><small>Issues &amp; planning</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark atlassian">A</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/atlassian.svg" alt=""
+      /></span>
       <div><strong>Atlassian</strong><small>Jira &amp; Confluence</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag restricted">Restricted</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark supabase">SB</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/supabase.svg" alt=""
+      /></span>
       <div><strong>Supabase</strong><small>Database &amp; auth</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark neon">N</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/neon.svg" alt=""
+      /></span>
       <div><strong>Neon</strong><small>Serverless Postgres</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark stripe">S</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/stripe.svg" alt=""
+      /></span>
       <div><strong>Stripe</strong><small>Payments &amp; billing</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark cloudflare">CF</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/cloudflare.svg" alt=""
+      /></span>
       <div><strong>Cloudflare</strong><small>Cloud &amp; security</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark gitlab">GL</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/gitlab.svg" alt=""
+      /></span>
       <div><strong>GitLab</strong><small>Repos &amp; CI/CD</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag restricted">Beta / restricted</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark figma">F</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/figma.svg" alt=""
+      /></span>
       <div><strong>Figma</strong><small>Design context</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Approved clients</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark canva">C</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/canva.svg" alt=""
+      /></span>
       <div><strong>Canva</strong><small>Designs &amp; assets</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Approved domains</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark vercel">V</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/vercel.svg" alt=""
+      /></span>
       <div><strong>Vercel</strong><small>Deployments &amp; logs</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Approved clients</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark github">GH</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/github.svg" alt=""
+      /></span>
       <div><strong>GitHub</strong><small>Code &amp; pull requests</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Provider setup</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark slack">#</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/slack.svg" alt=""
+      /></span>
       <div><strong>Slack</strong><small>Messages &amp; channels</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Approved clients</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark asana">AS</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/asana.svg" alt=""
+      /></span>
       <div><strong>Asana</strong><small>Tasks &amp; projects</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Provider setup</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark hubspot">HS</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/hubspot.svg" alt=""
+      /></span>
       <div><strong>HubSpot</strong><small>CRM &amp; customer data</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Provider setup</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark intercom">I</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/intercom.svg" alt=""
+      /></span>
       <div><strong>Intercom</strong><small>Support conversations</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark monday">M</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/monday.svg" alt=""
+      /></span>
       <div><strong>monday.com</strong><small>Work management</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark webflow">W</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/webflow.svg" alt=""
+      /></span>
       <div><strong>Webflow</strong><small>Websites &amp; CMS</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark paypal">PP</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/paypal.svg" alt=""
+      /></span>
       <div><strong>PayPal</strong><small>Commerce &amp; invoices</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark box">B</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/box.svg" alt=""
+      /></span>
       <div><strong>Box</strong><small>Files &amp; folders</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag manual">Manual setup</span
-      ><span class="integration-tag restricted">Beta / restricted</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark netlify">N</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/netlify.svg" alt=""
+      /></span>
       <div><strong>Netlify</strong><small>Sites &amp; builds</small></div>
     </div>
-    <div class="integration-tags">
-      <span class="integration-tag oauth">OAuth</span
-      ><span class="integration-tag ready">Ready</span>
-    </div>
   </div>
   <div class="integration-card">
     <div class="integration-head">
-      <span class="integration-mark zapier">Z</span>
+      <span class="integration-mark"
+        ><img src="/integration-logos/zapier.svg" alt=""
+      /></span>
       <div><strong>Zapier</strong><small>Automation actions</small></div>
-    </div>
-    <div class="integration-tags">
-      <span class="integration-tag token">Header / token</span
-      ><span class="integration-tag restricted">User server</span>
     </div>
   </div>
 </div>
@@ -304,9 +254,8 @@ shipped MCP preset categories documented below.
 }
 .integration-card {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 118px;
+  align-items: center;
+  min-height: 70px;
   padding: 14px;
   border: 1px solid var(--wf-line);
   border-radius: 12px;
@@ -343,128 +292,13 @@ shipped MCP preset categories documented below.
   height: 38px;
   flex: none;
   border-radius: 10px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
-.c7 {
-  background: #1f6feb;
-}
-.sentry {
-  background: #5b35d5;
-}
-.notion {
-  background: #111;
-}
-.semgrep {
-  background: #0d8b76;
-}
-.linear {
-  background: #5e5ce6;
-}
-.atlassian {
-  background: #1868db;
-}
-.supabase {
-  background: #3ecf8e;
-  color: #062b1a;
-}
-.neon {
-  background: #00e5a0;
-  color: #062b1a;
-}
-.stripe {
-  background: #635bff;
-}
-.cloudflare {
-  background: #f38020;
-}
-.gitlab {
-  background: #fc6d26;
-}
-.figma {
-  background: #f24e1e;
-}
-.canva {
-  background: #00c4cc;
-  color: #053b40;
-}
-.vercel {
-  background: #111;
-}
-.github {
-  background: #24292f;
-}
-.slack {
-  background: #36c5f0;
-  color: #082c3b;
-}
-.asana {
-  background: #f06a6a;
-}
-.hubspot {
-  background: #ff7a59;
-}
-.intercom {
-  background: #286efa;
-}
-.monday {
-  background: #6161ff;
-}
-.webflow {
-  background: #146ef5;
-}
-.paypal {
-  background: #003087;
-}
-.box {
-  background: #0061d5;
-}
-.netlify {
-  background: #05bdbb;
-  color: #062b2b;
-}
-.zapier {
-  background: #ff4f00;
-}
-.integration-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: auto;
-}
-.integration-tag {
-  padding: 4px 7px;
-  border-radius: 999px;
-  background: var(--wf-line);
-  color: var(--wf-muted);
-  font-size: 10px;
-  line-height: 1;
-}
-.integration-tag.oauth {
-  background: #e8e7ff;
-  color: #4438a8;
-}
-.integration-tag.manual {
-  background: #fff0d6;
-  color: #8a5200;
-}
-.integration-tag.token {
-  background: #e5f3ff;
-  color: #075985;
-}
-.integration-tag.direct {
-  background: #e1f7ee;
-  color: #146c4b;
-}
-.integration-tag.ready {
-  background: #e1f7ee;
-  color: #146c4b;
-}
-.integration-tag.restricted {
-  background: #ffe4e6;
-  color: #9f1239;
+.integration-mark img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
 }
 @media (max-width: 760px) {
   .integration-wall {

@@ -46,6 +46,10 @@ const messages = {
     suggestionUi: "この UI はどのように見えますか？",
     suggestionApi: "この API の形は？",
   },
+  contextXray: {
+    panelTitle: "コンテキスト X 線",
+    snapshotsTitle: "スナップショット",
+  },
   sidebar: {
     openNavigation: "ナビゲーションを開く",
     navigation: "ナビゲーション",

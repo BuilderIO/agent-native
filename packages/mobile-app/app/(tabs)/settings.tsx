@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import AppForm from "@/components/AppForm";
+import DictationSettings from "@/components/DictationSettings";
 import { useApps } from "@/lib/use-apps";
 
 export default function SettingsScreen() {
@@ -74,6 +75,8 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <ScrollView>
+        <DictationSettings />
+
         {/* Installed Apps */}
         <Text style={styles.sectionTitle}>Installed Apps</Text>
         {apps.map((app) => (

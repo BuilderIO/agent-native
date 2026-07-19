@@ -1,4 +1,4 @@
-import { focusAgentChat } from "@agent-native/core/client";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 

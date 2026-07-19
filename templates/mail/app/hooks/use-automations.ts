@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import type { AutomationRule, AutomationAction } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 

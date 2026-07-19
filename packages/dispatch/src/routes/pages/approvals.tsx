@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";

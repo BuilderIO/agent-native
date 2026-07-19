@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPlayerSkipForward, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 

@@ -45,6 +45,10 @@ const messages = {
     suggestionUi: "यह UI कैसा दिखता है?",
     suggestionApi: "इस API की संरचना क्या है?",
   },
+  contextXray: {
+    panelTitle: "संदर्भ एक्स-रे",
+    snapshotsTitle: "स्नैपशॉट",
+  },
   sidebar: {
     openNavigation: "नेविगेशन खोलें",
     navigation: "नेविगेशन",

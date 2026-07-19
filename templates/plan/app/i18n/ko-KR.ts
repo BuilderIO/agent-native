@@ -46,6 +46,10 @@ const messages = {
     suggestionUi: "이 UI는 어떻게 보이나요?",
     suggestionApi: "이 API의 구조는 무엇인가요?",
   },
+  contextXray: {
+    panelTitle: "컨텍스트 X-레이",
+    snapshotsTitle: "스냅샷",
+  },
   sidebar: {
     openNavigation: "탐색 열기",
     navigation: "탐색",

@@ -1,11 +1,9 @@
-import {
-  appPath,
-  DevDatabaseLink,
-  FeedbackButton,
-  useT,
-} from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconBrain,
   IconCalendar,

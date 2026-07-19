@@ -1,4 +1,4 @@
-import { useFormatters, useT } from "@agent-native/core/client";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconMessage,
   IconMoodSmile,

@@ -117,20 +117,29 @@ event_name = '$ai_sentiment'
 
 Useful query fields live in `properties`:
 
-| Property                                         | Description                               |
-| ------------------------------------------------ | ----------------------------------------- |
-| `$ai_trace_id`, `run_id`                         | Agent run id                              |
-| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available            |
-| `$ai_model`, `model`                             | Model used                                |
-| `$ai_provider`, `provider`                       | Engine/provider name                      |
-| `$ai_input_tokens`, `input_tokens`               | Input tokens                              |
-| `$ai_output_tokens`, `output_tokens`             | Output tokens                             |
-| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                 |
-| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                 |
-| `cost_cents_x100`                                | Estimated run cost in centicents          |
-| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds    |
-| `tool_calls`, `successful_tools`, `failed_tools` | Tool-call counts                          |
-| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable |
+| Property                                         | Description                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `$ai_trace_id`, `run_id`                         | Agent run id                                                                                      |
+| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available                                                                    |
+| `$ai_model`, `model`                             | Model used                                                                                        |
+| `$ai_provider`, `provider`                       | Engine/provider name                                                                              |
+| `$ai_input_tokens`, `input_tokens`               | Input tokens                                                                                      |
+| `$ai_output_tokens`, `output_tokens`             | Output tokens                                                                                     |
+| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                                                                         |
+| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                                                                         |
+| `cost_cents_x100`                                | Estimated run cost in centicents                                                                  |
+| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds                                                            |
+| `tool_calls`, `successful_tools`, `failed_tools` | Complete tool-call counts                                                                         |
+| `tools`, `tools_truncated`                       | First 50 tool names, offsets, durations, statuses, and error classes, including interrupted calls |
+| `delegated`, `delegation_protocol`, `caller_app` | Delegated-run attribution                                                                         |
+| `a2a_task_id`, `parent_run_id`, `parent_turn_id` | Cross-app trace linkage, when available                                                           |
+| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable                                                         |
+
+The `tools` array never includes tool arguments, results, or error messages.
+Use `tools_truncated` with the complete `tool_calls` count when a run exceeds
+the 50-entry detail cap.
+Failed runs still emit a generation row with zero or known usage so delegated
+timeouts and setup failures remain visible.
 
 Explicit thumbs feedback is content-free and uses these `$ai_feedback`
 properties:

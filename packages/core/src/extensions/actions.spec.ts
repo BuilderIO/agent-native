@@ -575,6 +575,7 @@ describe("extensions/actions", () => {
   });
 
   it("blocks full replacement unless the caller explicitly allows it", async () => {
+    const { ExtensionContentEditError } = await import("./content-patch.js");
     const updateExtensionContent = vi.fn();
     mockExtensionModules({ store: { updateExtensionContent } });
 
@@ -590,10 +591,15 @@ describe("extensions/actions", () => {
       error = caught;
     }
 
-    expect(isAgentActionStopError(error)).toBe(true);
+    expect(isAgentActionStopError(error)).toBe(false);
+    expect(error).toBeInstanceOf(ExtensionContentEditError);
     expect(error).toMatchObject({
-      errorCode: "extension_full_replacement_requires_explicit_intent",
+      name: "ExtensionContentEditError",
+      code: "extension_content_edit_failed",
     });
+    expect((error as Error).message).toContain(
+      "retry once with allowFullReplacement=true",
+    );
     expect(updateExtensionContent).not.toHaveBeenCalled();
   });
 

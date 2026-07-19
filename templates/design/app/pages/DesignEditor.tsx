@@ -1,46 +1,57 @@
 import {
+  generateTabId,
+  AgentChatSurface,
+  setAgentChatContextItem,
+  removeAgentChatContextItem,
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
+import {
+  useCollaborativeDoc,
+  isReconcileLeadClient,
+  dedupeCollabUsersByEmail,
+  emailToColor,
+  emailToName,
+  usePresence,
+  useFollowUser,
+  useRecentEdits,
+  type CollabUser,
+  type AttributedRecentEdit,
+  type OtherPresence,
+} from "@agent-native/core/client/collab";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import {
   useActionQuery,
   useActionMutation,
   callAction,
   tryCallActionKeepalive,
   useSession,
-  useCollaborativeDoc,
-  isReconcileLeadClient,
-  generateTabId,
-  dedupeCollabUsersByEmail,
-  emailToColor,
-  emailToName,
-  AgentChatSurface,
-  ShareButton,
-  agentNativePath,
-  appBasePath,
-  isEmbedAuthActive,
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
   useReconciledState,
-  usePresence,
-  useFollowUser,
+  useChangeVersion,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import {
   useReviewComments,
   useSendReviewThreadToAgent,
+  type ReviewThread,
+} from "@agent-native/core/client/review";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import type { ReviewComment } from "@agent-native/core/review";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
   LiveCursorOverlay,
   RemoteSelectionRings,
   RecentEditHighlights,
-  useRecentEdits,
-  useT,
-  useChangeVersion,
-  setAgentChatContextItem,
-  removeAgentChatContextItem,
-  useAgentChatContext,
-  useAvatarUrl,
-  type CollabUser,
-  type AttributedRecentEdit,
-  type OtherPresence,
-  type PromptComposerSubmitOptions,
-  type ReviewThread,
-} from "@agent-native/core/client";
-import type { ReviewComment } from "@agent-native/core/review";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+} from "@agent-native/toolkit/collab-ui";
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
@@ -77,7 +88,7 @@ import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
-import { FULL_APP_BUILDING_ENABLED, readFusionApp } from "@shared/full-app";
+import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { shouldUseLiveFileContent } from "@shared/html-content";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -9032,6 +9043,7 @@ function DesignEditor() {
     () => readFusionApp(designDataJson),
     [designDataJson],
   );
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -29250,7 +29262,7 @@ function DesignEditor() {
                       only while the flag is on — the fusion actions the
                       banner calls are gated on the same flag, so rendering it
                       with the flag off would show controls that all error. */}
-                  {FULL_APP_BUILDING_ENABLED && id && fusionApp && (
+                  {fullAppBuildingEnabled && id && fusionApp && (
                     <FusionAppBanner
                       designId={id}
                       status={fusionApp.status}

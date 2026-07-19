@@ -606,7 +606,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         .replaceAll("\\", "/");
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
-      expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).toContain("agent-native-toolkit-");
+      expect(workspaceYaml).toContain(".tgz");
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
@@ -639,7 +640,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         .replaceAll("\\", "/");
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
-      expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).toContain("agent-native-toolkit-");
+      expect(workspaceYaml).toContain(".tgz");
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
     } finally {
@@ -939,6 +941,8 @@ describe("template/core version compatibility", () => {
     try {
       expect(_getCoreDependencyVersion()).toMatch(/^file:\/\//);
       expect(_getToolkitDependencyVersion()).toMatch(/^file:\/\//);
+      expect(_getCoreDependencyVersion()).toMatch(/\.tgz$/);
+      expect(_getToolkitDependencyVersion()).toMatch(/\.tgz$/);
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;

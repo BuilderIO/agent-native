@@ -5,19 +5,23 @@
   },
   "build": {
     "development": {
+      "credentialsSource": "remote",
       "developmentClient": true,
       "distribution": "internal"
     },
     "preview": {
+      "credentialsSource": "remote",
       "distribution": "internal"
     },
     "preview-install": {
+      "credentialsSource": "remote",
       "distribution": "internal",
       "env": {
         "AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH": "1"
       }
     },
     "production": {
+      "credentialsSource": "remote",
       "autoIncrement": true
     }
   },

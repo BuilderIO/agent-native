@@ -10,6 +10,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
@@ -24,7 +25,7 @@ import {
   upsertFusionScreens,
 } from "../server/lib/fusion-screens.js";
 import {
-  FULL_APP_BUILDING_ENABLED,
+  FULL_APP_BUILDING,
   parseDesignDataBlob,
   readFusionApp,
   writeFusionApp,
@@ -70,8 +71,8 @@ export default defineAction({
           "Defaults to the design's existing fusion screen paths, or ['/'] if none exist.",
       ),
   }),
-  run: async ({ designId, paths }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, paths }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

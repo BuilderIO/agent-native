@@ -309,7 +309,7 @@ The frontend calls actions using React Query hooks from `@agent-native/core/clie
 ### `useActionQuery` — for GET actions
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 function MealList() {
   // Types are auto-inferred from the action's schema + return type — no manual generic needed
@@ -323,7 +323,7 @@ function MealList() {
 ### `useActionMutation` — for POST/PUT/DELETE actions
 
 ```ts
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 
 function AddMealButton() {
   // Types are auto-inferred — no manual generic needed
@@ -343,7 +343,7 @@ Mutations automatically invalidate all `["action"]` query keys on success, so GE
 ### `callAction` — for imperative client code
 
 ```ts
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 const people = await callAction("search-people", { query }, { method: "GET" });
 ```

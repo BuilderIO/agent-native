@@ -51,7 +51,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
-import { waitForReadyRecordingAfterFinalizeError } from "../../../shared/finalize-recovery";
+import {
+  waitForAcceptedRecordingAfterFinalizeError,
+  waitForReadyRecordingAfterFinalizeError,
+} from "../../../shared/finalize-recovery";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -75,6 +78,7 @@ import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
 } from "./pause-transition";
+import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import { singleFlight } from "./single-flight";
 import {
@@ -83,6 +87,7 @@ import {
   type TranscriptionCapture,
 } from "./transcription-capture";
 import {
+  parseFinalizeReceipt,
   verifyFinalizeReceipt,
   type FinalizeReceipt,
 } from "./upload-verification";
@@ -741,6 +746,7 @@ export async function dismissBrowserRecordingBackup(
 async function markBrowserRecordingBackupError(
   recordingId: string,
   error: string,
+  incrementRetryCount = true,
 ): Promise<void> {
   const meta = await getBrowserRecordingBackupMeta(recordingId);
   if (!meta) return;
@@ -748,11 +754,84 @@ async function markBrowserRecordingBackupError(
     ...meta,
     lastAttemptAt: new Date().toISOString(),
     lastError: error,
-    retryCount: meta.retryCount + 1,
+    retryCount: incrementRetryCount ? meta.retryCount + 1 : meta.retryCount,
   });
 }
 
-async function recoverReadyRecordingAfterFinalizeError({
+const MEDIA_VERIFICATION_BACKUP_ERROR =
+  "The server could not finish verifying this upload. The local copy is still saved; retry to continue.";
+
+async function flagBrowserBackupAfterProcessing(recordingId: string) {
+  await markBrowserRecordingBackupError(
+    recordingId,
+    MEDIA_VERIFICATION_BACKUP_ERROR,
+    false,
+  );
+  await emit("clips:pending-uploads-changed").catch(() => {});
+}
+
+async function flagNativeBackupAfterProcessing(recordingId: string) {
+  await invoke("native_fullscreen_recording_mark_upload_error", {
+    recordingId,
+    error: MEDIA_VERIFICATION_BACKUP_ERROR,
+  });
+}
+
+function scheduleBrowserBackupCleanupAfterProcessing(args: {
+  serverUrl: string;
+  recordingId: string;
+  authToken?: string;
+}): void {
+  void reconcileProcessingBackup({
+    waitForReady: () =>
+      waitForReadyRecordingAfterFinalizeError({
+        uploadUrl: chunkUrl(args.serverUrl, args.recordingId, 0, false),
+        recordingId: args.recordingId,
+        authToken: args.authToken,
+        preferAuthenticated: true,
+        timeoutMs: 12 * 60 * 1000,
+      }),
+    onReady: () => deleteBrowserRecordingBackup(args.recordingId),
+    onUnresolved: () => flagBrowserBackupAfterProcessing(args.recordingId),
+    onPollError: (err) => {
+      console.warn(
+        "[clips-recorder] background backup cleanup check failed:",
+        err,
+      );
+    },
+  }).catch((err) => {
+    console.warn("[clips-recorder] background backup flag failed:", err);
+  });
+}
+
+export function scheduleNativeBackupCleanupAfterProcessing(args: {
+  serverUrl: string;
+  recordingId: string;
+  authToken?: string;
+}): void {
+  void reconcileProcessingBackup({
+    waitForReady: () =>
+      waitForReadyRecordingAfterFinalizeError({
+        uploadUrl: chunkUrl(args.serverUrl, args.recordingId, 0, false),
+        recordingId: args.recordingId,
+        authToken: args.authToken,
+        preferAuthenticated: true,
+        timeoutMs: 12 * 60 * 1000,
+      }),
+    onReady: () =>
+      invoke("native_fullscreen_recording_dismiss_upload", {
+        recordingId: args.recordingId,
+      }),
+    onUnresolved: () => flagNativeBackupAfterProcessing(args.recordingId),
+    onPollError: (err) => {
+      console.warn("[clips-recorder] native backup cleanup check failed:", err);
+    },
+  }).catch((err) => {
+    console.warn("[clips-recorder] native backup flag failed:", err);
+  });
+}
+
+async function recoverAcceptedRecordingAfterFinalizeError({
   serverUrl,
   recordingId,
   authToken,
@@ -760,19 +839,27 @@ async function recoverReadyRecordingAfterFinalizeError({
   serverUrl: string;
   recordingId: string;
   authToken?: string;
-}): Promise<boolean> {
-  const recovered = await waitForReadyRecordingAfterFinalizeError({
+}): Promise<"processing" | "ready" | null> {
+  const recovered = await waitForAcceptedRecordingAfterFinalizeError({
     uploadUrl: chunkUrl(serverUrl, recordingId, 0, false),
     recordingId,
     authToken,
     preferAuthenticated: true,
   });
-  if (!recovered) return false;
+  if (!recovered) return null;
+  if (recovered.status === "processing") {
+    scheduleBrowserBackupCleanupAfterProcessing({
+      serverUrl,
+      recordingId,
+      authToken,
+    });
+    return "processing";
+  }
   await markBrowserRecordingBackupError(
     recordingId,
     "Upload completed, but its final receipt could not be verified. The local backup was kept.",
   ).catch(() => {});
-  return true;
+  return "ready";
 }
 
 export async function listBrowserRecordingBackups(): Promise<
@@ -824,7 +911,7 @@ async function postBackupChunk(
       `Upload retry failed (${res.status}): ${body.slice(0, 200)}`,
     );
   }
-  return body ? (JSON.parse(body) as FinalizeReceipt) : null;
+  return parseFinalizeReceipt(body);
 }
 
 async function resetBrowserRecordingBackupUpload(
@@ -951,10 +1038,21 @@ export async function retryBrowserRecordingBackup(input: {
           validatedChunks,
           input.authToken,
         );
-        verifyFinalizeReceipt(receipt, meta);
+        const receiptStatus = verifyFinalizeReceipt(receipt, meta);
+        if (receiptStatus === "processing") {
+          scheduleBrowserBackupCleanupAfterProcessing({
+            serverUrl: meta.serverUrl,
+            recordingId: meta.recordingId,
+            authToken: input.authToken,
+          });
+          return {
+            recordingId: meta.recordingId,
+            viewUrl: `/r/${meta.recordingId}`,
+          };
+        }
       } catch (err) {
         if (
-          await recoverReadyRecordingAfterFinalizeError({
+          await recoverAcceptedRecordingAfterFinalizeError({
             serverUrl: meta.serverUrl,
             recordingId: meta.recordingId,
             authToken: input.authToken,
@@ -1007,10 +1105,21 @@ export async function retryBrowserRecordingBackup(input: {
         new Blob([], { type: meta.mimeType }),
         input.authToken,
       );
-      verifyFinalizeReceipt(receipt, meta);
+      const receiptStatus = verifyFinalizeReceipt(receipt, meta);
+      if (receiptStatus === "processing") {
+        scheduleBrowserBackupCleanupAfterProcessing({
+          serverUrl: meta.serverUrl,
+          recordingId: meta.recordingId,
+          authToken: input.authToken,
+        });
+        return {
+          recordingId: meta.recordingId,
+          viewUrl: `/r/${meta.recordingId}`,
+        };
+      }
     } catch (err) {
       if (
-        await recoverReadyRecordingAfterFinalizeError({
+        await recoverAcceptedRecordingAfterFinalizeError({
           serverUrl: meta.serverUrl,
           recordingId: meta.recordingId,
           authToken: input.authToken,
@@ -1143,6 +1252,7 @@ interface NativeFullscreenUploadResult {
   durationMs: number;
   width?: number;
   height?: number;
+  verificationPending?: boolean;
 }
 
 interface NativeFullscreenSaveResult {
@@ -2490,7 +2600,7 @@ async function startNativeFullscreenRecording(
             uploadResult = await uploadPromise;
           } catch (err) {
             if (
-              await recoverReadyRecordingAfterFinalizeError({
+              await recoverAcceptedRecordingAfterFinalizeError({
                 serverUrl: params.serverUrl,
                 recordingId: id,
                 authToken: params.authToken,
@@ -2504,6 +2614,13 @@ async function startNativeFullscreenRecording(
               err instanceof Error ? err.message : String(err),
             );
             throw err;
+          }
+          if (uploadResult.verificationPending) {
+            scheduleNativeBackupCleanupAfterProcessing({
+              serverUrl: params.serverUrl,
+              recordingId: id,
+              authToken: params.authToken,
+            });
           }
           const transcriptSaved = await transcriptSavePromise;
           if (!transcriptSaved && capturedTranscript?.text.trim()) {
@@ -3875,18 +3992,24 @@ async function startRecordingInner(
                 `Finalize failed (${finalRes.status}): ${bodyText.slice(0, 200)}`,
               );
             }
-            const receipt = bodyText
-              ? (JSON.parse(bodyText) as FinalizeReceipt)
-              : null;
-            verifyFinalizeReceipt(receipt, {
+            const receipt = parseFinalizeReceipt(bodyText);
+            const receiptStatus = verifyFinalizeReceipt(receipt, {
               bytes: backupBytes,
               durationMs,
             });
+            if (receiptStatus === "processing") {
+              scheduleBrowserBackupCleanupAfterProcessing({
+                serverUrl: params.serverUrl,
+                recordingId: id,
+                authToken: params.authToken,
+              });
+              return { recordingId: id, viewUrl };
+            }
           } catch (err) {
             console.error("[clips-recorder] finalize fetch failed:", err);
             const error = err instanceof Error ? err : new Error(String(err));
             if (
-              await recoverReadyRecordingAfterFinalizeError({
+              await recoverAcceptedRecordingAfterFinalizeError({
                 serverUrl: params.serverUrl,
                 recordingId: id,
                 authToken: params.authToken,

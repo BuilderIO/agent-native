@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  FULL_APP_BUILDING,
   parseDesignDataBlob,
   readFusionApp,
   writeFusionApp,
@@ -21,6 +22,16 @@ const app: DesignFusionApp = {
   createdAt: "2026-07-03T00:00:00.000Z",
   updatedAt: "2026-07-03T00:00:00.000Z",
 };
+
+describe("FULL_APP_BUILDING", () => {
+  it("defines the stable, default-off runtime flag", () => {
+    expect(FULL_APP_BUILDING).toMatchObject({
+      key: "full-app-building",
+      defaultValue: false,
+      displayName: "Full app building",
+    });
+  });
+});
 
 describe("parseDesignDataBlob", () => {
   it("parses a JSON string", () => {

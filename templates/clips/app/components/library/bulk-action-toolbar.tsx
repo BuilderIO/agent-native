@@ -1,5 +1,11 @@
-import { useT } from "@agent-native/core/client";
-import { IconArchive, IconFolder, IconTrash, IconX } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconArchive,
+  IconFolder,
+  IconFolderPlus,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +33,7 @@ interface BulkActionToolbarProps {
   onClear?: () => void;
   moveTargets?: BulkMoveTarget[];
   isPending?: boolean;
+  onCreateFolder?: () => void;
 }
 
 export function BulkActionToolbar({
@@ -37,6 +44,7 @@ export function BulkActionToolbar({
   onClear,
   moveTargets = [],
   isPending = false,
+  onCreateFolder,
 }: BulkActionToolbarProps) {
   const t = useT();
   if (count === 0) return null;
@@ -77,6 +85,16 @@ export function BulkActionToolbar({
             <DropdownMenuLabel>
               {t("clipsFinalRaw.moveSelected", { count })}
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={isPending}
+              onSelect={() => {
+                setTimeout(() => onCreateFolder?.(), 0);
+              }}
+            >
+              <IconFolderPlus className="h-4 w-4 me-2" />
+              {t("navigation.newFolder")}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             {moveTargets.map((target, index) => (
               <DropdownMenuItem

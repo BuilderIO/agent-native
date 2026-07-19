@@ -1358,9 +1358,20 @@ describe("createAgentChatAdapter", () => {
       },
     );
 
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return jsonResponse({ activeRunId: "run-finishing" }, 409);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-finishing",
+          threadId: "thread-recovery-conflict",
+          turnId: requestTurnId,
+          status: "running",
+        });
       }
       if (url.includes("/runs/run-finishing/events")) {
         return sseResponse([
@@ -1590,8 +1601,10 @@ describe("createAgentChatAdapter", () => {
       },
     );
 
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
         throw new TypeError("Failed to fetch");
       }
       if (url.includes("/runs/active")) {
@@ -1599,6 +1612,7 @@ describe("createAgentChatAdapter", () => {
           active: true,
           runId: "run-existing",
           threadId: "thread-recover",
+          turnId: requestTurnId,
           status: "running",
           heartbeatAt: Date.now(),
         });
@@ -1642,6 +1656,93 @@ describe("createAgentChatAdapter", () => {
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toBe("recovered from active run");
   });
+
+  it.each([
+    { label: "belongs to a newer turn", activeTurnId: "turn-newer" },
+    { label: "has no turn id", activeTurnId: undefined },
+  ])(
+    "does not splice a never-seen active run that $label into a dangling turn",
+    async ({ activeTurnId }) => {
+      vi.useFakeTimers();
+      vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      let postCount = 0;
+      const postedTurnIds: string[] = [];
+      const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+          postCount += 1;
+          postedTurnIds.push(JSON.parse(init.body as string).turnId);
+          if (postCount === 1) throw new TypeError("Failed to fetch");
+          return sseResponse([
+            { type: "text", text: "answer for dangling turn A" },
+            { type: "done" },
+          ]);
+        }
+        if (url.includes("/runs/active")) {
+          return jsonResponse({
+            active: true,
+            runId: "run-turn-b",
+            threadId: "thread-cross-turn",
+            ...(activeTurnId ? { turnId: activeTurnId } : {}),
+            status: "running",
+            heartbeatAt: Date.now(),
+          });
+        }
+        if (url.includes("/runs/run-turn-b/events")) {
+          return sseResponse([
+            { type: "text", text: "Not text from newer turn B" },
+            { type: "done" },
+          ]);
+        }
+        return jsonResponse({ error: "unexpected" }, 500);
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const adapter = createAgentChatAdapter({
+        apiUrl: "/_agent-native/agent-chat",
+        tabId: "chat-cross-turn",
+        threadId: "thread-cross-turn",
+      });
+      const promise = drain(
+        adapter.run({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "dangling turn A" }],
+            },
+          ],
+          abortSignal: new AbortController().signal,
+        } as any),
+      );
+
+      await vi.runAllTimersAsync();
+      const results = await promise;
+
+      expect(postedTurnIds).toHaveLength(2);
+      expect(new Set(postedTurnIds).size).toBe(1);
+      expect(fetchSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("/runs/run-turn-b/events?after=0"),
+        expect.any(Object),
+      );
+      const combinedText = (results.at(-1) as any).content
+        .filter((part: any) => part.type === "text")
+        .map((part: any) => part.text)
+        .join(" ");
+      expect(combinedText).toContain("answer for dangling turn A");
+      expect(combinedText).not.toContain("Not text from newer turn B");
+    },
+  );
 
   it("preserves the same-run cursor when active-run recovery follows a failed tail reconnect", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
@@ -5299,9 +5400,11 @@ describe("createAgentChatAdapter", () => {
     );
 
     let postCount = 0;
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return sseResponse(
           [
             { type: "text", text: "Working" },
@@ -5315,6 +5418,7 @@ describe("createAgentChatAdapter", () => {
           active: true,
           runId: "run-bg-next",
           threadId: "thread-bg-next",
+          turnId: requestTurnId,
           status: "running",
           dispatchMode: "background-function",
           heartbeatAt: Date.now(),
@@ -5460,9 +5564,11 @@ describe("createAgentChatAdapter", () => {
     );
 
     let postCount = 0;
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return backgroundSseResponse(
           [
             { type: "text", text: "Working" },
@@ -5476,6 +5582,7 @@ describe("createAgentChatAdapter", () => {
           active: true,
           runId: "run-bg-chunk-2",
           threadId: "thread-bg-follow",
+          turnId: requestTurnId,
           status: "running",
           dispatchMode: "background-processing",
           heartbeatAt: Date.now(),
@@ -5547,9 +5654,11 @@ describe("createAgentChatAdapter", () => {
 
     let postCount = 0;
     let activePollCount = 0;
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return backgroundSseResponse(
           [
             { type: "text", text: "Chunk one " },
@@ -5570,6 +5679,7 @@ describe("createAgentChatAdapter", () => {
                 active: true,
                 runId: "run-bg-boundary-1",
                 threadId: "thread-bg-boundary",
+                turnId: requestTurnId,
                 status: "completed",
                 terminalReason: "run_timeout",
                 dispatchMode: "background-processing",
@@ -5580,6 +5690,7 @@ describe("createAgentChatAdapter", () => {
                 active: true,
                 runId: "run-bg-boundary-2",
                 threadId: "thread-bg-boundary",
+                turnId: requestTurnId,
                 status: "running",
                 dispatchMode: "background-processing",
                 heartbeatAt: Date.now(),
@@ -5661,9 +5772,11 @@ describe("createAgentChatAdapter", () => {
 
     let postCount = 0;
     let activePollCount = 0;
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return backgroundSseResponse(
           [
             { type: "text", text: "Working" },
@@ -5678,6 +5791,7 @@ describe("createAgentChatAdapter", () => {
           active: true,
           runId: "run-bg-nograce",
           threadId: "thread-bg-nograce",
+          turnId: requestTurnId,
           status: "errored",
           terminalReason: "error:stale_run",
           dispatchMode: "background-processing",
@@ -5745,9 +5859,11 @@ describe("createAgentChatAdapter", () => {
 
     let postCount = 0;
     let activePollCount = 0;
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return backgroundSseResponse(
           [
             { type: "text", text: "Working " },
@@ -5767,6 +5883,7 @@ describe("createAgentChatAdapter", () => {
                 active: true,
                 runId: "run-bg-recover",
                 threadId: "thread-bg-recover",
+                turnId: requestTurnId,
                 status: "errored",
                 terminalReason: "error:stale_run",
                 dispatchMode: "background-processing",
@@ -5777,6 +5894,7 @@ describe("createAgentChatAdapter", () => {
                 active: true,
                 runId: "run-bg-recover-successor",
                 threadId: "thread-bg-recover",
+                turnId: requestTurnId,
                 status: "running",
                 dispatchMode: "background-processing",
                 heartbeatAt: Date.now(),
@@ -5888,9 +6006,11 @@ describe("createAgentChatAdapter", () => {
       );
 
       let postCount = 0;
+      let requestTurnId = "";
       const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
         if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
           postCount += 1;
+          requestTurnId = JSON.parse(init.body as string).turnId;
           return backgroundSseResponse(
             initialEvents ?? [
               { type: "text", text: "Checking credentials" },
@@ -5904,6 +6024,7 @@ describe("createAgentChatAdapter", () => {
             active: true,
             runId: activeRunId,
             threadId: "thread-bg-missing-key",
+            turnId: requestTurnId,
             status: "completed",
             terminalReason,
             dispatchMode: "background-processing",
@@ -6446,9 +6567,11 @@ describe("createAgentChatAdapter", () => {
     );
 
     let postCount = 0;
+    let requestTurnId = "";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
         return foregroundSelfChainSseResponse(
           [
             { type: "text", text: "Working" },
@@ -6462,6 +6585,7 @@ describe("createAgentChatAdapter", () => {
           active: true,
           runId: "run-fg-self-2",
           threadId: "thread-fg-self",
+          turnId: requestTurnId,
           status: "running",
           dispatchMode: "background-processing",
           heartbeatAt: Date.now(),

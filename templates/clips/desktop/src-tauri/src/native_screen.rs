@@ -692,6 +692,7 @@ pub struct NativeFullscreenUploadResult {
     width: Option<u32>,
     height: Option<u32>,
     bytes: u64,
+    verification_pending: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -1388,20 +1389,23 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         eprintln!(
             "[live-upload] stop: finalize result for {recording_id}: {}",
             match &result {
-                Ok(bytes) => format!("ok ({bytes} bytes)"),
+                Ok(upload) => format!("ok ({} bytes)", upload.bytes),
                 Err(e) => format!("error: {e}"),
             }
         );
         return match result {
-            Ok(bytes) => {
-                clear_saved_recording_after_success(&app, &saved);
+            Ok(upload) => {
+                if !upload.verification_pending {
+                    clear_saved_recording_after_success(&app, &saved);
+                }
                 emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
                 Ok(NativeFullscreenUploadResult {
                     recording_id,
                     duration_ms: verified_duration_ms,
                     width: session.width,
                     height: session.height,
-                    bytes,
+                    bytes: upload.bytes,
+                    verification_pending: upload.verification_pending,
                 })
             }
             Err(err) => {
@@ -1481,7 +1485,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording_after_success(&app, &saved);
+            if !result.verification_pending {
+                clear_saved_recording_after_success(&app, &saved);
+            }
             emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
             Ok(result)
         }
@@ -2599,7 +2605,9 @@ pub async fn native_fullscreen_recording_retry_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording_after_success(&app, &saved);
+            if !result.verification_pending {
+                clear_saved_recording_after_success(&app, &saved);
+            }
             Ok(result)
         }
         Err(err) => {
@@ -2616,6 +2624,20 @@ pub async fn native_fullscreen_recording_retry_upload(
             Err(format!("{err}. {suffix}"))
         }
     }
+}
+
+#[tauri::command]
+pub async fn native_fullscreen_recording_mark_upload_error(
+    app: AppHandle,
+    recording_id: String,
+    error: String,
+) -> Result<(), String> {
+    let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
+    saved.last_attempt_at = Some(now_iso());
+    saved.last_error = Some(error);
+    write_saved_recording_metadata(&app, &saved)?;
+    let _ = app.emit("clips:pending-uploads-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -4003,6 +4025,7 @@ async fn upload_prepared_recording_file(
         .map_err(|e| format!("upload client failed: {e}"))?;
     let mut file =
         File::open(&prepared.path).map_err(|e| format!("native recording open failed: {e}"))?;
+    let verification_pending;
 
     if upload_mode == NativeUploadMode::Streaming {
         // Resumable providers require every non-final body to be aligned. The
@@ -4055,7 +4078,7 @@ async fn upload_prepared_recording_file(
             None,
             Some(streaming_full_chunks as f32 / total_posts as f32),
         );
-        send_upload_post(
+        verification_pending = send_upload_post(
             &client,
             &server_url,
             &recording_id,
@@ -4123,7 +4146,7 @@ async fn upload_prepared_recording_file(
             None,
             Some(total_chunks as f32 / total_posts as f32),
         );
-        send_upload_post(
+        verification_pending = send_upload_post(
             &client,
             &server_url,
             &recording_id,
@@ -4153,6 +4176,7 @@ async fn upload_prepared_recording_file(
         width,
         height,
         bytes: total_bytes,
+        verification_pending,
     })
 }
 
@@ -4270,7 +4294,7 @@ async fn send_upload_post(
     locally_transcoded: bool,
     expected_source_bytes: Option<u64>,
     body: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let body_len = body.len();
     let url = upload_url(
         server_url,
@@ -4319,7 +4343,7 @@ async fn send_upload_post(
             body.chars().take(400).collect::<String>()
         ));
     }
-    if is_final {
+    let verification_pending = if is_final {
         verify_native_finalize_receipt(
             &body,
             expected_source_bytes.ok_or_else(|| {
@@ -4328,13 +4352,15 @@ async fn send_upload_post(
             duration_ms.ok_or_else(|| {
                 "Clip may be incomplete: final upload had no local duration".to_string()
             })?,
-        )?;
-    }
+        )?
+    } else {
+        false
+    };
     eprintln!(
         "[clips-tray] native upload post ok recording={recording_id} mode={} index={index}/{total} final={is_final}",
         upload_mode.label()
     );
-    Ok(())
+    Ok(verification_pending)
 }
 
 #[derive(Deserialize)]
@@ -4343,6 +4369,7 @@ struct NativeFinalizeReceipt {
     ok: bool,
     finalized: bool,
     status: Option<String>,
+    verification_pending: Option<bool>,
     source_size_bytes: Option<u64>,
     duration_ms: Option<u128>,
 }
@@ -4351,12 +4378,17 @@ fn verify_native_finalize_receipt(
     body: &str,
     expected_source_bytes: u64,
     expected_duration_ms: u128,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let receipt: NativeFinalizeReceipt = serde_json::from_str(body).map_err(|_| {
         "Clip may be incomplete. The final upload receipt was unreadable; the local backup was kept."
             .to_string()
     })?;
-    if !receipt.ok || !receipt.finalized || receipt.status.as_deref() != Some("ready") {
+    let ready = receipt.ok && receipt.finalized && receipt.status.as_deref() == Some("ready");
+    let processing = receipt.ok
+        && !receipt.finalized
+        && receipt.status.as_deref() == Some("processing")
+        && receipt.verification_pending == Some(true);
+    if !ready && !processing {
         return Err(
             "Clip may be incomplete. Finalization was not confirmed; the local backup was kept."
                 .to_string(),
@@ -4374,7 +4406,7 @@ fn verify_native_finalize_receipt(
                 .to_string(),
         );
     }
-    Ok(())
+    Ok(processing)
 }
 
 fn media_durations_materially_match(expected_ms: u128, actual_ms: u128) -> bool {
@@ -4399,9 +4431,18 @@ mod native_finalize_receipt_tests {
     }
 
     #[test]
-    fn accepts_only_matching_ready_receipts() {
+    fn accepts_matching_ready_and_pending_verification_receipts() {
         let ready = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":581614005,"durationMs":1593259}"#;
-        assert!(verify_native_finalize_receipt(ready, 581_614_005, 1_592_773).is_ok());
+        assert_eq!(
+            verify_native_finalize_receipt(ready, 581_614_005, 1_592_773),
+            Ok(false)
+        );
+
+        let processing = r#"{"ok":true,"finalized":false,"status":"processing","verificationPending":true,"sourceSizeBytes":581614005,"durationMs":1593259}"#;
+        assert_eq!(
+            verify_native_finalize_receipt(processing, 581_614_005, 1_592_773),
+            Ok(true)
+        );
 
         let short = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":581614005,"durationMs":483000}"#;
         assert!(

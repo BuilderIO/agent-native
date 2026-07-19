@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
 
 export function appApiPath(path: string): string {
   if (!path.startsWith("/api/")) return path;

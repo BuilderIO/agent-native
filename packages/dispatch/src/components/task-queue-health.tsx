@@ -1,4 +1,5 @@
-import { useChangeVersions, useT } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconPlayerPlay } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 

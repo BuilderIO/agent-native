@@ -1,5 +1,23 @@
 # @agent-native/dispatch
 
+## 0.15.2
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
+## 0.15.1
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.15.0
+
+### Minor Changes
+
+- 6cd2c79: Add curated workspace app discovery and template remix workflows.
+
 ## 0.14.14
 
 ### Patch Changes

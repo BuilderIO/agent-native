@@ -45,6 +45,10 @@ const messages = {
     suggestionUi: "كيف تبدو هذه الواجهة؟",
     suggestionApi: "ما شكل واجهة API هذه؟",
   },
+  contextXray: {
+    panelTitle: "الأشعة السينية للسياق",
+    snapshotsTitle: "اللقطات",
+  },
   sidebar: {
     openNavigation: "فتح التنقل",
     navigation: "التنقل",

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/creative-context",
-  "version": "0.5.1",
+  "version": "0.5.4",
   "description": "Shared creative context ingestion, versioning, search, brand DNA, and context-pack primitives for agent-native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -19,6 +19,9 @@
     "src"
   ],
   "type": "module",
+  "sideEffects": [
+    "dist/server/index.js"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./actions": "./dist/actions/index.js",

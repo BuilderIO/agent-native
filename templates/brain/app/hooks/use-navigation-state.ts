@@ -1,10 +1,9 @@
 import {
-  appBasePath,
-  appPath,
   isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
 
 import { pathFromView, viewFromPath, type BrainView } from "@/lib/brain";

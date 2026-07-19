@@ -24,6 +24,7 @@ The **chat** is a first-class surface of the Tasks app — not a side panel bolt
 - **Triage inbox** — list, edit, delete, reorder, and **mark ready** ([F4](./f4-inbox.mdx)).
 - **Filter** the task list the same way as the UI (e.g. hide completed tasks).
 - **Ask what's on screen** — the agent can read the user's current view and selection before acting.
+- **Keep the current page open while reviewing tasks** — when the user is elsewhere in the app, the agent can show an interactive task-list widget inline in chat.
 
 <!-- status: todo -->
 
@@ -51,6 +52,7 @@ Every UI capability maps to agent tools (actions). The agent uses these — not 
 | **[F2 Custom fields](./f2-custom-fields.mdx)** | Create, rename, configure options; set field values; delete fields                                       |
 | **Navigation**                                 | Open inbox, main task page, or a specific task via `navigate`                                            |
 | **Context**                                    | Read current screen and bulk `selection` via `view-screen`                                               |
+| **Inline task list**                           | Render the task list in chat with `render-task-list-inline` when the user is not on `/tasks`             |
 
 <!-- status: todo -->
 

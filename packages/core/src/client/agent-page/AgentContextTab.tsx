@@ -332,7 +332,9 @@ export function AgentContextTab({ scope }: AgentPageTabProps) {
   const preview = previewQuery.data;
   const previewManifest = preview ? previewAsManifest(preview) : null;
   const budget = resolveContextWindow(preview?.model);
-  const title = t("contextXray.pageTitle", { defaultValue: "Snapshots" });
+  const title = t("contextXray.snapshotsTitle", {
+    defaultValue: "Snapshots",
+  });
   const description = t("contextXray.headerDescription", {
     defaultValue:
       "Inspect the latest combined snapshot of what the agent loaded and why.",

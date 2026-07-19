@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const bridgeState = vi.hoisted(() => ({ active: false }));
 const fetchMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 

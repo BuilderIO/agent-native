@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 export function useFormResponses(formId: string, limit = 100) {
   return useActionQuery(

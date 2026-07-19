@@ -1,4 +1,4 @@
-import type { AgentPromptAttachment } from "@agent-native/core/client";
+import { type AgentPromptAttachment } from "@agent-native/core/client/composer";
 
 import type { CodeAgentPermissionMode } from "./code-agents.js";
 

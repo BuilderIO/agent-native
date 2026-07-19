@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import enMessages from "@/i18n/en-US";

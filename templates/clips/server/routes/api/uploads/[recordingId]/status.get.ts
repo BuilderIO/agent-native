@@ -1,9 +1,11 @@
+import { readAppState } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
   getRouterParam,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -23,6 +25,7 @@ function appPath(path: string): string {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
+  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
     throw createError({ statusCode: 400, message: "Missing recordingId" });
@@ -55,10 +58,21 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Not found" };
     }
 
+    const uploadState = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const verificationPending = Boolean(
+      uploadState &&
+      typeof uploadState === "object" &&
+      (uploadState as Record<string, unknown>).pendingMediaVerification ===
+        true,
+    );
+
     return {
       recording: {
         id: recording.id,
         status: recording.status,
+        verificationPending,
         videoUrl: resolvePlayerVideoUrl(recording, {
           appPath,
           proxyRemoteMedia: true,

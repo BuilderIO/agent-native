@@ -15,6 +15,7 @@ import {
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
+  RanToolsSummary,
   WorkedForSummary,
   toolInputPayload,
 } from "./tool-call-display.js";
@@ -76,6 +77,12 @@ function AppRenderer(_: ToolRendererProps) {
   return <div>App renderer wins</div>;
 }
 
+async function settleLazyRender() {
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+}
+
 const mcpApp: AgentMcpAppPayload = {
   serverId: "server",
   toolName: "tool",
@@ -104,8 +111,8 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders explicit data widgets natively", () => {
-    act(() => {
+  it("renders explicit data widgets natively", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -115,13 +122,14 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
   });
 
-  it("renders chart-only data insight payloads without a table", () => {
-    act(() => {
+  it("renders chart-only data insight payloads without a table", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -131,14 +139,15 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).not.toContain("Recent rows");
     expect(container.textContent).not.toContain("Ada");
   });
 
-  it("renders table-only data insight payloads without a chart", () => {
-    act(() => {
+  it("renders table-only data insight payloads without a chart", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -148,6 +157,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
@@ -420,8 +430,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
-  it("renders explicit native widgets ahead of MCP Apps metadata", () => {
-    act(() => {
+  it("renders explicit native widgets ahead of MCP Apps metadata", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -432,6 +442,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
@@ -454,8 +465,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("MCP APP");
   });
 
-  it("renders action-declared native data widgets without relying on widget shape inference", () => {
-    act(() => {
+  it("renders action-declared native data widgets without relying on widget shape inference", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="top-customers"
@@ -472,13 +483,14 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Top customers");
     expect(container.textContent).toContain("Ada");
   });
 
-  it("honors chart action renderers over combined insight payloads", () => {
-    act(() => {
+  it("honors chart action renderers over combined insight payloads", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -489,14 +501,15 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).not.toContain("Recent rows");
     expect(container.textContent).not.toContain("Ada");
   });
 
-  it("honors table action renderers over combined insight payloads", () => {
-    act(() => {
+  it("honors table action renderers over combined insight payloads", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -507,14 +520,15 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
     expect(container.textContent).not.toContain("Responses by day");
   });
 
-  it("renders action-declared inline extensions natively", () => {
-    act(() => {
+  it("renders action-declared inline extensions natively", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="render-inline-extension"
@@ -534,6 +548,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     const frame = container.querySelector(
       '[data-testid="inline-extension-frame"]',
@@ -587,8 +602,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Responses by day");
   });
 
-  it("renders render-data-widget from input when the echoed result is truncated", () => {
-    act(() => {
+  it("renders render-data-widget from input when the echoed result is truncated", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="render-data-widget"
@@ -598,6 +613,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).toContain("Recent rows");
@@ -626,10 +642,10 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
-  it("renders built-in data widgets even when registry side effects are absent", () => {
+  it("renders built-in data widgets even when registry side effects are absent", async () => {
     clearReservedToolRenderersForTests();
 
-    act(() => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="render-data-widget"
@@ -639,6 +655,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).toContain("Recent rows");
@@ -703,6 +720,31 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       textParts.map((part) => part.getAttribute("data-streaming")),
     ).toEqual([null]);
+  });
+
+  it("collapses older reconnect tool calls behind a summary", () => {
+    const content: ContentPart[] = Array.from({ length: 5 }, (_, index) => ({
+      type: "tool-call" as const,
+      toolCallId: `tc_${index}`,
+      toolName: `tool-${index + 1}`,
+      args: {},
+      result: "done",
+    }));
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Ran 2 tools");
+    expect(container.textContent).not.toContain("tool 1");
+    expect(container.textContent).not.toContain("tool 2");
+    expect(container.textContent).toContain("tool 3");
+    expect(container.textContent).toContain("tool 4");
+    expect(container.textContent).toContain("tool 5");
   });
 
   it("keeps the latest completed reconnect thought expanded while a tool runs", () => {
@@ -1077,6 +1119,56 @@ describe("WorkedForSummary", () => {
     expect(container.textContent).not.toContain(
       "The old thought stays collapsed.",
     );
+  });
+
+  it("shows the completed run duration in the summary label", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5 * 60_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Worked for 5m");
+  });
+});
+
+describe("RanToolsSummary", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("starts collapsed and reveals older tool calls on demand", () => {
+    act(() => {
+      root.render(
+        <RanToolsSummary toolCount={9}>
+          <div>Older tool call</div>
+        </RanToolsSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Ran 9 tools");
+    expect(container.textContent).not.toContain("Older tool call");
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.textContent).toContain("Older tool call");
   });
 });
 

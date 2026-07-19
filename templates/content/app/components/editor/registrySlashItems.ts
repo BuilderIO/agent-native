@@ -3,7 +3,7 @@ import {
   buildRegistryBlockSlashItems,
   getRegistryBlockSlashDescription,
   getRegistryBlockSlashSearchText,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/editor";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import { IconComponents } from "@tabler/icons-react";
 
@@ -89,56 +89,57 @@ export function buildRegistrySlashItems(
   // `icon`, compact visible descriptions, hidden search text for type/alias
   // matching, the default `spec.notionCompatible` gating predicate, and inserting
   // a `registryBlock` node seeded with inline `__raw`.
-  return buildRegistryBlockSlashItems<RegistrySlashItem, RegistrySlashEditor>(
-    registry,
-    {
-      notionCompatibleOnly: options.notionCompatibleOnly,
-      // A few shared library blocks are registered (so saved docs and source
-      // round-trip), but not offered in Content's authoring slash menu:
-      //   - `columns` needs recursive nested block editing before it is usable in
-      //     Content's inline NFM editor.
-      //   - `question-form` / `visual-questions` are agent-intake forms (they
-      //     submit answers back to a planning agent), which is a plan workflow,
-      //     not a content-authoring block.
-      //   - `inline-database` is registered in Phase 2 for render/round-trip
-      //     compatibility; Phase 3 owns the `/database` insertion flow.
-      //   - `source-component` is emitted by provider hydration to preserve
-      //     source-native blocks; users should not author raw preservation
-      //     markers by hand.
-      // The genuinely document-friendly rich blocks (callout, decision, diagram,
-      // wireframe, and the dev-doc/structured set) ARE offered.
-      includeSpec: (spec) =>
-        ![
-          "columns",
-          "question-form",
-          "visual-questions",
-          "inline-database",
-          "source-component",
-        ].includes(spec.type),
-      toItem: (spec, insert) => ({
-        title: spec.label,
-        description: getRegistryBlockSlashDescription(spec),
-        searchText: getRegistryBlockSlashSearchText(spec),
-        icon: (spec.icon ?? IconComponents) as React.ElementType,
-        action: insert,
-      }),
-      insertBlock: (editor, spec) => {
-        const blockId = createContentBlockId(spec.type);
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: "registryBlock",
-            attrs: {
-              blockType: spec.type,
-              blockId,
-              title: null,
-              summary: null,
-              __raw: seedRegistryBlockRaw(spec, blockId),
-            },
-          })
-          .run();
-      },
+  return buildRegistryBlockSlashItems<
+    RegistrySlashItem,
+    RegistrySlashEditor,
+    BlockSpec
+  >(registry, {
+    notionCompatibleOnly: options.notionCompatibleOnly,
+    // A few shared library blocks are registered (so saved docs and source
+    // round-trip), but not offered in Content's authoring slash menu:
+    //   - `columns` needs recursive nested block editing before it is usable in
+    //     Content's inline NFM editor.
+    //   - `question-form` / `visual-questions` are agent-intake forms (they
+    //     submit answers back to a planning agent), which is a plan workflow,
+    //     not a content-authoring block.
+    //   - `inline-database` is registered in Phase 2 for render/round-trip
+    //     compatibility; Phase 3 owns the `/database` insertion flow.
+    //   - `source-component` is emitted by provider hydration to preserve
+    //     source-native blocks; users should not author raw preservation
+    //     markers by hand.
+    // The genuinely document-friendly rich blocks (callout, decision, diagram,
+    // wireframe, and the dev-doc/structured set) ARE offered.
+    includeSpec: (spec) =>
+      ![
+        "columns",
+        "question-form",
+        "visual-questions",
+        "inline-database",
+        "source-component",
+      ].includes(spec.type),
+    toItem: (spec, insert) => ({
+      title: spec.label,
+      description: getRegistryBlockSlashDescription(spec),
+      searchText: getRegistryBlockSlashSearchText(spec),
+      icon: (spec.icon ?? IconComponents) as React.ElementType,
+      action: insert,
+    }),
+    insertBlock: (editor, spec) => {
+      const blockId = createContentBlockId(spec.type);
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "registryBlock",
+          attrs: {
+            blockType: spec.type,
+            blockId,
+            title: null,
+            summary: null,
+            __raw: seedRegistryBlockRaw(spec, blockId),
+          },
+        })
+        .run();
     },
-  );
+  });
 }

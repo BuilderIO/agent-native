@@ -1,15 +1,14 @@
+import { callAction, setClientAppState } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   buildReviewThreads,
-  callAction,
   ReviewCommentComposer,
-  setClientAppState,
   useCreateReviewComment,
   useReplyReviewComment,
   useResolveReviewThread,
   useReviewComments,
-  useT,
   type ReviewThread,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import {
   designRepromptPendingStateKey,

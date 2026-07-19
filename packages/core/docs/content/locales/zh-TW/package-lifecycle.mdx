@@ -17,3 +17,9 @@ agent-native package eject @agent-native/scheduling --apply
 新增與退出預設只會預覽。只有指定 `--apply` 才會寫入檔案並執行偵測到的套件
 管理器。CLI 會拒絕衝突與未知配置；安裝失敗時會還原檔案與鎖定檔。試辦期間
 只有 Scheduling 可退出，Pinpoint 暫不納入。
+
+## 遷移
+
+已發佈套件包含記錄移動路徑與符號的 `migration-manifest.json`。`npx @agent-native/core@latest upgrade --codemods` 會預覽差異，檢閱後用 `--yes` 套用。CI 請執行 `agent-native doctor --only migration-manifest`；此檢查沒有 opt-out。
+
+`planned` 項目可在目標之前發佈；它們只會顯示為非阻塞警告，codemod 不會重寫。active 移動只有在目標 export 已安裝時才會重寫。

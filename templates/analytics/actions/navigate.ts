@@ -77,10 +77,10 @@ export default defineAction({
       .optional()
       .describe("Session recording id to open (used with view=sessions)"),
     agentsView: z
-      .enum(["monitoring", "dashboards", "database"])
+      .enum(["monitoring", "dashboards", "database", "flags"])
       .optional()
       .describe(
-        "Admin subview to open (monitoring, dashboard usage, or app databases)",
+        "Admin subview to open (monitoring, dashboard usage, app databases, or feature flags)",
       ),
     dbAdminConnectionId: z
       .string()

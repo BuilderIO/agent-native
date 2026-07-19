@@ -1,10 +1,10 @@
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
-  ShareButton,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   useSetHeaderActions,
   useSetPageTitle,

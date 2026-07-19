@@ -1,9 +1,9 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   normalizeLocaleCode,
-  trackEvent,
   useLocale,
   useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
 import { useState, type SyntheticEvent } from "react";
 import { Link } from "react-router";
 

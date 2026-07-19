@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 import { sourceContentHash } from "@shared/source-workspace";
 
 export type DesignSaveActionName =

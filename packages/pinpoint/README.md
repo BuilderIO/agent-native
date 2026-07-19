@@ -2,6 +2,10 @@
 
 Visual feedback and annotation tool for web applications. Users select UI elements, add feedback, and send structured context to any AI agent.
 
+Pinpoint is a Toolkit capability module installed on demand. It lives in its
+own npm package so apps only take the visual feedback surfaces and agent
+integration they need.
+
 Works standalone, with [Builder.io](https://builder.io), or with any agent runtime that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
 
 ## AI Agent Setup Guide

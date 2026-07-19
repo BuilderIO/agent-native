@@ -3,22 +3,22 @@ import {
   type BlockRegistry,
   type BlockDataChangeMeta,
 } from "@agent-native/core/blocks";
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
+  useCollaborativeDoc,
+  type UseCollaborativeDocResult,
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  applyDocSurgically,
   DragHandle,
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   RunId,
   SharedRichEditor,
-  generateTabId,
-  useT,
-  useCollaborativeDoc,
   type DragHandleDropContext,
   type DragHandleOptions,
   type RichMarkdownCollabUser,
-  type UseCollaborativeDocResult,
-} from "@agent-native/core/client";
-// `applyDocSurgically` is re-exported from the editor subpath barrel (the top
-// `@agent-native/core/client` barrel doesn't surface the surgical helpers).
-import { applyDocSurgically } from "@agent-native/core/client/editor";
+} from "@agent-native/toolkit/editor";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 import {
   createPlanBlockId,

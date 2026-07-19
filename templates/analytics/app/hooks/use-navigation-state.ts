@@ -1,7 +1,5 @@
-import {
-  markAgentChatHomeHandoff,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
 
 import {
@@ -129,7 +127,9 @@ export function useNavigationState() {
       if (cmd.view === "sessions") return "/sessions";
       if (
         cmd.view === "agents" &&
-        (cmd.agentsView === "database" || cmd.agentsView === "dashboards")
+        (cmd.agentsView === "database" ||
+          cmd.agentsView === "dashboards" ||
+          cmd.agentsView === "flags")
       ) {
         const params = new URLSearchParams({ view: cmd.agentsView });
         if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {

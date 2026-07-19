@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
 import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";

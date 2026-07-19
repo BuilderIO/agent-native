@@ -7,49 +7,31 @@ description: >
 
 # Pylon Integration (Support)
 
-## Connection
+Pylon access uses the shared provider API runtime. Do not add a separate Pylon
+client. `/api/pylon/issues` remains only as a thin compatibility route for an
+existing dashboard and delegates to the same action/provider runtime.
 
-- **Base URL**: `https://api.usepylon.com`
-- **Auth**: `Authorization: Bearer $PYLON_API_KEY`
-- **Env vars**: `PYLON_API_KEY`
-- **Caching**: 10-minute in-memory cache, max 120 entries
+## Access Paths
 
-## Server Lib & API Routes
+- Use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request` with provider `pylon` for bounded account, contact,
+  and issue queries.
+- Use a data program with `providerFetchAll("pylon", ...)` for reusable joins,
+  exhaustive support-ticket analysis, or dashboard sources. Existing risk
+  meeting programs demonstrate the HubSpot-to-Pylon domain join.
+- Stage large responses and reduce them with `query-staged-dataset` or
+  `run-code` before returning results to chat.
+- For issue corpora, prefer `POST /issues/search` with the created-at filter and
+  body cursor. The older `GET /issues` endpoint has a 30-day window and should
+  not be used for broad dashboard coverage.
 
-- **File**: `server/lib/pylon.ts`
-
-### Exported Functions
-
-| Function              | Description                          |
-| --------------------- | ------------------------------------ |
-| `getAccounts(query?)` | List/search accounts                 |
-| `getAccount(id)`      | Get single account                   |
-| `getIssues(params?)`  | List issues (30-day window enforced) |
-| `getContacts(query?)` | Search contacts                      |
-
-### API Routes
-
-| Route                     | Description          |
-| ------------------------- | -------------------- |
-| `GET /api/pylon/issues`   | List support tickets |
-| `GET /api/pylon/accounts` | List accounts        |
-
-## Script Usage
-
-```bash
-# Open support tickets for a customer
-pnpm action pylon-issues --account="Example Corp" --state=open
-
-# All issues
-pnpm action pylon-issues --query=search_term
-
-# List accounts
-pnpm action pylon-issues --accounts
-```
+Authentication is resolved from the current viewer's scoped Pylon credential
+through the shared provider runtime.
 
 ## Key Patterns & Gotchas
 
-- `getIssues` enforces a max 30-day window via `start_time` and `end_time` query params (API requirement)
-- API returns `{ data: ... }` wrappers or raw arrays — code handles both defensively
-- Pylon API exists in this analytics app (`code/`) but the secrets `pylon.api_key` and `pylon.api_secret` referenced elsewhere are in secrets manager, not env vars
-- No Pylon data in BigQuery — must query the API directly
+- Confirm the current endpoint, time-window, filter, and cursor contract with
+  `provider-api-docs`; do not impose a fixed lookback window in a wrapper.
+- Report inspected issue/account counts, pagination coverage, failed pages, and
+  truncation. A sampled response cannot support an exhaustive absence claim.
+- Query Pylon directly unless the user explicitly asks for a warehouse copy.

@@ -3,7 +3,7 @@ import {
   sendToAgentChatAndConfirm,
   type AgentChatMessage,
   type SendToAgentChatAndConfirmResult,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 
 export const DESIGN_CHAT_STORAGE_KEY = "design";
 

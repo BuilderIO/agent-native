@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { verifyFinalizeReceipt } from "./upload-verification";
+import {
+  parseFinalizeReceipt,
+  verifyFinalizeReceipt,
+} from "./upload-verification";
 
 const local = { bytes: 581_614_005, durationMs: 1_592_773 };
 
 describe("verifyFinalizeReceipt", () => {
   it("accepts a ready receipt matching the local source", () => {
-    expect(() =>
+    expect(
       verifyFinalizeReceipt(
         {
           ok: true,
@@ -17,7 +20,23 @@ describe("verifyFinalizeReceipt", () => {
         },
         local,
       ),
-    ).not.toThrow();
+    ).toBe("ready");
+  });
+
+  it("accepts a durable processing receipt without treating it as ready", () => {
+    expect(
+      verifyFinalizeReceipt(
+        {
+          ok: true,
+          finalized: false,
+          status: "processing",
+          verificationPending: true,
+          sourceSizeBytes: 581_614_005,
+          durationMs: 1_593_259,
+        },
+        local,
+      ),
+    ).toBe("processing");
   });
 
   it("rejects an HTTP-success receipt that is not finalized", () => {
@@ -60,5 +79,19 @@ describe("verifyFinalizeReceipt", () => {
         local,
       ),
     ).toThrow(/duration/i);
+  });
+});
+
+describe("parseFinalizeReceipt", () => {
+  it("returns structured receipts and rejects malformed successful responses", () => {
+    expect(parseFinalizeReceipt('{"ok":true,"status":"ready"}')).toEqual({
+      ok: true,
+      status: "ready",
+    });
+    expect(parseFinalizeReceipt("")).toBeNull();
+    expect(parseFinalizeReceipt('"ok"')).toBeNull();
+    expect(() => parseFinalizeReceipt("<html>not json</html>")).toThrow(
+      /invalid finalization response/i,
+    );
   });
 });

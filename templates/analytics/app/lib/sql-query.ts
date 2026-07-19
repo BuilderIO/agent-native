@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useQuery } from "@tanstack/react-query";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";

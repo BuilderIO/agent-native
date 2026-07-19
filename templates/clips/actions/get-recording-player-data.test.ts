@@ -98,6 +98,10 @@ vi.mock("../server/lib/player-video-url.js", () => ({
   resolvePlayerVideoUrl: vi.fn(),
 }));
 
+vi.mock("../server/lib/media-verification-state.js", () => ({
+  isMediaVerificationPending: vi.fn(() => false),
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
 }));

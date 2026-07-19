@@ -1,4 +1,5 @@
-import { focusAgentChat, useT } from "@agent-native/core/client";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 

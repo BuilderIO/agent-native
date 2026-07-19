@@ -7,7 +7,7 @@ import {
   saveDraftToEmailsBestEffort,
 } from "./use-compose-state";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appApiPath: (path: string) => path,
 }));

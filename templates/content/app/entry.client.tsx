@@ -1,7 +1,12 @@
-import { stripBuildCompatibilityCacheBuster } from "@agent-native/core/client";
 import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  installRouteChunkRecovery,
+  stripBuildCompatibilityCacheBuster,
+} from "@agent-native/core/client/route-chunk-recovery";
 import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
+
+installRouteChunkRecovery();
 
 const basePath = appBasePath();
 const pathname = window.location.pathname;

@@ -82,8 +82,7 @@ export default defineAction({
 أنشئ خلاصة نشاط أو سطر "من قام بتغيير هذا" عن طريق استدعاء `list-audit-events` من UI باستخدام `useActionQuery` — لا تكتب أبدًا يدويًا أي جلب إلى جدول التدقيق:
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,

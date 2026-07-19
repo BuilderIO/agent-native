@@ -1,13 +1,12 @@
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
+import { track } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
   appPath,
-  track,
-  useSession,
-  AgentPanel,
-  getBrowserTabId,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -67,6 +66,7 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 import { getDb, schema } from "../../server/db";
+import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
 import {
   buildAgentApiUrls,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -226,8 +226,10 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     id: rec.id,
     title: rec.title,
     description: rec.description,
-    thumbnailUrl: rec.thumbnailUrl,
-    animatedThumbnailUrl: rec.animatedThumbnailUrl,
+    thumbnailUrl: rec.password
+      ? null
+      : resolvePlayerThumbnailUrl(rec, { appPath }),
+    animatedThumbnailUrl: null,
     visibility: rec.visibility,
     status: rec.status,
     archivedAt: rec.archivedAt,
@@ -286,7 +288,7 @@ const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
 const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
-const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
+const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 
 type ViewerPlatform = "mac" | "windows" | "linux";
 
@@ -475,6 +477,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const verificationPending = recording?.verificationPending === true;
   const comments = dataQ.data?.data?.comments ?? [];
   const reactions = dataQ.data?.data?.reactions ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
@@ -557,6 +560,10 @@ export default function ShareRoute() {
       setProcessingTimeout(false);
       return;
     }
+    if (verificationPending) {
+      setProcessingTimeout(false);
+      return;
+    }
 
     const timeoutMs =
       recording.status === "processing"
@@ -564,7 +571,12 @@ export default function ShareRoute() {
         : UPLOAD_STUCK_TIMEOUT_MS;
     const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
-  }, [recording?.id, recording?.status, recording?.videoUrl]);
+  }, [
+    recording?.id,
+    recording?.status,
+    recording?.videoUrl,
+    verificationPending,
+  ]);
 
   usePlayerShortcuts({ playerRef });
 
@@ -709,7 +721,8 @@ export default function ShareRoute() {
     const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
-    const stuckFailure = !explicitFailure && processingTimeout;
+    const stuckFailure =
+      !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
     const signInHref = buildSignInHref(`/r/${recording.id}`);
