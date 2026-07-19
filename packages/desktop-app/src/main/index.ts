@@ -136,6 +136,7 @@ import {
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
+import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
   getCodexLoginLaunchSpec,
   spawnDetached,
@@ -3281,33 +3282,31 @@ function spawnCodeAgentRunner(
     permissionMode ??
     readCodeAgentPermissionMode(runRecord) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
-  const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
-  const command = fs.existsSync(localCli) ? "node" : "pnpm";
-  const args = fs.existsSync(localCli)
-    ? [path.relative(repoRoot, localCli), "code", "run", runId]
-    : [
-        "--filter",
-        "@agent-native/core",
-        "exec",
-        "node",
-        "dist/cli/index.js",
-        "code",
-        "run",
-        runId,
-      ];
+  const invocation = resolveCodeAgentRunnerInvocation(
+    {
+      appIsPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      electronPath: process.execPath,
+      repoRoot,
+    },
+    "run",
+    runId,
+  );
+  const { command, args } = invocation;
   try {
     const computerEnv = desktopComputerChildEnv(
       runId,
       normalizedPermissionMode,
     );
     const child = spawn(command, args, {
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...invocation.env,
         ...computerEnv,
       },
     });
@@ -3316,7 +3315,7 @@ function spawnCodeAgentRunner(
     activeCodeAgentProcesses.set(runId, {
       pid: child.pid,
       command: runnerCommand,
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       startedAt: runnerStartedAt,
       permissionMode: normalizedPermissionMode,
     });
@@ -3437,20 +3436,17 @@ function spawnCodeAgentApprovalRunner(
   const normalizedPermissionMode =
     readCodeAgentPermissionMode(runRecord) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
-  const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
-  const command = fs.existsSync(localCli) ? "node" : "pnpm";
-  const args = fs.existsSync(localCli)
-    ? [path.relative(repoRoot, localCli), "code", subcommand, runId]
-    : [
-        "--filter",
-        "@agent-native/core",
-        "exec",
-        "node",
-        "dist/cli/index.js",
-        "code",
-        subcommand,
-        runId,
-      ];
+  const invocation = resolveCodeAgentRunnerInvocation(
+    {
+      appIsPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      electronPath: process.execPath,
+      repoRoot,
+    },
+    subcommand,
+    runId,
+  );
+  const { command, args } = invocation;
 
   try {
     const computerEnv = desktopComputerChildEnv(
@@ -3458,13 +3454,14 @@ function spawnCodeAgentApprovalRunner(
       normalizedPermissionMode,
     );
     const child = spawn(command, args, {
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...invocation.env,
         ...computerEnv,
       },
     });
@@ -3473,7 +3470,7 @@ function spawnCodeAgentApprovalRunner(
     activeCodeAgentProcesses.set(runId, {
       pid: child.pid,
       command: runnerCommand,
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       startedAt: runnerStartedAt,
       permissionMode: normalizedPermissionMode,
     });
