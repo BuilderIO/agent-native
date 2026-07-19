@@ -25,6 +25,8 @@ describe("Postgres creative-context FTS", () => {
         .fn()
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
         .mockResolvedValueOnce({
           rows: [{ chunk_id: "allowed", item_version_id: "v1", score: 0.8 }],
           rowsAffected: 0,
@@ -34,7 +36,7 @@ describe("Postgres creative-context FTS", () => {
       query: "pricing slide",
       allowedChunkIds: ["allowed"],
     });
-    const query = db.execute.mock.calls[2]?.[0] as {
+    const query = db.execute.mock.calls[4]?.[0] as {
       sql: string;
       args: unknown[];
     };
@@ -50,6 +52,8 @@ describe("Postgres creative-context FTS", () => {
         .fn()
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
         .mockResolvedValueOnce({
           rows: [{ chunk_id: "late", item_version_id: "v9", score: 0.9 }],
           rowsAffected: 0,
@@ -58,7 +62,7 @@ describe("Postgres creative-context FTS", () => {
     const hits = await queryPostgresFts(db, {
       query: "pricing slide",
     });
-    const query = db.execute.mock.calls[2]?.[0] as {
+    const query = db.execute.mock.calls[4]?.[0] as {
       sql: string;
       args: unknown[];
     };

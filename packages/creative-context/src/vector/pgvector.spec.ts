@@ -29,7 +29,7 @@ describe("pgvector creative-context lane", () => {
     expect(String(db.execute.mock.calls[1]?.[0])).toContain(
       "creative_context_vectors_1024",
     );
-    expect(String(db.execute.mock.calls[2]?.[0])).toContain("USING hnsw");
+    expect(String(db.execute.mock.calls[3]?.[0])).toContain("USING hnsw");
   });
 
   it("binds vector values and validates the selected dimensions", async () => {
@@ -44,7 +44,7 @@ describe("pgvector creative-context lane", () => {
       },
       true,
     );
-    const write = db.execute.mock.calls[3]?.[0] as {
+    const write = db.execute.mock.calls[5]?.[0] as {
       sql: string;
       args: unknown[];
     };
