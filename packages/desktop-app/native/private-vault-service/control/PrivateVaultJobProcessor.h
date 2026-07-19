@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 #import "PrivateVaultAuthorityStore.h"
+#import "PrivateVaultDisclosureCodec.h"
 #import "PrivateVaultGrantIndex.h"
 #import "PrivateVaultJobCodec.h"
 #import "PrivateVaultResultSpool.h"
@@ -36,6 +37,18 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
 @property(nonatomic, readonly) NSData *resultEnvelope;
 @end
 
+@interface AncPrivateVaultSealedResult : NSObject
+@property(nonatomic, readonly) NSData *resultEnvelope;
+@property(nonatomic, readonly) NSData *disclosureEnvelope;
+@property(nonatomic, readonly) NSData *disclosureId;
+@property(nonatomic, readonly) NSData *grantRef;
+@property(nonatomic, readonly) NSString *providerId;
+@property(nonatomic, readonly) NSString *destination;
+@property(nonatomic, readonly) NSData *scopeHash;
+@property(nonatomic, readonly) uint64_t issuedAt;
+@property(nonatomic, readonly) uint64_t expiresAt;
+@end
+
 /** Signed-native semantic job boundary. Plaintext never enters hosted code. */
 @interface AncPrivateVaultJobProcessor : NSObject
 - (instancetype)initWithSession:(AncPrivateVaultSession *)session
@@ -62,7 +75,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobProcessorStatus) {
                   jobId:(NSData *)jobId
                  jobHash:(NSData *)jobHash
               nowSeconds:(uint64_t)nowSeconds
-                  result:(NSData *_Nullable *_Nullable)result;
+                  result:(AncPrivateVaultSealedResult *_Nullable *_Nullable)result;
 
 - (AncPrivateVaultJobProcessorStatus)
     acknowledgeHostedResultForVaultId:(NSString *)vaultId

@@ -44,6 +44,9 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) NSData *resourceId;
 @property(nonatomic) NSString *operation;
 @property(nonatomic) NSString *provider;
+@property(nonatomic, nullable) NSString *disclosureProviderId;
+@property(nonatomic, nullable) NSString *disclosureDestination;
+@property(nonatomic, nullable) NSData *disclosureEnvelope;
 @property(nonatomic) NSString *status;
 @property(nonatomic, nullable) NSString *resultState;
 @property(nonatomic, nullable) NSData *resultHash;
@@ -125,11 +128,15 @@ static NSString *const kFenceRecordId = @"grant-index";
 @interface AncPrivateVaultJobContext ()
 @property(nonatomic) NSData *jobId;
 @property(nonatomic) NSData *jobHash;
+@property(nonatomic) NSData *grantRef;
 @property(nonatomic) NSData *subjectEndpointId;
 @property(nonatomic) NSData *requesterBoxPublicKey;
 @property(nonatomic) NSData *resourceId;
 @property(nonatomic) NSString *operation;
 @property(nonatomic) NSString *provider;
+@property(nonatomic, nullable) NSString *disclosureProviderId;
+@property(nonatomic, nullable) NSString *disclosureDestination;
+@property(nonatomic, nullable) NSData *disclosureEnvelope;
 @property(nonatomic) NSString *status;
 @property(nonatomic) uint64_t expiresAt;
 @property(nonatomic) BOOL resultRecorded;
@@ -148,11 +155,15 @@ static AncPrivateVaultJobContext *JobContext(AncStoredJob *job) {
   AncPrivateVaultJobContext *context = [AncPrivateVaultJobContext new];
   context.jobId = [job.jobId copy];
   context.jobHash = [job.jobHash copy];
+  context.grantRef = [job.grantRef copy];
   context.subjectEndpointId = [job.subjectEndpointId copy];
   context.requesterBoxPublicKey = [job.requesterBoxPublicKey copy];
   context.resourceId = [job.resourceId copy];
   context.operation = [job.operation copy];
   context.provider = [job.provider copy];
+  context.disclosureProviderId = [job.disclosureProviderId copy];
+  context.disclosureDestination = [job.disclosureDestination copy];
+  context.disclosureEnvelope = [job.disclosureEnvelope copy];
   context.status = [job.status copy];
   context.expiresAt = job.expiresAt;
   context.resultRecorded = [job.status isEqualToString:@"result"] ||
@@ -311,6 +322,16 @@ static NSData *EncodeRecord(AncGrantIndexRecord *record) {
           integer:(int64_t)job.hostedRetryCount]];
       [fields addObject:
           [AncPrivateVaultCanonicalValue text:job.hostedAlgorithmId]];
+      if (job.disclosureProviderId != nil &&
+          job.disclosureDestination != nil) {
+        [fields addObject:[AncPrivateVaultCanonicalValue
+            text:job.disclosureProviderId]];
+        [fields addObject:[AncPrivateVaultCanonicalValue
+            text:job.disclosureDestination]];
+        if (job.disclosureEnvelope != nil)
+          [fields addObject:[AncPrivateVaultCanonicalValue
+              bytes:job.disclosureEnvelope]];
+      }
     }
     [jobs addObject:[AncPrivateVaultCanonicalValue array:fields]];
   }
@@ -434,19 +455,28 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
   for (AncPrivateVaultCanonicalValue *item in
        (legacy ? @[] : jobsValue.arrayValue)) {
     if (item.type != AncPrivateVaultCanonicalTypeArray ||
-        (item.arrayValue.count != 15 && item.arrayValue.count != 18))
+        (item.arrayValue.count != 15 && item.arrayValue.count != 18 &&
+         item.arrayValue.count != 20 && item.arrayValue.count != 21))
       return nil;
     NSArray<AncPrivateVaultCanonicalValue *> *fields = item.arrayValue;
     AncPrivateVaultCanonicalValue *agent = fields[6];
     AncPrivateVaultCanonicalValue *resultState = fields[13];
     AncPrivateVaultCanonicalValue *resultHash = fields[14];
-    BOOL hostedPresent = fields.count == 18;
+    BOOL hostedPresent = fields.count >= 18;
+    BOOL disclosurePresent = fields.count >= 20;
+    BOOL disclosureEnvelopePresent = fields.count == 21;
     AncPrivateVaultCanonicalValue *hostedEpoch =
         hostedPresent ? fields[15] : nil;
     AncPrivateVaultCanonicalValue *hostedRetry =
         hostedPresent ? fields[16] : nil;
     AncPrivateVaultCanonicalValue *hostedAlgorithm =
         hostedPresent ? fields[17] : nil;
+    AncPrivateVaultCanonicalValue *disclosureProvider =
+        disclosurePresent ? fields[18] : nil;
+    AncPrivateVaultCanonicalValue *disclosureDestination =
+        disclosurePresent ? fields[19] : nil;
+    AncPrivateVaultCanonicalValue *disclosureEnvelope =
+        disclosureEnvelopePresent ? fields[20] : nil;
     BOOL agentValid = agent.type == AncPrivateVaultCanonicalTypeNull ||
         (agent.type == AncPrivateVaultCanonicalTypeBytes &&
          agent.bytesValue.length == 16);
@@ -492,7 +522,16 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
           hostedRetry.type != AncPrivateVaultCanonicalTypeInteger ||
           hostedRetry.integerValue < 0 || hostedRetry.integerValue > 100 ||
           hostedAlgorithm.type != AncPrivateVaultCanonicalTypeText ||
-          !ValidScopeText(hostedAlgorithm.textValue))))
+          !ValidScopeText(hostedAlgorithm.textValue))) ||
+        (disclosurePresent &&
+         (disclosureProvider.type != AncPrivateVaultCanonicalTypeText ||
+          !ValidScopeText(disclosureProvider.textValue) ||
+          disclosureDestination.type != AncPrivateVaultCanonicalTypeText ||
+          !ValidScopeText(disclosureDestination.textValue))) ||
+        (disclosureEnvelopePresent &&
+         (disclosureEnvelope.type != AncPrivateVaultCanonicalTypeBytes ||
+          disclosureEnvelope.bytesValue.length == 0 ||
+          disclosureEnvelope.bytesValue.length > 64 * 1024)))
       return nil;
     AncStoredJob *job = [AncStoredJob new];
     job.jobId = [fields[0].bytesValue copy];
@@ -516,6 +555,12 @@ static AncGrantIndexRecord *DecodeRecord(NSData *plaintext,
         hostedPresent ? (uint64_t)hostedRetry.integerValue : 0;
     job.hostedAlgorithmId =
         hostedPresent ? [hostedAlgorithm.textValue copy] : nil;
+    job.disclosureProviderId = disclosurePresent
+        ? [disclosureProvider.textValue copy] : nil;
+    job.disclosureDestination = disclosurePresent
+        ? [disclosureDestination.textValue copy] : nil;
+    job.disclosureEnvelope = disclosureEnvelopePresent
+        ? [disclosureEnvelope.bytesValue copy] : nil;
     [jobIds addObject:job.jobId];
     [jobs addObject:job];
   }
@@ -1386,6 +1431,8 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
        resourceId:(NSData *)resourceId
         operation:(NSString *)operation
          provider:(NSString *)provider
+disclosureProviderId:(NSString *)disclosureProviderId
+disclosureDestination:(NSString *)disclosureDestination
       hostedEpoch:(uint64_t)hostedEpoch
  hostedRetryCount:(uint64_t)hostedRetryCount
  hostedAlgorithmId:(NSString *)hostedAlgorithmId {
@@ -1397,6 +1444,8 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
       requesterSigningPublicKey.length != 32 ||
       requesterBoxPublicKey.length != 32 || resourceId.length != 16 ||
       !ValidScopeText(operation) || !ValidScopeText(provider) ||
+      !ValidScopeText(disclosureProviderId) ||
+      !ValidScopeText(disclosureDestination) ||
       hostedEpoch == 0 || hostedEpoch > INT64_MAX || hostedRetryCount > 100 ||
       !ValidScopeText(hostedAlgorithmId))
     return AncPrivateVaultGrantIndexStatusInvalid;
@@ -1435,6 +1484,9 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           job.resourceId = [resourceId copy];
           job.operation = [operation copy];
           job.provider = [provider copy];
+          job.disclosureProviderId = [disclosureProviderId copy];
+          job.disclosureDestination = [disclosureDestination copy];
+          job.disclosureEnvelope = nil;
           job.status = @"claimed";
           job.resultState = nil;
           job.resultHash = nil;
@@ -1443,6 +1495,45 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
           job.hostedAlgorithmId = [hostedAlgorithmId copy];
           [unexpired addObject:job];
           record.jobs = [unexpired copy];
+          record.generation += 1;
+          return [self commitLockedRecord:record vaultId:vaultId
+                             localStateKey:key];
+        }];
+  });
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    stageDisclosureEnvelope:(NSData *)disclosureEnvelope
+                      jobId:(NSData *)jobId
+                     jobHash:(NSData *)jobHash
+                     vaultId:(NSString *)vaultId {
+  if (disclosureEnvelope.length == 0 ||
+      disclosureEnvelope.length > 64 * 1024 || jobId.length != 16 ||
+      jobHash.length != 32)
+    return AncPrivateVaultGrantIndexStatusInvalid;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          AncStoredJob *job = nil;
+          for (AncStoredJob *candidate in record.jobs)
+            if ([candidate.jobId isEqualToData:jobId]) job = candidate;
+          if (job == nil) return AncPrivateVaultGrantIndexStatusNotFound;
+          if (![job.jobHash isEqualToData:jobHash])
+            return AncPrivateVaultGrantIndexStatusConflict;
+          if (job.disclosureEnvelope != nil)
+            return [job.disclosureEnvelope isEqualToData:disclosureEnvelope]
+                ? AncPrivateVaultGrantIndexStatusOK
+                : AncPrivateVaultGrantIndexStatusConflict;
+          if (![job.status isEqualToString:@"claimed"] ||
+              job.disclosureProviderId == nil ||
+              job.disclosureDestination == nil ||
+              record.generation >= INT64_MAX)
+            return AncPrivateVaultGrantIndexStatusConflict;
+          job.disclosureEnvelope = [disclosureEnvelope copy];
           record.generation += 1;
           return [self commitLockedRecord:record vaultId:vaultId
                              localStateKey:key];

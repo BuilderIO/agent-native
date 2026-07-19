@@ -70,6 +70,26 @@ static NSData *SigningMessage(NSData *unsignedBytes) {
   return message;
 }
 
+NSData *AncPrivateVaultDisclosureScopeHash(NSData *resourceId,
+                                           NSString *operation) {
+  if (resourceId.length != 16 || !ValidText(operation, 120)) return nil;
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *scope = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue array:@[
+        [AncPrivateVaultCanonicalValue bytes:resourceId],
+        [AncPrivateVaultCanonicalValue text:operation],
+      ]], &canonicalStatus);
+  uint8_t digest[ANC_PV_HASH_BYTES] = {0};
+  BOOL hashed = scope.length > 0 &&
+      anc_pv_blake2b_256_two_part(
+          digest, kDisclosureDomain, sizeof kDisclosureDomain,
+          scope.bytes, scope.length) == ANC_PV_CRYPTO_OK;
+  NSData *result = hashed
+      ? [NSData dataWithBytes:digest length:sizeof digest] : nil;
+  anc_pv_zeroize(digest, sizeof digest);
+  return result;
+}
+
 NSData *AncPrivateVaultSealDisclosureEnvelope(
     NSData *vaultId, NSData *disclosureId, uint64_t createdAt,
     NSData *grantRef, NSString *providerId, NSString *destination,

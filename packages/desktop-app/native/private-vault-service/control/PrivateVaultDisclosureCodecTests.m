@@ -51,6 +51,12 @@ int main(void) {
            [verified.providerId isEqualToString:@"synthetic-provider"] &&
            [verified.destination isEqualToString:@"synthetic-destination"] &&
            [verified.scopeHash isEqualToData:scopeHash]);
+    NSData *boundedScope = AncPrivateVaultDisclosureScopeHash(
+        Pattern(0x04, 16), @"get-document");
+    assert(boundedScope.length == 32 &&
+           ![boundedScope isEqualToData:scopeHash] &&
+           AncPrivateVaultDisclosureScopeHash(Pattern(0x04, 16),
+                                              @"get document") == nil);
     assert(AncPrivateVaultVerifyDisclosureEnvelope(
                sealed, Pattern(0x01, 16), grantRef, 1721112012, publicKey,
                &status) == nil &&

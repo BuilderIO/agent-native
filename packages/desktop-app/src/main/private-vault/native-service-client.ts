@@ -579,6 +579,14 @@ function isLowerHex(value: unknown, length: number): value is string {
   );
 }
 
+function scopeText(value: string): boolean {
+  return (
+    Buffer.byteLength(value) > 0 &&
+    Buffer.byteLength(value) <= 160 &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
+}
+
 function isSafeInteger(value: unknown, positive: boolean): value is number {
   return (
     typeof value === "number" &&
@@ -1211,6 +1219,7 @@ function parseCreatedContentGrant(
     value.vaultId !== input.vaultId ||
     value.recipientEndpointId !== input.recipientEndpointId ||
     value.subjectAgentId !== input.subjectAgentId ||
+    typeof value.issuedAt !== "number" ||
     !Number.isSafeInteger(value.issuedAt) ||
     (value.issuedAt as number) <= 0 ||
     value.expiresAt !== input.expiresAt ||
@@ -1568,14 +1577,45 @@ function parseOpenJob(value: unknown): NativeOpenHostedJobResult {
 }
 
 function parseSealedResult(value: unknown): NativeSealHostedResultResult {
+  if (!isRecord(value)) throw new PrivateVaultNativeServiceClientError();
+  const issuedAt = typeof value.issuedAt === "number" ? value.issuedAt : 0;
+  const expiresAt = typeof value.expiresAt === "number" ? value.expiresAt : 0;
   if (
-    !isRecord(value) ||
-    !hasExactKeys(value, ["version", "operation", "resultEnvelope"]) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "resultEnvelope",
+      "disclosureEnvelope",
+      "disclosureId",
+      "grantRef",
+      "providerId",
+      "destination",
+      "scopeHash",
+      "issuedAt",
+      "expiresAt",
+    ]) ||
     value.version !== XPC_PROTOCOL_VERSION ||
     value.operation !== "seal_result" ||
     !(value.resultEnvelope instanceof Uint8Array) ||
     value.resultEnvelope.byteLength === 0 ||
-    value.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes
+    value.resultEnvelope.byteLength > E2EE_SIZE_LIMITS.resultEnvelopeBytes ||
+    !(value.disclosureEnvelope instanceof Uint8Array) ||
+    value.disclosureEnvelope.byteLength === 0 ||
+    value.disclosureEnvelope.byteLength > 64 * 1024 ||
+    !(value.disclosureId instanceof Uint8Array) ||
+    value.disclosureId.byteLength !== 16 ||
+    !(value.grantRef instanceof Uint8Array) ||
+    value.grantRef.byteLength !== 32 ||
+    typeof value.providerId !== "string" ||
+    !scopeText(value.providerId) ||
+    typeof value.destination !== "string" ||
+    !scopeText(value.destination) ||
+    !(value.scopeHash instanceof Uint8Array) ||
+    value.scopeHash.byteLength !== 32 ||
+    !Number.isSafeInteger(issuedAt) ||
+    issuedAt <= 0 ||
+    !Number.isSafeInteger(expiresAt) ||
+    expiresAt <= issuedAt
   )
     throw new PrivateVaultNativeServiceClientError();
   return {
@@ -1583,6 +1623,14 @@ function parseSealedResult(value: unknown): NativeSealHostedResultResult {
     suite: SERVICE_SUITE,
     operation: "sealHostedResult",
     resultEnvelope: value.resultEnvelope.slice(),
+    disclosureEnvelope: value.disclosureEnvelope.slice(),
+    disclosureId: value.disclosureId.slice(),
+    grantRef: value.grantRef.slice(),
+    providerId: value.providerId,
+    destination: value.destination,
+    scopeHash: value.scopeHash.slice(),
+    issuedAt,
+    expiresAt,
   };
 }
 

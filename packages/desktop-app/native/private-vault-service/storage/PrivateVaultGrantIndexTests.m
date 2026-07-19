@@ -313,6 +313,8 @@ int main(void) {
                      resourceId:Pattern(0x04, 16)
                       operation:@"read"
                        provider:@"synthetic-provider"
+           disclosureProviderId:@"codex-cli"
+           disclosureDestination:@"gpt-5.6"
                     hostedEpoch:1 hostedRetryCount:0
                hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusOK);
@@ -327,6 +329,8 @@ int main(void) {
                      resourceId:Pattern(0x04, 16)
                       operation:@"read"
                        provider:@"synthetic-provider"
+           disclosureProviderId:@"codex-cli"
+           disclosureDestination:@"gpt-5.6"
                     hostedEpoch:1 hostedRetryCount:0
                hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusReplay);
@@ -353,6 +357,8 @@ int main(void) {
           requesterBoxPublicKey:Pattern(0x22, 32)
                      resourceId:Pattern(0x04, 16) operation:@"read"
                        provider:@"wrong-provider"
+           disclosureProviderId:@"codex-cli"
+           disclosureDestination:@"gpt-5.6"
                     hostedEpoch:1 hostedRetryCount:0
                hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusUnauthorized);
@@ -366,15 +372,60 @@ int main(void) {
           requesterBoxPublicKey:Pattern(0x22, 32)
                      resourceId:Pattern(0x04, 16) operation:@"read"
                        provider:@"synthetic-provider"
+           disclosureProviderId:@"codex-cli"
+           disclosureDestination:@"gpt-5.6"
                     hostedEpoch:1 hostedRetryCount:0
                hostedAlgorithmId:@"anc-v1-job"] ==
            AncPrivateVaultGrantIndexStatusOK);
 
     NSData *semanticGrant = Hex(@"b10166616e632f763102500101010101010101010101010101010103656772616e74041a66961247055016161616161616161616161616161616183c5005050505050505050505050505050505183d5002020202020202020202020202020202183e5007070707070707070707070707070707183f5003030303030303030303030303030303184050080808080808080808080808080808081841815009090909090909090909090909090909184281647265616418438167636f6e74656e7418441a6696124718451a669620571846500a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a1847584058e6cfd36566a7fd1db086d9150ce14ba1c2e11308e26478bdeb8f03a2d6ab82b6f220ea52753ae854af89a5e8e384d8ae3e5abfe003bfd457596231dd7c9504");
-    NSData *semanticJob = Hex(@"ac0166616e632f763102500101010101010101010101010101010103636a6f62041a66961247055018181818181818181818181818181818185a5006060606060606060606060606060606185b5820535eab190d7b022ff384ead22836dde8267255a28faa9886624b83c4fd806914185c1a66961247185d1a6696149f185e500b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b185f5887393939393939393939393939393939393939393939393939aef8dbddc3e7001b87b8db52c376f2f5ad0da4d05165c06e8a6fecc427ba6465244e38ceed648836a2a10a9d58cd08f2c6878b6ed6f14d3ca020b9bd8f51a8bcb5e7fb3e331d435913c6a3133e4a2ae19064714a5b14bd48ace63c64643f27da472670173b5bb671edae4aecf0230b1860584068e61eddabc6269503e2d07de576f116088f6eb832390e0e881dfa4150184d535f5e11d5cfd1c3c2f60706f7b78025e3bb6626b3f5c0fa8088f27cd430830a0a");
     NSData *requesterSigning = Hex(@"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737");
     NSData *requesterBox = Hex(@"9d8d78b9c9e6661e552f2f1af02095ee2f8743fa2e6183f41bb7077ef51b5379");
     NSData *brokerBox = Hex(@"4eb4fafee2bd3018a24e310de8106333c2b364eaed029a7f05d7b45ccc77683a");
+    AncPrivateVaultCanonicalStatus semanticStatus;
+    NSData *semanticPayload = AncPrivateVaultCanonicalEncode(
+        [AncPrivateVaultCanonicalValue map:@{
+          @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+          @2 : [AncPrivateVaultCanonicalValue text:@"semantic-job"],
+          @3 : [AncPrivateVaultCanonicalValue bytes:Pattern(0x09, 16)],
+          @4 : [AncPrivateVaultCanonicalValue text:@"read"],
+          @5 : [AncPrivateVaultCanonicalValue text:@"content"],
+          @6 : [AncPrivateVaultCanonicalValue bytes:
+              [@"{\"action\":\"get-document\"}"
+                  dataUsingEncoding:NSUTF8StringEncoding]],
+          @7 : [AncPrivateVaultCanonicalValue text:@"codex-cli"],
+          @8 : [AncPrivateVaultCanonicalValue text:@"gpt-5.6"],
+        }], &semanticStatus);
+    uint8_t requesterSigningSeed[32] = {0}, requesterBoxSeed[32] = {0};
+    uint8_t requesterSigningPublic[32] = {0}, requesterSigningPrivate[64] = {0};
+    uint8_t requesterBoxPublic[32] = {0}, requesterBoxPrivate[32] = {0};
+    memset(requesterSigningSeed, 0x11, sizeof requesterSigningSeed);
+    memset(requesterBoxSeed, 0x22, sizeof requesterBoxSeed);
+    assert(semanticStatus == AncPrivateVaultCanonicalStatusOK &&
+           anc_pv_ed25519_seed_keypair(requesterSigningPublic,
+                                       requesterSigningPrivate,
+                                       requesterSigningSeed) ==
+               ANC_PV_CRYPTO_OK &&
+           anc_pv_box_seed_keypair(requesterBoxPublic, requesterBoxPrivate,
+                                   requesterBoxSeed) == ANC_PV_CRYPTO_OK);
+    AncPrivateVaultJobCodecStatus semanticJobStatus;
+    NSData *semanticJob = AncPrivateVaultSealJobEnvelope(
+        Pattern(0x01, 16), Pattern(0x18, 16), 1721111111,
+        Pattern(0x06, 16),
+        Hex(@"20535eab190d7b022ff384ead22836dde8267255a28faa9886624b83c4fd806914"),
+        1721111111, 1721111711, Pattern(0x0b, 16), semanticPayload,
+        Pattern(0x93, 24), requesterSigningSeed, requesterBoxPrivate,
+        brokerBox.bytes, &semanticJobStatus);
+    assert(semanticJobStatus == AncPrivateVaultJobCodecStatusOK &&
+           semanticJob.length > 0 &&
+           anc_pv_memcmp(requesterSigningPublic, requesterSigning.bytes, 32) == 0 &&
+           anc_pv_memcmp(requesterBoxPublic, requesterBox.bytes, 32) == 0);
+    anc_pv_zeroize(requesterSigningSeed, sizeof requesterSigningSeed);
+    anc_pv_zeroize(requesterBoxSeed, sizeof requesterBoxSeed);
+    anc_pv_zeroize(requesterSigningPublic, sizeof requesterSigningPublic);
+    anc_pv_zeroize(requesterSigningPrivate, sizeof requesterSigningPrivate);
+    anc_pv_zeroize(requesterBoxPublic, sizeof requesterBoxPublic);
+    anc_pv_zeroize(requesterBoxPrivate, sizeof requesterBoxPrivate);
     assert([index storeGrantEnvelope:semanticGrant vaultId:kVaultId
                           nowSeconds:1721111200
                     issuerEndpointId:Pattern(0x02, 16)
@@ -474,7 +525,7 @@ int main(void) {
                       hostedAlgorithmId:@"anc-v1-job"
                            nowSeconds:1721111200 result:&authorizedJob] ==
            AncPrivateVaultJobProcessorStatusReplay);
-    NSData *resultEnvelope = nil;
+    AncPrivateVaultSealedResult *resultEnvelope = nil;
     AncPrivateVaultJobProcessorSetAfterSpoolFaultHookForTesting(^BOOL{
       return YES;
     });
@@ -514,8 +565,12 @@ int main(void) {
                                          nowSeconds:1721111202
                                              result:&resultEnvelope];
     assert(resultStatus == AncPrivateVaultJobProcessorStatusOK &&
-           [resultEnvelope isEqualToData:orphanedResultEnvelope]);
-    NSData *retriedResultEnvelope = nil;
+           [resultEnvelope.resultEnvelope
+               isEqualToData:orphanedResultEnvelope] &&
+           resultEnvelope.disclosureEnvelope.length > 0 &&
+           [resultEnvelope.providerId isEqualToString:@"codex-cli"] &&
+           [resultEnvelope.destination isEqualToString:@"gpt-5.6"]);
+    AncPrivateVaultSealedResult *retriedResultEnvelope = nil;
     assert([processor sealResultPayload:
                [@"ignored retry payload"
                    dataUsingEncoding:NSUTF8StringEncoding]
@@ -525,7 +580,10 @@ int main(void) {
                               nowSeconds:1721111203
                                   result:&retriedResultEnvelope] ==
                AncPrivateVaultJobProcessorStatusOK &&
-           [retriedResultEnvelope isEqualToData:resultEnvelope]);
+           [retriedResultEnvelope.resultEnvelope
+               isEqualToData:resultEnvelope.resultEnvelope] &&
+           [retriedResultEnvelope.disclosureEnvelope
+               isEqualToData:resultEnvelope.disclosureEnvelope]);
     AncPrivateVaultJobContext *jobContext = nil;
     assert([index resolveJobId:Pattern(0x06, 16)
                           jobHash:authorizedJobHash vaultId:kVaultId
@@ -543,15 +601,17 @@ int main(void) {
            [pendingResult.state isEqualToString:@"completed"] &&
            pendingResult.epoch == 1 && pendingResult.retryCount == 0 &&
            [pendingResult.algorithmId isEqualToString:@"anc-v1-job"] &&
-           [pendingResult.resultEnvelope isEqualToData:resultEnvelope]);
+           [pendingResult.resultEnvelope
+               isEqualToData:resultEnvelope.resultEnvelope]);
     assert([processor acknowledgeHostedResultForVaultId:kVaultId
                                                    jobId:Pattern(0x06, 16)
                                                   jobHash:authorizedJobHash
                                                      state:@"failed"] ==
            AncPrivateVaultJobProcessorStatusUnauthorized);
+    NSData *retriedSpoolEnvelope = nil;
     assert([resultSpool loadEnvelopeForVaultId:Pattern(0x01, 16)
                                           jobId:Pattern(0x06, 16)
-                                         result:&retriedResultEnvelope] ==
+                                         result:&retriedSpoolEnvelope] ==
            AncPrivateVaultResultSpoolStatusOK);
     assert([processor acknowledgeHostedResultForVaultId:kVaultId
                                                    jobId:Pattern(0x06, 16)
@@ -570,7 +630,7 @@ int main(void) {
            jobContext.resultRecorded && jobContext.receiptAcknowledged);
     assert([resultSpool loadEnvelopeForVaultId:Pattern(0x01, 16)
                                           jobId:Pattern(0x06, 16)
-                                         result:&retriedResultEnvelope] ==
+                                         result:&retriedSpoolEnvelope] ==
            AncPrivateVaultResultSpoolStatusNotFound);
     assert([processor acknowledgeHostedResultForVaultId:kVaultId
                                                    jobId:Pattern(0x06, 16)
@@ -675,7 +735,7 @@ int main(void) {
                  grantIndex:restarted
                 resultSpool:[[AncPrivateVaultResultSpool alloc]
                     initWithStateRootURL:[NSURL fileURLWithPath:temporary]]];
-    NSData *restartResultEnvelope = nil;
+    AncPrivateVaultSealedResult *restartResultEnvelope = nil;
     assert([restartedProcessor sealResultPayload:
                [@"another ignored retry payload"
                    dataUsingEncoding:NSUTF8StringEncoding]

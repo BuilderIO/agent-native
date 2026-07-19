@@ -60,11 +60,15 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @interface AncPrivateVaultJobContext : NSObject
 @property(nonatomic, readonly) NSData *jobId;
 @property(nonatomic, readonly) NSData *jobHash;
+@property(nonatomic, readonly) NSData *grantRef;
 @property(nonatomic, readonly) NSData *subjectEndpointId;
 @property(nonatomic, readonly) NSData *requesterBoxPublicKey;
 @property(nonatomic, readonly) NSData *resourceId;
 @property(nonatomic, readonly) NSString *operation;
 @property(nonatomic, readonly) NSString *provider;
+@property(nonatomic, readonly, nullable) NSString *disclosureProviderId;
+@property(nonatomic, readonly, nullable) NSString *disclosureDestination;
+@property(nonatomic, readonly, nullable) NSData *disclosureEnvelope;
 @property(nonatomic, readonly) NSString *status;
 @property(nonatomic, readonly) uint64_t expiresAt;
 @property(nonatomic, readonly) BOOL resultRecorded;
@@ -162,9 +166,18 @@ requesterSigningPublicKey:(NSData *)requesterSigningPublicKey
        resourceId:(NSData *)resourceId
         operation:(NSString *)operation
          provider:(NSString *)provider
+disclosureProviderId:(NSString *)disclosureProviderId
+disclosureDestination:(NSString *)disclosureDestination
          hostedEpoch:(uint64_t)hostedEpoch
     hostedRetryCount:(uint64_t)hostedRetryCount
     hostedAlgorithmId:(NSString *)hostedAlgorithmId;
+
+/** Stages one exact broker-signed disclosure before result release. */
+- (AncPrivateVaultGrantIndexStatus)
+    stageDisclosureEnvelope:(NSData *)disclosureEnvelope
+                      jobId:(NSData *)jobId
+                     jobHash:(NSData *)jobHash
+                     vaultId:(NSString *)vaultId;
 
 /** Binds the locally sealed result to the claimed job before hosted release. */
 - (AncPrivateVaultGrantIndexStatus)

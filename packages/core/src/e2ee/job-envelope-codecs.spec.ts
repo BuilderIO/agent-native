@@ -55,19 +55,23 @@ describe("anc/v1 encrypted job envelopes", () => {
       operation: "read",
       provider: "content",
       body: text('{"action":"get-document"}'),
+      disclosureProviderId: "synthetic-provider",
+      disclosureDestination: "synthetic-destination",
     });
     expect(Buffer.from(encoded).toString("hex")).toBe(
-      "a60166616e632f7631026c73656d616e7469632d6a6f620350090909090909090909090909090909090464726561640567636f6e74656e740658197b22616374696f6e223a226765742d646f63756d656e74227d",
+      "a80166616e632f7631026c73656d616e7469632d6a6f620350090909090909090909090909090909090464726561640567636f6e74656e740658197b22616374696f6e223a226765742d646f63756d656e74227d077273796e7468657469632d70726f7669646572087573796e7468657469632d64657374696e6174696f6e",
     );
     expect(decodeAncV1SemanticJobPayload(encoded)).toEqual({
       resourceId: p(0x09, 16),
       operation: "read",
       provider: "content",
       body: text('{"action":"get-document"}'),
+      disclosureProviderId: "synthetic-provider",
+      disclosureDestination: "synthetic-destination",
     });
 
     const extra = map(encoded);
-    extra.set(7, "hosted-override");
+    extra.set(9, "hosted-override");
     expect(() =>
       decodeAncV1SemanticJobPayload(encodeAncV1Canonical(extra)),
     ).toThrow(AncV1JobEnvelopeError);
@@ -77,6 +81,8 @@ describe("anc/v1 encrypted job envelopes", () => {
         operation: "read\nadmin",
         provider: "content",
         body: new Uint8Array(),
+        disclosureProviderId: "synthetic-provider",
+        disclosureDestination: "synthetic-destination",
       }),
     ).toThrow(AncV1JobEnvelopeError);
   });

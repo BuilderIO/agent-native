@@ -54,13 +54,17 @@ int main(void) {
         recipientBoxPublic, &status);
     assert(status == AncPrivateVaultJobCodecStatusOK &&
            [sealedJob isEqualToData:job]);
-    NSData *semantic = Hex(@"a60166616e632f7631026c73656d616e7469632d6a6f620350090909090909090909090909090909090464726561640567636f6e74656e740658197b22616374696f6e223a226765742d646f63756d656e74227d");
+    NSData *semantic = Hex(@"a80166616e632f7631026c73656d616e7469632d6a6f620350090909090909090909090909090909090464726561640567636f6e74656e740658197b22616374696f6e223a226765742d646f63756d656e74227d077273796e7468657469632d70726f7669646572087573796e7468657469632d64657374696e6174696f6e");
     AncPrivateVaultSemanticJobPayload *semanticPayload =
         AncPrivateVaultDecodeSemanticJobPayload(semantic, &status);
     assert(status == AncPrivateVaultJobCodecStatusOK && semanticPayload != nil &&
            [semanticPayload.resourceId isEqualToData:Pattern(0x09, 16)] &&
            [semanticPayload.operation isEqualToString:@"read"] &&
            [semanticPayload.provider isEqualToString:@"content"] &&
+           [semanticPayload.disclosureProviderId
+               isEqualToString:@"synthetic-provider"] &&
+           [semanticPayload.disclosureDestination
+               isEqualToString:@"synthetic-destination"] &&
            [semanticPayload.body isEqualToData:
                [@"{\"action\":\"get-document\"}"
                    dataUsingEncoding:NSUTF8StringEncoding]]);

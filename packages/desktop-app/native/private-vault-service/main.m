@@ -385,20 +385,41 @@ static void PVSealResult(xpc_connection_t peer, xpc_object_t message,
             [NSString stringWithUTF8String:request->resultState];
         NSData *payload = [NSData dataWithBytes:request->resultPayload
                                          length:request->resultPayloadLength];
-        NSData *sealed = nil;
+        AncPrivateVaultSealedResult *sealed = nil;
         AncPrivateVaultJobProcessorStatus status = [gJobProcessor
             sealResultPayload:payload state:state vaultId:vaultID jobId:jobID
                        jobHash:jobHash
                     nowSeconds:(uint64_t)floor(NSDate.date.timeIntervalSince1970)
                         result:&sealed];
-        if (status != AncPrivateVaultJobProcessorStatusOK || sealed.length == 0) {
+        if (status != AncPrivateVaultJobProcessorStatusOK ||
+            sealed.resultEnvelope.length == 0 ||
+            sealed.disclosureEnvelope.length == 0 ||
+            sealed.disclosureId.length != 16 || sealed.grantRef.length != 32 ||
+            sealed.scopeHash.length != 32) {
             PVSendError(peer, message, "result_denied");
             return;
         }
         xpc_object_t reply = PVCreateReply(message, request);
         if (reply == NULL) return;
-        xpc_dictionary_set_data(reply, "resultEnvelope", sealed.bytes,
-                                sealed.length);
+        xpc_dictionary_set_data(reply, "resultEnvelope",
+                                sealed.resultEnvelope.bytes,
+                                sealed.resultEnvelope.length);
+        xpc_dictionary_set_data(reply, "disclosureEnvelope",
+                                sealed.disclosureEnvelope.bytes,
+                                sealed.disclosureEnvelope.length);
+        xpc_dictionary_set_data(reply, "disclosureId",
+                                sealed.disclosureId.bytes,
+                                sealed.disclosureId.length);
+        xpc_dictionary_set_data(reply, "grantRef", sealed.grantRef.bytes,
+                                sealed.grantRef.length);
+        xpc_dictionary_set_string(reply, "providerId",
+                                  sealed.providerId.UTF8String);
+        xpc_dictionary_set_string(reply, "destination",
+                                  sealed.destination.UTF8String);
+        xpc_dictionary_set_data(reply, "scopeHash", sealed.scopeHash.bytes,
+                                sealed.scopeHash.length);
+        xpc_dictionary_set_uint64(reply, "issuedAt", sealed.issuedAt);
+        xpc_dictionary_set_uint64(reply, "expiresAt", sealed.expiresAt);
         xpc_connection_send_message(peer, reply);
     }
 }

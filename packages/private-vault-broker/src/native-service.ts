@@ -153,6 +153,14 @@ export type NativeSealHostedResultRequest =
   };
 export type NativeSealHostedResultResult = ServiceHeader<"sealHostedResult"> & {
   readonly resultEnvelope: Uint8Array;
+  readonly disclosureEnvelope: Uint8Array;
+  readonly disclosureId: Uint8Array;
+  readonly grantRef: Uint8Array;
+  readonly providerId: string;
+  readonly destination: string;
+  readonly scopeHash: Uint8Array;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
 };
 
 export type NativeAcknowledgeHostedResultRequest =
@@ -401,6 +409,20 @@ function positiveRevision(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) <= 0)
     fail("invalid_request");
   return value as number;
+}
+
+function safePositiveInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0)
+    fail("invalid_result");
+  return value as number;
+}
+
+function scopeText(value: string): boolean {
+  return (
+    value.length > 0 &&
+    new TextEncoder().encode(value).byteLength <= 160 &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
 }
 
 function contentType(
@@ -871,7 +893,24 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
       };
     }
     case "sealHostedResult": {
-      const record = resultHeader(value, operation, ["resultEnvelope"]);
+      const record = resultHeader(value, operation, [
+        "resultEnvelope",
+        "disclosureEnvelope",
+        "disclosureId",
+        "grantRef",
+        "providerId",
+        "destination",
+        "scopeHash",
+        "issuedAt",
+        "expiresAt",
+      ]);
+      if (
+        typeof record.providerId !== "string" ||
+        !scopeText(record.providerId) ||
+        typeof record.destination !== "string" ||
+        !scopeText(record.destination)
+      )
+        fail("invalid_result");
       return {
         ...base(operation),
         resultEnvelope: resultBytes(
@@ -879,6 +918,18 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
           1,
           PRIVATE_VAULT_NATIVE_SERVICE_LIMITS.hostedResultEnvelopeBytes,
         ),
+        disclosureEnvelope: resultBytes(
+          record.disclosureEnvelope,
+          1,
+          64 * 1024,
+        ),
+        disclosureId: resultBytes(record.disclosureId, 16, 16),
+        grantRef: resultBytes(record.grantRef, 32, 32),
+        providerId: record.providerId,
+        destination: record.destination,
+        scopeHash: resultBytes(record.scopeHash, 32, 32),
+        issuedAt: safePositiveInteger(record.issuedAt),
+        expiresAt: safePositiveInteger(record.expiresAt),
       };
     }
     case "acknowledgeHostedResult": {

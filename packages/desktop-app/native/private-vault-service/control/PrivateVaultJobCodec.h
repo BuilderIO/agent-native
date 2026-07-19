@@ -36,6 +36,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobCodecStatus) {
 @property(nonatomic, readonly) NSString *operation;
 @property(nonatomic, readonly) NSString *provider;
 @property(nonatomic, readonly) NSData *body;
+@property(nonatomic, readonly) NSString *disclosureProviderId;
+@property(nonatomic, readonly) NSString *disclosureDestination;
 @end
 
 @interface AncPrivateVaultVerifiedResult : NSObject

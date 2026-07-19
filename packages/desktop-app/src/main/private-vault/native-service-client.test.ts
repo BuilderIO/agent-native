@@ -992,11 +992,19 @@ describe("Private Vault native service client", () => {
     );
   });
 
-  it("returns only the native requester-sealed result envelope", async () => {
+  it("returns the native result and exact broker-signed disclosure", async () => {
     const request = vi.fn(async () => ({
       version: 3,
       operation: "seal_result",
       resultEnvelope: Buffer.from([0xa1, 0x01, 0x01]),
+      disclosureEnvelope: Buffer.from([0xa2, 0x01, 0x01]),
+      disclosureId: Buffer.alloc(16, 1),
+      grantRef: Buffer.alloc(32, 2),
+      providerId: "codex-cli",
+      destination: "gpt-5.6",
+      scopeHash: Buffer.alloc(32, 3),
+      issuedAt: 1_721_131_200,
+      expiresAt: 1_721_132_100,
     }));
     const client = createPrivateVaultNativeServiceClientForTest(async () => ({
       request,
@@ -1018,6 +1026,14 @@ describe("Private Vault native service client", () => {
       suite: "anc/v1",
       operation: "sealHostedResult",
       resultEnvelope: Buffer.from([0xa1, 0x01, 0x01]),
+      disclosureEnvelope: Buffer.from([0xa2, 0x01, 0x01]),
+      disclosureId: Buffer.alloc(16, 1),
+      grantRef: Buffer.alloc(32, 2),
+      providerId: "codex-cli",
+      destination: "gpt-5.6",
+      scopeHash: Buffer.alloc(32, 3),
+      issuedAt: 1_721_131_200,
+      expiresAt: 1_721_132_100,
     });
     expect(request).toHaveBeenCalledWith(
       "seal_result",

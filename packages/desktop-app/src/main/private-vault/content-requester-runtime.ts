@@ -198,6 +198,8 @@ export class PrivateVaultContentRequesterRuntime {
         operation: input.actionName,
         provider: "content",
         body: actionRequest,
+        disclosureProviderId: input.disclosureProviderId,
+        disclosureDestination: input.disclosureDestination,
       });
       const nowSeconds = Math.floor(this.#now() / 1000);
       const jobId = randomBytes(16).toString("hex");

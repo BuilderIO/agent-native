@@ -139,6 +139,20 @@ static BOOL IsContentActionName(NSString *value) {
 @implementation AncPrivateVaultPendingResult
 @end
 
+@interface AncPrivateVaultSealedResult ()
+@property(nonatomic) NSData *resultEnvelope;
+@property(nonatomic) NSData *disclosureEnvelope;
+@property(nonatomic) NSData *disclosureId;
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) NSString *providerId;
+@property(nonatomic) NSString *destination;
+@property(nonatomic) NSData *scopeHash;
+@property(nonatomic) uint64_t issuedAt;
+@property(nonatomic) uint64_t expiresAt;
+@end
+@implementation AncPrivateVaultSealedResult
+@end
+
 @implementation AncPrivateVaultJobProcessor {
   AncPrivateVaultSession *_session;
   AncPrivateVaultAuthorityStore *_authorityStore;
@@ -154,7 +168,7 @@ static BOOL IsContentActionName(NSString *value) {
                   jobId:(NSData *)jobId
                  jobHash:(NSData *)jobHash
               nowSeconds:(uint64_t)nowSeconds
-                  result:(NSData **)result {
+                  result:(AncPrivateVaultSealedResult **)result {
   if (result != NULL) *result = nil;
   if (payload == nil || vaultId.length != 32 || jobId.length != 16 ||
       jobHash.length != 32 || nowSeconds == 0 || nowSeconds > UINT64_MAX / 1000 ||
@@ -164,6 +178,7 @@ static BOOL IsContentActionName(NSString *value) {
   __block AncPrivateVaultJobProcessorStatus status =
       AncPrivateVaultJobProcessorStatusUnauthorized;
   __block NSData *sealed = nil;
+  __block AncPrivateVaultSealedResult *sealedResult = nil;
   dispatch_sync(_queue, ^{
     AncPrivateVaultJobContext *job = nil;
     AncPrivateVaultGrantIndexStatus indexStatus =
@@ -199,6 +214,29 @@ static BOOL IsContentActionName(NSString *value) {
         ![recipient.role isEqualToString:@"endpoint"] ||
         ![recipient.keyAgreementPublicKey isEqualToData:job.requesterBoxPublicKey])
       return;
+    if (job.grantRef.length != 32 || job.resourceId.length != 16 ||
+        job.disclosureProviderId.length == 0 ||
+        job.disclosureDestination.length == 0) return;
+    NSData *scopeHash = AncPrivateVaultDisclosureScopeHash(
+        job.resourceId, job.operation);
+    if (scopeHash.length != 32) return;
+    __block NSData *disclosure = [job.disclosureEnvelope copy];
+    __block AncPrivateVaultVerifiedDisclosure *verifiedDisclosure = nil;
+    if (disclosure != nil) {
+      AncPrivateVaultDisclosureCodecStatus disclosureStatus;
+      verifiedDisclosure = AncPrivateVaultVerifyDisclosureEnvelope(
+          disclosure, vaultBytes, job.grantRef, nowSeconds,
+          broker.signingPublicKey.bytes, &disclosureStatus);
+      if (verifiedDisclosure == nil ||
+          ![verifiedDisclosure.providerId
+              isEqualToString:job.disclosureProviderId] ||
+          ![verifiedDisclosure.destination
+              isEqualToString:job.disclosureDestination] ||
+          ![verifiedDisclosure.scopeHash isEqualToData:scopeHash]) {
+        status = AncPrivateVaultJobProcessorStatusStorageFailed;
+        return;
+      }
+    }
     AncPrivateVaultResultSpoolStatus spoolStatus =
         [_resultSpool loadEnvelopeForVaultId:vaultBytes jobId:jobId
                                       result:&sealed];
@@ -230,6 +268,16 @@ static BOOL IsContentActionName(NSString *value) {
         }
       }
       status = AncPrivateVaultJobProcessorStatusOK;
+      sealedResult = [AncPrivateVaultSealedResult new];
+      sealedResult.resultEnvelope = sealed;
+      sealedResult.disclosureEnvelope = disclosure;
+      sealedResult.disclosureId = verifiedDisclosure.disclosureId;
+      sealedResult.grantRef = verifiedDisclosure.grantRef;
+      sealedResult.providerId = verifiedDisclosure.providerId;
+      sealedResult.destination = verifiedDisclosure.destination;
+      sealedResult.scopeHash = verifiedDisclosure.scopeHash;
+      sealedResult.issuedAt = verifiedDisclosure.issuedAt;
+      sealedResult.expiresAt = verifiedDisclosure.expiresAt;
       return;
     }
     if (spoolStatus != AncPrivateVaultResultSpoolStatusNotFound ||
@@ -251,7 +299,7 @@ static BOOL IsContentActionName(NSString *value) {
             return NO;
           uint8_t signPublic[32] = {0}, signPrivate[64] = {0};
           uint8_t boxPublic[32] = {0}, boxPrivate[32] = {0};
-          uint8_t envelopeId[16] = {0}, nonce[24] = {0};
+          uint8_t envelopeId[16] = {0}, disclosureId[16] = {0}, nonce[24] = {0};
           BOOL keys = anc_pv_ed25519_seed_keypair(
                           signPublic, signPrivate, secrets->signing_seed) ==
                           ANC_PV_CRYPTO_OK &&
@@ -260,7 +308,22 @@ static BOOL IsContentActionName(NSString *value) {
               anc_pv_memcmp(signPublic, broker.signingPublicKey.bytes, 32) == 0 &&
               anc_pv_memcmp(boxPublic, broker.keyAgreementPublicKey.bytes, 32) == 0 &&
               anc_pv_random(envelopeId, sizeof envelopeId) == ANC_PV_CRYPTO_OK &&
+              anc_pv_random(disclosureId, sizeof disclosureId) ==
+                  ANC_PV_CRYPTO_OK &&
               anc_pv_random(nonce, sizeof nonce) == ANC_PV_CRYPTO_OK;
+          uint64_t disclosureExpiresAt = nowSeconds + 15 * 60;
+          if (disclosureExpiresAt > job.expiresAt)
+            disclosureExpiresAt = job.expiresAt;
+          AncPrivateVaultDisclosureCodecStatus disclosureStatus;
+          if (keys && disclosure == nil && disclosureExpiresAt > nowSeconds) {
+            disclosure = AncPrivateVaultSealDisclosureEnvelope(
+                vaultBytes,
+                [NSData dataWithBytes:disclosureId length:sizeof disclosureId],
+                nowSeconds, job.grantRef, job.disclosureProviderId,
+                job.disclosureDestination, scopeHash, nowSeconds,
+                disclosureExpiresAt, secrets->signing_seed,
+                &disclosureStatus);
+          }
           AncPrivateVaultJobCodecStatus codecStatus;
           sealed = keys ? AncPrivateVaultSealResultEnvelope(
               vaultBytes, [NSData dataWithBytes:envelopeId length:sizeof envelopeId],
@@ -273,11 +336,36 @@ static BOOL IsContentActionName(NSString *value) {
           anc_pv_zeroize(boxPublic, sizeof boxPublic);
           anc_pv_zeroize(boxPrivate, sizeof boxPrivate);
           anc_pv_zeroize(envelopeId, sizeof envelopeId);
+          anc_pv_zeroize(disclosureId, sizeof disclosureId);
           anc_pv_zeroize(nonce, sizeof nonce);
-          return sealed != nil;
+          return sealed != nil && disclosure != nil;
         }];
-    if (borrowed != AncPrivateVaultSessionStatusOK || sealed == nil) {
+    if (borrowed != AncPrivateVaultSessionStatusOK || sealed == nil ||
+        disclosure == nil) {
       status = AncPrivateVaultJobProcessorStatusCryptoFailed;
+      return;
+    }
+    AncPrivateVaultDisclosureCodecStatus disclosureStatus;
+    verifiedDisclosure = AncPrivateVaultVerifyDisclosureEnvelope(
+        disclosure, vaultBytes, job.grantRef, nowSeconds,
+        broker.signingPublicKey.bytes, &disclosureStatus);
+    if (verifiedDisclosure == nil ||
+        ![verifiedDisclosure.providerId
+            isEqualToString:job.disclosureProviderId] ||
+        ![verifiedDisclosure.destination
+            isEqualToString:job.disclosureDestination] ||
+        ![verifiedDisclosure.scopeHash isEqualToData:scopeHash]) {
+      sealed = nil;
+      status = AncPrivateVaultJobProcessorStatusCryptoFailed;
+      return;
+    }
+    indexStatus = [_grantIndex stageDisclosureEnvelope:disclosure
+                                                jobId:jobId
+                                               jobHash:jobHash
+                                               vaultId:vaultId];
+    if (indexStatus != AncPrivateVaultGrantIndexStatusOK) {
+      sealed = nil;
+      status = AncPrivateVaultJobProcessorStatusStorageFailed;
       return;
     }
     spoolStatus = [_resultSpool storeEnvelope:sealed vaultId:vaultBytes
@@ -304,13 +392,23 @@ static BOOL IsContentActionName(NSString *value) {
                                         jobHash:jobHash vaultId:vaultId];
     if (indexStatus == AncPrivateVaultGrantIndexStatusOK) {
       status = AncPrivateVaultJobProcessorStatusOK;
+      sealedResult = [AncPrivateVaultSealedResult new];
+      sealedResult.resultEnvelope = sealed;
+      sealedResult.disclosureEnvelope = disclosure;
+      sealedResult.disclosureId = verifiedDisclosure.disclosureId;
+      sealedResult.grantRef = verifiedDisclosure.grantRef;
+      sealedResult.providerId = verifiedDisclosure.providerId;
+      sealedResult.destination = verifiedDisclosure.destination;
+      sealedResult.scopeHash = verifiedDisclosure.scopeHash;
+      sealedResult.issuedAt = verifiedDisclosure.issuedAt;
+      sealedResult.expiresAt = verifiedDisclosure.expiresAt;
     } else {
       sealed = nil;
       status = AncPrivateVaultJobProcessorStatusStorageFailed;
     }
   });
   if (status == AncPrivateVaultJobProcessorStatusOK && result != NULL)
-    *result = sealed;
+    *result = sealedResult;
   return status;
 }
 
@@ -519,6 +617,8 @@ static BOOL IsContentActionName(NSString *value) {
     __block NSData *resourceId = nil;
     __block NSString *operation = nil;
     __block NSString *provider = nil;
+    __block NSString *disclosureProviderId = nil;
+    __block NSString *disclosureDestination = nil;
     AncPrivateVaultSessionStatus borrowed = [_session borrowVaultId:vaultId
         block:^BOOL(const AncPrivateVaultCustodySnapshot *snapshot,
                     const AncPrivateVaultCustodySecretInputs *secrets) {
@@ -561,6 +661,8 @@ static BOOL IsContentActionName(NSString *value) {
           resourceId = [semantic.resourceId copy];
           operation = [semantic.operation copy];
           provider = [semantic.provider copy];
+          disclosureProviderId = [semantic.disclosureProviderId copy];
+          disclosureDestination = [semantic.disclosureDestination copy];
           [opened close];
           return YES;
         }];
@@ -586,7 +688,9 @@ static BOOL IsContentActionName(NSString *value) {
        subjectAgentId:grant.subjectAgentId
     requesterSigningPublicKey:requester.signingPublicKey
         requesterBoxPublicKey:requester.keyAgreementPublicKey
-                 resourceId:resourceId operation:operation provider:provider
+                resourceId:resourceId operation:operation provider:provider
+       disclosureProviderId:disclosureProviderId
+       disclosureDestination:disclosureDestination
                 hostedEpoch:hostedEpoch hostedRetryCount:hostedRetryCount
            hostedAlgorithmId:hostedAlgorithmId];
     if (grantStatus == AncPrivateVaultGrantIndexStatusOK) {

@@ -29,7 +29,7 @@ const NONCE_BYTES = 24;
 const SIGNATURE_BYTES = 64;
 const jobKeys = [1, 2, 3, 4, 5, 90, 91, 92, 93, 94, 95, 96] as const;
 const resultKeys = [1, 2, 3, 4, 5, 100, 101, 102, 103, 104, 105] as const;
-const semanticJobPayloadKeys = [1, 2, 3, 4, 5, 6] as const;
+const semanticJobPayloadKeys = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
 export class AncV1JobEnvelopeError extends Error {
   constructor() {
@@ -107,6 +107,8 @@ export interface AncV1SemanticJobPayload {
   readonly operation: string;
   readonly provider: string;
   readonly body: Uint8Array;
+  readonly disclosureProviderId: string;
+  readonly disclosureDestination: string;
 }
 
 function fail(): never {
@@ -176,6 +178,8 @@ export function encodeAncV1SemanticJobPayload(
         [4, scopeText(input.operation)],
         [5, scopeText(input.provider)],
         [6, boundedBytes(input.body, E2EE_SIZE_LIMITS.jobPayloadBytes, true)],
+        [7, scopeText(input.disclosureProviderId)],
+        [8, scopeText(input.disclosureDestination)],
       ]),
     );
     if (encoded.byteLength > E2EE_SIZE_LIMITS.jobPayloadBytes) fail();
@@ -215,6 +219,8 @@ export function decodeAncV1SemanticJobPayload(
         E2EE_SIZE_LIMITS.jobPayloadBytes,
         true,
       ),
+      disclosureProviderId: scopeText(decoded.get(7)),
+      disclosureDestination: scopeText(decoded.get(8)),
     };
   } catch {
     return fail();

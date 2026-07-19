@@ -48,6 +48,8 @@ static const NSUInteger kPayloadMaximum = 16 * 1024 * 1024;
 @property(nonatomic) NSString *operation;
 @property(nonatomic) NSString *provider;
 @property(nonatomic) NSData *body;
+@property(nonatomic) NSString *disclosureProviderId;
+@property(nonatomic) NSString *disclosureDestination;
 @end
 @implementation AncPrivateVaultSemanticJobPayload
 @end
@@ -186,7 +188,7 @@ AncPrivateVaultSemanticJobPayload *AncPrivateVaultDecodeSemanticJobPayload(
       encoded, kPayloadMaximum, &canonicalStatus);
   NSDictionary *map = root.type == AncPrivateVaultCanonicalTypeMap
       ? root.mapValue : nil;
-  NSSet *expected = [NSSet setWithArray:@[@1, @2, @3, @4, @5, @6]];
+  NSSet *expected = [NSSet setWithArray:@[@1, @2, @3, @4, @5, @6, @7, @8]];
   AncPrivateVaultCanonicalValue *suite =
       Field(map, 1, AncPrivateVaultCanonicalTypeText);
   AncPrivateVaultCanonicalValue *type =
@@ -196,12 +198,16 @@ AncPrivateVaultSemanticJobPayload *AncPrivateVaultDecodeSemanticJobPayload(
   AncPrivateVaultCanonicalValue *provider = map[@5];
   AncPrivateVaultCanonicalValue *body =
       Field(map, 6, AncPrivateVaultCanonicalTypeBytes);
+  AncPrivateVaultCanonicalValue *disclosureProvider = map[@7];
+  AncPrivateVaultCanonicalValue *disclosureDestination = map[@8];
   if (map.count != expected.count ||
       ![expected isEqualToSet:[NSSet setWithArray:map.allKeys]] ||
       ![suite.textValue isEqualToString:@"anc/v1"] ||
       ![type.textValue isEqualToString:@"semantic-job"] ||
       !ExactBytes(map, 3, 16, &resourceId) || !ScopeText(operation) ||
-      !ScopeText(provider) || body == nil || body.bytesValue.length > kPayloadMaximum)
+      !ScopeText(provider) || body == nil ||
+      body.bytesValue.length > kPayloadMaximum ||
+      !ScopeText(disclosureProvider) || !ScopeText(disclosureDestination))
     return nil;
   AncPrivateVaultSemanticJobPayload *payload =
       [AncPrivateVaultSemanticJobPayload new];
@@ -209,6 +215,8 @@ AncPrivateVaultSemanticJobPayload *AncPrivateVaultDecodeSemanticJobPayload(
   payload.operation = [operation.textValue copy];
   payload.provider = [provider.textValue copy];
   payload.body = [body.bytesValue copy];
+  payload.disclosureProviderId = [disclosureProvider.textValue copy];
+  payload.disclosureDestination = [disclosureDestination.textValue copy];
   SetStatus(status, AncPrivateVaultJobCodecStatusOK);
   return payload;
 }

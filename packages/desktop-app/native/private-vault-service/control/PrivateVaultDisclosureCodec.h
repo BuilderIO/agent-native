@@ -37,4 +37,8 @@ AncPrivateVaultVerifyDisclosureEnvelope(
     const uint8_t *_Nonnull brokerSigningPublicKey,
     AncPrivateVaultDisclosureCodecStatus *_Nullable status);
 
+/** Hashes only opaque resource identity and operation; never content. */
+FOUNDATION_EXPORT NSData *_Nullable AncPrivateVaultDisclosureScopeHash(
+    NSData *resourceId, NSString *operation);
+
 NS_ASSUME_NONNULL_END
