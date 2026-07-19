@@ -382,4 +382,58 @@ describe("document editor layout", () => {
       }),
     ).toBe("Untitled database");
   });
+
+  it("starts page breadcrumbs with the containing database", () => {
+    expect(
+      documentEditorBreadcrumbItems(
+        {
+          id: "draft",
+          parentId: "project",
+          title: "Draft",
+          icon: null,
+          databaseMembership: {
+            databaseId: "database",
+            databaseDocumentId: "database-page",
+            databaseTitle: "Personal",
+            position: 0,
+          },
+        },
+        [
+          {
+            id: "project",
+            parentId: null,
+            title: "Project",
+            icon: null,
+          },
+        ],
+      ).map((item) => item.title),
+    ).toEqual(["Personal", "Project", "Draft"]);
+  });
+
+  it("does not repeat a containing database already in the page ancestry", () => {
+    expect(
+      documentEditorBreadcrumbItems(
+        {
+          id: "draft",
+          parentId: "database-page",
+          title: "Draft",
+          icon: null,
+          databaseMembership: {
+            databaseId: "database",
+            databaseDocumentId: "database-page",
+            databaseTitle: "Personal",
+            position: 0,
+          },
+        },
+        [
+          {
+            id: "database-page",
+            parentId: null,
+            title: "Personal",
+            icon: null,
+          },
+        ],
+      ).map((item) => item.title),
+    ).toEqual(["Personal", "Draft"]);
+  });
 });

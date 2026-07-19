@@ -15,7 +15,6 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
-  IconArrowLeft,
   IconDatabase,
   IconFileText,
   IconLoader2,
@@ -266,7 +265,10 @@ export function databaseMembershipDatabaseTitle(
 }
 
 export function documentEditorBreadcrumbItems(
-  document: Pick<Document, "id" | "parentId" | "title" | "icon">, // i18n-ignore type expression
+  document: Pick<
+    Document,
+    "id" | "parentId" | "title" | "icon" | "databaseMembership"
+  >, // i18n-ignore type expression
   documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
@@ -287,7 +289,7 @@ export function documentEditorBreadcrumbItems(
     parentId = parent.parentId;
   }
 
-  return [
+  const pageItems = [
     ...parents,
     {
       id: document.id,
@@ -295,34 +297,22 @@ export function documentEditorBreadcrumbItems(
       icon: document.icon,
     },
   ];
-}
-
-function DatabaseMembershipBreadcrumb({
-  document,
-  onOpenDatabase,
-}: {
-  document: Document;
-  onOpenDatabase: (databaseDocumentId: string) => void;
-}) {
   const membership = document.databaseMembership;
-  if (!membership) return null;
+  if (
+    !membership ||
+    pageItems.some((item) => item.id === membership.databaseDocumentId)
+  ) {
+    return pageItems;
+  }
 
-  const databaseTitle = databaseMembershipDatabaseTitle(membership);
-
-  return (
-    <div className="mb-3 -ml-1 flex min-w-0 items-center">
-      <button
-        type="button"
-        aria-label={`Open database ${databaseTitle}`}
-        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded px-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => onOpenDatabase(membership.databaseDocumentId)}
-      >
-        <IconArrowLeft className="size-3.5 shrink-0" />
-        <IconDatabase className="size-4 shrink-0" />
-        <span className="truncate">{databaseTitle}</span>
-      </button>
-    </div>
-  );
+  return [
+    {
+      id: membership.databaseDocumentId,
+      title: databaseMembershipDatabaseTitle(membership),
+      icon: null,
+    },
+    ...pageItems,
+  ];
 }
 
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
@@ -1466,14 +1456,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     Boolean(document.database),
                   )}
                 >
-                  <DatabaseMembershipBreadcrumb
-                    document={document}
-                    onOpenDatabase={(databaseDocumentId) =>
-                      navigate(`/page/${databaseDocumentId}`, {
-                        flushSync: true,
-                      })
-                    }
-                  />
                   {document.icon || !isDatabasePage ? (
                     <div className="mb-1">
                       {editorCanEdit ? (
