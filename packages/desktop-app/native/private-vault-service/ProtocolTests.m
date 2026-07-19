@@ -119,6 +119,14 @@ int main(void) {
              0);
   xpc_release(revokeGrant);
 
+  xpc_object_t listGrants =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "list_grants", "request-list-grants");
+  xpc_dictionary_set_string(listGrants, "vaultId",
+                            "00112233445566778899aabbccddeeff");
+  assert(PVParseRequest(listGrants, &parsed) == PVRequestValid &&
+         strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") == 0);
+  xpc_release(listGrants);
+
   const uint8_t requesterPayload[] = {'{', '}', '\n'};
   xpc_object_t sealJob =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_job", "request-seal-job");

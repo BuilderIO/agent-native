@@ -636,6 +636,74 @@ describe("Private Vault native service client", () => {
     ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
   });
 
+  it("lists only content-free grant summaries through the native boundary", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const grantRef = "ab".repeat(32);
+    const request = vi.fn(
+      async (): Promise<unknown> => ({
+        version: 3,
+        operation: "list_grants",
+        state: "listed",
+        vaultId,
+        grants: [
+          {
+            grantRef,
+            subjectEndpointId: "11112222333344445555666677778888",
+            subjectAgentId: "9999aaaabbbbccccddddeeeeffff0000",
+            issuedAt: 1_721_111_111,
+            expiresAt: 1_721_114_711,
+            revoked: false,
+            pendingRevocation: true,
+          },
+        ],
+      }),
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    await expect(client.listContentGrants(vaultId)).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "list_grants",
+      state: "listed",
+      vaultId,
+      grants: [
+        {
+          grantRef,
+          subjectEndpointId: "11112222333344445555666677778888",
+          subjectAgentId: "9999aaaabbbbccccddddeeeeffff0000",
+          issuedAt: 1_721_111_111,
+          expiresAt: 1_721_114_711,
+          revoked: false,
+          pendingRevocation: true,
+        },
+      ],
+    });
+    expect(request).toHaveBeenCalledWith("list_grants", vaultId);
+
+    request.mockResolvedValueOnce({
+      version: 3,
+      operation: "list_grants",
+      state: "listed",
+      vaultId,
+      grants: [
+        {
+          grantRef,
+          subjectEndpointId: "11112222333344445555666677778888",
+          issuedAt: 1_721_111_111,
+          expiresAt: 1_721_114_711,
+          revoked: false,
+          pendingRevocation: false,
+          documentTitle: "must never cross this boundary",
+        },
+      ],
+    });
+    await expect(client.listContentGrants(vaultId)).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+  });
+
   it("seals one semantically encoded job and binds the native reply", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const jobId = "ffeeddccbbaa99887766554433221100";

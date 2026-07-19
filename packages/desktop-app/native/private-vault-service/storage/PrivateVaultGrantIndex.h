@@ -40,6 +40,16 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly) NSData *revocationEnvelope;
 @end
 
+@interface AncPrivateVaultGrantSummary : NSObject
+@property(nonatomic, readonly) NSData *grantRef;
+@property(nonatomic, readonly) NSData *subjectEndpointId;
+@property(nonatomic, readonly, nullable) NSData *subjectAgentId;
+@property(nonatomic, readonly) uint64_t issuedAt;
+@property(nonatomic, readonly) uint64_t expiresAt;
+@property(nonatomic, readonly, getter=isRevoked) BOOL revoked;
+@property(nonatomic, readonly, getter=isPendingRevocation) BOOL pendingRevocation;
+@end
+
 @interface AncPrivateVaultGrantContext : NSObject
 @property(nonatomic, readonly) NSData *grantRef;
 @property(nonatomic, readonly) NSData *subjectAccountId;
@@ -76,6 +86,11 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 - (AncPrivateVaultGrantIndexStatus)
     loadVaultId:(NSString *)vaultId
        snapshot:(AncPrivateVaultGrantIndexSnapshot *_Nullable *_Nullable)snapshot;
+
+- (AncPrivateVaultGrantIndexStatus)
+    listGrantSummariesVaultId:(NSString *)vaultId
+                    summaries:(NSArray<AncPrivateVaultGrantSummary *>
+                                   *_Nullable *_Nullable)summaries;
 
 - (AncPrivateVaultGrantIndexStatus)
     storeGrantEnvelope:(NSData *)grantEnvelope

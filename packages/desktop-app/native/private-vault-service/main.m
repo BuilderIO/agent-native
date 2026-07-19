@@ -1727,6 +1727,68 @@ static void PVRevokeContentGrant(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVListContentGrants(xpc_connection_t peer, xpc_object_t message,
+                                const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSArray<AncPrivateVaultGrantSummary *> *summaries = nil;
+        if (gGrantIndex == nil ||
+            [gGrantIndex listGrantSummariesVaultId:vaultId
+                                         summaries:&summaries] !=
+                AncPrivateVaultGrantIndexStatusOK ||
+            summaries == nil || summaries.count > 256) {
+            PVSendError(peer, message, "grant_list_failed");
+            return;
+        }
+        xpc_object_t grants = xpc_array_create(NULL, 0);
+        BOOL valid = grants != NULL;
+        for (AncPrivateVaultGrantSummary *summary in summaries) {
+            NSString *grantRef = PVHex(summary.grantRef);
+            NSString *subjectEndpoint =
+                PVVaultIDHex(summary.subjectEndpointId);
+            NSString *subjectAgent = summary.subjectAgentId == nil
+                ? nil
+                : PVVaultIDHex(summary.subjectAgentId);
+            if (grantRef == nil || subjectEndpoint == nil ||
+                (summary.subjectAgentId != nil && subjectAgent == nil) ||
+                summary.issuedAt == 0 ||
+                summary.issuedAt > UINT64_C(9007199254740991) ||
+                summary.expiresAt <= summary.issuedAt ||
+                summary.expiresAt > UINT64_C(9007199254740991)) {
+                valid = NO;
+                break;
+            }
+            xpc_object_t item = xpc_dictionary_create(NULL, NULL, 0);
+            if (item == NULL) {
+                valid = NO;
+                break;
+            }
+            xpc_dictionary_set_string(item, "grantRef", grantRef.UTF8String);
+            xpc_dictionary_set_string(item, "subjectEndpointId",
+                                      subjectEndpoint.UTF8String);
+            if (subjectAgent != nil)
+                xpc_dictionary_set_string(item, "subjectAgentId",
+                                          subjectAgent.UTF8String);
+            xpc_dictionary_set_uint64(item, "issuedAt", summary.issuedAt);
+            xpc_dictionary_set_uint64(item, "expiresAt", summary.expiresAt);
+            xpc_dictionary_set_bool(item, "revoked", summary.isRevoked);
+            xpc_dictionary_set_bool(item, "pendingRevocation",
+                                    summary.isPendingRevocation);
+            xpc_array_append_value(grants, item);
+        }
+        if (!valid) {
+            PVSendError(peer, message, "grant_list_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "listed");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_value(reply, "grants", grants);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVSealContentJob(xpc_connection_t peer, xpc_object_t message,
                              const PVRequest *request) {
     @autoreleasepool {
@@ -2836,6 +2898,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
             }
             if (strcmp(request.operation, "create_grant") == 0) {
                 PVCreateContentGrant(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "list_grants") == 0) {
+                PVListContentGrants(peer, message, &request);
                 return;
             }
             if (strcmp(request.operation, "revoke_grant") == 0) {

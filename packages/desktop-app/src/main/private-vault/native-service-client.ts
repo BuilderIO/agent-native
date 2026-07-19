@@ -61,6 +61,7 @@ type NativeOperation =
   | "recover_status"
   | "create_grant"
   | "revoke_grant"
+  | "list_grants"
   | "seal_job"
   | "open_result"
   | "open_job"
@@ -101,6 +102,7 @@ export interface PrivateVaultNativeServiceClient
   revokeContentGrant(
     input: NativeRevokeContentGrantInput,
   ): Promise<NativeRevokedContentGrantResult>;
+  listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult>;
   sealContentJob(
     input: NativeSealContentJobInput,
   ): Promise<NativeSealedContentJobResult>;
@@ -204,6 +206,25 @@ export interface NativeRevokedContentGrantResult {
   readonly state: "revoked";
   readonly vaultId: string;
   readonly grantRef: string;
+}
+
+export interface NativeContentGrantSummary {
+  readonly grantRef: string;
+  readonly subjectEndpointId: string;
+  readonly subjectAgentId?: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly revoked: boolean;
+  readonly pendingRevocation: boolean;
+}
+
+export interface NativeListedContentGrantsResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "list_grants";
+  readonly state: "listed";
+  readonly vaultId: string;
+  readonly grants: readonly NativeContentGrantSummary[];
 }
 
 export interface NativeSealContentJobInput {
@@ -1205,6 +1226,87 @@ function parseRevokedContentGrant(
   });
 }
 
+function parseListedContentGrants(
+  value: unknown,
+  vaultId: string,
+): NativeListedContentGrantsResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "grants",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "list_grants" ||
+    value.state !== "listed" ||
+    value.vaultId !== vaultId ||
+    !Array.isArray(value.grants) ||
+    value.grants.length > 256
+  )
+    throw new PrivateVaultNativeServiceClientError();
+
+  const seen = new Set<string>();
+  const grants = value.grants.map((entry): NativeContentGrantSummary => {
+    const hasAgent = isRecord(entry) && "subjectAgentId" in entry;
+    if (
+      !isRecord(entry) ||
+      !hasExactKeys(
+        entry,
+        hasAgent
+          ? [
+              "grantRef",
+              "subjectEndpointId",
+              "subjectAgentId",
+              "issuedAt",
+              "expiresAt",
+              "revoked",
+              "pendingRevocation",
+            ]
+          : [
+              "grantRef",
+              "subjectEndpointId",
+              "issuedAt",
+              "expiresAt",
+              "revoked",
+              "pendingRevocation",
+            ],
+      ) ||
+      !isLowerHex(entry.grantRef, 64) ||
+      seen.has(entry.grantRef) ||
+      !isLowerHex(entry.subjectEndpointId, 32) ||
+      (hasAgent && !isLowerHex(entry.subjectAgentId, 32)) ||
+      !Number.isSafeInteger(entry.issuedAt) ||
+      (entry.issuedAt as number) <= 0 ||
+      !Number.isSafeInteger(entry.expiresAt) ||
+      (entry.expiresAt as number) <= (entry.issuedAt as number) ||
+      typeof entry.revoked !== "boolean" ||
+      typeof entry.pendingRevocation !== "boolean"
+    )
+      throw new PrivateVaultNativeServiceClientError();
+    seen.add(entry.grantRef);
+    return Object.freeze({
+      grantRef: entry.grantRef,
+      subjectEndpointId: entry.subjectEndpointId,
+      ...(hasAgent ? { subjectAgentId: entry.subjectAgentId as string } : {}),
+      issuedAt: entry.issuedAt as number,
+      expiresAt: entry.expiresAt as number,
+      revoked: entry.revoked,
+      pendingRevocation: entry.pendingRevocation,
+    });
+  });
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "list_grants" as const,
+    state: "listed" as const,
+    vaultId,
+    grants: Object.freeze(grants),
+  });
+}
+
 function parseSealedContentJob(
   value: unknown,
   input: NativeSealContentJobInput,
@@ -1626,6 +1728,22 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         return parseRevokedContentGrant(
           await addon.request("revoke_grant", input.vaultId, input.grantRef),
           input,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
+  }
+
+  listContentGrants(vaultId: string): Promise<NativeListedContentGrantsResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseListedContentGrants(
+          await addon.request("list_grants", vaultId),
+          vaultId,
         );
       } catch {
         throw new PrivateVaultNativeServiceClientError();

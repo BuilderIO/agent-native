@@ -101,6 +101,18 @@ static NSString *const kFenceRecordId = @"grant-index";
 @implementation AncPrivateVaultPendingGrantRevocation
 @end
 
+@interface AncPrivateVaultGrantSummary ()
+@property(nonatomic) NSData *grantRef;
+@property(nonatomic) NSData *subjectEndpointId;
+@property(nonatomic, nullable) NSData *subjectAgentId;
+@property(nonatomic) uint64_t issuedAt;
+@property(nonatomic) uint64_t expiresAt;
+@property(nonatomic, getter=isRevoked) BOOL revoked;
+@property(nonatomic, getter=isPendingRevocation) BOOL pendingRevocation;
+@end
+@implementation AncPrivateVaultGrantSummary
+@end
+
 @interface AncPrivateVaultGrantContext ()
 @property(nonatomic) NSData *grantRef;
 @property(nonatomic) NSData *subjectAccountId;
@@ -993,6 +1005,50 @@ static AncPrivateVaultGrantIndexStatus AuthorizeRecord(
   });
   if (status == AncPrivateVaultGrantIndexStatusOK && snapshot != NULL)
     *snapshot = value;
+  return status;
+}
+
+- (AncPrivateVaultGrantIndexStatus)
+    listGrantSummariesVaultId:(NSString *)vaultId
+                    summaries:(NSArray<AncPrivateVaultGrantSummary *> **)summaries {
+  if (summaries != NULL) *summaries = nil;
+  __block NSArray<AncPrivateVaultGrantSummary *> *values = nil;
+  __block AncPrivateVaultGrantIndexStatus status;
+  dispatch_sync(_queue, ^{
+    status = [self withVaultId:vaultId
+        block:^AncPrivateVaultGrantIndexStatus(
+            NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
+          (void)vaultBytes;
+          (void)key;
+          NSMutableSet<NSData *> *revokedRefs = [NSMutableSet set];
+          for (NSData *revocation in record.revocations) {
+            NSData *ref = RevocationGrantRef(revocation);
+            if (ref != nil) [revokedRefs addObject:ref];
+          }
+          NSData *pendingRef =
+              record.pendingRevocations.firstObject.grantRef;
+          NSMutableArray<AncPrivateVaultGrantSummary *> *listed =
+              [NSMutableArray arrayWithCapacity:record.grants.count];
+          for (AncStoredGrant *stored in record.grants) {
+            AncPrivateVaultGrantSummary *summary =
+                [AncPrivateVaultGrantSummary new];
+            summary.grantRef = [stored.verified.grantRef copy];
+            summary.subjectEndpointId =
+                [stored.verified.subjectEndpointId copy];
+            summary.subjectAgentId = [stored.verified.subjectAgentId copy];
+            summary.issuedAt = stored.verified.issuedAt;
+            summary.expiresAt = stored.verified.expiresAt;
+            summary.revoked = [revokedRefs containsObject:summary.grantRef];
+            summary.pendingRevocation =
+                [pendingRef isEqualToData:summary.grantRef];
+            [listed addObject:summary];
+          }
+          values = [listed copy];
+          return AncPrivateVaultGrantIndexStatusOK;
+        }];
+  });
+  if (status == AncPrivateVaultGrantIndexStatusOK && summaries != NULL)
+    *summaries = values;
   return status;
 }
 

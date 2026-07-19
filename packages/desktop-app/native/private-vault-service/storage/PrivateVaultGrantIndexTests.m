@@ -590,6 +590,19 @@ int main(void) {
                                 revocationEnvelope:revocation
                                            vaultId:kVaultId] ==
            AncPrivateVaultGrantIndexStatusOK);
+    NSArray<AncPrivateVaultGrantSummary *> *grantSummaries = nil;
+    assert([index listGrantSummariesVaultId:kVaultId
+                                  summaries:&grantSummaries] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           grantSummaries.count == 3);
+    AncPrivateVaultGrantSummary *pendingSummary = nil;
+    for (AncPrivateVaultGrantSummary *summary in grantSummaries)
+      if ([summary.grantRef isEqualToData:grantRef]) pendingSummary = summary;
+    assert(pendingSummary != nil && pendingSummary.isPendingRevocation &&
+           !pendingSummary.isRevoked && pendingSummary.issuedAt > 0 &&
+           pendingSummary.expiresAt > pendingSummary.issuedAt &&
+           pendingSummary.subjectEndpointId.length == 16 &&
+           pendingSummary.subjectAgentId.length == 16);
     assert([index stagePendingRevocationSignedEntry:pendingSignedEntry
                                 revocationEnvelope:revocation
                                            vaultId:kVaultId] ==
@@ -636,6 +649,15 @@ int main(void) {
                                        context:&revocable] ==
                AncPrivateVaultGrantIndexStatusOK &&
            revocable.isRevoked);
+    grantSummaries = nil;
+    assert([index listGrantSummariesVaultId:kVaultId
+                                  summaries:&grantSummaries] ==
+           AncPrivateVaultGrantIndexStatusOK);
+    AncPrivateVaultGrantSummary *revokedSummary = nil;
+    for (AncPrivateVaultGrantSummary *summary in grantSummaries)
+      if ([summary.grantRef isEqualToData:grantRef]) revokedSummary = summary;
+    assert(revokedSummary.isRevoked &&
+           !revokedSummary.isPendingRevocation);
 
     AncPrivateVaultGrantIndex *restarted = [[AncPrivateVaultGrantIndex alloc]
         initWithStateRootURL:[NSURL fileURLWithPath:temporary]
