@@ -818,6 +818,11 @@ interface ElectronAPI {
         event: import("../../shared/multi-frontier-ipc.js").MultiFrontierIpcEvent,
       ) => void,
     ): () => void;
+    subscribeProviderStatus(
+      callback: (
+        event: import("../../shared/multi-frontier-channels.js").MultiFrontierProviderStatusEvent,
+      ) => void,
+    ): () => void;
   };
 
   appConfig: {

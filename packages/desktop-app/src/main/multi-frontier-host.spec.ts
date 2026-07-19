@@ -86,6 +86,35 @@ describe("MultiFrontierHost", () => {
     }
   });
 
+  it("publishes sanitized Codex live usage updates to provider-status listeners", () => {
+    const codex = createCodexAdapter(status("codex", "connected"));
+    const host = createHost({ codex });
+    const events: Array<{ providerId: string; status: SubscriptionStatus }> =
+      [];
+    host.subscribeProviderStatus((event) => events.push(event));
+
+    codex.publish({
+      ...status("codex", "connected"),
+      email: "private@example.test",
+      telemetry: {
+        ...status("codex", "connected").telemetry,
+        state: "live",
+        source: "codex-app-server",
+        updatedAt: "2026-07-19T12:00:00.000Z",
+        meters: [{ id: "five-hour", kind: "five-hour", usedPercent: 42 }],
+      },
+    } as unknown as SubscriptionStatus);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      providerId: "codex",
+      status: {
+        telemetry: { meters: [{ usedPercent: 42 }] },
+      },
+    });
+    expect(JSON.stringify(events)).not.toContain("private@example.test");
+  });
+
   it("opens only documented subscription login commands", async () => {
     const launch = vi.fn(
       async (
@@ -357,8 +386,9 @@ function createCodexAdapter(initialStatus: SubscriptionStatus) {
         listener = undefined;
       });
     }),
+    publish: (next: SubscriptionStatus) => listener?.(next),
     stop: vi.fn(),
-  } satisfies MultiFrontierCodexStatusAdapter;
+  };
 }
 
 function settingsStore(): MultiFrontierSettingsStore {

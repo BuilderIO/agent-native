@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   MultiFrontierActionResult,
   MultiFrontierCreateIntent,
+  MultiFrontierProviderStatusEvent,
   MultiFrontierSettings,
   MultiFrontierSubscriptionResult,
 } from "../../shared/multi-frontier-channels.js";
@@ -123,6 +124,9 @@ export class MultiFrontierHost {
   readonly #createId: () => string;
   readonly #codex: MultiFrontierCodexStatusAdapter;
   readonly #subscriptions = new Map<string, CollaborationSubscription>();
+  readonly #providerStatusListeners = new Set<
+    (event: MultiFrontierProviderStatusEvent) => void
+  >();
   readonly #sequences = new Map<string, number>();
   #codexStatus: SubscriptionStatus;
   #codexStarted: Promise<SubscriptionStatus> | undefined;
@@ -150,6 +154,7 @@ export class MultiFrontierHost {
     this.#codexStatus = sanitizeStatus(this.#codex.getStatus(), "codex");
     this.#unsubscribeCodex = this.#codex.subscribe((status) => {
       this.#codexStatus = sanitizeStatus(status, "codex");
+      this.#publishProviderStatus("codex", this.#codexStatus);
     });
   }
 
@@ -346,6 +351,14 @@ export class MultiFrontierHost {
     };
   }
 
+  subscribeProviderStatus(
+    listener: (event: MultiFrontierProviderStatusEvent) => void,
+  ): () => void {
+    this.#assertUsable();
+    this.#providerStatusListeners.add(listener);
+    return () => this.#providerStatusListeners.delete(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -355,6 +368,7 @@ export class MultiFrontierHost {
       subscription.unsubscribeBackend();
     }
     this.#subscriptions.clear();
+    this.#providerStatusListeners.clear();
     await this.#coordinator.dispose?.();
   }
 
@@ -451,6 +465,16 @@ export class MultiFrontierHost {
       sequence: 0,
       snapshot,
     });
+  }
+
+  #publishProviderStatus(
+    providerId: MultiFrontierProviderId,
+    value: unknown,
+  ): void {
+    const status = sanitizeStatus(value, providerId);
+    for (const listener of this.#providerStatusListeners) {
+      listener({ providerId, status });
+    }
   }
 
   #publishBackendEvent(collaborationId: string, value: unknown): void {

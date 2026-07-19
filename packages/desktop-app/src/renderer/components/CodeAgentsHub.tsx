@@ -258,6 +258,13 @@ export default function CodeAgentsHub({
     const api = window.electronAPI?.multiFrontier;
     if (!api) return;
     let disposed = false;
+    const unsubscribeProviderStatus = api.subscribeProviderStatus((event) => {
+      if (disposed) return;
+      setMultiFrontierSubscriptions((current) => ({
+        ...current,
+        [event.providerId]: event.status,
+      }));
+    });
     void api
       .getSettings()
       .then((settings) => {
@@ -312,6 +319,7 @@ export default function CodeAgentsHub({
       .catch(() => undefined);
     return () => {
       disposed = true;
+      unsubscribeProviderStatus();
     };
   }, [appendProviderOperationFailure, applyMultiFrontierSnapshot, isActive]);
 

@@ -24,6 +24,9 @@ export const MULTI_FRONTIER_CHANNELS = {
   subscribe: "multi-frontier:subscribe",
   unsubscribe: "multi-frontier:unsubscribe",
   events: "multi-frontier:events",
+  providerStatusSubscribe: "multi-frontier:provider-status:subscribe",
+  providerStatusUnsubscribe: "multi-frontier:provider-status:unsubscribe",
+  providerStatusEvents: "multi-frontier:provider-status:events",
 } as const;
 
 export interface MultiFrontierSettings {
@@ -54,6 +57,17 @@ export interface MultiFrontierSubscriptionResult {
 export interface MultiFrontierSubscriptionEnvelope {
   subscriptionId: string;
   event: MultiFrontierIpcEvent;
+}
+
+/** A sanitized, main-process owned subscription update for open settings cards. */
+export interface MultiFrontierProviderStatusEvent {
+  providerId: MultiFrontierProviderId;
+  status: SubscriptionStatus;
+}
+
+export interface MultiFrontierProviderStatusEnvelope {
+  subscriptionId: string;
+  event: MultiFrontierProviderStatusEvent;
 }
 
 export interface MultiFrontierRendererApi {
@@ -91,6 +105,9 @@ export interface MultiFrontierRendererApi {
   subscribe(
     collaborationId: string,
     callback: (event: MultiFrontierIpcEvent) => void,
+  ): () => void;
+  subscribeProviderStatus(
+    callback: (event: MultiFrontierProviderStatusEvent) => void,
   ): () => void;
 }
 

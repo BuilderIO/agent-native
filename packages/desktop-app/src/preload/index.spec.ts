@@ -106,6 +106,47 @@ describe("multi-frontier preload API", () => {
       { subscriptionId },
     );
   });
+
+  it("forwards the matching sanitized provider-status envelope and unsubscribes", () => {
+    const api = exposedMultiFrontierApi();
+    const callback = vi.fn();
+    const unsubscribe = api.subscribeProviderStatus(callback);
+    const subscribeCall = electron.send.mock.calls.find(
+      (call) => call[0] === MULTI_FRONTIER_CHANNELS.providerStatusSubscribe,
+    );
+    const subscriptionId = subscribeCall?.[1]?.subscriptionId as string;
+    const listener = electron.listeners.get(
+      MULTI_FRONTIER_CHANNELS.providerStatusEvents,
+    )!;
+    const event = {
+      providerId: "codex",
+      status: {
+        schemaVersion: 1,
+        providerId: "codex",
+        connectionState: "connected",
+        telemetry: {
+          state: "live",
+          source: "codex-app-server",
+          updatedAt: "2026-07-19T12:00:00.000Z",
+          meters: [],
+          capabilities: {},
+        },
+      },
+    };
+    listener({}, { subscriptionId: "other", event });
+    listener({}, { subscriptionId, event });
+    expect(callback).toHaveBeenCalledWith(event);
+
+    unsubscribe();
+    expect(electron.removeListener).toHaveBeenCalledWith(
+      MULTI_FRONTIER_CHANNELS.providerStatusEvents,
+      listener,
+    );
+    expect(electron.send).toHaveBeenCalledWith(
+      MULTI_FRONTIER_CHANNELS.providerStatusUnsubscribe,
+      { subscriptionId },
+    );
+  });
 });
 
 function exposedMultiFrontierApi() {
@@ -129,6 +170,7 @@ function exposedMultiFrontierApi() {
           collaborationId: string,
           callback: (event: unknown) => void,
         ): () => void;
+        subscribeProviderStatus(callback: (event: unknown) => void): () => void;
       };
     }
   ).multiFrontier;

@@ -2,6 +2,8 @@ import {
   MULTI_FRONTIER_CHANNELS,
   type MultiFrontierActionResult,
   type MultiFrontierCreateIntent,
+  type MultiFrontierProviderStatusEnvelope,
+  type MultiFrontierProviderStatusEvent,
   type MultiFrontierReReviewIntent,
   type MultiFrontierSettings,
   type MultiFrontierSubscriptionEnvelope,
@@ -12,6 +14,7 @@ import {
   MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES,
   MULTI_FRONTIER_PROVIDER_IDS,
   normalizeMultiFrontierIpcEvent,
+  sanitizeMultiFrontierSubscriptionStatus,
   type MultiFrontierIpcEvent,
   type MultiFrontierProviderId,
   type MultiFrontierRendererState,
@@ -83,6 +86,9 @@ export interface MultiFrontierIpcHost {
     collaborationId: string,
     listener: (event: MultiFrontierIpcEvent) => void,
   ): () => void;
+  subscribeProviderStatus(
+    listener: (event: MultiFrontierProviderStatusEvent) => void,
+  ): () => void;
 }
 
 export function registerMultiFrontierIpc(options: {
@@ -91,6 +97,7 @@ export function registerMultiFrontierIpc(options: {
 }): () => void {
   const { ipcMain, host } = options;
   const subscriptions = new Map<string, () => void>();
+  const providerStatusSubscriptions = new Map<string, () => void>();
   const invokeChannels = [
     MULTI_FRONTIER_CHANNELS.settingsGet,
     MULTI_FRONTIER_CHANNELS.settingsUpdate,
@@ -209,16 +216,85 @@ export function registerMultiFrontierIpc(options: {
     const subscriptionId = parseId(record?.subscriptionId);
     if (subscriptionId) removeSubscription(event.sender.id, subscriptionId);
   };
+  const removeProviderStatusSubscription = (
+    senderId: number,
+    subscriptionId: string,
+  ) => {
+    const key = subscriptionKey(senderId, subscriptionId);
+    providerStatusSubscriptions.get(key)?.();
+    providerStatusSubscriptions.delete(key);
+  };
+  const subscribeProviderStatus = (event: IpcEvent, input?: unknown) => {
+    const record = asBoundedRecord(input);
+    const subscriptionId = parseId(record?.subscriptionId);
+    if (!subscriptionId) return;
+    removeProviderStatusSubscription(event.sender.id, subscriptionId);
+    const dispose = host.subscribeProviderStatus((next) => {
+      if (event.sender.isDestroyed?.()) {
+        removeProviderStatusSubscription(event.sender.id, subscriptionId);
+        return;
+      }
+      const status = sanitizeProviderStatusEvent(next);
+      if (!status) return;
+      event.sender.send(MULTI_FRONTIER_CHANNELS.providerStatusEvents, {
+        subscriptionId,
+        event: status,
+      } satisfies MultiFrontierProviderStatusEnvelope);
+    });
+    providerStatusSubscriptions.set(
+      subscriptionKey(event.sender.id, subscriptionId),
+      dispose,
+    );
+    event.sender.once("destroyed", () =>
+      removeProviderStatusSubscription(event.sender.id, subscriptionId),
+    );
+  };
+  const unsubscribeProviderStatus = (event: IpcEvent, input?: unknown) => {
+    const record = asBoundedRecord(input);
+    const subscriptionId = parseId(record?.subscriptionId);
+    if (subscriptionId) {
+      removeProviderStatusSubscription(event.sender.id, subscriptionId);
+    }
+  };
   ipcMain.on(MULTI_FRONTIER_CHANNELS.subscribe, subscribe);
   ipcMain.on(MULTI_FRONTIER_CHANNELS.unsubscribe, unsubscribe);
+  ipcMain.on(
+    MULTI_FRONTIER_CHANNELS.providerStatusSubscribe,
+    subscribeProviderStatus,
+  );
+  ipcMain.on(
+    MULTI_FRONTIER_CHANNELS.providerStatusUnsubscribe,
+    unsubscribeProviderStatus,
+  );
 
   return () => {
     for (const dispose of subscriptions.values()) dispose();
     subscriptions.clear();
+    for (const dispose of providerStatusSubscriptions.values()) dispose();
+    providerStatusSubscriptions.clear();
     for (const channel of invokeChannels) ipcMain.removeHandler?.(channel);
     ipcMain.removeListener?.(MULTI_FRONTIER_CHANNELS.subscribe, subscribe);
     ipcMain.removeListener?.(MULTI_FRONTIER_CHANNELS.unsubscribe, unsubscribe);
+    ipcMain.removeListener?.(
+      MULTI_FRONTIER_CHANNELS.providerStatusSubscribe,
+      subscribeProviderStatus,
+    );
+    ipcMain.removeListener?.(
+      MULTI_FRONTIER_CHANNELS.providerStatusUnsubscribe,
+      unsubscribeProviderStatus,
+    );
   };
+}
+
+function sanitizeProviderStatusEvent(
+  value: unknown,
+): MultiFrontierProviderStatusEvent | null {
+  const input = asBoundedRecord(value);
+  const providerId = parseProviderId(input?.providerId);
+  const status = sanitizeMultiFrontierSubscriptionStatus(input?.status);
+  return status?.providerId === providerId && providerId
+    ? { providerId, status }
+    : null;
 }
 
 function parseSettingsPatch(

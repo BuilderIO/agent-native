@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MULTI_FRONTIER_CHANNELS } from "../../../shared/multi-frontier-channels.js";
+import {
+  MULTI_FRONTIER_CHANNELS,
+  type MultiFrontierProviderStatusEvent,
+} from "../../../shared/multi-frontier-channels.js";
 import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.js";
 import {
   registerMultiFrontierIpc,
@@ -200,6 +203,73 @@ describe("registerMultiFrontierIpc", () => {
     });
     expect(sender.sent).toHaveLength(1);
   });
+
+  it("forwards only a sanitized live provider-status update to an open renderer", () => {
+    const ipc = createIpcMain();
+    const host = createHost();
+    let listener:
+      | ((event: MultiFrontierProviderStatusEvent) => void)
+      | undefined;
+    host.subscribeProviderStatus.mockImplementation((next) => {
+      listener = next;
+      return vi.fn();
+    });
+    registerMultiFrontierIpc({ ipcMain: ipc, host });
+    const sender = createSender(7);
+    ipc.send(MULTI_FRONTIER_CHANNELS.providerStatusSubscribe, sender, {
+      subscriptionId: "provider-status-1",
+    });
+
+    listener?.({
+      providerId: "codex",
+      status: {
+        schemaVersion: 1,
+        providerId: "codex",
+        connectionState: "connected",
+        email: "private@example.test",
+        telemetry: {
+          state: "live",
+          source: "codex-app-server",
+          updatedAt: "2026-07-19T12:00:00.000Z",
+          capabilities: {
+            account: false,
+            plan: false,
+            rateLimits: true,
+            modelTierRateLimits: false,
+            contextWindow: false,
+            credits: false,
+            liveUpdates: true,
+          },
+          meters: [
+            {
+              id: "five-hour",
+              kind: "five-hour",
+              state: "available",
+              usedPercent: 42,
+            },
+          ],
+        },
+      },
+    } as unknown as MultiFrontierProviderStatusEvent);
+
+    expect(sender.sent).toEqual([
+      {
+        channel: MULTI_FRONTIER_CHANNELS.providerStatusEvents,
+        payload: {
+          subscriptionId: "provider-status-1",
+          event: expect.objectContaining({
+            providerId: "codex",
+            status: expect.objectContaining({
+              telemetry: expect.objectContaining({
+                meters: [expect.objectContaining({ usedPercent: 42 })],
+              }),
+            }),
+          }),
+        },
+      },
+    ]);
+    expect(JSON.stringify(sender.sent)).not.toContain("private@example.test");
+  });
 });
 
 function createIpcMain() {
@@ -258,6 +328,9 @@ function createHost() {
         _collaborationId: string,
         _listener: (event: MultiFrontierIpcEvent) => void,
       ) => vi.fn(),
+    ),
+    subscribeProviderStatus: vi.fn(
+      (_listener: (event: MultiFrontierProviderStatusEvent) => void) => vi.fn(),
     ),
   } satisfies MultiFrontierIpcHost;
 }

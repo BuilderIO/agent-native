@@ -53,6 +53,8 @@ import {
   MULTI_FRONTIER_CHANNELS,
   type MultiFrontierActionResult,
   type MultiFrontierCreateIntent,
+  type MultiFrontierProviderStatusEnvelope,
+  type MultiFrontierProviderStatusEvent,
   type MultiFrontierReReviewIntent,
   type MultiFrontierRendererApi,
   type MultiFrontierSettings,
@@ -445,6 +447,33 @@ const electronAPI = {
       return () => {
         ipcRenderer.removeListener(MULTI_FRONTIER_CHANNELS.events, handler);
         ipcRenderer.send(MULTI_FRONTIER_CHANNELS.unsubscribe, {
+          subscriptionId,
+        });
+      };
+    },
+    subscribeProviderStatus: (
+      callback: (event: MultiFrontierProviderStatusEvent) => void,
+    ): (() => void) => {
+      const subscriptionId = `mf-provider-status-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        envelope: MultiFrontierProviderStatusEnvelope,
+      ) => {
+        if (envelope?.subscriptionId !== subscriptionId) return;
+        callback(envelope.event);
+      };
+      ipcRenderer.on(MULTI_FRONTIER_CHANNELS.providerStatusEvents, handler);
+      ipcRenderer.send(MULTI_FRONTIER_CHANNELS.providerStatusSubscribe, {
+        subscriptionId,
+      });
+      return () => {
+        ipcRenderer.removeListener(
+          MULTI_FRONTIER_CHANNELS.providerStatusEvents,
+          handler,
+        );
+        ipcRenderer.send(MULTI_FRONTIER_CHANNELS.providerStatusUnsubscribe, {
           subscriptionId,
         });
       };

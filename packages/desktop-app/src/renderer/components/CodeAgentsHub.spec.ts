@@ -12,6 +12,7 @@ import {
   providerOperationFailureNotice,
   readNewerMultiFrontierSnapshot,
 } from "./multi-frontier-renderer-state.js";
+import { MultiFrontierParticipantSettings } from "./MultiFrontierWorkspace.js";
 
 describe("CodeAgentsHub multi-frontier event boundary", () => {
   let container: HTMLDivElement;
@@ -142,5 +143,59 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     });
 
     expect(onModeChange).toHaveBeenCalledWith("multi-frontier");
+  });
+
+  it("renders a live provider update in the subscription usage popover", async () => {
+    act(() => {
+      root.render(
+        React.createElement(MultiFrontierParticipantSettings, {
+          statuses: {
+            codex: {
+              schemaVersion: 1,
+              providerId: "codex",
+              connectionState: "connected",
+              telemetry: {
+                state: "live",
+                source: "codex-app-server",
+                updatedAt: "2026-07-19T12:00:00.000Z",
+                capabilities: {
+                  account: false,
+                  plan: false,
+                  rateLimits: true,
+                  modelTierRateLimits: false,
+                  contextWindow: false,
+                  credits: false,
+                  liveUpdates: true,
+                },
+                meters: [
+                  {
+                    id: "five-hour",
+                    kind: "five-hour",
+                    state: "available",
+                    usedPercent: 42,
+                  },
+                ],
+              },
+            },
+          },
+          busy: false,
+          autoContinueAfterAgreement: false,
+          defaultAutoContinueAfterAgreement: false,
+        }),
+      );
+    });
+
+    const participants = container.querySelector<HTMLButtonElement>("button");
+    expect(participants).toBeDefined();
+    await act(async () => {
+      participants?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      participants?.click();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain(
+      "Usage is updating from the connected subscription",
+    );
   });
 });
