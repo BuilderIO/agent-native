@@ -4,9 +4,11 @@ import {
   MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES,
   MULTI_FRONTIER_IPC_MAX_PAYLOAD_BYTES,
   MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES,
+  redactMultiFrontierSensitiveText,
 } from "../../shared/multi-frontier-ipc.js";
 
 const MAX_ROUNDS = 3;
+const MAX_CHECKPOINTS_PER_ROUND = 3;
 const MAX_FINDINGS = 40;
 const MAX_HELPER_DEPTH = 2;
 const MAX_HELPER_TASKS = 8;
@@ -624,6 +626,17 @@ export class MultiFrontierOrchestrator {
     const existingReview = this.#artifacts.find(
       (artifact) => artifact.id === reviewArtifactId,
     );
+    if (
+      !existingCheckpoint &&
+      this.#artifacts.filter(
+        (artifact) =>
+          artifact.kind === "checkpoint" && artifact.round === input.round,
+      ).length >= MAX_CHECKPOINTS_PER_ROUND
+    ) {
+      throw new Error(
+        `A collaboration round is limited to ${MAX_CHECKPOINTS_PER_ROUND} checkpoints.`,
+      );
+    }
     const retryInput = {
       requestSummary,
       requestRef: input.requestRef,
@@ -1079,7 +1092,10 @@ export class MultiFrontierOrchestrator {
     metadata?: Record<string, unknown>;
   }): Promise<MultiFrontierArtifact> {
     assertRound(input.round);
-    validateArtifactMetadata(input.kind, input.metadata);
+    const metadata = input.metadata
+      ? redactArtifactMetadata(input.metadata)
+      : undefined;
+    validateArtifactMetadata(input.kind, metadata);
     const artifact = immutableClone({
       id:
         input.artifactId ??
@@ -1092,7 +1108,10 @@ export class MultiFrontierOrchestrator {
       kind: input.kind,
       round: input.round,
       ...(input.participantId ? { participantId: input.participantId } : {}),
-      text: boundedPlainText(input.text, `${input.kind} artifact`),
+      text: boundedPlainText(
+        redactMultiFrontierSensitiveText(input.text),
+        `${input.kind} artifact`,
+      ),
       ...(input.supersedesArtifactId
         ? { supersedesArtifactId: input.supersedesArtifactId }
         : {}),
@@ -1102,7 +1121,7 @@ export class MultiFrontierOrchestrator {
           (input.participantId ? [input.participantId] : []),
         sourceArtifactIds: input.sourceArtifacts.map((artifact) => artifact.id),
       },
-      ...(input.metadata ? { metadata: immutableClone(input.metadata) } : {}),
+      ...(metadata ? { metadata: immutableClone(metadata) } : {}),
     } satisfies MultiFrontierArtifact);
     assertBoundedPayload(artifact, `${input.kind} artifact`);
     if (this.#artifactIds.has(artifact.id)) {
@@ -1557,6 +1576,26 @@ function dispositionPrompt(
 
 function boundedPrompt(value: string): string {
   return boundedText(value, "turn prompt", MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES);
+}
+
+function redactArtifactMetadata(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return redactArtifactValue(value) as Record<string, unknown>;
+}
+
+function redactArtifactValue(value: unknown): unknown {
+  if (typeof value === "string") return redactMultiFrontierSensitiveText(value);
+  if (Array.isArray(value)) return value.map(redactArtifactValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        redactArtifactValue(nested),
+      ]),
+    );
+  }
+  return value;
 }
 
 function boundedPlainText(value: string, label: string): string {

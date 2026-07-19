@@ -859,8 +859,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function sanitizePublicText(value: string, maxBytes: number): string {
-  const redacted = value
+export function redactMultiFrontierSensitiveText(value: string): string {
+  return value
     .replace(
       /\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[:=]?\s*(?:bearer\s+)?\S+/gi,
       "[redacted]",
@@ -876,6 +876,10 @@ function sanitizePublicText(value: string, maxBytes: number): string {
     )
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted]")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ");
+}
+
+function sanitizePublicText(value: string, maxBytes: number): string {
+  const redacted = redactMultiFrontierSensitiveText(value);
   return truncateUtf8(redacted.trim(), maxBytes);
 }
 

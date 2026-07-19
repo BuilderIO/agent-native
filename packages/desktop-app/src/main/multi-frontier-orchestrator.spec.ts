@@ -257,6 +257,65 @@ describe("MultiFrontierOrchestrator", () => {
     expect(findings.map((finding) => finding.rawFindingId)).toEqual(["1", "1"]);
   });
 
+  it("keeps first-round proposal prompts independent of sibling proposal output", async () => {
+    const harness = createHarness({
+      captureTurnResult: async (request) => ({
+        text:
+          request.stage === "proposal"
+            ? `${request.participantId}-private-proposal-body`
+            : `${request.stage} complete`,
+        ...(request.stage === "synthesis" ? { agreed: true } : {}),
+      }),
+    });
+    await harness.orchestrator.runPlanning({
+      operationId: "plan-op-independent-proposals",
+      request: "Compare bounded alternatives.",
+      repositoryEvidence: "Both participants begin read-only.",
+      driverParticipantId: "codex",
+    });
+
+    const proposalInstructions = harness.coordinatorTurns
+      .filter((turn) => turn.kind === "proposal")
+      .map((turn) => turn.instruction);
+    expect(proposalInstructions).toHaveLength(2);
+    for (const instruction of proposalInstructions) {
+      expect(instruction).not.toContain("codex-private-proposal-body");
+      expect(instruction).not.toContain("claude-private-proposal-body");
+      expect(instruction).not.toContain("mfproposal.");
+    }
+  });
+
+  it("redacts credential-like text before persisting artifact bodies and metadata", async () => {
+    const fakeToken = "sk-test_credential_value_123";
+    const harness = createHarness({
+      captureTurnResult: async (request) => ({
+        text: `Provider output includes api_key=${fakeToken}.`,
+        ...(request.stage === "cross_review"
+          ? {
+              findings: [
+                {
+                  id: `finding-${request.participantId}`,
+                  category: "security_or_privacy" as const,
+                  summary: `Do not persist ${fakeToken}.`,
+                },
+              ],
+            }
+          : {}),
+        ...(request.stage === "synthesis" ? { agreed: true } : {}),
+      }),
+    });
+    await harness.orchestrator.runPlanning({
+      operationId: "plan-op-redaction",
+      request: "Preserve credential boundaries.",
+      repositoryEvidence: "Providers own their credentials.",
+      driverParticipantId: "codex",
+    });
+
+    const persisted = JSON.stringify(harness.artifacts);
+    expect(persisted).not.toContain(fakeToken);
+    expect(persisted).toContain("[redacted]");
+  });
+
   it("pauses consequential disagreement even when trusted auto-continue is enabled", async () => {
     const harness = createHarness({
       autoContinue: true,
@@ -408,6 +467,45 @@ describe("MultiFrontierOrchestrator", () => {
     });
   });
 
+  it("pauses a consequential checkpoint finding even with trusted auto-continue", async () => {
+    const harness = createHarness({
+      autoContinue: true,
+      initialSnapshot: implementationSnapshot("plan-1"),
+      captureTurnResult: async (request) => ({
+        text: "Checkpoint review complete.",
+        ...(request.stage === "watchdog_review"
+          ? {
+              findings: [
+                {
+                  id: "checkpoint-privacy",
+                  category: "security_or_privacy" as const,
+                  summary: "Credential isolation changed.",
+                },
+              ],
+            }
+          : {}),
+      }),
+    });
+    await expect(
+      harness.orchestrator.runCheckpoint({
+        operationId: "checkpoint-op-consequential",
+        round: 2,
+        requestSummary: "Checkpoint.",
+        acceptedPlanArtifactId: "plan-1",
+        driverParticipantId: "codex",
+        driverSummary: "Ready for review.",
+        openRisks: [],
+        snapshotWorkspace: async () => ({
+          contentRef: "snapshots/consequential.diff",
+          contentHash: "f".repeat(64),
+          testOutput: "1 passed",
+        }),
+      }),
+    ).resolves.toMatchObject({ status: "paused" });
+    expect(harness.calls).toContain("pause");
+    expect(harness.calls).not.toContain("request_go");
+  });
+
   it("makes checkpoint artifact retries stable and idempotent", async () => {
     const harness = createHarness({
       initialSnapshot: implementationSnapshot("plan-1"),
@@ -432,6 +530,36 @@ describe("MultiFrontierOrchestrator", () => {
     expect(second.checkpointArtifact.id).toBe(first.checkpointArtifact.id);
     expect(second.reviewArtifact.id).toBe(first.reviewArtifact.id);
     expect(harness.artifacts).toHaveLength(2);
+  });
+
+  it("caps distinct durable checkpoints within one round", async () => {
+    const snapshotWorkspace = vi.fn(async () => ({
+      contentRef: "snapshots/checkpoint-cap.diff",
+      contentHash: "b".repeat(64),
+      testOutput: "1 passed",
+    }));
+    const harness = createHarness({
+      initialSnapshot: implementationSnapshot("plan-1"),
+      captureTurnResult: async () => ({ text: "No findings.", findings: [] }),
+    });
+    const checkpoint = (index: number) =>
+      harness.orchestrator.runCheckpoint({
+        operationId: `checkpoint-op-cap-${index}`,
+        round: 2,
+        requestSummary: "Bounded checkpoint.",
+        acceptedPlanArtifactId: "plan-1",
+        driverParticipantId: "codex",
+        driverSummary: `Checkpoint ${index}.`,
+        openRisks: [],
+        snapshotWorkspace,
+      });
+
+    for (const index of [1, 2, 3]) {
+      await checkpoint(index);
+      await harness.coordinator.approveGo("codex");
+    }
+    await expect(checkpoint(4)).rejects.toThrow("limited to 3 checkpoints");
+    expect(snapshotWorkspace).toHaveBeenCalledTimes(3);
   });
 
   it("fails closed when a watchdog result omits structured findings", async () => {
