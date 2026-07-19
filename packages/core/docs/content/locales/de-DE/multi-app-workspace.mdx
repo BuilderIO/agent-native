@@ -5,7 +5,7 @@ description: "Hosten Sie viele agentennative Apps in einem Monorepo mit gemeinsa
 
 # Multi-App-Arbeitsbereiche
 
-> **Welches Arbeitsbereichsdokument?** Diese Seite behandelt die **Bereitstellungsform** – ein Monorepo, viele Apps, gemeinsame Authentifizierung und eine einheitliche Bereitstellung. Was ein Arbeitsbereich ist (die Anpassungsebene: `AGENTS.md`, `LEARNINGS.md`, persönliches Gedächtnis, skills, benutzerdefinierte Agenten), siehe [Workspace](/docs/workspace); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
+> **Welches Arbeitsbereichsdokument?** Diese Seite behandelt die **Bereitstellungsform** – ein Monorepo, viele Apps, gemeinsame Authentifizierung und eine einheitliche Bereitstellung. Informationen zur Anpassungsebene des Agenten (Agent-Ressourcen: `AGENTS.md`, Speicher, skills, benutzerdefinierte Agenten) finden Sie unter [Agent-Ressourcen](/docs/workspace); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
 
 Wenn die Vibe-Codierung eines internen Tools einen Nachmittag in Anspruch nimmt, hören Sie nicht bei einem auf. Am Ende hat ein Team einen CRM, einen Support-Posteingang, ein Dashboard, eine Betriebskonsole – zehn kleine Apps, die jeweils unabhängig voneinander aufgebaut sind. Das ist großartig, bis Sie an allen etwas ändern müssen.
 
@@ -218,7 +218,7 @@ Da es sich bei dem freigegebenen Paket um eine `workspace:*`-Abhängigkeit hande
 
 Verwenden Sie `packages/shared` für Standardeinstellungen auf Codeebene, die mit dem Repo geliefert werden sollen: Plugins, gemeinsam genutzter actions, gemeinsam genutzter React-Code, Dateisystem `AGENTS.md` und Dateisystem skills. Verwenden Sie Dispatch-Arbeitsbereichsressourcen für zur Laufzeit bearbeitbaren globalen Kontext, den Administratoren ohne Codeänderung verwalten möchten.
 
-Dispatch-Ressourcen sind auf **Alle Apps** (jede App erbt sie zur Laufzeit, kein Kopier- oder Synchronisierungsschritt) oder auf **Ausgewählte Apps** (je App für app-spezifischen Kontext gewährt) beschränkt. Unter [Workspace](/docs/workspace#global-resources) finden Sie die vollständige Ressourcenmodelltabelle, Pfadkonventionen und das empfohlene Starterpaket.
+Dispatch-Ressourcen sind auf **Alle Apps** (jede App erbt sie zur Laufzeit, kein Kopier- oder Synchronisierungsschritt) oder auf **Ausgewählte Apps** (je App für app-spezifischen Kontext gewährt) beschränkt. Unter [Agent-Ressourcen](/docs/workspace#global-resources) finden Sie die vollständige Ressourcenmodelltabelle, Pfadkonventionen und das empfohlene Starterpaket.
 
 ## Authentifizierung und RBAC {#auth-and-rbac}
 
@@ -415,7 +415,7 @@ Das Arbeitsbereichsmuster ist absichtlich eng. Ein paar Dinge werden bewusst noc
 
 ## Siehe auch {#see-also}
 
-- [Workspace](/docs/workspace) – die Anpassungsebene (`AGENTS.md`, `LEARNINGS.md`, persönlicher Speicher, skills, benutzerdefinierte Agenten), die jede App im Arbeitsbereich gemeinsam nutzt.
+- [Agent-Ressourcen](/docs/workspace) – die Anpassungsebene (`AGENTS.md`, `LEARNINGS.md`, persönlicher Speicher, skills, benutzerdefinierte Agenten), die jede App im Arbeitsbereich gemeinsam nutzt.
 - [Workspace Governance](/docs/workspace-management) – Verzweigung, CODEOWNERS, PR-Überprüfung über viele Apps in einem Repo.
 - [Multi-Tenancy](/docs/multi-tenancy) – Organisationen, Rollen und Datenisolation pro Organisation.
 - [Cross-App SSO](/docs/cross-app-sso) – Identitätsföderation für Bereitstellungen in separaten Domänen.

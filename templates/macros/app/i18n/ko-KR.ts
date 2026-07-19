@@ -30,10 +30,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
   },
   agent: {
     emptyState: "무엇을 먹었는지 알려주시면 매크로를 추정할게요",

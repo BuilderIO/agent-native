@@ -11,7 +11,7 @@ description: "Mount the agent chat + workspace into any React app with <AgentPan
 
 </Callout>
 
-You don't need to build agent-native from scratch. The agent chat, workspace tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
+You don't need to build agent-native from scratch. The agent chat, resources tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
 
 <Callout tone="info">
 
@@ -25,7 +25,7 @@ You don't need to build agent-native from scratch. The agent chat, workspace tab
 | --------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `<AgentSidebar>`      | Wraps your root app layout and adds a toggleable side panel containing the full agent | You want the agent available alongside your app on every screen |
 | `<AgentToggleButton>` | Opens/closes `<AgentSidebar>` (put it in your header)                                 | Pair with `<AgentSidebar>`                                      |
-| `<AgentPanel>`        | The raw panel itself — chat + CLI + workspace tabs                                    | You want full control over layout, or a dedicated agent page    |
+| `<AgentPanel>`        | The raw panel itself — chat + CLI + resources tabs                                    | You want full control over layout, or a dedicated agent page    |
 | `<AgentChatSurface>`  | A pre-wired panel/page chat surface                                                   | You want chat without the sidebar wrapper                       |
 | `<AssistantChat>`     | Lower-level chat renderer with composer/history hooks                                 | You need custom chrome around the standard conversation UI      |
 | `sendToAgentChat()`   | Programmatically send a message to the chat                                           | A button that hands work to the agent instead of running inline |
@@ -142,7 +142,7 @@ children stays in the main app area. The agent chat is the side panel.
   ]}
 />
 
-That's it. The user now has a toggleable agent on every page — with chat history, workspace tab, CLI terminal, voice input, and a fullscreen mode. State persists across reloads via `localStorage`.
+That's it. The user now has a toggleable agent on every page — with chat history, resources tab, CLI terminal, voice input, and a fullscreen mode. State persists across reloads via `localStorage`.
 
 ### Props
 
@@ -337,5 +337,5 @@ The user sees a chat button in the header, can open it, and can talk to the agen
 
 - [**Actions**](/docs/actions) — `defineAction()` and `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selection, navigation, view-screen
-- [**Workspace**](/docs/workspace) — what the Workspace tab contains (skills, memory, MCP servers, scheduled jobs)
+- [**Agent Resources**](/docs/workspace) — what the Resources tab contains (skills, memory, MCP servers, scheduled jobs)
 - [**Voice Input**](/docs/voice-input) — the microphone in the chat composer

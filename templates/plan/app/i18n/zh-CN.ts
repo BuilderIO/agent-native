@@ -28,10 +28,9 @@ const messages = {
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
-    agentTitle: "代理设置",
-    agentDescription:
-      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-    openAgentSettings: "打开代理设置",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+    openAgentSettings: "管理代理",
     editorTitle: "VS Code 扩展",
     editorDescription:
       "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",

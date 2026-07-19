@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
   },
   settings: {
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    openAgentSettings: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    agentTitle: "एजेंट सेटिंग्स",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    agentTitle: "एजेंट प्रबंधित करें",
     aliasName: "उपनाम नाम",
     aliasNamePlaceholder: "जैसे, डिज़ाइन टीम",
     recipientsOnePerLine: "प्राप्तकर्ता (हर पंक्ति में एक ईमेल)",

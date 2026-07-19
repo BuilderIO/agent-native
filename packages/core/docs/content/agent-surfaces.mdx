@@ -29,7 +29,7 @@ start in chat, appear as a native table or chart, become a durable page in the
 app, and still run from jobs, scripts, MCP, or A2A without changing the operation
 the agent calls.
 
-## Full-page Agent workspace {#agent-page}
+## Full-page Manage Agent {#agent-page}
 
 When a full application needs a durable place to inspect and configure its
 agent, mount `AgentTabsPage` at `/agent`. Current templates pair that route
@@ -163,7 +163,7 @@ is no "browse-everything-at-a-glance" view; if users need that, start from
 [Chat](/docs/template-chat) or add a small status page or list view.
 
 When you add the built-in Chat shell, the framework provides five management
-surfaces you don't have to build: **Chat** (the main input), **Workspace**
+surfaces you don't have to build: **Chat** (the main input), **Resources**
 (skills, memory, instructions, sub-agents, connected MCP servers, scheduled
 jobs), **Job history**, **Thread history**, and **Settings**. Those are usually
 enough — talk to it, see what it's done, configure how it behaves. Reach for
@@ -467,7 +467,7 @@ export function AppShell({ children }) {
   </div>
   <div class="diagram-panel accent-panel">
     <span class="diagram-pill accent">AgentNativeEmbedded</span
-    ><small class="diagram-muted">agent + workspace</small>
+    ><small class="diagram-muted">agent + resources</small>
     <div class="diagram-box" data-rough>
       Agent-Native routes<br /><small class="diagram-muted"
         >mounted by the server plugin</small

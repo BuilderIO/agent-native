@@ -927,7 +927,7 @@ export const navItems: Array<{
   },
   {
     view: "agent",
-    label: "Agent workspace",
+    label: "Manage agent",
     href: "/agent",
     icon: IconBrain,
   },

@@ -1715,14 +1715,14 @@ export function ResourcesPanel({
                       href={WORKSPACE_DOCS_URL}
                       target="_blank"
                       rel="noopener noreferrer"
-                      aria-label="Open Workspace docs"
+                      aria-label="Open Resources docs"
                       className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                     >
                       <IconHelp className="h-3.5 w-3.5" />
                     </a>
                   </TooltipTrigger>
                   <TooltipContent side="left" sideOffset={8}>
-                    Open Workspace docs
+                    Open Resources docs
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

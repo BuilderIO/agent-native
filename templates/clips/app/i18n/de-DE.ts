@@ -629,10 +629,10 @@ const messages = {
     pageTitle: "Team beitreten · Clips",
   },
   settings: {
-    openAgentSettings: "Agent-Einstellungen öffnen",
+    openAgentSettings: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    agentTitle: "Agent-Einstellungen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
     intro:

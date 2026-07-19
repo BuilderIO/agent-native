@@ -30,10 +30,10 @@ const messages = {
       "Manage team members, organization access, and shared workspace preferences.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     editorTitle: "VS Code extension",
     editorDescription:
       "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",

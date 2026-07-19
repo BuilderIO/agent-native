@@ -57,10 +57,10 @@ const enUS = {
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
   settings: {
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     eyebrow: "Customize",
     title: "Customize Brain",
     description:
@@ -854,10 +854,9 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "在 Brain 工作界面之间导航。",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       eyebrow: "自定义",
       title: "自定义 Brain",
       description:
@@ -1059,10 +1058,10 @@ const baseMessagesByLocale = {
         "Navega por las superficies de trabajo de Brain.",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       eyebrow: "Personalizar",
       title: "Personalizar Brain",
       description:
@@ -1275,10 +1274,10 @@ const baseMessagesByLocale = {
         "Naviguer entre les espaces de travail Brain.",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       eyebrow: "Personnaliser",
       title: "Personnaliser Brain",
       description:
@@ -1490,10 +1489,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Zwischen Brain-Arbeitsflächen wechseln.",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       eyebrow: "Anpassen",
       title: "Brain anpassen",
       description:
@@ -1700,10 +1699,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain の作業画面を移動します。",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       eyebrow: "カスタマイズ",
       title: "Brain をカスタマイズ",
       description:
@@ -1910,10 +1909,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain 작업 화면 사이를 이동합니다.",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       eyebrow: "사용자 지정",
       title: "Brain 사용자 지정",
       description:
@@ -2120,10 +2119,10 @@ const baseMessagesByLocale = {
         "Navegue entre as superfícies de trabalho do Brain.",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       eyebrow: "Personalizar",
       title: "Personalizar Brain",
       description:
@@ -2334,10 +2333,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain कार्य सतहों के बीच जाएं।",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       eyebrow: "कस्टमाइज़",
       title: "Brain कस्टमाइज़ करें",
       description:
@@ -2543,10 +2542,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "التنقل بين مساحات عمل Brain.",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       eyebrow: "تخصيص",
       title: "تخصيص Brain",
       description:
