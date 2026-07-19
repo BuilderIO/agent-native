@@ -1,6 +1,5 @@
 import type { PrivateVaultLocalActionRegistry } from "@agent-native/private-vault-broker";
 
-import { PrivateVaultContentBrokerRuntimeTransport } from "./content-broker-runtime-transport.js";
 import {
   createPrivateVaultContentBrokerRuntime,
   type PrivateVaultContentBrokerRuntime,
@@ -10,6 +9,7 @@ import {
   type PrivateVaultContentDocumentRuntime,
 } from "./content-document-runtime.js";
 import type { PrivateVaultContentSession } from "./content-genesis-transport.js";
+import { PrivateVaultContentRuntimeTransport } from "./content-runtime-transport.js";
 
 interface BrokerLifecycle {
   start(): Promise<void>;
@@ -149,7 +149,7 @@ export function createPrivateVaultContentRuntime(input: {
 }): PrivateVaultContentRuntime {
   const documents: PrivateVaultContentDocumentRuntime =
     createPrivateVaultContentDocumentRuntime(input);
-  const descriptor = new PrivateVaultContentBrokerRuntimeTransport(input);
+  const descriptor = new PrivateVaultContentRuntimeTransport(input);
   return new PrivateVaultContentRuntime({
     descriptor,
     documents,
