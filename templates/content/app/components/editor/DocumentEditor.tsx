@@ -113,6 +113,36 @@ type FieldSaveWatermark = { title: string; updatedAt: string | null };
 type ContentSaveWatermark = { content: string; updatedAt: string | null };
 type DocumentUtilityPanel = "info" | "comments" | null;
 
+export function metadataUpdatesWithPendingTitle<
+  T extends {
+    title?: string;
+    content?: string;
+    description?: string;
+    icon?: string | null;
+  },
+>(
+  updates: T,
+  currentTitle: string,
+  savedTitle: string,
+): T & { title?: string } {
+  if (updates.title !== undefined || currentTitle === savedTitle)
+    return updates;
+  return { ...updates, title: currentTitle };
+}
+
+export function titleMatchConfirmsSave(args: {
+  serverTitle: string;
+  localTitle: string;
+  lastSavedTitle: string;
+  pendingTitle: string | null;
+}) {
+  if (args.serverTitle !== args.localTitle) return false;
+  return !(
+    args.pendingTitle === args.localTitle &&
+    args.localTitle !== args.lastSavedTitle
+  );
+}
+
 function adoptConfirmedSaveWatermarks({
   saved,
   savedAt,
@@ -338,20 +368,29 @@ export function documentEditorBreadcrumbNavigationItems(
     | "source"
   >[], // i18n-ignore type expression
   spaces: Pick<ContentSpaceSummary, "filesDocumentId" | "name">[], // i18n-ignore type expression
-) {
+  context?: {
+    currentDocumentId: string;
+    currentParentId: string | null;
+    currentDatabaseSystemRole: string | null;
+    catalogDocumentId: string | null;
+    workspacesTitle: string;
+  },
+): ToolbarBreadcrumbItem[] {
   const documentById = new Map(documents.map((item) => [item.id, item]));
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
   );
 
-  return items.map<ToolbarBreadcrumbItem>((item) => {
+  const navigationItems = items.map<ToolbarBreadcrumbItem>((item) => {
     if (item.id && workspaceDocumentIds.has(item.id)) {
       return {
         ...item,
+        iconKind: "folder",
         menuItems: spaces.map((space) => ({
           id: space.filesDocumentId,
           title: space.name,
           icon: null,
+          iconKind: "folder",
         })),
       };
     }
@@ -385,6 +424,22 @@ export function documentEditorBreadcrumbNavigationItems(
       })),
     };
   });
+
+  if (
+    context?.catalogDocumentId &&
+    context.currentParentId === null &&
+    context.currentDatabaseSystemRole === "files" &&
+    workspaceDocumentIds.has(context.currentDocumentId)
+  ) {
+    const workspacesItem: ToolbarBreadcrumbItem = {
+      id: context.catalogDocumentId,
+      title: context.workspacesTitle,
+      iconKind: "folder",
+    };
+    return [workspacesItem, ...navigationItems];
+  }
+
+  return navigationItems;
 }
 
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
@@ -731,7 +786,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     if (isLinkedLocalSourceDocument) return;
-    const titleMatchesLocal = document.title === localTitle;
+    const titleMatchesLocal = titleMatchConfirmsSave({
+      serverTitle: document.title,
+      localTitle,
+      lastSavedTitle: lastSavedTitleRef.current.title,
+      pendingTitle: pendingDocumentSaveRef.current?.title ?? null,
+    });
     const contentMatchesLocal = document.content === localContent;
 
     if (titleMatchesLocal) {
@@ -1236,6 +1296,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const handleTitleChange = useCallback(
     (newTitle: string) => {
       if (!editorCanEdit) return;
+      localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
       debouncedSave(newTitle, localContentRef.current);
@@ -1385,8 +1446,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         documentEditorBreadcrumbItems(document, documents),
         documents,
         contentSpaces,
+        {
+          currentDocumentId: document.id,
+          currentParentId: document.parentId,
+          currentDatabaseSystemRole: document.database?.systemRole ?? null,
+          catalogDocumentId: contentSpacesQuery.data?.catalogDocumentId ?? null,
+          workspacesTitle: t("sidebar.workspaces"),
+        },
       ),
-    [contentSpaces, document, documents],
+    [
+      contentSpaces,
+      contentSpacesQuery.data?.catalogDocumentId,
+      document,
+      documents,
+      t,
+    ],
   );
 
   const handleOpenToolbarBreadcrumb = useCallback(
@@ -1590,9 +1664,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           }
                           onSelect={(emoji) => {
                             void (async () => {
-                              const saved = await persistDocumentUpdates({
-                                icon: emoji,
-                              });
+                              const updates = metadataUpdatesWithPendingTitle(
+                                { icon: emoji },
+                                localTitleRef.current,
+                                lastSavedTitleRef.current.title,
+                              );
+                              const saved =
+                                await persistDocumentUpdates(updates);
                               // Icon-only save: never CAS-guarded server-side
                               // (no content in this call), so this can't come
                               // back as a conflict — narrow defensively anyway
@@ -1605,7 +1683,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                                   saved?.updatedAt ?? new Date().toISOString(),
                                 title: localTitleRef.current,
                                 content: localContentRef.current,
-                                updates: { icon: emoji },
+                                updates,
                                 lastSavedTitleRef,
                                 lastSavedContentRef,
                               });

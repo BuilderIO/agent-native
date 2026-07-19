@@ -182,9 +182,19 @@ describe("document sidebar layout", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(sidebar).toContain("aria-expanded={expanded}");
-    expect(sidebar).toContain("content-sidebar-expanded-workspaces");
+    expect(sidebar).toContain('"get-content-sidebar-state"');
+    expect(sidebar).toContain('"update-content-sidebar-state"');
+    expect(sidebar).toContain(
+      "stored?.expandedWorkspaceIds ?? contentSpaces.map",
+    );
+    expect(sidebar).toContain("expandedDocumentIds={expandedDocumentIdSet}");
     expect(sidebar).toContain("toggleExpandedWorkspaceIds(current, space.id)");
     expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
+    expect(sidebar).toContain(
+      '"group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md"',
+    );
+    expect(sidebar).toContain("group-hover/workspace-header:opacity-100");
+    expect(sidebar).not.toContain('className="group/workspace min-w-0"');
     expect(sidebar).toContain("{expanded && (");
     expect(sidebar).toContain("<WorkspaceFilesSection");
     expect(sidebar).toContain(

@@ -9,10 +9,66 @@ import {
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
+  metadataUpdatesWithPendingTitle,
+  titleMatchConfirmsSave,
 } from "./DocumentEditor";
 import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("flushes a pending title with an icon update", () => {
+    expect(
+      metadataUpdatesWithPendingTitle(
+        { icon: "🌱" },
+        "Renamed page",
+        "Untitled",
+      ),
+    ).toEqual({ icon: "🌱", title: "Renamed page" });
+    expect(
+      metadataUpdatesWithPendingTitle(
+        { icon: "🌱" },
+        "Renamed page",
+        "Renamed page",
+      ),
+    ).toEqual({ icon: "🌱" });
+  });
+
+  it("stages title edits synchronously for adjacent metadata actions", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    const handlerStart = source.indexOf(
+      "const handleTitleChange = useCallback",
+    );
+    const refUpdate = source.indexOf(
+      "localTitleRef.current = newTitle",
+      handlerStart,
+    );
+    const stateUpdate = source.indexOf("setLocalTitle(newTitle)", handlerStart);
+
+    expect(refUpdate).toBeGreaterThan(handlerStart);
+    expect(refUpdate).toBeLessThan(stateUpdate);
+  });
+
+  it("does not mistake an optimistic title cache patch for a confirmed save", () => {
+    expect(
+      titleMatchConfirmsSave({
+        serverTitle: "Renamed page",
+        localTitle: "Renamed page",
+        lastSavedTitle: "Untitled",
+        pendingTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    expect(
+      titleMatchConfirmsSave({
+        serverTitle: "Renamed page",
+        localTitle: "Renamed page",
+        lastSavedTitle: "Untitled",
+        pendingTitle: null,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps prose titles on the reading column", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("max-w-3xl");
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
@@ -494,9 +550,47 @@ describe("document editor layout", () => {
       "Personal",
       "Team",
     ]);
+    expect(items[0].iconKind).toBe("folder");
+    expect(items[0].menuItems?.map((item) => item.iconKind)).toEqual([
+      "folder",
+      "folder",
+    ]);
     expect(items[1].menuItems?.map((item) => item.title)).toEqual([
       "Draft",
       "Notes",
     ]);
+  });
+
+  it("links a top-level Files database back to Workspaces", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [{ id: "personal-files", title: "Personal" }],
+      [],
+      [{ filesDocumentId: "personal-files", name: "Personal" }],
+      {
+        currentDocumentId: "personal-files",
+        currentParentId: null,
+        currentDatabaseSystemRole: "files",
+        catalogDocumentId: "workspaces-document",
+        workspacesTitle: "Workspaces",
+      },
+    );
+
+    expect(items.map((item) => item.title)).toEqual(["Workspaces", "Personal"]);
+    expect(items.map((item) => item.id)).toEqual([
+      "workspaces-document",
+      "personal-files",
+    ]);
+    expect(items.map((item) => item.iconKind)).toEqual(["folder", "folder"]);
+  });
+
+  it("keeps hover-open breadcrumb menus non-modal and uses folder icons", () => {
+    const source = readFileSync(
+      new URL("./DocumentToolbar.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(source).toContain("<DropdownMenu modal={false}");
+    expect(source).toContain('item.iconKind === "folder"');
+    expect(source).toContain('menuItem.iconKind === "folder"');
   });
 });

@@ -104,6 +104,8 @@ export function ContentFilesSidebarView({
   onCreateChildDatabase,
   onDeleteItem,
   onToggleFavorite,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
   renderItem,
   scroll = true,
 }: {
@@ -117,6 +119,8 @@ export function ContentFilesSidebarView({
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  expandedDocumentIds?: ReadonlySet<string>;
+  onDocumentExpandedChange?: (documentId: string, expanded: boolean) => void;
   renderItem?: (item: ContentDatabaseItem) => ReactNode;
   scroll?: boolean;
   labels: Omit<
@@ -215,6 +219,8 @@ export function ContentFilesSidebarView({
         onCreateChildDatabase={onCreateChildDatabase}
         onDeleteItem={onDeleteItem}
         onToggleFavorite={onToggleFavorite}
+        expandedDocumentIds={expandedDocumentIds}
+        onDocumentExpandedChange={onDocumentExpandedChange}
         renderItem={renderItem}
         hierarchyItems={hierarchyItems}
         scroll={scroll}
@@ -237,6 +243,8 @@ export function DatabaseSidebarView({
   onCreateChildDatabase,
   onDeleteItem,
   onToggleFavorite,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
   renderItem,
   hierarchyItems,
   scroll = true,
@@ -259,6 +267,8 @@ export function DatabaseSidebarView({
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  expandedDocumentIds?: ReadonlySet<string>;
+  onDocumentExpandedChange?: (documentId: string, expanded: boolean) => void;
   renderItem?: (item: ContentDatabaseItem) => ReactNode;
   hierarchyItems?: ContentDatabaseItem[];
   scroll?: boolean;
@@ -271,9 +281,9 @@ export function DatabaseSidebarView({
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [collapsedDocumentIds, setCollapsedDocumentIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [localExpandedDocumentIds, setLocalExpandedDocumentIds] = useState<
+    Set<string>
+  >(() => new Set());
   const items = groups.flatMap((group) => group.items);
   const itemTree =
     !grouped && hierarchyItems
@@ -290,16 +300,22 @@ export function DatabaseSidebarView({
   }
 
   function setDocumentOpen(documentId: string, open: boolean) {
-    setCollapsedDocumentIds((current) => {
+    if (onDocumentExpandedChange) {
+      onDocumentExpandedChange(documentId, open);
+      return;
+    }
+    setLocalExpandedDocumentIds((current) => {
       const next = new Set(current);
-      if (open) next.delete(documentId);
-      else next.add(documentId);
+      if (open) next.add(documentId);
+      else next.delete(documentId);
       return next;
     });
   }
 
   function renderTreeNode(node: DatabaseSidebarItemTreeNode, depth: number) {
-    const open = !collapsedDocumentIds.has(node.item.document.id);
+    const open = (expandedDocumentIds ?? localExpandedDocumentIds).has(
+      node.item.document.id,
+    );
     return (
       <div key={node.item.id} className="min-w-0">
         <DatabaseSidebarRow
@@ -507,10 +523,13 @@ function DatabaseSidebarRow({
         {hasChildren ? (
           <button
             type="button"
-            className="absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            style={{ insetInlineStart: `${depth * 18}px` }}
+            className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            style={{
+              insetInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
+            }}
             aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`}
             aria-expanded={expanded}
+            onPointerUp={(event) => event.currentTarget.blur()}
             onClick={() => onToggleExpanded?.(!expanded)}
           >
             <IconChevronRight
@@ -531,15 +550,23 @@ function DatabaseSidebarRow({
             paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
           }}
           onClick={handleClick}
+          onPointerUp={(event) => event.currentTarget.blur()}
           aria-current={active ? "page" : undefined}
         >
-          {item.document.icon ? (
-            <span aria-hidden="true" className="shrink-0 text-sm leading-none">
-              {item.document.icon}
-            </span>
-          ) : (
-            <IconFileText className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
+          <span
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center",
+              hasChildren &&
+                "group-hover:opacity-0 group-focus-within:opacity-0",
+            )}
+            aria-hidden="true"
+          >
+            {item.document.icon ? (
+              <span className="text-sm leading-none">{item.document.icon}</span>
+            ) : (
+              <IconFileText className="size-3.5 text-muted-foreground" />
+            )}
+          </span>
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
@@ -551,7 +578,7 @@ function DatabaseSidebarRow({
         </Link>
 
         {(hasMenuActions || canCreateChild) && (
-          <div className="absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="pointer-events-none absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -663,9 +690,8 @@ export interface DatabaseSidebarItemTreeNode {
   children: DatabaseSidebarItemTreeNode[];
 }
 
-export function databaseSidebarRowIndent(depth: number, hasChildren: boolean) {
-  if (hasChildren) return depth * 18 + 28;
-  return depth === 0 ? 6 : depth * 18 + 10;
+export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {
+  return depth * 18;
 }
 
 export function databaseSidebarItemTree(

@@ -43,6 +43,9 @@ export default defineAction({
     const database = await getDatabaseById(definition.databaseId);
     if (!database) throw new Error("Document database not found.");
     await assertAccess("document", database.documentId, "editor");
+    if (definition.systemRole) {
+      throw new Error("System properties are derived and cannot be edited.");
+    }
     const access = await resolveContentDocumentAccess(documentId);
     if (!access) throw new Error(`Document "${documentId}" not found`);
     const document = access.resource;
@@ -56,10 +59,6 @@ export default defineAction({
         ),
       );
     if (!membership) throw new Error("Document is not part of this database.");
-    if (definition.systemRole) {
-      throw new Error("System properties are derived and cannot be edited.");
-    }
-
     const type = definition.type as DocumentPropertyType;
     if (isComputedPropertyType(type)) {
       throw new Error("Computed properties cannot be edited.");

@@ -171,6 +171,24 @@ export function patchDocumentCaches(
   );
 }
 
+export function documentUpdateSuccessPatch(
+  data: DocumentUpdateResponse,
+  variables: DocumentUpdateRequestWithCas,
+): Partial<Document> {
+  return {
+    updatedAt: data.updatedAt,
+    ...(variables.title !== undefined ? { title: data.title } : {}),
+    ...(variables.content !== undefined ? { content: data.content } : {}),
+    ...(variables.description !== undefined
+      ? { description: data.description }
+      : {}),
+    ...(variables.icon !== undefined ? { icon: data.icon } : {}),
+    ...(variables.isFavorite !== undefined
+      ? { isFavorite: data.isFavorite }
+      : {}),
+  };
+}
+
 export function restoreQuerySnapshots(
   queryClient: Pick<QueryClient, "setQueryData">,
   snapshots: Array<[readonly unknown[], unknown]>,
@@ -296,6 +314,7 @@ export function useUpdateDocument() {
   return useActionMutation<DocumentUpdateResult, DocumentUpdateRequestWithCas>(
     "update-document",
     {
+      skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
         const optimisticPatch: Partial<Document> = {
           ...(variables.title !== undefined ? { title: variables.title } : {}),
@@ -371,28 +390,11 @@ export function useUpdateDocument() {
           return;
         }
 
-        queryClient.setQueryData(
-          ["action", "get-document", { id: variables.id }],
-          (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
+        patchDocumentCaches(
+          queryClient,
+          variables.id,
+          documentUpdateSuccessPatch(data, variables),
         );
-        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
-          mergeDocumentIntoListDocumentsCache(old, data),
-        );
-        queryClient.setQueriesData<ContentDatabaseResponse>(
-          { queryKey: ["action", "get-content-database"] },
-          (current) =>
-            patchDocumentWithFavoriteMembershipInDatabaseCache(
-              current,
-              variables.id,
-              data,
-            ),
-        );
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: variables.id }],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
         if (variables.isFavorite !== undefined) {
           queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
@@ -400,6 +402,12 @@ export function useUpdateDocument() {
         }
 
         if (data.softDeletedDatabaseIds.length > 0) {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-trashed-content-databases"],
+          });
           const databaseIds = data.softDeletedDatabaseIds;
           toast("Database deleted", {
             action: {

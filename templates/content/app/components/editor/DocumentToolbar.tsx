@@ -18,6 +18,7 @@ import {
   IconExternalLink,
   IconFileTypeHtml,
   IconFileTypePdf,
+  IconFolder,
   IconLinkOff,
   IconLoader2,
   IconMarkdown,
@@ -227,6 +228,8 @@ function ToolbarBreadcrumb({
           <>
             {item.icon ? (
               <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+            ) : item.iconKind === "folder" ? (
+              <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
             ) : null}
             <span className="truncate">{label}</span>
           </>
@@ -280,10 +283,12 @@ export interface ToolbarBreadcrumbItem {
   id?: string;
   title: string;
   icon?: string | null;
+  iconKind?: "folder";
   menuItems?: Array<{
     id: string;
     title: string;
     icon?: string | null;
+    iconKind?: "folder";
   }>;
 }
 
@@ -297,7 +302,16 @@ export function compactToolbarBreadcrumbItems(
     {
       title: "…",
       menuItems: hidden.flatMap((item) =>
-        item.id ? [{ id: item.id, title: item.title, icon: item.icon }] : [],
+        item.id
+          ? [
+              {
+                id: item.id,
+                title: item.title,
+                icon: item.icon,
+                iconKind: item.iconKind,
+              },
+            ]
+          : [],
       ),
     },
     ...items.slice(-2),
@@ -336,7 +350,7 @@ function ToolbarBreadcrumbMenu({
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -373,6 +387,8 @@ function ToolbarBreadcrumbMenu({
                   <IconCheck className="size-3.5" />
                 ) : menuItem.icon ? (
                   <span className="text-sm leading-none">{menuItem.icon}</span>
+                ) : menuItem.iconKind === "folder" ? (
+                  <IconFolder className="size-3.5 text-muted-foreground" />
                 ) : (
                   <IconFileText className="size-3.5 text-muted-foreground" />
                 )}

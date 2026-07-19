@@ -8,6 +8,7 @@ import {
 import {
   setClientAppState,
   useActionMutation,
+  useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -211,7 +212,7 @@ type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
 
 const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
-const EXPANDED_WORKSPACES_STORAGE_KEY = "content-sidebar-expanded-workspaces";
+const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   favorites: false,
   "local-files": false,
@@ -243,6 +244,8 @@ function WorkspaceFilesSection({
   space,
   selected,
   activeDocumentId,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
   onActivate,
   onCreateChildPage,
   onCreateChildDatabase,
@@ -252,6 +255,8 @@ function WorkspaceFilesSection({
   space: ContentSpaceSummary;
   selected: boolean;
   activeDocumentId: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onCreateChildPage: (
     space: ContentSpaceSummary,
@@ -291,6 +296,8 @@ function WorkspaceFilesSection({
           overrides={filesPersonalView.data?.overrides}
           isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
           activeDocumentId={activeDocumentId}
+          expandedDocumentIds={expandedDocumentIds}
+          onDocumentExpandedChange={onDocumentExpandedChange}
           onSelectView={(viewId) => {
             const current = filesPersonalView.data?.overrides;
             updateFilesPersonalView.mutate({
@@ -389,9 +396,30 @@ export function DocumentSidebar({
     spaces: contentSpaces,
     storedSpaceId,
   });
-  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useLocalStorage<
-    string[]
-  >(EXPANDED_WORKSPACES_STORAGE_KEY, []);
+  const sidebarStateQuery = useActionQuery("get-content-sidebar-state", {});
+  const updateSidebarState = useActionMutation("update-content-sidebar-state", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        ["action", "get-content-sidebar-state", {}],
+        data,
+      );
+    },
+  });
+  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<string[]>(
+    [],
+  );
+  const [expandedDocumentIds, setExpandedDocumentIds] = useState<string[]>([]);
+  const expandedDocumentIdSet = useMemo(
+    () => new Set(expandedDocumentIds),
+    [expandedDocumentIds],
+  );
+  const sidebarStateHydratedRef = useRef(false);
+  const expandedWorkspaceIdsRef = useRef<string[]>([]);
+  const expandedDocumentIdsRef = useRef<string[]>([]);
+  const sidebarStateWriteTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] =
     useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -420,17 +448,96 @@ export function DocumentSidebar({
     }
   }, [selectedSpace, setStoredSpaceId, storedSpaceId]);
   useEffect(() => {
-    if (!selectedSpace) return;
-    setExpandedWorkspaceIds((current) =>
+    if (
+      sidebarStateHydratedRef.current ||
+      !contentSpacesQuery.isSuccess ||
+      sidebarStateQuery.isLoading
+    ) {
+      return;
+    }
+    const stored = sidebarStateQuery.data?.state;
+    const workspaceIds =
+      stored?.expandedWorkspaceIds ?? contentSpaces.map((space) => space.id);
+    const documentIds = stored?.expandedDocumentIds ?? [];
+    expandedWorkspaceIdsRef.current = workspaceIds;
+    expandedDocumentIdsRef.current = documentIds;
+    setExpandedWorkspaceIds(workspaceIds);
+    setExpandedDocumentIds(documentIds);
+    sidebarStateHydratedRef.current = true;
+  }, [
+    contentSpaces,
+    contentSpacesQuery.isSuccess,
+    sidebarStateQuery.data?.state,
+    sidebarStateQuery.isLoading,
+  ]);
+
+  const queueSidebarStateWrite = useCallback(
+    (workspaceIds: string[], documentIds: string[]) => {
+      if (!sidebarStateHydratedRef.current) return;
+      if (sidebarStateWriteTimerRef.current) {
+        clearTimeout(sidebarStateWriteTimerRef.current);
+      }
+      sidebarStateWriteTimerRef.current = setTimeout(() => {
+        sidebarStateWriteTimerRef.current = null;
+        updateSidebarState.mutate({
+          version: CONTENT_SIDEBAR_STATE_VERSION,
+          expandedWorkspaceIds: workspaceIds,
+          expandedDocumentIds: documentIds,
+        });
+      }, 150);
+    },
+    [updateSidebarState],
+  );
+
+  const updateExpandedWorkspaceIds = useCallback(
+    (update: (current: string[]) => string[]) => {
+      setExpandedWorkspaceIds((current) => {
+        const next = update(current);
+        if (next === current) return current;
+        expandedWorkspaceIdsRef.current = next;
+        queueSidebarStateWrite(next, expandedDocumentIdsRef.current);
+        return next;
+      });
+    },
+    [queueSidebarStateWrite],
+  );
+
+  const handleDocumentExpandedChange = useCallback(
+    (documentId: string, expanded: boolean) => {
+      setExpandedDocumentIds((current) => {
+        const nextSet = new Set(current);
+        if (expanded) nextSet.add(documentId);
+        else nextSet.delete(documentId);
+        const next = [...nextSet];
+        expandedDocumentIdsRef.current = next;
+        queueSidebarStateWrite(expandedWorkspaceIdsRef.current, next);
+        return next;
+      });
+    },
+    [queueSidebarStateWrite],
+  );
+
+  useEffect(
+    () => () => {
+      if (sidebarStateWriteTimerRef.current) {
+        clearTimeout(sidebarStateWriteTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!selectedSpace || !sidebarStateHydratedRef.current) return;
+    updateExpandedWorkspaceIds((current) =>
       ensureWorkspaceExpanded(current, selectedSpace.id),
     );
-  }, [selectedSpace, setExpandedWorkspaceIds]);
+  }, [selectedSpace, updateExpandedWorkspaceIds]);
   const handleSelectContentSpace = useCallback(
     async (
       space: (typeof contentSpaces)[number],
       targetDocumentId?: string | null,
     ) => {
-      setExpandedWorkspaceIds((current) =>
+      updateExpandedWorkspaceIds((current) =>
         ensureWorkspaceExpanded(current, space.id),
       );
       try {
@@ -463,7 +570,7 @@ export function DocumentSidebar({
         return false;
       }
     },
-    [navigate, setExpandedWorkspaceIds, setStoredSpaceId],
+    [navigate, setStoredSpaceId, updateExpandedWorkspaceIds],
   );
   const handleCreateWorkspace = useCallback(async () => {
     const name = newWorkspaceName.trim();
@@ -1306,7 +1413,7 @@ export function DocumentSidebar({
       <div className="min-w-0">
         <div
           className={cn(
-            "flex h-7 w-full min-w-0 items-center rounded-md",
+            "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
             selected
               ? "text-foreground"
               : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
@@ -1316,18 +1423,27 @@ export function DocumentSidebar({
             type="button"
             aria-expanded={expanded}
             aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+            className="relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
             onClick={() =>
-              setExpandedWorkspaceIds((current) =>
+              updateExpandedWorkspaceIds((current) =>
                 toggleExpandedWorkspaceIds(current, space.id),
               )
             }
           >
-            {expanded ? (
-              <IconChevronDown size={14} />
-            ) : (
-              <IconChevronRight size={14} />
-            )}
+            <span className="group-hover/workspace-header:opacity-0 group-focus-within/workspace-header:opacity-0">
+              {expanded ? (
+                <IconFolderOpen size={14} />
+              ) : (
+                <IconFolder size={14} />
+              )}
+            </span>
+            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100">
+              {expanded ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+            </span>
           </button>
           <button
             type="button"
@@ -1351,6 +1467,8 @@ export function DocumentSidebar({
             space={space}
             selected={selected}
             activeDocumentId={activeDocumentId}
+            expandedDocumentIds={expandedDocumentIdSet}
+            onDocumentExpandedChange={handleDocumentExpandedChange}
             onActivate={(nextSpace, documentId) =>
               void handleSelectContentSpace(nextSpace, documentId)
             }

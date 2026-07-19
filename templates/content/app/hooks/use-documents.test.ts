@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  documentUpdateSuccessPatch,
   documentPropertiesQueryKey,
   documentQueryKey,
   filterDocumentTreeDocuments,
@@ -360,6 +361,51 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+});
+
+describe("documentUpdateSuccessPatch", () => {
+  it("does not let an icon-only response overwrite a newer optimistic title", () => {
+    const response = {
+      ...doc("page", null),
+      title: "Untitled",
+      icon: "🌱",
+      updatedAt: "2026-05-12T00:00:01.000Z",
+      urlPath: "/page/page",
+      softDeletedDatabaseIds: [],
+    };
+
+    const patch = documentUpdateSuccessPatch(response, {
+      id: "page",
+      icon: "🌱",
+    });
+
+    expect({ ...doc("page", null), title: "Renamed", ...patch }).toMatchObject({
+      title: "Renamed",
+      icon: "🌱",
+      updatedAt: "2026-05-12T00:00:01.000Z",
+    });
+    expect(patch).not.toHaveProperty("title");
+  });
+
+  it("reconciles fields that were part of the successful mutation", () => {
+    const response = {
+      ...doc("page", null),
+      title: "Renamed",
+      updatedAt: "2026-05-12T00:00:01.000Z",
+      urlPath: "/page/page",
+      softDeletedDatabaseIds: [],
+    };
+
+    expect(
+      documentUpdateSuccessPatch(response, {
+        id: "page",
+        title: "Renamed",
+      }),
+    ).toEqual({
+      title: "Renamed",
+      updatedAt: "2026-05-12T00:00:01.000Z",
+    });
   });
 });
 

@@ -39,8 +39,8 @@ const item = (id: string, title: string, parentId: string | null = null) =>
   }) as ContentDatabaseItem;
 
 describe("DatabaseSidebarView", () => {
-  it("aligns a leaf child icon with its parent page icon", () => {
-    expect(databaseSidebarRowIndent(2, false)).toBe(
+  it("aligns sibling icons whether or not a page has children", () => {
+    expect(databaseSidebarRowIndent(1, false)).toBe(
       databaseSidebarRowIndent(1, true),
     );
   });
@@ -93,7 +93,7 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("font-semibold");
   });
 
-  it("renders parented Files pages beneath supplied hierarchy roots", () => {
+  it("starts with only hierarchy roots visible", () => {
     const rootItem = item("parent", "Page one");
     const childItem = item("child", "Page two", "parent");
     const grandchildItem = item("grandchild", "Page three", "child");
@@ -140,16 +140,65 @@ describe("DatabaseSidebarView", () => {
             untitledLabel="Untitled"
             onClearResultConstraints={() => {}}
             onPreview={() => {}}
-            activeDocumentId="child"
+            activeDocumentId="parent"
           />
         </TooltipProvider>
       </MemoryRouter>,
     );
 
-    expect(markup).toContain('aria-label="Collapse Page one"');
-    expect(markup).toContain('href="/page/child"');
-    expect(markup).toContain("Page three");
+    expect(markup).toContain('aria-label="Expand Page one"');
+    expect(markup).not.toContain('href="/page/child"');
+    expect(markup).not.toContain("Page three");
     expect(markup).toContain('aria-current="page"');
+  });
+
+  it("reveals descendants only after their parent is explicitly expanded", async () => {
+    const rootItem = item("parent", "Page one");
+    const childItem = item("child", "Page two", "parent");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [rootItem],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              hierarchyItems={[rootItem, childItem]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints={false}
+              openPagesIn="full_page"
+              loadingLabel="Loading list"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector('a[href="/page/child"]')).toBeNull();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Expand Page one"]')
+        ?.click();
+    });
+    expect(container.querySelector('a[href="/page/child"]')).not.toBeNull();
+
+    await act(async () => root.unmount());
   });
 
   it("does not reinsert descendants excluded by a Files filter", () => {
@@ -399,7 +448,8 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain('aria-label="More actions for Project"');
     expect(markup).toContain('aria-label="Add child to');
     expect(markup).toContain("group-hover:opacity-100");
-    expect(markup).not.toContain("pointer-events-none");
+    expect(markup).toContain("pointer-events-none");
+    expect(markup).toContain("group-hover:pointer-events-auto");
     expect(markup).not.toContain("shadow-sm");
   });
 });

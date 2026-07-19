@@ -305,6 +305,9 @@ describe("Content space provisioning", () => {
     expect(
       databases.filter((database: any) => database.systemRole === "workspaces"),
     ).toHaveLength(1);
+    const workspaces = databases.find(
+      (database: any) => database.systemRole === "workspaces",
+    );
     expect(
       databases.filter((database: any) => database.systemRole === "favorites"),
     ).toHaveLength(1);
@@ -333,6 +336,8 @@ describe("Content space provisioning", () => {
     expect(filesItems).toHaveLength(0);
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
+        catalogDatabaseId: workspaces.id,
+        catalogDocumentId: workspaces.documentId,
         favoritesDatabaseId: first.favoritesDatabaseId,
         favoritesDocumentId: first.favoritesDocumentId,
         spaces: expect.arrayContaining([

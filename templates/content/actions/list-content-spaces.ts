@@ -121,6 +121,7 @@ export default defineAction({
     }
     return {
       catalogDatabaseId: catalogIds.databaseId,
+      catalogDocumentId: catalogIds.documentId,
       favoritesDatabaseId: filesDocumentIdByDatabaseId.has(
         favoritesIds.databaseId,
       )

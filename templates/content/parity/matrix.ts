@@ -39,13 +39,14 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "workspace.spaces-and-files-catalog",
     surface: "workspace",
-    label: "Provision and navigate Content spaces through Files and Workspaces",
+    label:
+      "Provision and navigate Content spaces through Files and Workspaces with personal expansion state",
     uiEntrypoints: [
       "app/components/sidebar/DocumentSidebar.tsx",
       "app/hooks/use-content-spaces.ts",
     ],
     durableEffect:
-      "Personal and organization spaces, their canonical Files databases, and the personal Workspaces catalog are provisioned and reconciled in SQL.",
+      "Personal and organization spaces, their canonical Files databases, the personal Workspaces catalog, and each user's sidebar expansion state are stored and reconciled in SQL.",
     uiImplementation:
       "The app sidebar calls the shared space actions and renders the selected Files database through a saved sidebar view.",
     status: "action-backed",
@@ -53,7 +54,9 @@ export const parityMatrix: ParityRow[] = [
       "backfill-content-files",
       "create-content-space",
       "ensure-content-spaces",
+      "get-content-sidebar-state",
       "list-content-spaces",
+      "update-content-sidebar-state",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -63,6 +66,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/content-spaces.db.test.ts",
       "actions/content-files.db.test.ts",
+      "actions/content-sidebar-state.test.ts",
     ],
   },
   {
