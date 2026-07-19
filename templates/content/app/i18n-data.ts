@@ -2791,6 +2791,8 @@ const editorSlashMessages = {
 };
 
 const localFilesMessages = {
+  interruptedPicker:
+    "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedElectron:
     "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedBrowser:

@@ -1010,6 +1010,8 @@ const messages = {
       "新增狀態、選取、多選或核取方塊屬性來分組。",
   },
   localFiles: {
+    interruptedPicker:
+      "上次資料夾選擇器未能完成，因此已在此瀏覽器設定檔中停用。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     unsupportedElectron:
       "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     unsupportedBrowser:

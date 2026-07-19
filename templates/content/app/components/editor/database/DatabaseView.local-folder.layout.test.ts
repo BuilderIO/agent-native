@@ -38,5 +38,6 @@ describe("Files database local-folder source entry", () => {
     expect(localFilesRoute).not.toContain("__agentNativeSafeDirectoryPicker");
     expect(localFilesRoute).toContain("showDirectoryPicker");
     expect(localFilesRoute).toContain("isUnsafeNativeFolderPickerHost()");
+    expect(localFilesRoute).toContain("runNativeFolderPickerWithCrashSentinel");
   });
 });
