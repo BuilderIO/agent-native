@@ -40,9 +40,10 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/corpus/` for source examples.
 
 When adding or customizing a browser UI, read `customizing-agent-native`.
-Configure or compose public components first; if needed, copy only the smallest
-reference UI piece into app-owned source. Never edit `node_modules`, deep-import
-private source, or replace the headless app's existing action contracts.
+Use the supported ladder: configure → compose → eject the smallest unit →
+propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
+commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+private source, or eject protected runtime/action contracts.
 
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
@@ -88,4 +89,4 @@ Skills in `.agents/skills/` provide detailed guidance. Read
 `.agents/skills/agent-native-docs/SKILL.md` before using advanced Agent Native
 framework APIs, generated-app features, automations, A2A, sharing, or MCP.
 Read `.agents/skills/customizing-agent-native/SKILL.md` before adding UI or
-overriding shared Agent Native components.
+overriding shared Agent Native features.

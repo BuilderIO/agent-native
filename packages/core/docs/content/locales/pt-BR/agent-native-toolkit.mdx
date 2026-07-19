@@ -138,3 +138,9 @@ app os dados, fluxos, rótulos e estilo visual específicos do domínio.
 - [**Criar templates**](/docs/creating-templates) — crie um template completo e veja onde os kits se encaixam.
 - [**API de componentes**](/docs/components) — a referência de todos os exports públicos do React.
 - [**Ciclo de vida de pacotes**](/docs/package-lifecycle) — inspecione, adicione e ejete módulos de capacidade do Toolkit guiados por manifesto com segurança.
+
+## Personalizar ou ejetar um kit {#customize-or-eject}
+
+Siga esta ordem: configure a API pública → componha primitivos públicos → ejete a menor unidade → proponha uma interface compartilhada. Explore com `agent-native eject --list` e `agent-native eject inspect <unit>`; depois visualize `agent-native eject <unit> --app <app>` antes de adicionar `--apply`.
+
+Os manifestos do Toolkit cobrem todos os pontos de entrada públicos. O app registra origem e reescritas de imports em `agent-native.ejections.json`. `agent-native eject diff <unit> --app <app>` mostra desvios; `restore` só funciona se hashes e imports estiverem intactos. As unidades first-party também cobrem catálogos MCP remotos, conexões de workspace, definições de provider API, adaptadores de mensagens, UI de configuração/prontidão e pacotes de domínio. Uma receita first-party ausente falha o guard de publicação; pacotes externos recebem um blueprint add; contratos protegidos do Core permanecem atrás de interfaces públicas de extensão.

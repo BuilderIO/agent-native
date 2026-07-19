@@ -138,3 +138,9 @@ Abläufe, Labels und visuelles Styling bleiben in der App.
 - [**Templates erstellen**](/docs/creating-templates) — Templates Ende-zu-Ende bauen und Kits im Kontext sehen.
 - [**Komponenten-API**](/docs/components) — die Referenz aller öffentlichen React-Exports.
 - [**Paket-Lebenszyklus**](/docs/package-lifecycle) — manifestgesteuerte Toolkit-Fähigkeitsmodule sicher untersuchen, hinzufügen und auswerfen.
+
+## Ein Kit anpassen oder auswerfen {#customize-or-eject}
+
+Folgen Sie dieser Reihenfolge: öffentliche API konfigurieren → öffentliche Primitives zusammensetzen → kleinste Einheit auswerfen → gemeinsame Naht vorschlagen. Erkunden Sie mit `agent-native eject --list` und `agent-native eject inspect <unit>`; prüfen Sie danach `agent-native eject <unit> --app <app>` als Vorschau, bevor Sie `--apply` hinzufügen.
+
+Toolkit-Manifeste decken jeden öffentlichen Einstiegspunkt ab. Die Anwendung protokolliert Quelle und Import-Umschreibungen in `agent-native.ejections.json`. `agent-native eject diff <unit> --app <app>` zeigt Abweichungen; `restore` läuft nur, wenn Hashes und Importe unverändert sind. First-Party-Einheiten decken auch Remote-MCP-Kataloge, Workspace-Verbindungen, Provider-API-Definitionen, Messaging-Adapter, Setup-/Readiness-UI und Domänenpakete ab. Ein fehlendes First-Party-Rezept lässt den Release-Guard fehlschlagen; Drittanbieter erhalten einen Add-Blueprint; geschützte Core-Verträge bleiben hinter öffentlichen Erweiterungsnähten.

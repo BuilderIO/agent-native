@@ -15,6 +15,7 @@
   "files": [
     "dist",
     "src",
+    "agent-native.eject.json",
     "migration-manifest.json",
     "README.md"
   ],
@@ -186,6 +187,7 @@
       "import": "./dist/utils.js",
       "default": "./dist/utils.js"
     },
+    "./agent-native.eject.json": "./agent-native.eject.json",
     "./migration-manifest.json": "./migration-manifest.json",
     "./styles.css": "./dist/styles.css",
     "./chat-history.css": "./dist/chat-history.css",
@@ -277,5 +279,6 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
-  }
+  },
+  "agentNativeEjectManifest": "agent-native.eject.json"
 }

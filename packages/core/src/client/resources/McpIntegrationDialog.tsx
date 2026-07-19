@@ -45,7 +45,7 @@ import {
 
 type DialogMode = "catalog" | "form";
 
-interface McpIntegrationDialogProps {
+export interface McpIntegrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialIntegrationId?: string | null;
@@ -54,6 +54,7 @@ interface McpIntegrationDialogProps {
   hasOrg: boolean;
   onCreateMcpServer: (args: CreateMcpServerArgs) => Promise<unknown>;
   onCreated?: () => void;
+  integrations?: DefaultMcpIntegration[];
 }
 
 interface TestResult {
@@ -95,6 +96,7 @@ export function McpIntegrationDialog({
   hasOrg,
   onCreateMcpServer,
   onCreated,
+  integrations,
 }: McpIntegrationDialogProps) {
   const t = useT();
   const [mode, setMode] = useState<DialogMode>("catalog");
@@ -116,7 +118,10 @@ export function McpIntegrationDialog({
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mcpServersQuery = useMcpServers();
-  const defaultIntegrations = useMemo(() => getDefaultMcpIntegrations(), []);
+  const defaultIntegrations = useMemo(
+    () => integrations ?? getDefaultMcpIntegrations(),
+    [integrations],
+  );
   const customIntegrationEnabled = useMemo(
     () => isCustomMcpIntegrationEnabled(),
     [],

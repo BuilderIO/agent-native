@@ -15,8 +15,29 @@ agent-native package eject @agent-native/scheduling --apply
 ```
 
 新增與退出預設只會預覽。只有指定 `--apply` 才會寫入檔案並執行偵測到的套件
-管理器。CLI 會拒絕衝突與未知配置；安裝失敗時會還原檔案與鎖定檔。試辦期間
-只有 Scheduling 可退出，Pinpoint 暫不納入。
+管理器。CLI 會拒絕衝突與未知配置；安裝失敗時會還原檔案與鎖定檔。
+
+## 退出單一功能
+
+請依序自訂：設定公開 API、組合公開元件、退出最小單元；若多個應用程式都
+需要相同變更，再提出共用擴充介面。
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+這些命令預設只會預覽。套用後，會將套件版本、資訊清單摘要、檔案雜湊與
+import 重寫記錄到可提交的 `agent-native.ejections.json`。Restore 只會在檔案
+與 import 維持不變時執行；否則會顯示差異並拒絕刪除本機修改。
+
+第一方資訊清單涵蓋所有公開 Toolkit 進入點及第一方整合目錄。缺少第一方配方
+屬於框架涵蓋錯誤；未知的第三方套件會收到 add 形式的藍圖。受保護的 Core
+契約不會被複製，CLI 會引導至公開設定、轉接器或擴充介面。
 
 ## 遷移
 

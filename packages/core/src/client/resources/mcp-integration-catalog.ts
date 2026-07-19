@@ -3,6 +3,7 @@ import {
   type McpIntegrationsConfigInput,
   type NormalizedMcpIntegrationsConfig,
 } from "../../shared/mcp-integration-config.js";
+import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
 export type McpIntegrationAuthMode = "none" | "headers" | "oauth";
@@ -586,6 +587,7 @@ function normalizePresetConfig(
 
 export function getDefaultMcpIntegrations(
   config?: McpIntegrationsConfigInput | NormalizedMcpIntegrationsConfig,
+  overrides: readonly DefaultMcpIntegration[] = [],
 ): DefaultMcpIntegration[] {
   const normalized = normalizePresetConfig(config);
   if (!normalized.enabled || !normalized.defaults.enabled) return [];
@@ -594,11 +596,17 @@ export function getDefaultMcpIntegrations(
     ? new Set(normalized.defaults.include)
     : null;
   const exclude = new Set(normalized.defaults.exclude);
-  return DEFAULT_MCP_INTEGRATIONS.filter((integration) => {
+  return mergeDefaultMcpIntegrations(overrides).filter((integration) => {
     const id = integration.id.toLowerCase();
     if (include && !include.has(id)) return false;
     return !exclude.has(id);
   });
+}
+
+export function mergeDefaultMcpIntegrations(
+  overrides: readonly DefaultMcpIntegration[] = [],
+): DefaultMcpIntegration[] {
+  return mergeDefinitionsById(DEFAULT_MCP_INTEGRATIONS, overrides);
 }
 
 export function isCustomMcpIntegrationEnabled(

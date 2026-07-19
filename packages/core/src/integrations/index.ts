@@ -18,6 +18,7 @@ export type {
   PlatformDeliveryReceipt,
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
+export { mergeIntegrationAdapters } from "./adapter-overrides.js";
 export {
   deliverJsonWebhook,
   escapeSlackMrkdwn,
@@ -51,6 +52,9 @@ export {
 
 // Plugin
 export {
+  BUILT_IN_INTEGRATION_ADAPTER_FACTORIES,
+  BUILT_IN_INTEGRATION_ADAPTER_IDS,
+  createBuiltInIntegrationAdapters,
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
   enqueueRemoteCommand,
@@ -110,7 +114,7 @@ export type {
 } from "./remote-types.js";
 
 // Adapters
-export { slackAdapter } from "./adapters/slack.js";
+export { slackAdapter, type SlackAdapterOptions } from "./adapters/slack.js";
 export { telegramAdapter } from "./adapters/telegram.js";
 export { whatsappAdapter } from "./adapters/whatsapp.js";
 export { discordAdapter } from "./adapters/discord.js";

@@ -14,9 +14,11 @@
   },
   "files": [
     "agent-native.package.json",
+    "agent-native.eject.json",
     "dist",
     "docs",
-    "src"
+    "src",
+    "tsconfig.json"
   ],
   "type": "module",
   "sideEffects": false,
@@ -92,5 +94,6 @@
       "optional": true
     }
   },
+  "agentNativeEjectManifest": "agent-native.eject.json",
   "agentNativeManifest": "agent-native.package.json"
 }

@@ -117,3 +117,9 @@ Toolkit उच्च-गुणवत्ता वाले एजेंटिक
 - [**टेम्पलेट बनाना**](/docs/creating-templates) — एंड-टू-एंड टेम्पलेट बनाएं और किट का स्थान देखें।
 - [**कंपोनेंट API**](/docs/components) — सभी सार्वजनिक React export का संदर्भ।
 - [**पैकेज लाइफसाइकल**](/docs/package-lifecycle) — manifest-आधारित Toolkit क्षमता मॉड्यूल को सुरक्षित रूप से जांचें, जोड़ें और eject करें।
+
+## किसी kit को कस्टमाइज़ या eject करें {#customize-or-eject}
+
+यह क्रम अपनाएँ: public API configure करें → public primitives compose करें → सबसे छोटी unit eject करें → shared seam प्रस्तावित करें। `agent-native eject --list` और `agent-native eject inspect <unit>` से खोजें; `--apply` जोड़ने से पहले `agent-native eject <unit> --app <app>` का preview देखें।
+
+Toolkit manifest हर public entrypoint cover करता है। App source और import rewrites को `agent-native.ejections.json` में दर्ज करता है। `agent-native eject diff <unit> --app <app>` drift दिखाता है; hashes और imports intact न हों तो `restore` नहीं चलता। First-party units remote MCP catalogs, workspace connections, provider API definitions, messaging adapters, setup/readiness UI और domain packages भी cover करती हैं। Missing first-party recipe release guard fail करती है; external package को add blueprint मिलता है; protected Core contracts public extension seams के पीछे रहते हैं।

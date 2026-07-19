@@ -87,8 +87,9 @@ When adding or refactoring one of these areas:
    instead of hardcoding app names in core UI.
 6. Update docs and relevant skills so future apps discover the shared path.
 7. Keep the component easy to adopt piecemeal: expose props/slots first and
-   ship readable source so apps can copy the smallest UI piece when their
-   product needs to own it. See `customizing-agent-native`.
+   ship readable source plus a complete ejection unit so apps can take ownership
+   of the smallest feature when needed. See `customizing-agent-native` for the
+   configure → compose → eject → propose seam ladder.
 
 ## Related Skills
 
