@@ -21,6 +21,7 @@
     "corpus",
     "dist",
     "docs",
+    "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
     "src/templates/default",
