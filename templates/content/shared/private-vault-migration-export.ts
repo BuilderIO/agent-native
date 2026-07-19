@@ -41,6 +41,9 @@ export const privateVaultMigrationExportPayloadSchema = z
     vaultId: opaqueIdSchema,
     migrationId: opaqueIdSchema,
     sourceSnapshotHash: digestSchema,
+    cutoverManifestObjectId: opaqueIdSchema,
+    cutoverManifestRevisionId: opaqueIdSchema,
+    cutoverManifestCiphertextHash: digestSchema,
     createdAt: timestampSchema,
     documents: z
       .array(privateVaultMigrationExportDocumentSchema)
@@ -141,6 +144,9 @@ export function encodePrivateVaultMigrationExportPayload(
     vaultId: parsed.vaultId,
     migrationId: parsed.migrationId,
     sourceSnapshotHash: parsed.sourceSnapshotHash,
+    cutoverManifestObjectId: parsed.cutoverManifestObjectId,
+    cutoverManifestRevisionId: parsed.cutoverManifestRevisionId,
+    cutoverManifestCiphertextHash: parsed.cutoverManifestCiphertextHash,
     createdAt: parsed.createdAt,
     documents: [...parsed.documents].sort(compareSourceIds),
   };

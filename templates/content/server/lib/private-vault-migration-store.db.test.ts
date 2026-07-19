@@ -38,6 +38,9 @@ function ledger(
     sourceSnapshotHash: "41".repeat(32),
     sourceCount: 2,
     verifiedCount: 0,
+    cutoverManifestObjectId: "42".repeat(16),
+    cutoverManifestRevisionId: null,
+    cutoverManifestCiphertextHash: null,
     exportBundleHash: null,
     exportVerifiedAt: null,
     recoveryDrillVerifiedAt: null,
@@ -147,6 +150,8 @@ describe("Private Vault SQL migration ledger", () => {
     const cutover = ledger({
       state: "cutover",
       verifiedCount: 2,
+      cutoverManifestRevisionId: "43".repeat(16),
+      cutoverManifestCiphertextHash: "44".repeat(32),
       cutoverAt: timestamp,
     });
     await store.transition({
@@ -157,6 +162,8 @@ describe("Private Vault SQL migration ledger", () => {
     const eligible = ledger({
       state: "cleanup_eligible",
       verifiedCount: 2,
+      cutoverManifestRevisionId: "43".repeat(16),
+      cutoverManifestCiphertextHash: "44".repeat(32),
       cutoverAt: timestamp,
       exportBundleHash: "91".repeat(32),
       exportVerifiedAt: timestamp,

@@ -78,18 +78,27 @@ describe("manage-private-vault-migration action", () => {
       ciphertextHash: "51".repeat(32),
     });
 
-    for (const operation of [
-      "begin",
-      "cutover",
-      "rollback",
-      "cleanup",
-    ] as const)
+    for (const operation of ["begin", "rollback", "cleanup"] as const)
       await action.run({ vaultId, operation, migrationId }, {} as never);
+    await action.run(
+      {
+        vaultId,
+        operation: "cutover",
+        migrationId,
+        objectId: "41".repeat(16),
+        revisionId: "42".repeat(16),
+        ciphertextHash: "43".repeat(32),
+      },
+      {} as never,
+    );
     expect(runtime.coordinator.begin).toHaveBeenCalledWith(scope, migrationId);
-    expect(runtime.coordinator.cutover).toHaveBeenCalledWith(
+    expect(runtime.coordinator.cutover).toHaveBeenCalledWith({
       scope,
       migrationId,
-    );
+      objectId: "41".repeat(16),
+      revisionId: "42".repeat(16),
+      ciphertextHash: "43".repeat(32),
+    });
     expect(runtime.coordinator.rollback).toHaveBeenCalledWith(
       scope,
       migrationId,

@@ -14,6 +14,9 @@ const base: PrivateVaultMigrationLedger = {
   sourceSnapshotHash: "41".repeat(32),
   sourceCount: 2,
   verifiedCount: 0,
+  cutoverManifestObjectId: "42".repeat(16),
+  cutoverManifestRevisionId: null,
+  cutoverManifestCiphertextHash: null,
   exportBundleHash: null,
   exportVerifiedAt: null,
   recoveryDrillVerifiedAt: null,
@@ -55,6 +58,8 @@ describe("Private Vault migration contract", () => {
       ...base,
       state: "cutover" as const,
       verifiedCount: 2,
+      cutoverManifestRevisionId: "43".repeat(16),
+      cutoverManifestCiphertextHash: "44".repeat(32),
       cutoverAt: timestamp,
     };
     expect(() =>

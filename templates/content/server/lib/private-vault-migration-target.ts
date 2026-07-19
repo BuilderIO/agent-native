@@ -88,33 +88,39 @@ export function createPrivateVaultMigrationCiphertextTarget(
   if (!Number.isSafeInteger(rollbackBatchSize) || rollbackBatchSize < 1)
     throw new Error("Private Vault migration rollback batch is invalid");
 
+  async function verifyObject(
+    input: Parameters<PrivateVaultMigrationCiphertextTarget["verify"]>[0],
+    expectedObjectType: "document" | "vault-manifest",
+  ): Promise<boolean> {
+    if (!validDigest(input.ciphertextHash)) return false;
+    let ciphertext: Uint8Array | undefined;
+    try {
+      const result = await objects.getRevision(
+        input.scope,
+        opaqueIdSchema.parse(input.objectId),
+        opaqueIdSchema.parse(input.revisionId),
+      );
+      ciphertext = result.ciphertext;
+      return (
+        result.metadata.vaultId === input.scope.vaultId &&
+        result.metadata.objectId === input.objectId &&
+        result.metadata.revisionId === input.revisionId &&
+        result.metadata.objectType === expectedObjectType &&
+        result.metadata.algorithmId === E2EE_SUITE_ID &&
+        result.metadata.ciphertextByteLength === ciphertext.byteLength &&
+        createHash("sha256").update(ciphertext).digest("hex") ===
+          input.ciphertextHash
+      );
+    } catch {
+      return false;
+    } finally {
+      ciphertext?.fill(0);
+    }
+  }
+
   return {
-    async verify(input) {
-      if (!validDigest(input.ciphertextHash)) return false;
-      let ciphertext: Uint8Array | undefined;
-      try {
-        const result = await objects.getRevision(
-          input.scope,
-          opaqueIdSchema.parse(input.objectId),
-          opaqueIdSchema.parse(input.revisionId),
-        );
-        ciphertext = result.ciphertext;
-        return (
-          result.metadata.vaultId === input.scope.vaultId &&
-          result.metadata.objectId === input.objectId &&
-          result.metadata.revisionId === input.revisionId &&
-          result.metadata.objectType === "document" &&
-          result.metadata.algorithmId === E2EE_SUITE_ID &&
-          result.metadata.ciphertextByteLength === ciphertext.byteLength &&
-          createHash("sha256").update(ciphertext).digest("hex") ===
-            input.ciphertextHash
-        );
-      } catch {
-        return false;
-      } finally {
-        ciphertext?.fill(0);
-      }
-    },
+    verify: (input) => verifyObject(input, "document"),
+    verifyCutoverManifest: (input) => verifyObject(input, "vault-manifest"),
 
     async rollback(input) {
       const uniqueObjectIds = [...new Set(input.objectIds)].map((objectId) =>

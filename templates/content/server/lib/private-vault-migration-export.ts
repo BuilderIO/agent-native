@@ -38,6 +38,9 @@ export function createPrivateVaultMigrationExportBundle(input: {
     ledger.sourceCount !== items.length ||
     ledger.verifiedCount !== items.length ||
     sources.length !== items.length ||
+    !ledger.cutoverManifestObjectId ||
+    !ledger.cutoverManifestRevisionId ||
+    !ledger.cutoverManifestCiphertextHash ||
     hashPrivateVaultMigrationSnapshot(items) !== ledger.sourceSnapshotHash
   )
     throw new PrivateVaultMigrationError();
@@ -82,6 +85,9 @@ export function createPrivateVaultMigrationExportBundle(input: {
     vaultId: scope.vaultId,
     migrationId: ledger.migrationId,
     sourceSnapshotHash: ledger.sourceSnapshotHash,
+    cutoverManifestObjectId: ledger.cutoverManifestObjectId,
+    cutoverManifestRevisionId: ledger.cutoverManifestRevisionId,
+    cutoverManifestCiphertextHash: ledger.cutoverManifestCiphertextHash,
     createdAt: input.createdAt,
     documents,
   });

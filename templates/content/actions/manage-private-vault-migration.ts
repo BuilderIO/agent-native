@@ -26,14 +26,18 @@ export const managePrivateVaultMigrationSchema = z.discriminatedUnion(
     z
       .object({
         ...base,
-        operation: z.enum([
-          "status",
-          "begin",
-          "cutover",
-          "rollback",
-          "cleanup",
-        ]),
+        operation: z.enum(["status", "begin", "rollback", "cleanup"]),
         migrationId: opaqueIdSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        operation: z.literal("cutover"),
+        migrationId: opaqueIdSchema,
+        objectId: opaqueIdSchema,
+        revisionId: opaqueIdSchema,
+        ciphertextHash: digestSchema,
       })
       .strict(),
     z
@@ -125,10 +129,13 @@ export default defineAction({
       case "cutover":
         return {
           operation: args.operation,
-          ledger: await privateVaultMigrationCoordinator.cutover(
+          ledger: await privateVaultMigrationCoordinator.cutover({
             scope,
-            args.migrationId,
-          ),
+            migrationId: args.migrationId,
+            objectId: args.objectId,
+            revisionId: args.revisionId,
+            ciphertextHash: args.ciphertextHash,
+          }),
         };
       case "record-cleanup-proof":
         return {

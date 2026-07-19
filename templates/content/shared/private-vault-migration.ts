@@ -32,6 +32,9 @@ export const privateVaultMigrationLedgerSchema = z
     sourceSnapshotHash: digestSchema,
     sourceCount: z.number().int().nonnegative().max(10_000),
     verifiedCount: z.number().int().nonnegative().max(10_000),
+    cutoverManifestObjectId: opaqueIdSchema.nullable(),
+    cutoverManifestRevisionId: opaqueIdSchema.nullable(),
+    cutoverManifestCiphertextHash: digestSchema.nullable(),
     exportBundleHash: digestSchema.nullable(),
     exportVerifiedAt: timestampSchema.nullable(),
     recoveryDrillVerifiedAt: timestampSchema.nullable(),
@@ -133,7 +136,8 @@ export function assertPrivateVaultMigrationTransition(
     previous.migrationId !== next.migrationId ||
     previous.vaultId !== next.vaultId ||
     previous.sourceSnapshotHash !== next.sourceSnapshotHash ||
-    previous.sourceCount !== next.sourceCount
+    previous.sourceCount !== next.sourceCount ||
+    previous.cutoverManifestObjectId !== next.cutoverManifestObjectId
   )
     throw new Error("Private Vault migration identity is immutable");
   if (
@@ -145,6 +149,20 @@ export function assertPrivateVaultMigrationTransition(
     throw new Error(
       "Private Vault migration verification cannot move backward",
     );
+  if (!next.cutoverManifestObjectId)
+    throw new Error("Private Vault migration requires a manifest coordinate");
+  if (
+    (next.cutoverManifestRevisionId === null) !==
+    (next.cutoverManifestCiphertextHash === null)
+  )
+    throw new Error("Private Vault cutover manifest proof must be complete");
+  if (
+    next.state !== "cutover" &&
+    next.state !== "cleanup_eligible" &&
+    next.state !== "cleaned" &&
+    (next.cutoverManifestRevisionId || next.cutoverManifestCiphertextHash)
+  )
+    throw new Error("Private Vault manifest proof cannot precede cutover");
   if (
     (next.state === "ready_for_cutover" ||
       next.state === "cutover" ||
@@ -157,9 +175,19 @@ export function assertPrivateVaultMigrationTransition(
     (next.state === "cutover" ||
       next.state === "cleanup_eligible" ||
       next.state === "cleaned") &&
-    !next.cutoverAt
+    (!next.cutoverAt ||
+      !next.cutoverManifestObjectId ||
+      !next.cutoverManifestRevisionId ||
+      !next.cutoverManifestCiphertextHash)
   )
-    throw new Error("Cutover requires a durable cutover time");
+    throw new Error("Cutover requires an exact encrypted manifest proof");
+  if (
+    previous.cutoverManifestRevisionId !== null &&
+    (previous.cutoverManifestRevisionId !== next.cutoverManifestRevisionId ||
+      previous.cutoverManifestCiphertextHash !==
+        next.cutoverManifestCiphertextHash)
+  )
+    throw new Error("Private Vault cutover manifest proof is immutable");
   if (next.state === "cleanup_eligible" || next.state === "cleaned") {
     if (
       !next.exportBundleHash ||

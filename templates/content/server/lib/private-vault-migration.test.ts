@@ -174,6 +174,9 @@ function harness() {
     verify: vi.fn(
       async ({ ciphertextHash }) => ciphertextHash === "41".repeat(32),
     ),
+    verifyCutoverManifest: vi.fn(
+      async ({ ciphertextHash }) => ciphertextHash === "42".repeat(32),
+    ),
     rollback: vi.fn(async () => ({ complete: true })),
     verifyExport: vi.fn(
       async ({ exportBundleHash }) => exportBundleHash === "51".repeat(32),
@@ -277,8 +280,28 @@ describe("Private Vault resumable migration coordinator", () => {
       verifiedCount: 2,
     });
     await expect(
-      coordinator.cutover(scope, ledger.migrationId),
-    ).resolves.toMatchObject({ state: "cutover", cutoverAt: now });
+      coordinator.cutover({
+        scope,
+        migrationId: ledger.migrationId,
+        objectId: "ff".repeat(16),
+        revisionId: "33".repeat(16),
+        ciphertextHash: "42".repeat(32),
+      }),
+    ).rejects.toBeInstanceOf(PrivateVaultMigrationError);
+    await expect(
+      coordinator.cutover({
+        scope,
+        migrationId: ledger.migrationId,
+        objectId: ledger.cutoverManifestObjectId!,
+        revisionId: "33".repeat(16),
+        ciphertextHash: "42".repeat(32),
+      }),
+    ).resolves.toMatchObject({
+      state: "cutover",
+      cutoverManifestRevisionId: "33".repeat(16),
+      cutoverManifestCiphertextHash: "42".repeat(32),
+      cutoverAt: now,
+    });
   });
 
   it("requires independently verified export and recovery evidence before cleanup", async () => {
@@ -293,7 +316,13 @@ describe("Private Vault resumable migration coordinator", () => {
         revisionId: (index ? "32" : "31").repeat(16),
         ciphertextHash: "41".repeat(32),
       });
-    await coordinator.cutover(scope, ledger.migrationId);
+    await coordinator.cutover({
+      scope,
+      migrationId: ledger.migrationId,
+      objectId: ledger.cutoverManifestObjectId!,
+      revisionId: "33".repeat(16),
+      ciphertextHash: "42".repeat(32),
+    });
     await expect(
       coordinator.recordCleanupProof({
         scope,
@@ -342,6 +371,7 @@ describe("Private Vault resumable migration coordinator", () => {
       scope,
       objectIds: [
         store.items.find((item) => item.sourceDocumentId === "root")!.objectId,
+        ledger.cutoverManifestObjectId,
       ],
     });
     expect(source.values.size).toBe(2);

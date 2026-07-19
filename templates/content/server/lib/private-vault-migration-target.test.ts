@@ -118,6 +118,49 @@ describe("Private Vault migration ciphertext target", () => {
     ).resolves.toBe(false);
   });
 
+  it("verifies cutover only against an exact encrypted vault manifest", async () => {
+    const objects = objectService();
+    objects.getRevision.mockResolvedValueOnce({
+      metadata: {
+        vaultId: scope.vaultId,
+        objectId,
+        revisionId,
+        objectType: "vault-manifest",
+        algorithmId: E2EE_SUITE_ID,
+        ciphertextByteLength: objects.ciphertext.byteLength,
+      },
+      ciphertext: objects.ciphertext,
+    });
+    const expectedHash = createHash("sha256")
+      .update(objects.ciphertext)
+      .digest("hex");
+    await expect(
+      createPrivateVaultMigrationCiphertextTarget({
+        objects,
+      }).verifyCutoverManifest({
+        scope,
+        objectId,
+        revisionId,
+        ciphertextHash: expectedHash,
+      }),
+    ).resolves.toBe(true);
+    expect(Array.from(objects.ciphertext)).toEqual([0, 0, 0, 0]);
+
+    const documentObjects = objectService();
+    await expect(
+      createPrivateVaultMigrationCiphertextTarget({
+        objects: documentObjects,
+      }).verifyCutoverManifest({
+        scope,
+        objectId,
+        revisionId,
+        ciphertextHash: createHash("sha256")
+          .update(documentObjects.ciphertext)
+          .digest("hex"),
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("deletes rollback objects in bounded, idempotently resumable batches", async () => {
     const objects = objectService();
     const first = "51".repeat(16);

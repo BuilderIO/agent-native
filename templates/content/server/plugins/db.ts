@@ -1400,6 +1400,16 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_encrypted_vault_migration_items_scope_state_idx
         ON content_encrypted_vault_migration_items (owner_email, org_id, vault_id, migration_id, state)`,
     },
+    {
+      version: 93,
+      name: "content-private-vault-migration-cutover-manifest",
+      sql: `ALTER TABLE content_encrypted_vault_migrations
+        ADD COLUMN IF NOT EXISTS cutover_manifest_object_id TEXT;
+      ALTER TABLE content_encrypted_vault_migrations
+        ADD COLUMN IF NOT EXISTS cutover_manifest_revision_id TEXT;
+      ALTER TABLE content_encrypted_vault_migrations
+        ADD COLUMN IF NOT EXISTS cutover_manifest_ciphertext_hash TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

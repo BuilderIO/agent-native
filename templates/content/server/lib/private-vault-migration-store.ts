@@ -25,6 +25,9 @@ function ledgerFromRow(row: LedgerRow): PrivateVaultMigrationLedger {
     sourceSnapshotHash: row.sourceSnapshotHash,
     sourceCount: row.sourceCount,
     verifiedCount: row.verifiedCount,
+    cutoverManifestObjectId: row.cutoverManifestObjectId,
+    cutoverManifestRevisionId: row.cutoverManifestRevisionId,
+    cutoverManifestCiphertextHash: row.cutoverManifestCiphertextHash,
     exportBundleHash: row.exportBundleHash,
     exportVerifiedAt: row.exportVerifiedAt,
     recoveryDrillVerifiedAt: row.recoveryDrillVerifiedAt,
@@ -54,6 +57,9 @@ function ledgerValues(next: PrivateVaultMigrationLedger, updatedAt: string) {
   return {
     state: next.state,
     verifiedCount: next.verifiedCount,
+    cutoverManifestObjectId: next.cutoverManifestObjectId,
+    cutoverManifestRevisionId: next.cutoverManifestRevisionId,
+    cutoverManifestCiphertextHash: next.cutoverManifestCiphertextHash,
     exportBundleHash: next.exportBundleHash,
     exportVerifiedAt: next.exportVerifiedAt,
     recoveryDrillVerifiedAt: next.recoveryDrillVerifiedAt,
@@ -85,6 +91,10 @@ function sameLedger(
     left.sourceSnapshotHash === right.sourceSnapshotHash &&
     left.sourceCount === right.sourceCount &&
     left.verifiedCount === right.verifiedCount &&
+    left.cutoverManifestObjectId === right.cutoverManifestObjectId &&
+    left.cutoverManifestRevisionId === right.cutoverManifestRevisionId &&
+    left.cutoverManifestCiphertextHash ===
+      right.cutoverManifestCiphertextHash &&
     left.exportBundleHash === right.exportBundleHash &&
     left.exportVerifiedAt === right.exportVerifiedAt &&
     left.recoveryDrillVerifiedAt === right.recoveryDrillVerifiedAt &&

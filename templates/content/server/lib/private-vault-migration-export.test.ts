@@ -88,6 +88,9 @@ function fixture() {
     sourceSnapshotHash: hashPrivateVaultMigrationSnapshot(items),
     sourceCount: items.length,
     verifiedCount: items.length,
+    cutoverManifestObjectId: "71".repeat(16),
+    cutoverManifestRevisionId: "72".repeat(16),
+    cutoverManifestCiphertextHash: "73".repeat(32),
     exportBundleHash: null,
     exportVerifiedAt: null,
     recoveryDrillVerifiedAt: null,
@@ -117,6 +120,9 @@ describe("Private Vault canonical migration export", () => {
       vaultId: scope.vaultId,
       migrationId: ledger.migrationId,
       sourceSnapshotHash: ledger.sourceSnapshotHash,
+      cutoverManifestObjectId: "71".repeat(16),
+      cutoverManifestRevisionId: "72".repeat(16),
+      cutoverManifestCiphertextHash: "73".repeat(32),
       createdAt: timestamp,
     });
     expect(
@@ -140,7 +146,7 @@ describe("Private Vault canonical migration export", () => {
     });
     expect(bundle.objectCount).toBe(2);
     expect(bundle.plaintextSha256).toBe(
-      "af9795356b4ebb59fe3c5dc67d2fe9b1e5677202ad2f1338d2f0b0270afcec44",
+      "0f5f87a6f4dd9765b40ee18652fa5d8ffbb274065a2998c77ea1ffaa8f467188",
     );
     expect(createHash("sha256").update(bundle.plaintext).digest("hex")).toBe(
       bundle.plaintextSha256,

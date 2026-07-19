@@ -58,6 +58,12 @@ export interface PrivateVaultMigrationCiphertextTarget {
     revisionId: string;
     ciphertextHash: string;
   }): Promise<boolean>;
+  verifyCutoverManifest(input: {
+    scope: PrivateVaultMigrationScope;
+    objectId: string;
+    revisionId: string;
+    ciphertextHash: string;
+  }): Promise<boolean>;
   rollback(input: {
     scope: PrivateVaultMigrationScope;
     objectIds: readonly string[];
@@ -233,6 +239,9 @@ export class PrivateVaultMigrationCoordinator {
       }
     }
     const items = [...itemBySource.values()];
+    let cutoverManifestObjectId = opaqueId();
+    while (items.some((item) => item.objectId === cutoverManifestObjectId))
+      cutoverManifestObjectId = opaqueId();
     const ledger = privateVaultMigrationLedgerSchema.parse({
       migrationId,
       vaultId: scope.vaultId,
@@ -240,6 +249,9 @@ export class PrivateVaultMigrationCoordinator {
       sourceSnapshotHash: hashPrivateVaultMigrationSnapshot(items),
       sourceCount: items.length,
       verifiedCount: 0,
+      cutoverManifestObjectId,
+      cutoverManifestRevisionId: null,
+      cutoverManifestCiphertextHash: null,
       exportBundleHash: null,
       exportVerifiedAt: null,
       recoveryDrillVerifiedAt: null,
@@ -343,18 +355,38 @@ export class PrivateVaultMigrationCoordinator {
     });
   }
 
-  async cutover(
-    scope: PrivateVaultMigrationScope,
-    migrationId: string,
-  ): Promise<PrivateVaultMigrationLedger> {
-    const current = await this.require(scope, migrationId);
-    const next = {
+  async cutover(input: {
+    scope: PrivateVaultMigrationScope;
+    migrationId: string;
+    objectId: string;
+    revisionId: string;
+    ciphertextHash: string;
+  }): Promise<PrivateVaultMigrationLedger> {
+    const current = await this.require(input.scope, input.migrationId);
+    if (
+      !current.ledger.cutoverManifestObjectId ||
+      current.ledger.cutoverManifestObjectId !== input.objectId ||
+      !(await this.target.verifyCutoverManifest({
+        scope: input.scope,
+        objectId: input.objectId,
+        revisionId: input.revisionId,
+        ciphertextHash: input.ciphertextHash,
+      }))
+    )
+      fail();
+    const next = privateVaultMigrationLedgerSchema.parse({
       ...current.ledger,
       state: "cutover" as const,
+      cutoverManifestRevisionId: input.revisionId,
+      cutoverManifestCiphertextHash: input.ciphertextHash,
       cutoverAt: this.now(),
-    };
+    });
     assertPrivateVaultMigrationTransition(current.ledger, next);
-    return this.store.transition({ scope, previous: current.ledger, next });
+    return this.store.transition({
+      scope: input.scope,
+      previous: current.ledger,
+      next,
+    });
   }
 
   async recordCleanupProof(input: {
@@ -407,6 +439,8 @@ export class PrivateVaultMigrationCoordinator {
     const objectIds = current.items
       .filter((item) => item.state !== "pending")
       .map((item) => item.objectId);
+    if (current.ledger.cutoverManifestObjectId)
+      objectIds.push(current.ledger.cutoverManifestObjectId);
     const rollback = await this.target.rollback({ scope, objectIds });
     if (!rollback.complete) return current.ledger;
     const next = {
