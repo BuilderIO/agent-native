@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.111.4
+
+### Patch Changes
+
+- 2f61097: Re-scan installed package exports after dependency installation before applying manifest import migrations.
+
 ## 0.111.3
 
 ### Patch Changes
