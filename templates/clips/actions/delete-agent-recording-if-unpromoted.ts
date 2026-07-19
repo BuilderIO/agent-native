@@ -3,8 +3,8 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import deleteRecordingPermanent from "./delete-recording-permanent.js";
 import { getDb, schema } from "../server/db/index.js";
+import deleteRecordingPermanent from "./delete-recording-permanent.js";
 
 export default defineAction({
   description:

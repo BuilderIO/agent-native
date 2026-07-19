@@ -31,7 +31,7 @@ function sign(identity: string) {
     identity === "-" && stableAdHocBundleId
       ? [
           "--requirements",
-          `=designated => identifier \"${stableAdHocBundleId.replaceAll('"', '')}\"`,
+          `=designated => identifier \"${stableAdHocBundleId.replaceAll('"', "")}\"`,
         ]
       : [];
   const result = spawnSync(
