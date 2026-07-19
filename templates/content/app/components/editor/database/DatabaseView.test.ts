@@ -42,6 +42,7 @@ import {
   databaseCreatedItemNeedsPreview,
   databaseClientQueryExpandedItemLimit,
   databaseClientQueryExpansionIsPending,
+  databaseColumnHeaderState,
   databaseSearchExpandedItemLimit,
   databaseSearchExpansionIsPending,
   databaseAttachedBuilderSources,
@@ -84,6 +85,13 @@ describe("Files system filters", () => {
     expect(
       userVisibleDatabaseFilters([systemFilter, userFilter], properties),
     ).toEqual([userFilter]);
+    expect(
+      databaseColumnHeaderState(
+        [],
+        userVisibleDatabaseFilters([systemFilter, userFilter], properties),
+        "kind",
+      ),
+    ).toEqual({ sortDirection: null, activeFilterCount: 0 });
   });
 });
 
