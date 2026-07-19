@@ -1259,6 +1259,17 @@ require or expose a broker coordinate. Broker discovery remains a separate
 endpoint that requires exactly one active unattended member, so an offline or
 unenrolled broker cannot prevent local Private Content use.
 
+The supported document slice now has a two-device synchronization proof over
+one shared opaque relay. Two independent signed-Desktop runtime instances use
+the production manifest, mutation, version, and synchronization stack: the
+first creates a document, the second reconstructs it and commits a new encrypted
+revision, and the first then verifies and reads that revision. A dump of every
+relay record contains none of the fixed title or either body sentinel. This is
+an in-process synthetic-device integration proof with a deterministic test
+cipher; native `anc/v1` seal/open interoperability is covered separately by the
+cross-architecture object vectors. Deployed two-client evidence remains a PR 8
+assurance item and is not inferred from this test.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:
