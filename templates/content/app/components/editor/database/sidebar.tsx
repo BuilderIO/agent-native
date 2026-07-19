@@ -528,7 +528,7 @@ function DatabaseSidebarRow({
             active && "font-semibold text-foreground",
           )}
           style={{
-            paddingInlineStart: `${depth * 18 + (hasChildren ? 28 : 6)}px`,
+            paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
           }}
           onClick={handleClick}
           aria-current={active ? "page" : undefined}
@@ -661,6 +661,11 @@ export function databaseSidebarRows(groups: DatabaseBoardGroup[]) {
 export interface DatabaseSidebarItemTreeNode {
   item: ContentDatabaseItem;
   children: DatabaseSidebarItemTreeNode[];
+}
+
+export function databaseSidebarRowIndent(depth: number, hasChildren: boolean) {
+  if (hasChildren) return depth * 18 + 28;
+  return depth === 0 ? 6 : depth * 18 + 10;
 }
 
 export function databaseSidebarItemTree(

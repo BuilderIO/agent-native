@@ -13,6 +13,7 @@ import {
   ContentFilesSidebarView,
   DatabaseSidebarView,
   databaseSidebarItemTree,
+  databaseSidebarRowIndent,
   databaseSidebarRows,
 } from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
@@ -38,6 +39,12 @@ const item = (id: string, title: string, parentId: string | null = null) =>
   }) as ContentDatabaseItem;
 
 describe("DatabaseSidebarView", () => {
+  it("aligns a leaf child icon with its parent page icon", () => {
+    expect(databaseSidebarRowIndent(2, false)).toBe(
+      databaseSidebarRowIndent(1, true),
+    );
+  });
+
   it("keeps grouped rows in their filtered and sorted group order", () => {
     const groups = [
       { id: "todo", label: "Todo", items: [item("first", "First")] },
