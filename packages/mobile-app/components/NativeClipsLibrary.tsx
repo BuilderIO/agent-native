@@ -12,7 +12,7 @@ import {
   IconVideo,
 } from "@tabler/icons-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useVideoPlayer, VideoView } from "expo-video";
+import { useVideoPlayer } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -29,7 +29,7 @@ import {
   View,
 } from "react-native";
 
-import { SafeAreaView } from "@/components/uniwind-interop";
+import { SafeAreaView, VideoView } from "@/components/uniwind-interop";
 import { ClipsApiError } from "@/lib/clips-api";
 import {
   addNativeClipComment,

@@ -30,7 +30,9 @@ vi.mock("react-native", () => ({
   View: vi.fn(),
 }));
 vi.mock("@/components/uniwind-interop", () => ({
+  CameraView: vi.fn(),
   SafeAreaView: vi.fn(),
+  VideoView: vi.fn(),
   WebView: vi.fn(),
 }));
 vi.mock("@/lib/mobile-state-api", () => ({

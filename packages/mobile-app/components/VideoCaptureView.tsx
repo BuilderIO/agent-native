@@ -7,10 +7,10 @@ import {
   IconX,
 } from "@tabler/icons-react-native";
 import {
-  CameraView,
   useCameraPermissions,
   useMicrophonePermissions,
   type CameraType,
+  type CameraView as CameraViewRef,
 } from "expo-camera";
 import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
@@ -35,7 +35,7 @@ import {
 } from "react-native";
 
 import IOSBroadcastPicker from "@/components/IOSBroadcastPicker";
-import { SafeAreaView } from "@/components/uniwind-interop";
+import { CameraView, SafeAreaView } from "@/components/uniwind-interop";
 import { createCaptureId } from "@/lib/capture-id";
 import { shouldStopVideoForAppState } from "@/lib/capture-lifecycle";
 import {
@@ -221,7 +221,7 @@ export function VideoCaptureView({
   onCaptured,
   onCancel,
 }: VideoCaptureViewProps) {
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<CameraViewRef>(null);
   const mountedRef = useRef(true);
   const onCapturedRef = useRef(onCaptured);
   const recordingRef = useRef(false);
