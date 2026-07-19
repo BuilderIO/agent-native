@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.7.0
+
+### Minor Changes
+
+- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
+
 ## 0.6.0
 
 ### Minor Changes
