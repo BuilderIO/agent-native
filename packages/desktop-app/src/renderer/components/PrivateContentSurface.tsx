@@ -7,6 +7,7 @@ import {
   IconArrowLeft,
   IconArrowBackUp,
   IconFilePlus,
+  IconFolderPlus,
   IconHistory,
   IconLock,
   IconRefresh,
@@ -15,6 +16,8 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
+
+import { privateContentTree } from "../lib/private-content-tree.js";
 
 type SurfaceState = "locked" | "opening" | "open" | "error";
 
@@ -157,6 +160,34 @@ export default function PrivateContentSurface({
     if (!document) return;
     await loadList();
     await selectDocument(document.id);
+  };
+
+  const createSubpage = async () => {
+    if (!selected) return;
+    const response = await window.electronAPI.privateContent.create({
+      title: "Untitled",
+      content: "",
+      parentId: selected.id,
+    });
+    if (!response.ok) return setMessage(response.error);
+    const document = privateDocument(response.value);
+    if (!document) return;
+    await loadList();
+    await selectDocument(document.id);
+  };
+
+  const moveToTopLevel = async () => {
+    if (!selected || selected.parentId === null) return;
+    const response = await window.electronAPI.privateContent.update({
+      id: selected.id,
+      parentId: null,
+    });
+    if (!response.ok) return setMessage(response.error);
+    const document = privateDocument(response.value);
+    if (!document) return;
+    setSelected(document);
+    setMessage("Moved to the top level in a new encrypted revision.");
+    await loadList();
   };
 
   const search = async () => {
@@ -302,11 +333,12 @@ export default function PrivateContentSurface({
           </button>
         </div>
         <div className="private-content-document-list">
-          {documents.map((document) => (
+          {privateContentTree(documents).map(({ document, depth }) => (
             <button
               className={selected?.id === document.id ? "is-active" : ""}
               key={document.id}
               onClick={() => void selectDocument(document.id)}
+              style={{ paddingLeft: `${10 + Math.min(depth, 8) * 14}px` }}
               type="button"
             >
               <strong>{document.title || "Untitled"}</strong>
@@ -339,6 +371,14 @@ export default function PrivateContentSurface({
             />
             <div className="private-content-editor-footer">
               <span>{message}</span>
+              <button onClick={() => void createSubpage()} type="button">
+                <IconFolderPlus size={14} /> New subpage
+              </button>
+              {selected.parentId !== null && (
+                <button onClick={() => void moveToTopLevel()} type="button">
+                  <IconArrowBackUp size={14} /> Move to top
+                </button>
+              )}
               <button onClick={() => void openVersions()} type="button">
                 <IconHistory size={14} />
                 {showVersions ? "Close history" : "History"}
