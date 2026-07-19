@@ -399,6 +399,10 @@ export const E2EE_RECOVERY_KDF = Object.freeze({
 
 export const E2EE_SIZE_LIMITS = Object.freeze({
   controlEnvelopeBytes: 64 * 1024,
+  // Embedded signed artifacts must leave deterministic room for the enclosing
+  // control-log inner envelope and signed log entry. This is intentionally
+  // smaller than either outer control budget.
+  embeddedControlEnvelopeBytes: 32 * 1024,
   genesisBootstrapTranscriptBytes: 4 * 1024,
   objectHeaderBytes: 16 * 1024,
   chunkPlaintextBytes: 1024 * 1024,

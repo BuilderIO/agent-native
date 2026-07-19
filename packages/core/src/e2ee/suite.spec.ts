@@ -314,6 +314,7 @@ describe("anc/v1 suite freeze", () => {
     expect(E2EE_SIZE_LIMITS.resultEnvelopeBytes).toBe(
       E2EE_SIZE_LIMITS.resultPayloadBytes + 64 * 1024,
     );
+    expect(E2EE_SIZE_LIMITS.embeddedControlEnvelopeBytes).toBe(32 * 1024);
     expect(E2EE_SIZE_LIMITS.enrollmentAuthorizationBytes).toBe(256 * 1024);
     expect(E2EE_SIZE_LIMITS.exportPlaintextBytes).toBe(256 * 1024 * 1024);
     expect(E2EE_SIZE_LIMITS.genesisBootstrapTranscriptBytes).toBe(4 * 1024);

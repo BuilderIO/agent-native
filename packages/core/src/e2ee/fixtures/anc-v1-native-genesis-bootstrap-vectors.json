@@ -27,7 +27,7 @@
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",
-      "sha256": "3d6dfcb670a82e07ea2d644bf45e0880f2abd13830b6fa8f9df242ba555be351"
+      "sha256": "57077c0945521f8cc062bb08eb32aa800997b9b1888b48ce913e9b4bf7ea3d07"
     }
   ],
   "domain": {

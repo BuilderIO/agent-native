@@ -32,10 +32,7 @@ import {
   resolveControlLogEndpointAuthorization,
   verifyAndReduceControlLogEntry,
 } from "./control-log.js";
-import {
-  ancV1SignDetached,
-  ancV1SigningKeypairFromSeed,
-} from "./portable-crypto.js";
+import { ancV1SigningKeypairFromSeed } from "./portable-crypto.js";
 import {
   E2EE_ENVELOPE_FIELDS,
   E2EE_SIZE_LIMITS,
@@ -829,6 +826,42 @@ describe("anc/v1 signed control log", () => {
 
   it("rejects oversized control entries from producers and object-form verifiers", async () => {
     const value = await genesis();
+    const largestEmbedded = {
+      suite: "anc/v1" as const,
+      type: "grant_revocation" as const,
+      vaultId: value.state.vaultId,
+      revocationEnvelope: "aa".repeat(
+        E2EE_SIZE_LIMITS.embeddedControlEnvelopeBytes,
+      ),
+    };
+    const largestEntry = await signed({
+      current: value.state,
+      signer: value.owner,
+      inner: largestEmbedded,
+    });
+    expect(
+      decodeSignedControlLogEntry(encodeSignedControlLogEntry(largestEntry))
+        .innerEnvelope,
+    ).toEqual(largestEmbedded);
+    await expect(
+      verifyAndReduceControlLogEntry({
+        current: value.state,
+        entry: largestEntry,
+        verifyGrantRevocationAuthorization: async () => true,
+      }),
+    ).resolves.toMatchObject({ state: { sequence: value.state.sequence + 1 } });
+
+    await expect(
+      signed({
+        current: value.state,
+        signer: value.owner,
+        inner: {
+          ...largestEmbedded,
+          revocationEnvelope: `${largestEmbedded.revocationEnvelope}aa`,
+        },
+      }),
+    ).rejects.toThrow();
+
     const inner = {
       suite: "anc/v1" as const,
       type: "grant_revocation" as const,
@@ -842,28 +875,12 @@ describe("anc/v1 signed control log", () => {
         inner,
       }),
     ).rejects.toThrow();
-    const unsigned = {
-      suite: "anc/v1" as const,
-      vaultId: value.state.vaultId,
-      type: "log-entry" as const,
-      createdAt: "2026-07-17T01:00:01.000Z",
-      envelopeId: "log-entry:oversized-0001",
-      sequence: value.state.sequence + 1,
-      previousHash: value.state.headHash,
-      innerEnvelope: inner,
-      signerEndpointId: value.owner.member.endpointId,
-    };
-    const signature = await ancV1SignDetached(
-      "log-entry",
-      encodeUnsignedControlLogEntry(unsigned),
-      value.owner.pair.privateKey,
-    );
     await expect(
       verifyAndReduceControlLogEntry({
         current: value.state,
         entry: {
-          ...unsigned,
-          signature: ancV1BytesToHex(signature),
+          ...largestEntry,
+          innerEnvelope: inner,
         },
       }),
     ).rejects.toMatchObject({ code: "invalid_entry" });

@@ -137,6 +137,8 @@ describe("anc/v1 capability grant codecs", () => {
         resolveIssuerSigningPublicKey: () => signing.publicKey,
       }),
     ).rejects.toBeInstanceOf(AncV1GrantCodecError);
+    // This exercises the frozen TOKEN field bound. The final envelope cap is
+    // defense in depth because every v1 variable field is more tightly bounded.
     await expect(
       sealAncV1GrantRevocation({
         vaultId: p(0x01),

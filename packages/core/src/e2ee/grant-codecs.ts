@@ -279,6 +279,9 @@ export async function sealAncV1GrantRevocation(
     const signed = new Map(unsigned);
     signed.set(77, signature);
     const encoded = encodeAncV1Canonical(signed);
+    // Current fields are fixed-size or TOKEN-bounded, so this is deliberately
+    // defense in depth for future schema growth rather than a reachable v1
+    // boundary. The embedded-control-log budget is tested separately.
     if (encoded.byteLength > E2EE_SIZE_LIMITS.controlEnvelopeBytes) fail();
     return encoded;
   } catch {

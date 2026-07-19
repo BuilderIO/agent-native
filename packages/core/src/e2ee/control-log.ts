@@ -38,7 +38,7 @@ const signatureSchema = lowerHex(64);
 const boundedEnvelopeHexSchema = z
   .string()
   .min(2)
-  .max(E2EE_SIZE_LIMITS.controlEnvelopeBytes * 2)
+  .max(E2EE_SIZE_LIMITS.embeddedControlEnvelopeBytes * 2)
   .regex(/^(?:[0-9a-f]{2})+$/);
 const safeSequenceSchema = z
   .number()
@@ -1122,7 +1122,7 @@ export async function verifyAndReduceControlLogEntry(
       throw new ControlLogVerificationError("invalid_transition");
     }
     return {
-      state: {
+      state: controlLogStateSchema.parse({
         ...current,
         sequence: entry.sequence,
         headHash: hash,
@@ -1132,7 +1132,7 @@ export async function verifyAndReduceControlLogEntry(
           signer.role === "endpoint"
             ? "endpoint_witnessed"
             : "eventual_fork_detection",
-      },
+      }),
       entryHash: hash,
       idempotent: false,
     };
