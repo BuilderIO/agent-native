@@ -134,4 +134,55 @@ describe("Content requester runtime", () => {
     expect(native.createContentGrant).not.toHaveBeenCalled();
     expect(native.sealContentJob).not.toHaveBeenCalled();
   });
+
+  it("binds version actions to their existing documentId argument", async () => {
+    let resourceId = "";
+    const native = {
+      createContentGrant: vi.fn(async () => ({
+        issuedAt: 1_721_131_200,
+        expiresAt: 1_723_723_200,
+        grantId: Uint8Array.from({ length: 16 }, () => 5),
+        grantRef: Uint8Array.from({ length: 32 }, () => 6),
+        grantEnvelope: Uint8Array.from([1]),
+      })),
+      sealContentJob: vi.fn(async (input: { jobPayload: Uint8Array }) => {
+        resourceId = Buffer.from(
+          decodeAncV1SemanticJobPayload(input.jobPayload).resourceId,
+        ).toString("hex");
+        return {
+          epoch: 2,
+          issuedAt: 1_721_131_200,
+          expiresAt: 1_721_131_800,
+          jobEnvelope: Uint8Array.from([2]),
+        };
+      }),
+      openContentResult: vi.fn(async () => ({
+        state: "completed",
+        resultPayload: new TextEncoder().encode(
+          '{"version":1,"type":"content-action-result","ok":true,"result":[]}',
+        ),
+      })),
+    } as unknown as PrivateVaultNativeServiceClient;
+    const transport = {
+      putGrant: vi.fn(async () => ({})),
+      putJob: vi.fn(async () => ({})),
+      getResult: vi.fn(async () => ({
+        state: "completed",
+        jobHash: "cd".repeat(32),
+        ciphertext: Uint8Array.from([3]),
+      })),
+    } as unknown as PrivateVaultContentRequesterTransport;
+    const runtime = new PrivateVaultContentRequesterRuntime({
+      descriptor: { read: vi.fn(async () => descriptor) },
+      native,
+      transport,
+      now: () => 1_721_131_200_000,
+    });
+    const documentId = "44".repeat(16);
+    await runtime.runAction({
+      actionName: "list-document-versions",
+      args: { documentId },
+    });
+    expect(resourceId).toBe(documentId);
+  });
 });

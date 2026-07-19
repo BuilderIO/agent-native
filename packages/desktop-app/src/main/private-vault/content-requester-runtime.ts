@@ -20,6 +20,10 @@ const VAULT_ACTIONS = new Set([
   "list-documents",
   "search-documents",
 ]);
+const VERSION_ACTIONS = new Set([
+  "list-document-versions",
+  "restore-document-version",
+]);
 const CONTENT_ACTIONS = new Set([
   ...VAULT_ACTIONS,
   "delete-document",
@@ -67,7 +71,9 @@ function resourceId(
   const resource = VAULT_ACTIONS.has(actionName)
     ? vaultId
     : args && typeof args === "object" && !Array.isArray(args)
-      ? (args as Record<string, unknown>).id
+      ? (args as Record<string, unknown>)[
+          VERSION_ACTIONS.has(actionName) ? "documentId" : "id"
+        ]
       : undefined;
   if (!lowerHex(resource, 16))
     throw new PrivateVaultContentRequesterRuntimeError();
