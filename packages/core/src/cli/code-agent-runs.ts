@@ -116,6 +116,11 @@ export interface CreateCodeAgentRunInput {
 }
 
 export interface AppendCodeAgentTranscriptEventInput {
+  /**
+   * Stable event identity supplied by a retrying caller. Reusing this value
+   * returns the previously persisted event instead of appending a duplicate.
+   */
+  id?: string;
   runId: string;
   kind: CodeAgentTranscriptEventKind;
   message: string;
@@ -243,7 +248,7 @@ export function normalizeCodeAgentPermissionMode(
 
 export function writeCodeAgentRunRecord(record: CodeAgentRunRecord): void {
   fs.mkdirSync(codeAgentRunsDir(), { recursive: true });
-  fs.writeFileSync(
+  writeFileAtomically(
     codeAgentRunRecordPath(record.id),
     `${JSON.stringify(record, null, 2)}\n`,
   );
@@ -298,10 +303,20 @@ export function getLastCodeAgentRunRecord(
 export function appendCodeAgentTranscriptEvent(
   input: AppendCodeAgentTranscriptEventInput,
 ): CodeAgentTranscriptEvent {
+  const requestedId = input.id?.trim();
+  if (requestedId) {
+    const existing = listCodeAgentTranscriptEvents(input.runId).find(
+      (event) => event.id === requestedId,
+    );
+    if (existing) return existing;
+  }
+
   const createdAt = input.createdAt ?? new Date().toISOString();
   const event: CodeAgentTranscriptEvent = {
     schemaVersion: 1,
-    id: `evt-${timestampSlug(createdAt)}-${crypto.randomUUID().slice(0, 8)}`,
+    id:
+      requestedId ??
+      `evt-${timestampSlug(createdAt)}-${crypto.randomUUID().slice(0, 8)}`,
     runId: input.runId,
     kind: input.kind,
     message: input.message,
@@ -383,6 +398,32 @@ export function dequeueCodeAgentFollowUp(
 
 function codeAgentRunRecordPath(runId: string): string {
   return path.join(codeAgentRunsDir(), `${runId}.json`);
+}
+
+function writeFileAtomically(filePath: string, contents: string): void {
+  const directory = path.dirname(filePath);
+  const temporaryPath = path.join(
+    directory,
+    `.${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomUUID()}`,
+  );
+  let mode: number | undefined;
+  try {
+    mode = fs.statSync(filePath).mode & 0o777;
+  } catch {
+    // A new run record uses the process umask.
+  }
+
+  try {
+    fs.writeFileSync(temporaryPath, contents, {
+      encoding: "utf-8",
+      flag: "wx",
+    });
+    if (mode !== undefined) fs.chmodSync(temporaryPath, mode);
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    fs.rmSync(temporaryPath, { force: true });
+    throw error;
+  }
 }
 
 function readPendingFollowUps(value: unknown): CodeAgentPendingFollowUp[] {

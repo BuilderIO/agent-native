@@ -89,6 +89,11 @@ interface PendingCodeAgentApproval {
   permissionMode: CodeAgentPermissionMode;
 }
 
+interface CodeAgentApprovalExecutionOptions {
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}
+
 interface CodexCliProcessResult {
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
@@ -858,7 +863,7 @@ export async function executeExistingCodeAgentRun(
  */
 export async function executeApproveAlwaysCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const approval = getPendingApproval(runId);
   if (approval?.command) {
@@ -875,7 +880,7 @@ export async function executeApproveAlwaysCodeAgentApproval(
 
 export async function executePendingCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -921,6 +926,7 @@ export async function executePendingCodeAgentApproval(
     approval.command,
     record.cwd || process.cwd(),
     DEFAULT_COMMAND_TIMEOUT_MS,
+    { signal: options.signal },
   );
   const summary = truncateCodingOutput(
     [
@@ -967,7 +973,10 @@ export async function executePendingCodeAgentApproval(
     message: "Resuming run after approval.",
     metadata: { status: "running", phase: "approval-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 /**
@@ -977,7 +986,7 @@ export async function executePendingCodeAgentApproval(
  */
 export async function executeDenyCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -1019,7 +1028,10 @@ export async function executeDenyCodeAgentApproval(
     message: "Resuming run after denial — model will adapt its plan.",
     metadata: { status: "running", phase: "approval-denied-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 function latestUserPrompt(runId: string): string {

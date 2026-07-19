@@ -12,6 +12,7 @@ interface DistillationRequest {
   captureId?: string;
   queueId?: string;
   sourceId?: string;
+  claimToken?: string;
   requestedAt?: string;
   instructions?: string | null;
   guidance?: Record<string, unknown>;
@@ -52,15 +53,17 @@ async function clearRequest(captureId: string): Promise<void> {
 async function claimDistillation(
   captureId: string,
   queueId?: string,
-): Promise<boolean> {
+): Promise<string | null> {
   try {
     const payload = await callAction(
       "claim-distillation" as any,
       { captureId, queueId } as any,
     );
-    return Boolean(payload?.claimed);
+    return payload?.claimed && typeof payload.claimToken === "string"
+      ? payload.claimToken
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -121,18 +124,19 @@ export function useDistillationBridge(): void {
             request.requestedAt ?? "0"
           }`;
           if (dispatched.current.has(dispatchKey)) continue;
-          const claimed = await claimDistillation(capture.id, queueId);
-          if (!claimed) continue;
+          const claimToken = await claimDistillation(capture.id, queueId);
+          if (!claimToken || !queueId) continue;
           dispatched.current.add(dispatchKey);
 
           sendToAgentChat({
-            message: request.message ?? buildMessage(capture),
+            message: buildMessage(capture, queueId, claimToken),
             context: JSON.stringify(
               {
-                request,
+                request: { ...request, claimToken },
                 capture: summarizeCapture(capture),
                 instructions: request.instructions ?? undefined,
                 guidance: request.guidance,
+                claim: { queueId, claimToken },
               },
               null,
               2,
@@ -164,12 +168,17 @@ export function useDistillationBridge(): void {
   }, [capturesKey, dispatchableCaptures, capturesQuery.dataUpdatedAt]);
 }
 
-function buildMessage(capture: BrainCaptureReviewItem) {
+function buildMessage(
+  capture: BrainCaptureReviewItem,
+  queueId: string,
+  claimToken: string,
+) {
   return (
     `Distill Brain capture ${capture.id} (${capture.title}). ` +
     `Use get-capture with includeRawContent=true before exact quote ` +
     `validation, write durable company knowledge with write-knowledge, then ` +
-    `mark the capture distilled or ignored.`
+    `mark the capture distilled or ignored with queueId ${queueId} and ` +
+    `claimToken ${claimToken}.`
   );
 }
 

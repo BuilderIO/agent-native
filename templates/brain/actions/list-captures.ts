@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import {
   latestDistillationQueuesForCaptures,
   parseJson,
@@ -98,9 +99,13 @@ export default defineAction({
 
     const sourceIds = sourceRows.map((source) => source.id);
     if (!sourceIds.length) return { count: 0, captures: [] };
+    const audienceIds = await listAccessibleAudienceIds(sourceIds);
+    if (!audienceIds.length) return { count: 0, captures: [] };
     const sourceMap = new Map(sourceRows.map((source) => [source.id, source]));
     const captureClauses = [
       inArray(schema.brainRawCaptures.sourceId, sourceIds),
+      eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+      inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
     ];
     if (args.status) {
       captureClauses.push(eq(schema.brainRawCaptures.status, args.status));
@@ -118,7 +123,7 @@ export default defineAction({
       ? Math.min(args.previewLength * 4, 4000)
       : 0;
     const rows = await db
-      .select({
+      .selectDistinct({
         id: schema.brainRawCaptures.id,
         sourceId: schema.brainRawCaptures.sourceId,
         externalId: schema.brainRawCaptures.externalId,
@@ -136,6 +141,10 @@ export default defineAction({
           : {}),
       })
       .from(schema.brainRawCaptures)
+      .innerJoin(
+        schema.brainCaptureAudiences,
+        eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
+      )
       .where(and(...captureClauses))
       .orderBy(desc(schema.brainRawCaptures.capturedAt))
       .limit(args.limit);

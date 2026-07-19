@@ -1,17 +1,20 @@
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import type {
   BrainCaptureKind,
   BrainSourceProvider,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
+import { listAccessibleAudienceIds } from "./audiences.js";
 import {
+  BrainCaptureBlockedError,
   createCapture,
   nanoid,
   nowIso,
   parseJson,
+  readBrainSettings,
   serializeCapture,
   stableJson,
 } from "./brain.js";
@@ -29,6 +32,19 @@ export interface ConnectorSyncResult {
   captures: Array<ReturnType<typeof serializeCapture>>;
   message: string;
   stats?: Record<string, unknown>;
+}
+
+async function createConnectorCapture(
+  values: Parameters<typeof createCapture>[0],
+) {
+  try {
+    return { capture: await createCapture(values), blocked: false };
+  } catch (error) {
+    if (error instanceof BrainCaptureBlockedError) {
+      return { capture: null, blocked: true };
+    }
+    throw error;
+  }
 }
 
 export interface SlackPilotOptions {
@@ -145,6 +161,7 @@ interface SlackChannelCursor {
 
 interface SlackSyncCursor {
   channels?: Record<string, SlackChannelCursor>;
+  publicChannelOffset?: number;
   retry?: RetryCursor;
   lastRunAt?: string;
 }
@@ -164,6 +181,7 @@ interface SlackChannel {
   is_channel?: boolean;
   is_group?: boolean;
   is_archived?: boolean;
+  is_private?: boolean;
 }
 
 interface SlackMessage {
@@ -175,12 +193,17 @@ interface SlackMessage {
   text?: string;
   ts?: string;
   thread_ts?: string;
+  reactions?: Array<{ name?: string; count?: number }>;
 }
 
 interface SlackHistoryResponse {
   messages?: SlackMessage[];
   has_more?: boolean;
   response_metadata?: { next_cursor?: string };
+}
+
+interface SlackRepliesResponse {
+  messages?: SlackMessage[];
 }
 
 interface SlackInfoResponse {
@@ -191,6 +214,19 @@ interface SlackListResponse {
   channels?: SlackChannel[];
   response_metadata?: { next_cursor?: string };
 }
+
+interface SlackMembersResponse {
+  members?: string[];
+  response_metadata?: { next_cursor?: string };
+}
+
+interface SlackUserInfoResponse {
+  user?: { profile?: { email?: string } };
+}
+
+type SlackUserEmailCache = Map<string, string | null>;
+
+const SLACK_USER_LOOKUP_CONCURRENCY = 4;
 
 interface SlackPermalinkResponse {
   permalink?: string;
@@ -702,10 +738,6 @@ function readableJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function slackUserLabel(message: SlackMessage): string {
-  return message.username ?? message.user ?? message.bot_id ?? "unknown";
-}
-
 function slackDirectConversationFromRef(
   channelRef: string,
 ): SlackChannel | null {
@@ -726,22 +758,89 @@ function isUsableSlackChannel(channel: SlackChannel): boolean {
   );
 }
 
-function normalizeSlackMessageContent(
-  channel: SlackChannel,
-  message: SlackMessage,
-): string {
-  const label = slackUserLabel(message);
-  const time = isoFromSlackTs(message.ts) ?? message.ts ?? "unknown time";
-  const thread =
-    message.thread_ts && message.thread_ts !== message.ts
-      ? `\nThread: ${message.thread_ts}`
-      : "";
-  return [
-    `Slack #${channel.name ?? channel.id} at ${time}`,
-    `User: ${label}${thread}`,
-    "",
-    message.text ?? "",
-  ].join("\n");
+function slackReactionCount(message: SlackMessage) {
+  return (message.reactions ?? []).reduce(
+    (total, reaction) => total + Math.max(0, Number(reaction.count) || 0),
+    0,
+  );
+}
+
+function isSlackTextMessage(message: SlackMessage) {
+  return (
+    message.type === "message" &&
+    typeof message.text === "string" &&
+    message.text.trim().length > 0 &&
+    typeof message.ts === "string"
+  );
+}
+
+export interface SlackThreadCapture {
+  externalId: string;
+  title: string;
+  content: string;
+  capturedAt: string;
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Builds the only Slack representation Brain persists. It deliberately omits
+ * Slack user ids, display names, and the raw Events/Web API payload.
+ */
+export function normalizeSlackThreadCapture(input: {
+  channel: SlackChannel;
+  messages: SlackMessage[];
+  permalink?: string | null;
+  syncRunId?: string;
+}): SlackThreadCapture | null {
+  const messages = input.messages
+    .filter(isSlackTextMessage)
+    .sort((left, right) => Number(left.ts) - Number(right.ts));
+  const root = messages[0];
+  if (!root?.ts) return null;
+
+  let offset = 0;
+  const safeSegments = messages.map((message, index) => {
+    const capturedAt = isoFromSlackTs(message.ts) ?? message.ts!;
+    const text = `${capturedAt}\n${message.text!.trim()}`;
+    const startOffset = offset;
+    offset += text.length;
+    if (index < messages.length - 1) offset += 2;
+    return {
+      id: `slack:${input.channel.id}:${message.ts}`,
+      capturedAt,
+      sourceUrl: input.permalink ?? undefined,
+      text,
+      startOffset,
+      endOffset: startOffset + text.length,
+      reactionCount: slackReactionCount(message),
+    };
+  });
+  const content = safeSegments.map((segment) => segment.text).join("\n\n");
+  const threadTs = root.thread_ts ?? root.ts;
+  return {
+    externalId: `slack:${input.channel.id}:${threadTs}`,
+    title: `#${input.channel.name ?? input.channel.id} thread ${isoFromSlackTs(threadTs) ?? threadTs}`,
+    content,
+    capturedAt: isoFromSlackTs(threadTs) ?? nowIso(),
+    metadata: {
+      provider: "slack",
+      connector: "slack",
+      ...(input.syncRunId ? { syncRunId: input.syncRunId } : {}),
+      channelId: input.channel.id,
+      channelName: input.channel.name,
+      threadTs,
+      messageCount: safeSegments.length,
+      reactionCount: safeSegments.reduce(
+        (total, segment) => total + segment.reactionCount,
+        0,
+      ),
+      sourceUrl: input.permalink ?? null,
+      permalink: input.permalink ?? null,
+      // These offsets are against `content`, the safe persisted capture, never
+      // against a provider payload.
+      safeSegments,
+    },
+  };
 }
 
 async function slackApi<T>(
@@ -810,6 +909,60 @@ async function resolveSlackChannelByName(
   return null;
 }
 
+function matchesPublicChannelExclusion(
+  channel: SlackChannel,
+  patterns: string[],
+) {
+  return patterns.some((pattern) => {
+    try {
+      const expression = new RegExp(pattern, "i");
+      return expression.test(channel.id) || expression.test(channel.name ?? "");
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function listPublicSlackChannels(
+  token: string,
+  exclusionPatterns: string[],
+): Promise<{ channels: SlackChannel[]; excluded: number }> {
+  const channels: SlackChannel[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  let excluded = 0;
+  for (;;) {
+    const page = await slackApi<SlackListResponse>(
+      token,
+      "conversations.list",
+      {
+        types: "public_channel",
+        exclude_archived: true,
+        limit: 200,
+        cursor,
+      },
+    );
+    for (const channel of page.channels ?? []) {
+      if (
+        channel.is_archived ||
+        channel.is_private ||
+        channel.is_channel === false
+      ) {
+        continue;
+      }
+      if (matchesPublicChannelExclusion(channel, exclusionPatterns)) {
+        excluded += 1;
+        continue;
+      }
+      channels.push(channel);
+    }
+    cursor = page.response_metadata?.next_cursor;
+    if (!cursor || seenCursors.has(cursor)) break;
+    seenCursors.add(cursor);
+  }
+  return { channels, excluded };
+}
+
 async function resolveSlackChannel(
   token: string,
   channelRef: string,
@@ -846,6 +999,121 @@ async function slackPermalink(
     { channel: channelId, message_ts: ts },
   );
   return data.permalink ?? null;
+}
+
+async function slackPrivateChannelMemberEmails(
+  token: string,
+  channelId: string,
+  userEmailCache: SlackUserEmailCache,
+): Promise<string[] | null> {
+  const memberIds = new Set<string>();
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  while (true) {
+    const response = await slackApi<SlackMembersResponse>(
+      token,
+      "conversations.members",
+      { channel: channelId, limit: 1_000, cursor },
+    );
+    for (const memberId of response.members ?? []) {
+      if (memberId) memberIds.add(memberId);
+    }
+    const nextCursor = response.response_metadata?.next_cursor?.trim();
+    if (!nextCursor) break;
+    if (seenCursors.has(nextCursor)) return null;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  const userIds = Array.from(memberIds);
+  if (!userIds.length) return null;
+  if (
+    userIds.some(
+      (userId) => userEmailCache.has(userId) && !userEmailCache.get(userId),
+    )
+  ) {
+    return null;
+  }
+
+  const uncachedUserIds = userIds.filter(
+    (userId) => !userEmailCache.has(userId),
+  );
+  for (
+    let offset = 0;
+    offset < uncachedUserIds.length;
+    offset += SLACK_USER_LOOKUP_CONCURRENCY
+  ) {
+    const batch = uncachedUserIds.slice(
+      offset,
+      offset + SLACK_USER_LOOKUP_CONCURRENCY,
+    );
+    await Promise.all(
+      batch.map(async (userId) => {
+        const user = await slackApi<SlackUserInfoResponse>(
+          token,
+          "users.info",
+          { user: userId },
+        );
+        const email = user.user?.profile?.email?.trim().toLowerCase() ?? null;
+        userEmailCache.set(userId, email || null);
+      }),
+    );
+    if (batch.some((userId) => !userEmailCache.get(userId))) return null;
+  }
+
+  const emails: string[] = [];
+  for (const userId of userIds) {
+    const email = userEmailCache.get(userId);
+    if (!email) return null;
+    emails.push(email);
+  }
+  return Array.from(new Set(emails)).sort();
+}
+
+function configuredSlackChannelIds(config: Record<string, unknown>) {
+  return new Set(
+    slackChannelRefsFromConfig(config).filter((value) =>
+      /^[CG][A-Z0-9]+$/i.test(value),
+    ),
+  );
+}
+
+async function createSlackThreadCapture(input: {
+  source: SourceRow;
+  channel: SlackChannel;
+  messages: SlackMessage[];
+  permalink: string | null;
+  syncRunId?: string;
+  memberEmails?: string[] | null;
+}) {
+  const normalized = normalizeSlackThreadCapture({
+    channel: input.channel,
+    messages: input.messages,
+    permalink: input.permalink,
+    syncRunId: input.syncRunId,
+  });
+  if (!normalized) return { capture: null, blocked: false };
+  try {
+    const capture = await createCapture({
+      sourceId: input.source.id,
+      externalId: normalized.externalId,
+      title: normalized.title,
+      kind: "message",
+      content: normalized.content,
+      capturedAt: normalized.capturedAt,
+      metadata: normalized.metadata,
+      audience: {
+        kind: input.channel.is_private ? "slack-private-channel" : "org",
+        memberEmails: input.memberEmails ?? undefined,
+        upstreamRefHash: input.channel.id,
+      },
+    });
+    return { capture, blocked: false };
+  } catch (error) {
+    if (error instanceof BrainCaptureBlockedError) {
+      return { capture: null, blocked: true };
+    }
+    throw error;
+  }
 }
 
 export async function testSlackConnection(
@@ -1659,10 +1927,32 @@ async function githubRefsFromLinkedSources(
         Number(options.stats.linkedSourcesSkipped) + 1;
       continue;
     }
+    const audienceIds = await listAccessibleAudienceIds([sourceId]);
+    if (!audienceIds.length) continue;
     const captures = await db
-      .select()
+      .select({
+        id: schema.brainRawCaptures.id,
+        title: schema.brainRawCaptures.title,
+        content: schema.brainRawCaptures.content,
+        metadataJson: schema.brainRawCaptures.metadataJson,
+      })
       .from(schema.brainRawCaptures)
-      .where(eq(schema.brainRawCaptures.sourceId, sourceId))
+      .innerJoin(
+        schema.brainCaptureAudiences,
+        eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
+      )
+      .innerJoin(
+        schema.brainAudiences,
+        eq(schema.brainAudiences.id, schema.brainCaptureAudiences.audienceId),
+      )
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+          inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
+          eq(schema.brainAudiences.kind, "org"),
+        ),
+      )
       .orderBy(desc(schema.brainRawCaptures.capturedAt))
       .limit(options.captureLimit);
 
@@ -1675,7 +1965,6 @@ async function githubRefsFromLinkedSources(
         capture.metadataJson,
         {},
       );
-      const raw = objectValue(metadata.raw);
       const linkedFrom = {
         sourceId,
         captureId: capture.id,
@@ -1684,7 +1973,6 @@ async function githubRefsFromLinkedSources(
       };
       const candidates = [
         capture.content,
-        typeof raw.text === "string" ? raw.text : "",
         typeof metadata.sourceUrl === "string" ? metadata.sourceUrl : "",
         typeof metadata.permalink === "string" ? metadata.permalink : "",
       ].join("\n");
@@ -1741,10 +2029,11 @@ async function syncFromConfiguredItems(
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
   const items = transcriptItems(config);
   const captures = [];
+  let sensitivityBlocked = 0;
 
   try {
     for (const item of items) {
-      const capture = await createCapture({
+      const captureResult = await createConnectorCapture({
         sourceId: source.id,
         externalId: item.externalId,
         title: item.title,
@@ -1757,9 +2046,14 @@ async function syncFromConfiguredItems(
           syncRunId: runId,
         },
       });
-      captures.push(serializeCapture(capture));
+      if (captureResult.capture)
+        captures.push(serializeCapture(captureResult.capture));
+      if (captureResult.blocked) sensitivityBlocked += 1;
     }
-    await finishRun(runId, "success", { capturesCreated: captures.length });
+    await finishRun(runId, "success", {
+      capturesCreated: captures.length,
+      sensitivityBlocked,
+    });
     await getDb()
       .update(schema.brainSources)
       .set({
@@ -1841,6 +2135,12 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     ],
     "slack",
   );
+  const includePublicChannels = configuredBoolean(
+    config,
+    ["includePublicChannels"],
+    false,
+    "slack",
+  );
   const limit = configuredNumber(config, ["historyLimit", "limit"], 15, {
     min: 1,
     max: 15,
@@ -1877,11 +2177,17 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
   const captures = [];
   const stats: Record<string, unknown> = {
     configuredChannels: channelRefs.length,
+    includePublicChannels,
+    discoveredPublicChannels: 0,
+    excludedPublicChannels: 0,
+    eligibleChannels: 0,
     scannedChannels: 0,
     rejectedChannels: 0,
     missingChannels: 0,
     messagesSeen: 0,
     capturesCreated: 0,
+    threadsFetched: 0,
+    sensitivityBlocked: 0,
     rateLimited: false,
   };
 
@@ -1892,21 +2198,85 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       "slack",
       config,
     );
-    if (!channelRefs.length) {
+    if (!channelRefs.length && !includePublicChannels) {
       throw new Error(
-        "Slack source must configure channelIds, channels, or allowedChannels",
+        "Slack source must configure channelIds, channels, allowedChannels, or includePublicChannels",
       );
     }
 
-    let permalinkCalls = 0;
-
-    for (const channelRef of channelRefs.slice(0, maxChannels)) {
+    const settings = await readBrainSettings();
+    const publicExclusionPatterns =
+      settings.publicChannelExclusionPatterns ?? [];
+    const channelsById = new Map<string, SlackChannel>();
+    for (const channelRef of channelRefs) {
       const channel = await resolveSlackChannel(token, channelRef);
       if (!channel) {
         stats.missingChannels = Number(stats.missingChannels) + 1;
         continue;
       }
       if (!isUsableSlackChannel(channel)) {
+        stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+        continue;
+      }
+      const isExplicitId = /^[CG][A-Z0-9]+$/i.test(channelRef);
+      if (channel.is_private && !isExplicitId) {
+        stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+        continue;
+      }
+      if (
+        !channel.is_private &&
+        matchesPublicChannelExclusion(channel, publicExclusionPatterns)
+      ) {
+        stats.excludedPublicChannels = Number(stats.excludedPublicChannels) + 1;
+        continue;
+      }
+      channelsById.set(channel.id, channel);
+    }
+    if (includePublicChannels) {
+      const discovered = await listPublicSlackChannels(
+        token,
+        publicExclusionPatterns,
+      );
+      stats.discoveredPublicChannels = discovered.channels.length;
+      stats.excludedPublicChannels =
+        Number(stats.excludedPublicChannels) + discovered.excluded;
+      for (const channel of discovered.channels) {
+        channelsById.set(channel.id, channel);
+      }
+    }
+    const channels = [...channelsById.values()];
+    stats.eligibleChannels = channels.length;
+    const userEmailCache: SlackUserEmailCache = new Map();
+
+    const channelsToScan = includePublicChannels
+      ? (() => {
+          const ordered = [...channels].sort((left, right) =>
+            left.id.localeCompare(right.id),
+          );
+          if (!ordered.length) return ordered;
+          const offset =
+            Math.max(0, cursor.publicChannelOffset ?? 0) % ordered.length;
+          const rotated = [
+            ...ordered.slice(offset),
+            ...ordered.slice(0, offset),
+          ];
+          nextCursor.publicChannelOffset =
+            (offset + Math.min(maxChannels, rotated.length)) % ordered.length;
+          return rotated.slice(0, maxChannels);
+        })()
+      : channels.slice(0, maxChannels);
+
+    let permalinkCalls = 0;
+
+    for (const channel of channelsToScan) {
+      const privateMemberEmails = channel.is_private
+        ? await slackPrivateChannelMemberEmails(
+            token,
+            channel.id,
+            userEmailCache,
+          )
+        : null;
+      if (channel.is_private && !privateMemberEmails?.length) {
         stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
         continue;
       }
@@ -1939,13 +2309,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           "conversations.history",
           params,
         );
-        const messages = (data.messages ?? []).filter(
-          (message) =>
-            message.type === "message" &&
-            typeof message.text === "string" &&
-            message.text.trim() &&
-            typeof message.ts === "string",
-        );
+        const messages = (data.messages ?? []).filter(isSlackTextMessage);
         stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
 
         const newest = newestSlackTs(messages);
@@ -1953,36 +2317,35 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           channelCursor.pendingLatestTs = newest;
         }
 
+        const fetchedThreadTs = new Set<string>();
         for (const message of messages) {
+          const threadTs = message.thread_ts ?? message.ts;
+          if (!threadTs || fetchedThreadTs.has(threadTs)) continue;
+          fetchedThreadTs.add(threadTs);
           let permalink: string | null = null;
           if (permalinkCalls < permalinkLimit) {
-            permalink = await slackPermalink(token, channel.id, message.ts);
+            permalink = await slackPermalink(token, channel.id, threadTs);
             permalinkCalls += 1;
           }
-          const capture = await createCapture({
-            sourceId: source.id,
-            externalId: `slack:${channel.id}:${message.ts}`,
-            title: `#${channel.name ?? channel.id} message ${isoFromSlackTs(message.ts) ?? message.ts}`,
-            kind: "message",
-            content: normalizeSlackMessageContent(channel, message),
-            capturedAt: isoFromSlackTs(message.ts) ?? nowIso(),
-            metadata: {
-              provider: "slack",
-              connector: "slack",
-              syncRunId: runId,
-              channelId: channel.id,
-              channelName: channel.name,
-              ts: message.ts,
-              threadTs: message.thread_ts,
-              user: message.user,
-              username: message.username,
-              botId: message.bot_id,
-              sourceUrl: permalink,
-              permalink,
-              raw: message,
-            },
+          const thread = await slackApi<SlackRepliesResponse>(
+            token,
+            "conversations.replies",
+            { channel: channel.id, ts: threadTs, limit: 1_000 },
+          );
+          stats.threadsFetched = Number(stats.threadsFetched) + 1;
+          const captureResult = await createSlackThreadCapture({
+            source,
+            channel,
+            messages: thread.messages?.length ? thread.messages : [message],
+            permalink,
+            syncRunId: runId,
+            memberEmails: privateMemberEmails,
           });
-          captures.push(serializeCapture(capture));
+          if (captureResult.capture)
+            captures.push(serializeCapture(captureResult.capture));
+          if (captureResult.blocked) {
+            stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+          }
         }
 
         const nextPage = data.response_metadata?.next_cursor;
@@ -2076,6 +2439,117 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
   }
 }
 
+export async function refreshSlackThreadCapture(
+  source: SourceRow,
+  payloadJson: string,
+) {
+  const payload = parseJson<Record<string, unknown>>(payloadJson, {});
+  const channelId =
+    typeof payload.channelId === "string" ? payload.channelId.trim() : "";
+  const threadTs =
+    typeof payload.threadTs === "string" ? payload.threadTs.trim() : "";
+  if (!/^[CG][A-Z0-9]+$/i.test(channelId) || !slackTsFromDateish(threadTs)) {
+    throw new Error("Slack thread refresh requires a channelId and threadTs");
+  }
+
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  const includePublicChannels = configuredBoolean(
+    config,
+    ["includePublicChannels"],
+    false,
+    "slack",
+  );
+  const explicitlyConfigured = configuredSlackChannelIds(config).has(channelId);
+  if (
+    !explicitlyConfigured &&
+    !(includePublicChannels && channelId.startsWith("C"))
+  ) {
+    throw new Error(
+      `Slack thread refresh rejected for channel ${channelId}: it is not in this source's public or explicit channel scope`,
+    );
+  }
+  const runId = await createRun(source);
+  try {
+    const token = await requireConnectorCredential(
+      "SLACK_BOT_TOKEN",
+      "Slack",
+      "slack",
+      config,
+    );
+    const channel = await resolveSlackChannel(token, channelId);
+    if (!channel || !isUsableSlackChannel(channel)) {
+      throw new Error(`Slack channel ${channelId} is unavailable for refresh`);
+    }
+    if (
+      !channel.is_private &&
+      matchesPublicChannelExclusion(
+        channel,
+        (await readBrainSettings()).publicChannelExclusionPatterns ?? [],
+      )
+    ) {
+      throw new Error(
+        `Slack thread refresh rejected for channel ${channelId}: it matches a Brain public-channel exclusion`,
+      );
+    }
+    const memberEmails = channel.is_private
+      ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
+      : null;
+    if (channel.is_private && !memberEmails?.length) {
+      throw new Error(
+        `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
+      );
+    }
+    const [thread, permalink] = await Promise.all([
+      slackApi<SlackRepliesResponse>(token, "conversations.replies", {
+        channel: channel.id,
+        ts: threadTs,
+        limit: 1_000,
+      }),
+      slackPermalink(token, channel.id, threadTs),
+    ]);
+    const captureResult = await createSlackThreadCapture({
+      source,
+      channel,
+      messages: thread.messages ?? [],
+      permalink,
+      syncRunId: runId,
+      memberEmails,
+    });
+    const stats = {
+      channelId: channel.id,
+      threadTs,
+      threadsFetched: 1,
+      capturesCreated: captureResult.capture ? 1 : 0,
+      sensitivityBlocked: captureResult.blocked ? 1 : 0,
+    };
+    await finishRun(runId, "success", stats);
+    await getDb()
+      .update(schema.brainSources)
+      .set({
+        lastSyncedAt: nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    return {
+      runId,
+      capture: captureResult.capture
+        ? serializeCapture(captureResult.capture)
+        : null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await finishRun(runId, "error", { capturesCreated: 0 }, message);
+    throw error;
+  }
+}
+
 async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
   if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
@@ -2146,7 +2620,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
           ...listed,
           ...note,
         });
-        const capture = await createCapture({
+        const captureResult = await createConnectorCapture({
           sourceId: source.id,
           externalId: normalized.externalId,
           title: normalized.title,
@@ -2159,7 +2633,11 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
             syncRunId: runId,
           },
         });
-        captures.push(serializeCapture(capture));
+        if (captureResult.capture)
+          captures.push(serializeCapture(captureResult.capture));
+        if (captureResult.blocked) {
+          stats.sensitivityBlocked = Number(stats.sensitivityBlocked ?? 0) + 1;
+        }
 
         const candidateUpdatedAt = note.updated_at ?? listed.updated_at;
         if (
@@ -2449,7 +2927,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         ref.linkedFrom,
       );
       importedExternalIds.add(normalized.externalId);
-      const capture = await createCapture({
+      const captureResult = await createConnectorCapture({
         sourceId: source.id,
         externalId: normalized.externalId,
         title: normalized.title,
@@ -2461,7 +2939,11 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           syncRunId: runId,
         },
       });
-      captures.push(serializeCapture(capture));
+      if (captureResult.capture)
+        captures.push(serializeCapture(captureResult.capture));
+      if (captureResult.blocked) {
+        stats.sensitivityBlocked = Number(stats.sensitivityBlocked ?? 0) + 1;
+      }
       stats.itemsSeen = Number(stats.itemsSeen) + 1;
       stats.linkedRefsImported = Number(stats.linkedRefsImported) + 1;
     }
@@ -2511,7 +2993,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
 
         const normalized = normalizeGitHubIssue(repo, item, context);
         importedExternalIds.add(normalized.externalId);
-        const capture = await createCapture({
+        const captureResult = await createConnectorCapture({
           sourceId: source.id,
           externalId: normalized.externalId,
           title: normalized.title,
@@ -2523,7 +3005,11 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
             syncRunId: runId,
           },
         });
-        captures.push(serializeCapture(capture));
+        if (captureResult.capture)
+          captures.push(serializeCapture(captureResult.capture));
+        if (captureResult.blocked) {
+          stats.sensitivityBlocked = Number(stats.sensitivityBlocked ?? 0) + 1;
+        }
 
         const candidateUpdatedAt = item.updated_at;
         if (
