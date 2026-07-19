@@ -1333,6 +1333,17 @@ from the IPC state update and require the normal encrypted document actions.
 The exported Content skill names this boundary and preserves fail-closed agent
 behavior.
 
+Broker queue activity now survives Desktop restarts through the existing
+encrypted local supervisor checkpoint. The decoder accepts only the canonical
+content-free outcome, observation time, and optional retry time; extra job,
+vault, endpoint, or document coordinates fail closed. Signed Desktop renders
+processing, bounded retry, idle, revoked, and offline-unknown states explicitly.
+It does not claim an offline broker can count hosted ciphertext. The renderer
+health projection also no longer receives the vault ID; main process document
+routing reads that coordinate through an internal active-runtime capability.
+Broker tests, focused Desktop runtime/IPC/UI/privacy tests, both package
+typechecks, and the broker build pass at this checkpoint.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

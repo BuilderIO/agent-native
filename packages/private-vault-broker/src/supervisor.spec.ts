@@ -40,11 +40,13 @@ function fixture() {
   });
   const native: PrivateVaultBrokerSupervisorNative = { health, unlock, lock };
   const persisted: Uint8Array[] = [];
+  let stored: Uint8Array | null = null;
   const store: BrokerStateStore = {
     initialize: vi.fn(async () => {}),
-    read: vi.fn(async () => null),
+    read: vi.fn(async () => stored),
     write: vi.fn(async (_namespace, _key, value) => {
-      persisted.push(Uint8Array.from(value));
+      stored = Uint8Array.from(value);
+      persisted.push(stored);
     }),
     delete: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
@@ -83,6 +85,9 @@ function fixture() {
     lock,
     store,
     persisted,
+    setStored: (value: Uint8Array | null) => {
+      stored = value;
+    },
     tasks,
     worker,
     revocation,
@@ -112,7 +117,44 @@ describe("PrivateVaultBrokerSupervisor", () => {
       state: "running",
       ready: true,
       processing: false,
+      retryAt: null,
     });
+  });
+
+  it("restores only the strict content-free activity checkpoint after restart", async () => {
+    const value = fixture();
+    value.setStored(
+      new TextEncoder().encode(
+        '{"version":1,"outcome":"retry_wait","observedAt":"2026-07-18T12:00:00.000Z","retryAt":"2026-07-18T12:00:02.000Z"}',
+      ),
+    );
+    await value.supervisor.start();
+
+    expect(value.store.read).toHaveBeenCalledWith(
+      "broker-supervisor",
+      "worker-checkpoint",
+    );
+    expect(value.supervisor.health()).toMatchObject({
+      lastOutcome: "retry_wait",
+      retryAt: "2026-07-18T12:00:02.000Z",
+    });
+    expect(JSON.stringify(value.supervisor.health())).not.toContain(vaultId);
+    expect(JSON.stringify(value.supervisor.health())).not.toContain(endpointId);
+  });
+
+  it("fails closed on a corrupt or expanded activity checkpoint", async () => {
+    const value = fixture();
+    value.setStored(
+      new TextEncoder().encode(
+        '{"version":1,"outcome":"idle","observedAt":"2026-07-18T12:00:00.000Z","retryAt":null,"jobId":"not-admitted"}',
+      ),
+    );
+
+    await expect(value.supervisor.start()).rejects.toEqual(
+      new PrivateVaultBrokerSupervisorError(),
+    );
+    expect(value.lock).toHaveBeenCalledOnce();
+    expect(value.store.close).toHaveBeenCalledOnce();
   });
 
   it("persists only an encrypted-store checkpoint without job or identity coordinates", async () => {
@@ -132,6 +174,7 @@ describe("PrivateVaultBrokerSupervisor", () => {
       observedAt: "2026-07-18T12:00:00.000Z",
       retryAt: null,
     });
+    expect(value.supervisor.health().retryAt).toBeNull();
     expect(checkpoint).not.toContain("job:must-not-persist");
     expect(checkpoint).not.toContain(vaultId);
     expect(checkpoint).not.toContain(endpointId);

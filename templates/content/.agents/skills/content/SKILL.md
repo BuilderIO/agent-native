@@ -57,6 +57,10 @@ actions, and an optional local-file source of truth.
   editing, or a hosted Content action. If the private action surface is locked,
   revoked, offline, or unavailable, stop and say that the private operation did
   not run.
+- Private Content queue status is content-free. `retry_wait` means one encrypted
+  job has a bounded retry time; `offline` means ciphertext may be waiting but
+  the broker cannot honestly count it while disconnected. Never translate an
+  offline or unknown queue into “nothing queued.”
 - Treat the active model provider as an intentional reader of private action
   inputs and results. Do not send private document text to another provider,
   app, connector, webhook, or standard Content document unless the user asks

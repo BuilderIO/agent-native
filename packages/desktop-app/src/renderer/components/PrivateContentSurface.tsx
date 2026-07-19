@@ -54,6 +54,7 @@ interface PrivateContentHealth {
     readonly state: BrokerState;
     readonly processing: boolean;
     readonly lastOutcome: BrokerOutcome;
+    readonly retryAt: string | null;
   } | null;
 }
 
@@ -80,6 +81,10 @@ function privateContentHealth(value: unknown): PrivateContentHealth | null {
     typeof detail.state !== "string" ||
     !states.has(detail.state as BrokerState) ||
     typeof detail.processing !== "boolean" ||
+    (detail.retryAt !== null &&
+      (typeof detail.retryAt !== "string" ||
+        !Number.isFinite(Date.parse(detail.retryAt)))) ||
+    (detail.lastOutcome === "retry_wait") !== (detail.retryAt !== null) ||
     (detail.lastOutcome !== null &&
       (typeof detail.lastOutcome !== "string" ||
         !outcomes.has(detail.lastOutcome)))
@@ -91,6 +96,7 @@ function privateContentHealth(value: unknown): PrivateContentHealth | null {
       state: detail.state as BrokerState,
       processing: detail.processing,
       lastOutcome: detail.lastOutcome as BrokerOutcome,
+      retryAt: detail.retryAt as string | null,
     },
   };
 }
@@ -105,11 +111,20 @@ function brokerLabel(health: PrivateContentHealth | null): string {
 }
 
 function brokerActivity(health: PrivateContentHealth | null): string {
+  if (health?.broker?.processing) return "Processing one encrypted job";
+  if (health?.broker?.state === "offline")
+    return "Broker offline; hosted ciphertext may be waiting";
+  if (health?.broker?.state === "revoked")
+    return "Broker access is revoked; queued work will fail closed";
   switch (health?.broker?.lastOutcome) {
     case "completed":
       return "Last encrypted job completed";
     case "retry_wait":
-      return "Encrypted work is waiting to retry";
+      return health.broker.retryAt
+        ? `One encrypted job will retry after ${new Date(
+            health.broker.retryAt,
+          ).toLocaleString()}`
+        : "One encrypted job is waiting to retry";
     case "failed":
       return "Last encrypted job failed closed";
     case "idle":
@@ -608,6 +623,13 @@ export default function PrivateContentSurface({
           >
             <summary>Who can read?</summary>
             <PrivateContentDisclosure compact />
+            <div className="private-content-grants">
+              <div className="private-content-grants-heading">
+                <IconRobot size={15} aria-hidden="true" />
+                <strong>Encrypted work queue</strong>
+              </div>
+              <span>{brokerActivity(health)}</span>
+            </div>
             <div className="private-content-grants">
               <div className="private-content-grants-heading">
                 <IconShieldLock size={15} aria-hidden="true" />

@@ -133,10 +133,14 @@ export class PrivateVaultContentRuntime {
     if (!active) return null;
     const broker = active.broker?.health() ?? null;
     return Object.freeze({
-      vaultId: active.vaultId,
       brokerState: broker?.state === "running" ? "online" : "offline",
       broker,
     });
+  }
+
+  activeVaultId(): string {
+    if (!this.#active) throw new PrivateVaultContentRuntimeError();
+    return this.#active.vaultId;
   }
 
   documents(): PrivateContentDocuments {

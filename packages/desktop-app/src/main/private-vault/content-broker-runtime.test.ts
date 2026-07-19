@@ -24,6 +24,7 @@ const health: PrivateVaultBrokerSupervisorHealth = {
   ready: true,
   processing: false,
   lastOutcome: null,
+  retryAt: null,
   consecutiveOfflineChecks: 0,
 };
 

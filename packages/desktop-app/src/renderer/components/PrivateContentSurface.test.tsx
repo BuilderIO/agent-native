@@ -88,7 +88,15 @@ describe("PrivateContentSurface privacy disclosure", () => {
         privateContent: {
           health: vi.fn(async () => ({
             ok: true,
-            value: { brokerState: "offline", broker: null },
+            value: {
+              brokerState: "offline",
+              broker: {
+                state: "offline",
+                processing: false,
+                lastOutcome: "retry_wait",
+                retryAt: "2026-07-18T12:00:02.000Z",
+              },
+            },
           })),
           list: vi.fn(async () => ({ ok: true, value: { documents: [] } })),
           listGrants,
@@ -124,6 +132,9 @@ describe("PrivateContentSurface privacy disclosure", () => {
     });
     expect(container.textContent).toContain("Agent 222222…222222");
     expect(container.textContent).toContain("This Mac");
+    expect(container.textContent).toContain(
+      "Broker offline; hosted ciphertext may be waiting",
+    );
 
     const revoke = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Revoke",

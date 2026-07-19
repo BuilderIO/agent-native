@@ -55,13 +55,11 @@ describe("PrivateVaultContentRuntime", () => {
     expect(source.brokerActions.create).toHaveBeenCalledWith(vaultId);
     expect(source.factory).toHaveBeenCalledWith(source.actions);
     expect(source.runtime.health()).toEqual({
-      vaultId,
       brokerState: "online",
       broker: { state: "running" },
     });
     source.broker.health.mockReturnValue({ state: "revoked" });
     expect(source.runtime.health()).toEqual({
-      vaultId,
       brokerState: "offline",
       broker: { state: "revoked" },
     });
@@ -76,7 +74,6 @@ describe("PrivateVaultContentRuntime", () => {
     await expect(source.runtime.start()).resolves.toBeUndefined();
     expect(source.documents.close).not.toHaveBeenCalled();
     expect(source.runtime.health()).toEqual({
-      vaultId,
       brokerState: "offline",
       broker: null,
     });

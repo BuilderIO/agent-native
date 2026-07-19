@@ -19,7 +19,8 @@ function fixture(allowed = true) {
   const runtime = {
     ensureStarted: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
-    health: vi.fn(() => ({ vaultId, brokerState: "offline", broker: null })),
+    health: vi.fn(() => ({ brokerState: "offline", broker: null })),
+    activeVaultId: vi.fn(() => vaultId),
     documents: vi.fn(() => documents),
     listAgentGrants: vi.fn(async () => ({ grants: [] })),
     listVaultMembers: vi.fn(async () => ({ members: [] })),
@@ -44,7 +45,7 @@ describe("signed Private Content IPC", () => {
     const event = {} as never;
     await expect(source.handlers.start(event)).resolves.toEqual({
       ok: true,
-      value: { vaultId, brokerState: "offline", broker: null },
+      value: { brokerState: "offline", broker: null },
     });
     await source.handlers.create(event, {
       title: "Private title",

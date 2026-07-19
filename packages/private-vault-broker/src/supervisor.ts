@@ -34,6 +34,7 @@ export interface PrivateVaultBrokerSupervisorHealth {
   readonly ready: boolean;
   readonly processing: boolean;
   readonly lastOutcome: "idle" | "completed" | "failed" | "retry_wait" | null;
+  readonly retryAt: string | null;
   readonly consecutiveOfflineChecks: number;
 }
 
@@ -96,6 +97,55 @@ interface PersistedCheckpoint {
   readonly retryAt: string | null;
 }
 
+function canonicalTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const milliseconds = Date.parse(value);
+  return (
+    Number.isFinite(milliseconds) &&
+    new Date(milliseconds).toISOString() === value
+  );
+}
+
+function decodeCheckpoint(
+  value: Uint8Array | null,
+): PersistedCheckpoint | null {
+  if (value === null) return null;
+  if (
+    !(value instanceof Uint8Array) ||
+    value.byteLength === 0 ||
+    value.byteLength > 512
+  )
+    throw new PrivateVaultBrokerSupervisorError();
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(value);
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error();
+    const record = parsed as Record<string, unknown>;
+    const outcomes = new Set(["idle", "completed", "failed", "retry_wait"]);
+    if (
+      Object.keys(record).sort().join("\0") !==
+        "observedAt\0outcome\0retryAt\0version" ||
+      record.version !== 1 ||
+      typeof record.outcome !== "string" ||
+      !outcomes.has(record.outcome) ||
+      !canonicalTimestamp(record.observedAt) ||
+      (record.retryAt !== null && !canonicalTimestamp(record.retryAt)) ||
+      (record.outcome === "retry_wait") !== (record.retryAt !== null) ||
+      JSON.stringify(record) !== text
+    )
+      throw new Error();
+    return Object.freeze({
+      version: 1,
+      outcome: record.outcome as PersistedCheckpoint["outcome"],
+      observedAt: record.observedAt,
+      retryAt: record.retryAt as string | null,
+    });
+  } catch {
+    throw new PrivateVaultBrokerSupervisorError();
+  }
+}
+
 function identity(value: string): string {
   if (
     typeof value !== "string" ||
@@ -154,6 +204,7 @@ export class PrivateVaultBrokerSupervisor {
   readonly #offlineDelayMs: number;
   #state: PrivateVaultBrokerSupervisorState = "stopped";
   #lastOutcome: PrivateVaultBrokerSupervisorHealth["lastOutcome"] = null;
+  #retryAt: string | null = null;
   #consecutiveOfflineChecks = 0;
   #processing: Promise<void> | null = null;
   #timer: unknown = null;
@@ -182,6 +233,7 @@ export class PrivateVaultBrokerSupervisor {
       ready: this.#state === "running" || this.#state === "offline",
       processing: this.#processing !== null,
       lastOutcome: this.#lastOutcome,
+      retryAt: this.#retryAt,
       consecutiveOfflineChecks: this.#consecutiveOfflineChecks,
     });
   }
@@ -193,6 +245,11 @@ export class PrivateVaultBrokerSupervisor {
     try {
       await this.#store.initialize();
       this.#storeInitialized = true;
+      const checkpoint = decodeCheckpoint(
+        await this.#store.read(CHECKPOINT_NAMESPACE, CHECKPOINT_KEY),
+      );
+      this.#lastOutcome = checkpoint?.outcome ?? null;
+      this.#retryAt = checkpoint?.retryAt ?? null;
       const health = await this.#native.health({
         ...base,
         operation: "health",
@@ -297,6 +354,7 @@ export class PrivateVaultBrokerSupervisor {
       this.#consecutiveOfflineChecks = 0;
       this.#state = "running";
       this.#lastOutcome = outcome.state;
+      this.#retryAt = outcome.state === "retry_wait" ? outcome.retryAt : null;
       await this.#writeCheckpoint(outcome);
       this.#schedule(this.#nextDelay(outcome));
     } catch {

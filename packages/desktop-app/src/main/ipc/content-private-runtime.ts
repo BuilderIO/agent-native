@@ -44,6 +44,7 @@ type RuntimeSurface = Pick<
   | "ensureStarted"
   | "stop"
   | "health"
+  | "activeVaultId"
   | "listAgentGrants"
   | "listVaultMembers"
   | "revokeAgentGrant"
@@ -81,8 +82,7 @@ function exactNoArguments(arguments_: unknown[]) {
 }
 
 function activeVault(runtime: RuntimeSurface): string {
-  const vaultId = runtime.health()?.vaultId;
-  return opaqueIdSchema.parse(vaultId);
+  return opaqueIdSchema.parse(runtime.activeVaultId());
 }
 
 async function result<T>(
