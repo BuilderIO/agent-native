@@ -810,7 +810,7 @@ function expectCursorPersistedBeforeRunRelease() {
   const runRelease = updatedTables.lastIndexOf("brainSyncRuns");
   expect(sourceUpdate).toBeGreaterThan(-1);
   expect(runRelease).toBeGreaterThan(sourceUpdate);
-  expect(mocks.rows.syncRuns.at(-1)).toMatchObject({
+  expect(mocks.rows.syncRuns[mocks.rows.syncRuns.length - 1]).toMatchObject({
     activeSourceId: null,
     leaseToken: null,
   });
