@@ -14,9 +14,9 @@ describe("local folder host guidance", () => {
     }
   });
 
-  it("does not claim an ordinary browser is currently supported", () => {
+  it("names the supported Chromium browser path", () => {
     expect(messagesByLocale["en-US"].localFiles.unsupportedElectron).toBe(
-      "Local folder sync is unavailable here. Open this page in Agent Native Desktop. Browser folder access is not enabled yet.",
+      "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
     );
     expect(messagesByLocale["en-US"].localFiles.unsupportedBrowser).toBe(
       messagesByLocale["en-US"].localFiles.unsupportedElectron,

@@ -2792,9 +2792,9 @@ const editorSlashMessages = {
 
 const localFilesMessages = {
   unsupportedElectron:
-    "Local folder sync is unavailable here. Open this page in Agent Native Desktop. Browser folder access is not enabled yet.",
+    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedBrowser:
-    "Local folder sync is unavailable here. Open this page in Agent Native Desktop. Browser folder access is not enabled yet.",
+    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   notSyncedYet: "Not synced yet",
   summaryCreated: "{{count}} created",
   summaryUpdated: "{{count}} updated",
@@ -3936,9 +3936,9 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
 const localFilesMessagesByLocale = {
   "zh-CN": {
     unsupportedElectron:
-      "此处无法使用本地文件夹同步。请在 Agent Native Desktop 中打开此页面。浏览器文件夹访问功能尚未启用。",
+      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedBrowser:
-      "此处无法使用本地文件夹同步。请在 Agent Native Desktop 中打开此页面。浏览器文件夹访问功能尚未启用。",
+      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已创建 {{count}} 个",
     summaryUpdated: "已更新 {{count}} 个",
@@ -3982,9 +3982,9 @@ const localFilesMessagesByLocale = {
   },
   "es-ES": {
     unsupportedElectron:
-      "La sincronización de carpetas locales no está disponible aquí. Abre esta página en Agent Native Desktop. El acceso a carpetas desde el navegador aún no está habilitado.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedBrowser:
-      "La sincronización de carpetas locales no está disponible aquí. Abre esta página en Agent Native Desktop. El acceso a carpetas desde el navegador aún no está habilitado.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     notSyncedYet: "Aún no sincronizado",
     summaryCreated: "{{count}} creados",
     summaryUpdated: "{{count}} actualizados",
@@ -4030,9 +4030,9 @@ const localFilesMessagesByLocale = {
   },
   "fr-FR": {
     unsupportedElectron:
-      "La synchronisation des dossiers locaux n’est pas disponible ici. Ouvrez cette page dans Agent Native Desktop. L’accès aux dossiers depuis le navigateur n’est pas encore activé.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedBrowser:
-      "La synchronisation des dossiers locaux n’est pas disponible ici. Ouvrez cette page dans Agent Native Desktop. L’accès aux dossiers depuis le navigateur n’est pas encore activé.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     notSyncedYet: "Pas encore synchronisé",
     summaryCreated: "{{count}} créés",
     summaryUpdated: "{{count}} mis à jour",
@@ -4079,9 +4079,9 @@ const localFilesMessagesByLocale = {
   },
   "de-DE": {
     unsupportedElectron:
-      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Öffne diese Seite in Agent Native Desktop. Der Browserzugriff auf Ordner ist noch nicht aktiviert.",
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedBrowser:
-      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Öffne diese Seite in Agent Native Desktop. Der Browserzugriff auf Ordner ist noch nicht aktiviert.",
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     notSyncedYet: "Noch nicht synchronisiert",
     summaryCreated: "{{count}} erstellt",
     summaryUpdated: "{{count}} aktualisiert",
@@ -4126,9 +4126,9 @@ const localFilesMessagesByLocale = {
   },
   "ja-JP": {
     unsupportedElectron:
-      "ここではローカルフォルダー同期を利用できません。このページを Agent Native Desktop で開いてください。ブラウザーからのフォルダーアクセスはまだ有効になっていません。",
+      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     unsupportedBrowser:
-      "ここではローカルフォルダー同期を利用できません。このページを Agent Native Desktop で開いてください。ブラウザーからのフォルダーアクセスはまだ有効になっていません。",
+      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     notSyncedYet: "まだ同期されていません",
     summaryCreated: "{{count}} 件作成",
     summaryUpdated: "{{count}} 件更新",
@@ -4174,9 +4174,9 @@ const localFilesMessagesByLocale = {
   },
   "ko-KR": {
     unsupportedElectron:
-      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop에서 이 페이지를 여세요. 브라우저 폴더 접근은 아직 활성화되지 않았습니다.",
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedBrowser:
-      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop에서 이 페이지를 여세요. 브라우저 폴더 접근은 아직 활성화되지 않았습니다.",
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     notSyncedYet: "아직 동기화되지 않음",
     summaryCreated: "{{count}}개 생성됨",
     summaryUpdated: "{{count}}개 업데이트됨",
@@ -4222,9 +4222,9 @@ const localFilesMessagesByLocale = {
   },
   "pt-BR": {
     unsupportedElectron:
-      "A sincronização de pastas locais não está disponível aqui. Abra esta página no Agent Native Desktop. O acesso a pastas pelo navegador ainda não está ativado.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedBrowser:
-      "A sincronização de pastas locais não está disponível aqui. Abra esta página no Agent Native Desktop. O acesso a pastas pelo navegador ainda não está ativado.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     notSyncedYet: "Ainda não sincronizado",
     summaryCreated: "{{count}} criados",
     summaryUpdated: "{{count}} atualizados",
@@ -4270,9 +4270,9 @@ const localFilesMessagesByLocale = {
   },
   "hi-IN": {
     unsupportedElectron:
-      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। इस पेज को Agent Native Desktop में खोलें। ब्राउज़र फ़ोल्डर एक्सेस अभी सक्षम नहीं है।",
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedBrowser:
-      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। इस पेज को Agent Native Desktop में खोलें। ब्राउज़र फ़ोल्डर एक्सेस अभी सक्षम नहीं है।",
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     notSyncedYet: "अभी सिंक नहीं हुआ",
     summaryCreated: "{{count}} बनाए गए",
     summaryUpdated: "{{count}} अपडेट किए गए",
@@ -4317,9 +4317,9 @@ const localFilesMessagesByLocale = {
   },
   "ar-SA": {
     unsupportedElectron:
-      "مزامنة المجلدات المحلية غير متاحة هنا. افتح هذه الصفحة في Agent Native Desktop. لم يتم تمكين الوصول إلى المجلدات من المتصفح بعد.",
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedBrowser:
-      "مزامنة المجلدات المحلية غير متاحة هنا. افتح هذه الصفحة في Agent Native Desktop. لم يتم تمكين الوصول إلى المجلدات من المتصفح بعد.",
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     notSyncedYet: "لم تتم المزامنة بعد",
     summaryCreated: "تم إنشاء {{count}}",
     summaryUpdated: "تم تحديث {{count}}",
