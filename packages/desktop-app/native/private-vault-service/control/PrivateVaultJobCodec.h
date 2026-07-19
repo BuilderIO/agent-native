@@ -69,6 +69,15 @@ AncPrivateVaultOpenJobEnvelope(
     const uint8_t *_Nonnull recipientBoxPrivateKey,
     AncPrivateVaultJobCodecStatus *status);
 
+FOUNDATION_EXPORT NSData *_Nullable AncPrivateVaultSealJobEnvelope(
+    NSData *vaultId, NSData *envelopeId, uint64_t createdAt, NSData *jobId,
+    NSData *grantRef, uint64_t issuedAt, uint64_t expiresAt,
+    NSData *recipientEndpointId, NSData *payload, NSData *nonce,
+    const uint8_t *_Nonnull senderSigningSeed,
+    const uint8_t *_Nonnull senderBoxPrivateKey,
+    const uint8_t *_Nonnull recipientBoxPublicKey,
+    AncPrivateVaultJobCodecStatus *status);
+
 FOUNDATION_EXPORT NSData *_Nullable AncPrivateVaultSealResultEnvelope(
     NSData *vaultId, NSData *envelopeId, uint64_t createdAt, NSData *jobId,
     NSData *jobHash, NSData *recipientEndpointId, NSString *state,

@@ -159,6 +159,115 @@ static NSData *GrantHash(NSData *envelope) {
   return result;
 }
 
+NSData *AncPrivateVaultSealGrantEnvelope(
+    NSData *vaultId, NSData *envelopeId, uint64_t createdAt, NSData *grantId,
+    NSData *issuerEndpointId, NSData *subjectAccountId,
+    NSData *subjectEndpointId, NSData *subjectAgentId,
+    NSArray<NSData *> *resourceIds, NSArray<NSString *> *operations,
+    NSArray<NSString *> *providers, uint64_t issuedAt, uint64_t expiresAt,
+    NSData *revocationRef,
+    const uint8_t issuerSigningSeed[ANC_PV_SEED_BYTES],
+    AncPrivateVaultGrantCodecStatus *status) {
+  SetStatus(status, AncPrivateVaultGrantCodecStatusInvalid);
+  if (vaultId.length != 16 || envelopeId.length != 16 || createdAt == 0 ||
+      createdAt > kMaximumSafeInteger || grantId.length != 16 ||
+      issuerEndpointId.length != 16 || subjectAccountId.length != 16 ||
+      subjectEndpointId.length != 16 ||
+      (subjectAgentId != nil && subjectAgentId.length != 16) ||
+      resourceIds.count == 0 || resourceIds.count > 256 ||
+      operations.count == 0 || operations.count > 128 ||
+      providers.count == 0 || providers.count > 64 || issuedAt == 0 ||
+      issuedAt > kMaximumSafeInteger || expiresAt <= issuedAt ||
+      expiresAt > kMaximumSafeInteger || createdAt > issuedAt ||
+      expiresAt - issuedAt > kMaximumGrantLifetimeSeconds ||
+      revocationRef.length != 16 || issuerSigningSeed == NULL)
+    return nil;
+
+  NSMutableArray *resourceValues = [NSMutableArray array];
+  NSData *priorResource = nil;
+  for (NSData *resource in resourceIds) {
+    if (resource.length != 16 ||
+        (priorResource != nil && !BytesStrictlyBefore(priorResource, resource)))
+      return nil;
+    [resourceValues addObject:[AncPrivateVaultCanonicalValue bytes:resource]];
+    priorResource = resource;
+  }
+  NSMutableArray *operationValues = [NSMutableArray array];
+  NSString *priorOperation = nil;
+  for (NSString *operation in operations) {
+    if (!ValidToken(operation) ||
+        (priorOperation != nil &&
+         [priorOperation compare:operation] != NSOrderedAscending))
+      return nil;
+    [operationValues addObject:[AncPrivateVaultCanonicalValue text:operation]];
+    priorOperation = operation;
+  }
+  NSMutableArray *providerValues = [NSMutableArray array];
+  NSString *priorProvider = nil;
+  for (NSString *provider in providers) {
+    if (!ValidToken(provider) ||
+        (priorProvider != nil &&
+         [priorProvider compare:provider] != NSOrderedAscending))
+      return nil;
+    [providerValues addObject:[AncPrivateVaultCanonicalValue text:provider]];
+    priorProvider = provider;
+  }
+
+  NSMutableDictionary *map = [@{
+    @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+    @2 : [AncPrivateVaultCanonicalValue bytes:vaultId],
+    @3 : [AncPrivateVaultCanonicalValue text:@"grant"],
+    @4 : [AncPrivateVaultCanonicalValue integer:(int64_t)createdAt],
+    @5 : [AncPrivateVaultCanonicalValue bytes:envelopeId],
+    @60 : [AncPrivateVaultCanonicalValue bytes:grantId],
+    @61 : [AncPrivateVaultCanonicalValue bytes:issuerEndpointId],
+    @62 : [AncPrivateVaultCanonicalValue bytes:subjectAccountId],
+    @63 : [AncPrivateVaultCanonicalValue bytes:subjectEndpointId],
+    @64 : subjectAgentId == nil
+        ? [AncPrivateVaultCanonicalValue nullValue]
+        : [AncPrivateVaultCanonicalValue bytes:subjectAgentId],
+    @65 : [AncPrivateVaultCanonicalValue array:resourceValues],
+    @66 : [AncPrivateVaultCanonicalValue array:operationValues],
+    @67 : [AncPrivateVaultCanonicalValue array:providerValues],
+    @68 : [AncPrivateVaultCanonicalValue integer:(int64_t)issuedAt],
+    @69 : [AncPrivateVaultCanonicalValue integer:(int64_t)expiresAt],
+    @70 : [AncPrivateVaultCanonicalValue bytes:revocationRef],
+  } mutableCopy];
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *unsignedBytes = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:map], &canonicalStatus);
+  if (unsignedBytes == nil ||
+      unsignedBytes.length > NSUIntegerMax - sizeof kGrantDomain)
+    return nil;
+  NSMutableData *message = [NSMutableData
+      dataWithCapacity:sizeof kGrantDomain + unsignedBytes.length];
+  [message appendBytes:kGrantDomain length:sizeof kGrantDomain];
+  [message appendData:unsignedBytes];
+  uint8_t signingPublic[ANC_PV_SIGN_PUBLIC_KEY_BYTES] = {0};
+  uint8_t signingPrivate[ANC_PV_SIGN_PRIVATE_KEY_BYTES] = {0};
+  uint8_t signature[ANC_PV_SIGNATURE_BYTES] = {0};
+  BOOL signedGrant =
+      anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                  issuerSigningSeed) == ANC_PV_CRYPTO_OK &&
+      anc_pv_ed25519_sign(signature, message.bytes, message.length,
+                          signingPrivate) == ANC_PV_CRYPTO_OK;
+  anc_pv_zeroize(signingPublic, sizeof signingPublic);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  if (!signedGrant) {
+    anc_pv_zeroize(signature, sizeof signature);
+    SetStatus(status, AncPrivateVaultGrantCodecStatusCrypto);
+    return nil;
+  }
+  map[@71] = [AncPrivateVaultCanonicalValue
+      bytes:[NSData dataWithBytes:signature length:sizeof signature]];
+  anc_pv_zeroize(signature, sizeof signature);
+  NSData *encoded = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:map], &canonicalStatus);
+  if (encoded.length == 0 || encoded.length > kMaximumEnvelopeBytes) return nil;
+  SetStatus(status, AncPrivateVaultGrantCodecStatusOK);
+  return encoded;
+}
+
 AncPrivateVaultVerifiedGrant *AncPrivateVaultVerifyGrantEnvelope(
     NSData *envelope, NSData *expectedVaultId, uint64_t nowSeconds,
     NSData *expectedIssuerEndpointId,

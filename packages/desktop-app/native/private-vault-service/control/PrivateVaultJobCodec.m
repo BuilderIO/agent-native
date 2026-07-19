@@ -377,6 +377,115 @@ AncPrivateVaultOpenedJob *AncPrivateVaultOpenJobEnvelope(
                                                   jobHash:jobHash];
 }
 
+static NSData *SealEncryptedEnvelope(
+    const uint8_t *domain, size_t domainLength,
+    NSMutableDictionary *unsignedMap, NSInteger signatureKey,
+    NSData *payload, NSData *nonce,
+    const uint8_t senderSigningSeed[ANC_PV_SEED_BYTES],
+    const uint8_t senderBoxPrivateKey[ANC_PV_BOX_PRIVATE_KEY_BYTES],
+    const uint8_t recipientBoxPublicKey[ANC_PV_BOX_PUBLIC_KEY_BYTES],
+    AncPrivateVaultJobCodecStatus *status) {
+  if (payload.length > kPayloadMaximum || nonce.length != 24 ||
+      senderSigningSeed == NULL || senderBoxPrivateKey == NULL ||
+      recipientBoxPublicKey == NULL ||
+      payload.length > NSUIntegerMax - domainLength) {
+    if (payload.length > kPayloadMaximum)
+      SetStatus(status, AncPrivateVaultJobCodecStatusTooLarge);
+    return nil;
+  }
+  NSMutableData *boxPlaintext =
+      [NSMutableData dataWithCapacity:domainLength + payload.length];
+  [boxPlaintext appendBytes:domain length:domainLength];
+  [boxPlaintext appendData:payload];
+  NSMutableData *ciphertext =
+      [NSMutableData dataWithLength:boxPlaintext.length + 16];
+  size_t ciphertextLength = 0;
+  if (anc_pv_box_wrap(ciphertext.mutableBytes, ciphertext.length,
+                      &ciphertextLength, boxPlaintext.bytes,
+                      boxPlaintext.length, nonce.bytes,
+                      recipientBoxPublicKey, senderBoxPrivateKey) !=
+      ANC_PV_CRYPTO_OK) {
+    anc_pv_zeroize(boxPlaintext.mutableBytes, boxPlaintext.length);
+    anc_pv_zeroize(ciphertext.mutableBytes, ciphertext.length);
+    SetStatus(status, AncPrivateVaultJobCodecStatusCrypto);
+    return nil;
+  }
+  anc_pv_zeroize(boxPlaintext.mutableBytes, boxPlaintext.length);
+  NSMutableData *packed = [NSMutableData dataWithCapacity:24 + ciphertextLength];
+  [packed appendData:nonce];
+  [packed appendBytes:ciphertext.bytes length:ciphertextLength];
+  anc_pv_zeroize(ciphertext.mutableBytes, ciphertext.length);
+  unsignedMap[@95] = [AncPrivateVaultCanonicalValue bytes:packed];
+
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *unsignedBytes = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:unsignedMap], &canonicalStatus);
+  uint8_t signingPublic[32] = {0};
+  uint8_t signingPrivate[64] = {0};
+  uint8_t signature[64] = {0};
+  NSData *signatureMessage =
+      DomainMessage(domain, domainLength, unsignedBytes);
+  BOOL signedEnvelope = unsignedBytes != nil && signatureMessage != nil &&
+      anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                  senderSigningSeed) == ANC_PV_CRYPTO_OK &&
+      anc_pv_ed25519_sign(signature, signatureMessage.bytes,
+                          signatureMessage.length,
+                          signingPrivate) == ANC_PV_CRYPTO_OK;
+  anc_pv_zeroize(signingPublic, sizeof signingPublic);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  if (!signedEnvelope) {
+    anc_pv_zeroize(signature, sizeof signature);
+    SetStatus(status, AncPrivateVaultJobCodecStatusCrypto);
+    return nil;
+  }
+  unsignedMap[@(signatureKey)] = [AncPrivateVaultCanonicalValue
+      bytes:[NSData dataWithBytes:signature length:sizeof signature]];
+  anc_pv_zeroize(signature, sizeof signature);
+  NSData *encoded = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:unsignedMap], &canonicalStatus);
+  if (encoded.length == 0 || encoded.length > kEnvelopeMaximum) {
+    if (encoded.length > kEnvelopeMaximum)
+      SetStatus(status, AncPrivateVaultJobCodecStatusTooLarge);
+    return nil;
+  }
+  SetStatus(status, AncPrivateVaultJobCodecStatusOK);
+  return encoded;
+}
+
+NSData *AncPrivateVaultSealJobEnvelope(
+    NSData *vaultId, NSData *envelopeId, uint64_t createdAt, NSData *jobId,
+    NSData *grantRef, uint64_t issuedAt, uint64_t expiresAt,
+    NSData *recipientEndpointId, NSData *payload, NSData *nonce,
+    const uint8_t senderSigningSeed[ANC_PV_SEED_BYTES],
+    const uint8_t senderBoxPrivateKey[ANC_PV_BOX_PRIVATE_KEY_BYTES],
+    const uint8_t recipientBoxPublicKey[ANC_PV_BOX_PUBLIC_KEY_BYTES],
+    AncPrivateVaultJobCodecStatus *status) {
+  SetStatus(status, AncPrivateVaultJobCodecStatusInvalid);
+  if (vaultId.length != 16 || envelopeId.length != 16 || createdAt == 0 ||
+      createdAt > UINT64_C(9007199254740991) || jobId.length != 16 ||
+      grantRef.length != 32 || issuedAt == 0 || expiresAt <= issuedAt ||
+      expiresAt > UINT64_C(9007199254740991) || createdAt > issuedAt ||
+      recipientEndpointId.length != 16) {
+    return nil;
+  }
+  NSMutableDictionary *unsignedMap = [@{
+    @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+    @2 : [AncPrivateVaultCanonicalValue bytes:vaultId],
+    @3 : [AncPrivateVaultCanonicalValue text:@"job"],
+    @4 : [AncPrivateVaultCanonicalValue integer:(int64_t)createdAt],
+    @5 : [AncPrivateVaultCanonicalValue bytes:envelopeId],
+    @90 : [AncPrivateVaultCanonicalValue bytes:jobId],
+    @91 : [AncPrivateVaultCanonicalValue bytes:grantRef],
+    @92 : [AncPrivateVaultCanonicalValue integer:(int64_t)issuedAt],
+    @93 : [AncPrivateVaultCanonicalValue integer:(int64_t)expiresAt],
+    @94 : [AncPrivateVaultCanonicalValue bytes:recipientEndpointId],
+  } mutableCopy];
+  return SealEncryptedEnvelope(kJobDomain, sizeof kJobDomain, unsignedMap, 96,
+                               payload, nonce,
+                               senderSigningSeed, senderBoxPrivateKey,
+                               recipientBoxPublicKey, status);
+}
+
 NSData *AncPrivateVaultSealResultEnvelope(
     NSData *vaultId, NSData *envelopeId, uint64_t createdAt, NSData *jobId,
     NSData *jobHash, NSData *recipientEndpointId, NSString *state,

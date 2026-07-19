@@ -36,6 +36,16 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantCodecStatus) {
 @property(nonatomic, readonly) NSData *issuerEndpointId;
 @end
 
+FOUNDATION_EXPORT NSData *_Nullable AncPrivateVaultSealGrantEnvelope(
+    NSData *vaultId, NSData *envelopeId, uint64_t createdAt, NSData *grantId,
+    NSData *issuerEndpointId, NSData *subjectAccountId,
+    NSData *subjectEndpointId, NSData *_Nullable subjectAgentId,
+    NSArray<NSData *> *resourceIds, NSArray<NSString *> *operations,
+    NSArray<NSString *> *providers, uint64_t issuedAt, uint64_t expiresAt,
+    NSData *revocationRef,
+    const uint8_t *_Nonnull issuerSigningSeed,
+    AncPrivateVaultGrantCodecStatus *status);
+
 FOUNDATION_EXPORT AncPrivateVaultVerifiedGrant *_Nullable
 AncPrivateVaultVerifyGrantEnvelope(
     NSData *envelope, NSData *expectedVaultId, uint64_t nowSeconds,

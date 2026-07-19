@@ -35,6 +35,14 @@ int main(void) {
            ANC_PV_CRYPTO_OK);
 
     AncPrivateVaultGrantCodecStatus status;
+    NSData *sealedGrant = AncPrivateVaultSealGrantEnvelope(
+        Pattern(0x01, 16), Pattern(0x16, 16), 1721111111,
+        Pattern(0x05, 16), Pattern(0x02, 16), Pattern(0x07, 16),
+        Pattern(0x03, 16), Pattern(0x08, 16), @[Pattern(0x04, 16)],
+        @[@"read", @"summarize"], @[@"synthetic-provider"],
+        1721111111, 1721114711, Pattern(0x09, 16), seed, &status);
+    assert(status == AncPrivateVaultGrantCodecStatusOK &&
+           [sealedGrant isEqualToData:grant]);
     AncPrivateVaultVerifiedGrant *verified =
         AncPrivateVaultVerifyGrantEnvelope(
             grant, Pattern(0x01, 16), 1721111112, Pattern(0x02, 16),
