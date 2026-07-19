@@ -15,7 +15,7 @@
     },
     {
       "path": "packages/core/src/e2ee/control-log.ts",
-      "sha256": "fa7105808745b1c74e0497d27ef6fae99c0cf615f4c5170997a2ab34762bc3ab"
+      "sha256": "827edd1fa97471f04d2e1e4fda78c62997025c9d06fcf0f916e699f6d6f5c66f"
     },
     {
       "path": "packages/core/src/e2ee/recovery-ceremony-codecs.ts",

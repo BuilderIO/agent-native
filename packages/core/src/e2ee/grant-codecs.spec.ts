@@ -9,6 +9,7 @@ import {
 } from "./grant-codecs.js";
 import { buildAncV1InteroperabilityVectors } from "./interoperability-vectors.js";
 import { ancV1SigningKeypairFromSeed } from "./portable-crypto.js";
+import { E2EE_SIZE_LIMITS } from "./suite.js";
 
 const p = (byte: number, length = 16) => new Uint8Array(length).fill(byte);
 const CREATED = 1_721_111_111;
@@ -134,6 +135,19 @@ describe("anc/v1 capability grant codecs", () => {
         expectedVaultId: p(0x01),
         expectedGrant: { ...grant, revocationRef: p(0xee) },
         resolveIssuerSigningPublicKey: () => signing.publicKey,
+      }),
+    ).rejects.toBeInstanceOf(AncV1GrantCodecError);
+    await expect(
+      sealAncV1GrantRevocation({
+        vaultId: p(0x01),
+        envelopeId: p(0x31),
+        createdAt: CREATED + 2,
+        grantRef: grant.grantRef,
+        revocationRef: grant.revocationRef,
+        revokedAt: CREATED + 2,
+        reason: "x".repeat(E2EE_SIZE_LIMITS.controlEnvelopeBytes),
+        issuerEndpointId: grant.issuerEndpointId,
+        signingPrivateKey: signing.privateKey,
       }),
     ).rejects.toBeInstanceOf(AncV1GrantCodecError);
   });

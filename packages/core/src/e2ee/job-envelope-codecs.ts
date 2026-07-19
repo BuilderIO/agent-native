@@ -354,12 +354,19 @@ export async function openAncV1JobEnvelope(
     ) {
       fail();
     }
-    positive(envelope.get(4));
+    const createdAt = positive(envelope.get(4));
     exactBytes(envelope.get(5), ID_BYTES);
     const issuedAt = positive(envelope.get(92));
     const expiresAt = positive(envelope.get(93));
     const now = positive(input.nowSeconds);
-    if (expiresAt <= issuedAt || now < issuedAt || now > expiresAt) fail();
+    if (
+      createdAt > issuedAt ||
+      expiresAt <= issuedAt ||
+      now < issuedAt ||
+      now > expiresAt
+    ) {
+      fail();
+    }
     const grantRef = exactBytes(envelope.get(91), HASH_BYTES);
     const signature = exactBytes(envelope.get(96), SIGNATURE_BYTES);
     const unsigned = new Map(envelope);

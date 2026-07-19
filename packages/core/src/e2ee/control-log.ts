@@ -968,6 +968,12 @@ export async function verifyAndReduceControlLogEntry(
       input.entry instanceof Uint8Array
         ? decodeSignedControlLogEntry(input.entry)
         : signedControlLogEntrySchema.parse(input.entry);
+    if (
+      encodeSignedControlLogEntry(entry).byteLength >
+      E2EE_SIZE_LIMITS.vaultLogEntryBytes
+    ) {
+      throw new ControlLogVerificationError("invalid_entry");
+    }
   } catch {
     throw new ControlLogVerificationError("invalid_entry");
   }
@@ -1120,7 +1126,8 @@ export async function verifyAndReduceControlLogEntry(
         ...current,
         sequence: entry.sequence,
         headHash: hash,
-        signedAt: entry.createdAt,
+        signedAt:
+          signer.role === "endpoint" ? entry.createdAt : current.signedAt,
         freshnessMode:
           signer.role === "endpoint"
             ? "endpoint_witnessed"

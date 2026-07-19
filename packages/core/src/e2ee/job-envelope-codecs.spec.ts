@@ -126,6 +126,25 @@ describe("anc/v1 encrypted job envelopes", () => {
     expect(resolveGrantSenderKeys).toHaveBeenCalledOnce();
     expect(resolveGrantSenderKeys).toHaveBeenCalledWith(f.grantRef);
 
+    const createdAfterIssue = map(encoded);
+    createdAfterIssue.set(E2EE_ENVELOPE_FIELDS.common.createdAt, 101);
+    const invalidCreatedAtResolver = vi.fn(() => ({
+      signingPublicKey: f.authorizer.publicKey.slice(),
+      keyAgreementPublicKey: f.requesterBox.publicKey.slice(),
+    }));
+    await expect(
+      openAncV1JobEnvelope({
+        encoded: encodeAncV1Canonical(createdAfterIssue),
+        expectedVaultId: f.vaultId,
+        expectedJobId: f.jobId,
+        expectedRecipientEndpointId: f.brokerId,
+        recipientKeyAgreementPrivateKey: f.brokerBox.privateKey,
+        nowSeconds: 150,
+        resolveGrantSenderKeys: invalidCreatedAtResolver,
+      }),
+    ).rejects.toBeInstanceOf(AncV1JobEnvelopeError);
+    expect(invalidCreatedAtResolver).not.toHaveBeenCalled();
+
     await expect(
       openAncV1JobEnvelope({
         encoded,

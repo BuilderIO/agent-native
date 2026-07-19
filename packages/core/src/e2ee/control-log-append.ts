@@ -146,6 +146,16 @@ export const controlLogGrantRevocationAppendReceiptSchema = z
   })
   .strict();
 
+export const controlLogContinuityAppendRequestSchema =
+  controlLogGrantRevocationAppendRequestSchema.extend({
+    type: z.literal("control-log-continuity-append-request"),
+  });
+
+export const controlLogContinuityAppendReceiptSchema =
+  controlLogGrantRevocationAppendReceiptSchema.extend({
+    type: z.literal("control-log-continuity-append-receipt"),
+  });
+
 export type ControlLogRotationAppendRequest = z.infer<
   typeof controlLogRotationAppendRequestSchema
 >;
@@ -169,6 +179,12 @@ export type ControlLogGrantRevocationAppendRequest = z.infer<
 >;
 export type ControlLogGrantRevocationAppendReceipt = z.infer<
   typeof controlLogGrantRevocationAppendReceiptSchema
+>;
+export type ControlLogContinuityAppendRequest = z.infer<
+  typeof controlLogContinuityAppendRequestSchema
+>;
+export type ControlLogContinuityAppendReceipt = z.infer<
+  typeof controlLogContinuityAppendReceiptSchema
 >;
 
 export class AncV1ControlLogAppendCodecError extends Error {
@@ -640,6 +656,125 @@ export function decodeAncV1ControlLogGrantRevocationAppendReceipt(
       ),
     },
     "Control-log grant-revocation append receipt",
+  );
+}
+
+export function encodeAncV1ControlLogContinuityAppendRequest(
+  value: ControlLogContinuityAppendRequest,
+): Uint8Array {
+  const parsed = parse(
+    controlLogContinuityAppendRequestSchema,
+    value,
+    "Control-log continuity append request",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [GRANT_REVOCATION_REQUEST.suite, parsed.suite],
+      [GRANT_REVOCATION_REQUEST.version, parsed.version],
+      [GRANT_REVOCATION_REQUEST.type, parsed.type],
+      [GRANT_REVOCATION_REQUEST.signedEntry, parsed.signedEntry],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES) {
+    fail(
+      "Control-log continuity append request exceeds its canonical size cap",
+    );
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogContinuityAppendRequest(
+  encoded: Uint8Array,
+): ControlLogContinuityAppendRequest {
+  const map = envelope(
+    encoded,
+    Object.values(GRANT_REVOCATION_REQUEST),
+    ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
+  );
+  return parse(
+    controlLogContinuityAppendRequestSchema,
+    {
+      suite: text(field(map, GRANT_REVOCATION_REQUEST.suite, "suite"), "suite"),
+      version: integer(
+        field(map, GRANT_REVOCATION_REQUEST.version, "version"),
+        "version",
+      ),
+      type: text(field(map, GRANT_REVOCATION_REQUEST.type, "type"), "type"),
+      signedEntry: bytes(
+        field(map, GRANT_REVOCATION_REQUEST.signedEntry, "signedEntry"),
+        ANC_V1_CONTROL_LOG_APPEND_SIGNED_ENTRY_MAX_BYTES,
+        "signedEntry",
+      ),
+    },
+    "Control-log continuity append request",
+  );
+}
+
+export function encodeAncV1ControlLogContinuityAppendReceipt(
+  value: ControlLogContinuityAppendReceipt,
+): Uint8Array {
+  const parsed = parse(
+    controlLogContinuityAppendReceiptSchema,
+    value,
+    "Control-log continuity append receipt",
+  );
+  const encoded = encodeAncV1Canonical(
+    new Map<number, AncV1CanonicalValue>([
+      [GRANT_REVOCATION_RECEIPT.suite, parsed.suite],
+      [GRANT_REVOCATION_RECEIPT.version, parsed.version],
+      [GRANT_REVOCATION_RECEIPT.type, parsed.type],
+      [GRANT_REVOCATION_RECEIPT.vaultId, parsed.vaultId],
+      [GRANT_REVOCATION_RECEIPT.entryId, parsed.entryId],
+      [GRANT_REVOCATION_RECEIPT.sequence, parsed.sequence],
+      [GRANT_REVOCATION_RECEIPT.headHash, ancV1HexToBytes(parsed.headHash)],
+    ]),
+  );
+  if (encoded.byteLength > ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES) {
+    fail(
+      "Control-log continuity append receipt exceeds its canonical size cap",
+    );
+  }
+  return encoded;
+}
+
+export function decodeAncV1ControlLogContinuityAppendReceipt(
+  encoded: Uint8Array,
+): ControlLogContinuityAppendReceipt {
+  const map = envelope(
+    encoded,
+    Object.values(GRANT_REVOCATION_RECEIPT),
+    ANC_V1_CONTROL_LOG_APPEND_RECEIPT_MAX_BYTES,
+  );
+  return parse(
+    controlLogContinuityAppendReceiptSchema,
+    {
+      suite: text(field(map, GRANT_REVOCATION_RECEIPT.suite, "suite"), "suite"),
+      version: integer(
+        field(map, GRANT_REVOCATION_RECEIPT.version, "version"),
+        "version",
+      ),
+      type: text(field(map, GRANT_REVOCATION_RECEIPT.type, "type"), "type"),
+      vaultId: text(
+        field(map, GRANT_REVOCATION_RECEIPT.vaultId, "vaultId"),
+        "vaultId",
+      ),
+      entryId: text(
+        field(map, GRANT_REVOCATION_RECEIPT.entryId, "entryId"),
+        "entryId",
+      ),
+      sequence: integer(
+        field(map, GRANT_REVOCATION_RECEIPT.sequence, "sequence"),
+        "sequence",
+      ),
+      headHash: ancV1BytesToHex(
+        bytes(
+          field(map, GRANT_REVOCATION_RECEIPT.headHash, "headHash"),
+          32,
+          "headHash",
+        ),
+      ),
+    },
+    "Control-log continuity append receipt",
   );
 }
 

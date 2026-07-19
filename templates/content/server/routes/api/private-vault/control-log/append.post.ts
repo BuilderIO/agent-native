@@ -1,5 +1,6 @@
 import {
   ANC_V1_CONTROL_LOG_APPEND_REQUEST_MAX_BYTES,
+  decodeAncV1ControlLogContinuityAppendRequest,
   decodeAncV1ControlLogGenesisAppendRequest,
   decodeAncV1ControlLogGrantRevocationAppendRequest,
   decodeAncV1ControlLogRotationAppendRequest,
@@ -16,6 +17,7 @@ import {
 import { readPrivateVaultBoundedBody } from "../../../../lib/private-vault-bounded-body.js";
 import {
   appendPrivateVaultControlLogGenesis,
+  appendPrivateVaultControlLogContinuity,
   appendPrivateVaultControlLogGrantRevocation,
   appendPrivateVaultControlLogRotation,
   appendPrivateVaultControlLogRecovery,
@@ -52,12 +54,24 @@ function parseProof(value: string) {
 
 function requestKind(
   body: Uint8Array,
-): "genesis" | "grant-revocation" | "rotation" | "recovery" | null {
+):
+  | "genesis"
+  | "continuity"
+  | "grant-revocation"
+  | "rotation"
+  | "recovery"
+  | null {
   try {
     decodeAncV1ControlLogRecoveryAppendRequest(body);
     return "recovery";
   } catch {
     // Continue through the two smaller, disjoint append envelopes.
+  }
+  try {
+    decodeAncV1ControlLogContinuityAppendRequest(body);
+    return "continuity";
+  } catch {
+    // Continue through the remaining disjoint append envelopes.
   }
   try {
     decodeAncV1ControlLogGrantRevocationAppendRequest(body);
@@ -107,11 +121,13 @@ export default defineEventHandler(async (event) => {
   try {
     const receipt = await (kind === "genesis"
       ? appendPrivateVaultControlLogGenesis({ body, proof })
-      : kind === "grant-revocation"
-        ? appendPrivateVaultControlLogGrantRevocation({ body, proof })
-        : kind === "recovery"
-          ? appendPrivateVaultControlLogRecovery({ body, proof })
-          : appendPrivateVaultControlLogRotation({ body, proof }));
+      : kind === "continuity"
+        ? appendPrivateVaultControlLogContinuity({ body, proof })
+        : kind === "grant-revocation"
+          ? appendPrivateVaultControlLogGrantRevocation({ body, proof })
+          : kind === "recovery"
+            ? appendPrivateVaultControlLogRecovery({ body, proof })
+            : appendPrivateVaultControlLogRotation({ body, proof }));
     setResponseHeader(event, "Content-Type", REQUEST_TYPE);
     setResponseHeader(event, "Content-Length", String(receipt.byteLength));
     return receipt;

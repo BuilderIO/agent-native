@@ -32,7 +32,10 @@ import {
   resolveControlLogEndpointAuthorization,
   verifyAndReduceControlLogEntry,
 } from "./control-log.js";
-import { ancV1SigningKeypairFromSeed } from "./portable-crypto.js";
+import {
+  ancV1SignDetached,
+  ancV1SigningKeypairFromSeed,
+} from "./portable-crypto.js";
 import {
   E2EE_ENVELOPE_FIELDS,
   E2EE_SIZE_LIMITS,
@@ -179,6 +182,14 @@ describe("anc/v1 signed control log", () => {
       AncV1CanonicalValue
     >;
     nonCanonicalInner.set(E2EE_ENVELOPE_FIELDS.common.createdAt, at);
+    expect(() =>
+      decodeControlLogInnerEnvelope(encodeAncV1Canonical(nonCanonicalInner)),
+    ).toThrow();
+    nonCanonicalInner.delete(E2EE_ENVELOPE_FIELDS.common.createdAt);
+    nonCanonicalInner.set(
+      E2EE_ENVELOPE_FIELDS.controlContinuity.membershipHash,
+      new Uint8Array(32),
+    );
     expect(() =>
       decodeControlLogInnerEnvelope(encodeAncV1Canonical(nonCanonicalInner)),
     ).toThrow();
@@ -786,6 +797,7 @@ describe("anc/v1 signed control log", () => {
       })
     ).state;
     expect(state.freshnessMode).toBe("eventual_fork_detection");
+    expect(state.signedAt).toBe("2026-07-17T01:10:00.000Z");
     expect(
       resolveControlLogEndpointAuthorization(
         state,
@@ -796,24 +808,65 @@ describe("anc/v1 signed control log", () => {
     expect(() =>
       assertFreshControlLogHead(state, new Date("2026-07-17T01:35:00.000Z")),
     ).toThrow("Control log verification failed");
+    const endpointResume = await signed({
+      current: state,
+      signer: value.owner,
+      inner: checkpoint,
+      createdAt: "2026-07-17T01:11:00.000Z",
+    });
+    await expect(
+      verifyAndReduceControlLogEntry({
+        current: state,
+        entry: endpointResume,
+      }),
+    ).resolves.toMatchObject({
+      state: {
+        signedAt: "2026-07-17T01:11:00.000Z",
+        freshnessMode: "endpoint_witnessed",
+      },
+    });
   });
 
-  it("rejects a signed control entry that exceeds the decoder budget", async () => {
+  it("rejects oversized control entries from producers and object-form verifiers", async () => {
     const value = await genesis();
+    const inner = {
+      suite: "anc/v1" as const,
+      type: "grant_revocation" as const,
+      vaultId: value.state.vaultId,
+      revocationEnvelope: "aa".repeat(E2EE_SIZE_LIMITS.controlEnvelopeBytes),
+    };
     await expect(
       signed({
         current: value.state,
         signer: value.owner,
-        inner: {
-          suite: "anc/v1",
-          type: "grant_revocation",
-          vaultId: value.state.vaultId,
-          revocationEnvelope: "aa".repeat(
-            E2EE_SIZE_LIMITS.controlEnvelopeBytes,
-          ),
-        },
+        inner,
       }),
     ).rejects.toThrow();
+    const unsigned = {
+      suite: "anc/v1" as const,
+      vaultId: value.state.vaultId,
+      type: "log-entry" as const,
+      createdAt: "2026-07-17T01:00:01.000Z",
+      envelopeId: "log-entry:oversized-0001",
+      sequence: value.state.sequence + 1,
+      previousHash: value.state.headHash,
+      innerEnvelope: inner,
+      signerEndpointId: value.owner.member.endpointId,
+    };
+    const signature = await ancV1SignDetached(
+      "log-entry",
+      encodeUnsignedControlLogEntry(unsigned),
+      value.owner.pair.privateKey,
+    );
+    await expect(
+      verifyAndReduceControlLogEntry({
+        current: value.state,
+        entry: {
+          ...unsigned,
+          signature: ancV1BytesToHex(signature),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_entry" });
   });
 
   it("detects rollback, sequence gaps, forks, wrong roles, and tampering", async () => {

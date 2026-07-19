@@ -72,6 +72,18 @@ int main(void) {
         job, Pattern(0x01, 16), Pattern(0x06, 16), Pattern(0x03, 16),
         1721111200, signingPublic, senderBoxPublic, recipientBoxPrivate, &status);
     assert(status == AncPrivateVaultJobCodecStatusOK && opened != nil);
+    NSMutableData *createdAfterIssue = [job mutableCopy];
+    NSRange createdAtRange = [createdAfterIssue
+        rangeOfData:Hex(@"1a66961247")
+            options:0
+              range:NSMakeRange(0, createdAfterIssue.length)];
+    assert(createdAtRange.location != NSNotFound);
+    ((uint8_t *)createdAfterIssue.mutableBytes)[NSMaxRange(createdAtRange) - 1] += 1;
+    assert(AncPrivateVaultOpenJobEnvelope(
+               createdAfterIssue, Pattern(0x01, 16), Pattern(0x06, 16),
+               Pattern(0x03, 16), 1721111200, signingPublic, senderBoxPublic,
+               recipientBoxPrivate, &status) == nil);
+    assert(status == AncPrivateVaultJobCodecStatusInvalid);
     AncPrivateVaultJobCoordinates *coordinates =
         AncPrivateVaultInspectJobEnvelope(job, Pattern(0x01, 16),
                                           Pattern(0x06, 16),

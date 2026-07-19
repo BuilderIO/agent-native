@@ -391,6 +391,8 @@ AncPrivateVaultOpenedJob *AncPrivateVaultOpenJobEnvelope(
   NSData *recipient = nil;
   NSData *packed = nil;
   NSData *signature = nil;
+  AncPrivateVaultCanonicalValue *created = Field(
+      map, 4, AncPrivateVaultCanonicalTypeInteger);
   AncPrivateVaultCanonicalValue *issued = Field(
       map, 92, AncPrivateVaultCanonicalTypeInteger);
   AncPrivateVaultCanonicalValue *expires = Field(
@@ -401,6 +403,7 @@ AncPrivateVaultOpenedJob *AncPrivateVaultOpenJobEnvelope(
       !ExactBytes(map, 90, 16, &jobId) ||
       ![jobId isEqualToData:expectedJobId] ||
       !ExactBytes(map, 91, 32, &grantRef) || issued.integerValue <= 0 ||
+      created.integerValue <= 0 || created.integerValue > issued.integerValue ||
       expires.integerValue <= issued.integerValue ||
       nowSeconds < (uint64_t)issued.integerValue ||
       nowSeconds > (uint64_t)expires.integerValue ||

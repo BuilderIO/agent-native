@@ -1503,8 +1503,10 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
   AncPrivateVaultControlLogState *state = AncNextState(current, entry, entryHash, membershipHash);
   if (state.removedEndpointIds.count > kMaximumTombstones)
     return AncPrivateVaultControlLogStatusInvalidTransition;
-  if (inner.type == AncInnerContinuity && [signer.role isEqualToString:@"broker"])
+  if (inner.type == AncInnerContinuity && [signer.role isEqualToString:@"broker"]) {
+    state.signedAt = [current.signedAt copy];
     state.freshnessMode = @"eventual_fork_detection";
+  }
   AncPrivateVaultControlLogReplayResult *result =
       class_createInstance(AncPrivateVaultControlLogReplayResult.class, 0);
   result.state = AncPrivateVaultControlLogStateCreateImmutableCopy(state);
