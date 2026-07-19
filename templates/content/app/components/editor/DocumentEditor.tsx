@@ -8,6 +8,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
+  setClientAppState,
   useAvatarUrl,
   useDbSync,
   useSession,
@@ -38,6 +39,11 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import {
+  createContentSpaceSelectionQueue,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+  selectContentSpace,
+} from "@/components/sidebar/select-content-space";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -51,6 +57,10 @@ import {
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
+import {
+  useContentSpaces,
+  type ContentSpaceSummary,
+} from "@/hooks/use-content-spaces";
 import {
   isDocumentUpdateConflict,
   patchDocumentCaches,
@@ -83,7 +93,7 @@ import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
-import { DocumentToolbar } from "./DocumentToolbar";
+import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
@@ -315,6 +325,68 @@ export function documentEditorBreadcrumbItems(
   ];
 }
 
+export function documentEditorBreadcrumbNavigationItems(
+  items: ToolbarBreadcrumbItem[],
+  documents: Pick<
+    Document,
+    | "id"
+    | "parentId"
+    | "title"
+    | "icon"
+    | "position"
+    | "databaseMembership"
+    | "source"
+  >[],
+  spaces: Pick<ContentSpaceSummary, "filesDocumentId" | "name">[],
+) {
+  const documentById = new Map(documents.map((item) => [item.id, item]));
+  const workspaceDocumentIds = new Set(
+    spaces.map((space) => space.filesDocumentId),
+  );
+
+  return items.map<ToolbarBreadcrumbItem>((item) => {
+    if (item.id && workspaceDocumentIds.has(item.id)) {
+      return {
+        ...item,
+        menuItems: spaces.map((space) => ({
+          id: space.filesDocumentId,
+          title: space.name,
+          icon: null,
+        })),
+      };
+    }
+
+    const current = item.id ? documentById.get(item.id) : null;
+    if (!current) return item;
+    const membershipDocumentId =
+      current.databaseMembership?.databaseDocumentId ?? null;
+    const siblings = documents
+      .filter((candidate) => {
+        if (candidate.source?.kind === "folder") return false;
+        if (candidate.parentId !== current.parentId) return false;
+        if (current.parentId) return true;
+        return (
+          candidate.databaseMembership?.databaseDocumentId ===
+          membershipDocumentId
+        );
+      })
+      .sort(
+        (left, right) =>
+          left.position - right.position ||
+          left.title.localeCompare(right.title),
+      );
+    if (siblings.length < 2) return item;
+    return {
+      ...item,
+      menuItems: siblings.map((sibling) => ({
+        id: sibling.id,
+        title: sibling.title,
+        icon: sibling.icon,
+      })),
+    };
+  });
+}
+
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
@@ -338,6 +410,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const navigate = useNavigate();
   const documentsQuery = useDocuments();
   const documents: Document[] = documentsQuery.data ?? [];
+  const contentSpacesQuery = useContentSpaces();
+  const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
+  const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  const [, setStoredSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
@@ -1301,8 +1380,51 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   });
 
   const toolbarBreadcrumbItems = useMemo(
-    () => documentEditorBreadcrumbItems(document, documents),
-    [document, documents],
+    () =>
+      documentEditorBreadcrumbNavigationItems(
+        documentEditorBreadcrumbItems(document, documents),
+        documents,
+        contentSpaces,
+      ),
+    [contentSpaces, document, documents],
+  );
+
+  const handleOpenToolbarBreadcrumb = useCallback(
+    (targetId: string) => {
+      const targetDocument = documents.find((item) => item.id === targetId);
+      const filesDocumentId =
+        targetDocument?.databaseMembership?.databaseDocumentId ?? targetId;
+      const space = contentSpaces.find(
+        (candidate) => candidate.filesDocumentId === filesDocumentId,
+      );
+      if (!space) {
+        navigate(`/page/${targetId}`, { flushSync: true });
+        return;
+      }
+      void workspaceSelectionQueueRef
+        .current(() =>
+          selectContentSpace({
+            space,
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-breadcrumb" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openFiles: () => navigate(`/page/${targetId}`, { flushSync: true }),
+          }),
+        )
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : String(error));
+        });
+    },
+    [contentSpaces, documents, navigate, setStoredSpaceId],
   );
 
   const commentsSidebar = (
@@ -1427,6 +1549,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             utilityPanel={utilityPanel}
             onUtilityPanelChange={setUtilityPanel}
             showCommentsControl={editorCanEdit && !isLocalFileDocument}
+            onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
           />
 
           {!isLocalFileDocument ? (

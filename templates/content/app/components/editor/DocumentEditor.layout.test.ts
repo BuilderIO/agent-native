@@ -5,10 +5,12 @@ import { describe, expect, it } from "vitest";
 import {
   databaseMembershipDatabaseTitle,
   documentEditorBreadcrumbItems,
+  documentEditorBreadcrumbNavigationItems,
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
 } from "./DocumentEditor";
+import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
   it("keeps prose titles on the reading column", () => {
@@ -435,5 +437,66 @@ describe("document editor layout", () => {
         ],
       ).map((item) => item.title),
     ).toEqual(["Personal", "Draft"]);
+  });
+
+  it("keeps the workspace and last two levels visible in deep breadcrumbs", () => {
+    expect(
+      compactToolbarBreadcrumbItems([
+        { id: "files", title: "Personal" },
+        { id: "one", title: "Page 1" },
+        { id: "two", title: "Page 2" },
+        { id: "draft", title: "Draft" },
+      ]).map((item) => item.title),
+    ).toEqual(["Personal", "…", "Page 2", "Draft"]);
+  });
+
+  it("offers workspace and same-level page choices from breadcrumbs", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [
+        { id: "personal-files", title: "Personal" },
+        { id: "draft", title: "Draft" },
+      ],
+      [
+        {
+          id: "draft",
+          parentId: null,
+          title: "Draft",
+          icon: null,
+          position: 0,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 0,
+          },
+        },
+        {
+          id: "notes",
+          parentId: null,
+          title: "Notes",
+          icon: null,
+          position: 1,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 1,
+          },
+        },
+      ],
+      [
+        { filesDocumentId: "personal-files", name: "Personal" },
+        { filesDocumentId: "team-files", name: "Team" },
+      ],
+    );
+
+    expect(items[0].menuItems?.map((item) => item.title)).toEqual([
+      "Personal",
+      "Team",
+    ]);
+    expect(items[1].menuItems?.map((item) => item.title)).toEqual([
+      "Draft",
+      "Notes",
+    ]);
   });
 });
