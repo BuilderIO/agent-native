@@ -141,6 +141,7 @@ export interface NativeSealContentObjectInput {
   readonly vaultId: string;
   readonly objectId: string;
   readonly revision: number;
+  readonly contentType?: NativeContentObjectType;
   readonly plaintext: Uint8Array;
 }
 
@@ -151,6 +152,10 @@ export interface NativeOpenContentObjectInput {
   readonly encodedRevision: Uint8Array;
 }
 
+export type NativeContentObjectType =
+  | "application/vnd.agent-native.content-document+json"
+  | "application/vnd.agent-native.content-vault-manifest+json";
+
 interface NativeContentObjectResultBase {
   readonly version: typeof SERVICE_VERSION;
   readonly suite: typeof SERVICE_SUITE;
@@ -159,7 +164,7 @@ interface NativeContentObjectResultBase {
   readonly revision: number;
   readonly epoch: number;
   readonly revisionId: Uint8Array;
-  readonly contentType: "application/vnd.agent-native.content-document+json";
+  readonly contentType: NativeContentObjectType;
   readonly plaintextLength: number;
 }
 
@@ -551,8 +556,14 @@ function parseActivateEnrollment(
   });
 }
 
-const CONTENT_OBJECT_TYPE =
+const CONTENT_DOCUMENT_TYPE =
   "application/vnd.agent-native.content-document+json" as const;
+const CONTENT_MANIFEST_TYPE =
+  "application/vnd.agent-native.content-vault-manifest+json" as const;
+
+function isContentObjectType(value: unknown): value is NativeContentObjectType {
+  return value === CONTENT_DOCUMENT_TYPE || value === CONTENT_MANIFEST_TYPE;
+}
 
 function parseContentObjectResult(
   value: unknown,
@@ -589,7 +600,12 @@ function parseContentObjectResult(
     value.revision !== expected.revision ||
     !isLowerHex(value.vaultId, 32) ||
     !isLowerHex(value.objectId, 32) ||
-    value.contentType !== CONTENT_OBJECT_TYPE ||
+    !isContentObjectType(value.contentType) ||
+    (!opened &&
+      value.contentType !==
+        ("contentType" in expected
+          ? (expected.contentType ?? CONTENT_DOCUMENT_TYPE)
+          : CONTENT_DOCUMENT_TYPE)) ||
     !isSafeInteger(value.revision, true) ||
     !isSafeInteger(value.epoch, true) ||
     !isSafeInteger(value.plaintextLength, true) ||
@@ -615,7 +631,7 @@ function parseContentObjectResult(
     revision: value.revision,
     epoch: value.epoch,
     revisionId: copyBoundedBytes(value.revisionId, 32),
-    contentType: CONTENT_OBJECT_TYPE,
+    contentType: value.contentType,
     plaintextLength: value.plaintextLength,
   } as const;
   return opened
@@ -1535,7 +1551,7 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
             input.vaultId,
             input.objectId,
             input.revision,
-            CONTENT_OBJECT_TYPE,
+            input.contentType ?? CONTENT_DOCUMENT_TYPE,
             plaintext,
           ),
           "seal_object",

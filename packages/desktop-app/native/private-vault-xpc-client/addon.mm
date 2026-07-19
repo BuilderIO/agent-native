@@ -42,6 +42,15 @@
 
 namespace {
 
+bool PVIsContentObjectType(const char *value) {
+  return value != nullptr &&
+         (strcmp(value,
+                 "application/vnd.agent-native.content-document+json") == 0 ||
+          strcmp(value,
+                 "application/vnd.agent-native.content-vault-manifest+json") ==
+              0);
+}
+
 PVRequestGate gRequestGate;
 
 enum class PVOperation {
@@ -727,9 +736,8 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
         strcmp(vaultID, expectedVaultID) != 0 ||
         !PVIsLowerHex(objectID, 32) || parsedRevision == 0 ||
         parsedRevision > UINT64_C(9007199254740991) || parsedEpoch == 0 ||
-        parsedEpoch > UINT64_C(9007199254740991) || contentType == nullptr ||
-        strcmp(contentType,
-               "application/vnd.agent-native.content-document+json") != 0 ||
+        parsedEpoch > UINT64_C(9007199254740991) ||
+        !PVIsContentObjectType(contentType) ||
         (sealing &&
          (parsedPlaintextLength == 0 ||
           parsedPlaintextLength > PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES)) ||
@@ -2164,9 +2172,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
               napi_get_value_string_utf8(
                   env, argv[4], request->contentType,
                   sizeof(request->contentType), &contentTypeLength) == napi_ok &&
-              strcmp(request->contentType,
-                     "application/vnd.agent-native.content-document+json") ==
-                  0;
+              PVIsContentObjectType(request->contentType);
     }
     valid = valid &&
             napi_is_buffer(env, argv[payloadIndex], &isBuffer) == napi_ok &&

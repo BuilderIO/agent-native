@@ -1194,6 +1194,13 @@ to native open rather than accepting a caller guess. The native signed header
 remains authoritative and rejects substitution. No protected title, body, path,
 or derived index value is added to hosted metadata.
 
+The native object boundary now admits exactly the signed Content document and
+vault-manifest media types. The manifest can therefore use the same fresh-DEK,
+current-epoch, signed-revision bundle as documents; arbitrary media types still
+fail at the typed client, addon, protocol, and service boundaries. The protocol
+suite, universal addon, Desktop typecheck, and universal production service
+bundle pass with the manifest format enabled.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

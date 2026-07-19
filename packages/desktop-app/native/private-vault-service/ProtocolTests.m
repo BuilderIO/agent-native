@@ -439,6 +439,20 @@ int main(void) {
          parsed.objectPayloadLength == sizeof objectPlaintext);
   xpc_release(sealObject);
 
+  const char *manifestContentType =
+      "application/vnd.agent-native.content-vault-manifest+json";
+  xpc_object_t sealManifest =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_object", "request-seal-manifest");
+  xpc_dictionary_set_string(sealManifest, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(sealManifest, "objectId", objectID);
+  xpc_dictionary_set_int64(sealManifest, "revision", 5);
+  xpc_dictionary_set_string(sealManifest, "contentType", manifestContentType);
+  xpc_dictionary_set_data(sealManifest, "objectPayload", objectPlaintext,
+                          sizeof objectPlaintext);
+  assert(PVParseRequest(sealManifest, &parsed) == PVRequestValid &&
+         strcmp(parsed.objectContentType, manifestContentType) == 0);
+  xpc_release(sealManifest);
+
   xpc_object_t openObject =
       PVMakeRequest(PV_PROTOCOL_VERSION, "open_object", "request-open-object");
   xpc_dictionary_set_string(openObject, "vaultId", enrollmentVault);

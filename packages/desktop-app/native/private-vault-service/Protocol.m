@@ -26,6 +26,16 @@ static bool PVIsAllowedRequestID(const char *value) {
     return true;
 }
 
+static bool PVIsContentObjectType(const char *value) {
+    return value != NULL &&
+           (strcmp(value,
+                   "application/vnd.agent-native.content-document+json") ==
+                0 ||
+            strcmp(value,
+                   "application/vnd.agent-native.content-vault-manifest+json") ==
+                0);
+}
+
 static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                                   size_t *outputFieldCount) {
     __block size_t count = 0;
@@ -228,11 +238,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
             !PVIsLowerHex(objectID, 32) || revision <= 0 ||
             revision > INT64_C(9007199254740991) ||
-            (sealObject &&
-             (contentType == NULL ||
-              strcmp(contentType,
-                     "application/vnd.agent-native.content-document+json") !=
-                  0)) ||
+            (sealObject && !PVIsContentObjectType(contentType)) ||
             (!sealObject && contentTypeValue != NULL) ||
             !PVReadBoundedData(message, "objectPayload", maximum,
                                &request->objectPayload,

@@ -85,6 +85,13 @@ static NSLock *gEnrollmentInspectionLock = nil;
 
 static const char *PVRotationAckState(void);
 
+static BOOL PVIsContentObjectType(NSString *value) {
+    return [value isEqualToString:
+                      @"application/vnd.agent-native.content-document+json"] ||
+           [value isEqualToString:
+                      @"application/vnd.agent-native.content-vault-manifest+json"];
+}
+
 static void PVSetRecoveryStatus(NSString *vaultID, NSString *state) {
     if (vaultID.length != 32 || state.length == 0) return;
     [gRecoveryStatusLock lock];
@@ -1397,8 +1404,7 @@ static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
             epoch != nil && [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
         if (opened == nil || opened.revision != request->objectRevision ||
             opened.epoch != state.epoch ||
-            ![opened.contentType isEqualToString:
-                @"application/vnd.agent-native.content-document+json"] ||
+            !PVIsContentObjectType(opened.contentType) ||
             !signingClosed || !epochClosed) {
             PVSendError(peer, message, "object_open_failed");
             return;

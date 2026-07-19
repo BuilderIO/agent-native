@@ -276,8 +276,8 @@ describe("Private Vault native service client", () => {
             state: "sealed",
             vaultId,
             objectId,
-            contentType: "application/vnd.agent-native.content-document+json",
-            revision: 3,
+            contentType: arguments_[3],
+            revision: arguments_[2],
             epoch: 7,
             plaintextLength: plaintext.byteLength,
             revisionId,
@@ -347,6 +347,20 @@ describe("Private Vault native service client", () => {
       3,
       expect.any(Buffer),
     ]);
+    await expect(
+      client.sealContentObjectRevision({
+        vaultId,
+        objectId,
+        revision: 4,
+        contentType: "application/vnd.agent-native.content-vault-manifest+json",
+        plaintext,
+      }),
+    ).resolves.toMatchObject({
+      contentType: "application/vnd.agent-native.content-vault-manifest+json",
+    });
+    expect(request.mock.calls[2]?.[4]).toBe(
+      "application/vnd.agent-native.content-vault-manifest+json",
+    );
     expect(
       transferred.every((value) => value.every((byte) => byte === 0)),
     ).toBe(true);
@@ -368,7 +382,7 @@ describe("Private Vault native service client", () => {
         encodedRevision: ciphertext,
       }),
     ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(3);
 
     for (const mutation of [
       { objectId: "22".repeat(16) },
