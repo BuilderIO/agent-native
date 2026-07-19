@@ -16,6 +16,14 @@ FOUNDATION_EXPORT AncPrivateVaultVerifiedReplayResult
         uint64_t targetCustodyGeneration, uint64_t verifiedAtMs,
         AncPrivateVaultCustodyEpochTransition epochTransition);
 
+/* Commits one authenticated control edge that advances the signed head while
+ * carrying the current epoch and membership projection unchanged. */
+FOUNDATION_EXPORT AncPrivateVaultVerifiedReplayResult
+    *_Nullable AncPrivateVaultVerifiedCarryReplayResultCreate(
+        AncPrivateVaultControlLogReplayResult *replayResult,
+        AncPrivateVaultAuthorityCheckpoint *expectedCheckpoint,
+        uint64_t targetCustodyGeneration, uint64_t verifiedAtMs);
+
 /* Genesis-only constructor. It accepts only an authenticated, non-idempotent
  * sequence-zero replay and the concrete authorization result that authorized
  * those exact signed bytes. */

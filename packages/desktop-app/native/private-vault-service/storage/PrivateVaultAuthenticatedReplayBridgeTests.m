@@ -2,6 +2,8 @@
 #import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultControlLog.h"
 #import "PrivateVaultControlLogInternal.h"
+#import "PrivateVaultGenesisAuthorizationInternal.h"
+#import "PrivateVaultRecoveryBuilderInternal.h"
 
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -12,6 +14,53 @@
 #ifndef ANC_PV_CONTROL_VECTOR_PATH
 #error ANC_PV_CONTROL_VECTOR_PATH must name the native control-log fixture
 #endif
+
+/* This focused target links the authority store without the independent
+ * genesis and recovery builders. Their constructors are not exercised here. */
+BOOL AncPrivateVaultGenesisAuthorizationResultCopyEvidence(
+    AncPrivateVaultGenesisAuthorizationResult *result, NSData **vaultId,
+    NSData **ceremonyId, NSData **endpointId,
+    NSData **endpointSigningPublicKey, NSData **endpointKeyAgreementPublicKey,
+    NSData **enrollmentRef, NSData **recoveryId,
+    NSData **recoverySigningPublicKey,
+    NSData **recoveryKeyAgreementPublicKey, NSData **recoveryWrapHash,
+    NSData **authorizationDigest, NSData **signedGenesisCommit,
+    NSData **bootstrapTranscriptDigest) {
+  (void)result;
+  (void)vaultId;
+  (void)ceremonyId;
+  (void)endpointId;
+  (void)endpointSigningPublicKey;
+  (void)endpointKeyAgreementPublicKey;
+  (void)enrollmentRef;
+  (void)recoveryId;
+  (void)recoverySigningPublicKey;
+  (void)recoveryKeyAgreementPublicKey;
+  (void)recoveryWrapHash;
+  (void)authorizationDigest;
+  (void)signedGenesisCommit;
+  (void)bootstrapTranscriptDigest;
+  return NO;
+}
+
+BOOL AncPrivateVaultPreparedRecoveryArtifactsCopyEvidence(
+    AncPrivateVaultPreparedRecoveryArtifacts *artifacts,
+    AncPrivateVaultControlLogState **currentState,
+    AncPrivateVaultControlLogState **nextState, NSData **entryHash,
+    NSData **authorizationHash, NSData **ceremonyId,
+    NSData **candidateEndpointId, NSData **candidateSigningPublicKey,
+    NSData **candidateKeyAgreementPublicKey) {
+  (void)artifacts;
+  (void)currentState;
+  (void)nextState;
+  (void)entryHash;
+  (void)authorizationHash;
+  (void)ceremonyId;
+  (void)candidateEndpointId;
+  (void)candidateSigningPublicKey;
+  (void)candidateKeyAgreementPublicKey;
+  return NO;
+}
 
 @interface AncPrivateVaultAuthorityCheckpoint (BridgeTestConstruction)
 @property(nonatomic, readwrite) NSString *vaultId;
@@ -145,6 +194,13 @@ static BOOL BridgeInvocationSetterThrew(id object, SEL selector, id value) {
                            currentState:(AncPrivateVaultControlLogState *)state {
   return signedEntry.length > 0 && innerEnvelope.length > 0 && state != nil;
 }
+- (BOOL)verifyGrantRevocationSignedEntry:(NSData *)signedEntry
+                           innerEnvelope:(NSData *)innerEnvelope
+                      revocationEnvelope:(NSData *)revocationEnvelope
+                            currentState:(AncPrivateVaultControlLogState *)state {
+  return signedEntry.length > 0 && innerEnvelope.length > 0 &&
+      revocationEnvelope.length > 0 && state != nil;
+}
 @end
 
 static AncPrivateVaultControlLogMember *BridgeCopyMember(
@@ -212,7 +268,7 @@ static NSArray<AncPrivateVaultControlLogReplayResult *> *BridgeReplayFixture(
       [[BridgeAuthorizationVerifier alloc] init];
   NSMutableArray *results = [NSMutableArray array];
   AncPrivateVaultControlLogState *state = nil;
-  for (NSUInteger index = 0; index <= 8; index++) {
+  for (NSUInteger index = 0; index <= 11; index++) {
     NSData *entry = BridgeHex(steps[index][@"outerHex"]);
     AncPrivateVaultControlLogReplayResult *result = nil;
     assert([log replaySignedEntry:entry
@@ -244,7 +300,7 @@ int main(void) {
     NSDictionary *fixture =
         [NSJSONSerialization JSONObjectWithData:fixtureData options:0 error:nil];
     NSArray<NSDictionary *> *steps = fixture[@"steps"];
-    assert(steps.count >= 9);
+    assert(steps.count >= 12);
     NSArray<AncPrivateVaultControlLogReplayResult *> *results =
         BridgeReplayFixture(steps);
     AncPrivateVaultControlLogState *state2 = results[2].state;
@@ -336,6 +392,29 @@ int main(void) {
     assert(AncPrivateVaultVerifiedReplayResultCreate(
                results[4], checkpoint, 8, UINT64_C(1800000001000),
                AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch) == nil);
+
+    AncPrivateVaultControlLogState *state10 = results[10].state;
+    AncPrivateVaultAuthorityCheckpoint *carryCheckpoint =
+        BridgeCheckpoint(state10, results[9].state, 13,
+                         UINT64_C(1800000002000));
+    AncPrivateVaultVerifiedReplayResult *carried =
+        AncPrivateVaultVerifiedCarryReplayResultCreate(
+            results[11], carryCheckpoint, 14, UINT64_C(1800000003000));
+    assert(carried != nil && carried.expectedCheckpoint != carryCheckpoint &&
+           carried.epochTransition ==
+               AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch &&
+           carried.nextSnapshot.targetCustodyGeneration == 14 &&
+           carried.nextSnapshot.sequence == state10.sequence + 1 &&
+           carried.nextSnapshot.epoch == state10.epoch &&
+           [carried.nextSnapshot.membershipHash
+               isEqualToData:state10.membershipHash] &&
+           [carried.nextSnapshot.headHash
+               isEqualToData:results[11].entryHash]);
+    assert(AncPrivateVaultVerifiedCarryReplayResultCreate(
+               results[11], carryCheckpoint, 13, UINT64_C(1800000003000)) ==
+           nil);
+    assert(AncPrivateVaultVerifiedCarryReplayResultCreate(
+               results[4], checkpoint, 8, UINT64_C(1800000001000)) == nil);
     assert(AncPrivateVaultVerifiedReplayResultCreate(
                results[3], BridgeCheckpoint(state2, results[1].state, 6,
                                              UINT64_C(1800000000000)),

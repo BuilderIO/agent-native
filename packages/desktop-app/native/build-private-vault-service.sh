@@ -1068,7 +1068,9 @@ case "${PRIVATE_VAULT_BUILD_AUTHENTICATED_REPLAY_BRIDGE_TESTS:-}" in
     xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
       -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
       -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
-      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/transport" \
+      -I"$SOURCE_ROOT/recovery" \
+      -I"$sodium_root/include" \
       -DANC_PRIVATE_VAULT_TESTING=1 \
       -DANC_PV_CONTROL_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-control-log-vectors.json"'"' \
       -framework Foundation -framework Security -framework LocalAuthentication \

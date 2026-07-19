@@ -504,9 +504,12 @@ and returns a content-free receipt. The host deliberately does not pretend it
 can authenticate that nested envelope against a plaintext grant; enrolled
 native clients retain that duty. Native code now produces the exact hosted
 request and strictly decodes the content-free receipt with Core-parity vectors
-on arm64 and x86_64. Durable receipt acceptance and user-facing grant controls
-remain product work, but JavaScript never receives the endpoint signing seed or
-assembles the signed authority edge.
+on arm64 and x86_64. A separate authenticated replay capability now advances
+the trusted head and custody generation while proving that epoch, membership,
+recovery, and freshness projections were carried unchanged. Durable
+receipt-to-edge acceptance and user-facing grant controls remain product work,
+but JavaScript never receives the endpoint signing seed or assembles the signed
+authority edge.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact

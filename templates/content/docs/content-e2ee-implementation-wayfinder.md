@@ -738,9 +738,12 @@ returns a content-free canonical receipt. SQLite integration proof covers the
 full admitted append and replay without teaching the host to validate or read
 the encrypted grant. Native custody now emits the byte-exact hosted request and
 strictly decodes the content-free receipt with Core-parity vectors on arm64 and
-x86_64. Durable receipt acceptance and user-visible grant controls remain;
-native custody no longer leaves either the signed outer edge or wire framing to
-JavaScript.
+x86_64. The authenticated authority store now also mints and commits a separate
+carry-current-epoch replay capability for a verified, projection-preserving
+edge, advancing custody generation and the signed head without manufacturing a
+key rotation. Durable receipt-to-edge acceptance and user-visible grant
+controls remain; native custody no longer leaves either the signed outer edge
+or wire framing to JavaScript.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the

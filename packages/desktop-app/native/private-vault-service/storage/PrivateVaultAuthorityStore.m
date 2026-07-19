@@ -769,6 +769,31 @@ AuthorityReplayMembershipValid(AncPrivateVaultControlLogState *expected,
 }
 
 static BOOL
+AuthorityReplayProjectionCarried(AncPrivateVaultControlLogState *expected,
+                                 AncPrivateVaultAuthoritySnapshot *next) {
+  if (expected == nil || next == nil ||
+      expected.epoch != next.epoch ||
+      expected.recoveryGeneration != next.recoveryGeneration ||
+      ![expected.membershipHash isEqualToData:next.membershipHash] ||
+      ![expected.removedEndpointIds isEqualToArray:next.removedEndpointIds] ||
+      ![expected.recoveryId isEqualToString:next.recoveryId] ||
+      ![expected.recoverySigningPublicKey
+          isEqualToData:next.recoverySigningPublicKey] ||
+      ![expected.recoveryKeyAgreementPublicKey
+          isEqualToData:next.recoveryKeyAgreementPublicKey] ||
+      ![expected.recoveryWrapHash isEqualToData:next.recoveryWrapHash] ||
+      ![expected.freshnessMode isEqualToString:next.freshnessMode] ||
+      expected.activeMembers.count != next.activeMembers.count)
+    return NO;
+  for (AncPrivateVaultControlLogMember *member in expected.activeMembers) {
+    AncPrivateVaultAuthorityMember *carried =
+        AuthorityMemberWithId(next.activeMembers, member.endpointId);
+    if (!AuthorityMemberMatchesControl(carried, member)) return NO;
+  }
+  return YES;
+}
+
+static BOOL
 AuthorityMemberMatchesAuthority(AncPrivateVaultAuthorityMember *left,
                                 AncPrivateVaultAuthorityMember *right) {
   return left != nil && right != nil &&
@@ -787,7 +812,8 @@ static BOOL AuthoritySnapshotTransitionValid(
     uint64_t expectedGeneration,
     AncPrivateVaultCustodyEpochTransition transition) {
   if (expected == nil || next == nil || entryHash.length != 32 ||
-      transition != AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch ||
+      (transition != AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch &&
+       transition != AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch) ||
       expectedGeneration == 0 ||
       expectedGeneration == kAuthorityMaximumSafeInteger ||
       next.targetCustodyGeneration != expectedGeneration + 1 ||
@@ -798,9 +824,34 @@ static BOOL AuthoritySnapshotTransitionValid(
       next.previousSequence.unsignedLongLongValue != expected.sequence ||
       ![next.previousHead isEqualToData:expected.headHash] ||
       ![next.headHash isEqualToData:entryHash] ||
-      expected.epoch == kAuthorityMaximumSafeInteger ||
+      ![next.vaultId isEqualToString:expected.vaultId])
+    return NO;
+
+  if (transition == AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch) {
+    if (next.epoch != expected.epoch ||
+        ![next.membershipHash isEqualToData:expected.membershipHash] ||
+        next.recoveryGeneration != expected.recoveryGeneration ||
+        ![next.recoveryId isEqualToString:expected.recoveryId] ||
+        ![next.recoverySigningPublicKey
+            isEqualToData:expected.recoverySigningPublicKey] ||
+        ![next.recoveryKeyAgreementPublicKey
+            isEqualToData:expected.recoveryKeyAgreementPublicKey] ||
+        ![next.recoveryWrapHash isEqualToData:expected.recoveryWrapHash] ||
+        ![next.removedEndpointIds
+            isEqualToArray:expected.removedEndpointIds] ||
+        ![next.freshnessMode isEqualToString:expected.freshnessMode] ||
+        next.activeMembers.count != expected.activeMembers.count)
+      return NO;
+    for (AncPrivateVaultAuthorityMember *member in expected.activeMembers) {
+      AncPrivateVaultAuthorityMember *carried =
+          AuthorityMemberWithId(next.activeMembers, member.endpointId);
+      if (!AuthorityMemberMatchesAuthority(member, carried)) return NO;
+    }
+    return YES;
+  }
+
+  if (expected.epoch == kAuthorityMaximumSafeInteger ||
       next.epoch != expected.epoch + 1 ||
-      ![next.vaultId isEqualToString:expected.vaultId] ||
       [next.membershipHash isEqualToData:expected.membershipHash])
     return NO;
 
@@ -1427,14 +1478,16 @@ AncPrivateVaultVerifiedEnrollmentBootstrapResultCreate(
 }
 #endif
 
-AncPrivateVaultVerifiedReplayResult *AncPrivateVaultVerifiedReplayResultCreate(
+static AncPrivateVaultVerifiedReplayResult *AuthorityVerifiedReplayResultCreate(
     AncPrivateVaultControlLogReplayResult *replayResult,
     AncPrivateVaultAuthorityCheckpoint *expectedCheckpoint,
     uint64_t targetCustodyGeneration, uint64_t verifiedAtMs,
     AncPrivateVaultCustodyEpochTransition epochTransition) {
   if (replayResult == nil || expectedCheckpoint == nil ||
-      epochTransition !=
-          AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch ||
+      (epochTransition !=
+           AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch &&
+       epochTransition !=
+           AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch) ||
       targetCustodyGeneration == 0 || verifiedAtMs == 0 ||
       targetCustodyGeneration > kAuthorityMaximumSafeInteger ||
       verifiedAtMs > kAuthorityMaximumSafeInteger)
@@ -1479,8 +1532,11 @@ AncPrivateVaultVerifiedReplayResult *AncPrivateVaultVerifiedReplayResultCreate(
         ![priorState.vaultId isEqualToString:expectedState.vaultId] ||
         ![priorState.headHash isEqualToData:expectedState.headHash] ||
         ![replayedState.vaultId isEqualToString:expectedState.vaultId] ||
-        expectedState.epoch == kAuthorityMaximumSafeInteger ||
-        replayedState.epoch != expectedState.epoch + 1)
+        (epochTransition ==
+                 AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch
+             ? expectedState.epoch == kAuthorityMaximumSafeInteger ||
+                   replayedState.epoch != expectedState.epoch + 1
+             : replayedState.epoch != expectedState.epoch))
       return nil;
 
     AncPrivateVaultAuthoritySnapshot *authenticatedPriorSnapshot =
@@ -1507,7 +1563,10 @@ AncPrivateVaultVerifiedReplayResult *AncPrivateVaultVerifiedReplayResultCreate(
         ![nextSnapshot.previousHead isEqualToData:expectedState.headHash] ||
         nextSnapshot.previousSequence.unsignedLongLongValue !=
             expectedState.sequence ||
-        !AuthorityReplayMembershipValid(expectedState, nextSnapshot))
+        (epochTransition ==
+                 AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch
+             ? !AuthorityReplayMembershipValid(expectedState, nextSnapshot)
+             : !AuthorityReplayProjectionCarried(expectedState, nextSnapshot)))
       return nil;
 
     AncPrivateVaultAuthoritySnapshot *frozenExpected =
@@ -1548,6 +1607,29 @@ AncPrivateVaultVerifiedReplayResult *AncPrivateVaultVerifiedReplayResultCreate(
   } @catch (__unused NSException *exception) {
     return nil;
   }
+}
+
+AncPrivateVaultVerifiedReplayResult *AncPrivateVaultVerifiedReplayResultCreate(
+    AncPrivateVaultControlLogReplayResult *replayResult,
+    AncPrivateVaultAuthorityCheckpoint *expectedCheckpoint,
+    uint64_t targetCustodyGeneration, uint64_t verifiedAtMs,
+    AncPrivateVaultCustodyEpochTransition epochTransition) {
+  if (epochTransition !=
+      AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch)
+    return nil;
+  return AuthorityVerifiedReplayResultCreate(
+      replayResult, expectedCheckpoint, targetCustodyGeneration, verifiedAtMs,
+      epochTransition);
+}
+
+AncPrivateVaultVerifiedReplayResult *
+AncPrivateVaultVerifiedCarryReplayResultCreate(
+    AncPrivateVaultControlLogReplayResult *replayResult,
+    AncPrivateVaultAuthorityCheckpoint *expectedCheckpoint,
+    uint64_t targetCustodyGeneration, uint64_t verifiedAtMs) {
+  return AuthorityVerifiedReplayResultCreate(
+      replayResult, expectedCheckpoint, targetCustodyGeneration, verifiedAtMs,
+      AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch);
 }
 
 @interface AncPrivateVaultAuthorityStore ()
