@@ -43,6 +43,7 @@ const headers: Record<string, string> = {
   "x-anc-vault-id": "vault:test-0001",
   "x-anc-object-id": "object:test-0001",
   "x-anc-revision-id": "revision:test-0001",
+  "x-anc-revision": "1",
   "x-anc-object-type": "document",
   "x-anc-algorithm-id": "anc/v1",
   "x-anc-epoch": "1",
@@ -85,6 +86,7 @@ describe("POST /api/private-vault/objects", () => {
       expect.objectContaining({
         objectId: "object:test-0001",
         revisionId: "revision:test-0001",
+        revision: 1,
       }),
     );
     expect(readPrivateVaultBoundedBody).not.toHaveBeenCalled();

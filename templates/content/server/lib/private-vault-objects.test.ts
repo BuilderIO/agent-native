@@ -22,6 +22,7 @@ const revision: PrivateVaultObjectRevisionInput = {
   vaultId: scope.vaultId,
   objectId: "object:test-0001",
   revisionId: "revision:test-0001",
+  revision: 1,
   objectType: "document",
   algorithmId: "anc/v1",
   epoch: 1,

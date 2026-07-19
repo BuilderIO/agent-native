@@ -149,6 +149,7 @@ function objectMetadata(
     vaultId: VAULT,
     objectId,
     revisionId,
+    revision: 1,
     objectType: "document",
     algorithmId: "anc/v1",
     epoch: 1,

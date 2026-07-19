@@ -12,6 +12,7 @@ function transport() {
       ...input.coordinate,
       objectType: "document" as const,
       algorithmId: "anc/v1" as const,
+      revision: input.revision,
       epoch: input.epoch,
       parentRevisionIds: input.parentRevisionIds ?? [],
       ciphertextByteLength: input.ciphertext.byteLength,
@@ -21,6 +22,7 @@ function transport() {
       metadata: {
         objectType: "document" as const,
         algorithmId: "anc/v1" as const,
+        revision: 3,
         epoch: 7,
         parentRevisionIds: [],
         ciphertextByteLength: 4,
@@ -58,6 +60,7 @@ describe("Private Vault Content object runtime", () => {
         ...input.coordinate,
         objectType: "document" as const,
         algorithmId: "anc/v1" as const,
+        revision: input.revision,
         epoch: input.epoch,
         parentRevisionIds: input.parentRevisionIds ?? [],
         ciphertextByteLength: input.ciphertext.byteLength,
@@ -81,6 +84,7 @@ describe("Private Vault Content object runtime", () => {
     expect(hosted.put).toHaveBeenCalledWith(
       expect.objectContaining({
         coordinate: { vaultId, objectId, revisionId },
+        revision: 3,
         epoch: 7,
         ciphertext: Uint8Array.from([0, 0, 0, 0]),
       }),
@@ -119,7 +123,6 @@ describe("Private Vault Content object runtime", () => {
         transport: hosted as never,
         vaultId,
         objectId,
-        revision: 3,
         revisionId,
       }),
     ).resolves.toMatchObject({
@@ -140,7 +143,6 @@ describe("Private Vault Content object runtime", () => {
         transport: hosted as never,
         vaultId,
         objectId,
-        revision: 3,
         revisionId,
       }),
     ).rejects.toThrow("object binding failed");

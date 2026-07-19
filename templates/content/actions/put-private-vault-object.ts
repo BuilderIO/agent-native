@@ -16,6 +16,7 @@ export default defineAction({
       vaultId: opaqueIdSchema,
       objectId: opaqueIdSchema,
       revisionId: opaqueIdSchema,
+      revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
       objectType: z
         .string()
         .min(1)
@@ -54,6 +55,7 @@ export default defineAction({
         vaultId: args.vaultId,
         objectId: args.objectId,
         revisionId: args.revisionId,
+        revision: args.revision,
         objectType: args.objectType,
         algorithmId: args.algorithmId,
         epoch: args.epoch,

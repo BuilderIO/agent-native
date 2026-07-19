@@ -39,6 +39,11 @@ export default defineEventHandler(async (event) => {
       String(result.metadata.ciphertextByteLength),
     );
     setResponseHeader(event, "X-ANC-Algorithm-Id", result.metadata.algorithmId);
+    setResponseHeader(
+      event,
+      "X-ANC-Revision",
+      String(result.metadata.revision),
+    );
     setResponseHeader(event, "X-ANC-Epoch", String(result.metadata.epoch));
     setResponseHeader(event, "X-ANC-Object-Type", result.metadata.objectType);
     setResponseHeader(

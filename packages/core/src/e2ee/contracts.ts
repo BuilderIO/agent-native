@@ -268,6 +268,7 @@ export const opaqueRevisionSchema = z
     vaultId: opaqueIdSchema,
     objectId: opaqueIdSchema,
     revisionId: opaqueIdSchema,
+    revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     parentRevisionIds: z.array(opaqueIdSchema).max(32),
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     ciphertextByteLength: z

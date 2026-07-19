@@ -1187,6 +1187,13 @@ brief's bundled, signed trusted UI boundary. The eventual document registry and
 UI must invoke this runtime from signed Desktop code, never remotely deployed
 app JavaScript.
 
+The opaque hosted revision coordinate now also carries the positive numeric
+revision admitted by M2. Upload responses, object indexes, and exact revision
+downloads bind that value through strict schemas and headers; Desktop passes it
+to native open rather than accepting a caller guess. The native signed header
+remains authoritative and rejects substitution. No protected title, body, path,
+or derived index value is added to hosted metadata.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:

@@ -53,6 +53,7 @@ export class PrivateVaultContentObjectRuntime {
           objectId: sealed.objectId,
           revisionId,
         },
+        revision: sealed.revision,
         epoch: sealed.epoch,
         parentRevisionIds: input.parentRevisionIds,
         ciphertext: sealed.encodedRevision,
@@ -72,7 +73,6 @@ export class PrivateVaultContentObjectRuntime {
     readonly transport: PrivateVaultContentObjectTransport;
     readonly vaultId: string;
     readonly objectId: string;
-    readonly revision: number;
     readonly revisionId: string;
   }): Promise<{
     readonly plaintext: Uint8Array;
@@ -89,7 +89,7 @@ export class PrivateVaultContentObjectRuntime {
       const opened = await this.#native.openContentObjectRevision({
         vaultId: input.vaultId,
         objectId: input.objectId,
-        revision: input.revision,
+        revision: downloaded.metadata.revision,
         encodedRevision: ciphertext,
       });
       try {

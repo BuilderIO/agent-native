@@ -36,6 +36,7 @@ describe("Private Vault Content object transport", () => {
       ...coordinate,
       objectType: "document",
       algorithmId: "anc/v1",
+      revision: 3,
       epoch: 7,
       parentRevisionIds: [],
       ciphertextByteLength: 4,
@@ -54,7 +55,7 @@ describe("Private Vault Content object transport", () => {
     });
     const source = Uint8Array.of(1, 2, 3, 4);
     await expect(
-      transport.put({ coordinate, epoch: 7, ciphertext: source }),
+      transport.put({ coordinate, revision: 3, epoch: 7, ciphertext: source }),
     ).resolves.toEqual(metadata);
     expect(fetch).toHaveBeenCalledWith(
       url,
@@ -66,6 +67,7 @@ describe("Private Vault Content object transport", () => {
           "X-ANC-Vault-Id": coordinate.vaultId,
           "X-ANC-Object-Id": coordinate.objectId,
           "X-ANC-Revision-Id": coordinate.revisionId,
+          "X-ANC-Revision": "3",
           "X-ANC-Epoch": "7",
         }),
       }),
@@ -80,6 +82,7 @@ describe("Private Vault Content object transport", () => {
     const validHeaders = {
       "Content-Type": "application/octet-stream",
       "X-ANC-Ciphertext-Byte-Length": "4",
+      "X-ANC-Revision": "3",
       "X-ANC-Epoch": "7",
       "X-ANC-Object-Type": "document",
       "X-ANC-Algorithm-Id": "anc/v1",
@@ -95,6 +98,7 @@ describe("Private Vault Content object transport", () => {
       metadata: {
         objectType: "document",
         algorithmId: "anc/v1",
+        revision: 3,
         epoch: 7,
         parentRevisionIds: [],
         ciphertextByteLength: 4,
@@ -122,6 +126,7 @@ describe("Private Vault Content object transport", () => {
       ...coordinate,
       objectType: "document",
       algorithmId: "anc/v1",
+      revision: 3,
       epoch: 7,
       parentRevisionIds: [],
       ciphertextByteLength: 400,

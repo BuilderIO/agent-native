@@ -62,6 +62,7 @@ export const protocolFixtureObject = {
     vaultId: "vault:fixture-01",
     objectId: "object:fixture-01",
     revisionId: "revision:fixture-01",
+    revision: 1,
     parentRevisionIds: [],
     epoch: 1,
     ciphertextByteLength: 28,

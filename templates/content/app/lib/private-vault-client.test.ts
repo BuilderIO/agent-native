@@ -17,6 +17,7 @@ describe("Private Vault named ciphertext client", () => {
     vaultId: "vault:test-0001",
     objectId: "object:test-0001",
     revisionId: "revision:test-0001",
+    revision: 1,
     objectType: "document",
     algorithmId: "anc/v1",
     epoch: 1,
@@ -40,6 +41,7 @@ describe("Private Vault named ciphertext client", () => {
       vaultId: "vault:test-0001",
       objectId: "object:test-0001",
       revisionId: "revision:test-0001",
+      revision: 1,
       objectType: "document",
       algorithmId: "anc/v1",
       epoch: 1,
@@ -92,6 +94,7 @@ describe("Private Vault named ciphertext client", () => {
         vaultId: "vault:test-0001",
         objectId: "object:test-0001",
         revisionId: "revision:test-0001",
+        revision: 1,
         objectType: "document",
         algorithmId: "anc/v1",
         epoch: 1,
@@ -111,6 +114,7 @@ describe("Private Vault named ciphertext client", () => {
             headers: {
               "content-type": "application/octet-stream",
               "x-anc-ciphertext-byte-length": "3",
+              "x-anc-revision": "2",
               "x-anc-algorithm-id": "anc/v1",
               "x-anc-epoch": "2",
               "x-anc-object-type": "document",
@@ -127,6 +131,7 @@ describe("Private Vault named ciphertext client", () => {
     expect(result.ciphertext).toEqual(ciphertext);
     expect(result.metadata).toMatchObject({
       algorithmId: "anc/v1",
+      revision: 2,
       epoch: 2,
       ciphertextByteLength: 3,
       parentRevisionIds: [],
@@ -143,6 +148,7 @@ describe("Private Vault named ciphertext client", () => {
             headers: {
               "content-type": "application/octet-stream",
               "x-anc-ciphertext-byte-length": "2",
+              "x-anc-revision": "1",
               "x-anc-algorithm-id": "anc/v1",
               "x-anc-epoch": "1",
               "x-anc-object-type": "document",
@@ -174,6 +180,7 @@ describe("Private Vault named ciphertext client", () => {
           "content-type": "application/octet-stream",
           "content-length": String(256 * 1024 * 1024 + 1),
           "x-anc-ciphertext-byte-length": "3",
+          "x-anc-revision": "1",
           "x-anc-algorithm-id": "anc/v1",
           "x-anc-epoch": "1",
           "x-anc-object-type": "document",
@@ -212,6 +219,7 @@ describe("Private Vault named ciphertext client", () => {
               headers: {
                 "content-type": "application/octet-stream",
                 "x-anc-ciphertext-byte-length": "3",
+                "x-anc-revision": "1",
                 "x-anc-algorithm-id": "anc/v2",
                 "x-anc-epoch": "1",
                 "x-anc-object-type": "document",

@@ -87,6 +87,7 @@ describe("Content Private Vault privacy manifest", () => {
         keyEpoch: 1,
         opaqueRevision: {
           revisionId: "revision_fixture_01",
+          revision: 1,
           parentRevisionId: null,
           epoch: 1,
           ciphertextByteLength: 25,

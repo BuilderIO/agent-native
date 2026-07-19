@@ -13,6 +13,7 @@ export interface PrivateVaultContentObjectCoordinate {
 }
 
 export interface PrivateVaultContentObjectMetadata extends PrivateVaultContentObjectCoordinate {
+  readonly revision: number;
   readonly objectType: typeof OBJECT_TYPE;
   readonly algorithmId: typeof ALGORITHM_ID;
   readonly epoch: number;
@@ -89,6 +90,7 @@ function parseMetadata(value: unknown): PrivateVaultContentObjectMetadata {
     "objectId",
     "objectType",
     "parentRevisionIds",
+    "revision",
     "revisionId",
     "serverReceivedAt",
     "vaultId",
@@ -96,13 +98,14 @@ function parseMetadata(value: unknown): PrivateVaultContentObjectMetadata {
   const keys = Object.keys(record).sort();
   if (
     keys.some((key) => !allowed.includes(key)) ||
-    keys.length < 8 ||
-    keys.length > 9 ||
+    keys.length < 9 ||
+    keys.length > 10 ||
     !lowerHex(record.vaultId, 16) ||
     !lowerHex(record.objectId, 16) ||
     !lowerHex(record.revisionId, 32) ||
     record.objectType !== OBJECT_TYPE ||
     record.algorithmId !== ALGORITHM_ID ||
+    !positiveSafeInteger(record.revision) ||
     !positiveSafeInteger(record.epoch) ||
     !positiveSafeInteger(record.ciphertextByteLength) ||
     record.ciphertextByteLength > MAXIMUM_CIPHERTEXT_BYTES ||
@@ -118,6 +121,7 @@ function parseMetadata(value: unknown): PrivateVaultContentObjectMetadata {
     vaultId: record.vaultId,
     objectId: record.objectId,
     revisionId: record.revisionId,
+    revision: record.revision,
     objectType: OBJECT_TYPE,
     algorithmId: ALGORITHM_ID,
     epoch: record.epoch,
@@ -138,6 +142,7 @@ function exactMetadata(
     parsed.vaultId !== expected.vaultId ||
     parsed.objectId !== expected.objectId ||
     parsed.revisionId !== expected.revisionId ||
+    parsed.revision !== expected.revision ||
     parsed.epoch !== expected.epoch ||
     parsed.ciphertextByteLength !== expected.ciphertextByteLength ||
     parsed.parentRevisionIds.length !== expected.parentRevisionIds.length ||
@@ -182,13 +187,17 @@ export class PrivateVaultContentObjectTransport {
 
   async put(input: {
     readonly coordinate: PrivateVaultContentObjectCoordinate;
+    readonly revision: number;
     readonly epoch: number;
     readonly parentRevisionIds?: readonly string[];
     readonly ciphertext: Uint8Array;
   }): Promise<PrivateVaultContentObjectMetadata> {
     const coordinate = exactCoordinate(input.coordinate);
     const parents = input.parentRevisionIds ?? [];
-    if (!positiveSafeInteger(input.epoch))
+    if (
+      !positiveSafeInteger(input.revision) ||
+      !positiveSafeInteger(input.epoch)
+    )
       throw new PrivateVaultContentObjectTransportError();
     const ciphertext = Uint8Array.from(input.ciphertext);
     if (
@@ -200,6 +209,7 @@ export class PrivateVaultContentObjectTransport {
       ...coordinate,
       objectType: OBJECT_TYPE,
       algorithmId: ALGORITHM_ID,
+      revision: input.revision,
       epoch: input.epoch,
       parentRevisionIds: [...parents],
       ciphertextByteLength: ciphertext.byteLength,
@@ -221,6 +231,7 @@ export class PrivateVaultContentObjectTransport {
           "X-ANC-Vault-Id": coordinate.vaultId,
           "X-ANC-Object-Id": coordinate.objectId,
           "X-ANC-Revision-Id": coordinate.revisionId,
+          "X-ANC-Revision": String(input.revision),
           "X-ANC-Object-Type": OBJECT_TYPE,
           "X-ANC-Algorithm-Id": ALGORITHM_ID,
           "X-ANC-Epoch": String(input.epoch),
@@ -350,6 +361,7 @@ export class PrivateVaultContentObjectTransport {
         response.headers.get("x-anc-ciphertext-byte-length"),
       );
       const epoch = Number(response.headers.get("x-anc-epoch"));
+      const revision = Number(response.headers.get("x-anc-revision"));
       const parentsHeader = response.headers.get("x-anc-parent-revision-ids");
       if (
         response.status !== 200 ||
@@ -360,6 +372,7 @@ export class PrivateVaultContentObjectTransport {
         !positiveSafeInteger(length) ||
         length > MAXIMUM_CIPHERTEXT_BYTES ||
         !positiveSafeInteger(epoch) ||
+        !positiveSafeInteger(revision) ||
         response.headers.get("x-anc-object-type") !== OBJECT_TYPE ||
         response.headers.get("x-anc-algorithm-id") !== ALGORITHM_ID ||
         !parentsHeader
@@ -383,6 +396,7 @@ export class PrivateVaultContentObjectTransport {
         metadata: Object.freeze({
           objectType: OBJECT_TYPE,
           algorithmId: ALGORITHM_ID,
+          revision,
           epoch,
           parentRevisionIds: [...parents] as string[],
           ciphertextByteLength: length,

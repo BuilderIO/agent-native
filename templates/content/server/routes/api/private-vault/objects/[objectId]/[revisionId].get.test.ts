@@ -34,6 +34,34 @@ describe("GET /api/private-vault/objects/:objectId/:revisionId", () => {
     );
   });
 
+  it("returns the signed numeric revision with the bounded ciphertext", async () => {
+    getSession.mockResolvedValue({
+      ownerEmail: "owner@example.test",
+      orgId: "org:test-0001",
+      vaultId: "vault:test-0001",
+    });
+    getRevision.mockResolvedValue({
+      ciphertext: Uint8Array.of(1, 2, 3, 4),
+      metadata: {
+        revision: 3,
+        ciphertextByteLength: 4,
+        algorithmId: "anc/v1",
+        epoch: 7,
+        objectType: "document",
+        parentRevisionIds: [],
+      },
+    });
+
+    await expect(handler({} as never)).resolves.toEqual(
+      Uint8Array.of(1, 2, 3, 4),
+    );
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "X-ANC-Revision",
+      "3",
+    );
+  });
+
   it("returns the uniform not-found response without disclosing session state", async () => {
     getSession.mockResolvedValue(null);
 

@@ -35,6 +35,7 @@ const opaqueRevision = {
   vaultId: ids.vaultId,
   objectId: ids.objectId,
   revisionId: ids.revisionId,
+  revision: 1,
   parentRevisionIds: [],
   epoch: 1,
   ciphertextByteLength: 42,

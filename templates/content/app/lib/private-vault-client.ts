@@ -24,6 +24,7 @@ const objectRevisionMetadataSchema = z
     vaultId: opaqueIdSchema,
     objectId: opaqueIdSchema,
     revisionId: opaqueIdSchema,
+    revision: positiveIntegerSchema,
     objectType: objectTypeSchema,
     algorithmId: z.literal(E2EE_SUITE_ID),
     epoch: positiveIntegerSchema,
@@ -49,6 +50,7 @@ export interface PrivateVaultCiphertextRevisionInput {
   vaultId: string;
   objectId: string;
   revisionId: string;
+  revision: number;
   objectType: string;
   algorithmId: string;
   epoch: number;
@@ -60,6 +62,7 @@ export interface PrivateVaultCiphertextRevisionMetadata {
   vaultId: string;
   objectId: string;
   revisionId: string;
+  revision: number;
   objectType: string;
   algorithmId: string;
   epoch: number;
@@ -144,6 +147,7 @@ export async function uploadPrivateVaultCiphertextRevision(
       vaultId: input.vaultId,
       objectId: input.objectId,
       revisionId: input.revisionId,
+      revision: input.revision,
       objectType: input.objectType,
       algorithmId: input.algorithmId,
       epoch: input.epoch,
@@ -161,6 +165,7 @@ export async function uploadPrivateVaultCiphertextRevision(
       "X-ANC-Vault-Id": input.vaultId,
       "X-ANC-Object-Id": input.objectId,
       "X-ANC-Revision-Id": input.revisionId,
+      "X-ANC-Revision": String(input.revision),
       "X-ANC-Object-Type": input.objectType,
       "X-ANC-Algorithm-Id": input.algorithmId,
       "X-ANC-Epoch": String(input.epoch),
@@ -178,6 +183,7 @@ export async function uploadPrivateVaultCiphertextRevision(
     parsed.data.vaultId !== request.vaultId ||
     parsed.data.objectId !== request.objectId ||
     parsed.data.revisionId !== request.revisionId ||
+    parsed.data.revision !== request.revision ||
     parsed.data.objectType !== request.objectType ||
     parsed.data.algorithmId !== request.algorithmId ||
     parsed.data.epoch !== request.epoch ||
@@ -263,6 +269,7 @@ export async function getPrivateVaultCiphertextRevision(
       serverReceivedAt: true,
     })
     .safeParse({
+      revision: requirePositiveInteger(response.headers.get("x-anc-revision")),
       objectType: response.headers.get("x-anc-object-type") ?? "",
       algorithmId: response.headers.get("x-anc-algorithm-id") ?? "",
       epoch: requirePositiveInteger(response.headers.get("x-anc-epoch")),

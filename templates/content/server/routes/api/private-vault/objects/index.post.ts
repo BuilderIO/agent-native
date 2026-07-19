@@ -56,6 +56,7 @@ export default defineEventHandler(async (event) => {
     vaultId: header(event, "x-anc-vault-id"),
     objectId: header(event, "x-anc-object-id"),
     revisionId: header(event, "x-anc-revision-id"),
+    revision: parseInteger(header(event, "x-anc-revision")),
     objectType: header(event, "x-anc-object-type"),
     algorithmId: header(event, "x-anc-algorithm-id"),
     epoch: parseInteger(header(event, "x-anc-epoch")),
