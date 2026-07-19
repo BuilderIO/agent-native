@@ -53,6 +53,13 @@ AncPrivateVaultVerifyGrantEnvelope(
     const uint8_t *_Nonnull issuerSigningPublicKey,
     AncPrivateVaultGrantCodecStatus *status);
 
+FOUNDATION_EXPORT NSData *_Nullable
+AncPrivateVaultSealGrantRevocationEnvelope(
+    NSData *vaultId, NSData *envelopeId, uint64_t createdAt,
+    AncPrivateVaultVerifiedGrant *grant, uint64_t revokedAt, NSString *reason,
+    const uint8_t *_Nonnull issuerSigningSeed,
+    AncPrivateVaultGrantCodecStatus *status);
+
 FOUNDATION_EXPORT AncPrivateVaultVerifiedGrantRevocation *_Nullable
 AncPrivateVaultVerifyGrantRevocationEnvelope(
     NSData *envelope, NSData *expectedVaultId,

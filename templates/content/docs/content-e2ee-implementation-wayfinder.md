@@ -721,6 +721,17 @@ Startup reconciliation now reloads the retained hosted attempt coordinates and
 exact envelope, idempotently resubmits it before claiming new work, and never
 re-executes the action.
 
+Attended endpoint custody can now create the matching canonical grant-revoke
+envelope as well as verify it. The native signer binds the exact stored grant
+hash, one-use revocation reference, issuer endpoint, reason, and trusted
+timestamp before releasing public bytes; its output matches the frozen Core
+vector byte-for-byte on arm64 and x86_64. Existing control-log replay already
+applies that envelope to the rollback-fenced grant index before advancing the
+head, so post-replay jobs fail authorization. Product revocation still requires
+the signed outer control entry, hosted append ceremony, and user-visible grant
+controls; this signer is the custody foundation, not a claim that the complete
+revocation path is shipped.
+
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the
 native job boundary returns the authenticated resource id and operation, and

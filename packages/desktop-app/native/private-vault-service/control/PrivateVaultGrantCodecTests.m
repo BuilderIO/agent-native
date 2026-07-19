@@ -56,6 +56,12 @@ int main(void) {
            [verified.operations isEqual:expectedOperations] &&
            [verified.providers isEqual:expectedProviders]);
 
+    NSData *sealedRevocation = AncPrivateVaultSealGrantRevocationEnvelope(
+        Pattern(0x01, 16), Pattern(0x31, 16), 1721111113, verified,
+        1721111113, @"user_revoked", seed, &status);
+    assert(status == AncPrivateVaultGrantCodecStatusOK &&
+           [sealedRevocation isEqualToData:revocation]);
+
     AncPrivateVaultVerifiedGrantRevocation *verifiedRevocation =
         AncPrivateVaultVerifyGrantRevocationEnvelope(
             revocation, Pattern(0x01, 16), verified, publicKey, &status);
@@ -78,6 +84,11 @@ int main(void) {
                grant, Pattern(0x01, 16), 1721111112, Pattern(0x02, 16),
                wrongKey, &status) == nil &&
            status == AncPrivateVaultGrantCodecStatusSignature);
+
+    assert(AncPrivateVaultSealGrantRevocationEnvelope(
+               Pattern(0x01, 16), Pattern(0x31, 16), 1721111113, verified,
+               1721111112, @"user_revoked", seed, &status) == nil &&
+           status == AncPrivateVaultGrantCodecStatusInvalid);
 
     NSMutableData *tamperedRevocation = [revocation mutableCopy];
     ((uint8_t *)tamperedRevocation.mutableBytes)[tamperedRevocation.length - 1] ^= 1;

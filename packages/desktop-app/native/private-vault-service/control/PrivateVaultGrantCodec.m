@@ -352,6 +352,68 @@ AncPrivateVaultVerifiedGrant *AncPrivateVaultVerifyGrantEnvelope(
   return grant;
 }
 
+NSData *AncPrivateVaultSealGrantRevocationEnvelope(
+    NSData *vaultId, NSData *envelopeId, uint64_t createdAt,
+    AncPrivateVaultVerifiedGrant *grant, uint64_t revokedAt, NSString *reason,
+    const uint8_t issuerSigningSeed[ANC_PV_SEED_BYTES],
+    AncPrivateVaultGrantCodecStatus *status) {
+  SetStatus(status, AncPrivateVaultGrantCodecStatusInvalid);
+  if (vaultId.length != 16 || envelopeId.length != 16 || createdAt == 0 ||
+      createdAt > kMaximumSafeInteger || grant == nil ||
+      ![grant.vaultId isEqualToData:vaultId] || grant.grantRef.length != 32 ||
+      grant.revocationRef.length != 16 || grant.issuerEndpointId.length != 16 ||
+      revokedAt < createdAt || revokedAt < grant.issuedAt ||
+      revokedAt > kMaximumSafeInteger || !ValidToken(reason) ||
+      issuerSigningSeed == NULL)
+    return nil;
+
+  NSMutableDictionary *map = [@{
+    @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
+    @2 : [AncPrivateVaultCanonicalValue bytes:vaultId],
+    @3 : [AncPrivateVaultCanonicalValue text:@"grant-revoke"],
+    @4 : [AncPrivateVaultCanonicalValue integer:(int64_t)createdAt],
+    @5 : [AncPrivateVaultCanonicalValue bytes:envelopeId],
+    @72 : [AncPrivateVaultCanonicalValue bytes:grant.grantRef],
+    @73 : [AncPrivateVaultCanonicalValue bytes:grant.revocationRef],
+    @74 : [AncPrivateVaultCanonicalValue integer:(int64_t)revokedAt],
+    @75 : [AncPrivateVaultCanonicalValue text:reason],
+    @76 : [AncPrivateVaultCanonicalValue bytes:grant.issuerEndpointId],
+  } mutableCopy];
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  NSData *unsignedBytes = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:map], &canonicalStatus);
+  if (unsignedBytes == nil ||
+      unsignedBytes.length > NSUIntegerMax - sizeof kRevokeDomain)
+    return nil;
+  NSMutableData *message = [NSMutableData
+      dataWithCapacity:sizeof kRevokeDomain + unsignedBytes.length];
+  [message appendBytes:kRevokeDomain length:sizeof kRevokeDomain];
+  [message appendData:unsignedBytes];
+  uint8_t signingPublic[ANC_PV_SIGN_PUBLIC_KEY_BYTES] = {0};
+  uint8_t signingPrivate[ANC_PV_SIGN_PRIVATE_KEY_BYTES] = {0};
+  uint8_t signature[ANC_PV_SIGNATURE_BYTES] = {0};
+  BOOL signedRevocation =
+      anc_pv_ed25519_seed_keypair(signingPublic, signingPrivate,
+                                  issuerSigningSeed) == ANC_PV_CRYPTO_OK &&
+      anc_pv_ed25519_sign(signature, message.bytes, message.length,
+                          signingPrivate) == ANC_PV_CRYPTO_OK;
+  anc_pv_zeroize(signingPublic, sizeof signingPublic);
+  anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
+  if (!signedRevocation) {
+    anc_pv_zeroize(signature, sizeof signature);
+    SetStatus(status, AncPrivateVaultGrantCodecStatusCrypto);
+    return nil;
+  }
+  map[@77] = [AncPrivateVaultCanonicalValue
+      bytes:[NSData dataWithBytes:signature length:sizeof signature]];
+  anc_pv_zeroize(signature, sizeof signature);
+  NSData *encoded = AncPrivateVaultCanonicalEncode(
+      [AncPrivateVaultCanonicalValue map:map], &canonicalStatus);
+  if (encoded.length == 0 || encoded.length > kMaximumEnvelopeBytes) return nil;
+  SetStatus(status, AncPrivateVaultGrantCodecStatusOK);
+  return encoded;
+}
+
 AncPrivateVaultVerifiedGrantRevocation *
 AncPrivateVaultVerifyGrantRevocationEnvelope(
     NSData *envelope, NSData *expectedVaultId,
