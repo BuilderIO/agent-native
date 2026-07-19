@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.111.0",
+  "version": "0.112.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -21,6 +21,7 @@
     "corpus",
     "dist",
     "docs",
+    "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
     "src/templates/default",

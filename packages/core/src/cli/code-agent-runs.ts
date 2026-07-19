@@ -308,6 +308,12 @@ export function appendCodeAgentTranscriptEvent(
   input: AppendCodeAgentTranscriptEventInput,
 ): CodeAgentTranscriptEvent {
   const requestedId = input.id?.trim();
+  if (requestedId) {
+    const existing = listCodeAgentTranscriptEvents(input.runId).find(
+      (event) => event.id === requestedId,
+    );
+    if (existing) return existing;
+  }
   const createdAt = input.createdAt ?? new Date().toISOString();
   const event: CodeAgentTranscriptEvent = {
     schemaVersion: 1,

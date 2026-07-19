@@ -430,7 +430,6 @@ describe("Code Agent run store durability", () => {
     expect(retried).toEqual(first);
     expect(listCodeAgentTranscriptEvents(run.id)).toEqual([first]);
   });
-
   it("arbitrates concurrent processes for run updates and transcript journals", async () => {
     const root = useTempCodeAgentsHome();
     const run = createCodeAgentRunRecord({

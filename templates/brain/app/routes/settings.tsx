@@ -281,8 +281,15 @@ function PrivacySensitivitySettings({
     "get-brain-health" as any,
     {} as any,
   );
-  const privacy = healthQuery.data?.privacy;
-  const quarantineRetentionHours = settings.quarantineRetentionHours ?? 72;
+  const privacy = (
+    healthQuery.data as BrainHealthResponse & {
+      privacy?: {
+        classifierReady?: boolean;
+        classifierModel?: string | null;
+        quarantineRetentionDays?: number | null;
+      };
+    }
+  )?.privacy;
   return (
     <div className="mx-auto w-full max-w-3xl">
       <Card id="privacy-sensitivity" className="scroll-mt-4">
@@ -300,18 +307,24 @@ function PrivacySensitivitySettings({
             <PolicyRow
               label={t("settings.privacyClassifier")}
               value={
-                privacy?.classifier.configured
+                privacy?.classifierReady
                   ? t("settings.ready")
                   : t("settings.readinessPending")
               }
             />
             <PolicyRow
               label={t("settings.privacyModel")}
-              value={privacy?.classifier.model ?? t("settings.notSet")}
+              value={privacy?.classifierModel ?? t("settings.notSet")}
             />
             <PolicyRow
               label={t("settings.quarantineRetention")}
-              value={`${quarantineRetentionHours.toLocaleString()} h`}
+              value={
+                privacy?.quarantineRetentionDays
+                  ? t("settings.days", {
+                      count: privacy.quarantineRetentionDays,
+                    })
+                  : t("settings.notSet")
+              }
             />
           </div>
           <p className="rounded-md border border-border bg-background p-3 text-xs leading-5 text-muted-foreground">
@@ -341,12 +354,12 @@ function PrivacySensitivitySettings({
               id="quarantine-retention-hours"
               type="number"
               min={1}
-              max={720}
+              max={8760}
               value={settings.quarantineRetentionHours ?? 72}
               onChange={(event) =>
                 update(
                   "quarantineRetentionHours",
-                  Math.max(1, Math.min(720, Number(event.target.value) || 1)),
+                  Math.max(1, Math.min(8760, Number(event.target.value) || 1)),
                 )
               }
             />

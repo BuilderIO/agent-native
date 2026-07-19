@@ -8,6 +8,7 @@ on:
       # paths actually drift. Toolchain file list lives in sync-builder-starter-manifest.ts.
       - "templates/chat/**"
       - "pnpm-workspace.yaml"
+      - "packages/core/migration-manifest.json"
       - "packages/core/src/cli/create.ts"
       - "packages/core/src/cli/sync-builder-starter-manifest*"
       - "scripts/sync-builder-starter-manifest.ts"

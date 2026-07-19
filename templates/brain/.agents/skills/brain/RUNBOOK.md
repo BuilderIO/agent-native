@@ -85,8 +85,7 @@ secrets, recurring jobs, and cross-app routing.
 
 Brain resolves `SLACK_BOT_TOKEN` from a granted Slack workspace connection
 first, then from backward-compatible Brain-local or registered vault
-credentials. It scans explicitly configured channels plus all public channels
-only when an admin opts into `includePublicChannels`:
+credentials. It scans only channels that an admin configures on the source:
 
 ```bash
 pnpm --filter brain action create-source \
@@ -102,16 +101,6 @@ applied before capture. Private channels are never silently joined: an operator
 must manually invite the Slack app before validation and membership sync. Cursor
 state is stored on the source so each sync can pick up where the last one
 stopped, including after Slack rate limiting.
-
-New Slack sources default their initial history boundary to four weeks ago and
-keep automatic sync off until the rollout is reviewed. `oldest` applies only
-before a channel has saved cursor progress; later runs resume from that cursor.
-`historyLimit` bounds messages per page (1–15), `maxChannelsPerSync` bounds
-channels per run (1–25), and `pagesPerChannel` bounds cursor pages per selected
-channel (1–5). Broad public-channel backfills should use repeated bounded syncs
-rather than removing these limits. Explicit allow-lists and public discovery
-keep separate round-robin offsets so channels beyond the per-run cap are not
-starved.
 
 Use `test-slack-connection` before a production backfill. It validates the Slack
 bot token with `auth.test` and, when channel refs are provided, checks channel

@@ -3,25 +3,21 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { slackChannelRefsFromConfig } from "@shared/slack-source-config";
 import {
   IconAlertTriangle,
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
-  IconCheck,
   IconChecks,
   IconCircleCheck,
   IconCircleDashed,
   IconClock,
-  IconCopy,
   IconDatabaseImport,
   IconDotsVertical,
   IconExternalLink,
   IconFileSearch,
   IconFileText,
   IconLoader2,
-  IconKey,
   IconNotes,
   IconPlayerPlay,
   IconRefresh,
@@ -82,7 +78,6 @@ import {
   type BrainWorkspaceConnectionStatus,
   type BrainWorkspaceCredentialRef,
   type ConnectionProvidersResponse,
-  type CreateSourceResponse,
   type SourcesResponse,
   formatPercent,
   sourceAutoSync,
@@ -95,24 +90,16 @@ import {
   sourceReviewRequired,
   sourceType,
 } from "@/lib/brain";
-import {
-  createOneTimeIngestHandoff,
-  type OneTimeIngestHandoff,
-} from "@/lib/ingest-handoff";
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 type BrainT = ReturnType<typeof useT>;
-type IngestCopyField = "endpoint" | "sourceKey" | "token";
 
 interface SourceFormState {
   title: string;
   provider: Provider;
   channelRefs: string;
-  slackOldest: string;
   historyLimit: string;
-  maxChannelsPerSync: string;
-  pagesPerChannel: string;
   granolaPageSize: string;
   granolaUpdatedAfter: string;
   githubRepos: string;
@@ -126,7 +113,6 @@ interface SourceFormState {
   autoSync: boolean;
   reviewRequired: boolean;
   includePublicChannels: boolean;
-  restartSlackBackfill: boolean;
 }
 
 const providers: Array<{
@@ -193,12 +179,6 @@ function defaultTitle(provider: Provider, t?: ReturnType<typeof useT>) {
   }
 }
 
-function defaultSlackOldest() {
-  const oldest = new Date();
-  oldest.setUTCDate(oldest.getUTCDate() - 28);
-  return oldest.toISOString().slice(0, 10);
-}
-
 function defaultForm(
   provider: Provider,
   t?: ReturnType<typeof useT>,
@@ -207,10 +187,7 @@ function defaultForm(
     title: defaultTitle(provider, t),
     provider,
     channelRefs: "",
-    slackOldest: provider === "slack" ? defaultSlackOldest() : "",
     historyLimit: "15",
-    maxChannelsPerSync: "3",
-    pagesPerChannel: "1",
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
     githubRepos: "",
@@ -221,10 +198,10 @@ function defaultForm(
     workspaceConnectionId: "",
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
-    autoSync: provider === "granola" || provider === "github",
+    autoSync:
+      provider === "slack" || provider === "granola" || provider === "github",
     reviewRequired: true,
     includePublicChannels: false,
-    restartSlackBackfill: false,
   };
 }
 
@@ -239,24 +216,14 @@ function formFromSource(source: BrainSource): SourceFormState {
   return {
     ...defaultForm(provider),
     title: sourceName(source),
-    channelRefs: slackChannelRefsFromConfig(config).join("\n"),
-    slackOldest:
-      typeof config.oldest === "string" ? config.oldest.slice(0, 10) : "",
+    channelRefs: listValue(
+      config.channelIds ?? config.channels ?? config.allowedChannels,
+    ),
     historyLimit:
       typeof config.historyLimit === "number" ||
       typeof config.historyLimit === "string"
         ? String(config.historyLimit)
         : "15",
-    maxChannelsPerSync:
-      typeof config.maxChannelsPerSync === "number" ||
-      typeof config.maxChannelsPerSync === "string"
-        ? String(config.maxChannelsPerSync)
-        : "3",
-    pagesPerChannel:
-      typeof config.pagesPerChannel === "number" ||
-      typeof config.pagesPerChannel === "string"
-        ? String(config.pagesPerChannel)
-        : "1",
     granolaPageSize:
       typeof config.pageSize === "number" || typeof config.pageSize === "string"
         ? String(config.pageSize)
@@ -287,7 +254,6 @@ function formFromSource(source: BrainSource): SourceFormState {
     autoSync: sourceAutoSync(source),
     reviewRequired: sourceReviewRequired(source),
     includePublicChannels: config.includePublicChannels === true,
-    restartSlackBackfill: false,
   };
 }
 
@@ -317,10 +283,7 @@ function buildConfig(form: SourceFormState) {
   };
   if (form.provider === "slack") {
     config.channelIds = splitLines(form.channelRefs);
-    config.oldest = form.slackOldest.trim();
     config.historyLimit = numberValue(form.historyLimit, 15, 1, 15);
-    config.maxChannelsPerSync = numberValue(form.maxChannelsPerSync, 3, 1, 25);
-    config.pagesPerChannel = numberValue(form.pagesPerChannel, 1, 1, 5);
     config.includePublicChannels = form.includePublicChannels;
   }
   if (form.provider === "granola") {
@@ -1664,136 +1627,12 @@ function SourceListItem({
   );
 }
 
-function OneTimeIngestSetupSheet({
-  handoff,
-  onClose,
-}: {
-  handoff: OneTimeIngestHandoff | null;
-  onClose: () => void;
-}) {
-  const t = useT();
-  const [copied, setCopied] = useState<IngestCopyField | null>(null);
-
-  useEffect(() => setCopied(null), [handoff]);
-
-  async function copy(field: IngestCopyField, value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(field);
-      window.setTimeout(
-        () => setCopied((current) => (current === field ? null : current)),
-        1600,
-      );
-    } catch {
-      setCopied(null);
-    }
-  }
-
-  function close() {
-    setCopied(null);
-    onClose();
-  }
-
-  return (
-    <Sheet open={Boolean(handoff)} onOpenChange={(open) => !open && close()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-        <SheetHeader>
-          <SheetTitle>{t("sources.ingestCredentialsTitle")}</SheetTitle>
-          <SheetDescription>
-            {t("sources.ingestCredentialsDescription")}
-          </SheetDescription>
-        </SheetHeader>
-
-        {handoff ? (
-          <div className="mt-6 grid gap-4">
-            <div className="flex gap-3 rounded-md border border-border bg-muted/30 p-4">
-              <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <p className="text-sm leading-6 text-muted-foreground">
-                {t("sources.ingestCredentialsOneTimeWarning")}
-              </p>
-            </div>
-
-            <OneTimeIngestField
-              label={t("sources.ingestEndpoint")}
-              value={handoff.endpoint}
-              copied={copied === "endpoint"}
-              onCopy={() => void copy("endpoint", handoff.endpoint)}
-            />
-            <OneTimeIngestField
-              label={t("sources.webhookSourceKey")}
-              value={handoff.sourceKey}
-              copied={copied === "sourceKey"}
-              onCopy={() => void copy("sourceKey", handoff.sourceKey)}
-            />
-            <OneTimeIngestField
-              label={t("sources.ingestToken")}
-              value={handoff.ingestToken}
-              copied={copied === "token"}
-              onCopy={() => void copy("token", handoff.ingestToken)}
-              secret
-            />
-          </div>
-        ) : null}
-
-        <SheetFooter className="mt-6">
-          <Button onClick={close}>{t("sources.ingestCredentialsDone")}</Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function OneTimeIngestField({
-  copied,
-  label,
-  onCopy,
-  secret = false,
-  value,
-}: {
-  copied: boolean;
-  label: string;
-  onCopy: () => void;
-  secret?: boolean;
-  value: string;
-}) {
-  const t = useT();
-  return (
-    <div className="grid gap-2">
-      <Label>{label}</Label>
-      <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/20 p-2">
-        {secret ? (
-          <IconKey className="size-4 shrink-0 text-muted-foreground" />
-        ) : null}
-        <code className="min-w-0 flex-1 break-all px-1 text-xs text-foreground">
-          {value}
-        </code>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="shrink-0"
-          onClick={onCopy}
-        >
-          {copied ? (
-            <IconCheck className="size-4" />
-          ) : (
-            <IconCopy className="size-4" />
-          )}
-          {copied ? t("sources.copied") : t("sources.copy")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export default function SourcesRoute() {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [ingestHandoff, setIngestHandoff] =
-    useState<OneTimeIngestHandoff | null>(null);
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
   const [reviewSource, setReviewSource] = useState<BrainSource | null>(null);
   const [captureStatus, setCaptureStatus] =
@@ -1830,11 +1669,10 @@ export default function SourcesRoute() {
       title?: string;
       status?: "active" | "paused";
       config?: Record<string, unknown>;
-      cursor?: Record<string, unknown>;
     }
   >("update-source" as any);
   const createSource = useActionMutation<
-    CreateSourceResponse,
+    unknown,
     {
       title: string;
       provider: Provider;
@@ -1989,41 +1827,15 @@ export default function SourcesRoute() {
         status:
           form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
         config,
-        cursor:
-          form.provider === "slack" && form.restartSlackBackfill
-            ? {
-                channels: {},
-                configuredChannelOffset: 0,
-                publicChannelOffset: 0,
-              }
-            : undefined,
       });
     } else {
-      const provider = form.provider;
-      const sourceKey = form.sourceKey.trim();
-      createSource.mutate(
-        {
-          title: form.title.trim() || defaultTitle(provider, t),
-          provider,
-          visibility: "org",
-          config,
-          sourceKey: sourceKey || undefined,
-        },
-        {
-          onSuccess: (result) => {
-            setSetupOpen(false);
-            setIngestHandoff(
-              createOneTimeIngestHandoff({
-                origin: window.location.origin,
-                provider,
-                result,
-                sourceKey,
-              }),
-            );
-          },
-        },
-      );
-      return;
+      createSource.mutate({
+        title: form.title.trim() || defaultTitle(form.provider, t),
+        provider: form.provider,
+        visibility: "org",
+        config,
+        sourceKey: form.sourceKey.trim() || undefined,
+      });
     }
     setSetupOpen(false);
   }
@@ -2638,40 +2450,6 @@ export default function SourcesRoute() {
                     }
                   />
                 </label>
-                <div className="grid gap-2">
-                  <Label htmlFor="slack-oldest">
-                    {t("sources.initialHistoryStart")}
-                  </Label>
-                  <Input
-                    id="slack-oldest"
-                    type="date"
-                    value={form.slackOldest}
-                    onChange={(event) =>
-                      updateForm({ slackOldest: event.target.value })
-                    }
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("sources.initialHistoryStartDescription")}
-                  </p>
-                </div>
-                {editingSource && (
-                  <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
-                    <span>
-                      <span className="block text-sm font-medium">
-                        {t("sources.restartSlackBackfill")}
-                      </span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {t("sources.restartSlackBackfillDescription")}
-                      </span>
-                    </span>
-                    <Switch
-                      checked={form.restartSlackBackfill}
-                      onCheckedChange={(restartSlackBackfill) =>
-                        updateForm({ restartSlackBackfill })
-                      }
-                    />
-                  </label>
-                )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="history-limit">
@@ -2685,38 +2463,6 @@ export default function SourcesRoute() {
                       value={form.historyLimit}
                       onChange={(event) =>
                         updateForm({ historyLimit: event.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="channels-per-sync">
-                      {t("sources.channelsPerSync")}
-                    </Label>
-                    <Input
-                      id="channels-per-sync"
-                      type="number"
-                      min={1}
-                      max={25}
-                      value={form.maxChannelsPerSync}
-                      onChange={(event) =>
-                        updateForm({
-                          maxChannelsPerSync: event.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="pages-per-channel">
-                      {t("sources.pagesPerChannel")}
-                    </Label>
-                    <Input
-                      id="pages-per-channel"
-                      type="number"
-                      min={1}
-                      max={5}
-                      value={form.pagesPerChannel}
-                      onChange={(event) =>
-                        updateForm({ pagesPerChannel: event.target.value })
                       }
                     />
                   </div>
@@ -2736,9 +2482,6 @@ export default function SourcesRoute() {
                     />
                   </div>
                 </div>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t("sources.broadSyncLimitsDescription")}
-                </p>
               </div>
             )}
 
@@ -2958,9 +2701,7 @@ export default function SourcesRoute() {
               disabled={
                 createSource.isPending ||
                 updateSource.isPending ||
-                !form.title.trim() ||
-                ((form.provider === "clips" || form.provider === "generic") &&
-                  !form.sourceKey.trim())
+                !form.title.trim()
               }
             >
               {editingSource
@@ -2970,13 +2711,6 @@ export default function SourcesRoute() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
-      <OneTimeIngestSetupSheet
-        handoff={ingestHandoff}
-        onClose={() => {
-          setIngestHandoff(null);
-          createSource.reset();
-        }}
-      />
     </div>
   );
 }

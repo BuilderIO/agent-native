@@ -1,5 +1,41 @@
 # @agent-native/core
 
+## 0.112.0
+
+### Minor Changes
+
+- 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+
+### Patch Changes
+
+- 6acaad0: Add durable, fenced local state for compound multi-frontier runs.
+- 6acaad0: Harden local Code run persistence and cancellation for the packaged desktop runner.
+
+## 0.111.4
+
+### Patch Changes
+
+- 2f61097: Re-scan installed package exports after dependency installation before applying manifest import migrations.
+
+## 0.111.3
+
+### Patch Changes
+
+- 7843f92: Apply active import migrations to starter-owned source and install newly introduced migration dependencies before rewriting imports.
+
+## 0.111.2
+
+### Patch Changes
+
+- 736d8b0: Trim non-English reference locales from the published source corpus.
+
+## 0.111.1
+
+### Patch Changes
+
+- 1a0a0af: Rename the "Agent workspace" surface to "Manage agent" and the agent panel "Workspace" tab to "Resources"
+
 ## 0.111.0
 
 ### Minor Changes

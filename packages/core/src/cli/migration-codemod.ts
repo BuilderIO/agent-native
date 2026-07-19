@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -48,7 +49,7 @@ export interface RunMigrationCodemodsOptions {
   root: string;
   manifests?: MigrationManifest[];
   apply?: boolean;
-  targetExists?: (specifier: string) => boolean;
+  targetExists?: (specifier: string, sourceFile?: string) => boolean;
 }
 
 interface PendingDependency {
@@ -102,6 +103,91 @@ function packageNameFromSpecifier(specifier: string): string | null {
   }
   const [name] = specifier.split("/");
   return name && !name.startsWith(".") ? name : null;
+}
+
+function isPackageInstalled(
+  requireFromProject: ReturnType<typeof createRequire>,
+  packageName: string,
+): boolean {
+  const searchPaths = requireFromProject.resolve.paths(packageName) ?? [];
+  return searchPaths.some((searchPath) =>
+    fs.existsSync(path.join(searchPath, packageName, "package.json")),
+  );
+}
+
+export function createMigrationPlanningTargetResolver(
+  projectRoot: string,
+): (specifier: string, sourceFile?: string) => boolean {
+  const fallbackPath = path.join(path.resolve(projectRoot), "package.json");
+  return (specifier: string, sourceFile = fallbackPath): boolean => {
+    const requireFromSource = createRequire(sourceFile);
+    try {
+      requireFromSource.resolve(specifier);
+      return true;
+    } catch {
+      const packageName = packageNameFromSpecifier(specifier);
+      return Boolean(
+        packageName && !isPackageInstalled(requireFromSource, packageName),
+      );
+    }
+  };
+}
+
+const FRESH_RESOLVE_SCRIPT = [
+  'const { createRequire } = require("node:module");',
+  "try {",
+  "  createRequire(process.argv[1]).resolve(process.argv[2]);",
+  "} catch {",
+  "  process.exitCode = 1;",
+  "}",
+].join("\n");
+
+function nodeConditionArgs(): string[] {
+  const conditions: string[] = [];
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const argument = process.execArgv[index];
+    if (argument === "--conditions" || argument === "-C") {
+      const value = process.execArgv[index + 1];
+      if (value) {
+        conditions.push(argument, value);
+        index += 1;
+      }
+    } else if (
+      argument.startsWith("--conditions=") ||
+      argument.startsWith("-C=")
+    ) {
+      conditions.push(argument);
+    }
+  }
+  return conditions;
+}
+
+function createFreshMigrationTargetResolver(
+  projectRoot: string,
+): (specifier: string, sourceFile?: string) => boolean {
+  const fallbackPath = path.join(path.resolve(projectRoot), "package.json");
+  const cache = new Map<string, boolean>();
+  return (specifier: string, sourceFile = fallbackPath): boolean => {
+    const resolutionBase =
+      nearestPackageFile(sourceFile, projectRoot) ?? sourceFile;
+    const key = `${resolutionBase}\0${specifier}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+    const resolved =
+      spawnSync(
+        process.execPath,
+        [
+          ...nodeConditionArgs(),
+          "-e",
+          FRESH_RESOLVE_SCRIPT,
+          resolutionBase,
+          specifier,
+        ],
+        { stdio: "ignore" },
+      ).status === 0;
+    cache.set(key, resolved);
+    return resolved;
+  };
 }
 
 function nearestPackageFile(file: string, root: string): string | null {
@@ -175,7 +261,7 @@ function rewriteImportDeclaration(
   root: string,
   pendingDependencies: PendingDependency[],
   warnings: string[],
-  targetExists: (specifier: string) => boolean,
+  targetExists: (specifier: string, sourceFile?: string) => boolean,
 ): boolean {
   const originalSpecifier = declaration.getModuleSpecifierValue();
   const sourceFile = declaration.getSourceFile();
@@ -186,7 +272,7 @@ function rewriteImportDeclaration(
       warnSkippedTarget(warnings, sourceFile.getFilePath(), move.to, "planned");
       return false;
     }
-    if (!targetExists(move.to)) {
+    if (!targetExists(move.to, sourceFile.getFilePath())) {
       warnSkippedTarget(
         warnings,
         sourceFile.getFilePath(),
@@ -228,7 +314,7 @@ function rewriteImportDeclaration(
       );
       continue;
     }
-    if (!targetExists(resolved.to)) {
+    if (!targetExists(resolved.to, sourceFile.getFilePath())) {
       warnSkippedTarget(
         warnings,
         sourceFile.getFilePath(),
@@ -286,7 +372,7 @@ function rewriteExportDeclarations(
   root: string,
   pendingDependencies: PendingDependency[],
   warnings: string[],
-  targetExists: (specifier: string) => boolean,
+  targetExists: (specifier: string, sourceFile?: string) => boolean,
 ): void {
   for (const declaration of [...sourceFile.getExportDeclarations()]) {
     const originalSpecifier = declaration.getModuleSpecifierValue();
@@ -305,7 +391,7 @@ function rewriteExportDeclarations(
         );
         continue;
       }
-      if (!targetExists(move.to)) {
+      if (!targetExists(move.to, sourceFile.getFilePath())) {
         warnSkippedTarget(
           warnings,
           sourceFile.getFilePath(),
@@ -349,7 +435,7 @@ function rewriteExportDeclarations(
         );
         continue;
       }
-      if (!targetExists(resolved.to)) {
+      if (!targetExists(resolved.to, sourceFile.getFilePath())) {
         warnSkippedTarget(
           warnings,
           sourceFile.getFilePath(),
@@ -469,17 +555,8 @@ export function runMigrationCodemods(
   const root = path.resolve(options.root);
   const manifests = options.manifests ?? loadMigrationManifests(root);
   const moves = mergeManifestMoves(manifests);
-  const requireFromProject = createRequire(path.join(root, "package.json"));
   const targetExists =
-    options.targetExists ??
-    ((specifier: string): boolean => {
-      try {
-        requireFromProject.resolve(specifier);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    options.targetExists ?? createFreshMigrationTargetResolver(root);
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     manipulationSettings: { quoteKind: QuoteKind.Double },
