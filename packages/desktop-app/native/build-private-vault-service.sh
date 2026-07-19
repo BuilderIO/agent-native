@@ -17,6 +17,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorization.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceipt.m"
   "$SOURCE_ROOT/control/PrivateVaultEekWrap.m"
+  "$SOURCE_ROOT/control/PrivateVaultDisclosureCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobCodec.m"
   "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m"
   "$SOURCE_ROOT/control/PrivateVaultObjectRevision.m"
@@ -377,6 +378,34 @@ case "${PRIVATE_VAULT_BUILD_JOB_CODEC_TESTS:-}" in
   compile_job_codec_test_slice x86_64 "$X86_64_SODIUM"
   ;;
   *) echo "Invalid Private Vault job-codec-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_DISCLOSURE_CODEC_TESTS:-}" in
+  "") ;;
+  1)
+  DISCLOSURE_CODEC_TEST_OUTPUT="$OUTPUT_ROOT/.disclosure-codec-tests"
+  rm -rf "$DISCLOSURE_CODEC_TEST_OUTPUT"
+  mkdir -p "$DISCLOSURE_CODEC_TEST_OUTPUT"
+  compile_disclosure_codec_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$DISCLOSURE_CODEC_TEST_OUTPUT/private-vault-disclosure-codec-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultDisclosureCodec.m" \
+      "$SOURCE_ROOT/control/PrivateVaultDisclosureCodecTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_disclosure_codec_test_slice arm64 "$ARM64_SODIUM"
+  compile_disclosure_codec_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *) echo "Invalid Private Vault disclosure-codec-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_GRANT_CODEC_TESTS:-}" in
