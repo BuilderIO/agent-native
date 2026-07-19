@@ -5722,7 +5722,12 @@ let privateVaultContentRuntime: {
 } | null = null;
 
 function contentPrivateRuntimeForEvent(event: IpcMainInvokeEvent) {
-  if (!mainWindow || event.sender !== mainWindow.webContents) return null;
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return null;
   const contentApp = loadAppsForAuthContext().find(
     (candidate) => candidate.id === "content" && candidate.enabled !== false,
   );

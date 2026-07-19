@@ -47,6 +47,23 @@ describe("desktop passive-access regressions", () => {
     expect(handler).not.toContain("collectLocalControlResources");
   });
 
+  it("exposes private plaintext only to the signed shell main frame", () => {
+    const main = source("./index.ts");
+    const authorization = between(
+      main,
+      "function contentPrivateRuntimeForEvent(",
+      "function contentPrivateVaultCoordinatorForEvent(",
+    );
+    const webviewPreload = source("../preload/webview.ts");
+
+    expect(authorization).toContain("event.sender !== mainWindow.webContents");
+    expect(authorization).toContain(
+      "event.senderFrame !== mainWindow.webContents.mainFrame",
+    );
+    expect(webviewPreload).not.toContain("privateContent");
+    expect(webviewPreload).not.toContain("CONTENT_PRIVATE_RUNTIME_");
+  });
+
   it("does not pull folders or local documents when Content mounts", () => {
     const route = source(
       "../../../../templates/content/app/routes/_app.local-files.tsx",
