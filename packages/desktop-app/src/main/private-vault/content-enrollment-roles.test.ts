@@ -5,9 +5,11 @@ import type {
   PrivateVaultContentBootstrapTransport,
 } from "./content-bootstrap-transport.js";
 import type { PrivateVaultTrustedEnrollmentOperator } from "./content-enrollment-coordinator.js";
+import type { PrivateVaultEnrollmentManifestCheckpointVerifier } from "./content-enrollment-manifest-checkpoint.js";
 import {
   PrivateVaultContentEnrollmentAuthorizer,
   PrivateVaultContentEnrollmentCandidate,
+  PrivateVaultContentEnrollmentRoleError,
   PrivateVaultContentEnrollmentRoleRejectedError,
 } from "./content-enrollment-roles.js";
 import type {
@@ -133,6 +135,12 @@ function bootstrapTransport(): PrivateVaultContentBootstrapTransport {
   } as unknown as PrivateVaultContentBootstrapTransport;
 }
 
+function manifestCheckpoint(): PrivateVaultEnrollmentManifestCheckpointVerifier {
+  return {
+    verify: vi.fn(async () => undefined),
+  } as unknown as PrivateVaultEnrollmentManifestCheckpointVerifier;
+}
+
 describe("Private Vault cross-device enrollment roles", () => {
   it("alternates two Macs through public hosted state without merging custody roles", async () => {
     const shared = hostedTranscript();
@@ -149,6 +157,7 @@ describe("Private Vault cross-device enrollment roles", () => {
       native: candidateOperator,
       hosted: shared.transport,
       bootstrap: bootstrapTransport(),
+      manifestCheckpoint: manifestCheckpoint(),
     });
     const authorizer = new PrivateVaultContentEnrollmentAuthorizer({
       native: authorizerOperator,
@@ -213,6 +222,7 @@ describe("Private Vault cross-device enrollment roles", () => {
       native: candidateNative(),
       hosted: shared.transport,
       bootstrap: bootstrapTransport(),
+      manifestCheckpoint: manifestCheckpoint(),
     }).begin(vaultId);
     if (begun.state !== "awaiting-authorizer") throw new Error();
     const authorizer = new PrivateVaultContentEnrollmentAuthorizer({
@@ -225,5 +235,36 @@ describe("Private Vault cross-device enrollment roles", () => {
     await expect(authorizer.advance(begun.invitation)).rejects.toBeInstanceOf(
       PrivateVaultContentEnrollmentRoleRejectedError,
     );
+  });
+
+  it("cannot activate a committed enrollment until H3 manifest evidence is wired", async () => {
+    const shared = hostedTranscript();
+    const native = candidateNative();
+    const candidate = new PrivateVaultContentEnrollmentCandidate({
+      native,
+      hosted: shared.transport,
+      bootstrap: bootstrapTransport(),
+    });
+    const authorizer = new PrivateVaultContentEnrollmentAuthorizer({
+      native: {
+        buildBrokerEnrollmentChallenge: vi.fn(async () => ({
+          encoded: challenge,
+        })),
+        buildBrokerEnrollmentAuthorization: vi.fn(async () => ({
+          encoded: authorization,
+        })),
+      },
+      hosted: shared.transport,
+    });
+    const begun = await candidate.begin(vaultId);
+    if (begun.state !== "awaiting-authorizer") throw new Error();
+
+    await authorizer.advance(begun.invitation);
+    await candidate.advance(begun.invitation);
+    await authorizer.advance(begun.invitation);
+    await expect(candidate.advance(begun.invitation)).rejects.toBeInstanceOf(
+      PrivateVaultContentEnrollmentRoleError,
+    );
+    expect(native.activateBrokerEnrollment).not.toHaveBeenCalled();
   });
 });

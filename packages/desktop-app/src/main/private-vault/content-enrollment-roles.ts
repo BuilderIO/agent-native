@@ -8,6 +8,7 @@ import {
   decodePrivateVaultContentEnrollmentInvitation,
   encodePrivateVaultContentEnrollmentInvitation,
 } from "./content-enrollment-invitation.js";
+import type { PrivateVaultEnrollmentManifestCheckpointVerifier } from "./content-enrollment-manifest-checkpoint.js";
 import type {
   PrivateVaultContentEnrollmentTransport,
   PrivateVaultHostedEnrollmentStatus,
@@ -77,16 +78,22 @@ export class PrivateVaultContentEnrollmentCandidate extends SerializedEnrollment
   readonly #native: PrivateVaultCandidateEnrollmentOperator;
   readonly #hosted: PrivateVaultContentEnrollmentTransport;
   readonly #bootstrap: PrivateVaultContentBootstrapTransport;
+  readonly #manifestCheckpoint:
+    | PrivateVaultEnrollmentManifestCheckpointVerifier
+    | undefined;
 
   constructor(input: {
     readonly native: PrivateVaultCandidateEnrollmentOperator;
     readonly hosted: PrivateVaultContentEnrollmentTransport;
     readonly bootstrap: PrivateVaultContentBootstrapTransport;
+    /** Required for activation; legacy wiring fails closed until it provides this. */
+    readonly manifestCheckpoint?: PrivateVaultEnrollmentManifestCheckpointVerifier;
   }) {
     super();
     this.#native = input.native;
     this.#hosted = input.hosted;
     this.#bootstrap = input.bootstrap;
+    this.#manifestCheckpoint = input.manifestCheckpoint;
   }
 
   begin(vaultId: string): Promise<PrivateVaultCandidateEnrollmentProgress> {
@@ -179,6 +186,11 @@ export class PrivateVaultContentEnrollmentCandidate extends SerializedEnrollment
         ) {
           throw new Error();
         }
+        if (!this.#manifestCheckpoint) throw new Error();
+        await this.#manifestCheckpoint.verify({
+          vaultId: invitation.vaultId,
+          encodedEnrollmentAuthorization: status.authorization.slice(),
+        });
         const result = await this.#native.activateBrokerEnrollment(
           invitation.vaultId,
           status.challenge.slice(),
