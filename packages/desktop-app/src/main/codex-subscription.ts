@@ -1,7 +1,6 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 
 import type {
-  SubscriptionAccount,
   SubscriptionPlan,
   SubscriptionRateLimitMeter,
   SubscriptionStatus,
@@ -19,7 +18,9 @@ export interface CodexCommandResult {
 export type CodexCommandRunner = (
   args: string[],
   timeoutMs: number,
-) => CodexCommandResult;
+) => Promise<CodexCommandResult>;
+
+export type SpawnCodexCommand = (args: string[]) => ChildProcess;
 
 export interface CodexJsonRpcChildProcess extends ChildProcess {
   stdout: NonNullable<ChildProcess["stdout"]>;
@@ -35,6 +36,22 @@ export interface CodexAppServerClient {
   ): () => void;
   onExit(listener: () => void): () => void;
   close(): void;
+}
+
+export type CodexAppServerErrorCode =
+  | "METHOD_NOT_FOUND"
+  | "TIMEOUT"
+  | "TRANSPORT"
+  | "REMOTE";
+
+export class CodexAppServerError extends Error {
+  constructor(
+    readonly code: CodexAppServerErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CodexAppServerError";
+  }
 }
 
 export interface CodexSubscriptionAdapterOptions {
@@ -56,6 +73,10 @@ export interface CodexCliProbe {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 1_500;
 const DEFAULT_REQUEST_TIMEOUT_MS = 3_000;
+const MAX_COMMAND_OUTPUT_CHARS = 64 * 1024;
+const MAX_APP_SERVER_STDOUT_CHARS = 256 * 1024;
+const COMMAND_TERMINATION_GRACE_MS = 250;
+const COMMAND_FORCE_SETTLE_MS = 250;
 const APP_SERVER_INITIALIZE_PARAMS = {
   clientInfo: {
     name: "agent-native-desktop",
@@ -79,11 +100,11 @@ const UNAVAILABLE_CAPABILITIES: SubscriptionTelemetryCapabilities = {
   liveUpdates: false,
 };
 
-export function probeCodexSubscription(
+export async function probeCodexSubscription(
   runCommand: CodexCommandRunner = defaultCodexCommandRunner,
   timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
-): CodexCliProbe {
-  const version = runCommand(["--version"], timeoutMs);
+): Promise<CodexCliProbe> {
+  const version = await runCodexCommand(runCommand, ["--version"], timeoutMs);
   if (version.error) {
     return {
       state: "unavailable",
@@ -94,7 +115,11 @@ export function probeCodexSubscription(
     };
   }
 
-  const status = runCommand(["login", "status"], timeoutMs);
+  const status = await runCodexCommand(
+    runCommand,
+    ["login", "status"],
+    timeoutMs,
+  );
   if (status.error) {
     return {
       state: "error",
@@ -140,23 +165,34 @@ export function createCodexAppServerClient(
     }
   >();
 
-  const rejectPending = (message: string) => {
+  const rejectPending = (error: CodexAppServerError) => {
     for (const request of pending.values()) {
       clearTimeout(request.timer);
-      request.reject(new Error(message));
+      request.reject(error);
     }
     pending.clear();
   };
   const notifyExit = () => {
     if (closed) return;
     closed = true;
-    rejectPending("Codex app-server exited.");
+    rejectPending(
+      new CodexAppServerError("TRANSPORT", "Codex app-server exited."),
+    );
+    for (const listener of exitListeners) listener();
+  };
+  const abortTransport = (message: string) => {
+    if (closed) return;
+    closed = true;
+    rejectPending(new CodexAppServerError("TRANSPORT", message));
+    child.kill();
     for (const listener of exitListeners) listener();
   };
   const close = () => {
     if (closed) return;
     closed = true;
-    rejectPending("Codex app-server exited.");
+    rejectPending(
+      new CodexAppServerError("TRANSPORT", "Codex app-server exited."),
+    );
     child.kill();
   };
   const handleLine = (line: string) => {
@@ -180,31 +216,61 @@ export function createCodexAppServerClient(
     pending.delete(message.id);
     clearTimeout(request.timer);
     if (message.error) {
-      request.reject(new Error("Codex app-server rejected the request."));
+      const error = isRecord(message.error) ? message.error : {};
+      request.reject(
+        new CodexAppServerError(
+          error.code === -32601 ? "METHOD_NOT_FOUND" : "REMOTE",
+          error.code === -32601
+            ? "Codex app-server does not support this method."
+            : "Codex app-server rejected the request.",
+        ),
+      );
       return;
     }
     request.resolve(message.result);
   };
 
   child.stdout.on("data", (chunk: Buffer | string) => {
-    stdout += chunk.toString();
+    if (closed) return;
+    const next = chunk.toString();
+    if (stdout.length + next.length > MAX_APP_SERVER_STDOUT_CHARS) {
+      stdout = "";
+      abortTransport("Codex app-server output exceeded its safety limit.");
+      return;
+    }
+    stdout += next;
     const lines = stdout.split(/\r?\n/);
     stdout = lines.pop() ?? "";
     for (const line of lines) {
       if (line.trim()) handleLine(line);
     }
   });
-  child.once("error", notifyExit);
+  child.stdout.on("error", () =>
+    abortTransport("Codex app-server stdout failed."),
+  );
+  child.stdin.on("error", () =>
+    abortTransport("Codex app-server stdin failed."),
+  );
+  child.on("error", () => abortTransport("Codex app-server process failed."));
   child.once("exit", notifyExit);
 
   return {
     request(method, params = {}) {
-      if (closed) return Promise.reject(new Error("Codex app-server exited."));
+      if (closed) {
+        return Promise.reject(
+          new CodexAppServerError("TRANSPORT", "Codex app-server exited."),
+        );
+      }
       const id = nextId++;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id);
-          reject(new Error("Codex app-server request timed out."));
+          reject(
+            new CodexAppServerError(
+              "TIMEOUT",
+              "Codex app-server request timed out.",
+            ),
+          );
         }, requestTimeoutMs);
         pending.set(id, { resolve, reject, timer });
         try {
@@ -214,7 +280,12 @@ export function createCodexAppServerClient(
         } catch {
           clearTimeout(timer);
           pending.delete(id);
-          reject(new Error("Codex app-server could not accept a request."));
+          reject(
+            new CodexAppServerError(
+              "TRANSPORT",
+              "Codex app-server could not accept a request.",
+            ),
+          );
         }
       });
     },
@@ -236,10 +307,10 @@ export function createCodexAppServerClient(
  */
 export class CodexSubscriptionAdapter {
   private client: CodexAppServerClient | undefined;
+  private initializingClient: Promise<CodexAppServerClient> | undefined;
   private restartTimer: NodeJS.Timeout | undefined;
   private restartAttempt = 0;
   private stopped = true;
-  private account: SubscriptionAccount | undefined;
   private plan: SubscriptionPlan | undefined;
   private probe: CodexCliProbe | undefined;
   private rateLimits: unknown;
@@ -266,12 +337,13 @@ export class CodexSubscriptionAdapter {
   }
 
   async refresh(): Promise<SubscriptionStatus> {
-    const probe = probeCodexSubscription(
+    const probe = await probeCodexSubscription(
       this.options.runCommand,
       this.options.commandTimeoutMs,
     );
     this.probe = probe;
-    if (probe.state !== "connected") {
+    if (probe.state !== "connected" || probe.authMethod !== "ChatGPT") {
+      this.clearSessionCache();
       this.closeClient();
       this.publish(statusFromProbe(probe));
       return this.status;
@@ -280,42 +352,37 @@ export class CodexSubscriptionAdapter {
     try {
       const client = await this.ensureClient();
       const accountResult = await client.request("account/read", {});
-      const account = normalizeAccount(accountResult);
-      this.account = account.account;
-      this.plan = account.plan;
+      this.plan = normalizePlan(accountResult) ?? this.plan;
       this.restartAttempt = 0;
       try {
         this.rateLimits = await client.request("account/rateLimits/read", {});
-        this.publish(
-          liveStatus(
-            probe,
-            this.account,
-            this.plan,
-            this.rateLimits,
-            this.now(),
-          ),
-        );
-      } catch {
-        this.publish(
-          unavailableStatus(
-            "Codex usage meters are not supported by this CLI version.",
-            probe,
-            this.account,
-            this.plan,
-            "unsupported",
-          ),
-        );
+        this.publish(liveStatus(probe, this.plan, this.rateLimits, this.now()));
+      } catch (error) {
+        if (isAppServerError(error, "METHOD_NOT_FOUND")) {
+          this.publish(
+            unavailableStatus(
+              "Codex usage meters are not supported by this CLI version.",
+              probe,
+              this.plan,
+              "unsupported",
+            ),
+          );
+        } else {
+          this.handleTelemetryFailure(probe, error);
+        }
       }
-    } catch {
+    } catch (error) {
+      if (this.status.telemetry.state === "stale") return this.status;
       this.publish(
         unavailableStatus(
-          "Codex subscription telemetry is unavailable in this CLI version.",
+          "Codex subscription telemetry could not be refreshed.",
           probe,
-          this.account,
           this.plan,
-          "unsupported",
+          "error",
         ),
       );
+      this.clearSessionCache();
+      this.closeClient();
       this.scheduleRestart();
     }
     return this.status;
@@ -330,12 +397,26 @@ export class CodexSubscriptionAdapter {
 
   private async ensureClient(): Promise<CodexAppServerClient> {
     if (this.client) return this.client;
+    if (this.initializingClient) return this.initializingClient;
+    const initializing = this.initializeClient();
+    this.initializingClient = initializing;
+    try {
+      return await initializing;
+    } finally {
+      if (this.initializingClient === initializing) {
+        this.initializingClient = undefined;
+      }
+    }
+  }
+
+  private async initializeClient(): Promise<CodexAppServerClient> {
     const client =
       this.options.createAppServerClient?.() ??
       createCodexAppServerClient(
         this.options.spawnAppServer,
         this.options.requestTimeoutMs,
       );
+    let initialized = false;
     client.onNotification((method, params) => {
       if (method !== "account/rateLimits/updated") return;
       const update = isRecord(params) ? params.rateLimits : undefined;
@@ -343,28 +424,33 @@ export class CodexSubscriptionAdapter {
       this.rateLimits = mergeRateLimitUpdate(this.rateLimits, update);
       const probe = this.probe;
       if (probe?.state === "connected") {
-        this.publish(
-          liveStatus(
-            probe,
-            this.account,
-            this.plan,
-            this.rateLimits,
-            this.now(),
-          ),
-        );
+        this.publish(liveStatus(probe, this.plan, this.rateLimits, this.now()));
       }
     });
     client.onExit(() => {
+      if (this.client !== client) return;
+      const failed = this.transientFailureStatus(
+        this.probe,
+        "Codex app-server exited; reconnecting.",
+      );
       this.client = undefined;
-      if (this.stopped) return;
-      this.publish(staleStatus(this.status, this.now()));
+      if (this.stopped || !initialized) return;
+      this.clearSessionCache();
+      this.publish(failed);
       this.scheduleRestart();
     });
-    this.client = client;
     try {
       await client.request("initialize", APP_SERVER_INITIALIZE_PARAMS);
+      initialized = true;
+      if (this.stopped) {
+        client.close();
+        throw new CodexAppServerError(
+          "TRANSPORT",
+          "Codex app-server initialization was canceled.",
+        );
+      }
+      this.client = client;
     } catch (error) {
-      if (this.client === client) this.client = undefined;
       client.close();
       throw error;
     }
@@ -375,6 +461,48 @@ export class CodexSubscriptionAdapter {
     const client = this.client;
     this.client = undefined;
     client?.close();
+  }
+
+  private clearSessionCache(): void {
+    this.plan = undefined;
+    this.rateLimits = undefined;
+  }
+
+  private handleTelemetryFailure(probe: CodexCliProbe, error: unknown): void {
+    if (isAppServerError(error, "TRANSPORT")) {
+      if (
+        this.status.telemetry.state !== "stale" &&
+        this.status.telemetry.state !== "error"
+      ) {
+        const failed = this.transientFailureStatus(
+          probe,
+          "Codex app-server exited; reconnecting.",
+        );
+        this.clearSessionCache();
+        this.publish(failed);
+      }
+    } else {
+      this.publish(
+        unavailableStatus(
+          "Codex usage meters could not be refreshed.",
+          probe,
+          this.plan,
+          "error",
+        ),
+      );
+      this.clearSessionCache();
+    }
+    this.closeClient();
+    this.scheduleRestart();
+  }
+
+  private transientFailureStatus(
+    probe: CodexCliProbe | undefined,
+    message: string,
+  ): SubscriptionStatus {
+    return this.status.connectionState === "connected"
+      ? staleStatus(this.status, this.now())
+      : unavailableStatus(message, probe, this.plan, "error");
   }
 
   private scheduleRestart(): void {
@@ -429,7 +557,6 @@ function statusFromProbe(probe: CodexCliProbe): SubscriptionStatus {
 function unavailableStatus(
   message: string,
   probe?: CodexCliProbe,
-  account?: SubscriptionAccount,
   plan?: SubscriptionPlan,
   state: SubscriptionTelemetry["state"] = "unavailable",
 ): SubscriptionStatus {
@@ -437,12 +564,14 @@ function unavailableStatus(
     ...statusFromProbe(
       probe ?? { state: "unavailable", message: "Codex CLI was not found." },
     ),
-    ...(account ? { account } : {}),
     ...(plan ? { plan } : {}),
     telemetry: {
       state,
       source: "connection-only",
-      capabilities: UNAVAILABLE_CAPABILITIES,
+      capabilities: {
+        ...UNAVAILABLE_CAPABILITIES,
+        plan: Boolean(plan),
+      },
       meters: [],
       error: { message },
     },
@@ -470,13 +599,12 @@ function staleStatus(
 
 function liveStatus(
   probe: CodexCliProbe,
-  account: SubscriptionAccount | undefined,
   plan: SubscriptionPlan | undefined,
   rateLimits: unknown,
   observedAt: Date,
 ): SubscriptionStatus {
   const telemetry = {
-    ...normalizeRateLimits(rateLimits, observedAt),
+    ...normalizeRateLimits(rateLimits, observedAt, Boolean(plan)),
     ...(probe.version ? { sourceVersion: probe.version } : {}),
   };
   return {
@@ -484,34 +612,27 @@ function liveStatus(
     providerId: "codex",
     connectionState: "connected",
     ...(probe.authMethod ? { authMethod: probe.authMethod } : {}),
-    ...(account ? { account } : {}),
     ...(plan ? { plan } : {}),
     telemetry,
   };
 }
 
-function normalizeAccount(value: unknown): {
-  account?: SubscriptionAccount;
-  plan?: SubscriptionPlan;
-} {
+function normalizePlan(value: unknown): SubscriptionPlan | undefined {
   const response = isRecord(value) ? value : {};
   const source = isRecord(response.account)
     ? response.account
     : isRecord(response.chatgpt)
       ? response.chatgpt
       : response;
-  if (source.type && source.type !== "chatgpt") return {};
-  const email = stringValue(source.email);
+  if (source.type && source.type !== "chatgpt") return undefined;
   const planType = stringValue(source.planType);
-  return {
-    ...(email ? { account: { email } } : {}),
-    ...(planType ? { plan: { type: planType, label: planType } } : {}),
-  };
+  return planType ? { type: planType, label: planType } : undefined;
 }
 
 function normalizeRateLimits(
   value: unknown,
   observedAt: Date,
+  hasPlan: boolean,
 ): SubscriptionTelemetry {
   const response = isRecord(value) ? value : {};
   const rateLimits = isRecord(response.rateLimits)
@@ -534,8 +655,8 @@ function normalizeRateLimits(
     source: "codex-app-server",
     updatedAt: observedAt.toISOString(),
     capabilities: {
-      account: true,
-      plan: true,
+      account: false,
+      plan: hasPlan,
       rateLimits: meters.length > 0,
       modelTierRateLimits: meters.some(
         (meter) => meter.kind === "model-tier-weekly",
@@ -588,7 +709,15 @@ function normalizeWindow(
   return {
     ...base,
     kind,
-    label: modelTier ? `${modelTier} weekly` : weekly ? "Weekly" : "5-hour",
+    ...(duration === undefined
+      ? {}
+      : {
+          label: modelTier
+            ? `${modelTier} weekly`
+            : weekly
+              ? "Weekly"
+              : "5-hour",
+        }),
     ...(modelTier ? { modelTier } : {}),
     state: usedPercent === undefined ? "unavailable" : "available",
     ...(usedPercent === undefined ? {} : { usedPercent }),
@@ -666,23 +795,94 @@ function mergeRecords(
   };
 }
 
-function defaultCodexCommandRunner(
+export function defaultCodexCommandRunner(
   args: string[],
   timeoutMs: number,
-): CodexCommandResult {
-  const result = spawnSync("codex", args, {
-    encoding: "utf8",
-    timeout: timeoutMs,
-    windowsHide: true,
+  spawnCommand: SpawnCodexCommand = (commandArgs) =>
+    spawn("codex", commandArgs, {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    }),
+): Promise<CodexCommandResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let child: ChildProcess | undefined;
+    let timeout: NodeJS.Timeout | undefined;
+    let terminationTimer: NodeJS.Timeout | undefined;
+    let forceSettleTimer: NodeJS.Timeout | undefined;
+    let failure: CodexCommandResult | undefined;
+    const finish = (result: CodexCommandResult) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (terminationTimer) clearTimeout(terminationTimer);
+      if (forceSettleTimer) clearTimeout(forceSettleTimer);
+      resolve({ ...result, stdout, stderr });
+    };
+    const stop = (result: CodexCommandResult) => {
+      if (settled || failure) return;
+      failure = result;
+      terminationTimer = setTimeout(() => {
+        if (settled) return;
+        forceSettleTimer = setTimeout(
+          () => finish(failure ?? result),
+          COMMAND_FORCE_SETTLE_MS,
+        );
+        child?.kill("SIGKILL");
+      }, COMMAND_TERMINATION_GRACE_MS);
+      child?.kill("SIGTERM");
+    };
+    try {
+      child = spawnCommand(args);
+      timeout = setTimeout(
+        () => stop({ status: null, error: { code: "ETIMEDOUT" } }),
+        timeoutMs,
+      );
+      child.stdout?.on("data", (chunk) => {
+        stdout = appendBoundedOutput(stdout, chunk.toString());
+      });
+      child.stderr?.on("data", (chunk) => {
+        stderr = appendBoundedOutput(stderr, chunk.toString());
+      });
+      child.stdout?.on("error", (error: NodeJS.ErrnoException) => {
+        stop({ status: null, error: { code: error.code ?? "EIO" } });
+      });
+      child.stderr?.on("error", (error: NodeJS.ErrnoException) => {
+        stop({ status: null, error: { code: error.code ?? "EIO" } });
+      });
+      child.on("error", (error: NodeJS.ErrnoException) => {
+        stop({ status: null, error: { code: error.code } });
+      });
+      child.once("close", (status) => finish(failure ?? { status }));
+    } catch (error) {
+      finish({
+        status: null,
+        error: { code: (error as NodeJS.ErrnoException).code },
+      });
+    }
   });
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    error: result.error
-      ? { code: (result.error as NodeJS.ErrnoException).code }
-      : undefined,
-  };
+}
+
+async function runCodexCommand(
+  runCommand: CodexCommandRunner,
+  args: string[],
+  timeoutMs: number,
+): Promise<CodexCommandResult> {
+  try {
+    return await runCommand(args, timeoutMs);
+  } catch (error) {
+    return {
+      status: null,
+      error: { code: (error as NodeJS.ErrnoException).code },
+    };
+  }
+}
+
+function appendBoundedOutput(current: string, next: string): string {
+  if (current.length >= MAX_COMMAND_OUTPUT_CHARS) return current;
+  return `${current}${next}`.slice(0, MAX_COMMAND_OUTPUT_CHARS);
 }
 
 function defaultSpawnCodexAppServer(): CodexJsonRpcChildProcess {
@@ -735,6 +935,13 @@ function booleanValue(value: unknown): boolean | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isAppServerError(
+  value: unknown,
+  code: CodexAppServerErrorCode,
+): value is CodexAppServerError {
+  return value instanceof CodexAppServerError && value.code === code;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

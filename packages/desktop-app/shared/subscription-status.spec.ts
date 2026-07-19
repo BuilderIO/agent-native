@@ -12,7 +12,11 @@ describe("subscription status contract", () => {
       providerId: "codex",
       connectionState: "connected",
       authMethod: "chatgpt",
-      account: { email: "person@example.test" },
+      account: {
+        email: "person@example.test",
+        organizationId: "org-example",
+        organizationName: "Example Org",
+      },
       plan: { type: "pro", label: "Pro" },
       telemetry: {
         state: "live",
@@ -81,6 +85,11 @@ describe("subscription status contract", () => {
       },
     });
     expect(JSON.parse(JSON.stringify(status))).toEqual(status);
+    expect(status).not.toHaveProperty("account");
+    expect(status?.telemetry.capabilities).toMatchObject({
+      account: false,
+      plan: true,
+    });
   });
 
   it("preserves a reported zero while leaving unavailable meters valueless", () => {
@@ -232,7 +241,11 @@ describe("subscription status contract", () => {
       },
     });
 
-    expect(normalizeSubscriptionStatus(unsupported)).toEqual(unsupported);
+    expect(normalizeSubscriptionStatus(unsupported)).toMatchObject({
+      telemetry: {
+        capabilities: { account: false, plan: false },
+      },
+    });
     expect(errored?.telemetry).toMatchObject({
       state: "error",
       meters: [],

@@ -43,13 +43,6 @@ export const SUBSCRIPTION_TELEMETRY_SOURCES = [
 export type SubscriptionTelemetrySource =
   (typeof SUBSCRIPTION_TELEMETRY_SOURCES)[number];
 
-export interface SubscriptionAccount {
-  email?: string;
-  label?: string;
-  organizationId?: string;
-  organizationName?: string;
-}
-
 export interface SubscriptionPlan {
   type?: string;
   label?: string;
@@ -120,7 +113,6 @@ export interface SubscriptionStatus {
   providerId: SubscriptionProviderId;
   connectionState: SubscriptionConnectionState;
   authMethod?: string;
-  account?: SubscriptionAccount;
   plan?: SubscriptionPlan;
   connectionMessage?: string;
   telemetry: SubscriptionTelemetry;
@@ -157,6 +149,7 @@ export function normalizeSubscriptionStatus(
   const meters = meterInputs
     .map((meter, index) => normalizeMeter(meter, index))
     .filter((meter): meter is SubscriptionRateLimitMeter => meter !== null);
+  const plan = normalizePlan(input.plan);
 
   const status: SubscriptionStatus = {
     schemaVersion: 1,
@@ -167,16 +160,16 @@ export function normalizeSubscriptionStatus(
     telemetry: {
       state: telemetryState,
       source,
-      capabilities: normalizeCapabilities(telemetryInput?.capabilities),
+      capabilities: normalizeCapabilities(
+        telemetryInput?.capabilities,
+        Boolean(plan),
+      ),
       meters,
     },
   };
 
   assignString(status, "authMethod", input.authMethod);
   assignString(status, "connectionMessage", input.connectionMessage);
-  const account = normalizeAccount(input.account);
-  if (account) status.account = account;
-  const plan = normalizePlan(input.plan);
   if (plan) status.plan = plan;
 
   assignTimestamp(status.telemetry, "updatedAt", telemetryInput?.updatedAt);
@@ -197,12 +190,13 @@ export function normalizeSubscriptionStatus(
 
 function normalizeCapabilities(
   value: unknown,
+  hasPlan: boolean,
 ): SubscriptionTelemetryCapabilities {
   const input = asRecord(value);
   return {
     ...EMPTY_CAPABILITIES,
-    account: input?.account === true,
-    plan: input?.plan === true,
+    account: false,
+    plan: hasPlan,
     rateLimits: input?.rateLimits === true,
     modelTierRateLimits: input?.modelTierRateLimits === true,
     contextWindow: input?.contextWindow === true,
@@ -302,17 +296,6 @@ function normalizeContextWindow(
   }
   assignString(context, "message", input.message);
   return context;
-}
-
-function normalizeAccount(value: unknown): SubscriptionAccount | undefined {
-  const input = asRecord(value);
-  if (!input) return undefined;
-  const account: SubscriptionAccount = {};
-  assignString(account, "email", input.email);
-  assignString(account, "label", input.label);
-  assignString(account, "organizationId", input.organizationId);
-  assignString(account, "organizationName", input.organizationName);
-  return Object.keys(account).length > 0 ? account : undefined;
 }
 
 function normalizePlan(value: unknown): SubscriptionPlan | undefined {

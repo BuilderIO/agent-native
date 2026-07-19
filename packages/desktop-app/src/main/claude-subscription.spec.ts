@@ -1,7 +1,12 @@
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_CLAUDE_AUTH_STATUS_TIMEOUT_MS,
+  executeClaudeProcess,
   getClaudeSubscriptionLoginLaunchSpec,
   isClaudeSubscriptionStatus,
   readClaudeSubscriptionStatus,
@@ -16,23 +21,25 @@ describe("readClaudeSubscriptionStatus", () => {
         loggedIn: true,
         authMethod: "claude.ai",
         email: "person@example.test",
+        orgId: "org-example",
+        orgName: "Example Org",
         subscriptionType: "max",
       }),
       stderr: "",
     });
 
-    await expect(readClaudeSubscriptionStatus({ execute })).resolves.toEqual({
+    const status = await readClaudeSubscriptionStatus({ execute });
+    expect(status).toEqual({
       schemaVersion: 1,
       providerId: "claude",
       connectionState: "connected",
       authMethod: "claude.ai",
-      account: { email: "person@example.test" },
       plan: { type: "max" },
       telemetry: {
         state: "unsupported",
         source: "connection-only",
         capabilities: {
-          account: true,
+          account: false,
           plan: true,
           rateLimits: false,
           modelTierRateLimits: false,
@@ -52,6 +59,7 @@ describe("readClaudeSubscriptionStatus", () => {
       ["auth", "status", "--json"],
       { timeoutMs: DEFAULT_CLAUDE_AUTH_STATUS_TIMEOUT_MS },
     );
+    expect(status).not.toHaveProperty("account");
   });
 
   it("keeps a signed-out CLI distinct from an unavailable CLI", async () => {
@@ -70,8 +78,8 @@ describe("readClaudeSubscriptionStatus", () => {
         state: "unavailable",
         source: "connection-only",
         capabilities: {
-          account: true,
-          plan: true,
+          account: false,
+          plan: false,
           rateLimits: false,
           modelTierRateLimits: false,
           contextWindow: false,
@@ -81,6 +89,26 @@ describe("readClaudeSubscriptionStatus", () => {
         meters: [],
       },
     });
+  });
+
+  it("does not advertise plan capability when Claude omits the plan tier", async () => {
+    const status = await readClaudeSubscriptionStatus({
+      execute: async () => ({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          loggedIn: true,
+          authMethod: "claude.ai",
+        }),
+        stderr: "",
+      }),
+    });
+
+    expect(status.telemetry).toMatchObject({
+      state: "unsupported",
+      capabilities: { account: false, plan: false },
+    });
+    expect(status).not.toHaveProperty("account");
+    expect(status).not.toHaveProperty("plan");
   });
 
   it.each([
@@ -118,6 +146,8 @@ describe("readClaudeSubscriptionStatus", () => {
         loggedIn: true,
         authMethod: "api_key",
         email: "person@example.test",
+        orgId: "org-example",
+        orgName: "Example Org",
         subscriptionType: "max",
       }),
       stderr: "",
@@ -128,15 +158,15 @@ describe("readClaudeSubscriptionStatus", () => {
     expect(status).toMatchObject({
       connectionState: "connected",
       authMethod: "api_key",
-      account: { email: "person@example.test" },
       connectionMessage:
         "Claude Code is authenticated with API or console billing, not a Claude subscription.",
       telemetry: {
         source: "connection-only",
-        capabilities: { plan: false },
+        capabilities: { account: false, plan: false },
       },
     });
     expect(status.plan).toBeUndefined();
+    expect(status).not.toHaveProperty("account");
     expect(isClaudeSubscriptionStatus(status)).toBe(false);
   });
 });
@@ -176,3 +206,72 @@ describe("getClaudeSubscriptionLoginLaunchSpec", () => {
     });
   });
 });
+
+describe("executeClaudeProcess", () => {
+  it("escalates a timed-out child through TERM and KILL before forced settlement", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = createFakeProcess();
+      const execution = executeClaudeProcess(
+        "claude",
+        ["auth", "status", "--json"],
+        { timeoutMs: 1 },
+        () => child,
+      );
+      const result = expect(execution).resolves.toMatchObject({
+        exitCode: null,
+        timedOut: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(501);
+      expect(child.killedSignals).toEqual(["SIGTERM", "SIGKILL"]);
+      await result;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reaps a wedged child after a stdout stream error", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = createFakeProcess();
+      const execution = executeClaudeProcess(
+        "claude",
+        ["auth", "status", "--json"],
+        { timeoutMs: 10_000 },
+        () => child,
+      );
+      const result = expect(execution).resolves.toMatchObject({
+        exitCode: null,
+        timedOut: false,
+      });
+      child.stdout.emit("error", new Error("stdout failed"));
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(child.killedSignals).toEqual(["SIGTERM", "SIGKILL"]);
+      await result;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+function createFakeProcess(): ChildProcess & {
+  stdout: PassThrough;
+  stderr: PassThrough;
+  killedSignals: NodeJS.Signals[];
+} {
+  const child = new EventEmitter() as ChildProcess & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+    killedSignals: NodeJS.Signals[];
+  };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killedSignals = [];
+  child.kill = ((signal?: NodeJS.Signals) => {
+    if (signal) child.killedSignals.push(signal);
+    return true;
+  }) as ChildProcess["kill"];
+  return child;
+}
