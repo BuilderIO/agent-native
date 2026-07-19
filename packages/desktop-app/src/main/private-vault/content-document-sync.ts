@@ -64,6 +64,10 @@ export class PrivateVaultContentSync {
 
   async synchronize(
     vaultId: string,
+    options?: {
+      readonly documentIds?: ReadonlySet<string>;
+      readonly includeHistory?: boolean;
+    },
   ): Promise<PrivateVaultLocalManifestHead | null> {
     const objects = await this.#gateway.list(vaultId);
     const manifestObjects = objects.filter(
@@ -127,27 +131,38 @@ export class PrivateVaultContentSync {
     }
 
     for (const entry of selected.manifest.documents) {
-      const latest = entry.revisions.at(-1);
-      if (!latest) throw new PrivateVaultContentSyncError();
-      const opened = await this.#gateway.open({
-        vaultId,
-        objectId: entry.objectId,
-        revisionId: latest.revisionId,
-      });
-      try {
-        if (opened.contentType !== PRIVATE_VAULT_CONTENT_TYPE)
-          throw new PrivateVaultContentSyncError();
-        const document = decodePrivateVaultContentDocument(opened.plaintext);
-        if (
-          document.id !== entry.objectId ||
-          (entry.parentId !== undefined &&
-            document.parentId !== entry.parentId) ||
-          (entry.position !== undefined && document.position !== entry.position)
-        )
-          throw new PrivateVaultContentSyncError();
-        await this.#index.writeDocument(vaultId, latest.revisionId, document);
-      } finally {
-        opened.plaintext.fill(0);
+      if (options?.documentIds && !options.documentIds.has(entry.objectId))
+        continue;
+      const revisions = options?.includeHistory
+        ? entry.revisions
+        : entry.revisions.slice(-1);
+      if (revisions.length === 0) throw new PrivateVaultContentSyncError();
+      for (const revision of revisions) {
+        const opened = await this.#gateway.open({
+          vaultId,
+          objectId: entry.objectId,
+          revisionId: revision.revisionId,
+        });
+        try {
+          if (opened.contentType !== PRIVATE_VAULT_CONTENT_TYPE)
+            throw new PrivateVaultContentSyncError();
+          const document = decodePrivateVaultContentDocument(opened.plaintext);
+          if (
+            document.id !== entry.objectId ||
+            (entry.parentId !== undefined &&
+              document.parentId !== entry.parentId) ||
+            (entry.position !== undefined &&
+              document.position !== entry.position)
+          )
+            throw new PrivateVaultContentSyncError();
+          await this.#index.writeDocument(
+            vaultId,
+            revision.revisionId,
+            document,
+          );
+        } finally {
+          opened.plaintext.fill(0);
+        }
       }
     }
     await this.#index.writeManifest(selected);

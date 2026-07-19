@@ -157,6 +157,16 @@ describe("PrivateVaultContentSync", () => {
     expect(source.stored()).toEqual(result);
   });
 
+  it("can verify manifests without opening an unauthorized document body", async () => {
+    const source = harness();
+    await new PrivateVaultContentSync(source).synchronize(vaultId, {
+      documentIds: new Set(),
+    });
+    expect(source.gateway.open).toHaveBeenCalledTimes(2);
+    expect(source.index.writeDocument).not.toHaveBeenCalled();
+    expect(source.index.writeManifest).toHaveBeenCalledOnce();
+  });
+
   it("detects a withheld local head and a same-generation fork", async () => {
     const newerLocal: PrivateVaultLocalManifestHead = {
       version: 1,

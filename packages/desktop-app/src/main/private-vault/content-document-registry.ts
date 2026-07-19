@@ -127,8 +127,14 @@ export class PrivateVaultContentRegistry {
       readonly canManage: true;
     }
   > {
-    const { documents } = await this.#load(vaultId);
-    const document = documents.get(objectId);
+    const head = await this.#index.readManifest(vaultId);
+    const entry = head?.manifest.documents.find(
+      (candidate) => candidate.objectId === objectId,
+    );
+    const latest = entry?.revisions.at(-1);
+    const document = latest
+      ? await this.#index.readDocument(vaultId, objectId, latest.revisionId)
+      : null;
     if (!document) throw new PrivateVaultContentRegistryError();
     return Object.freeze({
       ...document,
