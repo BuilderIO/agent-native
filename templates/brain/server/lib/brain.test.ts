@@ -2630,6 +2630,90 @@ describe("Brain connector smoke coverage", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
+  it("consumes the Slack history page budget and persists the next cursor", async () => {
+    const historyCursors: Array<string | null> = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_member: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        const cursor = url.searchParams.get("cursor");
+        historyCursors.push(cursor);
+        const secondPage = cursor === "history-page-2";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              user: "U123",
+              text: secondPage
+                ? "Decision: keep the procurement follow-up."
+                : "Decision: keep annual plans.",
+              ts: secondPage ? "1770919199.000100" : "1770919200.000100",
+            },
+          ],
+          has_more: true,
+          response_metadata: {
+            next_cursor: secondPage ? "history-page-3" : "history-page-2",
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        const ts = url.searchParams.get("ts") ?? "1770919200.000100";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Decision from paginated Slack history.",
+              ts,
+            },
+          ],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-paginated-source",
+      title: "Slack product history",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 1,
+        pagesPerChannel: 2,
+        permalinkLimit: 0,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 2,
+      stats: { messagesSeen: 2, threadsFetched: 2 },
+    });
+    expect(historyCursors).toEqual([null, "history-page-2"]);
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      channels: {
+        C123: {
+          pageCursor: "history-page-3",
+          pendingLatestTs: "1770919200.000100",
+        },
+      },
+    });
+  });
+
   it("joins an explicitly configured public channel before reading history", async () => {
     const calls: string[] = [];
     const fetchSpy = vi.fn(

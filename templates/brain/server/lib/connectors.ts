@@ -2402,6 +2402,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         if (data.has_more && nextPage) {
           channelCursor.pageCursor = nextPage;
           nextCursor.channels![channel.id] = channelCursor;
+          if (page + 1 < pagesPerChannel) continue;
           break;
         }
 
