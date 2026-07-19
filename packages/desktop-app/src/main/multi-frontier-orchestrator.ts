@@ -63,6 +63,18 @@ export interface MultiFrontierHelperPolicy {
   };
 }
 
+export interface MultiFrontierOptionalHelperGateway {
+  readonly available: boolean;
+  launch(input: {
+    taskId: string;
+    kind: "review";
+    depth: number;
+    prompt: string;
+    artifacts: ReadonlyArray<{ id: string; summary: string }>;
+    signal: AbortSignal;
+  }): Promise<{ effectiveModel: string; turns: number; summary: string }>;
+}
+
 export interface MultiFrontierTurnRequest {
   collaborationId: string;
   participantId: string;
@@ -79,6 +91,11 @@ export interface MultiFrontierTurnResult {
   findings?: MultiFrontierFinding[];
   dispositions?: MultiFrontierFindingDisposition[];
   reversibleResolution?: MultiFrontierSynthesisResult["reversibleResolution"];
+  tests?: Array<{
+    name: string;
+    status: "passed" | "failed";
+    evidence: string;
+  }>;
 }
 
 export interface MultiFrontierSynthesisRequest {
@@ -220,6 +237,7 @@ export interface MultiFrontierOrchestratorOptions {
   ) => Promise<void> | void;
   onAutoAdvanceNotice?: (notice: string) => Promise<void> | void;
   helperPolicy: MultiFrontierHelperPolicy;
+  optionalHelper?: MultiFrontierOptionalHelperGateway;
   initialArtifacts?: readonly MultiFrontierArtifact[];
 }
 
@@ -267,6 +285,7 @@ export class MultiFrontierOrchestrator {
   readonly #artifacts: MultiFrontierArtifact[] = [];
   readonly #artifactIds = new Set<string>();
   readonly #pendingFindingIds = new Set<string>();
+  readonly #helperControllers = new Set<AbortController>();
 
   constructor(options: MultiFrontierOrchestratorOptions) {
     assertSafeId(options.collaborationId, "collaboration id");
@@ -295,6 +314,10 @@ export class MultiFrontierOrchestrator {
 
   get artifacts(): readonly MultiFrontierArtifact[] {
     return this.#artifacts.map((artifact) => immutableClone(artifact));
+  }
+
+  cancelOptionalHelpers(): void {
+    for (const controller of this.#helperControllers) controller.abort();
   }
 
   async resumeApprovedPlan(input: {
@@ -483,6 +506,13 @@ export class MultiFrontierOrchestrator {
         }),
       );
 
+      const helperReview = await this.#runOptionalReviewHelper({
+        operationId: input.operationId,
+        round,
+        request,
+        artifacts: [...reviews.map((review) => review.artifact), ...revisions],
+      });
+
       const findings = normalizeFindings(
         reviews.flatMap((review) => review.result.findings ?? []),
       );
@@ -506,8 +536,15 @@ export class MultiFrontierOrchestrator {
           operationId: input.operationId,
           participantId: input.driverParticipantId,
           round,
-          prompt: synthesisPrompt(request, revisions, findings),
-          artifactIds: revisions.map((artifact) => artifact.id),
+          prompt: synthesisPrompt(
+            request,
+            helperReview ? [...revisions, helperReview] : revisions,
+            findings,
+          ),
+          artifactIds: [
+            ...revisions.map((artifact) => artifact.id),
+            ...(helperReview ? [helperReview.id] : []),
+          ],
         }),
       );
       const synthesisArtifact = await this.#storeArtifact({
@@ -524,6 +561,7 @@ export class MultiFrontierOrchestrator {
           ...proposals,
           ...reviews.map((review) => review.artifact),
           ...revisions,
+          ...(helperReview ? [helperReview] : []),
         ],
         participantIds: [...this.#participantIds],
         metadata: {
@@ -1101,7 +1139,64 @@ export class MultiFrontierOrchestrator {
       ...result,
       text: boundedPlainText(result.text, "turn result"),
       findings: normalizeFindings(result.findings),
+      tests: normalizeTurnTests(result.tests),
     };
+  }
+
+  async #runOptionalReviewHelper(input: {
+    operationId: string;
+    round: number;
+    request: string;
+    artifacts: readonly MultiFrontierArtifact[];
+  }): Promise<MultiFrontierArtifact | null> {
+    const gateway = this.#options.optionalHelper;
+    const policy = this.#helperPolicyForTurn();
+    if (!gateway?.available || !policy.allowOptionalHelpers) return null;
+    const controller = new AbortController();
+    this.#helperControllers.add(controller);
+    try {
+      const taskId = operationScopedId(
+        "mfhelper",
+        this.#options.collaborationId,
+        input.operationId,
+        "review",
+        String(input.round),
+      );
+      const result = await gateway.launch({
+        taskId,
+        kind: "review",
+        depth: 1,
+        prompt: boundedPrompt(
+          `Independently review the bounded planning artifacts for reversible technical gaps. Request: ${input.request}`,
+        ),
+        artifacts: input.artifacts.slice(-12).map((artifact) => ({
+          id: artifact.id,
+          summary: boundedPlainText(artifact.text, "helper artifact summary"),
+        })),
+        signal: controller.signal,
+      });
+      if (result.effectiveModel !== policy.effectiveModel) {
+        throw new Error("The optional helper returned an unexpected model.");
+      }
+      return this.#storeArtifact({
+        artifactId: this.#operationArtifactId(
+          input.operationId,
+          "cross_review",
+          input.round,
+          "helper",
+        ),
+        kind: "cross_review",
+        round: input.round,
+        text: result.summary,
+        sourceArtifacts: input.artifacts,
+        metadata: { findings: [] },
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      return null;
+    } finally {
+      this.#helperControllers.delete(controller);
+    }
   }
 
   #helperPolicyForTurn(): MultiFrontierHelperPolicy & {
@@ -1308,6 +1403,29 @@ function normalizeFindings(
       id: finding.id,
       category: finding.category,
       summary: boundedPlainText(finding.summary, "finding summary"),
+    };
+  });
+}
+
+function normalizeTurnTests(
+  tests: MultiFrontierTurnResult["tests"],
+): MultiFrontierTurnResult["tests"] {
+  if (tests === undefined) return undefined;
+  if (!Array.isArray(tests) || tests.length > 8) {
+    throw new Error("Turn test evidence is invalid.");
+  }
+  return tests.map((test) => {
+    if (
+      !test ||
+      typeof test !== "object" ||
+      !["passed", "failed"].includes(test.status)
+    ) {
+      throw new Error("Turn test evidence is invalid.");
+    }
+    return {
+      name: boundedPlainText(test.name, "test name"),
+      status: test.status,
+      evidence: boundedPlainText(test.evidence, "test evidence"),
     };
   });
 }

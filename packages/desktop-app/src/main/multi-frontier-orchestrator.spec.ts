@@ -7,6 +7,7 @@ import {
   type MultiFrontierArtifact,
   type MultiFrontierCoordinatorFacade,
   type MultiFrontierHelperPolicy,
+  type MultiFrontierOptionalHelperGateway,
   type MultiFrontierTrustedCoordinatorSnapshot,
   type MultiFrontierTurnRequest,
   type MultiFrontierTurnResult,
@@ -131,6 +132,7 @@ function createHarness(
       request: MultiFrontierTurnRequest,
     ) => Promise<MultiFrontierTurnResult>;
     helperPolicy?: MultiFrontierHelperPolicy;
+    optionalHelper?: MultiFrontierOptionalHelperGateway;
     initialArtifacts?: MultiFrontierArtifact[];
     appendArtifact?: (artifact: MultiFrontierArtifact) => void;
     autoContinue?: boolean;
@@ -168,6 +170,7 @@ function createHarness(
       notices.push(notice);
     },
     helperPolicy: options.helperPolicy ?? HELPER_POLICY,
+    optionalHelper: options.optionalHelper,
     initialArtifacts: options.initialArtifacts,
   });
   return {
@@ -183,6 +186,75 @@ function createHarness(
 }
 
 describe("MultiFrontierOrchestrator", () => {
+  it("routes an admitted read-only helper review into synthesis with bounded artifacts", async () => {
+    const launch = vi.fn(async () => ({
+      effectiveModel: "gpt-5.6-terra",
+      turns: 2,
+      summary: "The helper found no additional reversible gaps.",
+    }));
+    const harness = createHarness({
+      optionalHelper: { available: true, launch },
+    });
+
+    await harness.orchestrator.runPlanning({
+      operationId: "helper-review-op",
+      request: "Implement the bounded change.",
+      repositoryEvidence: "Repository evidence.",
+      driverParticipantId: "codex",
+    });
+
+    expect(launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "review",
+        depth: 1,
+        artifacts: expect.any(Array),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(
+      harness.artifacts.some(
+        (artifact) =>
+          artifact.kind === "cross_review" &&
+          artifact.text.includes("helper found no additional"),
+      ),
+    ).toBe(true);
+    expect(
+      harness.coordinatorTurns.find((turn) => turn.kind === "convergence")
+        ?.instruction,
+    ).toContain("helper found no additional");
+  });
+
+  it("cancels an owned optional helper without granting it workspace write", async () => {
+    let helperSignal: AbortSignal | undefined;
+    const harness = createHarness({
+      optionalHelper: {
+        available: true,
+        launch: (input) => {
+          helperSignal = input.signal;
+          return new Promise((_resolve, reject) => {
+            input.signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        },
+      },
+    });
+    const planning = harness.orchestrator.runPlanning({
+      operationId: "helper-cancel-op",
+      request: "Implement the bounded change.",
+      repositoryEvidence: "Repository evidence.",
+      driverParticipantId: "codex",
+    });
+    await vi.waitFor(() => expect(helperSignal).toBeDefined());
+
+    harness.orchestrator.cancelOptionalHelpers();
+
+    await expect(planning).rejects.toMatchObject({ name: "AbortError" });
+    expect(helperSignal?.aborted).toBe(true);
+  });
+
   it("routes every participant turn through the coordinator and namespaces duplicate findings", async () => {
     const activeByStage = new Map<string, number>();
     const maxActiveByStage = new Map<string, number>();
