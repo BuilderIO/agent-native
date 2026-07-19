@@ -807,9 +807,59 @@ export function redactCredentialText(value: string): string {
     );
 }
 
+const sanitizedEgressStores = new Set<string>();
+
+function sanitizeLegacyEgressLog(storeDir: string): void {
+  if (sanitizedEgressStores.has(storeDir)) return;
+  sanitizedEgressStores.add(storeDir);
+  const logPath = path.join(storeDir, "egress.jsonl");
+  if (!fs.existsSync(logPath)) return;
+  const sanitized = fs
+    .readFileSync(logPath, "utf-8")
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        const packet = event.packet as
+          | { evidence?: Array<Record<string, unknown>> }
+          | null
+          | undefined;
+        if (!event.receipt && Array.isArray(packet?.evidence)) {
+          event.receipt = {
+            evidence: packet.evidence.map((evidence) => ({
+              id: evidence.id,
+              momentId: evidence.momentId,
+              sourceType: evidence.sourceType,
+              capturedAt: evidence.capturedAt ?? null,
+            })),
+          };
+        }
+        delete event.packet;
+        delete event.reason;
+        event.packetBytes =
+          typeof event.packetBytes === "number" ? event.packetBytes : 0;
+        return [JSON.stringify(event)];
+      } catch {
+        // A malformed audit row cannot provide reliable provenance. Dropping it
+        // also prevents arbitrary stale text from surviving this migration.
+        return [];
+      }
+    });
+  const temporaryPath = `${logPath}.sanitize-${process.pid}`;
+  fs.writeFileSync(
+    temporaryPath,
+    sanitized.length > 0 ? `${sanitized.join("\n")}\n` : "",
+    { encoding: "utf-8", mode: 0o600 },
+  );
+  fs.renameSync(temporaryPath, logPath);
+  fs.chmodSync(logPath, 0o600);
+}
+
 function appendEgressEvent(storeDir: string, event: Record<string, unknown>) {
   fs.mkdirSync(storeDir, { recursive: true });
   fs.chmodSync(storeDir, 0o700);
+  sanitizeLegacyEgressLog(storeDir);
   fs.appendFileSync(
     path.join(storeDir, "egress.jsonl"),
     `${JSON.stringify(event)}\n`,
@@ -818,25 +868,72 @@ function appendEgressEvent(storeDir: string, event: Record<string, unknown>) {
   fs.chmodSync(path.join(storeDir, "egress.jsonl"), 0o600);
 }
 
-function appendLocalEvidenceReceipt(
+type EgressEvidenceReference = {
+  id: string;
+  momentId: string;
+  sourceType: string;
+  capturedAt: string | null;
+};
+
+/**
+ * Records that bounded evidence was returned without preserving its text.
+ * The originating Screen Memory interval remains the only durable home for
+ * transcripts and chapter summaries.
+ */
+function appendEgressReceipt(
+  storeDir: string,
+  requestId: string,
+  operation: string,
+  evidence: EgressEvidenceReference[],
+): void {
+  const occurredAt = new Date().toISOString();
+  const receipt = {
+    evidence: evidence.map(({ id, momentId, sourceType, capturedAt }) => ({
+      id,
+      momentId,
+      sourceType,
+      capturedAt,
+    })),
+  };
+  appendEgressEvent(storeDir, {
+    requestId,
+    occurredAt,
+    state: "prepared",
+    operation,
+    receipt,
+    evidenceCount: receipt.evidence.length,
+    packetBytes: 0,
+    error: null,
+  });
+  appendEgressEvent(storeDir, {
+    requestId,
+    occurredAt: new Date().toISOString(),
+    state: "completed",
+    operation,
+    receipt: null,
+    evidenceCount: receipt.evidence.length,
+    packetBytes: 0,
+    error: null,
+  });
+}
+
+export function appendLocalEvidenceReceipt(
   storeDir: string,
   operation: string,
-  reason: string,
-  frameCount: number,
+  evidence: Array<{ timestamp: string; segmentId: string }>,
 ): void {
   appendEgressEvent(storeDir, {
     requestId: `local-${operation}-${Date.now()}-${process.pid}`,
     occurredAt: new Date().toISOString(),
     state: "local-evidence-read",
     operation,
-    reason: redactCredentialText(reason).slice(0, 500),
-    frameCount,
-    // Deliberately no image bytes, media path, or decoded byte count.
-    packet: {
-      question: redactCredentialText(reason).slice(0, 500),
-      evidence: [],
+    receipt: {
+      frames: evidence.map(({ timestamp, segmentId }) => ({
+        timestamp,
+        segmentId,
+      })),
     },
-    evidenceCount: frameCount,
+    evidenceCount: evidence.length,
     packetBytes: 0,
     error: null,
   });
@@ -1105,26 +1202,12 @@ export async function runScreenMemoryMCPStdio(
           excerpt: item.excerpt.slice(0, 1_200),
         })),
       };
-      const packetBytes = Buffer.byteLength(JSON.stringify(packet), "utf-8");
-      const occurredAt = new Date().toISOString();
-      appendEgressEvent(storeDir, {
+      appendEgressReceipt(
+        storeDir,
         requestId,
-        occurredAt,
-        state: "prepared",
-        packet,
-        evidenceCount: packet.evidence.length,
-        packetBytes,
-        error: null,
-      });
-      appendEgressEvent(storeDir, {
-        requestId,
-        occurredAt: new Date().toISOString(),
-        state: "completed",
-        packet: null,
-        evidenceCount: packet.evidence.length,
-        packetBytes,
-        error: null,
-      });
+        "recent-context",
+        packet.evidence,
+      );
       return textResult(
         // Keep the old MCP envelope available while adding the typed contract.
         {
@@ -1136,7 +1219,7 @@ export async function runScreenMemoryMCPStdio(
           egress: {
             requestId,
             packet,
-            note: "This exact bounded text packet was logged locally before it was returned.",
+            note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
           },
         },
       );
@@ -1155,25 +1238,12 @@ export async function runScreenMemoryMCPStdio(
           excerpt: `Local media segment reference from ${segment.startedAt} to ${segment.endedAt}; media path and bytes were not exposed.`,
         })),
       };
-      const packetBytes = Buffer.byteLength(JSON.stringify(packet), "utf-8");
-      appendEgressEvent(storeDir, {
+      appendEgressReceipt(
+        storeDir,
         requestId,
-        occurredAt: new Date().toISOString(),
-        state: "prepared",
-        packet,
-        evidenceCount: packet.evidence.length,
-        packetBytes,
-        error: null,
-      });
-      appendEgressEvent(storeDir, {
-        requestId,
-        occurredAt: new Date().toISOString(),
-        state: "completed",
-        packet: null,
-        evidenceCount: packet.evidence.length,
-        packetBytes,
-        error: null,
-      });
+        "recent-segments",
+        packet.evidence,
+      );
       return textResult({
         localOnly: true,
         mediaApprovalRequired: true,
@@ -1187,7 +1257,7 @@ export async function runScreenMemoryMCPStdio(
         egress: {
           requestId,
           packet,
-          note: "This exact bounded metadata packet was logged locally before it was returned.",
+          note: "A content-free local activity receipt was recorded before this bounded metadata packet was returned.",
         },
       });
     }
@@ -1234,24 +1304,12 @@ export async function runScreenMemoryMCPStdio(
         })),
       };
       const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
-      appendEgressEvent(storeDir, {
+      appendEgressReceipt(
+        storeDir,
         requestId,
-        occurredAt: new Date().toISOString(),
-        state: "prepared",
-        packet,
-        evidenceCount: packet.evidence.length,
-        packetBytes: Buffer.byteLength(JSON.stringify(packet)),
-        error: null,
-      });
-      appendEgressEvent(storeDir, {
-        requestId,
-        occurredAt: new Date().toISOString(),
-        state: "completed",
-        packet: null,
-        evidenceCount: packet.evidence.length,
-        packetBytes: Buffer.byteLength(JSON.stringify(packet)),
-        error: null,
-      });
+        "search-chapters",
+        packet.evidence,
+      );
       return textResult({
         localOnly: true,
         generatedAt: document.generatedAt,
@@ -1273,7 +1331,7 @@ export async function runScreenMemoryMCPStdio(
         egress: {
           requestId,
           packet,
-          note: "This exact bounded chapter metadata packet was logged locally before it was returned.",
+          note: "A content-free local activity receipt was recorded before this bounded chapter packet was returned.",
         },
       });
     }
@@ -1285,11 +1343,9 @@ export async function runScreenMemoryMCPStdio(
         args.timestamp,
         opts.decodeFrame ?? decodeFrameWithFfmpeg,
       );
-      const reason =
-        typeof args.reason === "string" && args.reason.trim()
-          ? args.reason.trim()
-          : "Exact local Rewind frame requested by the connected agent";
-      appendLocalEvidenceReceipt(storeDir, "frame-at", reason, 1);
+      appendLocalEvidenceReceipt(storeDir, "frame-at", [
+        { timestamp: frame.timestamp, segmentId: frame.segmentId },
+      ]);
       return {
         content: [
           {
@@ -1366,15 +1422,10 @@ export async function runScreenMemoryMCPStdio(
           "No clean retained Rewind frames cover the requested contact-sheet range.",
         );
       }
-      const reason =
-        typeof args.reason === "string" && args.reason.trim()
-          ? args.reason.trim()
-          : "Bounded local Rewind contact sheet requested by the connected agent";
       appendLocalEvidenceReceipt(
         storeDir,
         "contact-sheet",
-        reason,
-        frames.length,
+        frames.map(({ timestamp, segmentId }) => ({ timestamp, segmentId })),
       );
       return {
         content: [
@@ -1423,12 +1474,14 @@ export async function runScreenMemoryMCPStdio(
         requestId,
         occurredAt: request.requestedAt,
         state: "handoff-requested",
-        packet: { question: reason, evidence: [] },
+        operation: "request-clip",
+        receipt: {
+          mediaInterval: { startAt: range.startAt, endAt: range.endAt },
+          reviewRequired: request.reviewRequired,
+        },
         evidenceCount: 0,
         packetBytes: 0,
         error: null,
-        mediaInterval: { startAt: range.startAt, endAt: range.endAt },
-        reviewRequired: request.reviewRequired,
       });
       return textResult({
         requestId,

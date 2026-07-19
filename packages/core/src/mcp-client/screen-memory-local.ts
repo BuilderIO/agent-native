@@ -1015,8 +1015,8 @@ export async function queryScreenMemoryContext(
 /**
  * Agent-facing retrieval boundary. Asking an agent to search Rewind is the
  * authorization. This removes filesystem paths, redacts obvious
- * credential-shaped text, and durably logs the exact bounded packet before it
- * is returned to an action caller.
+ * credential-shaped text, and records a content-free activity receipt before
+ * it is returned to an action caller.
  */
 export async function queryScreenMemoryForAgent(
   args: {
@@ -1054,22 +1054,69 @@ export async function queryScreenMemoryForAgent(
   await fs.mkdir(storeDir, { recursive: true, mode: 0o700 });
   await fs.chmod(storeDir, 0o700);
   const logPath = path.join(storeDir, "egress.jsonl");
+  if (await exists(logPath)) {
+    const sanitized = (await fs.readFile(logPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const event = JSON.parse(line) as Record<string, unknown>;
+          const packet = event.packet as
+            | { evidence?: Array<Record<string, unknown>> }
+            | null
+            | undefined;
+          if (!event.receipt && Array.isArray(packet?.evidence)) {
+            event.receipt = {
+              evidence: packet.evidence.map((item) => ({
+                id: item.id,
+                momentId: item.momentId,
+                sourceType: item.sourceType,
+                capturedAt: item.capturedAt ?? null,
+              })),
+            };
+          }
+          delete event.packet;
+          delete event.reason;
+          event.packetBytes =
+            typeof event.packetBytes === "number" ? event.packetBytes : 0;
+          return [JSON.stringify(event)];
+        } catch {
+          return [];
+        }
+      });
+    const temporaryPath = `${logPath}.sanitize-${process.pid}`;
+    await fs.writeFile(
+      temporaryPath,
+      sanitized.length > 0 ? `${sanitized.join("\n")}\n` : "",
+      { encoding: "utf8", mode: 0o600 },
+    );
+    await fs.rename(temporaryPath, logPath);
+  }
   const requestId = `egress-action-${Date.now()}-${process.pid}`;
-  const packetBytes = Buffer.byteLength(JSON.stringify(packet), "utf8");
   const prepared = {
     requestId,
     occurredAt: new Date().toISOString(),
     state: "prepared",
-    packet,
+    operation: "agent-query",
+    receipt: {
+      evidence: packet.evidence.map(
+        ({ id, momentId, sourceType, capturedAt }) => ({
+          id,
+          momentId,
+          sourceType,
+          capturedAt,
+        }),
+      ),
+    },
     evidenceCount: packet.evidence.length,
-    packetBytes,
+    packetBytes: 0,
     error: null,
   };
   const completed = {
     ...prepared,
     occurredAt: new Date().toISOString(),
     state: "completed",
-    packet: null,
+    receipt: null,
   };
   await fs.appendFile(
     logPath,
@@ -1085,7 +1132,7 @@ export async function queryScreenMemoryForAgent(
     egress: {
       requestId,
       packet,
-      note: "This exact bounded text packet was logged locally before it was returned.",
+      note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
     },
   };
 }

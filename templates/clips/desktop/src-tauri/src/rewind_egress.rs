@@ -5,6 +5,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -66,8 +67,14 @@ pub struct RewindEgressEvent {
     pub request_id: String,
     pub occurred_at: String,
     pub state: RewindEgressState,
+    #[serde(default)]
     pub packet: Option<RewindEvidencePacket>,
+    #[serde(default)]
+    pub operation: Option<String>,
+    #[serde(default)]
+    pub receipt: Option<Value>,
     pub evidence_count: usize,
+    #[serde(default)]
     pub packet_bytes: usize,
     pub error: Option<String>,
 }
@@ -112,6 +119,80 @@ impl EgressStore {
         file.write_all(b"\n")
             .and_then(|_| file.flush())
             .map_err(|err| format!("Rewind egress event write failed: {err}"))
+    }
+
+    fn scrub_legacy_content(&self) -> Result<(), String> {
+        let _guard = EGRESS_IO_LOCK
+            .lock()
+            .map_err(|err| format!("Rewind egress log lock failed: {err}"))?;
+        if !self.path.exists() {
+            return Ok(());
+        }
+        let file = File::open(&self.path)
+            .map_err(|err| format!("Rewind egress log unavailable: {err}"))?;
+        let mut changed = false;
+        let events = BufReader::new(file)
+            .lines()
+            .map_while(Result::ok)
+            .filter_map(|line| {
+                let mut event: Value = serde_json::from_str(&line).ok()?;
+                let object = event.as_object_mut()?;
+                if let Some(packet) = object.remove("packet") {
+                    changed = true;
+                    if !object.contains_key("receipt") {
+                        let evidence = packet
+                            .get("evidence")
+                            .and_then(Value::as_array)
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .map(|item| {
+                                        json!({
+                                            "id": item.get("id"),
+                                            "momentId": item.get("momentId"),
+                                            "sourceType": item.get("sourceType"),
+                                            "capturedAt": item.get("capturedAt").unwrap_or(&Value::Null),
+                                        })
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        object.insert("receipt".to_string(), json!({ "evidence": evidence }));
+                    }
+                }
+                if object.remove("reason").is_some() {
+                    changed = true;
+                }
+                object
+                    .entry("packetBytes".to_string())
+                    .or_insert(json!(0));
+                Some(event)
+            })
+            .collect::<Vec<_>>();
+        if !changed {
+            return Ok(());
+        }
+        let temporary_path = self
+            .path
+            .with_extension(format!("jsonl.sanitize-{}", std::process::id()));
+        let mut temporary = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&temporary_path)
+            .map_err(|err| format!("Rewind egress migration unavailable: {err}"))?;
+        for event in events {
+            serde_json::to_writer(&mut temporary, &event)
+                .map_err(|err| format!("Rewind egress migration encoding failed: {err}"))?;
+            temporary
+                .write_all(b"\n")
+                .map_err(|err| format!("Rewind egress migration write failed: {err}"))?;
+        }
+        temporary
+            .flush()
+            .map_err(|err| format!("Rewind egress migration write failed: {err}"))?;
+        std::fs::rename(&temporary_path, &self.path)
+            .map_err(|err| format!("Rewind egress migration failed: {err}"))
     }
 
     fn read_all(&self) -> Result<Vec<RewindEgressEvent>, String> {
@@ -161,6 +242,8 @@ impl EgressStore {
             occurred_at: now_iso(),
             state,
             packet: None,
+            operation: prepared.operation.clone(),
+            receipt: None,
             evidence_count: prepared.evidence_count,
             packet_bytes: prepared.packet_bytes,
             error,
@@ -176,7 +259,9 @@ fn egress_store(app: &AppHandle) -> Result<EgressStore, String> {
         .app_data_dir()
         .map_err(|err| format!("app data directory unavailable: {err}"))?
         .join("screen-memory");
-    Ok(EgressStore::new(dir.join(EGRESS_LOG_NAME)))
+    let store = EgressStore::new(dir.join(EGRESS_LOG_NAME));
+    store.scrub_legacy_content()?;
+    Ok(store)
 }
 
 fn now_iso() -> String {
@@ -325,7 +410,16 @@ fn prepare_evidence(
         request_id: request_id.clone(),
         occurred_at: now_iso(),
         state: RewindEgressState::Prepared,
-        packet: Some(packet.clone()),
+        packet: None,
+        operation: Some("agent-query".to_string()),
+        receipt: Some(json!({
+            "evidence": packet.evidence.iter().map(|evidence| json!({
+                "id": evidence.id,
+                "momentId": evidence.moment_id,
+                "sourceType": evidence.source_type,
+                "capturedAt": evidence.captured_at,
+            })).collect::<Vec<_>>(),
+        })),
         evidence_count: packet.evidence.len(),
         packet_bytes,
         error: None,
@@ -428,14 +522,12 @@ mod tests {
             prepared.packet.evidence[0].excerpt,
             "api_key=[REDACTED] Bearer [REDACTED] [REDACTED CREDENTIAL]"
         );
+        let logged = store.read_all().unwrap();
+        assert!(logged[0].packet.is_none());
+        assert_eq!(logged[0].operation.as_deref(), Some("agent-query"));
         assert_eq!(
-            store.read_all().unwrap()[0]
-                .packet
-                .as_ref()
-                .unwrap()
-                .evidence[0]
-                .excerpt,
-            prepared.packet.evidence[0].excerpt
+            logged[0].receipt.as_ref().unwrap()["evidence"][0]["id"],
+            "evidence-1"
         );
     }
 
@@ -476,7 +568,8 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].state, RewindEgressState::Prepared);
         assert_eq!(events[1].state, RewindEgressState::Completed);
-        assert!(events[0].packet.is_some());
+        assert!(events[0].packet.is_none());
+        assert!(events[0].receipt.is_some());
         assert!(completed.packet.is_none());
         assert!(store
             .terminal_event(
@@ -485,6 +578,31 @@ mod tests {
                 Some("late".into())
             )
             .is_err());
+    }
+
+    #[test]
+    fn scrubs_legacy_packet_text_while_preserving_provenance() {
+        let store = temp_store("legacy-scrub");
+        if let Some(parent) = store.path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(
+            &store.path,
+            r#"{"requestId":"legacy-1","occurredAt":"2026-01-01T00:00:00Z","state":"prepared","packet":{"question":"private question","evidence":[{"id":"e1","momentId":"m1","sourceType":"transcript","capturedAt":"2026-01-01T00:00:00Z","excerpt":"private excerpt"}]},"evidenceCount":1,"packetBytes":42,"error":null}
+"#,
+        )
+        .unwrap();
+
+        store.scrub_legacy_content().unwrap();
+
+        let raw = std::fs::read_to_string(&store.path).unwrap();
+        assert!(!raw.contains("private question"));
+        assert!(!raw.contains("private excerpt"));
+        let events = store.read_all().unwrap();
+        assert_eq!(
+            events[0].receipt.as_ref().unwrap()["evidence"][0]["id"],
+            "e1"
+        );
     }
 
     #[test]

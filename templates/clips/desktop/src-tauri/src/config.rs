@@ -53,6 +53,8 @@ pub struct ScreenMemoryConfig {
     pub capture_mode: RewindCaptureMode,
     #[serde(default = "default_rewind_review_before_sending")]
     pub review_before_sending: bool,
+    #[serde(default = "default_rewind_auto_preview_before_sending")]
+    pub auto_preview_before_sending: bool,
     #[serde(default)]
     pub agent_clip_retention: RewindAgentClipRetention,
     #[serde(default = "default_screen_memory_excluded_bundle_ids")]
@@ -72,6 +74,7 @@ impl Default for ScreenMemoryConfig {
             sample_interval_seconds: default_screen_memory_sample_interval_seconds(),
             capture_mode: RewindCaptureMode::default(),
             review_before_sending: default_rewind_review_before_sending(),
+            auto_preview_before_sending: default_rewind_auto_preview_before_sending(),
             agent_clip_retention: RewindAgentClipRetention::default(),
             excluded_bundle_ids: default_screen_memory_excluded_bundle_ids(),
             exclude_private_windows: default_screen_memory_exclude_private_windows(),
@@ -201,6 +204,10 @@ fn default_screen_memory_sample_interval_seconds() -> u64 {
 }
 
 fn default_rewind_review_before_sending() -> bool {
+    true
+}
+
+fn default_rewind_auto_preview_before_sending() -> bool {
     true
 }
 
@@ -394,6 +401,7 @@ mod tests {
         assert_eq!(config.retention_hours, 24);
         assert_eq!(config.capture_mode, RewindCaptureMode::Visuals);
         assert!(config.review_before_sending);
+        assert!(config.auto_preview_before_sending);
         assert_eq!(
             config.agent_clip_retention,
             RewindAgentClipRetention::Forever
