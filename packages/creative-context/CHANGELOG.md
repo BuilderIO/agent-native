@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.5.5
+
+### Patch Changes
+
+- 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+
 ## 0.5.4
 
 ### Patch Changes
