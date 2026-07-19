@@ -27,6 +27,7 @@ vi.mock("h3", () => ({
 import {
   CONTENT_PRIVATE_VAULT_ACCESS_FLAG,
   CONTENT_PRIVATE_VAULT_ENROLLMENT_FLAG,
+  CONTENT_PRIVATE_VAULT_MIGRATION_FLAG,
 } from "../../shared/private-vault-feature-flags.js";
 import handler from "./private-vault-feature-gate.js";
 
@@ -69,6 +70,20 @@ describe("Private Vault feature gate middleware", () => {
       2,
       CONTENT_PRIVATE_VAULT_ENROLLMENT_FLAG,
       expect.objectContaining({ userKey: "user:test" }),
+    );
+  });
+
+  it("requires the separate migration flag for every migration route", async () => {
+    isEnabled.mockImplementation(
+      async (flag: { key: string }) =>
+        flag.key === CONTENT_PRIVATE_VAULT_ACCESS_FLAG.key,
+    );
+    await expect(
+      handler({ path: "/api/private-vault/migration/preflight" } as never),
+    ).resolves.toEqual({ error: "Not found" });
+    expect(isEnabled).toHaveBeenCalledWith(
+      CONTENT_PRIVATE_VAULT_MIGRATION_FLAG,
+      expect.objectContaining({ userKey: "user:test", orgId: "org:test" }),
     );
   });
 

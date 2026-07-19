@@ -272,7 +272,10 @@ export class PrivateVaultMigrationCoordinator {
     const current = await this.require(scope, migrationId);
     if (
       current.ledger.state !== "copying" &&
-      current.ledger.state !== "verifying"
+      current.ledger.state !== "verifying" &&
+      current.ledger.state !== "ready_for_cutover" &&
+      current.ledger.state !== "cutover" &&
+      current.ledger.state !== "cleanup_eligible"
     )
       fail();
     const item = current.items.find(

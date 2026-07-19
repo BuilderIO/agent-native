@@ -5,6 +5,7 @@ import {
   opaqueIdSchema,
   opaqueRevisionSchema,
 } from "@agent-native/core/e2ee";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   deleteProtectedCiphertextAt,
   deleteProtectedCiphertextPrefix,
@@ -23,6 +24,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { CONTENT_PRIVATE_VAULT_ACCESS_FLAG } from "../../shared/private-vault-feature-flags.js";
 import {
   validatePrivateVaultObjectRow,
   validatePrivateVaultRevisionRow,
@@ -88,6 +90,15 @@ export async function requirePrivateVaultActionScope(
   const ownerEmail = getRequestUserEmail();
   const orgId = getRequestOrgId();
   if (!userId || !ownerEmail || !orgId) {
+    throw new PrivateVaultObjectNotFoundError();
+  }
+  if (
+    !(await isFeatureFlagEnabled(CONTENT_PRIVATE_VAULT_ACCESS_FLAG, {
+      userEmail: ownerEmail.trim().toLowerCase(),
+      userKey: userId,
+      orgId,
+    }))
+  ) {
     throw new PrivateVaultObjectNotFoundError();
   }
   const scope = await resolvePrivateVaultScopeForStableIdentity({

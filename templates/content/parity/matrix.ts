@@ -747,4 +747,27 @@ export const parityMatrix: ParityRow[] = [
       "server/lib/private-vault-jobs.test.ts",
     ],
   },
+  {
+    id: "editor.private-vault-migration",
+    surface: "editor",
+    label: "Run an explicit Standard Cloud to Private Vault migration ceremony",
+    uiEntrypoints: ["actions/manage-private-vault-migration.ts"],
+    durableEffect:
+      "A scoped migration ledger freezes source digests, verifies exact encrypted revisions, cuts over explicitly, and permits plaintext cleanup only after export, recovery, and backup evidence.",
+    uiImplementation:
+      "The action is the shared control surface for the signed Desktop migration client. It is exact-account gated separately from ordinary Private Vault access and never enters a hosted model tool surface.",
+    status: "host-only",
+    actions: ["manage-private-vault-migration"],
+    exception:
+      "Migration is agentTool: false and toolCallable: false because copying or deleting a user's legacy plaintext is an explicit attended ceremony, not ambient agent authority.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: "Content Private Vault migration and recovery milestone",
+    coverageRefs: [
+      "actions/manage-private-vault-migration.test.ts",
+      "server/lib/private-vault-migration.test.ts",
+      "server/lib/private-vault-migration-target.test.ts",
+    ],
+  },
 ];

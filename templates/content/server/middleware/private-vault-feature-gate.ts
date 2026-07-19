@@ -6,6 +6,7 @@ import { defineEventHandler, getRequestURL, setResponseStatus } from "h3";
 import {
   CONTENT_PRIVATE_VAULT_ACCESS_FLAG,
   CONTENT_PRIVATE_VAULT_ENROLLMENT_FLAG,
+  CONTENT_PRIVATE_VAULT_MIGRATION_FLAG,
 } from "../../shared/private-vault-feature-flags.js";
 
 function isEnrollmentPath(pathname: string) {
@@ -13,6 +14,10 @@ function isEnrollmentPath(pathname: string) {
     pathname.startsWith("/api/private-vault/genesis/") ||
     pathname.startsWith("/api/private-vault/enrollment/")
   );
+}
+
+function isMigrationPath(pathname: string) {
+  return pathname.startsWith("/api/private-vault/migration/");
 }
 
 /**
@@ -44,7 +49,10 @@ export default defineEventHandler(async (event) => {
   const enrollment =
     !isEnrollmentPath(pathname) ||
     (await isFeatureFlagEnabled(CONTENT_PRIVATE_VAULT_ENROLLMENT_FLAG, scope));
-  if (access && enrollment) return;
+  const migration =
+    !isMigrationPath(pathname) ||
+    (await isFeatureFlagEnabled(CONTENT_PRIVATE_VAULT_MIGRATION_FLAG, scope));
+  if (access && enrollment && migration) return;
   setResponseStatus(event, 404);
   return { error: "Not found" };
 });
