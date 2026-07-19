@@ -239,6 +239,66 @@ describe("runMigrationCodemods", () => {
     );
   });
 
+  it("resolves a target installed after planning in the same process", () => {
+    const { root, source } = fixture();
+    fs.writeFileSync(
+      source,
+      'import { Editor } from "@agent-native/core/client/editor";\nvoid Editor;\n',
+    );
+    const moveManifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {
+        "@agent-native/core/client/editor": {
+          to: "@agent-native/toolkit/editor",
+        },
+      },
+    };
+    const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkitDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkitDir, "package.json"),
+      `${JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: { ".": "./index.js" },
+      })}\n`,
+    );
+    fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+    const planningResolver = createMigrationPlanningTargetResolver(root);
+    expect(planningResolver("@agent-native/toolkit/editor", source)).toBe(
+      false,
+    );
+
+    fs.writeFileSync(
+      path.join(toolkitDir, "package.json"),
+      `${JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: {
+          "./editor": {
+            types: "./dist/editor/index.d.ts",
+            import: "./dist/editor/index.js",
+            default: "./dist/editor/index.js",
+          },
+        },
+      })}\n`,
+    );
+    fs.mkdirSync(path.join(toolkitDir, "dist/editor"), { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkitDir, "dist/editor/index.js"),
+      "export {};\n",
+    );
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [moveManifest],
+      apply: true,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/editor"',
+    );
+  });
+
   it("skips a missing subpath when the target package is installed", () => {
     const { root, source } = fixture();
     fs.writeFileSync(

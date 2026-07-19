@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -129,6 +130,37 @@ export function createMigrationPlanningTargetResolver(
         packageName && !isPackageInstalled(requireFromSource, packageName),
       );
     }
+  };
+}
+
+const FRESH_RESOLVE_SCRIPT = [
+  'const { createRequire } = require("node:module");',
+  "try {",
+  "  createRequire(process.argv[1]).resolve(process.argv[2]);",
+  "} catch {",
+  "  process.exitCode = 1;",
+  "}",
+].join("\n");
+
+function createFreshMigrationTargetResolver(
+  projectRoot: string,
+): (specifier: string, sourceFile?: string) => boolean {
+  const fallbackPath = path.join(path.resolve(projectRoot), "package.json");
+  const cache = new Map<string, boolean>();
+  return (specifier: string, sourceFile = fallbackPath): boolean => {
+    const resolutionBase =
+      nearestPackageFile(sourceFile, projectRoot) ?? sourceFile;
+    const key = `${resolutionBase}\0${specifier}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+    const resolved =
+      spawnSync(
+        process.execPath,
+        ["-e", FRESH_RESOLVE_SCRIPT, resolutionBase, specifier],
+        { stdio: "ignore" },
+      ).status === 0;
+    cache.set(key, resolved);
+    return resolved;
   };
 }
 
@@ -498,15 +530,7 @@ export function runMigrationCodemods(
   const manifests = options.manifests ?? loadMigrationManifests(root);
   const moves = mergeManifestMoves(manifests);
   const targetExists =
-    options.targetExists ??
-    ((specifier: string, sourceFile = path.join(root, "package.json")) => {
-      try {
-        createRequire(sourceFile).resolve(specifier);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    options.targetExists ?? createFreshMigrationTargetResolver(root);
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     manipulationSettings: { quoteKind: QuoteKind.Double },
