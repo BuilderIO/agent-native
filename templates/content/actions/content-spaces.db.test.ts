@@ -24,6 +24,9 @@ let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").defau
 let createContentSpaceAction: typeof import("./create-content-space.js").default;
 let listDocumentsAction: typeof import("./list-documents.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
+let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let updateDocumentAction: typeof import("./update-document.js").default;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
@@ -53,6 +56,11 @@ beforeAll(async () => {
     .default;
   listDocumentsAction = (await import("./list-documents.js")).default;
   getDocumentAction = (await import("./get-document.js")).default;
+  getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
+  updateDocumentAction = (await import("./update-document.js")).default;
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
@@ -269,7 +277,7 @@ describe("Content space provisioning", () => {
     expect(["Alpha", "Beta"]).toContain(space.name);
   });
 
-  it("is idempotent, opaque, and creates exactly one Files and Workspaces database", async () => {
+  it("is idempotent, opaque, and creates exactly one Files, Workspaces, and Favorites database", async () => {
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
       provisionContentSpaces(getDb(), OWNER),
     );
@@ -297,6 +305,9 @@ describe("Content space provisioning", () => {
     expect(
       databases.filter((database: any) => database.systemRole === "workspaces"),
     ).toHaveLength(1);
+    expect(
+      databases.filter((database: any) => database.systemRole === "favorites"),
+    ).toHaveLength(1);
     const files = databases.find(
       (database: any) => database.systemRole === "files",
     );
@@ -322,6 +333,8 @@ describe("Content space provisioning", () => {
     expect(filesItems).toHaveLength(0);
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
+        favoritesDatabaseId: first.favoritesDatabaseId,
+        favoritesDocumentId: first.favoritesDocumentId,
         spaces: expect.arrayContaining([
           expect.objectContaining({
             id: first.personalSpaceId,
@@ -424,6 +437,96 @@ describe("Content space provisioning", () => {
     expect(catalogItems.map((item: any) => item.position).sort()).toEqual([
       0, 1, 2,
     ]);
+  });
+
+  it("uses Favorites membership as a per-user state without replacing Files membership", async () => {
+    const provisioned = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () => provisionContentSpaces(getDb(), WORKSPACE_OWNER),
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "favorite-membership-page",
+      ownerEmail: WORKSPACE_OWNER,
+      orgId: null,
+      spaceId: provisioned.personalSpaceId,
+      title: "Membership page",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+      ensureContentSpacesAction.run({}),
+    );
+
+    const favorite = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () =>
+        updateDocumentAction.run({
+          id: "favorite-membership-page",
+          isFavorite: true,
+          reuseLabels: [],
+        }),
+    );
+    expect(favorite.isFavorite).toBe(true);
+    const memberships = await getDb()
+      .select({ databaseId: schema.contentDatabaseItems.databaseId })
+      .from(schema.contentDatabaseItems)
+      .where(
+        eq(schema.contentDatabaseItems.documentId, "favorite-membership-page"),
+      );
+    expect(memberships.map((row) => row.databaseId)).toEqual(
+      expect.arrayContaining([
+        provisioned.personalFilesDatabaseId,
+        provisioned.favoritesDatabaseId,
+      ]),
+    );
+
+    const unfavorite = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () =>
+        updateDocumentAction.run({
+          id: "favorite-membership-page",
+          isFavorite: false,
+          reuseLabels: [],
+        }),
+    );
+    expect(unfavorite.isFavorite).toBe(false);
+    const remainingMemberships = await getDb()
+      .select({ databaseId: schema.contentDatabaseItems.databaseId })
+      .from(schema.contentDatabaseItems)
+      .where(
+        eq(schema.contentDatabaseItems.documentId, "favorite-membership-page"),
+      );
+    expect(remainingMemberships.map((row) => row.databaseId)).toContain(
+      provisioned.personalFilesDatabaseId,
+    );
+    expect(remainingMemberships.map((row) => row.databaseId)).not.toContain(
+      provisioned.favoritesDatabaseId,
+    );
+
+    await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+      updateDocumentAction.run({
+        id: "favorite-membership-page",
+        isFavorite: true,
+        reuseLabels: [],
+      }),
+    );
+    const removed = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () =>
+        deleteDocumentAction.run({
+          id: "favorite-membership-page",
+          databaseDocumentId: provisioned.favoritesDocumentId,
+        }),
+    );
+    expect(removed).toEqual({ success: true, deleted: 0, removed: 1 });
+    await expect(
+      getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "favorite-membership-page")),
+    ).resolves.toHaveLength(1);
   });
 
   it("preserves the Content workspace name when the organization is renamed", async () => {
@@ -567,6 +670,7 @@ describe("Content space provisioning", () => {
   });
 
   it("lists favorites across every authorized organization without admitting private or unrelated rows", async () => {
+    const favoritesMember = "favorites-member@example.com";
     await addOrganization("org-favorites-a", "Favorites A");
     await addOrganization("org-favorites-b", "Favorites B");
     await addOrganization("org-favorites-other", "Favorites Other");
@@ -578,8 +682,8 @@ describe("Content space provisioning", () => {
       OWNER,
       "owner",
     );
-    await addMember("member-favorites-a", "org-favorites-a", MEMBER);
-    await addMember("member-favorites-b", "org-favorites-b", MEMBER);
+    await addMember("member-favorites-a", "org-favorites-a", favoritesMember);
+    await addMember("member-favorites-b", "org-favorites-b", favoritesMember);
     await runWithRequestContext({ userEmail: OWNER }, () =>
       provisionContentSpaces(getDb(), OWNER),
     );
@@ -633,8 +737,13 @@ describe("Content space provisioning", () => {
         },
       ]);
 
+    const memberProvisioned = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () => provisionContentSpaces(getDb(), favoritesMember),
+    );
+
     const result = await runWithRequestContext(
-      { userEmail: MEMBER, orgId: "org-favorites-a" },
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
       () => listDocumentsAction.run({}),
     );
     const ids = result.documents.map((document) => document.id);
@@ -643,6 +752,63 @@ describe("Content space provisioning", () => {
     );
     expect(ids).not.toContain("private-org-a");
     expect(ids).not.toContain("favorite-unrelated");
+    const favorites = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () =>
+        getContentDatabaseAction.run({
+          databaseId: memberProvisioned.favoritesDatabaseId,
+        }),
+    );
+    expect(favorites).toMatchObject({
+      database: { systemRole: "favorites" },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "favorite-org-a" }),
+        }),
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "favorite-org-b" }),
+        }),
+      ]),
+    });
+    expect(
+      "items" in favorites
+        ? favorites.items.map((item) => item.document.id)
+        : [],
+    ).not.toEqual(
+      expect.arrayContaining(["private-org-a", "favorite-unrelated"]),
+    );
+
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: "favorites-personal-note",
+      ownerEmail: favoritesMember,
+      orgId: null,
+      databaseId: memberProvisioned.favoritesDatabaseId,
+      name: "Personal note",
+      type: "text",
+      position: 10,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const propertyUpdate = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () =>
+        setDocumentPropertyAction.run({
+          documentId: "favorite-org-b",
+          propertyId: "favorites-personal-note",
+          value: "Cross-workspace metadata",
+        }),
+    );
+    expect(propertyUpdate).toMatchObject({
+      databaseId: memberProvisioned.favoritesDatabaseId,
+      properties: expect.arrayContaining([
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            id: "favorites-personal-note",
+          }),
+          value: "Cross-workspace metadata",
+        }),
+      ]),
+    });
   });
 
   it("denies an unrelated authenticated user from a personal space", async () => {

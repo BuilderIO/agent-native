@@ -3,4 +3,4 @@ type: improved
 date: 2026-07-19
 ---
 
-Favorites now open as a table, and compact breadcrumbs make workspace and sibling navigation easier.
+Favorites is now a full, filterable database with per-user membership, and compact breadcrumbs make workspace and sibling navigation easier.

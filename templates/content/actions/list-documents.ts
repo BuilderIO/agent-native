@@ -14,9 +14,9 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
-  parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
@@ -128,6 +128,13 @@ export default defineAction({
       }
     >();
     const softDeletedDocumentIds = new Set<string>();
+    const favoriteIds = userEmail
+      ? await favoriteDocumentIds(
+          db,
+          userEmail,
+          documents.map((document) => document.id),
+        )
+      : new Set<string>();
 
     if (documents.length > 0) {
       const visibleDocumentIds = documents.map((d) => d.id);
@@ -194,6 +201,7 @@ export default defineAction({
           )
           .orderBy(
             sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+            sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
             asc(schema.contentDatabases.id),
           ),
         db
@@ -315,7 +323,7 @@ export default defineAction({
           contentLength: Number(d.contentLength) || 0,
           icon: d.icon,
           position: d.position,
-          isFavorite: parseDocumentFavorite(d.isFavorite),
+          isFavorite: favoriteIds.has(d.id),
           hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
           notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
           notionPageUrl: notionPageIdByDocumentId.has(d.id)

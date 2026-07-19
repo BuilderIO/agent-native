@@ -130,6 +130,7 @@ import {
   IconPencil,
   IconRefresh,
   IconSearch,
+  IconStarOff,
   IconTable,
   IconTimeline,
   IconTrash,
@@ -3990,6 +3991,7 @@ function DatabaseItemPreview({
   onOpenPage: () => void;
 }) {
   const queryClient = useQueryClient();
+  const contentSpaces = useContentSpaces();
   const updateDocument = useUpdateDocument();
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
@@ -4058,6 +4060,8 @@ function DatabaseItemPreview({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [openingFullPage, setOpeningFullPage] = useState(false);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
 
   // The peek's primary title+body save runs through a flush-on-release controller
   // so a pending debounced edit is PERSISTED — not dropped — when the row
@@ -4662,7 +4666,10 @@ function DatabaseItemPreview({
     }
 
     try {
-      await deleteDocument.mutateAsync({ id: item.document.id });
+      await deleteDocument.mutateAsync({
+        id: item.document.id,
+        databaseDocumentId,
+      });
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -4747,7 +4754,7 @@ function DatabaseItemPreview({
               )}
               {openingFullPage ? dbText("opening") : dbText("openPage")}
             </Button>
-            {canEdit || canManage ? (
+            {canEdit || canManage || removesFavoriteMembership ? (
               <DropdownMenu
                 open={actionsMenuOpen}
                 onOpenChange={setActionsMenuOpen}
@@ -4780,8 +4787,21 @@ function DatabaseItemPreview({
                       {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
-                  {canEdit && canManage ? <DropdownMenuSeparator /> : null}
-                  {canManage ? (
+                  {canEdit && (canManage || removesFavoriteMembership) ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
+                  {removesFavoriteMembership ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setActionsMenuOpen(false);
+                        void deletePreviewRow();
+                      }}
+                    >
+                      <IconStarOff className="mr-2 size-4 text-muted-foreground" />
+                      Remove from Favorites
+                    </DropdownMenuItem>
+                  ) : canManage ? (
                     <DropdownMenuItem
                       className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                       onSelect={(event) => {
@@ -4934,7 +4954,10 @@ function DatabaseItemPreview({
           </div>
         </div>
       )}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog
+        open={!removesFavoriteMembership && confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+      >
         <AlertDialogContent data-database-preview-portal="">
           <AlertDialogHeader>
             <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
@@ -5063,6 +5086,7 @@ function DatabaseTableView({
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const queryClient = useQueryClient();
+  const contentSpaces = useContentSpaces();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
   const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
   const setProperty = useSetDocumentProperty(databaseDocumentId);
@@ -5083,6 +5107,8 @@ function DatabaseTableView({
   const selectableCount = items.length;
   const selectedIdSet = new Set(selectedItemIds);
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
@@ -5432,11 +5458,18 @@ function DatabaseTableView({
               deleteItems.isPending
             }
             deleteDisabled={deleteItems.isPending}
+            removesFavoriteMembership={removesFavoriteMembership}
             updateDisabled={setProperty.isPending}
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
             onDuplicateSelected={() => void duplicateSelectedRows()}
-            onDeleteSelected={() => setConfirmDeleteSelectedOpen(true)}
+            onDeleteSelected={() => {
+              if (removesFavoriteMembership) {
+                void deleteSelectedRows();
+                return;
+              }
+              setConfirmDeleteSelectedOpen(true);
+            }}
           />
         ) : null}
         <div
@@ -5635,7 +5668,7 @@ function DatabaseTableView({
         )}
       </div>
       <AlertDialog
-        open={confirmDeleteSelectedOpen}
+        open={!removesFavoriteMembership && confirmDeleteSelectedOpen}
         onOpenChange={setConfirmDeleteSelectedOpen}
       >
         <AlertDialogContent>
@@ -14889,6 +14922,7 @@ function DatabaseSelectionBar({
   selectedItems,
   duplicateDisabled,
   deleteDisabled,
+  removesFavoriteMembership,
   updateDisabled,
   onClearSelection,
   onSetPropertyValue,
@@ -14901,6 +14935,7 @@ function DatabaseSelectionBar({
   selectedItems: ContentDatabaseItem[];
   duplicateDisabled: boolean;
   deleteDisabled: boolean;
+  removesFavoriteMembership: boolean;
   updateDisabled: boolean;
   onClearSelection: () => void;
   onSetPropertyValue: (
@@ -14940,12 +14975,20 @@ function DatabaseSelectionBar({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className={cn(
+                "h-7 gap-1.5 px-2 text-xs",
+                !removesFavoriteMembership &&
+                  "text-destructive hover:bg-destructive/10 hover:text-destructive",
+              )}
               disabled={deleteDisabled}
               onClick={onDeleteSelected}
             >
-              <IconTrash className="size-3.5" />
-              Delete
+              {removesFavoriteMembership ? (
+                <IconStarOff className="size-3.5" />
+              ) : (
+                <IconTrash className="size-3.5" />
+              )}
+              {removesFavoriteMembership ? "Remove" : "Delete"}
             </Button>
           </>
         ) : null}
@@ -18024,11 +18067,14 @@ export function RowActionsCell({
   onOpenPage: () => void;
 }) {
   const queryClient = useQueryClient();
+  const contentSpaces = useContentSpaces();
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
 
   async function duplicateRow() {
     setMenuOpen(false);
@@ -18047,7 +18093,10 @@ export function RowActionsCell({
   async function deleteRow() {
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
-      await deleteDocument.mutateAsync({ id: item.document.id });
+      await deleteDocument.mutateAsync({
+        id: item.document.id,
+        databaseDocumentId,
+      });
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -18101,21 +18150,37 @@ export function RowActionsCell({
             {dbText("duplicateRow")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setMenuOpen(false);
-              setConfirmDeleteOpen(true);
-            }}
-          >
-            <IconTrash className="mr-2 size-4" />
-            {dbText("deleteRow")}
-          </DropdownMenuItem>
+          {removesFavoriteMembership ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                void deleteRow();
+              }}
+            >
+              <IconStarOff className="mr-2 size-4 text-muted-foreground" />
+              Remove from Favorites
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                setConfirmDeleteOpen(true);
+              }}
+            >
+              <IconTrash className="mr-2 size-4" />
+              {dbText("deleteRow")}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog
+        open={!removesFavoriteMembership && confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>

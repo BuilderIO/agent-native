@@ -316,7 +316,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("!collapsedSections.favorites &&");
     expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
-    expect(sidebar).toContain('to="/favorites"');
+    expect(sidebar).toContain("favoritesDocumentId");
+    expect(sidebar).toContain("`/page/${favoritesDocumentId}`");
     expect(sidebar).toContain("handleOpenFavorite(doc)");
     expect(sidebar).toContain("<FavoriteDocumentItem");
     expect(treeItem).toContain("export function FavoriteDocumentItem");
@@ -336,13 +337,12 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 
-  it("renders Favorites as a real table route", () => {
+  it("routes Favorites into its provisioned full database page", () => {
     const route = readSidebarSource("../../routes/_app.favorites.tsx");
 
-    expect(route).toContain("useDocuments()");
-    expect(route).toContain("document.isFavorite");
-    expect(route).toContain("<Table>");
-    expect(route).toContain("selectContentSpace");
-    expect(route).toContain('requestSource: "content-favorites"');
+    expect(route).toContain("useContentSpaces()");
+    expect(route).toContain("favoritesDocumentId");
+    expect(route).toContain("<Navigate");
+    expect(route).toContain("`/page/${documentId}`");
   });
 });

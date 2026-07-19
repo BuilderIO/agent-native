@@ -1,14 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  parseDocumentFavorite,
-  parseDocumentHideFromSearch,
-} from "../server/lib/documents.js";
+import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   getDatabaseByDocumentId,
@@ -79,6 +78,10 @@ export default defineAction({
     const doc = access.resource;
     const database = await getDatabaseByDocumentId(doc.id);
     const databaseMembership = await getDatabaseItemByDocumentId(doc.id);
+    const userEmail = getRequestUserEmail();
+    const favoriteIds = userEmail
+      ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
+      : new Set<string>();
 
     return {
       id: doc.id,
@@ -93,7 +96,7 @@ export default defineAction({
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
+      isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       source: serializeDocumentSource(doc),

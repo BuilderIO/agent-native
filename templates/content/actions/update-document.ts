@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -20,6 +21,12 @@ import {
 import type { DocumentUpdateResponse } from "../shared/api.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
+import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import {
+  favoriteDocumentIds,
+  setFavoriteMembership,
+} from "./_content-favorites.js";
+import { provisionContentSpaces } from "./_content-spaces.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -135,6 +142,10 @@ async function documentMutationCreativeContext(input: {
 
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
+}
+
+function canEditRole(role: string) {
+  return role === "owner" || role === "admin" || role === "editor";
 }
 
 function builderBodyWithoutImageSourceComponentMarkers(
@@ -304,11 +315,30 @@ export default defineAction({
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    const access = await assertAccess("document", id, "editor");
+    const favoriteOnly =
+      args.isFavorite !== undefined &&
+      args.title === undefined &&
+      args.content === undefined &&
+      args.description === undefined &&
+      args.icon === undefined;
+    const access = favoriteOnly
+      ? await resolveContentDocumentAccess(id)
+      : await assertAccess("document", id, "editor");
+    if (!access) throw new Error(`Document "${id}" not found`);
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
 
     const db = getDb();
+    const requestUserEmail = getRequestUserEmail();
+    if (args.isFavorite !== undefined && !requestUserEmail) {
+      throw new Error("no authenticated user");
+    }
+    if (args.isFavorite !== undefined) {
+      await provisionContentSpaces(db, requestUserEmail as string);
+    }
+    const currentFavorite = requestUserEmail
+      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+      : parseDocumentFavorite(existing.isFavorite);
 
     // Strip leading H1 that duplicates the title
     let content = args.content;
@@ -383,11 +413,12 @@ export default defineAction({
       content !== undefined && content !== existing.content;
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
     const favoriteChanged =
-      args.isFavorite !== undefined &&
-      (args.isFavorite ? 1 : 0) !== (existing.isFavorite ?? 0);
+      args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
     const descriptionChanged =
       args.description !== undefined &&
       args.description.trim() !== existing.description;
+    const documentFieldsChanged =
+      titleChanged || contentChanged || iconChanged || descriptionChanged;
     const anyChange =
       titleChanged ||
       contentChanged ||
@@ -452,8 +483,6 @@ export default defineAction({
         updates.description = args.description.trim();
       if (contentChanged) updates.content = content;
       if (iconChanged) updates.icon = args.icon;
-      if (favoriteChanged) updates.isFavorite = args.isFavorite ? 1 : 0;
-
       let contentCasConflict = false;
       await db.transaction(async (tx) => {
         if (useContentCas) {
@@ -471,11 +500,21 @@ export default defineAction({
             contentCasConflict = true;
             return;
           }
-        } else {
+        } else if (documentFieldsChanged) {
           await tx
             .update(schema.documents)
             .set(updates)
             .where(eq(schema.documents.id, id));
+        }
+
+        if (favoriteChanged) {
+          await setFavoriteMembership({
+            db: tx,
+            userEmail: requestUserEmail as string,
+            documentId: id,
+            favorite: args.isFavorite as boolean,
+            now: updates.updatedAt as string,
+          });
         }
 
         if (titleChanged && args.title !== undefined) {
@@ -553,11 +592,11 @@ export default defineAction({
             description: current.description,
             icon: current.icon,
             position: current.position,
-            isFavorite: parseDocumentFavorite(current.isFavorite),
+            isFavorite: currentFavorite,
             hideFromSearch: parseDocumentHideFromSearch(current.hideFromSearch),
             visibility: current.visibility,
             accessRole: access.role,
-            canEdit: true,
+            canEdit: canEditRole(access.role),
             canManage: canManageRole(access.role),
             createdAt: current.createdAt,
             updatedAt: current.updatedAt,
@@ -620,6 +659,9 @@ export default defineAction({
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, id));
+    const finalFavorite = requestUserEmail
+      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+      : parseDocumentFavorite(doc.isFavorite);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -632,11 +674,11 @@ export default defineAction({
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
+      isFavorite: finalFavorite,
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       accessRole: access.role,
-      canEdit: true,
+      canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,

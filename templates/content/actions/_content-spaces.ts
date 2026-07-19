@@ -29,6 +29,8 @@ export type ProvisionedContentSpaces = {
   personalSpaceId: string;
   personalFilesDatabaseId: string;
   catalogDatabaseId: string;
+  favoritesDatabaseId: string;
+  favoritesDocumentId: string;
   spaceIds: string[];
   created: {
     spaces: number;
@@ -69,7 +71,7 @@ export function userContentSpaceId(email: string, workspaceId: string) {
 
 export function systemIdsForContentSpace(
   scope: string,
-  role: "files" | "workspaces",
+  role: "files" | "workspaces" | "favorites",
 ) {
   return {
     databaseId: opaqueId(`content_database_${role}`, scope),
@@ -107,7 +109,7 @@ async function ensureSystemDatabase(args: {
   ownerEmail: string;
   orgId: string | null;
   title: string;
-  role: "files" | "workspaces";
+  role: "files" | "workspaces" | "favorites";
   visibility: "private" | "org";
   now: string;
   created: ProvisionedContentSpaces["created"];
@@ -249,6 +251,10 @@ export async function provisionContentSpaces(
       .databaseId,
     catalogDatabaseId: systemIdsForContentSpace(personalSpaceId, "workspaces")
       .databaseId,
+    favoritesDatabaseId: systemIdsForContentSpace(personalSpaceId, "favorites")
+      .databaseId,
+    favoritesDocumentId: systemIdsForContentSpace(personalSpaceId, "favorites")
+      .documentId,
     spaceIds: [],
     created: { spaces: 0, databases: 0, documents: 0, catalogItems: 0 },
   };
@@ -298,6 +304,26 @@ export async function provisionContentSpaces(
       orgId: null,
       title: "Workspaces",
       role: "workspaces",
+      visibility: "private",
+      now,
+      created: result.created,
+    });
+    const [existingFavorites] = await tx
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, personalSpaceId),
+          eq(schema.contentDatabases.systemRole, "favorites"),
+        ),
+      );
+    const favorites = await ensureSystemDatabase({
+      db: tx,
+      spaceId: personalSpaceId,
+      ownerEmail: email,
+      orgId: null,
+      title: "Favorites",
+      role: "favorites",
       visibility: "private",
       now,
       created: result.created,
@@ -362,6 +388,54 @@ export async function provisionContentSpaces(
             updatedAt: now,
           })
           .where(eq(schema.contentSpaces.id, space.id));
+      }
+    }
+    if (!existingFavorites) {
+      const accessibleSpaceIds = spaces.map((space) => space.id);
+      const legacyFavorites: Array<typeof schema.documents.$inferSelect> =
+        await tx
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.isFavorite, 1),
+              inArray(schema.documents.spaceId, accessibleSpaceIds),
+            ),
+          );
+      const roleByOrgId = new Map(
+        memberships.map((membership) => [membership.orgId, membership.role]),
+      );
+      const visibleLegacyFavorites = legacyFavorites.filter((document) => {
+        if (!document.orgId) {
+          return normalizeContentSpaceEmail(document.ownerEmail) === email;
+        }
+        return (
+          normalizeContentSpaceEmail(document.ownerEmail) === email ||
+          document.visibility === "org" ||
+          document.visibility === "public" ||
+          roleByOrgId.get(document.orgId) === "owner" ||
+          roleByOrgId.get(document.orgId) === "admin"
+        );
+      });
+      if (visibleLegacyFavorites.length > 0) {
+        await tx
+          .insert(schema.contentDatabaseItems)
+          .values(
+            visibleLegacyFavorites.map((document, position) => ({
+              id: opaqueId(
+                "content_database_item",
+                `${favorites.id}:${document.id}`,
+              ),
+              ownerEmail: email,
+              orgId: null,
+              databaseId: favorites.id,
+              documentId: document.id,
+              position,
+              createdAt: now,
+              updatedAt: now,
+            })),
+          )
+          .onConflictDoNothing();
       }
     }
     const accessibleIds = new Set(spaces.map((space) => space.id));

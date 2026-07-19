@@ -356,6 +356,8 @@ export function DocumentSidebar({
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const workspaceCatalogDatabaseId =
     contentSpacesQuery.data?.catalogDatabaseId ?? null;
+  const favoritesDocumentId =
+    contentSpacesQuery.data?.favoritesDocumentId ?? null;
   const workspaceCatalogDatabase = useContentDatabaseById(
     workspaceCatalogDatabaseId,
   );
@@ -1768,10 +1770,16 @@ export function DocumentSidebar({
                       )}
                     </button>
                     <Link
-                      to="/favorites"
+                      to={
+                        favoritesDocumentId
+                          ? `/page/${favoritesDocumentId}`
+                          : "/favorites"
+                      }
                       className={cn(
                         "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
-                        location.pathname === "/favorites" && "text-foreground",
+                        (location.pathname === "/favorites" ||
+                          activeDocumentId === favoritesDocumentId) &&
+                          "text-foreground",
                       )}
                     >
                       {t("sidebar.favorites")}

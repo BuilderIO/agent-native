@@ -398,8 +398,8 @@ export function useUpdateDocument() {
 export function useDeleteDocument() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; deleted: number },
-    { id: string }
+    { success: boolean; deleted: number; removed?: number },
+    { id: string; databaseDocumentId?: string }
   >("delete-document", {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({

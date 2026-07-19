@@ -26,6 +26,7 @@ export default defineAction({
     const db = getDb();
     const personalSpaceId = personalContentSpaceId(email);
     const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
+    const favoritesIds = systemIdsForContentSpace(personalSpaceId, "favorites");
     const memberships = await listContentOrganizationMemberships(email);
     const roleByOrgId = new Map(
       memberships.map((membership) => [
@@ -66,14 +67,15 @@ export default defineAction({
         ),
       );
     const filesDatabaseIds = rows.map((row) => row.space.filesDatabaseId);
-    const filesDatabases = filesDatabaseIds.length
+    const databaseIds = [...filesDatabaseIds, favoritesIds.databaseId];
+    const filesDatabases = databaseIds.length
       ? await db
           .select({
             id: schema.contentDatabases.id,
             documentId: schema.contentDatabases.documentId,
           })
           .from(schema.contentDatabases)
-          .where(inArray(schema.contentDatabases.id, filesDatabaseIds))
+          .where(inArray(schema.contentDatabases.id, databaseIds))
       : [];
     const filesDocumentIdByDatabaseId = new Map(
       filesDatabases.map((database) => [database.id, database.documentId]),
@@ -117,6 +119,16 @@ export default defineAction({
         catalogDocumentId: row.mapping.documentId,
       });
     }
-    return { catalogDatabaseId: catalogIds.databaseId, spaces };
+    return {
+      catalogDatabaseId: catalogIds.databaseId,
+      favoritesDatabaseId: filesDocumentIdByDatabaseId.has(
+        favoritesIds.databaseId,
+      )
+        ? favoritesIds.databaseId
+        : null,
+      favoritesDocumentId:
+        filesDocumentIdByDatabaseId.get(favoritesIds.databaseId) ?? null,
+      spaces,
+    };
   },
 });

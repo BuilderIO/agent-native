@@ -2,12 +2,17 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { ROLE_RANK, type ShareRole } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  ROLE_RANK,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getDocumentContextPath } from "../server/lib/document-context.js";
 import {
+  documentDiscoveryFilter,
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
@@ -16,6 +21,8 @@ import type {
   ContentDatabaseMembership,
   ContentDatabaseResponse,
 } from "../shared/api.js";
+import { favoriteDocumentIds } from "./_content-favorites.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import {
   applyFederatedOverlayValues,
@@ -235,6 +242,7 @@ function serializeDocument(
   doc: DocumentListRow,
   membership?: DatabaseMembershipRow,
   shareRole?: ShareRole,
+  isFavorite?: boolean,
 ) {
   const isOwner =
     doc.ownerEmail.trim().toLowerCase() ===
@@ -250,7 +258,7 @@ function serializeDocument(
     description: doc.description,
     icon: doc.icon,
     position: doc.position,
-    isFavorite: parseDocumentFavorite(doc.isFavorite),
+    isFavorite: isFavorite ?? parseDocumentFavorite(doc.isFavorite),
     hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
     visibility: doc.visibility,
     accessRole,
@@ -291,6 +299,46 @@ export async function getContentDatabaseResponse(
   // shared one a viewer is opening) must not mutate schema.
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
+  const userEmail = getRequestUserEmail();
+  const activeOrgId = getRequestOrgId();
+  const authorizedOrgIds =
+    database.systemRole === "favorites" && userEmail
+      ? [
+          ...new Set([
+            ...(await listContentOrganizationMemberships(userEmail)).map(
+              (membership) => membership.orgId,
+            ),
+            ...(activeOrgId ? [activeOrgId] : []),
+          ]),
+        ]
+      : [];
+  const favoritesVisibleDocumentIds =
+    database.systemRole === "favorites" && userEmail
+      ? (
+          await db
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                or(
+                  accessFilter(schema.documents, schema.documentShares, {
+                    userEmail,
+                  }),
+                  ...authorizedOrgIds.map((orgId) =>
+                    accessFilter(schema.documents, schema.documentShares, {
+                      userEmail,
+                      orgId,
+                    }),
+                  ),
+                ),
+                documentDiscoveryFilter({
+                  userEmail,
+                  orgIds: authorizedOrgIds,
+                }),
+              ),
+            )
+        ).map((document) => document.id)
+      : null;
   const organizationFilesItemFilter =
     database.systemRole === "files" && database.orgId
       ? sql`exists (
@@ -304,6 +352,14 @@ export async function getContentDatabaseResponse(
   const visibleItemFilter = and(
     eq(schema.contentDatabaseItems.databaseId, databaseId),
     organizationFilesItemFilter,
+    favoritesVisibleDocumentIds
+      ? favoritesVisibleDocumentIds.length > 0
+        ? inArray(
+            schema.contentDatabaseItems.documentId,
+            favoritesVisibleDocumentIds,
+          )
+        : sql`1 = 0`
+      : undefined,
   );
   const [itemCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
@@ -332,23 +388,37 @@ export async function getContentDatabaseResponse(
                 schema.documents.id,
                 items.map((item) => item.documentId),
               ),
-              database.systemRole === "files" && database.orgId
-                ? and(
-                    eq(schema.documents.orgId, database.orgId),
-                    or(
-                      eq(schema.documents.visibility, "org"),
-                      eq(schema.documents.visibility, "public"),
-                    ),
-                    or(
-                      eq(schema.documents.hideFromSearch, 0),
-                      isNull(schema.documents.hideFromSearch),
-                    ),
-                  )
-                : eq(schema.documents.ownerEmail, database.ownerEmail),
+              database.systemRole === "favorites"
+                ? favoritesVisibleDocumentIds?.length
+                  ? inArray(schema.documents.id, favoritesVisibleDocumentIds)
+                  : sql`1 = 0`
+                : database.systemRole === "files" && database.orgId
+                  ? and(
+                      eq(schema.documents.orgId, database.orgId),
+                      or(
+                        eq(schema.documents.visibility, "org"),
+                        eq(schema.documents.visibility, "public"),
+                      ),
+                      or(
+                        eq(schema.documents.hideFromSearch, 0),
+                        isNull(schema.documents.hideFromSearch),
+                      ),
+                    )
+                  : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+  const favorites =
+    database.systemRole === "favorites"
+      ? new Set(documents.map((document) => document.id))
+      : userEmail
+        ? await favoriteDocumentIds(
+            db,
+            userEmail,
+            documents.map((document) => document.id),
+          )
+        : new Set<string>();
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   if (documents.length > 0) {
     const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
@@ -464,6 +534,7 @@ export async function getContentDatabaseResponse(
           bodyHydrationQueueId: bodyHydrationQueued ? item.id : null,
         },
         shareRoleByDocumentId.get(document.id),
+        favorites.has(document.id),
       ),
       position: item.position,
       bodyHydration: serializeBodyHydration(item, {
@@ -629,6 +700,7 @@ export async function getDatabaseItemByDocumentId(
     .orderBy(
       sql`CASE WHEN ${schema.contentDatabaseSourceRows.sourceId} IS NOT NULL THEN 0 ELSE 1 END`,
       sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+      sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
       asc(schema.contentDatabases.id),
     );
   return row ?? null;

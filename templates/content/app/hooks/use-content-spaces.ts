@@ -18,6 +18,8 @@ export type ContentSpaceSummary = {
 
 export type ListContentSpacesResponse = {
   catalogDatabaseId: string;
+  favoritesDatabaseId: string | null;
+  favoritesDocumentId: string | null;
   spaces: ContentSpaceSummary[];
 };
 
