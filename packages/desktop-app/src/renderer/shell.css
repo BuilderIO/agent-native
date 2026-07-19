@@ -597,6 +597,71 @@ body {
   color: #d4bba0 !important;
 }
 
+.private-content-disclosure {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 520px);
+  margin: 4px 0 2px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  text-align: left;
+}
+
+.private-content-disclosure > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.private-content-disclosure svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #8f98aa;
+}
+
+.private-content-disclosure p,
+.private-content-disclosure strong,
+.private-content-disclosure span {
+  display: block;
+  margin: 0;
+}
+
+.private-content-disclosure strong {
+  color: #e8ebf2;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.private-content-disclosure span {
+  margin-top: 2px;
+  color: #aeb5c5;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.private-content-disclosure--compact {
+  width: 250px;
+  margin: 8px 0 2px;
+  padding: 10px;
+  background: #1a1d24;
+}
+
+.private-content-reader-details {
+  width: 100%;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.private-content-reader-details summary {
+  cursor: pointer;
+  color: #aeb5c5;
+  font-size: 11px;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
 .private-content-tree {
   width: 278px;
   min-width: 278px;
@@ -708,6 +773,7 @@ body {
 }
 
 .private-content-tree-footer {
+  flex-wrap: wrap;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 11px;
 }

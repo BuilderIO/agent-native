@@ -10,8 +10,10 @@ import {
   IconFolderPlus,
   IconHistory,
   IconLock,
+  IconRobot,
   IconRefresh,
   IconSearch,
+  IconServerOff,
   IconShieldLock,
   IconTrash,
 } from "@tabler/icons-react";
@@ -137,6 +139,35 @@ function privateVersions(value: unknown): DesktopPrivateContentVersion[] {
       typeof (version as DesktopPrivateContentVersion).id === "string" &&
       typeof (version as DesktopPrivateContentVersion).revision === "number" &&
       typeof (version as DesktopPrivateContentVersion).content === "string",
+  );
+}
+
+function PrivateContentDisclosure({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={`private-content-disclosure${compact ? " private-content-disclosure--compact" : ""}`}
+    >
+      <div>
+        <IconServerOff size={16} aria-hidden="true" />
+        <p>
+          <strong>Hosted Content cannot read your pages.</strong>
+          <span>
+            It stores ciphertext and opaque routing data. Ciphertext sizes,
+            timing, and access patterns remain visible.
+          </span>
+        </p>
+      </div>
+      <div>
+        <IconRobot size={16} aria-hidden="true" />
+        <p>
+          <strong>Your chosen agent can read what you ask it to use.</strong>
+          <span>
+            This Mac decrypts the minimum action input and result. The model
+            provider you choose can read that specific text.
+          </span>
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -363,6 +394,7 @@ export default function PrivateContentSurface({
             Desktop app. Agent Native’s hosted Content service stores
             ciphertext.
           </p>
+          <PrivateContentDisclosure />
           <button
             className="private-content-primary"
             disabled={state === "opening"}
@@ -429,6 +461,10 @@ export default function PrivateContentSurface({
           ))}
         </div>
         <div className="private-content-tree-footer">
+          <details className="private-content-reader-details">
+            <summary>Who can read?</summary>
+            <PrivateContentDisclosure compact />
+          </details>
           <button onClick={onClose} type="button">
             Standard Cloud
           </button>
