@@ -187,6 +187,25 @@ export default defineAction({
       const sanitizer = sanitized.metadata.captureSanitization as
         | Record<string, unknown>
         | undefined;
+      if (hasDerivedRefs && !args.allowCitationDrift) {
+        results.push({
+          id: row.capture.id,
+          sourceId: row.capture.sourceId,
+          externalId: row.capture.externalId,
+          title: sanitized.title,
+          capturedAt: row.capture.capturedAt,
+          beforeLength,
+          afterLength: sanitized.content.length,
+          method: sanitizer?.method ?? "not-sanitized",
+          rawContentRetained: sanitizer?.rawContentRetained ?? false,
+          skipped: true,
+          skipReason: "cited-derived-data",
+          dependentKnowledgeIds: derivedRefs.knowledgeIds,
+          dependentProposalIds: derivedRefs.proposalIds,
+          preview: reviewPreview(sanitized.content),
+        });
+        continue;
+      }
       if (
         !args.dryRun &&
         sanitized.decision &&

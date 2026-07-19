@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import {
@@ -27,6 +28,16 @@ export default defineAction({
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
   run: async (args) => {
+    const importerEmail = getRequestUserEmail()?.trim().toLowerCase();
+    let participants = args.participants;
+    if (!participants.length) {
+      if (!importerEmail) {
+        throw new Error(
+          "Importing a transcript without participants requires an authenticated importer.",
+        );
+      }
+      participants = [importerEmail];
+    }
     const source = args.sourceId
       ? null
       : await ensureManualSource(args.sourceTitle);
@@ -41,13 +52,13 @@ export default defineAction({
         capturedAt: args.capturedAt,
         metadata: {
           ...(args.metadata ?? {}),
-          participants: args.participants,
+          participants,
           sourceUrl: args.sourceUrl,
           tags: args.tags,
         },
         audience: {
           kind: "meeting",
-          memberEmails: args.participants,
+          memberEmails: participants,
           upstreamRefHash: args.externalId,
         },
       });

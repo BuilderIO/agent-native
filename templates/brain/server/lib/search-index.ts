@@ -7,6 +7,7 @@ import {
 import {
   deletePgVectors,
   deletePostgresFtsDocuments,
+  ensurePgVectorIndex,
   upsertPgVector,
   upsertPostgresFtsDocument,
 } from "@agent-native/core/search";
@@ -294,6 +295,9 @@ async function indexExternalSearchLanes(input: {
     targets.map((target) => ({ text: target.text })),
     "document",
   );
+  await ensurePgVectorIndex(dbExec, family.dimensions, {
+    namespace: SEARCH_NAMESPACE,
+  });
   const db = getDb();
   for (const [index, target] of targets.entries()) {
     const vector = vectors[index];
@@ -308,7 +312,7 @@ async function indexExternalSearchLanes(input: {
         audienceIds: [input.audienceId],
         updatedAt: input.now,
       },
-      { namespace: SEARCH_NAMESPACE },
+      { namespace: SEARCH_NAMESPACE, indexInitialized: true },
     );
     await db
       .insert(schema.brainSearchEmbeddings)

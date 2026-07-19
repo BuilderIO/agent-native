@@ -39,7 +39,14 @@ export interface FusedCandidate<T> extends RankedCandidate<T> {
   reasons: string[];
 }
 
-type PgVectorOptions = boolean | { namespace?: string; postgres?: boolean };
+type PgVectorOptions =
+  | boolean
+  | {
+      namespace?: string;
+      postgres?: boolean;
+      /** The caller has already provisioned this namespace and dimension. */
+      indexInitialized?: boolean;
+    };
 
 function pgVectorOptions(options: PgVectorOptions | undefined) {
   return typeof options === "boolean" ? { postgres: options } : (options ?? {});
@@ -154,7 +161,9 @@ export async function upsertPgVector(
     input.dimensions,
   );
   assertPgVectorAvailable(resolved.postgres);
-  await ensurePgVectorIndex(db, input.dimensions, resolved);
+  if (!resolved.indexInitialized) {
+    await ensurePgVectorIndex(db, input.dimensions, resolved);
+  }
   await db.execute({
     sql: `
       INSERT INTO ${names.vectorTable} (vector_key, embedding_set_id, audience_ids, embedding, updated_at)
@@ -327,27 +336,38 @@ export async function queryPostgresFts(
     input.allowedAudienceIds?.length === 0
   )
     return [];
-  await ensurePostgresFts(db, namespace);
   const keys = input.allowedChunkIds?.length
     ? `chunk_id IN (${input.allowedChunkIds.map(() => "?").join(", ")}) AND`
     : "";
   const audiences = audienceClause(input.allowedAudienceIds);
   const limit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 40)));
-  const result = await db.execute({
-    sql: `SELECT chunk_id, item_version_id, ts_rank_cd(document, websearch_to_tsquery('simple', ?)) AS score FROM ${names.ftsTable} WHERE ${keys} document @@ websearch_to_tsquery('simple', ?)${audiences.sql} ORDER BY score DESC, chunk_id ASC LIMIT ?`,
-    args: [
-      input.query,
-      ...(input.allowedChunkIds ?? []),
-      input.query,
-      ...audiences.args,
-      limit,
-    ],
-  });
-  return result.rows.map((row) => ({
-    chunkId: String(row.chunk_id),
-    itemVersionId: String(row.item_version_id),
-    score: Number(row.score),
-  }));
+  try {
+    const result = await db.execute({
+      sql: `SELECT chunk_id, item_version_id, ts_rank_cd(document, websearch_to_tsquery('simple', ?)) AS score FROM ${names.ftsTable} WHERE ${keys} document @@ websearch_to_tsquery('simple', ?)${audiences.sql} ORDER BY score DESC, chunk_id ASC LIMIT ?`,
+      args: [
+        input.query,
+        ...(input.allowedChunkIds ?? []),
+        input.query,
+        ...audiences.args,
+        limit,
+      ],
+    });
+    return result.rows.map((row) => ({
+      chunkId: String(row.chunk_id),
+      itemVersionId: String(row.item_version_id),
+      score: Number(row.score),
+    }));
+  } catch (error) {
+    // A read can race the first write for a tenant-specific namespace. Writers
+    // provision it; an absent lane simply contributes no candidates.
+    if (isMissingPostgresRelation(error)) return [];
+    throw error;
+  }
+}
+
+function isMissingPostgresRelation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  return (error as { code?: unknown }).code === "42P01";
 }
 
 export async function deletePostgresFtsDocuments(

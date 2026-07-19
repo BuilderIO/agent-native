@@ -29,13 +29,28 @@ describe("shared Postgres search", () => {
       allowedAudienceIds: ["team:design", "team:brand"],
       namespace: "brain",
     });
-    const query = db.execute.mock.calls[4]?.[0] as {
+    const query = db.execute.mock.calls[0]?.[0] as {
       sql: string;
       args: unknown[];
     };
     expect(query.sql).toContain("audience_ids && ARRAY[?, ?]::TEXT[]");
     expect(query.sql).not.toContain("chunk_id IN");
     expect(query.args).toContain("team:design");
+  });
+
+  it("keeps FTS retrieval read-only and tolerates a namespace before its first write", async () => {
+    const db = {
+      execute: vi.fn(async () => {
+        throw { code: "42P01" };
+      }),
+    };
+    await expect(
+      queryPostgresFts(db, { query: "pricing", namespace: "brain" }),
+    ).resolves.toEqual([]);
+    expect(db.execute).toHaveBeenCalledTimes(1);
+    expect(String(db.execute.mock.calls[0]?.[0].sql)).not.toMatch(
+      /CREATE|ALTER/i,
+    );
   });
 
   it("filters vector search by allowed audience ids without vector enumeration", async () => {

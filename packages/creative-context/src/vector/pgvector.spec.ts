@@ -68,6 +68,23 @@ describe("pgvector creative-context lane", () => {
     ).rejects.toThrow("expected 2");
   });
 
+  it("can write a batch after its namespace and dimensions are provisioned", async () => {
+    const db = mockDb();
+    await ensurePgVectorIndex(db, 3, true);
+    await upsertPgVector(
+      db,
+      {
+        vectorKey: "chunk:1",
+        embeddingSetId: "set:1",
+        dimensions: 3,
+        vector: [0.25, 0.5, 0.75],
+      },
+      { postgres: true, indexInitialized: true },
+    );
+    expect(db.execute).toHaveBeenCalledTimes(6);
+    expect(String(db.execute.mock.calls[5]?.[0].sql)).toContain("INSERT INTO");
+  });
+
   it("limits vector results to access-filtered vector keys", async () => {
     const db = mockDb([
       { vector_key: "media:1", embedding_set_id: "set:1", score: 0.91 },
