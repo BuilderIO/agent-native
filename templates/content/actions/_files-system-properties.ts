@@ -116,7 +116,7 @@ export function migrateFilesDatabaseViewConfig(
 function storedOptions(role: DocumentPropertySystemRole) {
   if (role === "files_source") {
     return {
-      options: [{ id: "local", name: "Local", color: "gray" as const }],
+      options: [{ id: "local", name: "Content", color: "gray" as const }],
     };
   }
   return { options: [] };
@@ -415,7 +415,7 @@ export async function filesSystemPropertyProjection(args: {
     safeOption(parent.id, parent.title, "blue"),
   );
   const sourceOptions = [
-    safeOption("local", "Local"),
+    safeOption("local", "Content"),
     ...[...readableSourceById.values()].map((source) =>
       safeOption(source.id, source.sourceName, "green"),
     ),

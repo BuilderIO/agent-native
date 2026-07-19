@@ -25,7 +25,11 @@ import { useRestoreContentDatabase } from "./use-content-database";
 
 export type { DocumentUpdateConflictResponse };
 
-const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+export const LIST_DOCUMENTS_QUERY_KEY = [
+  "action",
+  "list-documents",
+  undefined,
+] as const;
 
 export function documentQueryKey(documentId: string) {
   return ["action", "get-document", { id: documentId }] as const;
@@ -69,9 +73,17 @@ export function mergeDocumentIntoListDocumentsCache(
   old: unknown,
   document: Document,
 ) {
+  return patchDocumentInListDocumentsCache(old, document.id, document);
+}
+
+export function patchDocumentInListDocumentsCache(
+  old: unknown,
+  documentId: string,
+  patch: Partial<Document>,
+) {
   if (Array.isArray(old)) {
     return old.map((item: Document) =>
-      item.id === document.id ? { ...item, ...document } : item,
+      item.id === documentId ? { ...item, ...patch } : item,
     );
   }
 
@@ -80,7 +92,7 @@ export function mergeDocumentIntoListDocumentsCache(
   if (!Array.isArray(cached.documents)) return old;
 
   const nextDocuments = cached.documents.map((item: Document) =>
-    item.id === document.id ? { ...item, ...document } : item,
+    item.id === documentId ? { ...item, ...patch } : item,
   );
 
   return { ...(old as object), documents: nextDocuments };
@@ -91,28 +103,13 @@ export function setDocumentFavoriteInListCache(
   documentId: string,
   isFavorite: boolean,
 ) {
-  if (Array.isArray(old)) {
-    return old.map((item: Document) =>
-      item.id === documentId ? { ...item, isFavorite } : item,
-    );
-  }
-
-  if (!old || typeof old !== "object") return old;
-  const cached = old as { documents?: unknown };
-  if (!Array.isArray(cached.documents)) return old;
-
-  return {
-    ...(old as object),
-    documents: cached.documents.map((item: Document) =>
-      item.id === documentId ? { ...item, isFavorite } : item,
-    ),
-  };
+  return patchDocumentInListDocumentsCache(old, documentId, { isFavorite });
 }
 
-export function setDocumentFavoriteInDatabaseCache(
+export function patchDocumentInDatabaseCache(
   current: ContentDatabaseResponse | undefined,
   documentId: string,
-  isFavorite: boolean,
+  patch: Partial<Document>,
 ): ContentDatabaseResponse | undefined {
   if (!current) return current;
   let changed = false;
@@ -121,10 +118,35 @@ export function setDocumentFavoriteInDatabaseCache(
     changed = true;
     return {
       ...item,
-      document: { ...item.document, isFavorite },
+      document: { ...item.document, ...patch },
     };
   });
   return changed ? { ...current, items } : current;
+}
+
+export function setDocumentFavoriteInDatabaseCache(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+  isFavorite: boolean,
+): ContentDatabaseResponse | undefined {
+  return patchDocumentInDatabaseCache(current, documentId, { isFavorite });
+}
+
+export function patchDocumentCaches(
+  queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
+  documentId: string,
+  patch: Partial<Document>,
+) {
+  queryClient.setQueryData(documentQueryKey(documentId), (old: unknown) =>
+    old && typeof old === "object" ? { ...old, ...patch } : old,
+  );
+  queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+    patchDocumentInListDocumentsCache(old, documentId, patch),
+  );
+  queryClient.setQueriesData<ContentDatabaseResponse>(
+    { queryKey: ["action", "get-content-database"] },
+    (current) => patchDocumentInDatabaseCache(current, documentId, patch),
+  );
 }
 
 export function restoreQuerySnapshots(
@@ -253,7 +275,14 @@ export function useUpdateDocument() {
     "update-document",
     {
       onMutate: async (variables) => {
-        if (variables.isFavorite === undefined) return undefined;
+        const optimisticPatch: Partial<Document> = {
+          ...(variables.title !== undefined ? { title: variables.title } : {}),
+          ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
+          ...(variables.isFavorite !== undefined
+            ? { isFavorite: variables.isFavorite }
+            : {}),
+        };
+        if (Object.keys(optimisticPatch).length === 0) return undefined;
 
         const documentKey = documentQueryKey(variables.id);
         const databaseFilter = {
@@ -276,32 +305,11 @@ export function useUpdateDocument() {
           ),
         ];
 
-        queryClient.setQueryData(documentKey, (old: unknown) =>
-          old && typeof old === "object"
-            ? { ...old, isFavorite: variables.isFavorite }
-            : old,
-        );
-        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
-          setDocumentFavoriteInListCache(
-            old,
-            variables.id,
-            variables.isFavorite!,
-          ),
-        );
-        queryClient.setQueriesData<ContentDatabaseResponse>(
-          databaseFilter,
-          (current) =>
-            setDocumentFavoriteInDatabaseCache(
-              current,
-              variables.id,
-              variables.isFavorite!,
-            ),
-        );
+        patchDocumentCaches(queryClient, variables.id, optimisticPatch);
 
         return { previous };
       },
       onError: (_error, variables, context) => {
-        if (variables.isFavorite === undefined) return;
         const rollback = context as
           | { previous?: Array<[readonly unknown[], unknown]> }
           | undefined;
@@ -323,17 +331,15 @@ export function useUpdateDocument() {
           queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
             mergeDocumentIntoListDocumentsCache(old, serverDocument),
           );
-          if (variables.isFavorite !== undefined) {
-            queryClient.setQueriesData<ContentDatabaseResponse>(
-              { queryKey: ["action", "get-content-database"] },
-              (current) =>
-                setDocumentFavoriteInDatabaseCache(
-                  current,
-                  variables.id,
-                  serverDocument.isFavorite,
-                ),
-            );
-          }
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            { queryKey: ["action", "get-content-database"] },
+            (current) =>
+              patchDocumentInDatabaseCache(
+                current,
+                variables.id,
+                serverDocument,
+              ),
+          );
           queryClient.invalidateQueries({
             queryKey: ["action", "get-document", { id: variables.id }],
           });
@@ -350,17 +356,11 @@ export function useUpdateDocument() {
         queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
           mergeDocumentIntoListDocumentsCache(old, data),
         );
-        if (variables.isFavorite !== undefined) {
-          queryClient.setQueriesData<ContentDatabaseResponse>(
-            { queryKey: ["action", "get-content-database"] },
-            (current) =>
-              setDocumentFavoriteInDatabaseCache(
-                current,
-                variables.id,
-                data.isFavorite,
-              ),
-          );
-        }
+        queryClient.setQueriesData<ContentDatabaseResponse>(
+          { queryKey: ["action", "get-content-database"] },
+          (current) =>
+            patchDocumentInDatabaseCache(current, variables.id, data),
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "get-document", { id: variables.id }],
         });

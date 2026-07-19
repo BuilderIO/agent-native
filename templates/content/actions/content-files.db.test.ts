@@ -245,6 +245,12 @@ describe("Content Files membership reconciliation", () => {
           (option) => option.id === "system-property-source",
         )?.name,
     ).toBe("Project notes");
+    expect(
+      definitions
+        .get("files_source")
+        ?.definition.options.options?.find((option) => option.id === "local")
+        ?.name,
+    ).toBe("Content");
 
     await getDb()
       .delete(schema.contentDatabaseSourceRows)

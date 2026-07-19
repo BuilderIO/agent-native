@@ -120,10 +120,10 @@ export function FavoriteDocumentItem({
   return (
     <div
       className={cn(
-        "group relative flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm",
+        "group relative flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md py-[5px] pe-2 text-sm",
         active
-          ? "border-primary bg-accent font-medium text-accent-foreground"
-          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+          ? "font-semibold text-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
       style={{
         paddingInlineStart: "26px",
