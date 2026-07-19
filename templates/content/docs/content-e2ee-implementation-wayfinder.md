@@ -1233,6 +1233,12 @@ the selected cached ciphertext revision and commits its content as a new signed
 revision whose parent is the previous head; history is never rewritten or
 rolled backward in place.
 
+Attended signed-Desktop startup now discovers the account's active vault and
+verified control head through its own content-free descriptor. It does not
+require or expose a broker coordinate. Broker discovery remains a separate
+endpoint that requires exactly one active unattended member, so an offline or
+unenrolled broker cannot prevent local Private Content use.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:
