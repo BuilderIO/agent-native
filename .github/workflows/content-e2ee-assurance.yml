@@ -79,6 +79,7 @@ jobs:
           src/main/ipc/content-private-runtime.test.ts
           src/main/privacy-regressions.test.ts
           src/renderer/components/PrivateContentSurface.test.tsx
+          --exclude src/main/private-vault/native-service-client.test.ts
 
       - name: Typecheck protected runtime packages
         run: >-
@@ -112,6 +113,11 @@ jobs:
           packages/desktop-app/native/build-private-vault-xpc-client.sh
           lipo packages/desktop-app/native/private-vault-service/build/com.agentnative.desktop.private-vault-service.xpc/Contents/MacOS/AgentNativePrivateVaultService -verify_arch arm64 x86_64
           lipo packages/desktop-app/native/private-vault-xpc-client/build/private-vault-xpc-client.node -verify_arch arm64 x86_64
+
+      - name: Run signed native-client boundary tests
+        run: >-
+          pnpm --filter @agent-native/desktop-app exec vitest run
+          src/main/private-vault/native-service-client.test.ts
 
       - name: Run native request framing and recovery archive protocols
         run: |
