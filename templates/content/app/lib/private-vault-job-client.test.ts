@@ -115,6 +115,30 @@ describe("Private Vault named job client", () => {
     ).rejects.toBeInstanceOf(PrivateVaultJobTransportError);
   });
 
+  it("accepts only a full 32-byte result commitment", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(Uint8Array.from([1, 2]), {
+          status: 200,
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-anc-ciphertext-byte-length": "2",
+            "x-anc-algorithm-id": "anc/v1",
+            "x-anc-epoch": "1",
+            "x-anc-job-hash": "ab".repeat(32),
+            "x-anc-job-state": "completed",
+          },
+        }),
+      ),
+    );
+    await expect(
+      getPrivateVaultJobResult({ vaultId: "vault:test", jobId: "job:test" }),
+    ).resolves.toMatchObject({
+      metadata: { jobHash: "ab".repeat(32), state: "completed" },
+    });
+  });
+
   it("rejects malformed content-length before consuming result bytes", async () => {
     let pulls = 0;
     vi.stubGlobal(

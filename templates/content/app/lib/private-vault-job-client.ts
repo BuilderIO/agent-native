@@ -14,6 +14,7 @@ const positiveIntegerSchema = z
   .int()
   .positive()
   .max(Number.MAX_SAFE_INTEGER);
+const jobHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const jobMetadataSchema = z
   .object({
     vaultId: opaqueIdSchema,
@@ -198,7 +199,7 @@ export async function getPrivateVaultJobResult(
   const jobHash = response.headers.get("x-anc-job-hash") ?? "";
   if (
     algorithmId !== E2EE_SUITE_ID ||
-    !opaqueIdSchema.safeParse(jobHash).success ||
+    !jobHashSchema.safeParse(jobHash).success ||
     (state !== "completed" && state !== "failed")
   )
     throw new PrivateVaultJobTransportError(502);
