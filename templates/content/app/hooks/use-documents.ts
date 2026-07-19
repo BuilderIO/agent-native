@@ -21,7 +21,10 @@ import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hyd
 import { isEffectivelyEmptyDocumentContent } from "@/components/editor/body-hydration";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
-import { useRestoreContentDatabase } from "./use-content-database";
+import {
+  removeOptimisticItemFromContentDatabase,
+  useRestoreContentDatabase,
+} from "./use-content-database";
 
 export type { DocumentUpdateConflictResponse };
 
@@ -129,7 +132,21 @@ export function setDocumentFavoriteInDatabaseCache(
   documentId: string,
   isFavorite: boolean,
 ): ContentDatabaseResponse | undefined {
+  if (current?.database?.systemRole === "favorites" && !isFavorite) {
+    return removeOptimisticItemFromContentDatabase(current, documentId);
+  }
   return patchDocumentInDatabaseCache(current, documentId, { isFavorite });
+}
+
+function patchDocumentWithFavoriteMembershipInDatabaseCache(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+  patch: Partial<Document>,
+): ContentDatabaseResponse | undefined {
+  const patched = patchDocumentInDatabaseCache(current, documentId, patch);
+  return patch.isFavorite === undefined
+    ? patched
+    : setDocumentFavoriteInDatabaseCache(patched, documentId, patch.isFavorite);
 }
 
 export function patchDocumentCaches(
@@ -145,7 +162,12 @@ export function patchDocumentCaches(
   );
   queryClient.setQueriesData<ContentDatabaseResponse>(
     { queryKey: ["action", "get-content-database"] },
-    (current) => patchDocumentInDatabaseCache(current, documentId, patch),
+    (current) =>
+      patchDocumentWithFavoriteMembershipInDatabaseCache(
+        current,
+        documentId,
+        patch,
+      ),
   );
 }
 
@@ -334,7 +356,7 @@ export function useUpdateDocument() {
           queryClient.setQueriesData<ContentDatabaseResponse>(
             { queryKey: ["action", "get-content-database"] },
             (current) =>
-              patchDocumentInDatabaseCache(
+              patchDocumentWithFavoriteMembershipInDatabaseCache(
                 current,
                 variables.id,
                 serverDocument,
@@ -359,7 +381,11 @@ export function useUpdateDocument() {
         queryClient.setQueriesData<ContentDatabaseResponse>(
           { queryKey: ["action", "get-content-database"] },
           (current) =>
-            patchDocumentInDatabaseCache(current, variables.id, data),
+            patchDocumentWithFavoriteMembershipInDatabaseCache(
+              current,
+              variables.id,
+              data,
+            ),
         );
         queryClient.invalidateQueries({
           queryKey: ["action", "get-document", { id: variables.id }],
@@ -367,6 +393,11 @@ export function useUpdateDocument() {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
+        if (variables.isFavorite !== undefined) {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          });
+        }
 
         if (data.softDeletedDatabaseIds.length > 0) {
           const databaseIds = data.softDeletedDatabaseIds;

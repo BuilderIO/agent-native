@@ -187,6 +187,61 @@ describe("optimistic document favorites", () => {
     expect(database.items[0].document.isFavorite).toBe(false);
   });
 
+  it("removes unfavorited pages from a cached Favorites database", () => {
+    const database = {
+      database: { systemRole: "favorites" },
+      items: [
+        {
+          id: "item-a",
+          databaseId: "favorites",
+          position: 0,
+          document: { ...doc("a", null), isFavorite: true },
+          properties: [],
+        },
+        {
+          id: "item-b",
+          databaseId: "favorites",
+          position: 1,
+          document: { ...doc("b", null), isFavorite: true },
+          properties: [],
+        },
+      ],
+      pagination: {
+        offset: 0,
+        limit: 50,
+        totalItems: 2,
+        returnedItems: 2,
+        hasMore: false,
+      },
+    } as any;
+
+    const updated = setDocumentFavoriteInDatabaseCache(database, "a", false)!;
+    expect(updated.items.map((item) => item.document.id)).toEqual(["b"]);
+    expect(updated.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+    expect(database.items).toHaveLength(2);
+  });
+
+  it("leaves a cached Favorites database unchanged until a newly added row refetches", () => {
+    const database = {
+      database: { systemRole: "favorites" },
+      items: [],
+      pagination: {
+        offset: 0,
+        limit: 50,
+        totalItems: 0,
+        returnedItems: 0,
+        hasMore: false,
+      },
+    } as any;
+
+    expect(setDocumentFavoriteInDatabaseCache(database, "a", true)).toBe(
+      database,
+    );
+  });
+
   it("restores exact cache snapshots after a failed optimistic update", () => {
     const queryClient = new QueryClient();
     const documentKey = documentQueryKey("a");
