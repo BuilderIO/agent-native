@@ -11,6 +11,9 @@ describe("local folder host guidance", () => {
       expect(messages.localFiles.unsupportedBrowser).toContain(
         "Agent Native Desktop",
       );
+      expect(messages.localFiles.interruptedPicker).toContain(
+        "Agent Native Desktop",
+      );
     }
   });
 

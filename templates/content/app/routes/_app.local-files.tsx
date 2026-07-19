@@ -45,6 +45,10 @@ import {
   syncLocalControlResources,
   type LocalControlResourceFiles,
 } from "@/lib/local-control-resources";
+import {
+  hasInterruptedNativeFolderPickerAttempt,
+  runNativeFolderPickerWithCrashSentinel,
+} from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
 import { cn } from "@/lib/utils";
 
@@ -195,6 +199,7 @@ function supportsDirectoryPicker() {
     typeof (window as WindowWithDirectoryPicker).showDirectoryPicker ===
       "function" &&
     !getDesktopContentFiles() &&
+    !hasInterruptedNativeFolderPickerAttempt() &&
     !isUnsafeNativeFolderPickerHost()
   );
 }
@@ -208,6 +213,9 @@ function isElectronLikeBrowser() {
 }
 
 function unsupportedLocalFolderSyncMessage(t: ReturnType<typeof useT>) {
+  if (hasInterruptedNativeFolderPickerAttempt()) {
+    return t("localFiles.interruptedPicker");
+  }
   if (isElectronLikeBrowser()) {
     return t("localFiles.unsupportedElectron");
   }
@@ -544,7 +552,9 @@ async function chooseDirectory(
   if (!picker || isUnsafeNativeFolderPickerHost()) {
     throw new Error(unsupportedLocalFolderSyncMessage(t));
   }
-  const handle = await picker({ mode: "readwrite" });
+  const handle = await runNativeFolderPickerWithCrashSentinel(() =>
+    picker({ mode: "readwrite" }),
+  );
   const existing = await Promise.all(
     directories
       .filter((directory) => directory.kind === "browser")
