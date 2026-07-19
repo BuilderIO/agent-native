@@ -2690,9 +2690,11 @@ function createAgentNativeConfig(
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
-  const monorepoCoreAllow = [
+  const monorepoPackageAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
+    path.resolve(cwd, "../../packages/toolkit"),
+    path.resolve(cwd, "../toolkit"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
   const monorepoNodeModulesAllow = [
     path.resolve(cwd, "../../node_modules"),
@@ -2797,7 +2799,7 @@ function createAgentNativeConfig(
         ...(userConfig.server?.fs ?? {}),
         allow: [
           ".",
-          ...monorepoCoreAllow,
+          ...monorepoPackageAllow,
           ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...localWorkspacePackageAllow,

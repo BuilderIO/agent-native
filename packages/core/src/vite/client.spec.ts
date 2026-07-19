@@ -1416,10 +1416,13 @@ describe("local-core dev aliases and router dedupe", () => {
     const appDir = path.join(tmpDir, "templates", "forms");
     const nodeModulesDir = path.join(tmpDir, "node_modules");
     const coreDir = path.join(tmpDir, "packages", "core");
+    const toolkitDir = path.join(tmpDir, "packages", "toolkit");
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(nodeModulesDir, { recursive: true });
     fs.mkdirSync(coreDir, { recursive: true });
+    fs.mkdirSync(toolkitDir, { recursive: true });
     fs.writeFileSync(path.join(coreDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(toolkitDir, "package.json"), "{}");
 
     try {
       process.chdir(appDir);
@@ -1430,6 +1433,9 @@ describe("local-core dev aliases and router dedupe", () => {
 
       expect(fsAllow).toContain(
         fs.realpathSync(path.join(tmpDir, "packages", "core")),
+      );
+      expect(fsAllow).toContain(
+        fs.realpathSync(path.join(tmpDir, "packages", "toolkit")),
       );
       expect(fsAllow).toContain(fs.realpathSync(nodeModulesDir));
     } finally {
