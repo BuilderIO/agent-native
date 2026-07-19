@@ -12,8 +12,8 @@ function harness() {
   const documents = {
     initialize: vi.fn(async () => undefined),
     close: vi.fn(),
-    actionRegistry: vi.fn(() => actions),
   };
+  const brokerActions = { create: vi.fn(async () => actions) };
   const broker = {
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
@@ -24,21 +24,23 @@ function harness() {
     actions,
     broker,
     documents,
+    brokerActions,
     factory,
     runtime: new PrivateVaultContentRuntime({
       descriptor: { read: vi.fn(async () => ({ vaultId })) },
       documents: documents as never,
+      brokerActions,
       broker: factory as never,
     }),
   };
 }
 
 describe("PrivateVaultContentRuntime", () => {
-  it("starts documents before the broker with the same familiar registry", async () => {
+  it("starts documents before a separately constructed broker registry", async () => {
     const source = harness();
     await source.runtime.start();
     expect(source.documents.initialize).toHaveBeenCalledWith(vaultId);
-    expect(source.documents.actionRegistry).toHaveBeenCalledWith(vaultId);
+    expect(source.brokerActions.create).toHaveBeenCalledWith(vaultId);
     expect(source.factory).toHaveBeenCalledWith(source.actions);
     expect(source.runtime.health()).toEqual({
       vaultId,

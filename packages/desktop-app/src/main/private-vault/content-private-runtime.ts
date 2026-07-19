@@ -20,7 +20,6 @@ interface BrokerLifecycle {
 interface DocumentLifecycle {
   initialize(vaultId: string): Promise<void>;
   close(): void;
-  actionRegistry(vaultId: string): PrivateVaultLocalActionRegistry;
 }
 
 export class PrivateVaultContentRuntimeError extends Error {
@@ -37,6 +36,9 @@ export class PrivateVaultContentRuntimeError extends Error {
 export class PrivateVaultContentRuntime {
   readonly #descriptor: { read(): Promise<{ vaultId: string }> };
   readonly #documents: DocumentLifecycle;
+  readonly #brokerActions: {
+    create(vaultId: string): Promise<PrivateVaultLocalActionRegistry>;
+  };
   readonly #broker: (
     actions: PrivateVaultLocalActionRegistry,
   ) => BrokerLifecycle;
@@ -46,10 +48,14 @@ export class PrivateVaultContentRuntime {
   constructor(input: {
     descriptor: { read(): Promise<{ vaultId: string }> };
     documents: DocumentLifecycle;
+    brokerActions: {
+      create(vaultId: string): Promise<PrivateVaultLocalActionRegistry>;
+    };
     broker: (actions: PrivateVaultLocalActionRegistry) => BrokerLifecycle;
   }) {
     this.#descriptor = input.descriptor;
     this.#documents = input.documents;
+    this.#brokerActions = input.brokerActions;
     this.#broker = input.broker;
   }
 
@@ -91,7 +97,8 @@ export class PrivateVaultContentRuntime {
     try {
       const descriptor = await this.#descriptor.read();
       await this.#documents.initialize(descriptor.vaultId);
-      broker = this.#broker(this.#documents.actionRegistry(descriptor.vaultId));
+      const actions = await this.#brokerActions.create(descriptor.vaultId);
+      broker = this.#broker(actions);
       await broker.start();
       this.#active = { vaultId: descriptor.vaultId, broker };
     } catch {
@@ -105,6 +112,9 @@ export class PrivateVaultContentRuntime {
 export function createPrivateVaultContentRuntime(input: {
   session: PrivateVaultContentSession;
   origin: string;
+  brokerActions: {
+    create(vaultId: string): Promise<PrivateVaultLocalActionRegistry>;
+  };
 }): PrivateVaultContentRuntime {
   const documents: PrivateVaultContentDocumentRuntime =
     createPrivateVaultContentDocumentRuntime(input);
@@ -112,6 +122,7 @@ export function createPrivateVaultContentRuntime(input: {
   return new PrivateVaultContentRuntime({
     descriptor,
     documents,
+    brokerActions: input.brokerActions,
     broker: (actions) =>
       createPrivateVaultContentBrokerRuntime({ ...input, actions }),
   });

@@ -1220,6 +1220,13 @@ yet attached to unattended broker custody: doing so requires broker-domain
 object open/seal operations rather than borrowing the attended endpoint's
 keys.
 
+The combined lifecycle enforces that last boundary structurally: it cannot
+start the broker from the attended document runtime's registry. A separately
+constructed broker-custody registry is required before supervisor startup, and
+failure closes the local document cache. This keeps the unfinished broker seam
+fail-closed instead of making background work appear functional with the wrong
+principal.
+
 ### PR 7 — Migration, export, recovery, and rollback
 
 Scope:
