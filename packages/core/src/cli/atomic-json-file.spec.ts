@@ -31,6 +31,49 @@ describe("local JSON file locks", () => {
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
+  it("waits past a fresh dead owner long enough to reclaim it", () => {
+    const filePath = useTempFilePath();
+    const lockPath = `${filePath}.lock`;
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: -1,
+        createdAt: Date.now(),
+        token: "fresh-dead-owner",
+      }),
+    );
+
+    const startedAt = Date.now();
+    expect(
+      withFileLockSync(filePath, () => "recovered", {
+        lockWaitMs: 1,
+        staleLockMs: 12,
+      }),
+    ).toBe("recovered");
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(10);
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it("allows hot paths to time out instead of waiting to reclaim a fresh dead owner", () => {
+    const filePath = useTempFilePath();
+    fs.writeFileSync(
+      `${filePath}.lock`,
+      JSON.stringify({
+        pid: -1,
+        createdAt: Date.now(),
+        token: "fresh-dead-owner",
+      }),
+    );
+
+    expect(() =>
+      withFileLockSync(filePath, () => undefined, {
+        lockWaitMs: 1,
+        staleLockMs: 1_000,
+        reclaimFreshDeadOwner: false,
+      }),
+    ).toThrow("Timed out waiting for local store lock");
+  });
+
   it("does not remove a replacement lock it does not own", () => {
     const filePath = useTempFilePath();
     const lockPath = `${filePath}.lock`;

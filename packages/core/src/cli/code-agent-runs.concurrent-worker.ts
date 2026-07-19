@@ -1,4 +1,5 @@
 import {
+  addCodeAgentCommandToAllowlist,
   appendCodeAgentTranscriptEvent,
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
@@ -25,6 +26,8 @@ if (operation === "code-update") {
     generation: 1,
     permission: "workspace_write",
   });
+} else if (operation === "allowlist") {
+  addCodeAgentCommandToAllowlist(value);
 } else {
   throw new Error(`Unknown concurrency worker operation: ${operation}`);
 }

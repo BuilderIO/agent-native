@@ -16,11 +16,13 @@ import {
 } from "../code-agents/index.js";
 import {
   appendCodeAgentTranscriptEvent,
+  addCodeAgentCommandToAllowlist,
   codeAgentRunArtifactsDir,
   codeAgentRunTranscriptPath,
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
+  readCodeAgentCommandAllowlist,
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
 import {
@@ -484,6 +486,16 @@ describe("Code Agent run store durability", () => {
     expect(
       listMultiFrontierParticipantEvents(frontier.collaborationId),
     ).toHaveLength(1);
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        runConcurrencyWorker(root, "allowlist", run.id, `command-${index}`),
+      ),
+    );
+    addCodeAgentCommandToAllowlist("command-0");
+    expect(readCodeAgentCommandAllowlist().sort()).toEqual(
+      Array.from({ length: 8 }, (_, index) => `command-${index}`).sort(),
+    );
   });
 });
 

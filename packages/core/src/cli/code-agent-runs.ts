@@ -200,14 +200,12 @@ export function readCodeAgentCommandAllowlist(): string[] {
  * are auto-approved without a prompt.  Deduplicates by exact string match.
  */
 export function addCodeAgentCommandToAllowlist(command: string): void {
-  const current = readCodeAgentCommandAllowlist();
-  if (current.includes(command)) return;
-  const next = [...current, command];
-  fs.mkdirSync(codeAgentStoreRoot(), { recursive: true });
-  fs.writeFileSync(
-    codeAgentCommandAllowlistPath(),
-    JSON.stringify(next, null, 2),
-  );
+  const filePath = codeAgentCommandAllowlistPath();
+  withFileLockSync(filePath, () => {
+    const current = readCodeAgentCommandAllowlist();
+    if (current.includes(command)) return;
+    writeJsonFileAtomically(filePath, [...current, command], { mode: 0o600 });
+  });
 }
 
 /** Return true if `command` is in the stored allowlist. */

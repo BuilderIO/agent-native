@@ -6,16 +6,35 @@ const LOCK_WAIT_MS = 10_000;
 const STALE_LOCK_MS = 30_000;
 const lockWaiter = new Int32Array(new SharedArrayBuffer(4));
 
+export interface FileLockOptions {
+  lockWaitMs?: number;
+  staleLockMs?: number;
+  /**
+   * Durable writers wait long enough to reclaim a fresh dead owner. Hot paths
+   * may opt out and handle a short best-effort timeout themselves.
+   */
+  reclaimFreshDeadOwner?: boolean;
+}
+
+export interface AtomicJsonLineOptions {
+  mode?: number;
+  lock?: FileLockOptions;
+}
+
 interface FileLockMetadata {
   pid: number;
   createdAt: number;
   token: string;
 }
 
-export function withFileLockSync<T>(filePath: string, action: () => T): T {
+export function withFileLockSync<T>(
+  filePath: string,
+  action: () => T,
+  options: FileLockOptions = {},
+): T {
   const lockPath = `${filePath}.lock`;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const owner = acquireFileLockSync(lockPath);
+  const owner = acquireFileLockSync(lockPath, options);
   try {
     return action();
   } finally {
@@ -26,6 +45,18 @@ export function withFileLockSync<T>(filePath: string, action: () => T): T {
 export function writeJsonFileAtomically(
   filePath: string,
   value: unknown,
+  options?: { mode?: number },
+): void {
+  writeTextFileAtomically(
+    filePath,
+    `${JSON.stringify(value, null, 2)}\n`,
+    options,
+  );
+}
+
+export function writeTextFileAtomically(
+  filePath: string,
+  content: string,
   options?: { mode?: number },
 ): void {
   const directory = path.dirname(filePath);
@@ -44,7 +75,7 @@ export function writeJsonFileAtomically(
   }
 
   try {
-    fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+    fs.writeFileSync(temporaryPath, content, {
       encoding: "utf-8",
       flag: "wx",
       ...(mode === undefined ? {} : { mode }),
@@ -60,37 +91,50 @@ export function updateJsonFileAtomically<T>(
   filePath: string,
   parse: (value: unknown) => T | null,
   update: (current: T | null) => T | null,
+  options?: { lock?: FileLockOptions },
 ): T | null {
-  return withFileLockSync(filePath, () => {
-    const current = readJsonFile(filePath, parse);
-    const next = update(current);
-    if (next !== null) writeJsonFileAtomically(filePath, next);
-    return next;
-  });
+  return withFileLockSync(
+    filePath,
+    () => {
+      const current = readJsonFile(filePath, parse);
+      const next = update(current);
+      if (next !== null) writeJsonFileAtomically(filePath, next);
+      return next;
+    },
+    options?.lock,
+  );
 }
 
 export function appendUniqueJsonLineAtomically<T extends { id: string }>(
   filePath: string,
   value: T,
   parse: (value: unknown) => T | null,
+  options?: AtomicJsonLineOptions,
 ): { value: T; appended: boolean } {
-  return withFileLockSync(filePath, () => {
-    if (fs.existsSync(filePath)) {
-      for (const line of fs.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
-        if (!line) continue;
-        try {
-          const existing = parse(JSON.parse(line) as unknown);
-          if (existing?.id === value.id) {
-            return { value: existing, appended: false };
+  return withFileLockSync(
+    filePath,
+    () => {
+      if (fs.existsSync(filePath)) {
+        for (const line of fs.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
+          if (!line) continue;
+          try {
+            const existing = parse(JSON.parse(line) as unknown);
+            if (existing?.id === value.id) {
+              return { value: existing, appended: false };
+            }
+          } catch {
+            // Ignore malformed legacy lines; valid events remain append-only.
           }
-        } catch {
-          // Ignore malformed legacy lines; valid events remain append-only.
         }
       }
-    }
-    fs.appendFileSync(filePath, `${JSON.stringify(value)}\n`, "utf-8");
-    return { value, appended: true };
-  });
+      fs.appendFileSync(filePath, `${JSON.stringify(value)}\n`, {
+        encoding: "utf-8",
+        ...(options?.mode === undefined ? {} : { mode: options.mode }),
+      });
+      return { value, appended: true };
+    },
+    options?.lock,
+  );
 }
 
 function readJsonFile<T>(
@@ -104,11 +148,14 @@ function readJsonFile<T>(
   }
 }
 
-function acquireFileLockSync(lockPath: string): FileLockMetadata {
+function acquireFileLockSync(
+  lockPath: string,
+  options: FileLockOptions,
+): FileLockMetadata {
   const startedAt = Date.now();
   while (true) {
-    if (hasActiveReaper(lockPath)) {
-      waitForFileLock(lockPath, startedAt);
+    if (hasActiveReaper(lockPath, options)) {
+      waitForFileLock(lockPath, startedAt, options);
       continue;
     }
     const metadata: FileLockMetadata = {
@@ -123,21 +170,25 @@ function acquireFileLockSync(lockPath: string): FileLockMetadata {
       return metadata;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      recoverStaleFileLock(lockPath);
-      waitForFileLock(lockPath, startedAt);
+      recoverStaleFileLock(lockPath, options);
+      if (!fs.existsSync(lockPath)) continue;
+      waitForFileLock(lockPath, startedAt, options);
     } finally {
       if (fd !== undefined) fs.closeSync(fd);
     }
   }
 }
 
-function recoverStaleFileLock(lockPath: string): void {
+function recoverStaleFileLock(
+  lockPath: string,
+  options: FileLockOptions,
+): void {
   const reaperPath = `${lockPath}.reaper`;
   const reaper = tryAcquireFileLock(reaperPath);
   if (!reaper) return;
   try {
     const stale = readFileLockMetadata(lockPath);
-    if (!isStaleDeadOwner(stale)) return;
+    if (!isStaleDeadOwner(stale, options)) return;
     const confirmed = readFileLockMetadata(lockPath);
     if (!sameFileLock(stale, confirmed)) return;
     releaseFileLockSync(lockPath, stale);
@@ -146,11 +197,11 @@ function recoverStaleFileLock(lockPath: string): void {
   }
 }
 
-function hasActiveReaper(lockPath: string): boolean {
+function hasActiveReaper(lockPath: string, options: FileLockOptions): boolean {
   const reaperPath = `${lockPath}.reaper`;
   const reaper = readFileLockMetadata(reaperPath);
   if (!reaper) return false;
-  if (!isStaleDeadOwner(reaper)) return true;
+  if (!isStaleDeadOwner(reaper, options)) return true;
   releaseFileLockSync(reaperPath, reaper);
   return false;
 }
@@ -216,19 +267,50 @@ function sameFileLock(
 
 function isStaleDeadOwner(
   metadata: FileLockMetadata | null,
+  options: FileLockOptions,
 ): metadata is FileLockMetadata {
   return (
     metadata !== null &&
-    Date.now() - metadata.createdAt >= STALE_LOCK_MS &&
+    Date.now() - metadata.createdAt >= staleLockMs(options) &&
     !isProcessAlive(metadata.pid)
   );
 }
 
-function waitForFileLock(lockPath: string, startedAt: number): void {
-  if (Date.now() - startedAt >= LOCK_WAIT_MS) {
+function waitForFileLock(
+  lockPath: string,
+  startedAt: number,
+  options: FileLockOptions,
+): void {
+  if (
+    Date.now() - startedAt >=
+    lockWaitBudgetMs(lockPath, startedAt, options)
+  ) {
     throw new Error(`Timed out waiting for local store lock: ${lockPath}`);
   }
   Atomics.wait(lockWaiter, 0, 0, 8 + Math.floor(Math.random() * 8));
+}
+
+function lockWaitBudgetMs(
+  lockPath: string,
+  startedAt: number,
+  options: FileLockOptions,
+): number {
+  const configured = options.lockWaitMs ?? LOCK_WAIT_MS;
+  if (options.reclaimFreshDeadOwner === false) return configured;
+  const owner = readFileLockMetadata(lockPath);
+  if (!owner || isProcessAlive(owner.pid)) return configured;
+  const remainingUntilStale = Math.max(
+    0,
+    staleLockMs(options) - (Date.now() - owner.createdAt),
+  );
+  return Math.max(
+    configured,
+    Date.now() - startedAt + remainingUntilStale + 32,
+  );
+}
+
+function staleLockMs(options: FileLockOptions): number {
+  return options.staleLockMs ?? STALE_LOCK_MS;
 }
 
 function isProcessAlive(pid: number): boolean {
