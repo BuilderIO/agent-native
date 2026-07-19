@@ -40,7 +40,6 @@ import {
   IconPlus,
   IconRestore,
   IconSearch,
-  IconStar,
   IconSettings,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
@@ -802,6 +801,22 @@ export function DocumentSidebar({
     [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
   );
 
+  const handleOpenFavorite = useCallback(
+    (document: Document) => {
+      const space = contentSpaces.find(
+        (candidate) =>
+          candidate.filesDocumentId ===
+          document.databaseMembership?.databaseDocumentId,
+      );
+      if (space) {
+        void handleSelectContentSpace(space, document.id);
+        return;
+      }
+      navigateToDocument(document.id);
+    },
+    [contentSpaces, handleSelectContentSpace, navigateToDocument],
+  );
+
   const handleDelete = useCallback(
     async (id: string) => {
       const deletedDocument = documents.find((doc) => doc.id === id) ?? null;
@@ -1419,37 +1434,39 @@ export function DocumentSidebar({
               }}
             />
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-7 w-full min-w-0 items-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                aria-label={t("sidebar.addWorkspace")}
-              >
-                <span className="flex size-7 shrink-0 items-center justify-center">
-                  <IconPlus size={14} />
-                </span>
-                <span className="truncate text-start text-[10px] font-semibold uppercase tracking-wider">
-                  {t("sidebar.addWorkspace")}
-                </span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52">
-              <DropdownMenuItem
-                onSelect={() => setCreateWorkspaceDialogOpen(true)}
-              >
-                <IconPlus className="me-2 size-4" />
-                {t("sidebar.newWorkspace")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link to="/local-files">
-                  <IconFolder className="me-2 size-4" />
-                  {t("sidebar.localFolder")}
-                </Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="px-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-full min-w-0 items-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                  aria-label={t("sidebar.addWorkspace")}
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center">
+                    <IconPlus size={14} />
+                  </span>
+                  <span className="truncate text-start text-[10px] font-semibold uppercase tracking-wider">
+                    {t("sidebar.addWorkspace")}
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                <DropdownMenuItem
+                  onSelect={() => setCreateWorkspaceDialogOpen(true)}
+                >
+                  <IconPlus className="me-2 size-4" />
+                  {t("sidebar.newWorkspace")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/local-files">
+                    <IconFolder className="me-2 size-4" />
+                    {t("sidebar.localFolder")}
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       ) : contentSpaceState === "loading" ? (
         <div className="px-3 py-4 text-center text-sm text-muted-foreground">
@@ -1736,26 +1753,30 @@ export function DocumentSidebar({
               {/* Favorites */}
               {showFavorites && (
                 <div className="mb-2 min-w-0 px-2">
-                  <button
-                    type="button"
-                    aria-expanded={!collapsedSections.favorites}
-                    className="flex h-7 w-full min-w-0 items-center rounded-md ps-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                    onClick={() => toggleSection("favorites")}
-                  >
-                    <span className="flex size-7 shrink-0 items-center justify-center">
-                      <IconChevronRight
-                        size={12}
-                        className={cn(
-                          "transition-transform rtl:-scale-x-100",
-                          !collapsedSections.favorites && "rotate-90",
-                        )}
-                      />
-                    </span>
-                    <IconStar size={11} className="me-2 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate text-start">
+                  <div className="flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
+                    <button
+                      type="button"
+                      aria-expanded={!collapsedSections.favorites}
+                      aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.favorites")}`}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                      onClick={() => toggleSection("favorites")}
+                    >
+                      {collapsedSections.favorites ? (
+                        <IconChevronRight size={14} />
+                      ) : (
+                        <IconChevronDown size={14} />
+                      )}
+                    </button>
+                    <Link
+                      to="/favorites"
+                      className={cn(
+                        "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
+                        location.pathname === "/favorites" && "text-foreground",
+                      )}
+                    >
                       {t("sidebar.favorites")}
-                    </span>
-                  </button>
+                    </Link>
+                  </div>
                   {!collapsedSections.favorites &&
                     favorites.map((doc) => (
                       <FavoriteDocumentItem
@@ -1764,7 +1785,7 @@ export function DocumentSidebar({
                         active={doc.id === activeDocumentId}
                         sidebarWidth={favoriteRowWidth}
                         onSelect={() => {
-                          navigateToDocument(doc.id);
+                          handleOpenFavorite(doc);
                           onNavigate?.();
                         }}
                         onCreateChildPage={() => void handleCreatePage(doc.id)}

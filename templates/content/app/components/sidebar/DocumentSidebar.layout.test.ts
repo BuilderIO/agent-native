@@ -316,9 +316,13 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("!collapsedSections.favorites &&");
     expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
+    expect(sidebar).toContain('to="/favorites"');
+    expect(sidebar).toContain("handleOpenFavorite(doc)");
     expect(sidebar).toContain("<FavoriteDocumentItem");
     expect(treeItem).toContain("export function FavoriteDocumentItem");
-    expect(sidebar).toContain("items-center rounded-md ps-1 text-[10px]");
+    expect(sidebar).toContain(
+      "flex h-7 w-full min-w-0 items-center rounded-md px-1",
+    );
     expect(treeItem).toContain('paddingInlineStart: "26px"');
     expect(treeItem).toContain('? "font-semibold text-foreground"');
     expect(treeItem).not.toContain(
@@ -330,5 +334,15 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("onCreateChildPage()");
     expect(treeItem).toContain("setDeleteDialogOpen(true)");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
+
+  it("renders Favorites as a real table route", () => {
+    const route = readSidebarSource("../../routes/_app.favorites.tsx");
+
+    expect(route).toContain("useDocuments()");
+    expect(route).toContain("document.isFavorite");
+    expect(route).toContain("<Table>");
+    expect(route).toContain("selectContentSpace");
+    expect(route).toContain('requestSource: "content-favorites"');
   });
 });
