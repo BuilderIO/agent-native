@@ -19,6 +19,7 @@ import {
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
+  updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
 
 const tmpRoots: string[] = [];
@@ -358,6 +359,61 @@ describe("local code background agent controller", () => {
       expect(getCodeAgentRunRecord(resumeRun.id)?.status).toBe("completed");
       expect(getCodeAgentRunRecord(retryRun.id)?.status).toBe("completed");
     });
+  });
+});
+
+describe("Code Agent run store durability", () => {
+  it("keeps the previous run record when atomic replacement fails", () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Original title",
+      cwd: "/repo",
+    });
+    const original = getCodeAgentRunRecord(run.id);
+    const rename = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+      throw new Error("rename failed");
+    });
+
+    expect(() =>
+      updateCodeAgentRunRecord(run.id, { title: "Replacement title" }),
+    ).toThrow("rename failed");
+
+    expect(getCodeAgentRunRecord(run.id)).toEqual(original);
+    expect(
+      fs
+        .readdirSync(
+          path.join(process.env.AGENT_NATIVE_CODE_AGENTS_HOME!, "runs"),
+        )
+        .filter((file) => file.includes(".tmp-")),
+    ).toEqual([]);
+    rename.mockRestore();
+  });
+
+  it("returns the original event when a stable event id is retried", () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Idempotent transcript",
+      cwd: "/repo",
+    });
+    const first = appendCodeAgentTranscriptEvent({
+      id: "participant-a-event-1",
+      runId: run.id,
+      kind: "status",
+      message: "First delivery",
+      createdAt: "2026-07-19T12:00:00.000Z",
+    });
+    const retried = appendCodeAgentTranscriptEvent({
+      id: "participant-a-event-1",
+      runId: run.id,
+      kind: "status",
+      message: "Conflicting retry payload is ignored",
+      createdAt: "2026-07-19T12:01:00.000Z",
+    });
+
+    expect(retried).toEqual(first);
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual([first]);
   });
 });
 

@@ -3907,18 +3907,11 @@ function touchCodeAgentRunRecord(
     ? { ...(record.metadata as Record<string, unknown>) }
     : {};
   const updateMetadata = isObject(updates.metadata) ? updates.metadata : {};
-  fs.writeFileSync(
-    filePath,
-    `${JSON.stringify(
-      {
-        ...record,
-        ...updates,
-        metadata: { ...metadata, ...updateMetadata },
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  writeJsonFileAtomic(filePath, {
+    ...record,
+    ...updates,
+    metadata: { ...metadata, ...updateMetadata },
+  });
 }
 
 function titleFromPrompt(prompt: string): string {
@@ -4113,7 +4106,7 @@ async function createCodeAgentRun(
 
   try {
     fs.mkdirSync(path.dirname(runFile), { recursive: true });
-    fs.writeFileSync(runFile, `${JSON.stringify(record, null, 2)}\n`);
+    writeJsonFileAtomic(runFile, record);
     const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id, {
       queue,
       steering,
