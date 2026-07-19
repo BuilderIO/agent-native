@@ -1176,6 +1176,13 @@ describe("local-core dev aliases and router dedupe", () => {
       "@agent-native/core > @shadcn/react/message-scroller",
     );
     expect(deps).not.toContain("@agent-native/core > @tiptap/react");
+    expect(deps).not.toContain("@agent-native/core > @radix-ui/react-dialog");
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-dropdown-menu",
+    );
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-hover-card",
+    );
     expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
     expect(deps).toContain("@agent-native/core > @xterm/xterm");
     expect(deps).toContain("@agent-native/core > i18next");
