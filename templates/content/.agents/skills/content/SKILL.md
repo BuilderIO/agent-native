@@ -44,6 +44,27 @@ actions, and an optional local-file source of truth.
   action. You may open or point the user to Content Settings, but the human must
   move the public invitation and complete both native verification windows.
   Never ask for recovery words or a verification code in chat.
+- When Desktop exposes the authenticated `agent-native-private-content` MCP
+  server, use its normal Content action names exactly as you would use the
+  standard Content action surface. The signed Desktop app decrypts only the
+  minimum request and result on an enrolled endpoint; hosted Content stores
+  opaque coordinates and ciphertext.
+- Private Content never silently falls back to Standard Cloud, local-file
+  editing, or a hosted Content action. If the private action surface is locked,
+  revoked, offline, or unavailable, stop and say that the private operation did
+  not run.
+- Treat the active model provider as an intentional reader of private action
+  inputs and results. Do not send private document text to another provider,
+  app, connector, webhook, or standard Content document unless the user asks
+  for that specific disclosure.
+- A grant belongs to the local agent identity registered by Desktop. Never ask
+  the model to supply or change an agent id, grant id, bearer token, vault id,
+  broker id, or encrypted job coordinate. Those values are transport plumbing,
+  not prompt inputs.
+- Do not claim that a successful private action made plaintext readable to the
+  Agent Native hosted service. Conversely, do not claim that E2EE hides text
+  from the local agent or model provider that the user deliberately asked to
+  read it; encryption is not an invisibility cloak with excellent branding.
 
 ## Action Examples
 
