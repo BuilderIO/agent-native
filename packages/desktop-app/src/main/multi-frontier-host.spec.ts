@@ -161,6 +161,60 @@ describe("MultiFrontierHost", () => {
     );
   });
 
+  it("requires both current subscription connections before creating", async () => {
+    const unavailableCodex = createCodexAdapter(
+      status("codex", "needs-sign-in"),
+    );
+    const codexBackend = createBackend();
+    const codexHost = createHost({
+      codex: unavailableCodex,
+      backend: codexBackend,
+    });
+    const apiClaude = {
+      ...status("claude", "connected"),
+      authMethod: "api-key",
+    } as SubscriptionStatus;
+    const claudeBackend = createBackend();
+    const claudeHost = createHost({
+      backend: claudeBackend,
+      readClaudeStatus: async () => apiClaude,
+    });
+
+    for (const [host, backend] of [
+      [codexHost, codexBackend],
+      [claudeHost, claudeBackend],
+    ] as const) {
+      await expect(
+        host.create({
+          prompt: "Build the bounded feature.",
+          autoContinueAfterAgreement: false,
+        }),
+      ).resolves.toEqual({
+        error: {
+          message:
+            "Connect both subscriptions before starting a collaboration.",
+        },
+      });
+      expect(backend.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it("retries a failed Codex start probe", async () => {
+    const codex = createCodexAdapter(status("codex", "connected"));
+    codex.start
+      .mockRejectedValueOnce(new Error("transient probe failure"))
+      .mockResolvedValueOnce(status("codex", "connected"));
+    const host = createHost({ codex });
+
+    await expect(host.getProviderStatus("codex")).rejects.toThrow(
+      "transient probe failure",
+    );
+    await expect(host.getProviderStatus("codex")).resolves.toMatchObject({
+      status: { connectionState: "connected" },
+    });
+    expect(codex.start).toHaveBeenCalledTimes(2);
+  });
+
   it("emits main-owned monotonic sequences per collaboration", () => {
     const backend = createBackend();
     const host = createHost({ backend });
@@ -235,8 +289,7 @@ function createHost(
     createCodexAdapter: () =>
       options.codex ?? createCodexAdapter(status("codex", "connected")),
     readClaudeStatus:
-      options.readClaudeStatus ??
-      (async () => status("claude", "needs-sign-in")),
+      options.readClaudeStatus ?? (async () => status("claude", "connected")),
     launchDetached: options.launchDetached,
     platform: options.platform,
     createId: options.createId,
@@ -313,6 +366,9 @@ function status(
     schemaVersion: 1,
     providerId,
     connectionState,
+    ...(connectionState === "connected"
+      ? { authMethod: providerId === "codex" ? "ChatGPT" : "Claude.ai" }
+      : {}),
     telemetry: {
       state: "unavailable",
       source: "connection-only",

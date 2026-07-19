@@ -23,6 +23,7 @@ import {
 import type { SubscriptionStatus } from "../../shared/subscription-status.js";
 import {
   getClaudeSubscriptionLoginLaunchSpec,
+  isClaudeSubscriptionStatus,
   readClaudeSubscriptionStatus,
 } from "./claude-subscription.js";
 import {
@@ -219,6 +220,14 @@ export class MultiFrontierHost {
     intent: MultiFrontierCreateIntent,
   ): Promise<MultiFrontierActionResult> {
     this.#assertUsable();
+    if (!(await this.#hasConnectedSubscriptions())) {
+      return {
+        error: {
+          message:
+            "Connect both subscriptions before starting a collaboration.",
+        },
+      };
+    }
     const workspace = await this.#resolveWorkspace(intent.cwd);
     if (!SAFE_ID.test(workspace.workspaceId)) {
       return { error: { message: "The selected workspace is unavailable." } };
@@ -363,12 +372,36 @@ export class MultiFrontierHost {
 
   async #ensureCodexStarted(): Promise<SubscriptionStatus> {
     if (!this.#codexStarted) {
-      this.#codexStarted = this.#codex.start().then((status) => {
-        this.#codexStatus = sanitizeStatus(status, "codex");
-        return this.#codexStatus;
-      });
+      this.#codexStarted = Promise.resolve()
+        .then(() => this.#codex.start())
+        .then((status) => {
+          this.#codexStatus = sanitizeStatus(status, "codex");
+          return this.#codexStatus;
+        });
     }
-    return this.#codexStarted;
+    const started = this.#codexStarted;
+    try {
+      return await started;
+    } catch (error) {
+      if (this.#codexStarted === started) this.#codexStarted = undefined;
+      throw error;
+    }
+  }
+
+  async #hasConnectedSubscriptions(): Promise<boolean> {
+    try {
+      const codex = await this.#ensureCodexStarted();
+      if (
+        codex.connectionState !== "connected" ||
+        codex.authMethod !== "ChatGPT"
+      ) {
+        return false;
+      }
+      const claude = sanitizeStatus(await this.#readClaudeStatus(), "claude");
+      return isClaudeSubscriptionStatus(claude);
+    } catch {
+      return false;
+    }
   }
 
   #publishSnapshot(snapshot: MultiFrontierRendererState): void {
