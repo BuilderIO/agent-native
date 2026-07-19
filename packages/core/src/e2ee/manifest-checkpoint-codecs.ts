@@ -39,6 +39,7 @@ export const ANC_ENROLLMENT_MANIFEST_SIZE_LIMITS = Object.freeze({
 const CHECKPOINT = ANC_ENROLLMENT_MANIFEST_FIELDS.checkpoint;
 const BINDING = ANC_ENROLLMENT_MANIFEST_FIELDS.authorization;
 const ID_BYTES = 16;
+const REVISION_ID_BYTES = 32;
 const HASH_BYTES = 32;
 const SIGNATURE_BYTES = 64;
 
@@ -283,7 +284,10 @@ function unsignedCheckpointMap(
       CHECKPOINT.manifestObjectId,
       bytes(value.manifestObjectId, ID_BYTES, "manifestObjectId"),
     ],
-    [CHECKPOINT.revisionId, bytes(value.revisionId, ID_BYTES, "revisionId")],
+    [
+      CHECKPOINT.revisionId,
+      bytes(value.revisionId, REVISION_ID_BYTES, "revisionId"),
+    ],
     [CHECKPOINT.generation, integer(value.generation, "generation")],
     [
       CHECKPOINT.ciphertextHash,
@@ -361,7 +365,7 @@ export function decodeAncV1PrivateVaultManifestCheckpoint(
     ),
     revisionId: bytes(
       field(map!, CHECKPOINT.revisionId, "revisionId"),
-      ID_BYTES,
+      REVISION_ID_BYTES,
       "revisionId",
     ),
     generation: integer(
@@ -651,7 +655,7 @@ export async function verifyAncV1EnrollmentManifestAuthorizationBundle(input: {
     ) ||
     !equalBytes(
       manifestCheckpoint.revisionId,
-      bytes(input.expectedRevisionId, ID_BYTES, "expectedRevisionId"),
+      bytes(input.expectedRevisionId, REVISION_ID_BYTES, "expectedRevisionId"),
     ) ||
     manifestCheckpoint.generation !==
       integer(input.expectedGeneration, "expectedGeneration") ||

@@ -33,7 +33,7 @@ const p = (byte: number, length: number) => new Uint8Array(length).fill(byte);
 const vaultId = p(0x01, 16);
 const authorizerId = p(0x02, 16);
 const manifestObjectId = p(0x31, 16);
-const revisionId = p(0x32, 16);
+const revisionId = p(0x32, 32);
 const ciphertextHash = p(0x33, 32);
 const now = 1_721_111_200;
 
@@ -195,7 +195,7 @@ describe("anc/v1 Private Vault manifest checkpoint", () => {
   it.each([
     ["wrong vault", { expectedVaultId: p(0xff, 16) }],
     ["wrong object", { expectedManifestObjectId: p(0xff, 16) }],
-    ["wrong revision", { expectedRevisionId: p(0xff, 16) }],
+    ["wrong revision", { expectedRevisionId: p(0xff, 32) }],
     ["wrong generation", { expectedGeneration: 8 }],
     ["wrong ciphertext hash", { expectedCiphertextHash: p(0xff, 32) }],
   ])("rejects %s substitution", async (_name, replacement) => {
@@ -286,6 +286,16 @@ describe("anc/v1 Private Vault manifest checkpoint", () => {
         { expectedVaultId: vaultId },
       ),
     ).toThrow(/unknown key/);
+    expect(() =>
+      decodeAncV1PrivateVaultManifestCheckpoint(
+        mutate(
+          value.encodedManifestCheckpoint,
+          ANC_ENROLLMENT_MANIFEST_FIELDS.checkpoint.revisionId,
+          p(0x01, 16),
+        ),
+        { expectedVaultId: vaultId },
+      ),
+    ).toThrow(/32 bytes/);
     const nonCanonical = new Uint8Array(
       value.encodedManifestCheckpoint.byteLength + 1,
     );
