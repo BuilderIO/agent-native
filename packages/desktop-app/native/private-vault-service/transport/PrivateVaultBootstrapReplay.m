@@ -133,6 +133,7 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
 @property(nonatomic) NSString *pinnedHeadHash;
 @property(nonatomic) int64_t cursor;
 @property(nonatomic) uint64_t trustedNowMilliseconds;
+@property(nonatomic) BOOL publicEvidenceOnly;
 @property(nonatomic, readwrite, getter=isComplete) BOOL complete;
 @property(nonatomic, readwrite) AncPrivateVaultBootstrapReplayStatus status;
 @end
@@ -154,6 +155,24 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
   _controlLog = [AncPrivateVaultControlLog new];
   _cursor = -1;
   _trustedNowMilliseconds = trustedNowMilliseconds;
+  _status = AncPrivateVaultBootstrapReplayStatusOK;
+  SetStatus(status, _status);
+  return self;
+}
+
+- (instancetype)
+    initForPublicEnrollmentWithTrustedNowMilliseconds:
+        (uint64_t)trustedNowMilliseconds
+                                             status:
+                                                 (AncPrivateVaultBootstrapReplayStatus *)status {
+  SetStatus(status, AncPrivateVaultBootstrapReplayStatusInvalidArgument);
+  self = [super init];
+  if (self == nil || trustedNowMilliseconds == 0)
+    return nil;
+  _controlLog = [AncPrivateVaultControlLog new];
+  _cursor = -1;
+  _trustedNowMilliseconds = trustedNowMilliseconds;
+  _publicEvidenceOnly = YES;
   _status = AncPrivateVaultBootstrapReplayStatusOK;
   SetStatus(status, _status);
   return self;
@@ -248,6 +267,32 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
       self.recoveryEntropy, vault, generation, &status);
 }
 
+- (BOOL)acceptPublicWrap:(NSData *)encodedWrap
+                 inState:(AncPrivateVaultControlLogState *)state {
+  NSData *vault = LowerHexData(state.vaultId, 16);
+  AncPrivateVaultRecoveryWrapStatus wrapStatus;
+  AncPrivateVaultRecoveryWrap *decoded =
+      AncPrivateVaultRecoveryWrapDecode(encodedWrap, vault, &wrapStatus);
+  AncPrivateVaultControlLogMember *issuer = MemberForWrap(state, decoded);
+  AncPrivateVaultRecoveryWrap *verified =
+      issuer == nil
+          ? nil
+          : AncPrivateVaultRecoveryWrapVerify(
+                encodedWrap, vault, issuer.signingPublicKey, &wrapStatus);
+  NSData *hash = verified == nil
+                     ? nil
+                     : AncPrivateVaultRecoveryWrapHash(encodedWrap, vault,
+                                                        &wrapStatus);
+  return verified != nil && hash != nil &&
+         [hash isEqualToData:state.recoveryWrapHash] &&
+         verified.recoveryGeneration == state.recoveryGeneration &&
+         [LowerHex(verified.recoveryId) isEqualToString:state.recoveryId] &&
+         [verified.recoveryKeyAgreementPublicKey
+             isEqualToData:state.recoveryKeyAgreementPublicKey] &&
+         verified.epoch == state.epoch &&
+         verified.activationControlSequence <= state.sequence;
+}
+
 - (BOOL)consumeGenesisEntry:(NSData *)entry
                        wrap:(NSData *)wrap
                    evidence:(NSData *)evidence {
@@ -266,16 +311,19 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
   AncPrivateVaultGenesisBootstrapResult *bootstrapResult =
       AncPrivateVaultGenesisBootstrapVerify(
           bootstrap, confirmation, vault, &bootstrapStatus);
-  AncPrivateVaultRecoveryAuthority *authority =
-      [self deriveAuthority:1 vault:vault];
-  if (bootstrapResult == nil || authority == nil ||
+  AncPrivateVaultRecoveryAuthority *authority = self.publicEvidenceOnly
+      ? nil
+      : [self deriveAuthority:1 vault:vault];
+  if (bootstrapResult == nil ||
       bootstrapResult.transcript.recoveryGeneration != 1 ||
-      ![bootstrapResult.transcript.recoveryId
-          isEqualToData:authority.recoveryId] ||
-      ![bootstrapResult.transcript.recoverySigningPublicKey
-          isEqualToData:authority.signingPublicKey] ||
-      ![bootstrapResult.transcript.recoveryKeyAgreementPublicKey
-          isEqualToData:authority.keyAgreementPublicKey]) {
+      (!self.publicEvidenceOnly &&
+       (authority == nil ||
+        ![bootstrapResult.transcript.recoveryId
+            isEqualToData:authority.recoveryId] ||
+        ![bootstrapResult.transcript.recoverySigningPublicKey
+            isEqualToData:authority.signingPublicKey] ||
+        ![bootstrapResult.transcript.recoveryKeyAgreementPublicKey
+            isEqualToData:authority.keyAgreementPublicKey]))) {
     CloseAuthority(authority);
     return NO;
   }
@@ -300,21 +348,26 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
                          : AncPrivateVaultRecoveryWrapHash(
                                wrap, vault, &wrapStatus);
   if (replayStatus != AncPrivateVaultControlLogStatusOK || replayed == nil ||
-      ![replayed.state.recoveryId isEqualToString:LowerHex(authority.recoveryId)] ||
+      ![replayed.state.recoveryId
+          isEqualToString:LowerHex(bootstrapResult.transcript.recoveryId)] ||
       ![replayed.state.recoverySigningPublicKey
-          isEqualToData:authority.signingPublicKey] ||
+          isEqualToData:bootstrapResult.transcript.recoverySigningPublicKey] ||
       ![replayed.state.recoveryKeyAgreementPublicKey
-          isEqualToData:authority.keyAgreementPublicKey] ||
+          isEqualToData:
+              bootstrapResult.transcript.recoveryKeyAgreementPublicKey] ||
       ![wrapHash isEqualToData:replayed.state.recoveryWrapHash] ||
-      ![self acceptWrap:wrap
-                inState:replayed.state
-              authority:authority
-           initializeEEK:YES]) {
+      !(self.publicEvidenceOnly
+            ? [self acceptPublicWrap:wrap inState:replayed.state]
+            : [self acceptWrap:wrap
+                       inState:replayed.state
+                     authority:authority
+                  initializeEEK:YES])) {
     CloseAuthority(authority);
     return NO;
   }
   self.state = replayed.state;
-  self.currentRecoveryAuthority = authority;
+  if (!self.publicEvidenceOnly)
+    self.currentRecoveryAuthority = authority;
   self.currentRecoveryWrap = [wrap copy];
   return YES;
 }
@@ -330,22 +383,29 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
   if (!DecodeRecoveryEvidence(evidence, &snapshot, &authorization))
     return NO;
   NSData *vault = LowerHexData(self.state.vaultId, 16);
-  AncPrivateVaultRecoveryAuthority *replacement = [self
-      deriveAuthority:self.state.recoveryGeneration + 1
-                 vault:vault];
+  AncPrivateVaultRecoveryAuthority *replacement = self.publicEvidenceOnly
+      ? nil
+      : [self deriveAuthority:self.state.recoveryGeneration + 1 vault:vault];
   uint64_t edgeTime = EntryTimeMilliseconds(entry);
   AncPrivateVaultRecoveryAuthorizationStatus authorizationStatus;
-  AncPrivateVaultRecoveryAuthorizationVerifier *verifier =
-      replacement == nil || edgeTime == 0
-      ? nil
-      : [[AncPrivateVaultRecoveryAuthorizationVerifier alloc]
-             initWithAuthorization:authorization
-                   currentSnapshot:snapshot
-               currentRecoveryWrap:self.currentRecoveryWrap
-                 consumedAuthority:self.currentRecoveryAuthority
-              replacementAuthority:replacement
-           trustedNowMilliseconds:self.trustedNowMilliseconds
-                             status:&authorizationStatus];
+  id<AncPrivateVaultControlLogAuthorizationVerifier> verifier = nil;
+  if (edgeTime != 0 && self.publicEvidenceOnly) {
+    verifier = [[AncPrivateVaultRecoveryPublicEvidenceVerifier alloc]
+         initWithAuthorization:authorization
+               currentSnapshot:snapshot
+           currentRecoveryWrap:self.currentRecoveryWrap
+       trustedNowMilliseconds:self.trustedNowMilliseconds
+                         status:&authorizationStatus];
+  } else if (edgeTime != 0 && replacement != nil) {
+    verifier = [[AncPrivateVaultRecoveryAuthorizationVerifier alloc]
+         initWithAuthorization:authorization
+               currentSnapshot:snapshot
+           currentRecoveryWrap:self.currentRecoveryWrap
+             consumedAuthority:self.currentRecoveryAuthority
+          replacementAuthority:replacement
+       trustedNowMilliseconds:self.trustedNowMilliseconds
+                         status:&authorizationStatus];
+  }
   AncPrivateVaultControlLogReplayResult *replayed = nil;
   AncPrivateVaultControlLogStatus replayStatus = verifier == nil
       ? AncPrivateVaultControlLogStatusRecoveryAuthorizationRequired
@@ -358,15 +418,21 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
                          ? nil
                          : AncPrivateVaultRecoveryWrapHash(wrap, vault,
                                                           &wrapStatus);
+  AncPrivateVaultRecoveryAuthorizationResult *authorizationResult =
+      self.publicEvidenceOnly
+          ? [(AncPrivateVaultRecoveryPublicEvidenceVerifier *)verifier result]
+          : [(AncPrivateVaultRecoveryAuthorizationVerifier *)verifier result];
   if (replayStatus != AncPrivateVaultControlLogStatusOK || replayed == nil ||
-      verifier.result == nil ||
-      ![wrapHash isEqualToData:verifier.result.replacementWrapHash] ||
+      authorizationResult == nil ||
+      ![wrapHash isEqualToData:authorizationResult.replacementWrapHash] ||
       ![wrapHash isEqualToData:replayed.state.recoveryWrapHash]) {
     CloseAuthority(replacement);
     return NO;
   }
-  CloseAuthority(self.currentRecoveryAuthority);
-  self.currentRecoveryAuthority = replacement;
+  if (!self.publicEvidenceOnly) {
+    CloseAuthority(self.currentRecoveryAuthority);
+    self.currentRecoveryAuthority = replacement;
+  }
   self.currentRecoveryWrap = [wrap copy];
   self.state = replayed.state;
   return YES;
@@ -392,10 +458,11 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
     return NO;
   if (wrap != nil &&
       (!verifier.isVerified ||
-       ![self acceptWrap:wrap
-                  inState:prior
-                authority:self.currentRecoveryAuthority
-             initializeEEK:NO]))
+       (!self.publicEvidenceOnly &&
+        ![self acceptWrap:wrap
+                   inState:prior
+                 authority:self.currentRecoveryAuthority
+              initializeEEK:NO])))
     return NO;
   self.state = replayed.state;
   if (wrap != nil)
@@ -411,8 +478,10 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
     SetStatus(status, self.status);
     return NO;
   }
-  if (frame == nil || self.recoveryEntropy == nil ||
-      self.recoveryEntropy.isClosed || frame.entries.count == 0 ||
+  if (frame == nil ||
+      (!self.publicEvidenceOnly &&
+       (self.recoveryEntropy == nil || self.recoveryEntropy.isClosed)) ||
+      frame.entries.count == 0 ||
       frame.entries.count != frame.entryRecoveryWraps.count ||
       frame.entries.count != frame.entryEvidenceKinds.count ||
       frame.entries.count != frame.entryEvidence.count)
@@ -485,20 +554,22 @@ static void CloseAuthority(AncPrivateVaultRecoveryAuthority *authority) {
       return [self fail:AncPrivateVaultBootstrapReplayStatusFinalWrap
                    output:status];
     }
-    AncPrivateVaultRecoveryAuthority *replacement =
-        self.state.recoveryGeneration == UINT64_MAX
-            ? nil
-            : [self deriveAuthority:self.state.recoveryGeneration + 1
-                               vault:vault];
-    if (replacement == nil ||
-        [self.recoveryEntropy close] !=
-        AncPrivateVaultGuardedMemoryStatusOK) {
-      CloseAuthority(replacement);
-      return [self fail:AncPrivateVaultBootstrapReplayStatusAuthority
-                   output:status];
+    if (!self.publicEvidenceOnly) {
+      AncPrivateVaultRecoveryAuthority *replacement =
+          self.state.recoveryGeneration == UINT64_MAX
+              ? nil
+              : [self deriveAuthority:self.state.recoveryGeneration + 1
+                                 vault:vault];
+      if (replacement == nil ||
+          [self.recoveryEntropy close] !=
+              AncPrivateVaultGuardedMemoryStatusOK) {
+        CloseAuthority(replacement);
+        return [self fail:AncPrivateVaultBootstrapReplayStatusAuthority
+                     output:status];
+      }
+      self.recoveryEntropy = nil;
+      self.replacementRecoveryAuthority = replacement;
     }
-    self.recoveryEntropy = nil;
-    self.replacementRecoveryAuthority = replacement;
     self.complete = YES;
   }
   self.status = AncPrivateVaultBootstrapReplayStatusOK;

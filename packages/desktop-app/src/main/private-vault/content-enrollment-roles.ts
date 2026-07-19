@@ -1,3 +1,5 @@
+import type { PrivateVaultContentBootstrapTransport } from "./content-bootstrap-transport.js";
+import type { PrivateVaultBootstrapPageAcceptance } from "./content-bootstrap-transport.js";
 import type {
   PrivateVaultEnrollmentAuthorizerResult,
   PrivateVaultTrustedEnrollmentOperator,
@@ -11,6 +13,14 @@ import type {
   PrivateVaultHostedEnrollmentStatus,
 } from "./content-enrollment-transport.js";
 import type { NativeActivateEnrollmentResult } from "./native-service-client.js";
+
+type PrivateVaultCandidateEnrollmentOperator =
+  PrivateVaultTrustedEnrollmentOperator & {
+    acceptEnrollmentBootstrapPage(
+      vaultId: string,
+      encoded: Uint8Array,
+    ): Promise<PrivateVaultBootstrapPageAcceptance>;
+  };
 
 export type PrivateVaultCandidateEnrollmentProgress =
   | Readonly<{ state: "awaiting-authorizer"; invitation: Uint8Array }>
@@ -64,16 +74,19 @@ abstract class SerializedEnrollmentRole {
 
 /** Runs only the new broker candidate half on the Mac being enrolled. */
 export class PrivateVaultContentEnrollmentCandidate extends SerializedEnrollmentRole {
-  readonly #native: PrivateVaultTrustedEnrollmentOperator;
+  readonly #native: PrivateVaultCandidateEnrollmentOperator;
   readonly #hosted: PrivateVaultContentEnrollmentTransport;
+  readonly #bootstrap: PrivateVaultContentBootstrapTransport;
 
   constructor(input: {
-    readonly native: PrivateVaultTrustedEnrollmentOperator;
+    readonly native: PrivateVaultCandidateEnrollmentOperator;
     readonly hosted: PrivateVaultContentEnrollmentTransport;
+    readonly bootstrap: PrivateVaultContentBootstrapTransport;
   }) {
     super();
     this.#native = input.native;
     this.#hosted = input.hosted;
+    this.#bootstrap = input.bootstrap;
   }
 
   begin(vaultId: string): Promise<PrivateVaultCandidateEnrollmentProgress> {
@@ -124,6 +137,14 @@ export class PrivateVaultContentEnrollmentCandidate extends SerializedEnrollment
         }
         if (!status.challenge) throw new Error();
         if (status.phase === "challenge") {
+          const bootstrapped = await this.#bootstrap.transfer({
+            acceptPage: (encoded) =>
+              this.#native.acceptEnrollmentBootstrapPage(
+                invitation.vaultId,
+                encoded,
+              ),
+          });
+          if (bootstrapped.vaultId !== invitation.vaultId) throw new Error();
           const decision = await this.#native.confirmBrokerEnrollment(
             invitation.vaultId,
             status.challenge.slice(),

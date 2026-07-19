@@ -203,6 +203,7 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool decideEnrollment = strcmp(operation, "decide_enroll") == 0;
     bool authorizeEnrollment = strcmp(operation, "authorize_enroll") == 0;
     bool activateEnrollment = strcmp(operation, "activate_enroll") == 0;
+    bool enrollmentBootstrap = strcmp(operation, "enroll_page") == 0;
     bool sealObject = strcmp(operation, "seal_object") == 0;
     bool openObject = strcmp(operation, "open_object") == 0;
     bool sealJobObject = strcmp(operation, "seal_job_object") == 0;
@@ -216,7 +217,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
-        !activateEnrollment && !sealObject && !openObject && !sealJobObject &&
+        !activateEnrollment && !enrollmentBootstrap && !sealObject &&
+        !openObject && !sealJobObject &&
         !openJobObject) {
         return PVRequestUnsupportedOperation;
     }
@@ -569,6 +571,16 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                                &request->receipt, &request->receiptLength)) {
             return PVRequestInvalid;
         }
+    } else if (enrollmentBootstrap) {
+        if (fieldCount != 5 || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVReadBoundedData(message, "bootstrapFrame",
+                               PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES,
+                               &request->bootstrapFrame,
+                               &request->bootstrapFrameLength)) {
+            return PVRequestInvalid;
+        }
     } else if (acceptBootstrap) {
         if (fieldCount != 4 || vaultIDValue != NULL || lookupIDValue != NULL ||
             !PVReadBoundedData(message, "bootstrapFrame",
@@ -609,7 +621,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                 sealJob || sealResult ||
                 completeResult || pendingResult || prepareEnrollment ||
                 challengeEnrollment || inspectEnrollment ||
-                authorizeEnrollment || activateEnrollment || sealObject ||
+                authorizeEnrollment || activateEnrollment ||
+                enrollmentBootstrap || sealObject ||
                 openObject
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;

@@ -43,6 +43,12 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultBootstrapReplayStatus) {
                           status:
                               (AncPrivateVaultBootstrapReplayStatus *_Nullable)
                                   status NS_DESIGNATED_INITIALIZER;
+- (nullable instancetype)
+    initForPublicEnrollmentWithTrustedNowMilliseconds:
+        (uint64_t)trustedNowMilliseconds
+                                             status:
+                                                 (AncPrivateVaultBootstrapReplayStatus *_Nullable)
+                                                     status NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 

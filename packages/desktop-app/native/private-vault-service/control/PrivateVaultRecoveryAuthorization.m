@@ -548,6 +548,14 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
 }
 
 @interface AncPrivateVaultRecoveryAuthorizationVerifier ()
+- (instancetype)
+       initWithPublicAuthorization:(NSData *)authorization
+                   currentSnapshot:(NSData *)currentSnapshot
+               currentRecoveryWrap:(NSData *)currentRecoveryWrap
+           trustedNowMilliseconds:(uint64_t)trustedNowMilliseconds
+                             status:
+                                 (AncPrivateVaultRecoveryAuthorizationStatus *)status
+    NS_DESIGNATED_INITIALIZER;
 @property(nonatomic) NSData *authorizationBytes;
 @property(nonatomic) NSData *snapshotBytes;
 @property(nonatomic) NSData *currentWrapBytes;
@@ -558,12 +566,72 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
 @property(nonatomic) AncPrivateVaultRecoveryAuthority *consumedAuthority;
 @property(nonatomic) AncPrivateVaultRecoveryAuthority *replacementAuthority;
 @property(nonatomic) uint64_t trustedNowMilliseconds;
+@property(nonatomic) BOOL publicEvidenceOnly;
 @property(nonatomic, readwrite, nullable)
     AncPrivateVaultRecoveryAuthorizationResult *result;
 @property(nonatomic, readwrite) AncPrivateVaultRecoveryAuthorizationStatus status;
 @end
 
 @implementation AncPrivateVaultRecoveryAuthorizationVerifier
+
+- (instancetype)
+       initWithPublicAuthorization:(NSData *)authorization
+                   currentSnapshot:(NSData *)currentSnapshot
+               currentRecoveryWrap:(NSData *)currentRecoveryWrap
+           trustedNowMilliseconds:(uint64_t)trustedNowMilliseconds
+                             status:
+                                 (AncPrivateVaultRecoveryAuthorizationStatus *)status {
+  SetStatus(status, AncPrivateVaultRecoveryAuthorizationStatusInvalidArgument);
+  self = [super init];
+  if (self == nil)
+    return nil;
+  NSData *authorizationCopy =
+      SnapshotData(authorization, kMaximumEvidenceBytes);
+  NSData *snapshotCopy = SnapshotData(currentSnapshot, kMaximumEvidenceBytes);
+  NSData *wrapCopy = SnapshotData(currentRecoveryWrap, kMaximumEvidenceBytes);
+  if (authorizationCopy == nil || snapshotCopy == nil || wrapCopy == nil ||
+      trustedNowMilliseconds == 0)
+    return nil;
+  AncPrivateVaultCanonicalValue *vaultValue =
+      DecodeMap(authorizationCopy, kMaximumEvidenceBytes)[@2];
+  NSData *vaultId = vaultValue.bytesValue;
+  if (vaultId.length != 16) {
+    _status = AncPrivateVaultRecoveryAuthorizationStatusInvalidCanonical;
+    SetStatus(status, _status);
+    return nil;
+  }
+  AncRecoveryAuthorizationEnvelope *decodedAuthorization =
+      DecodeAuthorization(authorizationCopy, vaultId);
+  AncRecoverySnapshot *decodedSnapshot = DecodeSnapshot(snapshotCopy, vaultId);
+  AncRecoveryCandidate *decodedCandidate =
+      DecodeCandidate(decodedAuthorization.candidateBytes, vaultId);
+  AncRecoveryReplacementConfirmation *decodedConfirmation =
+      DecodeConfirmation(decodedAuthorization.confirmationBytes, vaultId);
+  if (decodedAuthorization == nil || decodedSnapshot == nil ||
+      decodedCandidate == nil || decodedConfirmation == nil ||
+      decodedAuthorization.consumedGeneration == 0 ||
+      decodedAuthorization.consumedGeneration == kMaximumSafeInteger ||
+      decodedConfirmation.replacementGeneration !=
+          decodedAuthorization.consumedGeneration + 1 ||
+      ![decodedConfirmation.priorId
+          isEqualToData:decodedAuthorization.consumedId]) {
+    _status = AncPrivateVaultRecoveryAuthorizationStatusBinding;
+    SetStatus(status, _status);
+    return nil;
+  }
+  _authorizationBytes = authorizationCopy;
+  _snapshotBytes = snapshotCopy;
+  _currentWrapBytes = wrapCopy;
+  _authorization = decodedAuthorization;
+  _snapshot = decodedSnapshot;
+  _candidate = decodedCandidate;
+  _confirmation = decodedConfirmation;
+  _trustedNowMilliseconds = trustedNowMilliseconds;
+  _publicEvidenceOnly = YES;
+  _status = AncPrivateVaultRecoveryAuthorizationStatusOK;
+  SetStatus(status, _status);
+  return self;
+}
 
 - (instancetype)
        initWithAuthorization:(NSData *)authorization
@@ -643,6 +711,7 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
   _consumedAuthority = consumedAuthority;
   _replacementAuthority = replacementAuthority;
   _trustedNowMilliseconds = trustedNowMilliseconds;
+  _publicEvidenceOnly = NO;
   _status = AncPrivateVaultRecoveryAuthorizationStatusOK;
   SetStatus(status, _status);
   return self;
@@ -660,8 +729,9 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
   self.status = AncPrivateVaultRecoveryAuthorizationStatusBinding;
   if (commit == nil || entry == nil || state == nil ||
       signedEntryBytes.length == 0 || innerEnvelopeBytes.length == 0 ||
-      self.consumedAuthority.keyAgreementPrivateKey.isClosed ||
-      self.replacementAuthority.keyAgreementPrivateKey.isClosed)
+      (!self.publicEvidenceOnly &&
+       (self.consumedAuthority.keyAgreementPrivateKey.isClosed ||
+        self.replacementAuthority.keyAgreementPrivateKey.isClosed)))
     return NO;
   NSData *vaultId = DataFromLowerHex(state.vaultId, 16);
   NSData *stateRecoveryId = DataFromLowerHex(state.recoveryId, 16);
@@ -753,8 +823,9 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
       self.confirmation.priorGeneration != state.recoveryGeneration ||
       ![self.confirmation.priorId isEqualToData:stateRecoveryId] ||
       self.confirmation.replacementGeneration != state.recoveryGeneration + 1 ||
-      ![self.confirmation.replacementId
-          isEqualToData:self.replacementAuthority.recoveryId] ||
+      (!self.publicEvidenceOnly &&
+       ![self.confirmation.replacementId
+           isEqualToData:self.replacementAuthority.recoveryId]) ||
       [self.confirmation.replacementId
           isEqualToData:self.authorization.consumedId] ||
       ![self.confirmation.replacementWrapHash
@@ -862,23 +933,25 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
       ![commit.recoveryWrapHash isEqualToData:replacementWrapHash])
     return NO;
 
-  uint8_t currentEEK[32] = {0};
-  uint8_t replacementEEK[32] = {0};
-  BOOL currentOpened = UnsealEEK(
-      self.currentWrapBytes, vaultId, currentIssuer.signingPublicKey,
-      currentIssuer.keyAgreementPublicKey, self.consumedAuthority, currentEEK);
-  BOOL replacementOpened = UnsealEEK(
-      self.authorization.replacementWrapBytes, vaultId,
-      self.candidate.signingPublicKey, self.candidate.agreementPublicKey,
-      self.replacementAuthority, replacementEEK);
-  BOOL sameEEK = currentOpened && replacementOpened &&
-                 anc_pv_memcmp(currentEEK, replacementEEK, 32) ==
-                     ANC_PV_CRYPTO_OK;
-  anc_pv_zeroize(currentEEK, sizeof currentEEK);
-  anc_pv_zeroize(replacementEEK, sizeof replacementEEK);
-  if (!sameEEK) {
-    self.status = AncPrivateVaultRecoveryAuthorizationStatusEEKContinuity;
-    return NO;
+  if (!self.publicEvidenceOnly) {
+    uint8_t currentEEK[32] = {0};
+    uint8_t replacementEEK[32] = {0};
+    BOOL currentOpened = UnsealEEK(
+        self.currentWrapBytes, vaultId, currentIssuer.signingPublicKey,
+        currentIssuer.keyAgreementPublicKey, self.consumedAuthority, currentEEK);
+    BOOL replacementOpened = UnsealEEK(
+        self.authorization.replacementWrapBytes, vaultId,
+        self.candidate.signingPublicKey, self.candidate.agreementPublicKey,
+        self.replacementAuthority, replacementEEK);
+    BOOL sameEEK = currentOpened && replacementOpened &&
+                   anc_pv_memcmp(currentEEK, replacementEEK, 32) ==
+                       ANC_PV_CRYPTO_OK;
+    anc_pv_zeroize(currentEEK, sizeof currentEEK);
+    anc_pv_zeroize(replacementEEK, sizeof replacementEEK);
+    if (!sameEEK) {
+      self.status = AncPrivateVaultRecoveryAuthorizationStatusEEKContinuity;
+      return NO;
+    }
   }
 
   self.result = [[AncPrivateVaultRecoveryAuthorizationResult alloc]
@@ -891,6 +964,55 @@ static BOOL UnsealEEK(NSData *encodedWrap, NSData *vaultId,
                     replacementWrapHash:replacementWrapHash];
   self.status = AncPrivateVaultRecoveryAuthorizationStatusOK;
   return self.result != nil;
+}
+
+@end
+
+@interface AncPrivateVaultRecoveryPublicEvidenceVerifier ()
+@property(nonatomic) AncPrivateVaultRecoveryAuthorizationVerifier *inner;
+@end
+
+@implementation AncPrivateVaultRecoveryPublicEvidenceVerifier
+
+- (instancetype)
+       initWithAuthorization:(NSData *)authorization
+             currentSnapshot:(NSData *)currentSnapshot
+         currentRecoveryWrap:(NSData *)currentRecoveryWrap
+     trustedNowMilliseconds:(uint64_t)trustedNowMilliseconds
+                       status:(AncPrivateVaultRecoveryAuthorizationStatus *)status {
+  self = [super init];
+  if (self == nil)
+    return nil;
+  _inner = [[AncPrivateVaultRecoveryAuthorizationVerifier alloc]
+       initWithPublicAuthorization:authorization
+                   currentSnapshot:currentSnapshot
+               currentRecoveryWrap:currentRecoveryWrap
+           trustedNowMilliseconds:trustedNowMilliseconds
+                             status:status];
+  return _inner == nil ? nil : self;
+}
+
+- (AncPrivateVaultRecoveryAuthorizationResult *)result {
+  return self.inner.result;
+}
+
+- (AncPrivateVaultRecoveryAuthorizationStatus)status {
+  return self.inner.status;
+}
+
+- (BOOL)verifyRecoveryMembershipCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                            signedEntry:
+                                (AncPrivateVaultControlLogSignedEntry *)entry
+                           currentState:
+                               (AncPrivateVaultControlLogState *)state
+                       signedEntryBytes:(NSData *)signedEntryBytes
+                     innerEnvelopeBytes:(NSData *)innerEnvelopeBytes {
+  return [self.inner verifyRecoveryMembershipCommit:commit
+                                        signedEntry:entry
+                                       currentState:state
+                                   signedEntryBytes:signedEntryBytes
+                                 innerEnvelopeBytes:innerEnvelopeBytes];
 }
 
 @end

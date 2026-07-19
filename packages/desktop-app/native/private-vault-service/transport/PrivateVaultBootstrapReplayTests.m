@@ -318,6 +318,25 @@ int main(void) {
              return eekMatches;
            }] == AncPrivateVaultGuardedMemoryStatusOK);
     assert(eekMatches);
+
+    GenesisFixture *publicFixture = BuildFixture(NO);
+    CloseInputs(publicFixture);
+    assert([publicFixture.entropy close] ==
+           AncPrivateVaultGuardedMemoryStatusOK);
+    AncPrivateVaultBootstrapReplay *publicReplay =
+        [[AncPrivateVaultBootstrapReplay alloc]
+            initForPublicEnrollmentWithTrustedNowMilliseconds:
+                UINT64_C(1721200060000)
+                                                     status:&status];
+    assert(publicReplay != nil &&
+           [publicReplay consumeFrame:publicFixture.frame status:&status] &&
+           publicReplay.isComplete && publicReplay.state.sequence == 0 &&
+           publicReplay.currentRecoveryAuthority == nil &&
+           publicReplay.replacementRecoveryAuthority == nil &&
+           publicReplay.verifiedEEK == nil &&
+           [publicReplay.currentRecoveryWrap
+               isEqualToData:publicFixture.frame.recoveryWrap]);
+    [publicReplay invalidate];
     AncPrivateVaultGuardedMemory *candidateSigning =
         Guarded(Pattern(0x31, 32));
     AncPrivateVaultGuardedMemory *candidateAgreement =

@@ -1085,6 +1085,42 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("streams public enrollment history into the native candidate boundary", async () => {
+    const vaultId = "53".repeat(16);
+    const headHash = "64".repeat(32);
+    const request = vi.fn().mockResolvedValue({
+      version: 3,
+      operation: "enroll_page",
+      state: "verified",
+      vaultId,
+      throughSequence: 2,
+      headSequence: 2,
+      headHash,
+      complete: true,
+    });
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    const source = Uint8Array.of(1, 2, 3);
+    await expect(
+      client.acceptEnrollmentBootstrapPage(vaultId, source),
+    ).resolves.toEqual({
+      vaultId,
+      throughSequence: 2,
+      head: { sequence: 2, hash: headHash },
+      complete: true,
+    });
+    source.fill(9);
+    expect(request).toHaveBeenCalledWith(
+      "enroll_page",
+      vaultId,
+      expect.any(Buffer),
+    );
+    expect(
+      (request.mock.calls[0]![2] as Buffer).every((byte) => byte === 0),
+    ).toBe(true);
+  });
+
   it("copies and bounds the content-free genesis commit contract before queueing", async () => {
     const publicProof = {
       vaultId: "01".repeat(16),

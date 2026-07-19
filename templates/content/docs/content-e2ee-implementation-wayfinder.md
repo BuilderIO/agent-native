@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, an account-authorized first-device genesis, mnemonic-proven native recovery replay, and exact fresh-device custody promotion have executable proof; hosted recovery receipt supervision, ordinary endpoint enrollment, complete broker packaging, and the product slice remain pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, cryptographic design, the opaque hosted ciphertext plane, account-authorized first-device genesis, mnemonic-proven recovery, exact fresh-device custody promotion, and fresh-Mac broker enrollment through a native-verified public control projection have executable proof; broker replacement and revocation, complete packaging, the protected Content product slice, and fork-level assurance remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -985,8 +985,28 @@ universal addon, typed Desktop client, and hosted transcript coordinator expose
 only the public challenge and authorization bytes. Every guarded buffer is
 closed independently even if another close fails. The dual-architecture native
 corpus, protocol corpus, Desktop contract tests, typecheck, universal addon
-build, and production Apple Silicon service build cover this same-device
-first-beta path; they do not claim a cross-device authorizer transport.
+build, and production Apple Silicon service build remain the proof for the
+same-device path.
+
+Cross-device enrollment no longer assumes that the fresh broker Mac already
+has the attended endpoint's authority store. Before the candidate may present
+or confirm a SAS, Desktop streams the session-authenticated, ciphertext-only
+bootstrap pages into a separate bounded `enroll_page` operation. The signed
+native service verifies genesis, ordinary membership and wrap-rotation edges,
+and publicly checkable recovery evidence under one exact pinned head. This
+projection deliberately has no recovery entropy and cannot open a recovery
+wrap; the mnemonic-bearing verifier remains the only path that proves EEK
+continuity. The candidate then verifies the real authorizer's challenge and
+authorization against the replayed public state, so a hosted server that
+substitutes a self-consistent alternate history still cannot make the SAS or
+authorizer signature verify. At most eight process-local candidate projections
+may exist, and activation destroys the one it consumes. Native public-replay
+and recovery corpora, the strict XPC protocol, universal addon and production
+service builds, Desktop typecheck, and split-role tests prove that replay occurs
+before confirmation and that no recovery authority or EEK enters the fresh
+candidate projection. A signed two-service end-to-end harness with isolated
+state roots remains an assurance item; it is not being inferred from the split
+role and native reducer tests.
 
 Recovery and later enrollment now have a hosted bootstrap read boundary. A
 same-origin, session-authenticated client asks for the beta account's one vault

@@ -67,6 +67,7 @@ enum class PVOperation {
   AcceptBootstrap,
   RecoverBegin,
   RecoverPage,
+  EnrollmentBootstrap,
   RecoverStatus,
   CreateGrant,
   SealJob,
@@ -1276,7 +1277,8 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
 
   if (operation == PVOperation::AcceptBootstrap ||
       operation == PVOperation::RecoverBegin ||
-      operation == PVOperation::RecoverPage) {
+      operation == PVOperation::RecoverPage ||
+      operation == PVOperation::EnrollmentBootstrap) {
     const char *const keys[] = {
         "version",       "ok",           "requestId",
         "state",         "vaultId",      "throughSequence",
@@ -1291,9 +1293,12 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     xpc_object_t complete = xpc_dictionary_get_value(reply, "complete");
     const bool recovery = operation == PVOperation::RecoverBegin ||
                           operation == PVOperation::RecoverPage;
+    const bool enrollment = operation == PVOperation::EnrollmentBootstrap;
     if (!PVHasExactKeys(reply, keys, 9) ||
         !PVRequestIDMatches(reply, requestID) || state == nullptr ||
         !PVIsLowerHex(vaultID, 32) ||
+        (enrollment &&
+         (expectedVaultID == nullptr || strcmp(vaultID, expectedVaultID) != 0)) ||
         !PVIsLowerHex(headHash, 64) || through == nullptr ||
         xpc_get_type(through) != XPC_TYPE_UINT64 || head == nullptr ||
         xpc_get_type(head) != XPC_TYPE_UINT64 || complete == nullptr ||
@@ -1308,8 +1313,11 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       return parsed;
     }
     const bool completeValue = xpc_dictionary_get_bool(reply, "complete");
-    const char *expectedState =
-        recovery ? (completeValue ? "committing" : "accepted") : "parsed";
+    const char *expectedState = recovery
+                                    ? (completeValue ? "committing" : "accepted")
+                                : enrollment
+                                    ? (completeValue ? "verified" : "accepted")
+                                    : "parsed";
     if (strcmp(state, expectedState) != 0) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
@@ -1533,6 +1541,8 @@ void PVExecute(napi_env env, void *data) {
                               ? "recover_begin"
                           : request->operation == PVOperation::RecoverPage
                               ? "recover_page"
+                          : request->operation == PVOperation::EnrollmentBootstrap
+                              ? "enroll_page"
                           : request->operation == PVOperation::RecoverStatus
                               ? "recover_status"
                           : request->operation == PVOperation::CreateGrant
@@ -1753,11 +1763,14 @@ void PVExecute(napi_env env, void *data) {
   }
   if (request->operation == PVOperation::AcceptBootstrap ||
       request->operation == PVOperation::RecoverBegin ||
-      request->operation == PVOperation::RecoverPage) {
+      request->operation == PVOperation::RecoverPage ||
+      request->operation == PVOperation::EnrollmentBootstrap) {
     xpc_dictionary_set_data(message, "bootstrapFrame",
                             request->bootstrapFrame.data(),
                             request->bootstrapFrame.size());
   }
+  if (request->operation == PVOperation::EnrollmentBootstrap)
+    xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   if (request->operation == PVOperation::RecoverBegin) {
     xpc_dictionary_set_data(message, "recoveryMnemonic",
                             request->recoveryMnemonic.data(),
@@ -1787,6 +1800,7 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::ChallengeEnrollment ||
                 request->operation == PVOperation::AuthorizeEnrollment ||
                 request->operation == PVOperation::ActivateEnrollment ||
+                request->operation == PVOperation::EnrollmentBootstrap ||
                 request->operation == PVOperation::SealObject ||
                 request->operation == PVOperation::OpenObject ||
                 request->operation == PVOperation::CreateGrant ||
@@ -1972,6 +1986,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "recover_begin"
                 : request->operation == PVOperation::RecoverPage
                     ? "recover_page"
+                : request->operation == PVOperation::EnrollmentBootstrap
+                    ? "enroll_page"
                 : request->operation == PVOperation::RecoverStatus
                     ? "recover_status"
                 : request->operation == PVOperation::CreateGrant
@@ -2281,7 +2297,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       PVSetString(env, result, "lookupId", request->lookupID);
     } else if (request->operation == PVOperation::AcceptBootstrap ||
                request->operation == PVOperation::RecoverBegin ||
-               request->operation == PVOperation::RecoverPage) {
+               request->operation == PVOperation::RecoverPage ||
+               request->operation == PVOperation::EnrollmentBootstrap) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetSafeInteger(env, result, "throughSequence",
                        request->throughSequence);
@@ -2362,6 +2379,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::RecoverBegin;
   } else if (strcmp(operation, "recover_page") == 0) {
     request->operation = PVOperation::RecoverPage;
+  } else if (strcmp(operation, "enroll_page") == 0) {
+    request->operation = PVOperation::EnrollmentBootstrap;
   } else if (strcmp(operation, "recover_status") == 0) {
     request->operation = PVOperation::RecoverStatus;
   } else if (strcmp(operation, "create_grant") == 0) {
@@ -2416,6 +2435,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
               request->operation == PVOperation::RecoverBegin ||
               request->operation == PVOperation::RecoverPage
           ? 2
+      : request->operation == PVOperation::EnrollmentBootstrap ? 3
       : request->operation == PVOperation::CreateGrant ? 4
       : request->operation == PVOperation::SealJob ? 7
       : request->operation == PVOperation::OpenJob ? 7
@@ -2442,6 +2462,7 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   if (request->operation == PVOperation::Unlock ||
       request->operation == PVOperation::ResumeRotation ||
       request->operation == PVOperation::RecoverStatus ||
+      request->operation == PVOperation::EnrollmentBootstrap ||
       request->operation == PVOperation::CreateGrant ||
       request->operation == PVOperation::SealJob ||
       request->operation == PVOperation::OpenJob ||
@@ -2839,11 +2860,15 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   size_t bootstrapFrameLength = 0;
   if (request->operation == PVOperation::AcceptBootstrap ||
       request->operation == PVOperation::RecoverBegin ||
-      request->operation == PVOperation::RecoverPage) {
+      request->operation == PVOperation::RecoverPage ||
+      request->operation == PVOperation::EnrollmentBootstrap) {
     void *bytes = nullptr;
     bool isBuffer = false;
-    if (napi_is_buffer(env, argv[1], &isBuffer) != napi_ok || !isBuffer ||
-        napi_get_buffer_info(env, argv[1], &bytes, &bootstrapFrameLength) !=
+    size_t frameIndex = request->operation == PVOperation::EnrollmentBootstrap
+                            ? 2
+                            : 1;
+    if (napi_is_buffer(env, argv[frameIndex], &isBuffer) != napi_ok || !isBuffer ||
+        napi_get_buffer_info(env, argv[frameIndex], &bytes, &bootstrapFrameLength) !=
             napi_ok ||
         bytes == nullptr || bootstrapFrameLength == 0 ||
         bootstrapFrameLength > PV_BOOTSTRAP_FRAME_MAXIMUM_BYTES) {
@@ -3011,7 +3036,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   }
   if (request->operation == PVOperation::AcceptBootstrap ||
       request->operation == PVOperation::RecoverBegin ||
-      request->operation == PVOperation::RecoverPage) {
+      request->operation == PVOperation::RecoverPage ||
+      request->operation == PVOperation::EnrollmentBootstrap) {
     try {
       request->bootstrapFrame.assign(
           bootstrapFrame, bootstrapFrame + bootstrapFrameLength);

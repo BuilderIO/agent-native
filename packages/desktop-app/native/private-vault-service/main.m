@@ -76,6 +76,9 @@ static AncPrivateVaultEnrollmentCoordinator *gEnrollmentCoordinator = nil;
 static id<AncPrivateVaultGenesisTrustedClock> gTrustedClock = nil;
 static NSMutableDictionary<NSString *, id> *gEnrollmentInspections = nil;
 static NSLock *gEnrollmentInspectionLock = nil;
+static NSMutableDictionary<NSString *, AncPrivateVaultBootstrapReplay *>
+    *gEnrollmentBootstrapReplays = nil;
+static NSLock *gEnrollmentBootstrapLock = nil;
 
 @interface PVEnrollmentInspection : NSObject
 @property(nonatomic) NSString *vaultId;
@@ -603,6 +606,76 @@ static void PVAcceptBootstrap(xpc_connection_t peer, xpc_object_t message,
     }
 }
 
+static void PVEnrollmentBootstrap(xpc_connection_t peer, xpc_object_t message,
+                                  const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        NSData *encoded = request->bootstrapFrame == NULL
+                              ? nil
+                              : [NSData dataWithBytes:request->bootstrapFrame
+                                               length:request->bootstrapFrameLength];
+        AncPrivateVaultEnrollmentOfferArtifact *artifact = nil;
+        AncPrivateVaultBootstrapFrameStatus frameStatus;
+        AncPrivateVaultBootstrapFrame *frame =
+            AncPrivateVaultBootstrapFrameDecode(encoded, &frameStatus);
+        if (vaultBytes == nil || frame == nil ||
+            frameStatus != AncPrivateVaultBootstrapFrameStatusOK ||
+            ![frame.vaultId isEqualToString:vaultId] ||
+            [gEnrollmentArtifactStore readVaultId:vaultBytes
+                                         artifact:&artifact] !=
+                AncPrivateVaultEnrollmentOfferArtifactStatusOK ||
+            artifact == nil) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        [gEnrollmentBootstrapLock lock];
+        BOOL accepted = NO;
+        AncPrivateVaultBootstrapReplayStatus replayStatus;
+        @try {
+            AncPrivateVaultBootstrapReplay *replay =
+                gEnrollmentBootstrapReplays[vaultId];
+            if (frame.afterSequence == -1) {
+                if (replay == nil && gEnrollmentBootstrapReplays.count >= 8) {
+                    replay = nil;
+                } else {
+                    [replay invalidate];
+                    replay = [[AncPrivateVaultBootstrapReplay alloc]
+                        initForPublicEnrollmentWithTrustedNowMilliseconds:
+                            (uint64_t)llround(
+                                NSDate.date.timeIntervalSince1970 * 1000.0)
+                                                                 status:&replayStatus];
+                    if (replay != nil)
+                        gEnrollmentBootstrapReplays[vaultId] = replay;
+                }
+            }
+            accepted = replay != nil &&
+                       [replay consumeFrame:frame status:&replayStatus];
+            if (!accepted) {
+                [replay invalidate];
+                [gEnrollmentBootstrapReplays removeObjectForKey:vaultId];
+            }
+        } @finally {
+            [gEnrollmentBootstrapLock unlock];
+        }
+        if (!accepted) {
+            PVSendError(peer, message, "enrollment_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state",
+                                  frame.complete ? "verified" : "accepted");
+        xpc_dictionary_set_string(reply, "vaultId", frame.vaultId.UTF8String);
+        xpc_dictionary_set_uint64(reply, "throughSequence",
+                                  (uint64_t)frame.throughSequence);
+        xpc_dictionary_set_uint64(reply, "headSequence", frame.headSequence);
+        xpc_dictionary_set_string(reply, "headHash", frame.headHash.UTF8String);
+        xpc_dictionary_set_bool(reply, "complete", frame.complete);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVRecoverBootstrap(xpc_connection_t peer, xpc_object_t message,
                                const PVRequest *request, BOOL begin) {
     @autoreleasepool {
@@ -1072,6 +1145,37 @@ static BOOL PVEnrollmentAuthorityContext(
     return *signedAtSeconds > 0;
 }
 
+static uint64_t PVControlStateSignedAtSeconds(
+    AncPrivateVaultControlLogState *state) {
+    if (state.signedAt.length == 0) return 0;
+    NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
+    formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime |
+                              NSISO8601DateFormatWithFractionalSeconds;
+    NSDate *date = [formatter dateFromString:state.signedAt];
+    NSTimeInterval seconds = date.timeIntervalSince1970;
+    return date != nil && isfinite(seconds) && seconds > 0 &&
+                   seconds <= (double)UINT64_MAX
+               ? (uint64_t)floor(seconds)
+               : 0;
+}
+
+static BOOL PVEnrollmentCandidateAuthorityContext(
+    NSString *vaultId, AncPrivateVaultControlLogState **state,
+    uint64_t *signedAtSeconds) {
+    if (state == NULL || signedAtSeconds == NULL ||
+        gEnrollmentBootstrapLock == nil) return NO;
+    *state = nil;
+    *signedAtSeconds = 0;
+    [gEnrollmentBootstrapLock lock];
+    AncPrivateVaultBootstrapReplay *replay =
+        gEnrollmentBootstrapReplays[vaultId];
+    if (replay.isComplete) *state = replay.state;
+    [gEnrollmentBootstrapLock unlock];
+    if (*state == nil || ![(*state).vaultId isEqualToString:vaultId]) return NO;
+    *signedAtSeconds = PVControlStateSignedAtSeconds(*state);
+    return *signedAtSeconds > 0;
+}
+
 static BOOL PVEnrollmentContext(
     NSString *vaultId, AncPrivateVaultEnrollmentOfferArtifact **artifact,
     AncPrivateVaultControlLogState **state, uint64_t *signedAtSeconds) {
@@ -1083,7 +1187,9 @@ static BOOL PVEnrollmentContext(
         [gEnrollmentArtifactStore readVaultId:vaultBytes artifact:&stored] !=
             AncPrivateVaultEnrollmentOfferArtifactStatusOK ||
         stored == nil ||
-        !PVEnrollmentAuthorityContext(vaultId, state, signedAtSeconds)) {
+        (!PVEnrollmentAuthorityContext(vaultId, state, signedAtSeconds) &&
+         !PVEnrollmentCandidateAuthorityContext(vaultId, state,
+                                                signedAtSeconds))) {
         return NO;
     }
     *artifact = stored;
@@ -2309,6 +2415,12 @@ static void PVActivateEnrollment(xpc_connection_t peer, xpc_object_t message,
             PVSendError(peer, message, "enrollment_failed");
             return;
         }
+        [gEnrollmentBootstrapLock lock];
+        AncPrivateVaultBootstrapReplay *bootstrapReplay =
+            gEnrollmentBootstrapReplays[vaultId];
+        [bootstrapReplay invalidate];
+        [gEnrollmentBootstrapReplays removeObjectForKey:vaultId];
+        [gEnrollmentBootstrapLock unlock];
         NSString *headHash = PVHex(checkpoint.snapshot.headHash);
         if (headHash.length != 64) {
             PVSendError(peer, message, "enrollment_failed");
@@ -2492,6 +2604,10 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVActivateEnrollment(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "enroll_page") == 0) {
+                PVEnrollmentBootstrap(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "seal_object") == 0) {
                 PVSealObject(peer, message, &request);
                 return;
@@ -2595,6 +2711,8 @@ int main(void) {
         gRecoveryStatuses = [NSMutableDictionary dictionary];
         gEnrollmentInspectionLock = [NSLock new];
         gEnrollmentInspections = [NSMutableDictionary dictionary];
+        gEnrollmentBootstrapLock = [NSLock new];
+        gEnrollmentBootstrapReplays = [NSMutableDictionary dictionary];
         NSURL *stateRoot = PVStateRootURL();
         NSURL *recoveryStateRoot =
             AncPrivateVaultPrepareRecoveryStateRoot(stateRoot);

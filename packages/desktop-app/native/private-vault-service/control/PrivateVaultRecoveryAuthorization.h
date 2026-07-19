@@ -59,6 +59,25 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRecoveryAuthorizationStatus) {
 + (instancetype)new NS_UNAVAILABLE;
 @end
 
+/** Public-history verifier for a device that has no recovery entropy. */
+@interface AncPrivateVaultRecoveryPublicEvidenceVerifier
+    : NSObject <AncPrivateVaultControlLogAuthorizationVerifier>
+@property(nonatomic, readonly, nullable)
+    AncPrivateVaultRecoveryAuthorizationResult *result;
+@property(nonatomic, readonly) AncPrivateVaultRecoveryAuthorizationStatus status;
+
+- (nullable instancetype)
+       initWithAuthorization:(NSData *)authorization
+             currentSnapshot:(NSData *)currentSnapshot
+         currentRecoveryWrap:(NSData *)currentRecoveryWrap
+     trustedNowMilliseconds:(uint64_t)trustedNowMilliseconds
+                       status:
+                           (AncPrivateVaultRecoveryAuthorizationStatus *_Nullable)
+                               status NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+@end
+
 FOUNDATION_EXPORT NSString *AncPrivateVaultRecoveryAuthorizationCategory(
     AncPrivateVaultRecoveryAuthorizationStatus status);
 

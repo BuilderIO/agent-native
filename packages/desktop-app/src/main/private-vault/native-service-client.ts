@@ -71,6 +71,7 @@ type NativeOperation =
   | "confirm_enroll"
   | "authorize_enroll"
   | "activate_enroll"
+  | "enroll_page"
   | "seal_object"
   | "open_object"
   | "seal_job_object"
@@ -143,6 +144,10 @@ export interface PrivateVaultNativeServiceClient
     challenge: Uint8Array,
     authorization: Uint8Array,
   ): Promise<NativeActivateEnrollmentResult>;
+  acceptEnrollmentBootstrapPage(
+    vaultId: string,
+    encoded: Uint8Array,
+  ): Promise<PrivateVaultBootstrapPageAcceptance>;
   sealContentObjectRevision(
     input: NativeSealContentObjectInput,
   ): Promise<NativeSealedContentObjectResult>;
@@ -877,6 +882,46 @@ function parseRecoveryPage(
       complete: value.complete,
     }),
     committing: value.state === "committing",
+  });
+}
+
+function parseEnrollmentBootstrapPage(
+  value: unknown,
+  vaultId: string,
+): PrivateVaultBootstrapPageAcceptance {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "throughSequence",
+      "headSequence",
+      "headHash",
+      "complete",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
+    value.operation !== "enroll_page" ||
+    value.vaultId !== vaultId ||
+    !isSafeInteger(value.throughSequence, false) ||
+    !isSafeInteger(value.headSequence, false) ||
+    value.throughSequence > value.headSequence ||
+    !isLowerHex(value.headHash, 64) ||
+    typeof value.complete !== "boolean" ||
+    value.complete !== (value.throughSequence === value.headSequence) ||
+    value.state !== (value.complete ? "verified" : "accepted")
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    vaultId,
+    throughSequence: value.throughSequence,
+    head: Object.freeze({
+      sequence: value.headSequence,
+      hash: value.headHash,
+    }),
+    complete: value.complete,
   });
 }
 
@@ -2112,6 +2157,36 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
         }
         this.#bootstrapComplete = parsed.acceptance.complete;
         return parsed.acceptance;
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        frame.fill(0);
+      }
+    });
+  }
+
+  acceptEnrollmentBootstrapPage(
+    vaultId: string,
+    encoded: Uint8Array,
+  ): Promise<PrivateVaultBootstrapPageAcceptance> {
+    if (!isLowerHex(vaultId, 32)) {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    let frame: Buffer;
+    try {
+      frame = Buffer.from(
+        copyBoundedBytes(encoded, ANC_V1_VAULT_BOOTSTRAP_FRAME_MAX_BYTES),
+      );
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseEnrollmentBootstrapPage(
+          await addon.request("enroll_page", vaultId, frame),
+          vaultId,
+        );
       } catch {
         throw new PrivateVaultNativeServiceClientError();
       } finally {

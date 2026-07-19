@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type {
+  PrivateVaultBootstrapPageAcceptance,
+  PrivateVaultContentBootstrapTransport,
+} from "./content-bootstrap-transport.js";
 import type { PrivateVaultTrustedEnrollmentOperator } from "./content-enrollment-coordinator.js";
 import {
   PrivateVaultContentEnrollmentAuthorizer,
@@ -61,7 +65,12 @@ function hostedTranscript() {
   };
 }
 
-function candidateNative(): PrivateVaultTrustedEnrollmentOperator {
+function candidateNative(): PrivateVaultTrustedEnrollmentOperator & {
+  acceptEnrollmentBootstrapPage(
+    vaultId: string,
+    encoded: Uint8Array,
+  ): Promise<PrivateVaultBootstrapPageAcceptance>;
+} {
   return {
     prepareBrokerEnrollment: vi.fn(
       async () =>
@@ -107,7 +116,21 @@ function candidateNative(): PrivateVaultTrustedEnrollmentOperator {
     buildBrokerEnrollmentAuthorization: vi.fn(async () => {
       throw new Error("candidate must not authorize");
     }),
+    acceptEnrollmentBootstrapPage: vi.fn(async () => ({
+      vaultId,
+      throughSequence: 0,
+      head: { sequence: 0, hash: "66".repeat(32) },
+      complete: true,
+    })),
   };
+}
+
+function bootstrapTransport(): PrivateVaultContentBootstrapTransport {
+  return {
+    transfer: vi.fn(async (consumer) =>
+      consumer.acceptPage(Uint8Array.of(0xa1)),
+    ),
+  } as unknown as PrivateVaultContentBootstrapTransport;
 }
 
 describe("Private Vault cross-device enrollment roles", () => {
@@ -125,6 +148,7 @@ describe("Private Vault cross-device enrollment roles", () => {
     const candidate = new PrivateVaultContentEnrollmentCandidate({
       native: candidateOperator,
       hosted: shared.transport,
+      bootstrap: bootstrapTransport(),
     });
     const authorizer = new PrivateVaultContentEnrollmentAuthorizer({
       native: authorizerOperator,
@@ -170,6 +194,16 @@ describe("Private Vault cross-device enrollment roles", () => {
       vaultId,
       challenge,
     );
+    expect(
+      candidateOperator.acceptEnrollmentBootstrapPage,
+    ).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(candidateOperator.acceptEnrollmentBootstrapPage).mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(candidateOperator.confirmBrokerEnrollment).mock
+        .invocationCallOrder[0]!,
+    );
   });
 
   it("treats a hosted mismatch as terminal on both devices", async () => {
@@ -178,6 +212,7 @@ describe("Private Vault cross-device enrollment roles", () => {
     const begun = await new PrivateVaultContentEnrollmentCandidate({
       native: candidateNative(),
       hosted: shared.transport,
+      bootstrap: bootstrapTransport(),
     }).begin(vaultId);
     if (begun.state !== "awaiting-authorizer") throw new Error();
     const authorizer = new PrivateVaultContentEnrollmentAuthorizer({

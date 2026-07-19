@@ -460,6 +460,24 @@ int main(void) {
                                        innerEnvelopeBytes:mismatchedEEK.innerBytes]);
     assert(verifier.status ==
            AncPrivateVaultRecoveryAuthorizationStatusEEKContinuity);
+
+    AncPrivateVaultRecoveryPublicEvidenceVerifier *publicVerifier =
+        [[AncPrivateVaultRecoveryPublicEvidenceVerifier alloc]
+             initWithAuthorization:mismatchedEEK.authorization
+                   currentSnapshot:mismatchedEEK.snapshot
+               currentRecoveryWrap:mismatchedEEK.currentWrap
+           trustedNowMilliseconds:UINT64_C(1721200060000)
+                             status:&status];
+    assert(publicVerifier != nil &&
+           status == AncPrivateVaultRecoveryAuthorizationStatusOK);
+    assert([publicVerifier
+        verifyRecoveryMembershipCommit:mismatchedEEK.commit
+                            signedEntry:mismatchedEEK.entry
+                           currentState:mismatchedEEK.state
+                       signedEntryBytes:mismatchedEEK.signedEntryBytes
+                     innerEnvelopeBytes:mismatchedEEK.innerBytes]);
+    assert(publicVerifier.result != nil &&
+           publicVerifier.result.replacementWrapHash.length == 32);
     CloseFixture(mismatchedEEK);
 
     fixture = BuildFixture(0x43);

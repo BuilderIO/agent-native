@@ -1,3 +1,4 @@
+import { PrivateVaultContentBootstrapTransport } from "./content-bootstrap-transport.js";
 import {
   PrivateVaultContentEnrollmentAuthorizer,
   PrivateVaultContentEnrollmentCandidate,
@@ -45,6 +46,7 @@ export class PrivateVaultContentEnrollmentRuntime {
       candidate: new PrivateVaultContentEnrollmentCandidate({
         native: this.#native,
         hosted,
+        bootstrap: new PrivateVaultContentBootstrapTransport(input),
       }),
       authorizer: new PrivateVaultContentEnrollmentAuthorizer({
         native: this.#native,

@@ -408,6 +408,19 @@ int main(void) {
          strcmp(parsed.vaultID, enrollmentVault) == 0);
   xpc_release(prepareEnrollment);
 
+  xpc_object_t enrollmentBootstrap = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "enroll_page", "request-enroll-page");
+  xpc_dictionary_set_string(enrollmentBootstrap, "vaultId", enrollmentVault);
+  xpc_dictionary_set_data(enrollmentBootstrap, "bootstrapFrame",
+                          bootstrapBytes, sizeof bootstrapBytes);
+  assert(PVParseRequest(enrollmentBootstrap, &parsed) == PVRequestValid &&
+         strcmp(parsed.operation, "enroll_page") == 0 &&
+         strcmp(parsed.vaultID, enrollmentVault) == 0 &&
+         parsed.bootstrapFrameLength == sizeof bootstrapBytes);
+  assert(!PVRequestCanRun(&parsed, false));
+  assert(PVRequestCanRun(&parsed, true));
+  xpc_release(enrollmentBootstrap);
+
   xpc_object_t challengeEnrollment = PVMakeRequest(
       PV_PROTOCOL_VERSION, "challenge_enroll", "request-challenge-enroll");
   xpc_dictionary_set_string(challengeEnrollment, "vaultId", enrollmentVault);
