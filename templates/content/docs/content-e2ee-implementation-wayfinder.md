@@ -746,7 +746,11 @@ controls remain. The encrypted rollback-fenced grant index now admits exactly
 one byte-stable pending revocation per vault, reopens it after process restart,
 rejects substitution, and clears it only by exact signed-edge identity. Native
 custody no longer leaves either the signed outer edge or wire framing to
-JavaScript.
+JavaScript. An internal native coordinator now joins those seams: it builds or
+reopens the exact pending edge, produces the fixed proof, binds the receipt to
+the edge id, sequence, and domain hash, durably applies the revocation, commits
+the carry-current authority replay, and clears only after the official
+checkpoint agrees. Service/XPC reachability and user controls remain.
 
 The Content action and desktop composition seam is now executable. A canonical,
 bounded `content-action` body names exactly one registered Content action; the

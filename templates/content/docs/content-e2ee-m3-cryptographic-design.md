@@ -511,7 +511,11 @@ receipt-to-edge acceptance and user-facing grant controls remain product work.
 The encrypted rollback-fenced grant index now persists exactly one byte-stable
 pending revocation per vault across restart, refuses a different edge while it
 is pending, and clears only the exact signed bytes. JavaScript never receives
-the endpoint signing seed or assembles the signed authority edge.
+the endpoint signing seed or assembles the signed authority edge. The internal
+native coordinator now binds the complete prepare, receipt verification,
+revocation replay, carried authority commit, crash reconciliation, and cleanup
+sequence. It is not yet reachable through the signed service/XPC product
+surface.
 
 The native boundary now also has a Core-parity grant codec. It verifies the
 fixed canonical field sets, sorted resource/operation/provider scopes, exact

@@ -31,6 +31,7 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultGrantIndexStatus) {
 @property(nonatomic, readonly) AncPrivateVaultVerifiedGrant *grant;
 @property(nonatomic, readonly) NSString *issuerControlEndpointId;
 @property(nonatomic, readonly) NSData *issuerSigningPublicKey;
+@property(nonatomic, readonly, getter=isRevoked) BOOL revoked;
 @end
 
 @interface AncPrivateVaultPendingGrantRevocation : NSObject
@@ -90,7 +91,7 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey;
     signerControlEndpointId:(NSString *)signerControlEndpointId
      signerSigningPublicKey:(NSData *)signerSigningPublicKey;
 
-/** Resolves stored issuer evidence even after grant expiry, but not revocation. */
+/** Resolves stored issuer evidence even after expiry or local revocation. */
 - (AncPrivateVaultGrantIndexStatus)
     resolveGrantForRevocationRef:(NSData *)grantRef
                          vaultId:(NSString *)vaultId

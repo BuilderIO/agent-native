@@ -88,6 +88,7 @@ static NSString *const kFenceRecordId = @"grant-index";
 @property(nonatomic) AncPrivateVaultVerifiedGrant *grant;
 @property(nonatomic) NSString *issuerControlEndpointId;
 @property(nonatomic) NSData *issuerSigningPublicKey;
+@property(nonatomic, getter=isRevoked) BOOL revoked;
 @end
 @implementation AncPrivateVaultRevocableGrantContext
 @end
@@ -1109,9 +1110,10 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey {
             NSData *vaultBytes, const uint8_t *key, AncGrantIndexRecord *record) {
           (void)vaultBytes;
           (void)key;
+          BOOL revoked = NO;
           for (NSData *revocation in record.revocations)
             if ([RevocationGrantRef(revocation) isEqualToData:grantRef])
-              return AncPrivateVaultGrantIndexStatusUnauthorized;
+              revoked = YES;
           AncStoredGrant *stored = nil;
           for (AncStoredGrant *candidate in record.grants)
             if ([candidate.verified.grantRef isEqualToData:grantRef])
@@ -1123,6 +1125,7 @@ issuerSigningPublicKey:(NSData *)issuerSigningPublicKey {
               [stored.issuerControlEndpointId copy];
           resolved.issuerSigningPublicKey =
               [stored.issuerSigningPublicKey copy];
+          resolved.revoked = revoked;
           return AncPrivateVaultGrantIndexStatusOK;
         }];
   });

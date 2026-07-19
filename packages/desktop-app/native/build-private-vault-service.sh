@@ -63,6 +63,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultStateRoot.m"
   "$SOURCE_ROOT/storage/PrivateVaultGrantIndex.m"
   "$SOURCE_ROOT/storage/PrivateVaultGrantIndexControlVerifier.m"
+  "$SOURCE_ROOT/storage/PrivateVaultGrantRevocationCoordinator.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendCandidateIndex.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinator.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m"

@@ -244,7 +244,6 @@ int main(void) {
                          resourceId:Pattern(0x04, 16) operation:@"read"
                            provider:@"synthetic-provider"] ==
            AncPrivateVaultGrantIndexStatusUnauthorized);
-
     uint8_t contentGrantSeed[32];
     memset(contentGrantSeed, 0x11, sizeof contentGrantSeed);
     uint8_t contentGrantPublicKey[32] = {0};
@@ -632,6 +631,11 @@ int main(void) {
                          resourceId:Pattern(0x04, 16) operation:@"read"
                            provider:@"synthetic-provider"] ==
            AncPrivateVaultGrantIndexStatusUnauthorized);
+    revocable = nil;
+    assert([index resolveGrantForRevocationRef:grantRef vaultId:kVaultId
+                                       context:&revocable] ==
+               AncPrivateVaultGrantIndexStatusOK &&
+           revocable.isRevoked);
 
     AncPrivateVaultGrantIndex *restarted = [[AncPrivateVaultGrantIndex alloc]
         initWithStateRootURL:[NSURL fileURLWithPath:temporary]
