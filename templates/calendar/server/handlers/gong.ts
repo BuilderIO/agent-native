@@ -1,3 +1,4 @@
+import { lookupGongCallsByEmail } from "@agent-native/core/provider-api/gong";
 import { readBody } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -57,66 +58,10 @@ export const gongCallsLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "Gong API key not configured" };
   }
 
-  try {
-    // Gong uses Basic auth with access key:secret or Bearer token
-    const response = await fetch(
-      "https://api.gong.io/v2/calls?fromDateTime=" +
-        new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    if (!response.ok) {
-      // Try with basic auth format (accessKey:secretKey base64)
-      const basicRes = await fetch(
-        "https://api.gong.io/v2/calls?fromDateTime=" +
-          new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-        {
-          headers: {
-            Authorization: `Basic ${Buffer.from(apiKey).toString("base64")}`,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-      if (!basicRes.ok) {
-        setResponseStatus(event, response.status);
-        return { error: `Gong API error: ${response.status}` };
-      }
-      const basicData = await basicRes.json();
-      return filterCallsByEmail(basicData.calls || [], email);
-    }
-
-    const data = await response.json();
-    return filterCallsByEmail(data.calls || [], email);
-  } catch {
-    setResponseStatus(event, 500);
-    return { error: "Failed to reach Gong API" };
+  const result = await lookupGongCallsByEmail({ credential: apiKey, email });
+  if (!result.ok) {
+    setResponseStatus(event, result.status);
+    return { error: result.error };
   }
+  return result.calls;
 });
-
-function filterCallsByEmail(calls: any[], email: string) {
-  const emailLower = email.toLowerCase();
-  return calls
-    .filter((call: any) => {
-      const participants = call.parties || [];
-      return participants.some(
-        (p: any) => p.emailAddress?.toLowerCase() === emailLower,
-      );
-    })
-    .slice(0, 10)
-    .map((call: any) => ({
-      id: call.id,
-      title: call.title,
-      started: call.started,
-      duration: call.duration,
-      direction: call.direction,
-      parties: (call.parties || []).map((p: any) => ({
-        name: p.name,
-        email: p.emailAddress,
-      })),
-    }));
-}

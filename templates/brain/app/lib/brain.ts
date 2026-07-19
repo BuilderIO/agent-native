@@ -142,6 +142,11 @@ export interface BrainSource {
   } | null;
 }
 
+export interface CreateSourceResponse {
+  source: BrainSource;
+  ingestToken?: string;
+}
+
 export interface BrainOverviewResponse {
   metrics?: BrainMetric[];
   reviewQueue?: ReviewItem[];
@@ -304,6 +309,25 @@ export interface BrainHealthResponse {
     lastCapturedAt?: string | null;
     counts?: Record<string, number>;
   };
+  privacy: {
+    classifier: {
+      configured: boolean;
+      model: string | null;
+      engine: string | null;
+      warning: string | null;
+    };
+    events: {
+      total: number;
+      suppressed: number;
+      quarantined: number;
+      released: number;
+      discarded: number;
+      expired: number;
+      counts?: Record<string, number>;
+      confidenceCounts?: Record<string, number>;
+    };
+    policyVersion: string;
+  };
   proposals: {
     pending: number;
     approved: number;
@@ -325,6 +349,37 @@ export interface BrainHealthResponse {
     stale: number;
     total: number;
     counts?: Record<string, number>;
+  };
+  searchIndex: {
+    indexVersion: string;
+    coverage: {
+      eligibleCaptures: number;
+      activeArtifacts: number;
+      indexedCaptures: number;
+      missingCaptures: number;
+      percent: number;
+    };
+    artifacts: {
+      total: number;
+      active: number;
+      stale: number;
+      deleted: number;
+      counts?: Record<string, number>;
+    };
+    embeddings: {
+      total: number;
+      active: number;
+      stale: number;
+      deleted: number;
+      counts?: Record<string, number>;
+    };
+    queue: {
+      pending: number;
+      failed: number;
+      stale: number;
+      total: number;
+      counts?: Record<string, number>;
+    };
   };
   retrieval: {
     lastEval?: {

@@ -32,6 +32,10 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS: {
+    clientIdKey: "GOOGLE_CLIENT_ID",
+    clientSecretKey: "GOOGLE_CLIENT_SECRET",
+  },
   createOAuthSession: mocks.createOAuthSession,
   decodeOAuthState: mocks.decodeOAuthState,
   encodeOAuthState: mocks.encodeOAuthState,
@@ -51,6 +55,25 @@ vi.mock("@agent-native/core/server", () => ({
     return fallbackClientId && fallbackClientSecret
       ? { clientId: fallbackClientId, clientSecret: fallbackClientSecret }
       : null;
+  },
+  resolveGoogleProviderCredentialCandidatesWithReader: async ({
+    readCredential,
+    fallbackReadCredential,
+    credentialKeyPairs,
+  }: any) => {
+    const [keys] = credentialKeyPairs;
+    const [clientId, clientSecret] = await Promise.all([
+      readCredential(keys.clientIdKey),
+      readCredential(keys.clientSecretKey),
+    ]);
+    if (clientId && clientSecret) return [{ clientId, clientSecret }];
+    const [fallbackClientId, fallbackClientSecret] = await Promise.all([
+      fallbackReadCredential?.(keys.clientIdKey),
+      fallbackReadCredential?.(keys.clientSecretKey),
+    ]);
+    return fallbackClientId && fallbackClientSecret
+      ? [{ clientId: fallbackClientId, clientSecret: fallbackClientSecret }]
+      : [];
   },
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,

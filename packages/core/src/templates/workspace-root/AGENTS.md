@@ -27,6 +27,10 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and `packages/shared/AGENTS.md` plus
 `packages/shared/.agents/skills/` for workspace-specific conventions.
+Read `customizing-agent-native` before adapting shared UI: configure or compose
+public components first, then copy only the smallest reference UI piece into
+the owning app when necessary. Never edit `node_modules` or replace shared
+runtime contracts.
 To bring an older workspace current, run `pnpm upgrade:agent-native` or
 `npx @agent-native/core@latest upgrade` from the workspace root. That bumps
 `@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.

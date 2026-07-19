@@ -72,6 +72,7 @@
     "guard:plan-skills": "tsx scripts/sync-plan-skills.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
+    "guard:provider-action-factories": "tsx scripts/guard-provider-action-factories.ts",
     "guard:agent-chat-context": "tsx scripts/guard-agent-chat-context.ts",
     "guard:request-storms": "tsx scripts/guard-request-storms.ts",
     "guard:ssr-cache-shell": "node scripts/guard-ssr-cache-shell.mjs",

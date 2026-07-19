@@ -409,8 +409,69 @@ these built-in providers:
 These entries are available to actions through the shared
 `provider-api-catalog`, `provider-api-docs`, and `provider-api-request` pattern.
 They do not imply that the provider also appears in the remote MCP picker.
-Custom provider registrations can extend this action catalog without changing
-the built-in list above.
+
+### Reuse the Core action factories {#provider-api-factories}
+
+Provider API actions are reusable Core primitives, not an implementation to
+copy between apps. App builders should keep a thin action file for each stable
+app-facing action id, then delegate its behavior to the shared factory. That
+keeps app-specific provider enums, descriptions, HTTP exposure, and
+`toolCallable` choices intact while Core owns request safety, auditing,
+credential injection, and staging.
+
+```ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { MY_APP_ID, getMyProviderApiRuntime } from "../server/provider-api";
+
+export default createProviderApiRequestAction(getMyProviderApiRuntime(), {
+  appId: MY_APP_ID,
+  schema: myProviderRequestSchema,
+  description: "Call a configured provider API for this app.",
+  http: { method: "POST" },
+  toolCallable: false,
+});
+```
+
+Use `createProviderApiCatalogAction` and `createProviderApiDocsAction` for the
+other two actions. Their runtime is the app's provider runtime; the wrapper is
+where an app deliberately narrows provider ids or preserves its own public
+action contract. Do not reimplement the request, catalog, or docs behavior in
+each template.
+
+For data too large to keep in a response, pass `stageAs` to the request action
+and expose thin wrappers around `createQueryStagedDatasetAction`,
+`createListStagedDatasetsAction`, and `createDeleteStagedDatasetAction` (or the
+combined `createStagedDatasetActions`). Set the same `appId` on request and
+staged-dataset factories. Core scopes staged data to that app and the current
+credential owner, so one user's scratch data cannot be queried or deleted by a
+different user or app.
+
+### Credentials and custom providers {#provider-api-authority}
+
+The provider runtime is the credential authority. It resolves a scoped
+workspace connection, OAuth account, or secret and injects authentication into
+an allowed provider request. Action arguments, provider registrations, and
+docs may name credential keys or connection ids, but must never accept, store,
+or log credential values. Use the app's secrets and onboarding surfaces to
+collect credentials; use workspace grants when an account should be shared
+across apps.
+
+Apps can add their own provider integrations. Start with a thin wrapper over a
+runtime that recognizes the provider, then use the catalog and docs actions to
+make its safe capabilities discoverable. Custom-provider registration is
+deliberately opt-in:
+
+```ts
+createProviderApiActions(runtime, { customProviderRegistration: true });
+```
+
+This exposes the registration action only when the app chooses to support it.
+Registration stores endpoint and credential-key
+metadata, never secret values, and organization-scoped mutations require the
+runtime's authorization checks. A custom provider registration is not a remote
+MCP preset or a webhook adapter; add those separate integrations only when the
+product needs them.
 
 ## Keep the directory honest {#keep-current}
 

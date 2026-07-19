@@ -233,11 +233,15 @@ Read the relevant skill before making changes in that area:
 - `agent-native-toolkit` for deciding whether settings, app chrome,
   collaboration, sharing, navigation, organization, comments, or history belong
   in reusable framework/toolkit primitives.
+- `customizing-agent-native` before adapting or selectively copying installed
+  Toolkit/Core UI into app-owned source.
 - `composable-mini-apps` for many one-job headless apps that discover siblings
   and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.
 - `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
   Cursor, or Mastra.
+- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
+  collaboration workflow, subscription metering, checkpoints, and recovery.
 - `self-modifying-code` for source edits by the agent.
 - `upgrade-agent-native` for bringing an older app/workspace to current
   `@agent-native/*` packages without patching core/dispatch.

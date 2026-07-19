@@ -1,9 +1,8 @@
-import { describe, expect, it } from "vitest";
-
 import {
   buildProviderApiAuditSummary,
   sanitizeProviderApiAuditPath,
-} from "./provider-api-audit.js";
+} from "@agent-native/core/provider-api/actions/provider-api-audit";
+import { describe, expect, it } from "vitest";
 
 describe("provider API audit summaries", () => {
   it("redacts every query value from relative and absolute request paths", () => {

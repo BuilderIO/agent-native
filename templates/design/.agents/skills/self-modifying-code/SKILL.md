@@ -35,8 +35,14 @@ Tier 4 includes **all** of the following — not only editing package source:
 - Files under `node_modules/@agent-native/*` (core, dispatch, scheduling, …)
 - `pnpm.overrides`, `overrides`, `resolutions`, or `patchedDependencies` that
   target any `@agent-native/*` package
-- Local patches, vendored copies, or invented "dispatch/core behavior"
-  shims meant to paper over a version skew or failed upgrade
+- Local package patches or invented "dispatch/core behavior" shims meant to
+  paper over a version skew or failed upgrade
+
+This does not prohibit intentional app-owned UI customization. When public
+props and composition are insufficient, the `customizing-agent-native` skill
+allows copying the smallest reference UI component from the installed source
+into the app. The copy must use public runtime contracts and must not replace
+Core auth, DB, actions, agent execution, or transport behavior.
 
 When an older branch needs current packages, use **`agent-native upgrade`**
 (see the `upgrade-agent-native` skill). If upgrade or typecheck fails, fix
@@ -88,6 +94,8 @@ inline strings in components.
 - Don't modify `.env` files or files containing secrets
 - Don't modify `@agent-native/core`, `@agent-native/dispatch`, or other
   `@agent-native/*` package internals (including under `node_modules`)
+- Don't confuse a read-only reference copy with editing package internals: use
+  `customizing-agent-native` for selective app-owned UI adoption
 - Don't add `pnpm.overrides` / `patchedDependencies` / `resolutions` for
   `@agent-native/*` to "make the app run" after a version bump
 - Don't invent local dispatch/core behavior overrides when upgrade fails —
@@ -99,6 +107,7 @@ inline strings in components.
 ## Related Skills
 
 - **upgrade-agent-native** — supported path to bring an older app/workspace current
+- **customizing-agent-native** — safe selective adoption of installed reference UI
 - **storing-data** — Tier 1 modifications (data files) are the safest and most common
 - **actions** — The agent can create or modify actions to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat

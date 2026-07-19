@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { dispatchCodeAgentRunnerCommand } from "./code-agent-runner-dispatch.js";
 import {
   resolveCodeAgentRunnerInvocation,
   runCodeAgentRunnerWithSignal,
@@ -155,6 +156,31 @@ describe("runCodeAgentRunnerWithSignal", () => {
     expect(observedSignal?.aborted).toBe(true);
     expect(processRef.listenerCount("SIGTERM")).toBe(0);
     expect(processRef.listenerCount("SIGINT")).toBe(0);
+  });
+});
+
+describe("dispatchCodeAgentRunnerCommand", () => {
+  it("forwards an aborted signal through the deny dispatch", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const deny = async (_runId: string, options: { signal: AbortSignal }) =>
+      options.signal.aborted ? "paused" : "errored";
+    let result: unknown;
+
+    await dispatchCodeAgentRunnerCommand(
+      ["deny", "task-1"],
+      { stdout: process.stdout, signal: controller.signal },
+      {
+        run: async () => undefined,
+        approve: async () => undefined,
+        approveAlways: async () => undefined,
+        deny: async (runId, options) => {
+          result = await deny(runId, options);
+        },
+      },
+    );
+
+    expect(result).toBe("paused");
   });
 });
 
