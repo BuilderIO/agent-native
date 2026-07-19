@@ -306,11 +306,26 @@ export class MultiFrontierCoordinator {
     }
     this.#assertPersistedParticipants(persisted);
     const resumablePhase = persisted.recovery?.resumablePhase ?? "proposing";
+    const restartPlanning = [
+      "proposing",
+      "cross_review",
+      "converging",
+    ].includes(resumablePhase);
+    const returnToApproval = ["implementing", "checkpoint_review"].includes(
+      resumablePhase,
+    );
     const state: LocalFrontierCoordinatorState = {
       ...cloneState(persisted),
-      phase: resumablePhase === "implementing" ? "awaiting_go" : resumablePhase,
-      approval:
-        resumablePhase === "implementing" ? "pending" : persisted.approval,
+      phase: restartPlanning
+        ? "proposing"
+        : returnToApproval
+          ? "awaiting_go"
+          : resumablePhase,
+      approval: restartPlanning
+        ? "not_required"
+        : returnToApproval
+          ? "pending"
+          : persisted.approval,
       participants: readOnlyParticipants(persisted.participants),
       driver: revokeDriver(persisted.driver),
       recovery: undefined,

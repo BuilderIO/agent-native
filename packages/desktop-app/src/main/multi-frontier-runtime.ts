@@ -680,6 +680,7 @@ function testRunnerFromCommand(command: string): string | null {
     )
     .replace(/["']$/, "")
     .trim();
+  if (/[;&|`\r\n]|\$\(/.test(normalized)) return null;
   const runners: Array<[RegExp, string]> = [
     [/^(?:corepack\s+)?pnpm\b[^\n;&|]*\b(?:test|vitest)\b/i, "pnpm"],
     [/^npm\b[^\n;&|]*\b(?:test|test:|run\s+test)\b/i, "npm"],

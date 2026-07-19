@@ -304,19 +304,27 @@ export class MultiFrontierManager {
     if (!(await this.#hasConnectedSubscriptions())) {
       return this.#subscriptionRequired(request.requestId, session);
     }
+    const resumablePhase = getMultiFrontierRun(session.collaborationId)
+      ?.recovery?.resumablePhase;
     const needsPlanningPrompt =
-      getMultiFrontierRun(session.collaborationId)?.recovery?.resumablePhase ===
-      "proposing";
-    if (needsPlanningPrompt && !session.request) {
-      if (
-        !request.prompt ||
-        Buffer.byteLength(request.prompt, "utf8") >
-          MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES
-      ) {
+      resumablePhase !== undefined &&
+      ["proposing", "cross_review", "converging"].includes(resumablePhase);
+    if (needsPlanningPrompt) {
+      if (!request.prompt) {
         return this.#errorForSession(
           request.requestId,
           session,
           "Re-enter the original request before resuming planning.",
+        );
+      }
+      if (
+        Buffer.byteLength(request.prompt, "utf8") >
+        MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES
+      ) {
+        return this.#errorForSession(
+          request.requestId,
+          session,
+          "The re-entered planning request is too large.",
         );
       }
       session.request = request.prompt;
@@ -326,9 +334,17 @@ export class MultiFrontierManager {
     } catch (error) {
       return this.#pauseForProviderFailure(session, request.requestId, error);
     }
-    // Recovery reconnects read-only sessions only. It intentionally neither
-    // replays a turn nor auto-approves an auto-continue policy.
+    // Recovery reconnects read-only sessions only. A re-entered planning
+    // request is explicit new input; no prior turn is replayed.
     await this.#emitSnapshot(session);
+    if (needsPlanningPrompt) {
+      return this.start({
+        schemaVersion: 1,
+        requestId: request.requestId,
+        action: "start",
+        collaborationId: request.collaborationId,
+      });
+    }
     return this.#result(request.requestId, session);
   }
 
@@ -858,7 +874,11 @@ export class MultiFrontierManager {
               this.#pendingCheckpointReviewArtifactId(run.collaborationId),
           }
         : {}),
-      ...(run.phase === "paused" && run.recovery?.resumablePhase === "proposing"
+      ...(run.phase === "paused" &&
+      run.recovery &&
+      ["proposing", "cross_review", "converging"].includes(
+        run.recovery.resumablePhase,
+      )
         ? { requiresPlanningPrompt: true }
         : {}),
       artifacts: listMultiFrontierArtifacts(run.collaborationId)

@@ -589,6 +589,33 @@ describe("MultiFrontierCoordinator", () => {
     });
   });
 
+  it("restores interrupted planning and checkpoint review to actionable boundaries", async () => {
+    const planning = createHarness();
+    await planning.coordinator.begin();
+    await planning.coordinator.beginCrossReview();
+    await planning.coordinator.pause();
+    await planning.coordinator.resume();
+    expect(planning.coordinator.state).toMatchObject({
+      phase: "proposing",
+      approval: "not_required",
+    });
+    expect(planning.alpha.turns).toHaveLength(0);
+
+    const checkpoint = createHarness();
+    await checkpoint.coordinator.begin();
+    await checkpoint.coordinator.requestGo("synthesis-checkpoint");
+    await checkpoint.coordinator.approveGo("alpha");
+    await checkpoint.coordinator.checkpoint("checkpoint-review");
+    await checkpoint.coordinator.pause();
+    await checkpoint.coordinator.resume();
+    expect(checkpoint.coordinator.state).toMatchObject({
+      phase: "awaiting_go",
+      approval: "pending",
+      checkpointIds: ["checkpoint-review"],
+    });
+    expect(checkpoint.alpha.turns).toHaveLength(0);
+  });
+
   it("fails closed when a persisted participant id resolves to another runtime", async () => {
     const { alpha, coordinator } = createHarness();
     await coordinator.begin();

@@ -105,6 +105,19 @@ describe("MultiFrontierManager", () => {
       phase: "paused",
     });
     expect(turns.some((turn) => turn.phase === "implementing")).toBe(false);
+
+    await expect(
+      manager.resume(action("resume", collaborationId)),
+    ).resolves.toMatchObject({
+      error: { message: expect.stringContaining("Re-enter") },
+      snapshot: { phase: "paused", requiresPlanningPrompt: true },
+    });
+    await expect(
+      manager.resume({
+        ...action("resume", collaborationId),
+        prompt: "Re-enter the request after reviewing the scope concern.",
+      }),
+    ).resolves.toMatchObject({ snapshot: { phase: "paused" } });
   });
 
   it("auto-continues directly into implementation without a transient GO state", async () => {
@@ -275,6 +288,31 @@ describe("MultiFrontierManager", () => {
     );
 
     expect(turns.some((turn) => turn.phase === "implementing")).toBe(true);
+    await expect(
+      manager.resume(action("resume", created.snapshot!.collaborationId)),
+    ).resolves.toMatchObject({
+      snapshot: {
+        phase: "awaiting_go",
+        pendingCheckpointReviewArtifactId: expect.any(String),
+      },
+    });
+    const [resumed] = await manager.list();
+    await manager.reReview({
+      schemaVersion: 1,
+      requestId: "consequential-re-review",
+      action: "re-review",
+      collaborationId: created.snapshot!.collaborationId,
+      reviewArtifactId: resumed!.pendingCheckpointReviewArtifactId!,
+      instruction:
+        "The user directs the driver to preserve the credential boundary and make no scope expansion.",
+    });
+    expect(
+      turns.some(
+        (turn) =>
+          turn.phase === "implementing" &&
+          turn.instruction.includes("preserve the credential boundary"),
+      ),
+    ).toBe(true);
   });
 
   it("dispositions the exact persisted checkpoint findings before re-reviewing", async () => {
@@ -346,7 +384,7 @@ describe("MultiFrontierManager", () => {
         ...action("resume", collaborationId),
         prompt: "Re-entered bounded planning request.",
       }),
-    ).resolves.toMatchObject({ snapshot: { phase: "proposing" } });
+    ).resolves.toMatchObject({ snapshot: { phase: "awaiting_go" } });
   });
 
   it("admits only connected subscription participants", async () => {

@@ -413,6 +413,44 @@ describe("multi-frontier runtime", () => {
         instruction: "Verify.",
       }),
     ).resolves.toMatchObject({ tests: [{ status: "failed" }] });
+
+    for (const command of [
+      "pnpm test || true",
+      "pnpm test; true",
+      "pnpm test && true",
+    ]) {
+      const masked = new CodexLocalFrontierParticipant({
+        participantId: `codex-masked-${command.length}`,
+        cwd: "/tmp/workspace",
+        run: vi.fn(async () => ({
+          exitCode: 0,
+          events: [
+            {
+              item: {
+                type: "command_execution",
+                command,
+                output: "1 test failed",
+                exit_code: 0,
+              },
+            },
+            { result: "Done." },
+          ],
+          stderr: "",
+          stderrTruncated: false,
+        })) as never,
+      });
+      await expect(
+        masked.runTurn({
+          collaborationId: "collaboration-1",
+          turnId: `turn-masked-${command.length}`,
+          round: 1,
+          phase: "implementing",
+          permission: "workspace_write",
+          generation: 1,
+          instruction: "Verify.",
+        }),
+      ).resolves.toEqual({ text: "Done." });
+    }
   });
 
   it("cancels an owned participant runner with an AbortController", async () => {
