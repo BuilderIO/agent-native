@@ -336,8 +336,8 @@ export function documentEditorBreadcrumbNavigationItems(
     | "position"
     | "databaseMembership"
     | "source"
-  >[],
-  spaces: Pick<ContentSpaceSummary, "filesDocumentId" | "name">[],
+  >[], // i18n-ignore type expression
+  spaces: Pick<ContentSpaceSummary, "filesDocumentId" | "name">[], // i18n-ignore type expression
 ) {
   const documentById = new Map(documents.map((item) => [item.id, item]));
   const workspaceDocumentIds = new Set(

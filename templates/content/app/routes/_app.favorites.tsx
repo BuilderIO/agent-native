@@ -128,7 +128,7 @@ export default function FavoritesRoute() {
           </div>
         ) : favorites.length === 0 ? (
           <div className="border-t border-border py-10 text-sm text-muted-foreground">
-            Favorite a page to keep it close at hand.
+            {t("database.noRowsMatchThisView")}
           </div>
         ) : (
           <div className="overflow-hidden rounded-md border border-border">
