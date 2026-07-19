@@ -376,4 +376,74 @@ describe("local Screen Memory helpers", () => {
       }),
     );
   });
+
+  it("joins continuous transcript rows without crossing pauses or audio sources", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    const transcriptRows = [
+      {
+        schemaVersion: 1,
+        segmentId: "segment-3",
+        capturedAt: "2026-06-29T12:00:00.000Z",
+        source: "microphone",
+        startMs: 0,
+        endMs: 1_000,
+        text: "Clips and screen captures",
+      },
+      {
+        schemaVersion: 1,
+        segmentId: "segment-3",
+        capturedAt: "2026-06-29T12:00:01.100Z",
+        source: "microphone",
+        startMs: 1_100,
+        endMs: 2_000,
+        text: "obey the visibility toggle.",
+      },
+      {
+        schemaVersion: 1,
+        segmentId: "segment-3",
+        capturedAt: "2026-06-29T12:00:02.100Z",
+        source: "system-audio",
+        startMs: 2_100,
+        endMs: 3_000,
+        text: "A different audio source stays separate.",
+      },
+      {
+        schemaVersion: 1,
+        segmentId: "segment-3",
+        capturedAt: "2026-06-29T12:00:05.100Z",
+        source: "microphone",
+        startMs: 5_100,
+        endMs: 6_000,
+        text: "After a real pause stays separate.",
+      },
+    ];
+    await writeFile(
+      join(root, "segment-3.transcript.jsonl"),
+      `${transcriptRows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-3.json"),
+      `${JSON.stringify({ id: "segment-3", startedAt: "2026-06-29T12:00:00.000Z", endedAt: "2026-06-29T12:01:00.000Z" })}\n`,
+      "utf8",
+    );
+
+    const result = await queryScreenMemoryContext({ limit: 10 }, options);
+    expect(result.evidence.map((item) => item.excerpt)).toEqual([
+      "After a real pause stays separate.",
+      "A different audio source stays separate.",
+      "Clips and screen captures obey the visibility toggle.",
+    ]);
+
+    const crossRowSearch = await queryScreenMemoryContext(
+      { query: "captures obey", limit: 10 },
+      options,
+    );
+    expect(crossRowSearch.evidence).toEqual([
+      expect.objectContaining({
+        sourceType: "transcript",
+        excerpt: "Clips and screen captures obey the visibility toggle.",
+      }),
+    ]);
+  });
 });
