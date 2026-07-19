@@ -151,6 +151,7 @@ export const brainProposalShares = createSharesTable("brain_proposal_shares");
 export const brainSyncRuns = table("brain_sync_runs", {
   id: text("id").primaryKey(),
   sourceId: text("source_id").notNull(),
+  activeSourceId: text("active_source_id"),
   provider: text("provider").notNull(),
   status: text("status", {
     enum: ["running", "success", "error"],
@@ -159,6 +160,8 @@ export const brainSyncRuns = table("brain_sync_runs", {
     .default("running"),
   statsJson: text("stats_json").notNull().default("{}"),
   error: text("error"),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: text("lease_expires_at"),
   startedAt: text("started_at").notNull(),
   completedAt: text("completed_at"),
 });
