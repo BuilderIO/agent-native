@@ -14,6 +14,7 @@ const MAX_HELPER_DEPTH = 2;
 const MAX_HELPER_TASKS = 8;
 const MAX_HELPER_TURNS = 20;
 const MAX_HELPER_ARTIFACTS = 12;
+const MAX_QUOTA_AGE_MS = 5 * 60 * 1_000;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/;
 const SAFE_RUNTIME_VERSION = /^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,159}$/;
@@ -264,6 +265,17 @@ export class MultiFrontierHelperRuntime {
     if (used.length === 0) {
       throw new Error(
         "Optional helpers require a usable provider-reported quota meter.",
+      );
+    }
+    const observedAt = Date.parse(status.telemetry.updatedAt);
+    const ageMs = Date.parse(this.#now()) - observedAt;
+    if (
+      Number.isNaN(observedAt) ||
+      ageMs < -60_000 ||
+      ageMs > MAX_QUOTA_AGE_MS
+    ) {
+      throw new Error(
+        "Optional helpers require fresh provider-reported quota telemetry.",
       );
     }
     return {

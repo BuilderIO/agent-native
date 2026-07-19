@@ -176,6 +176,20 @@ describe("MultiFrontierHelperRuntime", () => {
       "fresh provider-reported quota",
     );
     expect(stale.spawn).not.toHaveBeenCalled();
+
+    const oldLive = createRuntime({
+      status: {
+        ...liveStatus(),
+        telemetry: {
+          ...liveStatus().telemetry,
+          updatedAt: "2026-07-19T17:00:00.000Z",
+        },
+      },
+    });
+    await expect(oldLive.runtime.launch(INPUT)).rejects.toThrow(
+      "fresh provider-reported quota",
+    );
+    expect(oldLive.spawn).not.toHaveBeenCalled();
   });
 
   it("stops optional work at the current provider-reported threshold", async () => {
