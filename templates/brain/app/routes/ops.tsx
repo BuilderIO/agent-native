@@ -141,16 +141,8 @@ export default function OpsRoute() {
     {} as any,
     { refetchInterval: 30_000 },
   );
-  const semantic = (
-    healthQuery.data as BrainHealthResponse & {
-      semanticIndex?: {
-        coverage?: number;
-        embeddingLag?: number;
-        aclFreshness?: number;
-        suppressed?: number;
-      };
-    }
-  )?.semanticIndex;
+  const searchIndex = healthQuery.data?.searchIndex;
+  const privacy = healthQuery.data?.privacy;
 
   const items = (queueQuery.data?.items ?? []) as BrainOpsQueueItemWithReason[];
   const summary = queueQuery.data?.summary ?? emptySummary;
@@ -403,22 +395,26 @@ export default function OpsRoute() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label={t("ops.indexCoverage")}
-              value={semantic?.coverage ?? "—"}
+              value={
+                searchIndex
+                  ? `${searchIndex.coverage.percent.toLocaleString()}%`
+                  : "—"
+              }
               detail={t("ops.adminOnly")}
             />
             <MetricCard
               label={t("ops.embeddingLag")}
-              value={semantic?.embeddingLag ?? "—"}
+              value={searchIndex?.queue.pending ?? "—"}
               detail={t("ops.adminOnly")}
             />
             <MetricCard
               label={t("ops.aclFreshness")}
-              value={semantic?.aclFreshness ?? "—"}
+              value={searchIndex?.artifacts.stale ?? "—"}
               detail={t("ops.adminOnly")}
             />
             <MetricCard
               label={t("ops.suppressed")}
-              value={semantic?.suppressed ?? "—"}
+              value={privacy?.events.suppressed ?? "—"}
               detail={t("ops.adminOnly")}
             />
           </div>

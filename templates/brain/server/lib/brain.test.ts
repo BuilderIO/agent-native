@@ -709,6 +709,7 @@ import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
 import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
+import updateSourceAction from "../../actions/update-source.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 import {
@@ -732,6 +733,7 @@ import {
   normalizeGranolaNote,
   runConnectorSync,
   runSlackPilot,
+  slackChannelRefsFromConfig,
   testSlackConnection,
 } from "./connectors.js";
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
@@ -952,6 +954,60 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("replaces legacy Slack channel aliases when the source allow-list is saved", async () => {
+    const source = seedSource({
+      provider: "slack",
+      configJson: JSON.stringify({
+        reviewRequired: true,
+        channels: ["stale-top-level"],
+        allowedChannels: ["stale-allowed"],
+        allowlistedChannels: ["stale-allowlisted"],
+        allowList: ["stale-list"],
+        slack: {
+          channelIds: ["GSTALE"],
+          channels: ["stale-nested"],
+          allowedChannels: ["stale-nested-allowed"],
+          historyLimit: 7,
+        },
+      }),
+    });
+    expect(
+      slackChannelRefsFromConfig(JSON.parse(String(source.configJson))),
+    ).toEqual([
+      "stale-top-level",
+      "stale-allowed",
+      "stale-allowlisted",
+      "stale-list",
+      "GSTALE",
+      "stale-nested",
+      "stale-nested-allowed",
+    ]);
+
+    const result = await updateSourceAction.run({
+      id: "source-1",
+      config: { channelIds: ["#CNEW", "CNEW"] },
+    });
+
+    expect(result.source.config).toEqual({
+      reviewRequired: true,
+      channelIds: ["CNEW"],
+      slack: { historyLimit: 7 },
+    });
+    expect(slackChannelRefsFromConfig(result.source.config)).toEqual(["CNEW"]);
+
+    const cleared = await updateSourceAction.run({
+      id: "source-1",
+      config: { channelIds: [] },
+    });
+
+    expect(cleared.source.config).toEqual({
+      reviewRequired: true,
+      channelIds: [],
+      slack: { historyLimit: 7 },
+    });
+    expect(slackChannelRefsFromConfig(cleared.source.config)).toEqual([]);
+  });
+
   it("counts only allowed captures in audiences accessible to the caller", async () => {
     seedSource();
     seedCapture({ id: "accessible-capture" });
@@ -1134,6 +1190,55 @@ describe("Brain knowledge quality gates", () => {
       sourceId: "clips-source",
       externalId: "clip-1",
     });
+  });
+
+  it("uses Clips participant objects for the meeting audience and falls back to the source owner", async () => {
+    const tokenHash = await sha256Hex("ingest-token");
+    seedSource({
+      id: "clips-source",
+      sourceKey: "clips",
+      ingestTokenHash: tokenHash,
+      ownerEmail: "owner@example.test",
+      configJson: JSON.stringify({
+        sourceKey: "clips",
+        ingestTokenHash: tokenHash,
+      }),
+    });
+    const handler = ingestHandler as unknown as (event: Row) => Promise<Row>;
+    const { ensureCaptureAudience } = await import("./audiences.js");
+
+    await handler({
+      headers: { authorization: "Bearer ingest-token" },
+      body: {
+        sourceKey: "clips",
+        externalId: "clip-with-attendees",
+        title: "Clip",
+        transcript: "Decision: ship the beta on May 20.",
+        participants: [
+          { email: " Ada@Example.Test ", name: "Ada", role: "organizer" },
+          { name: "No email" },
+        ],
+      },
+    });
+
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ memberEmails: ["ada@example.test"] }),
+    );
+
+    await handler({
+      headers: { authorization: "Bearer ingest-token" },
+      body: {
+        sourceKey: "clips",
+        externalId: "clip-without-attendees",
+        title: "Clip",
+        transcript: "Decision: ship the beta on May 20.",
+        participants: [{ name: "No email" }],
+      },
+    });
+
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ memberEmails: ["owner@example.test"] }),
+    );
   });
 
   it("uses a SHA-256 content hash for new captures", async () => {
@@ -2628,6 +2733,210 @@ describe("Brain connector smoke coverage", () => {
     expect(metadata).not.toHaveProperty("raw");
     expect(metadata).not.toHaveProperty("user");
     expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses the configured Slack page budget and resumes a bounded oldest backfill", async () => {
+    const historyUrls: URL[] = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        historyUrls.push(url);
+        const cursor = url.searchParams.get("cursor");
+        if (cursor === "page-3") {
+          return Response.json({
+            ok: true,
+            messages: [
+              {
+                type: "message",
+                text: "Decision: oldest page in the bounded backfill.",
+                ts: "1770919200.000100",
+              },
+            ],
+            has_more: false,
+            response_metadata: { next_cursor: "" },
+          });
+        }
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text:
+                cursor === "page-2"
+                  ? "Decision: second backfill page."
+                  : "Decision: newest backfill page.",
+              ts:
+                cursor === "page-2" ? "1770919300.000100" : "1770919400.000100",
+            },
+          ],
+          has_more: true,
+          response_metadata: {
+            next_cursor: cursor === "page-2" ? "page-3" : "page-2",
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        const ts = url.searchParams.get("ts") ?? "1770919200.000100";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: `Decision from ${ts}.`,
+              ts,
+            },
+          ],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const oldest = "2026-06-21T00:00:00.000Z";
+    seedSource({
+      id: "slack-backfill-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 15,
+        pagesPerChannel: 2,
+        permalinkLimit: 0,
+        oldest,
+      }),
+    });
+
+    const first = await runConnectorSync(mocks.rows.sources[0] as never);
+
+    expect(first).toMatchObject({
+      status: "success",
+      capturesCreated: 2,
+      stats: { historyPagesFetched: 2, messagesSeen: 2 },
+    });
+    expect(historyUrls).toHaveLength(2);
+    expect(historyUrls[0].searchParams.get("oldest")).toBe(
+      (Date.parse(oldest) / 1000).toFixed(6),
+    );
+    expect(historyUrls[0].searchParams.get("cursor")).toBeNull();
+    expect(historyUrls[1].searchParams.get("cursor")).toBe("page-2");
+    expect(historyUrls[1].searchParams.get("oldest")).toBeNull();
+    const firstCursor = JSON.parse(String(mocks.rows.sources[0].cursorJson));
+    expect(firstCursor).toMatchObject({
+      channels: {
+        C123: {
+          pageCursor: "page-3",
+          pendingLatestTs: "1770919400.000100",
+        },
+      },
+    });
+
+    const second = await runConnectorSync(mocks.rows.sources[0] as never);
+
+    expect(second).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { historyPagesFetched: 1, messagesSeen: 1 },
+    });
+    expect(historyUrls).toHaveLength(3);
+    expect(historyUrls[2].searchParams.get("cursor")).toBe("page-3");
+    expect(historyUrls[2].searchParams.get("oldest")).toBeNull();
+    const completedCursor = JSON.parse(
+      String(mocks.rows.sources[0].cursorJson),
+    );
+    expect(completedCursor).toMatchObject({
+      channels: { C123: { latestTs: "1770919400.000100" } },
+    });
+    expect(completedCursor.channels.C123).not.toHaveProperty("pageCursor");
+  });
+
+  it("round-robins explicit Slack channels across bounded sync runs", async () => {
+    const historyChannels: string[] = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const channel = url.searchParams.get("channel") ?? "C100";
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: channel,
+            name: `channel-${channel.slice(1)}`,
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        historyChannels.push(channel);
+        const seconds =
+          channel === "C100"
+            ? "1770919200"
+            : channel === "C200"
+              ? "1770919300"
+              : "1770919400";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: `Decision from ${channel}.`,
+              ts: `${seconds}.000100`,
+            },
+          ],
+          has_more: false,
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        const ts = url.searchParams.get("ts") ?? "1770919200.000100";
+        return Response.json({
+          ok: true,
+          messages: [
+            { type: "message", text: `Decision from ${channel}.`, ts },
+          ],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    seedSource({
+      id: "slack-explicit-round-robin",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C100", "C200", "C300"],
+        maxChannelsPerSync: 2,
+        permalinkLimit: 0,
+      }),
+    });
+
+    const first = await runConnectorSync(mocks.rows.sources[0] as never);
+
+    expect(first).toMatchObject({
+      status: "success",
+      stats: { eligibleChannels: 3, scannedChannels: 2 },
+    });
+    expect(historyChannels).toEqual(["C100", "C200"]);
+    expect(JSON.parse(String(mocks.rows.sources[0].cursorJson))).toMatchObject({
+      configuredChannelOffset: 2,
+    });
+
+    const second = await runConnectorSync(mocks.rows.sources[0] as never);
+
+    expect(second).toMatchObject({
+      status: "success",
+      stats: { eligibleChannels: 3, scannedChannels: 2 },
+    });
+    expect(historyChannels).toEqual(["C100", "C200", "C300", "C100"]);
+    expect(JSON.parse(String(mocks.rows.sources[0].cursorJson))).toMatchObject({
+      configuredChannelOffset: 1,
+    });
   });
 
   it("builds stable safe Slack segment offsets against the stored thread content", () => {

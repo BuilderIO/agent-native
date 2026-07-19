@@ -435,10 +435,20 @@ const enUS = {
     sensitivityPreview: "Sensitivity preview",
     sensitivityPreviewDescription:
       "Raw message content stays hidden here. Review classification metadata in Quarantine instead.",
-    includePublicChannels: "Include approved public channels",
+    includePublicChannels: "Include all public channels",
     includePublicChannelsDescription:
-      "Off by default. When enabled, discovery still honors the workspace exclusion patterns and channel allow-list.",
+      "Off by default. When enabled, discovery includes every public channel except workspace exclusion patterns.",
+    initialHistoryStart: "Initial history start",
+    initialHistoryStartDescription:
+      "New channels start here; the default is four weeks ago. Saved cursors resume subsequent syncs.",
+    restartSlackBackfill: "Restart history from this date",
+    restartSlackBackfillDescription:
+      "Clear saved Slack channel cursors when you save so the next sync uses this start date.",
     messagesPerPage: "Messages per page",
+    channelsPerSync: "Channels per sync",
+    pagesPerChannel: "Pages per channel",
+    broadSyncLimitsDescription:
+      "Channel and page limits keep broad syncs bounded. Repeated syncs resume from saved cursors.",
     pollMinutes: "Poll minutes",
     pageSize: "Page size",
     initialUpdatedAfter: "Initial updated-after",
@@ -457,6 +467,16 @@ const enUS = {
     webhookSourceKey: "Webhook source key",
     webhookSourceKeyDescription:
       "New sources receive a one-time ingest token. Existing sources keep their token unless rotated separately.",
+    ingestCredentialsTitle: "Save the ingest credentials",
+    ingestCredentialsDescription:
+      "Use these values to connect the new push source to Brain.",
+    ingestCredentialsOneTimeWarning:
+      "The ingest token is shown only once and cannot be recovered. Save it securely before closing this sheet.",
+    ingestEndpoint: "Ingest endpoint",
+    ingestToken: "Bearer token",
+    copy: "Copy",
+    copied: "Copied",
+    ingestCredentialsDone: "I saved these values",
     autoSync: "Auto-sync",
     autoSyncDescription: "Background polling uses this source when due",
     reviewRequired: "Review required",
@@ -6438,9 +6458,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "معاينة الحساسية",
       sensitivityPreviewDescription:
         "يبقى محتوى الرسالة الخام مخفيًا هنا. راجع بيانات التصنيف الوصفية في العزل بدلًا من ذلك.",
-      includePublicChannels: "تضمين القنوات العامة المعتمدة",
+      includePublicChannels: "تضمين كل القنوات العامة",
       includePublicChannelsDescription:
-        "متوقف افتراضيًا. عند التمكين، يظل الاكتشاف ملتزمًا بالاستثناءات وقائمة السماح.",
+        "متوقف افتراضيًا. عند التمكين، يشمل الاكتشاف كل قناة عامة باستثناء أنماط الاستبعاد في مساحة العمل.",
+      initialHistoryStart: "بداية السجل الأولية",
+      initialHistoryStartDescription:
+        "تبدأ القنوات الجديدة من هنا؛ الافتراضي قبل أربعة أسابيع. تستأنف المزامنات اللاحقة من المؤشرات المحفوظة.",
+      restartSlackBackfill: "إعادة بدء السجل من هذا التاريخ",
+      restartSlackBackfillDescription:
+        "امسح مؤشرات قنوات Slack المحفوظة عند الحفظ لكي تستخدم المزامنة التالية تاريخ البدء هذا.",
+      channelsPerSync: "القنوات لكل مزامنة",
+      pagesPerChannel: "الصفحات لكل قناة",
+      broadSyncLimitsDescription:
+        "تحافظ حدود القنوات والصفحات على تقييد المزامنة الواسعة. تستأنف المزامنات المتكررة من المؤشرات المحفوظة.",
+      ingestCredentialsTitle: "احفظ بيانات اعتماد الاستيعاب",
+      ingestCredentialsDescription:
+        "استخدم هذه القيم لربط مصدر الدفع الجديد بـ Brain.",
+      ingestCredentialsOneTimeWarning:
+        "يُعرض رمز الاستيعاب مرة واحدة فقط ولا يمكن استعادته. احفظه بأمان قبل إغلاق هذه اللوحة.",
+      ingestEndpoint: "نقطة نهاية الاستيعاب",
+      ingestToken: "رمز المصادقة",
+      ingestCredentialsDone: "حفظت هذه القيم",
     },
     searchPage: { project: "المشروع", allProjects: "كل المشاريع" },
     ops: {
@@ -6506,9 +6544,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "Sensibilitätsvorschau",
       sensitivityPreviewDescription:
         "Rohe Nachrichteninhalte bleiben hier verborgen. Prüfe stattdessen Klassifizierungsmetadaten in Quarantäne.",
-      includePublicChannels: "Genehmigte öffentliche Kanäle einbeziehen",
+      includePublicChannels: "Alle öffentlichen Kanäle einbeziehen",
       includePublicChannelsDescription:
-        "Standardmäßig aus. Die Erkennung beachtet weiterhin Ausschlüsse und Zulassungsliste.",
+        "Standardmäßig aus. Nach Aktivierung umfasst die Erkennung alle öffentlichen Kanäle außer den Ausschlussmustern des Arbeitsbereichs.",
+      initialHistoryStart: "Anfang des ersten Verlaufs",
+      initialHistoryStartDescription:
+        "Neue Kanäle beginnen hier; Standard sind vier Wochen. Weitere Synchronisierungen setzen gespeicherte Cursor fort.",
+      restartSlackBackfill: "Verlauf ab diesem Datum neu starten",
+      restartSlackBackfillDescription:
+        "Gespeicherte Slack-Kanal-Cursor beim Speichern löschen, damit die nächste Synchronisierung dieses Startdatum verwendet.",
+      channelsPerSync: "Kanäle pro Synchronisierung",
+      pagesPerChannel: "Seiten pro Kanal",
+      broadSyncLimitsDescription:
+        "Kanal- und Seitenlimits halten breite Synchronisierungen begrenzt. Wiederholte Synchronisierungen setzen gespeicherte Cursor fort.",
+      ingestCredentialsTitle: "Zugangsdaten für die Aufnahme speichern",
+      ingestCredentialsDescription:
+        "Verwende diese Werte, um die neue Push-Quelle mit Brain zu verbinden.",
+      ingestCredentialsOneTimeWarning:
+        "Das Aufnahme-Token wird nur einmal angezeigt und kann nicht wiederhergestellt werden. Speichere es sicher, bevor du dieses Fenster schließt.",
+      ingestEndpoint: "Aufnahme-Endpunkt",
+      ingestToken: "Authentifizierungstoken",
+      ingestCredentialsDone: "Ich habe diese Werte gespeichert",
     },
     searchPage: { project: "Projekt", allProjects: "Alle Projekte" },
     ops: {
@@ -6576,9 +6632,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "Vista previa de sensibilidad",
       sensitivityPreviewDescription:
         "El contenido bruto de mensajes permanece oculto aquí. Revisa los metadatos de clasificación en Cuarentena.",
-      includePublicChannels: "Incluir canales públicos aprobados",
+      includePublicChannels: "Incluir todos los canales públicos",
       includePublicChannelsDescription:
-        "Desactivado por defecto. La detección sigue respetando exclusiones y canales permitidos.",
+        "Desactivado por defecto. Al activarlo, la detección incluye todos los canales públicos excepto los patrones de exclusión del espacio de trabajo.",
+      initialHistoryStart: "Inicio del historial inicial",
+      initialHistoryStartDescription:
+        "Los canales nuevos comienzan aquí; el valor predeterminado es hace cuatro semanas. Las sincronizaciones posteriores reanudan los cursores guardados.",
+      restartSlackBackfill: "Reiniciar el historial desde esta fecha",
+      restartSlackBackfillDescription:
+        "Borra los cursores guardados de los canales de Slack al guardar para que la próxima sincronización use esta fecha de inicio.",
+      channelsPerSync: "Canales por sincronización",
+      pagesPerChannel: "Páginas por canal",
+      broadSyncLimitsDescription:
+        "Los límites de canales y páginas mantienen acotadas las sincronizaciones amplias. Las sincronizaciones repetidas reanudan los cursores guardados.",
+      ingestCredentialsTitle: "Guardar las credenciales de ingesta",
+      ingestCredentialsDescription:
+        "Usa estos valores para conectar la nueva fuente de envío con Brain.",
+      ingestCredentialsOneTimeWarning:
+        "El token de ingesta se muestra una sola vez y no se puede recuperar. Guárdalo de forma segura antes de cerrar este panel.",
+      ingestEndpoint: "Punto de conexión de ingesta",
+      ingestToken: "Token de autenticación",
+      ingestCredentialsDone: "He guardado estos valores",
     },
     searchPage: { project: "Proyecto", allProjects: "Todos los proyectos" },
     ops: {
@@ -6643,9 +6717,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "Aperçu de sensibilité",
       sensitivityPreviewDescription:
         "Le contenu brut des messages reste masqué ici. Consultez plutôt les métadonnées de classification dans Quarantaine.",
-      includePublicChannels: "Inclure les canaux publics approuvés",
+      includePublicChannels: "Inclure tous les canaux publics",
       includePublicChannelsDescription:
-        "Désactivé par défaut. La découverte respecte toujours les exclusions et la liste autorisée.",
+        "Désactivé par défaut. Une fois activée, la découverte inclut tous les canaux publics sauf les motifs d’exclusion de l’espace de travail.",
+      initialHistoryStart: "Début de l’historique initial",
+      initialHistoryStartDescription:
+        "Les nouveaux canaux commencent ici ; la valeur par défaut remonte à quatre semaines. Les synchronisations suivantes reprennent les curseurs enregistrés.",
+      restartSlackBackfill: "Redémarrer l’historique à cette date",
+      restartSlackBackfillDescription:
+        "Effacez les curseurs de canaux Slack enregistrés lors de la sauvegarde afin que la prochaine synchronisation utilise cette date de début.",
+      channelsPerSync: "Canaux par synchronisation",
+      pagesPerChannel: "Pages par canal",
+      broadSyncLimitsDescription:
+        "Les limites de canaux et de pages bornent les synchronisations larges. Les synchronisations répétées reprennent les curseurs enregistrés.",
+      ingestCredentialsTitle: "Enregistrer les identifiants d’ingestion",
+      ingestCredentialsDescription:
+        "Utilisez ces valeurs pour connecter la nouvelle source push à Brain.",
+      ingestCredentialsOneTimeWarning:
+        "Le jeton d’ingestion n’est affiché qu’une seule fois et ne peut pas être récupéré. Enregistrez-le de manière sécurisée avant de fermer ce panneau.",
+      ingestEndpoint: "Point de terminaison d’ingestion",
+      ingestToken: "Jeton d’authentification",
+      ingestCredentialsDone: "J’ai enregistré ces valeurs",
     },
     searchPage: { project: "Projet", allProjects: "Tous les projets" },
     ops: {
@@ -6708,9 +6800,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "संवेदनशीलता पूर्वावलोकन",
       sensitivityPreviewDescription:
         "कच्ची संदेश सामग्री यहां छिपी रहती है। इसके बजाय क्वारंटीन में वर्गीकरण मेटाडेटा देखें।",
-      includePublicChannels: "स्वीकृत सार्वजनिक चैनल शामिल करें",
+      includePublicChannels: "सभी सार्वजनिक चैनल शामिल करें",
       includePublicChannelsDescription:
-        "डिफ़ॉल्ट रूप से बंद। खोज अभी भी अपवर्जन और अनुमति सूची का पालन करती है।",
+        "डिफ़ॉल्ट रूप से बंद। सक्षम होने पर खोज कार्यस्थान अपवर्जन पैटर्न को छोड़कर हर सार्वजनिक चैनल शामिल करती है।",
+      initialHistoryStart: "आरंभिक इतिहास की शुरुआत",
+      initialHistoryStartDescription:
+        "नए चैनल यहां से शुरू होते हैं; डिफ़ॉल्ट चार सप्ताह पहले है। बाद की सिंक सहेजे गए कर्सर से जारी रहती हैं।",
+      restartSlackBackfill: "इस तारीख से इतिहास फिर शुरू करें",
+      restartSlackBackfillDescription:
+        "सहेजते समय Slack चैनल के सहेजे गए कर्सर साफ करें ताकि अगली सिंक इस आरंभ तारीख का उपयोग करे।",
+      channelsPerSync: "प्रति सिंक चैनल",
+      pagesPerChannel: "प्रति चैनल पृष्ठ",
+      broadSyncLimitsDescription:
+        "चैनल और पृष्ठ सीमाएं व्यापक सिंक को सीमित रखती हैं। दोहराई गई सिंक सहेजे गए कर्सर से जारी रहती हैं।",
+      ingestCredentialsTitle: "इंजेस्ट क्रेडेंशियल सहेजें",
+      ingestCredentialsDescription:
+        "नए पुश स्रोत को Brain से जोड़ने के लिए इन मानों का उपयोग करें।",
+      ingestCredentialsOneTimeWarning:
+        "इंजेस्ट टोकन केवल एक बार दिखाया जाता है और इसे फिर से प्राप्त नहीं किया जा सकता। इस पैनल को बंद करने से पहले इसे सुरक्षित रूप से सहेज लें।",
+      ingestEndpoint: "इंजेस्ट एंडपॉइंट",
+      ingestToken: "प्रमाणीकरण टोकन",
+      ingestCredentialsDone: "मैंने ये मान सहेज लिए हैं",
     },
     searchPage: { project: "प्रोजेक्ट", allProjects: "सभी प्रोजेक्ट" },
     ops: {
@@ -6774,9 +6884,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "機密性プレビュー",
       sensitivityPreviewDescription:
         "ここでは生のメッセージ内容は非表示です。代わりに隔離で分類メタデータを確認してください。",
-      includePublicChannels: "承認済み公開チャンネルを含める",
+      includePublicChannels: "すべての公開チャンネルを含める",
       includePublicChannelsDescription:
-        "既定ではオフです。有効化後も除外規則と許可リストを尊重します。",
+        "既定ではオフです。有効にすると、ワークスペースの除外パターン以外のすべての公開チャンネルを検出します。",
+      initialHistoryStart: "初回履歴の開始日",
+      initialHistoryStartDescription:
+        "新しいチャンネルはここから開始します。既定は4週間前です。以降の同期は保存済みカーソルから再開します。",
+      restartSlackBackfill: "この日付から履歴を再開",
+      restartSlackBackfillDescription:
+        "保存時にSlackチャンネルの保存済みカーソルを消去し、次回の同期でこの開始日を使用します。",
+      channelsPerSync: "同期あたりのチャンネル数",
+      pagesPerChannel: "チャンネルあたりのページ数",
+      broadSyncLimitsDescription:
+        "チャンネル数とページ数の上限により広範な同期を制限します。繰り返し同期すると保存済みカーソルから再開します。",
+      ingestCredentialsTitle: "取り込み認証情報を保存",
+      ingestCredentialsDescription:
+        "これらの値を使用して、新しいプッシュソースを Brain に接続します。",
+      ingestCredentialsOneTimeWarning:
+        "取り込みトークンは一度だけ表示され、再取得できません。このパネルを閉じる前に安全に保存してください。",
+      ingestEndpoint: "取り込みエンドポイント",
+      ingestToken: "認証トークン",
+      ingestCredentialsDone: "これらの値を保存しました",
     },
     searchPage: {
       project: "プロジェクト",
@@ -6843,9 +6971,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "민감도 미리보기",
       sensitivityPreviewDescription:
         "원시 메시지 콘텐츠는 여기에서 숨겨집니다. 대신 격리에서 분류 메타데이터를 검토하세요.",
-      includePublicChannels: "승인된 공개 채널 포함",
+      includePublicChannels: "모든 공개 채널 포함",
       includePublicChannelsDescription:
-        "기본적으로 꺼져 있습니다. 검색은 계속 제외 패턴과 허용 목록을 따릅니다.",
+        "기본적으로 꺼져 있습니다. 사용하면 작업공간 제외 패턴을 뺀 모든 공개 채널을 검색합니다.",
+      initialHistoryStart: "초기 기록 시작일",
+      initialHistoryStartDescription:
+        "새 채널은 여기서 시작하며 기본값은 4주 전입니다. 이후 동기화는 저장된 커서에서 재개합니다.",
+      restartSlackBackfill: "이 날짜부터 기록 다시 시작",
+      restartSlackBackfillDescription:
+        "저장할 때 Slack 채널의 저장된 커서를 지워 다음 동기화에서 이 시작일을 사용합니다.",
+      channelsPerSync: "동기화당 채널 수",
+      pagesPerChannel: "채널당 페이지 수",
+      broadSyncLimitsDescription:
+        "채널 및 페이지 제한으로 광범위한 동기화 범위를 제한합니다. 반복 동기화는 저장된 커서에서 재개합니다.",
+      ingestCredentialsTitle: "수집 인증 정보 저장",
+      ingestCredentialsDescription:
+        "이 값을 사용해 새 푸시 소스를 Brain에 연결하세요.",
+      ingestCredentialsOneTimeWarning:
+        "수집 토큰은 한 번만 표시되며 다시 확인할 수 없습니다. 이 패널을 닫기 전에 안전하게 저장하세요.",
+      ingestEndpoint: "수집 엔드포인트",
+      ingestToken: "인증 토큰",
+      ingestCredentialsDone: "이 값을 저장했습니다",
     },
     searchPage: { project: "프로젝트", allProjects: "모든 프로젝트" },
     ops: {
@@ -6910,9 +7056,27 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "Prévia de sensibilidade",
       sensitivityPreviewDescription:
         "O conteúdo bruto das mensagens fica oculto aqui. Revise os metadados de classificação em Quarentena.",
-      includePublicChannels: "Incluir canais públicos aprovados",
+      includePublicChannels: "Incluir todos os canais públicos",
       includePublicChannelsDescription:
-        "Desativado por padrão. A descoberta continua respeitando exclusões e a lista permitida.",
+        "Desativado por padrão. Quando ativado, a descoberta inclui todos os canais públicos, exceto os padrões de exclusão do espaço de trabalho.",
+      initialHistoryStart: "Início do histórico inicial",
+      initialHistoryStartDescription:
+        "Novos canais começam aqui; o padrão é quatro semanas atrás. As sincronizações seguintes retomam os cursores salvos.",
+      restartSlackBackfill: "Reiniciar o histórico nesta data",
+      restartSlackBackfillDescription:
+        "Limpe os cursores salvos dos canais do Slack ao salvar para que a próxima sincronização use esta data de início.",
+      channelsPerSync: "Canais por sincronização",
+      pagesPerChannel: "Páginas por canal",
+      broadSyncLimitsDescription:
+        "Os limites de canais e páginas mantêm sincronizações amplas delimitadas. Sincronizações repetidas retomam os cursores salvos.",
+      ingestCredentialsTitle: "Salvar as credenciais de ingestão",
+      ingestCredentialsDescription:
+        "Use estes valores para conectar a nova fonte de envio ao Brain.",
+      ingestCredentialsOneTimeWarning:
+        "O token de ingestão é exibido apenas uma vez e não pode ser recuperado. Salve-o com segurança antes de fechar este painel.",
+      ingestEndpoint: "Endpoint de ingestão",
+      ingestToken: "Token de autenticação",
+      ingestCredentialsDone: "Salvei estes valores",
     },
     searchPage: { project: "Projeto", allProjects: "Todos os projetos" },
     ops: {
@@ -6973,9 +7137,26 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "敏感性预览",
       sensitivityPreviewDescription:
         "原始消息内容在此处保持隐藏。请改在隔离中查看分类元数据。",
-      includePublicChannels: "包含已批准的公开频道",
+      includePublicChannels: "包含所有公开频道",
       includePublicChannelsDescription:
-        "默认关闭。启用后，发现仍会遵守排除模式和频道允许列表。",
+        "默认关闭。启用后，发现会包含除工作区排除模式外的所有公开频道。",
+      initialHistoryStart: "初始历史开始日期",
+      initialHistoryStartDescription:
+        "新频道从这里开始；默认是四周前。后续同步会从保存的游标继续。",
+      restartSlackBackfill: "从此日期重新开始历史记录",
+      restartSlackBackfillDescription:
+        "保存时清除 Slack 频道的已存游标，以便下次同步使用此开始日期。",
+      channelsPerSync: "每次同步的频道数",
+      pagesPerChannel: "每个频道的页数",
+      broadSyncLimitsDescription:
+        "频道和页数限制可控制广泛同步的范围。重复同步会从保存的游标继续。",
+      ingestCredentialsTitle: "保存摄取凭据",
+      ingestCredentialsDescription: "使用这些值将新的推送来源连接到 Brain。",
+      ingestCredentialsOneTimeWarning:
+        "摄取令牌仅显示一次且无法恢复。请在关闭此面板前将其安全保存。",
+      ingestEndpoint: "摄取端点",
+      ingestToken: "身份验证令牌",
+      ingestCredentialsDone: "我已保存这些值",
     },
     searchPage: { project: "项目", allProjects: "所有项目" },
     ops: {
@@ -7036,9 +7217,19 @@ const privacySearchLocalizationOverrides: Partial<
       sensitivityPreview: "敏感性預覽",
       sensitivityPreviewDescription:
         "原始訊息內容在此處保持隱藏。請改在隔離中檢閱分類中繼資料。",
-      includePublicChannels: "包含已核准的公開頻道",
+      includePublicChannels: "包含所有公開頻道",
       includePublicChannelsDescription:
-        "預設關閉。啟用後，探索仍會遵循排除模式與頻道允許清單。",
+        "預設關閉。啟用後，探索會包含工作區排除模式以外的所有公開頻道。",
+      initialHistoryStart: "初始歷史開始日期",
+      initialHistoryStartDescription:
+        "新頻道從這裡開始；預設為四週前。後續同步會從儲存的游標繼續。",
+      restartSlackBackfill: "從此日期重新開始歷史記錄",
+      restartSlackBackfillDescription:
+        "儲存時清除 Slack 頻道的已存游標，讓下次同步使用此開始日期。",
+      channelsPerSync: "每次同步的頻道數",
+      pagesPerChannel: "每個頻道的頁數",
+      broadSyncLimitsDescription:
+        "頻道與頁數限制可控制廣泛同步的範圍。重複同步會從儲存的游標繼續。",
     },
     searchPage: { project: "專案", allProjects: "所有專案" },
     ops: {

@@ -508,9 +508,28 @@ const messages = {
     sensitivityPreview: "敏感性預覽",
     sensitivityPreviewDescription:
       "原始訊息內容在此處保持隱藏。請改在隔離中檢閱分類中繼資料。",
-    includePublicChannels: "包含已核准的公開頻道",
+    includePublicChannels: "包含所有公開頻道",
     includePublicChannelsDescription:
-      "預設關閉。啟用後，探索仍會遵循排除模式與頻道允許清單。",
+      "預設關閉。啟用後，探索會包含工作區排除模式以外的所有公開頻道。",
+    initialHistoryStart: "初始歷史開始日期",
+    initialHistoryStartDescription:
+      "新頻道從這裡開始；預設為四週前。後續同步會從儲存的游標繼續。",
+    restartSlackBackfill: "從此日期重新開始歷史記錄",
+    restartSlackBackfillDescription:
+      "儲存時清除 Slack 頻道的已存游標，讓下次同步使用此開始日期。",
+    channelsPerSync: "每次同步的頻道數",
+    pagesPerChannel: "每個頻道的頁數",
+    broadSyncLimitsDescription:
+      "頻道與頁數限制可控制廣泛同步的範圍。重複同步會從儲存的游標繼續。",
+    ingestCredentialsTitle: "儲存擷取憑證",
+    ingestCredentialsDescription: "使用這些值將新的推送來源連線到 Brain。",
+    ingestCredentialsOneTimeWarning:
+      "擷取權杖只會顯示一次且無法復原。請在關閉此面板前安全儲存。",
+    ingestEndpoint: "擷取端點",
+    ingestToken: "驗證權杖",
+    copy: "複製",
+    copied: "已複製",
+    ingestCredentialsDone: "我已儲存這些值",
     required: "必填",
     credentialProvenance: "憑證來源",
     workspaceConnections: "工作區連線",

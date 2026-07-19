@@ -59,6 +59,30 @@ function textFromPayload(payload: z.infer<typeof rawCapturePayloadSchema>) {
     .trim();
 }
 
+function meetingAudienceMembers(
+  participants: unknown[],
+  importerEmail: string,
+) {
+  const members = Array.from(
+    new Set(
+      participants.flatMap((participant) => {
+        const email =
+          typeof participant === "string"
+            ? participant
+            : participant &&
+                typeof participant === "object" &&
+                "email" in participant &&
+                typeof participant.email === "string"
+              ? participant.email
+              : undefined;
+        const normalized = email?.trim().toLowerCase();
+        return normalized ? [normalized] : [];
+      }),
+    ),
+  );
+  return members.length ? members : [importerEmail.trim().toLowerCase()];
+}
+
 function sourceKeyConfigPattern(sourceKey: string) {
   return `%"sourceKey":${JSON.stringify(sourceKey)}%`;
 }
@@ -130,9 +154,9 @@ export default defineEventHandler(async (event) => {
           },
           audience: {
             kind: "meeting",
-            memberEmails: payload.participants.filter(
-              (participant): participant is string =>
-                typeof participant === "string",
+            memberEmails: meetingAudienceMembers(
+              payload.participants,
+              source.ownerEmail,
             ),
             upstreamRefHash: payload.externalId,
           },

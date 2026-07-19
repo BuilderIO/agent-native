@@ -2,6 +2,7 @@ import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
+import { slackChannelRefsFromConfig } from "../../shared/slack-source-config.js";
 import type {
   BrainCaptureKind,
   BrainSourceProvider,
@@ -33,6 +34,8 @@ export interface ConnectorSyncResult {
   message: string;
   stats?: Record<string, unknown>;
 }
+
+export { slackChannelRefsFromConfig };
 
 async function createConnectorCapture(
   values: Parameters<typeof createCapture>[0],
@@ -161,6 +164,7 @@ interface SlackChannelCursor {
 
 interface SlackSyncCursor {
   channels?: Record<string, SlackChannelCursor>;
+  configuredChannelOffset?: number;
   publicChannelOffset?: number;
   retry?: RetryCursor;
   lastRunAt?: string;
@@ -458,20 +462,6 @@ function configuredList(
         .filter(Boolean)
         .map((value) => value.replace(/^#/, "")),
     ),
-  );
-}
-
-export function slackChannelRefsFromConfig(config: Record<string, unknown>) {
-  return configuredList(
-    config,
-    [
-      "channelIds",
-      "channels",
-      "allowedChannels",
-      "allowlistedChannels",
-      "allowList",
-    ],
-    "slack",
   );
 }
 
@@ -2124,17 +2114,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     retry: undefined,
     lastRunAt: nowIso(),
   };
-  const channelRefs = configuredList(
-    config,
-    [
-      "channelIds",
-      "channels",
-      "allowedChannels",
-      "allowlistedChannels",
-      "allowList",
-    ],
-    "slack",
-  );
+  const channelRefs = slackChannelRefsFromConfig(config);
   const includePublicChannels = configuredBoolean(
     config,
     ["includePublicChannels"],
@@ -2185,6 +2165,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     rejectedChannels: 0,
     missingChannels: 0,
     messagesSeen: 0,
+    historyPagesFetched: 0,
     capturesCreated: 0,
     threadsFetched: 0,
     sensitivityBlocked: 0,
@@ -2248,23 +2229,25 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     stats.eligibleChannels = channels.length;
     const userEmailCache: SlackUserEmailCache = new Map();
 
-    const channelsToScan = includePublicChannels
-      ? (() => {
-          const ordered = [...channels].sort((left, right) =>
-            left.id.localeCompare(right.id),
-          );
-          if (!ordered.length) return ordered;
-          const offset =
-            Math.max(0, cursor.publicChannelOffset ?? 0) % ordered.length;
-          const rotated = [
-            ...ordered.slice(offset),
-            ...ordered.slice(0, offset),
-          ];
-          nextCursor.publicChannelOffset =
-            (offset + Math.min(maxChannels, rotated.length)) % ordered.length;
-          return rotated.slice(0, maxChannels);
-        })()
-      : channels.slice(0, maxChannels);
+    const orderedChannels = includePublicChannels
+      ? [...channels].sort((left, right) => left.id.localeCompare(right.id))
+      : channels;
+    const offsetKey = includePublicChannels
+      ? ("publicChannelOffset" as const)
+      : ("configuredChannelOffset" as const);
+    const offset = orderedChannels.length
+      ? Math.max(0, cursor[offsetKey] ?? 0) % orderedChannels.length
+      : 0;
+    const rotatedChannels = [
+      ...orderedChannels.slice(offset),
+      ...orderedChannels.slice(0, offset),
+    ];
+    if (orderedChannels.length) {
+      nextCursor[offsetKey] =
+        (offset + Math.min(maxChannels, rotatedChannels.length)) %
+        orderedChannels.length;
+    }
+    const channelsToScan = rotatedChannels.slice(0, maxChannels);
 
     let permalinkCalls = 0;
 
@@ -2309,6 +2292,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           "conversations.history",
           params,
         );
+        stats.historyPagesFetched = Number(stats.historyPagesFetched) + 1;
         const messages = (data.messages ?? []).filter(isSlackTextMessage);
         stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
 
@@ -2352,6 +2336,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         if (data.has_more && nextPage) {
           channelCursor.pageCursor = nextPage;
           nextCursor.channels![channel.id] = channelCursor;
+          if (page + 1 < pagesPerChannel) continue;
           break;
         }
 
