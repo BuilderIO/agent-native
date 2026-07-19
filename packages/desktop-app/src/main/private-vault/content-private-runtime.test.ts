@@ -47,6 +47,12 @@ describe("PrivateVaultContentRuntime", () => {
       brokerState: "online",
       broker: { state: "running" },
     });
+    source.broker.health.mockReturnValue({ state: "revoked" });
+    expect(source.runtime.health()).toEqual({
+      vaultId,
+      brokerState: "offline",
+      broker: { state: "revoked" },
+    });
     await source.runtime.stop();
     expect(source.broker.stop).toHaveBeenCalledOnce();
     expect(source.documents.close).toHaveBeenCalledOnce();

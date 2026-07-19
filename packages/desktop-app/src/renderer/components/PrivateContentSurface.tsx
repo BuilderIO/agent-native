@@ -20,6 +20,87 @@ import { useCallback, useEffect, useState } from "react";
 import { privateContentTree } from "../lib/private-content-tree.js";
 
 type SurfaceState = "locked" | "opening" | "open" | "error";
+type BrokerState =
+  | "running"
+  | "offline"
+  | "revoked"
+  | "starting"
+  | "stopping"
+  | "stopped"
+  | "closed"
+  | "unavailable";
+type BrokerOutcome = "idle" | "completed" | "failed" | "retry_wait" | null;
+
+interface PrivateContentHealth {
+  readonly brokerState: "online" | "offline";
+  readonly broker: {
+    readonly state: BrokerState;
+    readonly processing: boolean;
+    readonly lastOutcome: BrokerOutcome;
+  } | null;
+}
+
+function privateContentHealth(value: unknown): PrivateContentHealth | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (record.brokerState !== "online" && record.brokerState !== "offline")
+    return null;
+  const broker = record.broker;
+  if (broker === null) return { brokerState: record.brokerState, broker: null };
+  if (!broker || typeof broker !== "object") return null;
+  const detail = broker as Record<string, unknown>;
+  const states = new Set<BrokerState>([
+    "running",
+    "offline",
+    "revoked",
+    "starting",
+    "stopping",
+    "stopped",
+    "closed",
+  ]);
+  const outcomes = new Set(["idle", "completed", "failed", "retry_wait"]);
+  if (
+    typeof detail.state !== "string" ||
+    !states.has(detail.state as BrokerState) ||
+    typeof detail.processing !== "boolean" ||
+    (detail.lastOutcome !== null &&
+      (typeof detail.lastOutcome !== "string" ||
+        !outcomes.has(detail.lastOutcome)))
+  )
+    return null;
+  return {
+    brokerState: record.brokerState,
+    broker: {
+      state: detail.state as BrokerState,
+      processing: detail.processing,
+      lastOutcome: detail.lastOutcome as BrokerOutcome,
+    },
+  };
+}
+
+function brokerLabel(health: PrivateContentHealth | null): string {
+  if (!health?.broker) return "Agent unavailable";
+  if (health.broker.state === "revoked") return "Agent revoked";
+  if (health.broker.processing) return "Agent working";
+  if (health.broker.state === "running") return "Agent ready";
+  if (health.broker.state === "offline") return "Agent offline";
+  return "Agent locked";
+}
+
+function brokerActivity(health: PrivateContentHealth | null): string {
+  switch (health?.broker?.lastOutcome) {
+    case "completed":
+      return "Last encrypted job completed";
+    case "retry_wait":
+      return "Encrypted work is waiting to retry";
+    case "failed":
+      return "Last encrypted job failed closed";
+    case "idle":
+      return "No encrypted work is queued";
+    default:
+      return "No broker activity reported";
+  }
+}
 
 function privateDocuments(value: unknown): DesktopPrivateContentSummary[] {
   if (!value || typeof value !== "object") return [];
@@ -65,9 +146,7 @@ export default function PrivateContentSurface({
   onClose: () => void;
 }) {
   const [state, setState] = useState<SurfaceState>("locked");
-  const [brokerState, setBrokerState] = useState<"online" | "offline">(
-    "offline",
-  );
+  const [health, setHealth] = useState<PrivateContentHealth | null>(null);
   const [documents, setDocuments] = useState<DesktopPrivateContentSummary[]>(
     [],
   );
@@ -101,8 +180,7 @@ export default function PrivateContentSurface({
       );
       return;
     }
-    const health = response.value as { brokerState?: unknown } | null;
-    setBrokerState(health?.brokerState === "online" ? "online" : "offline");
+    setHealth(privateContentHealth(response.value));
     setState("open");
     try {
       await loadList();
@@ -113,13 +191,15 @@ export default function PrivateContentSurface({
   }, [loadList]);
 
   useEffect(() => {
-    void window.electronAPI.privateContent.health().then((response) => {
-      if (!response.ok || !response.value) return;
-      const health = response.value as { brokerState?: unknown };
-      setBrokerState(health.brokerState === "online" ? "online" : "offline");
-      setState("open");
-      void loadList();
-    });
+    const refreshHealth = () =>
+      window.electronAPI.privateContent.health().then((response) => {
+        if (!response.ok || !response.value) return;
+        setHealth(privateContentHealth(response.value));
+        setState("open");
+      });
+    void refreshHealth().then(() => loadList());
+    const interval = window.setInterval(() => void refreshHealth(), 5_000);
+    return () => window.clearInterval(interval);
   }, [loadList]);
 
   const selectDocument = async (id: string) => {
@@ -261,6 +341,7 @@ export default function PrivateContentSurface({
     setContent("");
     setVersions([]);
     setShowVersions(false);
+    setHealth(null);
     setState("locked");
   };
 
@@ -304,9 +385,10 @@ export default function PrivateContentSurface({
           <div>
             <strong>Private Vault</strong>
             <span
-              className={`private-content-health private-content-health--${brokerState}`}
+              className={`private-content-health private-content-health--${health?.brokerState ?? "offline"}`}
+              title={brokerActivity(health)}
             >
-              Agent {brokerState}
+              {brokerLabel(health)}
             </span>
           </div>
           <button

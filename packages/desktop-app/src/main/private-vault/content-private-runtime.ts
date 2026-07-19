@@ -58,7 +58,6 @@ export class PrivateVaultContentRuntime {
   #active: {
     vaultId: string;
     broker: BrokerLifecycle | null;
-    brokerState: "online" | "offline";
   } | null = null;
   #transition: Promise<void> | null = null;
 
@@ -101,13 +100,13 @@ export class PrivateVaultContentRuntime {
 
   health() {
     const active = this.#active;
-    return active
-      ? Object.freeze({
-          vaultId: active.vaultId,
-          brokerState: active.brokerState,
-          broker: active.broker?.health() ?? null,
-        })
-      : null;
+    if (!active) return null;
+    const broker = active.broker?.health() ?? null;
+    return Object.freeze({
+      vaultId: active.vaultId,
+      brokerState: broker?.state === "running" ? "online" : "offline",
+      broker,
+    });
   }
 
   documents(): PrivateContentDocuments {
@@ -133,7 +132,6 @@ export class PrivateVaultContentRuntime {
       this.#active = {
         vaultId: descriptor.vaultId,
         broker,
-        brokerState: broker ? "online" : "offline",
       };
     } catch {
       this.#documents.close();
