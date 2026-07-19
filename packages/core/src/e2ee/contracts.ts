@@ -417,7 +417,7 @@ export const encryptedJobResultSchema = z
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     jobHash: opaqueIdSchema,
     result: encryptedResultEnvelopeSchema,
-    state: z.enum(["completed", "failed", "cancelled"]),
+    state: z.enum(["completed", "failed"]),
     serverReceivedAt: protocolTimestampSchema,
   })
   .strict();

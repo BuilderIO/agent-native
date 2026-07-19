@@ -93,7 +93,8 @@ export const authorizedEndpointRequestIdentitySchema = z
       .object({
         sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
         hash: lowercaseHex(32),
-        verifiedAt: protocolTimestampSchema,
+        signedAt: protocolTimestampSchema,
+        freshnessMode: z.literal("endpoint_witnessed"),
       })
       .strict(),
   })
@@ -347,15 +348,15 @@ export async function verifyEndpointRequestProof(
       const identity =
         authorizedEndpointRequestIdentitySchema.safeParse(resolvedIdentity);
       const nowMs = now.getTime();
-      const verifiedAtMs = identity.success
-        ? Date.parse(identity.data.authenticatedControlHead.verifiedAt)
+      const signedAtMs = identity.success
+        ? Date.parse(identity.data.authenticatedControlHead.signedAt)
         : Number.NaN;
       if (
         !identity.success ||
         identity.data.vaultId !== vaultId ||
         identity.data.endpointId !== endpointId ||
-        verifiedAtMs > nowMs ||
-        nowMs - verifiedAtMs >=
+        signedAtMs > nowMs + 30_000 ||
+        nowMs - signedAtMs >=
           E2EE_LIFETIME_LIMITS_SECONDS.brokerAuthorizationFreshness * 1000
       ) {
         return null;

@@ -82,7 +82,8 @@ export async function authenticatePrivateVaultBrokerRequest(input: {
           authenticatedControlHead: {
             sequence: authority.authenticatedControlHead.sequence,
             hash: authority.authenticatedControlHead.hash,
-            verifiedAt: now.toISOString(),
+            signedAt: authority.authenticatedControlHead.signedAt,
+            freshnessMode: authority.authenticatedControlHead.freshnessMode,
           },
         };
       },

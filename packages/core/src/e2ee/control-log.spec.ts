@@ -2,7 +2,12 @@ import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
 
-import { ancV1BytesToHex, encodeAncV1Canonical } from "./canonical.js";
+import {
+  ancV1BytesToHex,
+  decodeAncV1Canonical,
+  encodeAncV1Canonical,
+  type AncV1CanonicalValue,
+} from "./canonical.js";
 import {
   encodeAncV1CeremonyAbortStateCommitment,
   hashAncV1CeremonyAbortStateCommitment,
@@ -28,7 +33,11 @@ import {
   verifyAndReduceControlLogEntry,
 } from "./control-log.js";
 import { ancV1SigningKeypairFromSeed } from "./portable-crypto.js";
-import { e2eeDomainSeparationPrefix } from "./suite.js";
+import {
+  E2EE_ENVELOPE_FIELDS,
+  E2EE_SIZE_LIMITS,
+  e2eeDomainSeparationPrefix,
+} from "./suite.js";
 
 interface NativeSodium {
   crypto_sign_PUBLICKEYBYTES: number;
@@ -165,6 +174,14 @@ describe("anc/v1 signed control log", () => {
     });
     const innerBytes = encodeControlLogInnerEnvelope(revocation);
     expect(decodeControlLogInnerEnvelope(innerBytes)).toEqual(revocation);
+    const nonCanonicalInner = decodeAncV1Canonical(innerBytes) as Map<
+      number,
+      AncV1CanonicalValue
+    >;
+    nonCanonicalInner.set(E2EE_ENVELOPE_FIELDS.common.createdAt, at);
+    expect(() =>
+      decodeControlLogInnerEnvelope(encodeAncV1Canonical(nonCanonicalInner)),
+    ).toThrow();
     expect(
       decodeSignedControlLogEntry(encodeSignedControlLogEntry(entry)),
     ).toEqual(entry);
@@ -775,16 +792,28 @@ describe("anc/v1 signed control log", () => {
         broker.member.endpointId,
         new Date("2026-07-17T01:21:00.000Z"),
       ),
-    ).toMatchObject({
-      endpointId: broker.member.endpointId,
-      authenticatedControlHead: {
-        signedAt: "2026-07-17T01:20:00.000Z",
-        freshnessMode: "eventual_fork_detection",
-      },
-    });
+    ).toBeNull();
     expect(() =>
       assertFreshControlLogHead(state, new Date("2026-07-17T01:35:00.000Z")),
     ).toThrow("Control log verification failed");
+  });
+
+  it("rejects a signed control entry that exceeds the decoder budget", async () => {
+    const value = await genesis();
+    await expect(
+      signed({
+        current: value.state,
+        signer: value.owner,
+        inner: {
+          suite: "anc/v1",
+          type: "grant_revocation",
+          vaultId: value.state.vaultId,
+          revocationEnvelope: "aa".repeat(
+            E2EE_SIZE_LIMITS.controlEnvelopeBytes,
+          ),
+        },
+      }),
+    ).rejects.toThrow();
   });
 
   it("detects rollback, sequence gaps, forks, wrong roles, and tampering", async () => {

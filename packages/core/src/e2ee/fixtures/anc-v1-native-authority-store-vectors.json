@@ -15,7 +15,7 @@
     },
     {
       "path": "packages/core/src/e2ee/contracts.ts",
-      "sha256": "f59ba78e37117d9d4f9cbb3f38777fd9375597b69fbc6e4460a2078b882c0eb1"
+      "sha256": "8018c5cdfcb6dda143dab94952427ba9d512d68b49c58d4ca71ad00fa71d3d48"
     },
     {
       "path": "packages/core/src/e2ee/suite.ts",

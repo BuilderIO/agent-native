@@ -714,12 +714,14 @@ int main(void) {
     AncPrivateVaultAuthoritySetDerivedKeyClearedHookForTesting(nil);
     CHECK(clearedDerivedKeys >= 2 && everyDerivedKeyCleared);
 
-    NSDictionary *genesisCase = nil, *descendantCase = nil;
+    NSDictionary *genesisCase = nil, *descendantCase = nil, *brokerCase = nil;
     for (NSDictionary *testCase in corpus[@"snapshotCases"]) {
       if ([testCase[@"name"] isEqualToString:@"genesis"])
         genesisCase = testCase;
       if ([testCase[@"name"] isEqualToString:@"descendant"])
         descendantCase = testCase;
+      if ([testCase[@"name"] isEqualToString:@"broker"])
+        brokerCase = testCase;
     }
     AncPrivateVaultAuthoritySnapshotStatus snapshotStatus;
     AncPrivateVaultAuthoritySnapshot *genesis =
@@ -728,7 +730,20 @@ int main(void) {
     AncPrivateVaultAuthoritySnapshot *descendant =
         AncPrivateVaultAuthoritySnapshotDecode(
             DataFromHex(descendantCase[@"canonicalHex"]), &snapshotStatus);
-    CHECK(genesis != nil && descendant != nil);
+    AncPrivateVaultAuthoritySnapshot *broker =
+        AncPrivateVaultAuthoritySnapshotDecode(
+            DataFromHex(brokerCase[@"canonicalHex"]), &snapshotStatus);
+    CHECK(genesis != nil && descendant != nil && broker != nil);
+    CHECK(AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+        genesis, genesis.signedAtMs));
+    CHECK(AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+        genesis, genesis.signedAtMs + 30 * 1000));
+    CHECK(!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+        genesis, genesis.signedAtMs + 15 * 60 * 1000));
+    CHECK(!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+        genesis, genesis.signedAtMs - 31 * 1000));
+    CHECK(!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+        broker, broker.signedAtMs));
     CHECK(RunEnrollmentBootstrapCase(
               genesis, descendant,
               DataFromHex(descendantCase[@"canonicalHex"]), key) == 0);

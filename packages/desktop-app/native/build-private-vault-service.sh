@@ -506,10 +506,12 @@ case "${PRIVATE_VAULT_BUILD_GRANT_INDEX_TESTS:-}" in
       -framework Foundation -framework Security -framework LocalAuthentication \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
       "$SOURCE_ROOT/control/PrivateVaultDisclosureCodec.m" \
       "$SOURCE_ROOT/control/PrivateVaultGrantCodec.m" \
       "$SOURCE_ROOT/control/PrivateVaultJobCodec.m" \
       "$SOURCE_ROOT/control/PrivateVaultJobProcessor.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
       "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \

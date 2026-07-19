@@ -278,7 +278,9 @@ export async function sealAncV1GrantRevocation(
     );
     const signed = new Map(unsigned);
     signed.set(77, signature);
-    return encodeAncV1Canonical(signed);
+    const encoded = encodeAncV1Canonical(signed);
+    if (encoded.byteLength > E2EE_SIZE_LIMITS.controlEnvelopeBytes) fail();
+    return encoded;
   } catch {
     return fail();
   }

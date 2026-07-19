@@ -115,6 +115,8 @@ static NSData *Pattern(uint8_t byte, NSUInteger length) {
 
 @interface TestAuthoritySnapshot : NSObject
 @property(nonatomic) uint64_t verifiedAtMs;
+@property(nonatomic) uint64_t signedAtMs;
+@property(nonatomic) NSString *freshnessMode;
 @property(nonatomic) NSArray *activeMembers;
 @end
 @implementation TestAuthoritySnapshot
@@ -412,7 +414,7 @@ int main(void) {
     NSData *semanticJob = AncPrivateVaultSealJobEnvelope(
         Pattern(0x01, 16), Pattern(0x18, 16), 1721111111,
         Pattern(0x06, 16),
-        Hex(@"20535eab190d7b022ff384ead22836dde8267255a28faa9886624b83c4fd806914"),
+        Hex(@"535eab190d7b022ff384ead22836dde8267255a28faa9886624b83c4fd806914"),
         1721111111, 1721111711, Pattern(0x0b, 16), semanticPayload,
         Pattern(0x93, 24), requesterSigningSeed, requesterBoxPrivate,
         brokerBox.bytes, &semanticJobStatus);
@@ -456,6 +458,8 @@ int main(void) {
     broker.keyAgreementPublicKey = brokerBox;
     TestAuthoritySnapshot *authoritySnapshot = [TestAuthoritySnapshot new];
     authoritySnapshot.verifiedAtMs = 1721111200ULL * 1000;
+    authoritySnapshot.signedAtMs = 1721111200ULL * 1000;
+    authoritySnapshot.freshnessMode = @"endpoint_witnessed";
     authoritySnapshot.activeMembers = @[requester, broker];
     TestAuthorityCheckpoint *authorityCheckpoint =
         [TestAuthorityCheckpoint new];
@@ -471,6 +475,14 @@ int main(void) {
               grantIndex:index
              resultSpool:resultSpool];
     AncPrivateVaultAuthorizedJob *authorizedJob = nil;
+    authoritySnapshot.freshnessMode = @"eventual_fork_detection";
+    assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
+                                jobId:Pattern(0x06, 16)
+                           hostedEpoch:1 hostedRetryCount:0
+                      hostedAlgorithmId:@"anc-v1-job"
+                           nowSeconds:1721111200 result:&authorizedJob] ==
+           AncPrivateVaultJobProcessorStatusStaleAuthority);
+    authoritySnapshot.freshnessMode = @"endpoint_witnessed";
     assert([processor openJobEnvelope:semanticJob vaultId:kVaultId
                                 jobId:Pattern(0x06, 16)
                            hostedEpoch:1 hostedRetryCount:0
@@ -503,8 +515,14 @@ int main(void) {
         }],
         &proofStatus);
     NSData *endpointSignature = nil;
-    assert(proofStatus == AncPrivateVaultCanonicalStatusOK &&
-           [processor signEndpointRequestProof:unsignedProof
+    assert(proofStatus == AncPrivateVaultCanonicalStatusOK);
+    authoritySnapshot.signedAtMs = 1721110300ULL * 1000;
+    assert([processor signEndpointRequestProof:unsignedProof
+                                     nowSeconds:1721111200
+                                         result:&endpointSignature] ==
+           AncPrivateVaultJobProcessorStatusStaleAuthority);
+    authoritySnapshot.signedAtMs = 1721111200ULL * 1000;
+    assert([processor signEndpointRequestProof:unsignedProof
                                      nowSeconds:1721111200
                                          result:&endpointSignature] ==
                AncPrivateVaultJobProcessorStatusOK &&
@@ -611,7 +629,7 @@ int main(void) {
            pendingResult.grantId.length == 16 &&
            [pendingResult.grantRef isEqualToData:resultEnvelope.grantRef] &&
            pendingResult.resourceId.length == 16 &&
-           [pendingResult.operation isEqualToString:@"get-document"] &&
+           [pendingResult.operation isEqualToString:@"read"] &&
            [pendingResult.providerId isEqualToString:@"codex-cli"] &&
            [pendingResult.destination isEqualToString:@"gpt-5.6"] &&
            [pendingResult.scopeHash isEqualToData:resultEnvelope.scopeHash] &&
@@ -740,7 +758,7 @@ int main(void) {
                     keychain:keychain];
     assert([restarted loadVaultId:kVaultId snapshot:&snapshot] ==
            AncPrivateVaultGrantIndexStatusOK);
-    assert(snapshot.generation == 13 && snapshot.grantCount == 3 &&
+    assert(snapshot.generation == 14 && snapshot.grantCount == 3 &&
            snapshot.revocationCount == 1 &&
            snapshot.pendingRevocationCount == 0 && snapshot.jobCount == 2);
     AncPrivateVaultJobProcessor *restartedProcessor =

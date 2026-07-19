@@ -307,6 +307,22 @@ describe("anc/v1 encrypted result envelopes", () => {
         brokerKeyAgreementPublicKey: f.brokerBox.publicKey,
       }),
     ).rejects.toBeInstanceOf(AncV1JobEnvelopeError);
+    await expect(
+      sealAncV1ResultEnvelope({
+        vaultId: f.vaultId,
+        envelopeId: p(0x42, 16),
+        createdAt: 201,
+        jobId: f.jobId,
+        jobHash,
+        recipientEndpointId: f.requesterId,
+        state: "cancelled" as "completed",
+        plaintext: text("must not seal"),
+        nonce: p(0x43, 24),
+        senderKeyAgreementPrivateKey: f.brokerBox.privateKey,
+        recipientKeyAgreementPublicKey: f.requesterBox.publicKey,
+        signingPrivateKey: f.broker.privateKey,
+      }),
+    ).rejects.toBeInstanceOf(AncV1JobEnvelopeError);
   });
 
   it("rejects a result for the wrong request hash, recipient, or signer", async () => {

@@ -204,8 +204,8 @@ static BOOL IsContentActionName(NSString *value) {
       return;
     }
     uint64_t nowMs = nowSeconds * 1000;
-    if (checkpoint.snapshot.verifiedAtMs > nowMs ||
-        nowMs - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000) {
+    if (!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+            checkpoint.snapshot, nowMs)) {
       status = AncPrivateVaultJobProcessorStatusStaleAuthority;
       return;
     }
@@ -514,8 +514,8 @@ static BOOL IsContentActionName(NSString *value) {
             AncPrivateVaultAuthorityStoreStatusOK || checkpoint == nil)
       return;
     uint64_t nowMs = nowSeconds * 1000;
-    if (checkpoint.snapshot.verifiedAtMs > nowMs ||
-        nowMs - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000)
+    if (!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+            checkpoint.snapshot, nowMs))
       return;
     AncPrivateVaultAuthorityMember *broker = nil;
     for (AncPrivateVaultAuthorityMember *member in checkpoint.snapshot.activeMembers)
@@ -624,8 +624,8 @@ static BOOL IsContentActionName(NSString *value) {
       return;
     }
     uint64_t nowMs = nowSeconds * 1000;
-    if (checkpoint.snapshot.verifiedAtMs > nowMs ||
-        nowMs - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000) {
+    if (!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+            checkpoint.snapshot, nowMs)) {
       status = AncPrivateVaultJobProcessorStatusStaleAuthority;
       return;
     }
@@ -833,8 +833,8 @@ static BOOL IsContentActionName(NSString *value) {
       return;
     }
     uint64_t nowMs = nowSeconds * 1000;
-    if (checkpoint.snapshot.verifiedAtMs > nowMs ||
-        nowMs - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000) {
+    if (!AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+            checkpoint.snapshot, nowMs)) {
       status = AncPrivateVaultJobProcessorStatusStaleAuthority;
       return;
     }

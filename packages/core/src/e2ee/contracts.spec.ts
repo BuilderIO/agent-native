@@ -219,6 +219,19 @@ describe("E2EE wire contracts", () => {
       }).state,
     ).toBe("completed");
     expect(
+      encryptedJobResultSchema.safeParse({
+        version: 1,
+        jobId: "job:fixture-01",
+        vaultId: "vault:fixture-01",
+        recipientEndpointId: "endpoint:fixture-01",
+        epoch: 2,
+        jobHash: "digest:job-fixture-01",
+        result: request,
+        state: "cancelled",
+        serverReceivedAt: now,
+      }).success,
+    ).toBe(false);
+    expect(
       encryptedQueuedJobSchema.safeParse({
         version: 1,
         jobId: "job:fixture-01",

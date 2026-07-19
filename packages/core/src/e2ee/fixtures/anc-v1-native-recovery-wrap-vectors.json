@@ -31,7 +31,7 @@
     },
     {
       "path": "packages/core/src/e2ee/control-log.ts",
-      "sha256": "a73da627c621c1f3d8bcc8f5634c46cbdde62658b47f13082f747afed93e45bf"
+      "sha256": "fa7105808745b1c74e0497d27ef6fae99c0cf615f4c5170997a2ab34762bc3ab"
     }
   ],
   "domains": [

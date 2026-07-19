@@ -57,4 +57,7 @@ FOUNDATION_EXPORT NSData *_Nullable AncPrivateVaultAuthoritySnapshotEncode(
     AncPrivateVaultAuthoritySnapshot *snapshot,
     AncPrivateVaultAuthoritySnapshotStatus *status);
 
+FOUNDATION_EXPORT BOOL AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+    AncPrivateVaultAuthoritySnapshot *_Nullable snapshot, uint64_t nowMs);
+
 NS_ASSUME_NONNULL_END

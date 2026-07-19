@@ -15,11 +15,11 @@
     },
     {
       "path": "packages/core/src/e2ee/control-log.ts",
-      "sha256": "a73da627c621c1f3d8bcc8f5634c46cbdde62658b47f13082f747afed93e45bf"
+      "sha256": "fa7105808745b1c74e0497d27ef6fae99c0cf615f4c5170997a2ab34762bc3ab"
     },
     {
       "path": "packages/core/src/e2ee/grant-codecs.ts",
-      "sha256": "0b37df77a82c4e02c99baa06431e3019d0ad1ae838c62de16998659b903fabcf"
+      "sha256": "1fb4e29c2639160907c39504b51030d08b1288c7948e6a5bcf6059b5d0f403fc"
     },
     {
       "path": "packages/core/src/e2ee/portable-crypto.ts",

@@ -154,7 +154,15 @@ signature also occupy bytes.
 
 Endpoint membership, epochs, grants/revocations, disclosures, recovery, object tombstones, and rotation acknowledgements form an endpoint-signed append-only hash chain. Each entry binds sequence, previous BLAKE2b-256 hash, signer, and canonical inner envelope.
 
-Every endpoint persists the highest verified `(sequence, head hash)`. A lower sequence or conflicting hash at the same sequence is a hard rollback/fork failure. Before unattended work, the broker must refresh and verify a head no older than 15 minutes; a withholding server can stop work but cannot silently preserve stale authority.
+Every endpoint persists the highest verified `(sequence, head hash)`. A lower sequence or conflicting hash at the same sequence is a hard rollback/fork failure. Before unattended work, the broker must refresh and verify an endpoint-signed head whose `signedAt` is less than 15 minutes old. The broker also permits at most 30 seconds of future clock skew. Request authentication binds that exact sequence, head hash, `signedAt`, and `endpoint_witnessed` freshness mode.
+
+A broker-signed `continuity_checkpoint` may extend local fork-detection evidence
+while an endpoint is unavailable, but it changes freshness mode to
+`eventual_fork_detection`. That state can detect later disagreement; it can
+never authorize a job, result, disclosure, or broker request and cannot reset
+the 15-minute clock. Only a newly endpoint-witnessed head restores unattended
+work. A withholding server can therefore stop work but cannot silently keep
+stale authority alive.
 
 Objects carry monotonic signed revisions and endpoints persist per-object high-water marks. The v1 format reserves signed vault-manifest snapshots mapping object IDs to current revisions so newly enrolled devices can detect object rollback. These snapshots are required before beta release.
 

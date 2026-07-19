@@ -61,7 +61,8 @@ async function fixture() {
     authenticatedControlHead: {
       sequence: 7,
       hash: "ab".repeat(32),
-      verifiedAt: "2026-07-17T01:01:00.000Z",
+      signedAt: "2026-07-17T01:01:00.000Z",
+      freshnessMode: "endpoint_witnessed" as const,
     },
   }));
   const claimNonce = vi.fn(async () => true);
@@ -230,7 +231,17 @@ describe("anc/v1 endpoint request authentication", () => {
         authenticatedControlHead: {
           sequence: 7,
           hash: "ab".repeat(32),
-          verifiedAt: "2026-07-17T00:47:00.000Z",
+          signedAt: "2026-07-17T00:47:00.000Z",
+          freshnessMode: "endpoint_witnessed" as const,
+        },
+      },
+      {
+        ...(await value.resolveAuthorizedEndpoint()),
+        authenticatedControlHead: {
+          sequence: 7,
+          hash: "ab".repeat(32),
+          signedAt: "2026-07-17T01:01:00.000Z",
+          freshnessMode: "eventual_fork_detection",
         },
       },
     ]) {

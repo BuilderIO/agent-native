@@ -48,6 +48,21 @@ static const uint64_t kAncPrivateVaultMaxSafeInteger = 9007199254740991ULL;
 @implementation AncPrivateVaultAuthoritySnapshot
 @end
 
+BOOL AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+    AncPrivateVaultAuthoritySnapshot *snapshot, uint64_t nowMs) {
+  const uint64_t maximumAgeMs = UINT64_C(15) * 60 * 1000;
+  const uint64_t futureSkewMs = UINT64_C(30) * 1000;
+  if (snapshot == nil || nowMs == 0 || snapshot.signedAtMs == 0 ||
+      ![snapshot.freshnessMode isEqualToString:@"endpoint_witnessed"] ||
+      (snapshot.signedAtMs > nowMs &&
+       snapshot.signedAtMs - nowMs > futureSkewMs) ||
+      (nowMs >= snapshot.signedAtMs &&
+       nowMs - snapshot.signedAtMs >= maximumAgeMs)) {
+    return NO;
+  }
+  return YES;
+}
+
 static void AncAuthorityRaiseImmutableMutation(void) {
   [NSException raise:NSInternalInconsistencyException
               format:@"verified authority values are immutable"];

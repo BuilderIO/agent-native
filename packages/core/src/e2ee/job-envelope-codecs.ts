@@ -408,6 +408,7 @@ export async function openAncV1JobEnvelope(
 export async function sealAncV1ResultEnvelope(
   input: SealAncV1ResultEnvelopeInput,
 ): Promise<Uint8Array> {
+  if (input.state !== "completed" && input.state !== "failed") fail();
   const aad = common("result", input);
   aad.set(E2EE_ENVELOPE_FIELDS.result.jobId, exactBytes(input.jobId, ID_BYTES));
   aad.set(

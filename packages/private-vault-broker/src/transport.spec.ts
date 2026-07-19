@@ -194,7 +194,8 @@ describe("signed hosted broker transport", () => {
           authenticatedControlHead: {
             sequence: 1,
             hash: "ab".repeat(32),
-            verifiedAt: "2026-07-17T00:59:59.000Z",
+            signedAt: "2026-07-17T00:59:59.000Z",
+            freshnessMode: "endpoint_witnessed",
           },
         }),
         claimNonce: async () => true,

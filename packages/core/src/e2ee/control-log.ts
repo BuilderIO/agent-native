@@ -498,7 +498,11 @@ function requiredValue(
 export function decodeControlLogInnerEnvelope(
   bytes: Uint8Array,
 ): ControlLogInnerEnvelope {
-  const commonKeys = [...Object.values(E2EE_ENVELOPE_FIELDS.common)];
+  const commonKeys = [
+    E2EE_ENVELOPE_FIELDS.common.suite,
+    E2EE_ENVELOPE_FIELDS.common.vaultId,
+    E2EE_ENVELOPE_FIELDS.common.type,
+  ];
   const initial = decodeAncV1Envelope(
     bytes,
     [
@@ -533,6 +537,9 @@ export function decodeControlLogInnerEnvelope(
       maxBytes: E2EE_SIZE_LIMITS.controlEnvelopeBytes,
     },
   );
+  if (map.size !== commonKeys.length + Object.values(typeFields).length) {
+    throw new ControlLogVerificationError("invalid_entry");
+  }
   const suite = mapGet(map, E2EE_ENVELOPE_FIELDS.common.suite, isString);
   const vaultId = mapGet(map, E2EE_ENVELOPE_FIELDS.common.vaultId, isString);
   if (type === "continuity_checkpoint") {
@@ -736,10 +743,17 @@ export async function createSignedControlLogEntry(input: {
     encodeUnsignedControlLogEntry(unsigned),
     input.signingPrivateKey,
   );
-  return signedControlLogEntrySchema.parse({
+  const signed = signedControlLogEntrySchema.parse({
     ...unsigned,
     signature: ancV1BytesToHex(signature),
   });
+  if (
+    encodeSignedControlLogEntry(signed).byteLength >
+    E2EE_SIZE_LIMITS.vaultLogEntryBytes
+  ) {
+    throw new ControlLogVerificationError("invalid_entry");
+  }
+  return signed;
 }
 
 async function membershipHash(
@@ -1278,10 +1292,11 @@ export function resolveControlLogEndpointAuthorization(
     sequence: number;
     hash: string;
     signedAt: string;
-    freshnessMode: "endpoint_witnessed" | "eventual_fork_detection";
+    freshnessMode: "endpoint_witnessed";
   };
 } | null {
   const state = assertFreshControlLogHead(stateInput, now);
+  if (state.freshnessMode !== "endpoint_witnessed") return null;
   const member = state.activeMembers.find(
     (candidate) => candidate.endpointId === endpointId,
   );

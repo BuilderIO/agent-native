@@ -2325,6 +2325,14 @@ static BOOL PVObjectJobScopeAllows(AncPrivateVaultJobContext *job,
                              contentType);
 }
 
+static BOOL PVObjectBrokerAuthorityFresh(
+    AncPrivateVaultAuthorityCheckpoint *checkpoint, uint64_t nowSeconds) {
+    return checkpoint != nil && nowSeconds > 0 &&
+           nowSeconds <= UINT64_MAX / 1000 &&
+           AncPrivateVaultAuthoritySnapshotIsFreshForBroker(
+               checkpoint.snapshot, nowSeconds * 1000);
+}
+
 static BOOL PVObjectBrokerContext(
     NSString *vaultId, NSData *jobId, NSData *jobHash, NSData *objectId,
     NSString *contentType, uint64_t nowSeconds,
@@ -2354,8 +2362,7 @@ static BOOL PVObjectBrokerContext(
                                  checkpoint:&checkpoint
                                       error:nil] !=
             AncPrivateVaultAuthorityStoreStatusOK ||
-        checkpoint == nil || checkpoint.snapshot.verifiedAtMs > nowSeconds * 1000 ||
-        nowSeconds * 1000 - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000)
+        !PVObjectBrokerAuthorityFresh(checkpoint, nowSeconds))
         return NO;
     AncPrivateVaultControlLogState *authenticated =
         AncPrivateVaultControlLogStateCreateFromAuthenticatedCheckpoint(

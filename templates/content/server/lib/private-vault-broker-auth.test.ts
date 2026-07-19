@@ -50,6 +50,8 @@ beforeEach(() => {
     authenticatedControlHead: {
       sequence: 4,
       hash: "11".repeat(32),
+      signedAt: "2026-07-18T11:59:00.000Z",
+      freshnessMode: "endpoint_witnessed",
     },
   });
   claimAuthorizedControlRequest.mockResolvedValue(true);
@@ -68,7 +70,8 @@ beforeEach(() => {
       authenticatedControlHead: {
         sequence: 4,
         hash: "11".repeat(32),
-        verifiedAt: now.toISOString(),
+        signedAt: "2026-07-18T11:59:00.000Z",
+        freshnessMode: "endpoint_witnessed",
       },
     });
     expect(
