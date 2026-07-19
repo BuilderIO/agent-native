@@ -1959,119 +1959,126 @@ describe("Private Vault native service client", () => {
     );
   });
 
-  it("rejects concurrent native work immediately while one slot is held", () => {
-    expect(
-      execFileSync(join(nativeRoot, "run-request-gate-tests.sh"), {
+  it.runIf(process.platform === "darwin")(
+    "rejects concurrent native work immediately while one slot is held",
+    () => {
+      expect(
+        execFileSync(join(nativeRoot, "run-request-gate-tests.sh"), {
+          encoding: "utf8",
+        }),
+      ).toContain("request gate tests passed");
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "builds and loads one N-API addon with both macOS architectures",
+    async () => {
+      const outputRoot = join(nativeRoot, "build-test");
+      const addonPath = execFileSync(
+        join(desktopRoot, "native", "build-private-vault-xpc-client.sh"),
+        [outputRoot],
+        { encoding: "utf8" },
+      ).trim();
+      expect(statSync(addonPath).isFile()).toBe(true);
+      const architectures = execFileSync("lipo", ["-archs", addonPath], {
         encoding: "utf8",
-      }),
-    ).toContain("request gate tests passed");
-  });
+      });
+      expect(architectures).toContain("arm64");
+      expect(architectures).toContain("x86_64");
 
-  it("builds and loads one N-API addon with both macOS architectures", async () => {
-    const outputRoot = join(nativeRoot, "build-test");
-    const addonPath = execFileSync(
-      join(desktopRoot, "native", "build-private-vault-xpc-client.sh"),
-      [outputRoot],
-      { encoding: "utf8" },
-    ).trim();
-    expect(statSync(addonPath).isFile()).toBe(true);
-    const architectures = execFileSync("lipo", ["-archs", addonPath], {
-      encoding: "utf8",
-    });
-    expect(architectures).toContain("arm64");
-    expect(architectures).toContain("x86_64");
-
-    const require = createRequire(import.meta.url);
-    const addon = require(addonPath) as {
-      request(
-        operation: string,
-        ...arguments_: Array<string | Buffer>
-      ): Promise<unknown>;
-    };
-    expect(Object.keys(addon)).toEqual(["request"]);
-    await expect(addon.request("health")).rejects.toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() => addon.request("unknown")).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() =>
-      addon.request(
-        "inspect_enroll",
-        "00112233445566778899aabbccddeeff",
-        Buffer.from([1]),
-      ),
-    ).toThrow("Private Vault native service request failed");
-    expect(() =>
-      addon.request(
-        "decide_enroll",
-        "ffeeddccbbaa00998877665544332211",
-        "confirmed",
-      ),
-    ).toThrow("Private Vault native service request failed");
-    expect(() => addon.request("x".repeat(17))).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() => addon.request("resume_rotation")).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() =>
-      addon.request("resume_rotation", "00112233445566778899AABBCCDDEEFF"),
-    ).toThrow("Private Vault native service request failed");
-    await expect(
-      addon.request("resume_rotation", "00112233445566778899aabbccddeeff"),
-    ).rejects.toThrow("Private Vault native service request failed");
-    expect(() => addon.request("commit_genesis")).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() => addon.request("recover_begin")).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() => addon.request("recover_begin", Buffer.alloc(0))).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() => addon.request("recover_page", Buffer.alloc(0))).toThrow(
-      "Private Vault native service request failed",
-    );
-    expect(() =>
-      addon.request(
-        "commit_genesis",
-        Buffer.alloc(1),
-        Buffer.alloc(4 * 1024 + 1),
-        Buffer.alloc(1),
-      ),
-    ).toThrow("Private Vault native service request failed");
-    await expect(
-      addon.request(
-        "commit_genesis",
-        Buffer.alloc(1),
-        Buffer.alloc(1),
-        Buffer.alloc(1),
-      ),
-    ).rejects.toThrow("Private Vault native service request failed");
-    const genesisMaximums = [64 * 1024, 4 * 1024, 256 * 1024] as const;
-    for (let index = 0; index < genesisMaximums.length; index += 1) {
-      const exact = genesisMaximums.map((maximum, fieldIndex) =>
-        Buffer.alloc(fieldIndex === index ? maximum : 1),
-      );
-      await expect(addon.request("commit_genesis", ...exact)).rejects.toThrow(
+      const require = createRequire(import.meta.url);
+      const addon = require(addonPath) as {
+        request(
+          operation: string,
+          ...arguments_: Array<string | Buffer>
+        ): Promise<unknown>;
+      };
+      expect(Object.keys(addon)).toEqual(["request"]);
+      await expect(addon.request("health")).rejects.toThrow(
         "Private Vault native service request failed",
       );
-      for (const invalid of [
-        Buffer.alloc(0),
-        Buffer.alloc(genesisMaximums[index]! + 1),
-        "wrong type",
-      ]) {
-        const fields: Array<string | Buffer> = [
+      expect(() => addon.request("unknown")).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() =>
+        addon.request(
+          "inspect_enroll",
+          "00112233445566778899aabbccddeeff",
+          Buffer.from([1]),
+        ),
+      ).toThrow("Private Vault native service request failed");
+      expect(() =>
+        addon.request(
+          "decide_enroll",
+          "ffeeddccbbaa00998877665544332211",
+          "confirmed",
+        ),
+      ).toThrow("Private Vault native service request failed");
+      expect(() => addon.request("x".repeat(17))).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() => addon.request("resume_rotation")).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() =>
+        addon.request("resume_rotation", "00112233445566778899AABBCCDDEEFF"),
+      ).toThrow("Private Vault native service request failed");
+      await expect(
+        addon.request("resume_rotation", "00112233445566778899aabbccddeeff"),
+      ).rejects.toThrow("Private Vault native service request failed");
+      expect(() => addon.request("commit_genesis")).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() => addon.request("recover_begin")).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() => addon.request("recover_begin", Buffer.alloc(0))).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() => addon.request("recover_page", Buffer.alloc(0))).toThrow(
+        "Private Vault native service request failed",
+      );
+      expect(() =>
+        addon.request(
+          "commit_genesis",
+          Buffer.alloc(1),
+          Buffer.alloc(4 * 1024 + 1),
+          Buffer.alloc(1),
+        ),
+      ).toThrow("Private Vault native service request failed");
+      await expect(
+        addon.request(
+          "commit_genesis",
           Buffer.alloc(1),
           Buffer.alloc(1),
           Buffer.alloc(1),
-        ];
-        fields[index] = invalid;
-        expect(() => addon.request("commit_genesis", ...fields)).toThrow(
+        ),
+      ).rejects.toThrow("Private Vault native service request failed");
+      const genesisMaximums = [64 * 1024, 4 * 1024, 256 * 1024] as const;
+      for (let index = 0; index < genesisMaximums.length; index += 1) {
+        const exact = genesisMaximums.map((maximum, fieldIndex) =>
+          Buffer.alloc(fieldIndex === index ? maximum : 1),
+        );
+        await expect(addon.request("commit_genesis", ...exact)).rejects.toThrow(
           "Private Vault native service request failed",
         );
+        for (const invalid of [
+          Buffer.alloc(0),
+          Buffer.alloc(genesisMaximums[index]! + 1),
+          "wrong type",
+        ]) {
+          const fields: Array<string | Buffer> = [
+            Buffer.alloc(1),
+            Buffer.alloc(1),
+            Buffer.alloc(1),
+          ];
+          fields[index] = invalid;
+          expect(() => addon.request("commit_genesis", ...fields)).toThrow(
+            "Private Vault native service request failed",
+          );
+        }
       }
-    }
-  }, 30_000);
+    },
+    30_000,
+  );
 });
