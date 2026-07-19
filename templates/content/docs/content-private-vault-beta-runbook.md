@@ -6,6 +6,8 @@ Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-
 
 Cryptographic design: [Content E2EE M3 Cryptographic Design](./content-e2ee-m3-cryptographic-design.md)
 
+Provider retention evidence: [Content Private Vault Provider Retention Evidence](./content-private-vault-provider-retention-evidence.md)
+
 ## Purpose
 
 This runbook is the release gate for the first exact-account Private Vault beta.
@@ -160,9 +162,13 @@ supported document fields.
 8. Cancel the first cleanup confirmation; originals must remain. Confirm the
    second attempt, after Desktop re-opens every encrypted object. Verify only the
    unchanged scoped originals are deleted.
-9. Record the database/blob provider's documented backup and deletion horizons.
-   The product disclosure must describe retained ciphertext and metadata; do not
-   imply immediate physical erasure.
+9. Complete the
+   [provider retention evidence](./content-private-vault-provider-retention-evidence.md):
+   record Neon's exact restore window and snapshot inventory, prove no migration
+   plaintext entered Blob or logs, and wait until recoverable Neon source
+   plaintext is outside every recorded horizon before applying the completed
+   E2EE label. The product disclosure must describe retained ciphertext and
+   metadata; do not imply immediate physical erasure.
 
 ## Signed artifact gate
 

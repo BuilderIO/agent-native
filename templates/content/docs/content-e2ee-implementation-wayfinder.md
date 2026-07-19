@@ -7,6 +7,7 @@ Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayf
 Baseline audit: [Content Data-Isolation Audit](./content-data-isolation-audit-2026-07-13.md)
 F3/F4 evidence: [Content E2EE F3/F4 Evidence Matrix](./content-e2ee-f3-f4-evidence-matrix.md)
 Production preflight: [Content Production Exposure Inventory Preflight](./content-production-exposure-inventory-2026-07-16.md)
+Provider retention evidence: [Content Private Vault Provider Retention Evidence](./content-private-vault-provider-retention-evidence.md)
 Cross-app direction: [Agent Native E2EE Expansion Strategy](./agent-native-e2ee-expansion-strategy.md)
 
 ## Answer
