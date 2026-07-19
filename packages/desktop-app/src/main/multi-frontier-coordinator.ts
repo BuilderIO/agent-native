@@ -1276,6 +1276,16 @@ function boundTurnResult(
     disposition: disposition.disposition,
     reason: boundText(disposition.reason, "finding disposition reason"),
   }));
+  const tests = result.tests?.slice(0, 8).map((test) => {
+    if (test.status !== "passed" && test.status !== "failed") {
+      throw new Error("A participant test status is invalid.");
+    }
+    return {
+      name: boundText(test.name, "test name"),
+      status: test.status,
+      evidence: boundText(test.evidence, "test evidence"),
+    };
+  });
   return {
     text,
     ...(typeof result.agreed === "boolean" ? { agreed: result.agreed } : {}),
@@ -1284,6 +1294,7 @@ function boundTurnResult(
       : {}),
     ...(findings ? { findings } : {}),
     ...(dispositions ? { dispositions } : {}),
+    ...(tests ? { tests } : {}),
     ...(result.reversibleResolution
       ? {
           reversibleResolution: {

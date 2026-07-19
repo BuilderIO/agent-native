@@ -1,6 +1,9 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+
+import React, { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MultiFrontierRendererState } from "../../../shared/multi-frontier-ipc.js";
 import {
@@ -13,6 +16,22 @@ import {
 } from "./MultiFrontierWorkspace.js";
 
 describe("MultiFrontierWorkspace presentation helpers", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("only exposes GO after convergence is awaiting explicit approval", () => {
     expect(
       controlsForState({ phase: "awaiting_go", approvalState: "pending" }),
@@ -39,6 +58,7 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
       canResume: false,
       canCancel: false,
       canSwap: false,
+      canReReview: false,
     });
   });
 
@@ -146,6 +166,42 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
       autoContinueAfterAgreement: false,
       isReadOnly: false,
     });
+  });
+
+  it("keeps evidence keyboard-focusable and announces phase changes without expanding it by default", () => {
+    const state = rendererState("proposing");
+    state.artifacts = [
+      {
+        id: "proposal-1",
+        kind: "proposal",
+        summary: "A bounded proposal.",
+      },
+    ];
+
+    act(() => {
+      root.render(createElement(MultiFrontierWorkspace, { state }));
+    });
+
+    const evidence = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Evidence · 1"),
+    );
+    expect(evidence).toBeInstanceOf(HTMLButtonElement);
+    expect(evidence?.getAttribute("aria-expanded")).toBe("false");
+
+    act(() => evidence?.focus());
+    expect(document.activeElement).toBe(evidence);
+
+    act(() => evidence?.click());
+    expect(evidence?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("A bounded proposal.");
+
+    const awaitingGo = { ...state, phase: "awaiting_go" as const };
+    act(() => {
+      root.render(createElement(MultiFrontierWorkspace, { state: awaitingGo }));
+    });
+    const phaseStatus = container.querySelector('[role="status"]');
+    expect(phaseStatus?.textContent).toContain("awaiting go · Round 1");
+    expect(phaseStatus?.getAttribute("aria-live")).toBe("polite");
   });
 });
 

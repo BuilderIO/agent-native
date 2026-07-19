@@ -29,6 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
 import {
   Popover,
@@ -102,12 +103,15 @@ export type MultiFrontierSecondaryAction =
   | "pause"
   | "resume"
   | "cancel"
+  | "re-review"
   | "role-swap";
 
 export interface MultiFrontierSecondaryActionInput {
   action: MultiFrontierSecondaryAction;
   collaborationId: string;
   nextDriverParticipantId?: string;
+  reviewArtifactId?: string;
+  prompt?: string;
 }
 
 export interface MultiFrontierWorkspaceProps {
@@ -133,6 +137,7 @@ export interface MultiFrontierControlState {
   canResume: boolean;
   canCancel: boolean;
   canSwap: boolean;
+  canReReview: boolean;
 }
 
 export function agreementPolicyForWorkspace(
@@ -151,7 +156,10 @@ export function agreementPolicyForWorkspace(
 export function controlsForState(
   state?: Pick<
     MultiFrontierRendererState,
-    "phase" | "approvalState" | "autoContinueAfterAgreement"
+    | "phase"
+    | "approvalState"
+    | "autoContinueAfterAgreement"
+    | "pendingCheckpointReviewArtifactId"
   >,
 ): MultiFrontierControlState {
   if (!state) {
@@ -162,6 +170,7 @@ export function controlsForState(
       canResume: false,
       canCancel: false,
       canSwap: false,
+      canReReview: false,
     };
   }
 
@@ -177,6 +186,10 @@ export function controlsForState(
     canCancel: !terminal,
     canSwap:
       state.phase === "awaiting_go" || state.phase === "checkpoint_review",
+    canReReview:
+      state.phase === "awaiting_go" &&
+      state.approvalState === "pending" &&
+      Boolean(state.pendingCheckpointReviewArtifactId),
   };
 }
 
@@ -695,16 +708,20 @@ function CollaborationPanel({
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const invokeSecondaryAction = (
     action: MultiFrontierSecondaryAction,
-    nextDriverParticipantId?: string,
+    input: Omit<
+      MultiFrontierSecondaryActionInput,
+      "action" | "collaborationId"
+    > = {},
   ) =>
     onSecondaryAction?.({
       action,
       collaborationId: state.collaborationId,
-      ...(nextDriverParticipantId ? { nextDriverParticipantId } : {}),
+      ...input,
     });
   const swappableParticipants = state.participants.filter(
     (participant) => participant.participantId !== state.driverParticipantId,
   );
+  const [recoveryPrompt, setRecoveryPrompt] = useState("");
 
   return (
     <div className="space-y-3 rounded-md border border-border p-3">
@@ -733,7 +750,7 @@ function CollaborationPanel({
               GO — implement
             </Button>
           ) : null}
-          {controls.canResume ? (
+          {controls.canResume && !state.requiresPlanningPrompt ? (
             <Button
               type="button"
               size="sm"
@@ -770,10 +787,9 @@ function CollaborationPanel({
                     <DropdownMenuItem
                       key={participant.participantId}
                       onSelect={() =>
-                        invokeSecondaryAction(
-                          "role-swap",
-                          participant.participantId,
-                        )
+                        invokeSecondaryAction("role-swap", {
+                          nextDriverParticipantId: participant.participantId,
+                        })
                       }
                     >
                       <IconArrowsExchange aria-hidden="true" />
@@ -781,7 +797,23 @@ function CollaborationPanel({
                     </DropdownMenuItem>
                   ))
                 : null}
-              {(controls.canPause || controls.canSwap) && controls.canCancel ? (
+              {controls.canReReview &&
+              state.pendingCheckpointReviewArtifactId ? (
+                <DropdownMenuItem
+                  onSelect={() =>
+                    invokeSecondaryAction("re-review", {
+                      reviewArtifactId: state.pendingCheckpointReviewArtifactId,
+                    })
+                  }
+                >
+                  <IconPlayerSkipForward aria-hidden="true" />
+                  Address and re-review findings
+                </DropdownMenuItem>
+              ) : null}
+              {(controls.canPause ||
+                controls.canSwap ||
+                controls.canReReview) &&
+              controls.canCancel ? (
                 <DropdownMenuSeparator />
               ) : null}
               {controls.canCancel ? (
@@ -803,9 +835,42 @@ function CollaborationPanel({
         </p>
       ) : null}
       {state.phase === "paused" ? (
-        <p role="status" className="text-xs text-muted-foreground">
-          Work is paused and can be resumed without replaying edits.
-        </p>
+        state.requiresPlanningPrompt ? (
+          <div className="space-y-2" role="status">
+            <p className="text-xs text-muted-foreground">
+              Re-enter the original request to resume planning. It was not kept
+              on disk.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={recoveryPrompt}
+                maxLength={12_000}
+                onChange={(event) => setRecoveryPrompt(event.target.value)}
+                aria-label="Original collaboration request"
+                placeholder="Original request"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy || !recoveryPrompt.trim() || !onSecondaryAction}
+                onClick={() =>
+                  onSecondaryAction?.({
+                    action: "resume",
+                    collaborationId: state.collaborationId,
+                    prompt: recoveryPrompt,
+                  })
+                }
+              >
+                <IconPlayerPlay aria-hidden="true" />
+                Resume planning
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p role="status" className="text-xs text-muted-foreground">
+            Work is paused and can be resumed without replaying edits.
+          </p>
+        )
       ) : null}
       <Collapsible open={artifactsOpen} onOpenChange={setArtifactsOpen}>
         <CollapsibleTrigger asChild>
@@ -934,7 +999,11 @@ function PhaseStatus({
   round: number;
 }) {
   return (
-    <p className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+    <p
+      role="status"
+      aria-live="polite"
+      className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+    >
       <span
         className="size-1.5 rounded-full bg-foreground/70"
         aria-hidden="true"

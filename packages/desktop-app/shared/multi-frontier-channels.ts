@@ -19,6 +19,7 @@ export const MULTI_FRONTIER_CHANNELS = {
   pause: "multi-frontier:pause",
   resume: "multi-frontier:resume",
   cancel: "multi-frontier:cancel",
+  reReview: "multi-frontier:re-review",
   roleSwap: "multi-frontier:role-swap",
   subscribe: "multi-frontier:subscribe",
   unsubscribe: "multi-frontier:unsubscribe",
@@ -33,6 +34,11 @@ export interface MultiFrontierCreateIntent {
   prompt: string;
   cwd?: string;
   autoContinueAfterAgreement: boolean;
+}
+
+export interface MultiFrontierReReviewIntent {
+  reviewArtifactId: string;
+  instruction?: string;
 }
 
 export interface MultiFrontierActionResult {
@@ -69,8 +75,15 @@ export interface MultiFrontierRendererApi {
   start(collaborationId: string): Promise<MultiFrontierActionResult>;
   go(collaborationId: string): Promise<MultiFrontierActionResult>;
   pause(collaborationId: string): Promise<MultiFrontierActionResult>;
-  resume(collaborationId: string): Promise<MultiFrontierActionResult>;
+  resume(
+    collaborationId: string,
+    prompt?: string,
+  ): Promise<MultiFrontierActionResult>;
   cancel(collaborationId: string): Promise<MultiFrontierActionResult>;
+  reReview(
+    collaborationId: string,
+    input: MultiFrontierReReviewIntent,
+  ): Promise<MultiFrontierActionResult>;
   roleSwap(
     collaborationId: string,
     nextDriverParticipantId: string,

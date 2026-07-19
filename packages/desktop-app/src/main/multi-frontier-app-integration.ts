@@ -393,12 +393,12 @@ function formatGitResult(label: string, result: GitCommandResult): string {
 function extractDiffCheckSummary(evidence: string): string {
   const match = /git diff --check exit=(\d+)(?:\n([^\n]*))?/.exec(evidence);
   if (!match)
-    return "Tests 1 failed. git diff --check evidence was unavailable.";
+    return "Checks 1 failed. git diff --check evidence was unavailable.";
   if (match[1] === "0") {
-    return "Tests 1 passed. git diff --check found no errors.";
+    return "Checks 1 passed. git diff --check found no errors.";
   }
   const detail = match[2]?.trim();
-  return `Tests 1 failed. git diff --check exit=${match[1]}${detail ? `: ${detail}` : ""}`;
+  return `Checks 1 failed. git diff --check exit=${match[1]}${detail ? `: ${detail}` : ""}`;
 }
 
 function boundEvidence(value: string): string {

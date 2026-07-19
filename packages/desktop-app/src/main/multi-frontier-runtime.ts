@@ -18,7 +18,10 @@ import {
   type MultiFrontierRunState,
   type MultiFrontierStoredRun,
 } from "../../../core/src/cli/multi-frontier-runs.js";
-import { MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES } from "../../shared/multi-frontier-ipc.js";
+import {
+  MULTI_FRONTIER_IPC_MAX_ARTIFACT_SUMMARY_BYTES,
+  redactMultiFrontierSensitiveText,
+} from "../../shared/multi-frontier-ipc.js";
 import type {
   LocalFrontierCoordinatorState,
   LocalFrontierCoordinatorStore,
@@ -597,16 +600,100 @@ function turnResultFromProviderEvents(
   events: readonly unknown[],
   provider: string,
 ): LocalFrontierTurnResult {
+  const tests = verifiedTestEvidenceFromProviderEvents(events);
   for (const event of [...events].reverse()) {
     const text = resultTextFromEvent(event);
     if (!text) continue;
     const structured = parseStructuredTurnResult(text);
-    if (structured) return boundRuntimeTurnResult(structured);
-    return { text: boundRuntimeText(text) };
+    if (structured) {
+      return boundRuntimeTurnResult({
+        ...structured,
+        ...(tests.length > 0 ? { tests } : {}),
+      });
+    }
+    return {
+      text: boundRuntimeText(text),
+      ...(tests.length > 0 ? { tests } : {}),
+    };
   }
   return {
     text: boundRuntimeText(`${provider} completed the requested turn.`),
+    ...(tests.length > 0 ? { tests } : {}),
   };
+}
+
+function verifiedTestEvidenceFromProviderEvents(
+  events: readonly unknown[],
+): NonNullable<LocalFrontierTurnResult["tests"]> {
+  return events
+    .flatMap((event) => {
+      const envelope = optionalRecord(event);
+      const commandEvent = optionalRecord(envelope?.item) ?? envelope;
+      if (!commandEvent || commandEvent.type !== "command_execution") return [];
+      const command = optionalString(commandEvent.command);
+      const exitCode = commandEvent.exit_code;
+      if (!command || typeof exitCode !== "number") return [];
+      const runner = testRunnerFromCommand(command);
+      if (!runner) return [];
+      const output = optionalString(
+        commandEvent.aggregated_output ?? commandEvent.output,
+      );
+      const noTests = output
+        ? /\b(?:no tests?(?: found| collected)?|0 tests?\b|0 passed\b)/i.test(
+            output,
+          )
+        : false;
+      const status: "passed" | "failed" =
+        exitCode === 0 && !noTests ? "passed" : "failed";
+      const safeOutput = output
+        ? boundRuntimeText(redactMultiFrontierSensitiveText(output))
+        : undefined;
+      return [
+        {
+          name: `${runner} test command`,
+          status,
+          evidence: boundRuntimeText(
+            `${runner} exited ${exitCode}.${safeOutput ? ` ${safeOutput}` : ""}`,
+          ),
+        },
+      ];
+    })
+    .slice(-8);
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function testRunnerFromCommand(command: string): string | null {
+  const normalized = command
+    .trim()
+    .replace(
+      /^(?:\/usr\/bin\/env\s+)?(?:\/bin\/(?:zsh|bash|sh)\s+-lc\s+)?["']?/,
+      "",
+    )
+    .replace(/["']$/, "")
+    .trim();
+  const runners: Array<[RegExp, string]> = [
+    [/^(?:corepack\s+)?pnpm\b[^\n;&|]*\b(?:test|vitest)\b/i, "pnpm"],
+    [/^npm\b[^\n;&|]*\b(?:test|test:|run\s+test)\b/i, "npm"],
+    [/^(?:yarn|bun)\b[^\n;&|]*\btest\b/i, "JavaScript"],
+    [/^(?:npx\s+)?(?:vitest|jest)\b/i, "JavaScript"],
+    [/^(?:python\s+-m\s+)?pytest\b/i, "pytest"],
+    [/^cargo\s+test\b/i, "Cargo"],
+    [/^go\s+test\b/i, "Go"],
+    [/^swift\s+test\b/i, "Swift"],
+    [/^xcodebuild\b[^\n;&|]*\btest\b/i, "Xcode"],
+    [/^dotnet\s+test\b/i, ".NET"],
+    [/^(?:mvn|gradle|\.\/gradlew)\b[^\n;&|]*\btest\b/i, "JVM"],
+  ];
+  return runners.find(([pattern]) => pattern.test(normalized))?.[1] ?? null;
 }
 
 function resultTextFromEvent(event: unknown): string | null {

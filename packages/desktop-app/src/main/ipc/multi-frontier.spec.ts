@@ -36,6 +36,15 @@ describe("registerMultiFrontierIpc", () => {
     ).resolves.toEqual({
       error: { message: "Invalid multi-frontier request." },
     });
+    await expect(
+      ipc.invoke(MULTI_FRONTIER_CHANNELS.reReview, {
+        collaborationId: "collaboration-1",
+        reviewArtifactId: "review-1",
+        instruction: "x".repeat(13_000),
+      }),
+    ).resolves.toEqual({
+      error: { message: "Invalid multi-frontier request." },
+    });
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     await expect(
@@ -61,6 +70,23 @@ describe("registerMultiFrontierIpc", () => {
       prompt: "Plan safely",
       cwd: "/renderer/request",
       autoContinueAfterAgreement: true,
+    });
+  });
+
+  it("passes only bounded re-review intent to the host", async () => {
+    const ipc = createIpcMain();
+    const host = createHost();
+    registerMultiFrontierIpc({ ipcMain: ipc, host });
+
+    await ipc.invoke(MULTI_FRONTIER_CHANNELS.reReview, {
+      collaborationId: "collaboration-1",
+      reviewArtifactId: "watchdog-review-1",
+      instruction: "Address\u0001 the bounded finding.",
+    });
+
+    expect(host.reReview).toHaveBeenCalledWith("collaboration-1", {
+      reviewArtifactId: "watchdog-review-1",
+      instruction: "Address the bounded finding.",
     });
   });
 
@@ -225,6 +251,7 @@ function createHost() {
     pause: vi.fn(async () => ({})),
     resume: vi.fn(async () => ({})),
     cancel: vi.fn(async () => ({})),
+    reReview: vi.fn(async () => ({})),
     roleSwap: vi.fn(async () => ({})),
     subscribe: vi.fn(
       (

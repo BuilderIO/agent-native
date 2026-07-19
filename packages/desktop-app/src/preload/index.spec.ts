@@ -47,6 +47,9 @@ describe("multi-frontier preload API", () => {
       autoContinueAfterAgreement: false,
     });
     await api.roleSwap("collaboration-1", "claude-1");
+    await api.reReview("collaboration-1", {
+      reviewArtifactId: "watchdog-review-1",
+    });
 
     expect(electron.invoke).toHaveBeenCalledWith(
       MULTI_FRONTIER_CHANNELS.create,
@@ -61,6 +64,13 @@ describe("multi-frontier preload API", () => {
       {
         collaborationId: "collaboration-1",
         nextDriverParticipantId: "claude-1",
+      },
+    );
+    expect(electron.invoke).toHaveBeenCalledWith(
+      MULTI_FRONTIER_CHANNELS.reReview,
+      {
+        collaborationId: "collaboration-1",
+        reviewArtifactId: "watchdog-review-1",
       },
     );
     expect(api).not.toHaveProperty("ipcRenderer");
@@ -110,6 +120,10 @@ function exposedMultiFrontierApi() {
         roleSwap(
           collaborationId: string,
           nextDriverParticipantId: string,
+        ): Promise<unknown>;
+        reReview(
+          collaborationId: string,
+          input: { reviewArtifactId: string; instruction?: string },
         ): Promise<unknown>;
         subscribe(
           collaborationId: string,

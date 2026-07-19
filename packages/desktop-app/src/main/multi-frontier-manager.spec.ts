@@ -136,6 +136,7 @@ describe("MultiFrontierManager", () => {
     const turns: LocalFrontierTurnInput[] = [];
     const manager = createManager(turns, {
       snapshotTestOutput: "Checkpoint test evidence is unavailable.",
+      omitImplementationTests: true,
     });
     const created = await manager.create(createRequest());
     const collaborationId = created.snapshot!.collaborationId;
@@ -154,6 +155,23 @@ describe("MultiFrontierManager", () => {
     expect(snapshot).not.toHaveProperty("driverParticipantId");
     expect(snapshot).not.toHaveProperty("driverGeneration");
     expect(normalizeMultiFrontierRendererState(snapshot)).toEqual(snapshot);
+  });
+
+  it("does not treat workspace check prose as provider-observed test evidence", async () => {
+    useStore();
+    const manager = createManager([], {
+      omitImplementationTests: true,
+      snapshotTestOutput: "Tests 99 passed.",
+    });
+    const created = await manager.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await manager.start(action("start", collaborationId));
+    await manager.go(action("go", collaborationId));
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "awaiting_go",
+    );
+
+    expect(getMultiFrontierRun(collaborationId)?.phase).toBe("awaiting_go");
   });
 
   it("hydrates a recovered session before subscription and forwards its background completion", async () => {
@@ -259,6 +277,78 @@ describe("MultiFrontierManager", () => {
     expect(turns.some((turn) => turn.phase === "implementing")).toBe(true);
   });
 
+  it("dispositions the exact persisted checkpoint findings before re-reviewing", async () => {
+    useStore();
+    const turns: LocalFrontierTurnInput[] = [];
+    const manager = createManager(turns, {
+      checkpointFindings: true,
+      snapshotTestOutput: "Checks completed without a recorded test event.",
+    });
+    const created = await manager.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await manager.start(action("start", collaborationId));
+    await manager.go(action("go", collaborationId));
+    await waitFor(
+      () => getMultiFrontierRun(collaborationId)?.phase === "awaiting_go",
+    );
+
+    const [snapshot] = await manager.list();
+    const reviewArtifactId = snapshot!.pendingCheckpointReviewArtifactId;
+    expect(reviewArtifactId).toBeTruthy();
+    await expect(
+      manager.reReview({
+        schemaVersion: 1,
+        requestId: "re-review-1",
+        action: "re-review",
+        collaborationId,
+        reviewArtifactId: reviewArtifactId!,
+      }),
+    ).resolves.toMatchObject({ snapshot: { collaborationId } });
+
+    expect(
+      turns.some(
+        (turn) =>
+          turn.phase === "implementing" &&
+          turn.instruction.includes("Address, reject, or defer every finding"),
+      ),
+    ).toBe(true);
+  });
+
+  it("requires a bounded request before recovered planning can resume", async () => {
+    useStore();
+    const initial = createManager([]);
+    const created = await initial.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await initial.pause(action("pause", collaborationId));
+    await initial.dispose();
+    transitionStoredMultiFrontierRun(
+      collaborationId,
+      "2026-07-19T12:00:00.000Z",
+      (run) => ({
+        ...run,
+        recovery: {
+          reason: "main_process_restarted",
+          recoveredAt: "2026-07-19T12:00:00.000Z",
+          resumablePhase: "proposing",
+        },
+      }),
+    );
+
+    const recovered = createManager([]);
+    await expect(
+      recovered.resume(action("resume", collaborationId)),
+    ).resolves.toMatchObject({
+      error: { message: expect.stringContaining("Re-enter") },
+      snapshot: { requiresPlanningPrompt: true },
+    });
+    await expect(
+      recovered.resume({
+        ...action("resume", collaborationId),
+        prompt: "Re-entered bounded planning request.",
+      }),
+    ).resolves.toMatchObject({ snapshot: { phase: "proposing" } });
+  });
+
   it("admits only connected subscription participants", async () => {
     useStore();
     const manager = new MultiFrontierManager({
@@ -276,8 +366,10 @@ function createManager(
   options: {
     consequential?: boolean;
     checkpointConsequential?: boolean;
+    checkpointFindings?: boolean;
     connected?: boolean;
     snapshotTestOutput?: string;
+    omitImplementationTests?: boolean;
     onParticipants?: (sessionRefs: Readonly<Record<string, string>>) => void;
   } = {},
 ): MultiFrontierManager {
@@ -289,7 +381,7 @@ function createManager(
     snapshotWorkspace: async () => ({
       contentRef: "workspace:checkpoint-1",
       contentHash: "a".repeat(64),
-      testOutput: options.snapshotTestOutput ?? "Tests 1 passed.",
+      testOutput: options.snapshotTestOutput ?? "Checks 1 passed.",
     }),
     createParticipants: ({ participants, sessionRefs }) => {
       options.onParticipants?.(sessionRefs);
@@ -307,6 +399,8 @@ function participant(
   options: {
     consequential?: boolean;
     checkpointConsequential?: boolean;
+    checkpointFindings?: boolean;
+    omitImplementationTests?: boolean;
   },
 ): LocalFrontierParticipant {
   return {
@@ -350,10 +444,51 @@ function participant(
                 },
               ],
             }
-          : { text: "Checkpoint review passed.", findings: [] };
+          : options.checkpointFindings
+            ? {
+                text: "Checkpoint review found a reversible item.",
+                findings: [
+                  {
+                    id: "checkpoint-format",
+                    category: "reversible_technical",
+                    summary: "Tighten the bounded checkpoint format.",
+                  },
+                ],
+              }
+            : { text: "Checkpoint review passed.", findings: [] };
+      }
+      if (
+        input.phase === "implementing" &&
+        input.instruction.includes("Address, reject, or defer every finding")
+      ) {
+        const findingId = input.instruction.match(
+          /"id":"([A-Za-z0-9._-]+)"/,
+        )?.[1];
+        return {
+          text: "Recorded the requested finding disposition.",
+          dispositions: [
+            {
+              findingId: findingId ?? "missing-finding-id",
+              disposition: "addressed",
+              reason: "Resolved before the immutable re-review.",
+            },
+          ],
+        };
       }
       if (input.phase === "implementing") {
-        return { text: "Implementation completed with focused tests." };
+        if (options.omitImplementationTests) {
+          return { text: "Implementation completed without test events." };
+        }
+        return {
+          text: "Implementation completed with focused tests.",
+          tests: [
+            {
+              name: "focused test command",
+              status: "passed",
+              evidence: "The provider command exited 0.",
+            },
+          ],
+        };
       }
       return { text: `${config.providerId} proposal.` };
     },

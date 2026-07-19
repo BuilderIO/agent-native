@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.js";
+import { MultiFrontierModeControl } from "./CodeAgentsHub.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -9,6 +14,22 @@ import {
 } from "./multi-frontier-renderer-state.js";
 
 describe("CodeAgentsHub multi-frontier event boundary", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("rejects wrong-collaboration and stale events while preserving notices", () => {
     const event = {
       schemaVersion: 1,
@@ -66,5 +87,60 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       message:
         "Could not connect for Claude. Try again or check its local sign-in.",
     });
+  });
+
+  it("keeps the mode selector keyboard-focusable while a collaboration is inactive", async () => {
+    const onModeChange = vi.fn();
+    act(() => {
+      root.render(
+        React.createElement(MultiFrontierModeControl, {
+          active: false,
+          permissionMode: "full-auto",
+          subscriptions: {},
+          busy: false,
+          modeLocked: false,
+          autoContinueAfterAgreement: false,
+          defaultAutoContinueAfterAgreement: false,
+          onModeChange,
+          onConnectSubscription: vi.fn(),
+          onRefreshSubscription: vi.fn(),
+          onAutoContinueAfterAgreementChange: vi.fn(),
+          onDefaultAutoContinueAfterAgreementChange: vi.fn(),
+        }),
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Run mode"]',
+    );
+    expect(trigger).not.toBeNull();
+    act(() => trigger?.focus());
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(options.map((option) => option.textContent)).toContain(
+      "Multi-Frontier",
+    );
+
+    const multiFrontierOption = options.find(
+      (option) => option.textContent === "Multi-Frontier",
+    );
+    expect(multiFrontierOption).toBeDefined();
+
+    await act(async () => {
+      multiFrontierOption?.click();
+      await Promise.resolve();
+    });
+
+    expect(onModeChange).toHaveBeenCalledWith("multi-frontier");
   });
 });

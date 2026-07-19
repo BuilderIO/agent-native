@@ -622,6 +622,11 @@ type MultiFrontierCreateIntent = {
   autoContinueAfterAgreement: boolean;
 };
 
+type MultiFrontierReReviewIntent = {
+  reviewArtifactId: string;
+  instruction?: string;
+};
+
 type MultiFrontierActionResult = {
   snapshot?: import("../../shared/multi-frontier-ipc.js").MultiFrontierRendererState;
   error?: { message: string };
@@ -794,8 +799,15 @@ interface ElectronAPI {
     start(collaborationId: string): Promise<MultiFrontierActionResult>;
     go(collaborationId: string): Promise<MultiFrontierActionResult>;
     pause(collaborationId: string): Promise<MultiFrontierActionResult>;
-    resume(collaborationId: string): Promise<MultiFrontierActionResult>;
+    resume(
+      collaborationId: string,
+      prompt?: string,
+    ): Promise<MultiFrontierActionResult>;
     cancel(collaborationId: string): Promise<MultiFrontierActionResult>;
+    reReview(
+      collaborationId: string,
+      input: MultiFrontierReReviewIntent,
+    ): Promise<MultiFrontierActionResult>;
     roleSwap(
       collaborationId: string,
       nextDriverParticipantId: string,

@@ -337,6 +337,84 @@ describe("multi-frontier runtime", () => {
     ).rejects.toThrow("unsupported fields");
   });
 
+  it("derives bounded test evidence only from completed provider command events", async () => {
+    const participant = new CodexLocalFrontierParticipant({
+      participantId: "codex",
+      cwd: "/tmp/workspace",
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        events: [
+          {
+            type: "item.completed",
+            item: {
+              type: "command_execution",
+              command: "/bin/zsh -lc 'corepack pnpm test'",
+              aggregated_output:
+                '2 tests passed. {"access_token":"must-not-persist"}',
+              exit_code: 0,
+            },
+          },
+          { result: JSON.stringify({ text: "Implementation complete." }) },
+        ],
+        stderr: "",
+        stderrTruncated: false,
+      })) as never,
+    });
+
+    const verified = await participant.runTurn({
+      collaborationId: "collaboration-1",
+      turnId: "turn-tested",
+      round: 1,
+      phase: "implementing",
+      permission: "workspace_write",
+      generation: 1,
+      instruction: "Implement and verify.",
+    });
+    expect(verified).toMatchObject({
+      text: "Implementation complete.",
+      tests: [
+        {
+          name: "pnpm test command",
+          status: "passed",
+          evidence: expect.stringContaining("[redacted]"),
+        },
+      ],
+    });
+    expect(verified.tests?.[0]?.evidence).not.toContain("must-not-persist");
+
+    const noTests = new CodexLocalFrontierParticipant({
+      participantId: "codex-no-tests",
+      cwd: "/tmp/workspace",
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        events: [
+          {
+            item: {
+              type: "command_execution",
+              command: "pytest",
+              output: "no tests collected",
+              exit_code: 0,
+            },
+          },
+          { result: "Done." },
+        ],
+        stderr: "",
+        stderrTruncated: false,
+      })) as never,
+    });
+    await expect(
+      noTests.runTurn({
+        collaborationId: "collaboration-1",
+        turnId: "turn-empty-tests",
+        round: 1,
+        phase: "implementing",
+        permission: "workspace_write",
+        generation: 1,
+        instruction: "Verify.",
+      }),
+    ).resolves.toMatchObject({ tests: [{ status: "failed" }] });
+  });
+
   it("cancels an owned participant runner with an AbortController", async () => {
     let signal: AbortSignal | undefined;
     let settle: (() => void) | undefined;

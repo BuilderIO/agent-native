@@ -15,6 +15,7 @@ import {
   type MultiFrontierCollaborationResult,
   type MultiFrontierCreateCollaborationRequest,
   type MultiFrontierIpcEvent,
+  type MultiFrontierReReviewRequest,
   type MultiFrontierRendererState,
   type MultiFrontierRoleSwapRequest,
 } from "../../shared/multi-frontier-ipc.js";
@@ -27,6 +28,8 @@ import {
   MultiFrontierOrchestrator,
   type MultiFrontierArtifact,
   type MultiFrontierHelperPolicy,
+  type MultiFrontierOptionalHelperGateway,
+  type MultiFrontierTurnResult,
   type RunCheckpointResult,
 } from "./multi-frontier-orchestrator.js";
 import {
@@ -51,6 +54,12 @@ export interface MultiFrontierManagerOptions {
     sessionRefs: Readonly<Record<string, string>>;
   }): readonly [LocalFrontierParticipant, LocalFrontierParticipant];
   helperPolicy?: MultiFrontierHelperPolicy;
+  createOptionalHelper?(input: {
+    collaborationId: string;
+    workspaceId: string;
+    cwd: string;
+    policy: MultiFrontierHelperPolicy;
+  }): MultiFrontierOptionalHelperGateway | undefined;
   createId?(): string;
   now?(): string;
   snapshotWorkspace?(input: { cwd: string; workspaceId: string }): Promise<{
@@ -182,23 +191,30 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
-    if (!session.request) {
-      return this.#error(
+    const planningRequest = session.request;
+    if (!planningRequest) {
+      return this.#errorForSession(
         request.requestId,
+        session,
         "This recovered planning run requires its request to be entered again; no prompt was persisted.",
       );
     }
     const state = session.coordinator.state;
     if (state?.phase !== "proposing")
       return this.#error(request.requestId, "Planning has already started.");
-    const outcome = await session.orchestrator.runPlanning({
-      operationId: "planning-1",
-      request: session.request,
-      repositoryEvidence: await this.#options.readRepositoryEvidence(
-        session.cwd,
-      ),
-      driverParticipantId: session.driverParticipantId,
-    });
+    let outcome;
+    try {
+      outcome = await session.orchestrator.runPlanning({
+        operationId: "planning-1",
+        request: planningRequest,
+        repositoryEvidence: await this.#options.readRepositoryEvidence(
+          session.cwd,
+        ),
+        driverParticipantId: session.driverParticipantId,
+      });
+    } catch (error) {
+      return this.#pauseForProviderFailure(session, request.requestId, error);
+    }
     await this.#emitNotice(
       session,
       outcome.status === "paused"
@@ -225,11 +241,11 @@ export class MultiFrontierManager {
   async go(
     request: MultiFrontierCollaborationIdRequest,
   ): Promise<MultiFrontierCollaborationResult> {
-    if (!(await this.#hasConnectedSubscriptions())) {
-      return this.#subscriptionRequired(request.requestId);
-    }
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    if (!(await this.#hasConnectedSubscriptions())) {
+      return this.#subscriptionRequired(request.requestId, session);
+    }
     const trusted = await session.coordinator.readTrustedSnapshot();
     if (
       trusted.phase !== "awaiting_go" ||
@@ -241,9 +257,21 @@ export class MultiFrontierManager {
         "A converged plan is not awaiting approval.",
       );
     }
-    const lease = await session.coordinator.approveGo(
-      trusted.driver?.participantId ?? session.driverParticipantId,
-    );
+    if (this.#pendingCheckpointReviewArtifactId(session.collaborationId)) {
+      return this.#errorForSession(
+        request.requestId,
+        session,
+        "Review the checkpoint findings before continuing implementation.",
+      );
+    }
+    let lease;
+    try {
+      lease = await session.coordinator.approveGo(
+        trusted.driver?.participantId ?? session.driverParticipantId,
+      );
+    } catch (error) {
+      return this.#pauseForProviderFailure(session, request.requestId, error);
+    }
     await this.#emitNotice(
       session,
       "Approval granted; the driver lease is active.",
@@ -262,6 +290,7 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    session.orchestrator.cancelOptionalHelpers();
     await session.coordinator.pause();
     await this.#emitSnapshot(session);
     return this.#result(request.requestId, session);
@@ -270,12 +299,33 @@ export class MultiFrontierManager {
   async resume(
     request: MultiFrontierCollaborationIdRequest,
   ): Promise<MultiFrontierCollaborationResult> {
-    if (!(await this.#hasConnectedSubscriptions())) {
-      return this.#subscriptionRequired(request.requestId);
-    }
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
-    await session.coordinator.resume();
+    if (!(await this.#hasConnectedSubscriptions())) {
+      return this.#subscriptionRequired(request.requestId, session);
+    }
+    const needsPlanningPrompt =
+      getMultiFrontierRun(session.collaborationId)?.recovery?.resumablePhase ===
+      "proposing";
+    if (needsPlanningPrompt && !session.request) {
+      if (
+        !request.prompt ||
+        Buffer.byteLength(request.prompt, "utf8") >
+          MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES
+      ) {
+        return this.#errorForSession(
+          request.requestId,
+          session,
+          "Re-enter the original request before resuming planning.",
+        );
+      }
+      session.request = request.prompt;
+    }
+    try {
+      await session.coordinator.resume();
+    } catch (error) {
+      return this.#pauseForProviderFailure(session, request.requestId, error);
+    }
     // Recovery reconnects read-only sessions only. It intentionally neither
     // replays a turn nor auto-approves an auto-continue policy.
     await this.#emitSnapshot(session);
@@ -287,9 +337,75 @@ export class MultiFrontierManager {
   ): Promise<MultiFrontierCollaborationResult> {
     const session = await this.#sessionFor(request.collaborationId);
     if (!session) return this.#notFound(request.requestId);
+    session.orchestrator.cancelOptionalHelpers();
     await session.coordinator.cancel();
     await this.#emitSnapshot(session);
     return this.#result(request.requestId, session);
+  }
+
+  async reReview(
+    request: MultiFrontierReReviewRequest,
+  ): Promise<MultiFrontierCollaborationResult> {
+    const session = await this.#sessionFor(request.collaborationId);
+    if (!session) return this.#notFound(request.requestId);
+    if (!(await this.#hasConnectedSubscriptions())) {
+      return this.#subscriptionRequired(request.requestId, session);
+    }
+    const trusted = await session.coordinator.readTrustedSnapshot();
+    const reviewArtifactId = this.#pendingCheckpointReviewArtifactId(
+      session.collaborationId,
+    );
+    if (
+      trusted.phase !== "awaiting_go" ||
+      trusted.approval !== "pending" ||
+      !trusted.currentSynthesisArtifactId ||
+      !reviewArtifactId ||
+      reviewArtifactId !== request.reviewArtifactId
+    ) {
+      return this.#errorForSession(
+        request.requestId,
+        session,
+        "This checkpoint no longer has findings ready for re-review.",
+      );
+    }
+    try {
+      const lease = await session.coordinator.approveGo(
+        session.driverParticipantId,
+      );
+      const disposition =
+        await session.orchestrator.runDriverFindingDispositions({
+          operationId: `disposition-${this.#options.createId()}`,
+          driverParticipantId: session.driverParticipantId,
+          generation: lease.generation,
+          reviewArtifactId: request.reviewArtifactId,
+          instruction:
+            request.instruction ??
+            "Address each checkpoint finding where safe, then record an explicit disposition and rationale.",
+        });
+      await this.#emitNotice(
+        session,
+        "Checkpoint findings were dispositioned; the watchdog is re-reviewing a new immutable checkpoint.",
+      );
+      const checkpoint = await session.orchestrator.runCheckpoint({
+        operationId: `re-review-${this.#options.createId()}`,
+        round: trusted.round,
+        requestSummary: "Checkpoint finding disposition and re-review.",
+        acceptedPlanArtifactId: trusted.currentSynthesisArtifactId,
+        driverParticipantId: session.driverParticipantId,
+        driverSummary: disposition.text,
+        openRisks: [],
+        snapshotWorkspace: () =>
+          this.#options.snapshotWorkspace({
+            cwd: session.cwd,
+            workspaceId: session.workspaceId,
+          }),
+      });
+      await this.#completeCleanCheckpoint(session, checkpoint);
+      await this.#emitSnapshot(session);
+      return this.#result(request.requestId, session);
+    } catch (error) {
+      return this.#pauseForProviderFailure(session, request.requestId, error);
+    }
   }
 
   async roleSwap(
@@ -379,6 +495,7 @@ export class MultiFrontierManager {
   async dispose(): Promise<void> {
     await Promise.all(
       [...this.#sessions.values()].map(async (session) => {
+        session.orchestrator.cancelOptionalHelpers();
         await session.coordinator.dispose();
         session.listeners.clear();
       }),
@@ -419,6 +536,7 @@ export class MultiFrontierManager {
       listeners: new Set(),
       sequence: 0,
     };
+    const helperPolicy = this.#options.helperPolicy ?? defaultHelperPolicy();
     session.orchestrator = new MultiFrontierOrchestrator({
       collaborationId: input.collaborationId,
       participants: [
@@ -431,7 +549,17 @@ export class MultiFrontierManager {
         this.#appendArtifact(session, artifact),
       onSnapshot: async () => this.#emitSnapshot(session),
       onAutoAdvanceNotice: async (notice) => this.#emitNotice(session, notice),
-      helperPolicy: this.#options.helperPolicy ?? defaultHelperPolicy(),
+      helperPolicy,
+      ...(this.#options.createOptionalHelper
+        ? {
+            optionalHelper: this.#options.createOptionalHelper({
+              collaborationId: input.collaborationId,
+              workspaceId: input.workspaceId,
+              cwd: input.cwd,
+              policy: helperPolicy,
+            }),
+          }
+        : {}),
       initialArtifacts: this.#readOrchestratorArtifacts(input.collaborationId),
     });
     return session;
@@ -644,11 +772,16 @@ export class MultiFrontierManager {
       driverParticipantId: session.driverParticipantId,
       driverSummary: result.text,
       openRisks: [],
-      snapshotWorkspace: () =>
-        this.#options.snapshotWorkspace({
+      snapshotWorkspace: async () => {
+        const snapshot = await this.#options.snapshotWorkspace({
           cwd: session.cwd,
           workspaceId: session.workspaceId,
-        }),
+        });
+        return {
+          ...snapshot,
+          testOutput: checkpointTestOutput(snapshot.testOutput, result.tests),
+        };
+      },
     });
     await this.#completeCleanCheckpoint(session, checkpoint);
     await this.#emitSnapshot(session);
@@ -664,7 +797,7 @@ export class MultiFrontierManager {
     if (!evidence) {
       await this.#emitNotice(
         session,
-        "Checkpoint review passed, but no machine-verifiable passing test evidence was recorded.",
+        "Checkpoint review passed, but no provider-observed passing test command was recorded.",
       );
       return;
     }
@@ -719,6 +852,15 @@ export class MultiFrontierManager {
           }
         : {}),
       approvalState: run.approval.state,
+      ...(this.#pendingCheckpointReviewArtifactId(run.collaborationId)
+        ? {
+            pendingCheckpointReviewArtifactId:
+              this.#pendingCheckpointReviewArtifactId(run.collaborationId),
+          }
+        : {}),
+      ...(run.phase === "paused" && run.recovery?.resumablePhase === "proposing"
+        ? { requiresPlanningPrompt: true }
+        : {}),
       artifacts: listMultiFrontierArtifacts(run.collaborationId)
         .slice(-12)
         .map((artifact) => ({
@@ -814,19 +956,96 @@ export class MultiFrontierManager {
     };
   }
 
-  #subscriptionRequired(requestId: string): MultiFrontierCollaborationResult {
-    return this.#error(
-      requestId,
-      "Both subscription-native providers must be connected before recovering a collaboration.",
+  #errorForSession(
+    requestId: string,
+    session: ManagedCollaboration,
+    message: string,
+  ): MultiFrontierCollaborationResult {
+    const result = this.#error(requestId, message);
+    const snapshot = this.#snapshotForStoredRun(
+      getMultiFrontierRun(session.collaborationId)!,
     );
+    return { ...result, ...(snapshot ? { snapshot } : {}) };
+  }
+
+  #subscriptionRequired(
+    requestId: string,
+    session?: ManagedCollaboration,
+  ): MultiFrontierCollaborationResult {
+    const message =
+      "Both subscription-native providers must be connected before recovering a collaboration.";
+    return session
+      ? this.#errorForSession(requestId, session, message)
+      : this.#error(requestId, message);
+  }
+
+  #pauseForProviderFailure(
+    session: ManagedCollaboration,
+    requestId: string,
+    error: unknown,
+  ): Promise<MultiFrontierCollaborationResult> {
+    const message = providerFailureMessage(error);
+    return Promise.resolve(session.coordinator.pause())
+      .catch(() => undefined)
+      .then(async () => {
+        await this.#emitNotice(session, message);
+        await this.#emitSnapshot(session);
+        return this.#errorForSession(requestId, session, message);
+      });
+  }
+
+  #pendingCheckpointReviewArtifactId(
+    collaborationId: string,
+  ): string | undefined {
+    const artifacts = listMultiFrontierArtifacts(collaborationId)
+      .map((artifact) => artifact.orchestration)
+      .filter((artifact): artifact is MultiFrontierOrchestrationArtifact =>
+        Boolean(artifact),
+      );
+    const dispositioned = new Set<string>();
+    for (const artifact of artifacts) {
+      if (artifact.kind !== "finding_disposition") continue;
+      const dispositions = artifact.metadata?.dispositions;
+      if (!Array.isArray(dispositions)) continue;
+      for (const value of dispositions) {
+        if (
+          value &&
+          typeof value === "object" &&
+          typeof (value as { findingId?: unknown }).findingId === "string"
+        ) {
+          dispositioned.add((value as { findingId: string }).findingId);
+        }
+      }
+    }
+    for (const artifact of [...artifacts].reverse()) {
+      if (artifact.kind !== "watchdog_review") continue;
+      const findings = artifact.metadata?.findings;
+      if (
+        Array.isArray(findings) &&
+        findings.some(
+          (value) =>
+            value &&
+            typeof value === "object" &&
+            typeof (value as { id?: unknown }).id === "string" &&
+            !dispositioned.has((value as { id: string }).id),
+        )
+      ) {
+        return artifact.id;
+      }
+    }
+    return undefined;
   }
 
   async #hasConnectedSubscriptions(): Promise<boolean> {
-    const [codex, claude] = await Promise.all([
-      this.#options.isSubscriptionConnected("codex"),
-      this.#options.isSubscriptionConnected("claude"),
-    ]);
-    return codex && claude;
+    try {
+      const [codex, claude] = await Promise.all([
+        this.#options.isSubscriptionConnected("codex"),
+        this.#options.isSubscriptionConnected("claude"),
+      ]);
+      return codex && claude;
+    } catch {
+      return false;
+    }
   }
 
   #isValidCreate(request: MultiFrontierCreateCollaborationRequest): boolean {
@@ -869,6 +1088,34 @@ function bound(value: string): string {
     .toString("utf8");
 }
 
+function checkpointTestOutput(
+  workspaceCheckOutput: string,
+  tests: MultiFrontierTurnResult["tests"],
+): string {
+  const passed = tests?.filter((test) => test.status === "passed").length ?? 0;
+  const failed = tests?.filter((test) => test.status === "failed").length ?? 0;
+  return bound(
+    [
+      `Provider-observed tests: ${passed} passed, ${failed} failed.`,
+      ...(tests ?? []).map(
+        (test) => `${test.name}: ${test.status}. ${test.evidence}`,
+      ),
+      workspaceCheckOutput,
+    ].join("\n"),
+  );
+}
+
+function providerFailureMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : "";
+  if (/quota|rate[ -]?limit|usage limit/i.test(text)) {
+    return "A participant reached its reported usage limit. Check usage, then resume when capacity is available.";
+  }
+  if (/auth|login|sign[ -]?in|subscription/i.test(text)) {
+    return "A participant needs its subscription connection refreshed before this collaboration can resume.";
+  }
+  return "A participant stopped unexpectedly. Check both subscriptions, then resume this paused collaboration.";
+}
+
 function completionEvidenceFromCheckpoint(checkpoint: RunCheckpointResult): {
   tests: Array<{
     name: string;
@@ -909,10 +1156,7 @@ function completionEvidenceFromCheckpoint(checkpoint: RunCheckpointResult): {
 }
 
 function hasRecordedPassingTest(output: string): boolean {
-  return (
-    /\b(?:tests?\s*:?\s*)?[1-9]\d*\s+passed\b/i.test(output) &&
-    !/\b[1-9]\d*\s+failed\b/i.test(output)
-  );
+  return /^Provider-observed tests: [1-9]\d* passed, 0 failed\./.test(output);
 }
 
 function toPersistedOrchestrationArtifact(

@@ -215,6 +215,19 @@ describe("MultiFrontierHost", () => {
     expect(codex.start).toHaveBeenCalledTimes(2);
   });
 
+  it("returns a bounded actionable result when a backend action rejects", async () => {
+    const backend = createBackend();
+    backend.start.mockRejectedValueOnce(new Error("provider failure"));
+    const host = createHost({ backend });
+
+    await expect(host.start("collaboration-1")).resolves.toEqual({
+      error: {
+        message:
+          "The collaboration could not continue. Check both subscriptions, then retry recovery.",
+      },
+    });
+  });
+
   it("emits main-owned monotonic sequences per collaboration", () => {
     const backend = createBackend();
     const host = createHost({ backend });
@@ -314,6 +327,7 @@ function createBackend() {
     pause: vi.fn(respond),
     resume: vi.fn(respond),
     cancel: vi.fn(respond),
+    reReview: vi.fn(respond),
     roleSwap: vi.fn(respond),
     subscribe: vi.fn(
       (collaborationId: string, listener: (event: unknown) => void) => {

@@ -34,6 +34,10 @@ import {
   readNewerMultiFrontierSnapshot,
 } from "./multi-frontier-renderer-state.js";
 import {
+  multiFrontierFailureCategory,
+  trackMultiFrontierLifecycle,
+} from "./multi-frontier-telemetry.js";
+import {
   MultiFrontierParticipantSettings,
   MultiFrontierWorkspace,
   type MultiFrontierNotice,
@@ -102,6 +106,11 @@ export default function CodeAgentsHub({
   const multiFrontierSettingsHydrated = useRef(false);
   const multiFrontierDetailNonce = useRef(0);
   const multiFrontierNoticeNonce = useRef(0);
+  const multiFrontierActivationTracked = useRef(false);
+  const multiFrontierLastPhaseTelemetry = useRef("");
+  const multiFrontierLastProviderTelemetry = useRef<
+    Partial<Record<MultiFrontierProviderId, string>>
+  >({});
   const activeMultiFrontierCollaborationId =
     multiFrontierState?.collaborationId;
   const multiFrontierModeLocked = locksMultiFrontierMode(multiFrontierState);
@@ -131,6 +140,10 @@ export default function CodeAgentsHub({
           `subscription:${providerId}:${operation}:${multiFrontierNoticeNonce.current}`,
         ),
       );
+      trackMultiFrontierLifecycle({
+        kind: "failure",
+        category: operation === "connect" ? "auth" : "provider",
+      });
     },
     [appendMultiFrontierNotice],
   );
@@ -169,6 +182,76 @@ export default function CodeAgentsHub({
       activeMultiFrontierCollaborationId,
     ],
   );
+
+  useEffect(() => {
+    if (!multiFrontierMode) {
+      multiFrontierActivationTracked.current = false;
+      return;
+    }
+    if (multiFrontierActivationTracked.current) return;
+    multiFrontierActivationTracked.current = true;
+    trackMultiFrontierLifecycle({
+      kind: "mode_activation",
+      autoContinueAfterAgreement: multiFrontierRunAutoContinue,
+    });
+  }, [multiFrontierMode, multiFrontierRunAutoContinue]);
+
+  useEffect(() => {
+    if (!multiFrontierState) return;
+    const checkpointCount = multiFrontierState.artifacts.filter(
+      (artifact) => artifact.kind === "checkpoint",
+    ).length;
+    const reviewCount = multiFrontierState.artifacts.filter(
+      (artifact) => artifact.kind === "review",
+    ).length;
+    const key = [
+      multiFrontierState.phase,
+      multiFrontierState.round,
+      multiFrontierState.approvalState,
+      checkpointCount,
+      reviewCount,
+      multiFrontierState.requiresPlanningPrompt === true,
+    ].join(":");
+    if (multiFrontierLastPhaseTelemetry.current === key) return;
+    multiFrontierLastPhaseTelemetry.current = key;
+    trackMultiFrontierLifecycle({
+      kind: "phase",
+      phase: multiFrontierState.phase,
+      round: multiFrontierState.round,
+      approvalState: multiFrontierState.approvalState,
+      autoContinueAfterAgreement:
+        multiFrontierState.autoContinueAfterAgreement ?? false,
+      checkpointCount,
+      reviewCount,
+      requiresPlanningPrompt:
+        multiFrontierState.requiresPlanningPrompt === true,
+    });
+  }, [multiFrontierState]);
+
+  useEffect(() => {
+    for (const providerId of MULTI_FRONTIER_PROVIDERS) {
+      const status = multiFrontierSubscriptions[providerId];
+      if (!status) continue;
+      const key = [
+        status.connectionState,
+        status.telemetry.state,
+        status.telemetry.capabilities.rateLimits,
+        status.telemetry.capabilities.liveUpdates,
+      ].join(":");
+      if (multiFrontierLastProviderTelemetry.current[providerId] === key) {
+        continue;
+      }
+      multiFrontierLastProviderTelemetry.current[providerId] = key;
+      trackMultiFrontierLifecycle({
+        kind: "provider_status",
+        providerId,
+        connectionState: status.connectionState,
+        telemetryState: status.telemetry.state,
+        hasRateLimits: status.telemetry.capabilities.rateLimits,
+        hasLiveUpdates: status.telemetry.capabilities.liveUpdates,
+      });
+    }
+  }, [multiFrontierSubscriptions]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -311,24 +394,69 @@ export default function CodeAgentsHub({
 
   const runMultiFrontierAction = useCallback(
     async (
-      action: "start" | "go" | "pause" | "resume" | "cancel" | "role-swap",
+      action:
+        | "start"
+        | "go"
+        | "pause"
+        | "resume"
+        | "cancel"
+        | "re-review"
+        | "role-swap",
       collaborationId: string,
-      nextDriverParticipantId?: string,
+      input: {
+        nextDriverParticipantId?: string;
+        reviewArtifactId?: string;
+        prompt?: string;
+      } = {},
     ) => {
       const api = window.electronAPI?.multiFrontier;
       if (!api) return;
+      trackMultiFrontierLifecycle({ kind: "action", action });
       setMultiFrontierBusy(true);
       try {
         const result =
           action === "role-swap"
-            ? await api.roleSwap(collaborationId, nextDriverParticipantId ?? "")
-            : await api[action](collaborationId);
+            ? await api.roleSwap(
+                collaborationId,
+                input.nextDriverParticipantId ?? "",
+              )
+            : action === "re-review"
+              ? await api.reReview(collaborationId, {
+                  reviewArtifactId: input.reviewArtifactId ?? "",
+                })
+              : action === "resume"
+                ? await api.resume(collaborationId, input.prompt)
+                : await api[action](collaborationId);
         applyMultiFrontierSnapshot(result.snapshot);
+        if (result.error) {
+          trackMultiFrontierLifecycle({
+            kind: "failure",
+            category: multiFrontierFailureCategory(result.error.message),
+          });
+          multiFrontierNoticeNonce.current += 1;
+          appendMultiFrontierNotice({
+            id: `action:${action}:${multiFrontierNoticeNonce.current}`,
+            kind: "failure",
+            message: result.error.message,
+          });
+        }
+      } catch {
+        trackMultiFrontierLifecycle({
+          kind: "failure",
+          category: "unknown",
+        });
+        multiFrontierNoticeNonce.current += 1;
+        appendMultiFrontierNotice({
+          id: `action:${action}:${multiFrontierNoticeNonce.current}`,
+          kind: "failure",
+          message:
+            "The collaboration could not continue. Check both subscriptions, then retry recovery.",
+        });
       } finally {
         setMultiFrontierBusy(false);
       }
     },
-    [applyMultiFrontierSnapshot],
+    [appendMultiFrontierNotice, applyMultiFrontierSnapshot],
   );
 
   const multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
@@ -461,11 +589,15 @@ export default function CodeAgentsHub({
               void runMultiFrontierAction("go", collaborationId)
             }
             onSecondaryAction={(input: MultiFrontierSecondaryActionInput) =>
-              void runMultiFrontierAction(
-                input.action,
-                input.collaborationId,
-                input.nextDriverParticipantId,
-              )
+              void runMultiFrontierAction(input.action, input.collaborationId, {
+                ...(input.nextDriverParticipantId
+                  ? { nextDriverParticipantId: input.nextDriverParticipantId }
+                  : {}),
+                ...(input.reviewArtifactId
+                  ? { reviewArtifactId: input.reviewArtifactId }
+                  : {}),
+                ...(input.prompt ? { prompt: input.prompt } : {}),
+              })
             }
           />
         );
@@ -780,7 +912,7 @@ export default function CodeAgentsHub({
   );
 }
 
-function MultiFrontierModeControl({
+export function MultiFrontierModeControl({
   active,
   permissionMode,
   subscriptions,

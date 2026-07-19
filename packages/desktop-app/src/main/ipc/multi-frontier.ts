@@ -2,6 +2,7 @@ import {
   MULTI_FRONTIER_CHANNELS,
   type MultiFrontierActionResult,
   type MultiFrontierCreateIntent,
+  type MultiFrontierReReviewIntent,
   type MultiFrontierSettings,
   type MultiFrontierSubscriptionEnvelope,
   type MultiFrontierSubscriptionResult,
@@ -65,8 +66,15 @@ export interface MultiFrontierIpcHost {
   start(collaborationId: string): Promise<MultiFrontierActionResult>;
   go(collaborationId: string): Promise<MultiFrontierActionResult>;
   pause(collaborationId: string): Promise<MultiFrontierActionResult>;
-  resume(collaborationId: string): Promise<MultiFrontierActionResult>;
+  resume(
+    collaborationId: string,
+    prompt?: string,
+  ): Promise<MultiFrontierActionResult>;
   cancel(collaborationId: string): Promise<MultiFrontierActionResult>;
+  reReview(
+    collaborationId: string,
+    input: MultiFrontierReReviewIntent,
+  ): Promise<MultiFrontierActionResult>;
   roleSwap(
     collaborationId: string,
     nextDriverParticipantId: string,
@@ -96,6 +104,7 @@ export function registerMultiFrontierIpc(options: {
     MULTI_FRONTIER_CHANNELS.pause,
     MULTI_FRONTIER_CHANNELS.resume,
     MULTI_FRONTIER_CHANNELS.cancel,
+    MULTI_FRONTIER_CHANNELS.reReview,
     MULTI_FRONTIER_CHANNELS.roleSwap,
   ];
 
@@ -130,12 +139,26 @@ export function registerMultiFrontierIpc(options: {
   });
   for (const action of ["start", "go", "pause", "resume", "cancel"] as const) {
     ipcMain.handle(MULTI_FRONTIER_CHANNELS[action], (_event, input) => {
+      if (action === "resume") {
+        const parsed = parseResumeIntent(input);
+        return parsed
+          ? host.resume(parsed.collaborationId, parsed.prompt)
+          : invalidActionResult();
+      }
       const collaborationId = parseId(input);
-      return collaborationId
-        ? host[action](collaborationId)
-        : invalidActionResult();
+      if (!collaborationId) return invalidActionResult();
+      return host[action](collaborationId);
     });
   }
+  ipcMain.handle(MULTI_FRONTIER_CHANNELS.reReview, (_event, input) => {
+    const intent = parseReReviewIntent(input);
+    return intent
+      ? host.reReview(intent.collaborationId, {
+          reviewArtifactId: intent.reviewArtifactId,
+          ...(intent.instruction ? { instruction: intent.instruction } : {}),
+        })
+      : invalidActionResult();
+  });
   ipcMain.handle(MULTI_FRONTIER_CHANNELS.roleSwap, (_event, input) => {
     const record = asBoundedRecord(input);
     const collaborationId = parseId(record?.collaborationId);
@@ -254,6 +277,74 @@ function parseCreateIntent(value: unknown): MultiFrontierCreateIntent | null {
     ...(typeof input.cwd === "string" ? { cwd: stripControls(input.cwd) } : {}),
     autoContinueAfterAgreement: input.autoContinueAfterAgreement,
   };
+}
+
+function parseResumeIntent(
+  value: unknown,
+): { collaborationId: string; prompt?: string } | null {
+  if (typeof value === "string")
+    return { collaborationId: parseId(value) ?? "" };
+  const input = asBoundedRecord(value);
+  if (
+    !input ||
+    Object.keys(input).some(
+      (key) => !["collaborationId", "prompt"].includes(key),
+    )
+  ) {
+    return null;
+  }
+  const collaborationId = parseId(input.collaborationId);
+  const prompt = parseBoundedText(
+    input.prompt,
+    MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES,
+  );
+  if (!collaborationId || prompt === null) return null;
+  return { collaborationId, ...(prompt ? { prompt } : {}) };
+}
+
+function parseReReviewIntent(value: unknown): {
+  collaborationId: string;
+  reviewArtifactId: string;
+  instruction?: string;
+} | null {
+  const input = asBoundedRecord(value);
+  if (
+    !input ||
+    Object.keys(input).some(
+      (key) =>
+        !["collaborationId", "reviewArtifactId", "instruction"].includes(key),
+    )
+  ) {
+    return null;
+  }
+  const collaborationId = parseId(input.collaborationId);
+  const reviewArtifactId = parseId(input.reviewArtifactId);
+  const instruction = parseBoundedText(
+    input.instruction,
+    MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES,
+  );
+  if (!collaborationId || !reviewArtifactId || instruction === null)
+    return null;
+  return {
+    collaborationId,
+    reviewArtifactId,
+    ...(instruction ? { instruction } : {}),
+  };
+}
+
+function parseBoundedText(
+  value: unknown,
+  maxBytes: number,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    Buffer.byteLength(value, "utf8") > maxBytes
+  ) {
+    return null;
+  }
+  return stripControls(value);
 }
 
 function parseId(value: unknown): string | null {

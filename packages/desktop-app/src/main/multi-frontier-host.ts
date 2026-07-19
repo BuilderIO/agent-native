@@ -17,6 +17,7 @@ import {
   type MultiFrontierCreateCollaborationRequest,
   type MultiFrontierIpcEvent,
   type MultiFrontierProviderId,
+  type MultiFrontierReReviewRequest,
   type MultiFrontierRendererState,
   type MultiFrontierRoleSwapRequest,
 } from "../../shared/multi-frontier-ipc.js";
@@ -59,6 +60,9 @@ export interface MultiFrontierCoordinatorBackend {
   ): Promise<MultiFrontierCollaborationResult>;
   cancel(
     request: MultiFrontierCollaborationIdRequest,
+  ): Promise<MultiFrontierCollaborationResult>;
+  reReview(
+    request: MultiFrontierReReviewRequest,
   ): Promise<MultiFrontierCollaborationResult>;
   roleSwap(
     request: MultiFrontierRoleSwapRequest,
@@ -268,12 +272,34 @@ export class MultiFrontierHost {
     return this.#runAction("pause", collaborationId);
   }
 
-  resume(collaborationId: string): Promise<MultiFrontierActionResult> {
-    return this.#runAction("resume", collaborationId);
+  resume(
+    collaborationId: string,
+    prompt?: string,
+  ): Promise<MultiFrontierActionResult> {
+    return this.#runAction("resume", collaborationId, prompt);
   }
 
   cancel(collaborationId: string): Promise<MultiFrontierActionResult> {
     return this.#runAction("cancel", collaborationId);
+  }
+
+  reReview(
+    collaborationId: string,
+    input: { reviewArtifactId: string; instruction?: string },
+  ): Promise<MultiFrontierActionResult> {
+    this.#assertUsable();
+    const requestId = this.#nextId("request");
+    return this.#runBackend(
+      this.#coordinator.reReview({
+        schemaVersion: MULTI_FRONTIER_IPC_SCHEMA_VERSION,
+        requestId,
+        action: "re-review",
+        collaborationId,
+        reviewArtifactId: input.reviewArtifactId,
+        ...(input.instruction ? { instruction: input.instruction } : {}),
+      }),
+      requestId,
+    );
   }
 
   roleSwap(
@@ -335,6 +361,7 @@ export class MultiFrontierHost {
   async #runAction(
     action: CollaborationAction,
     collaborationId: string,
+    prompt?: string,
   ): Promise<MultiFrontierActionResult> {
     this.#assertUsable();
     const requestId = this.#nextId("request");
@@ -344,6 +371,7 @@ export class MultiFrontierHost {
         requestId,
         action,
         collaborationId,
+        ...(prompt ? { prompt } : {}),
       }),
       requestId,
     );
@@ -353,7 +381,18 @@ export class MultiFrontierHost {
     pending: Promise<MultiFrontierCollaborationResult>,
     requestId: string,
   ): Promise<MultiFrontierActionResult> {
-    const normalized = normalizeMultiFrontierCollaborationResult(await pending);
+    let value: MultiFrontierCollaborationResult;
+    try {
+      value = await pending;
+    } catch {
+      return {
+        error: {
+          message:
+            "The collaboration could not continue. Check both subscriptions, then retry recovery.",
+        },
+      };
+    }
+    const normalized = normalizeMultiFrontierCollaborationResult(value);
     if (!normalized || normalized.requestId !== requestId) {
       return {
         error: {

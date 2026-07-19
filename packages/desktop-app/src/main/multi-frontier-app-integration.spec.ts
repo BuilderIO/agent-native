@@ -128,7 +128,7 @@ describe("multi-frontier app integration", () => {
     expect(snapshot.contentRef).toMatch(/^file:\//);
     expect(snapshot.contentHash).not.toBe("0".repeat(64));
     expect(snapshot.testOutput).toBe(
-      "Tests 1 passed. git diff --check found no errors.",
+      "Checks 1 passed. git diff --check found no errors.",
     );
     const contentPath = snapshot.contentRef.slice("file:".length);
     const content = fs.readFileSync(contentPath, "utf8");
@@ -172,7 +172,7 @@ describe("multi-frontier app integration", () => {
       }),
     });
 
-    expect(snapshot.testOutput).toContain("Tests 1 failed");
+    expect(snapshot.testOutput).toContain("Checks 1 failed");
     expect(snapshot.testOutput).toContain("trailing whitespace");
   });
 });

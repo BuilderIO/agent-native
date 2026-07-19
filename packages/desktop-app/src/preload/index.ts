@@ -53,6 +53,7 @@ import {
   MULTI_FRONTIER_CHANNELS,
   type MultiFrontierActionResult,
   type MultiFrontierCreateIntent,
+  type MultiFrontierReReviewIntent,
   type MultiFrontierRendererApi,
   type MultiFrontierSettings,
   type MultiFrontierSubscriptionEnvelope,
@@ -395,10 +396,25 @@ const electronAPI = {
       ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.go, collaborationId),
     pause: (collaborationId: string): Promise<MultiFrontierActionResult> =>
       ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.pause, collaborationId),
-    resume: (collaborationId: string): Promise<MultiFrontierActionResult> =>
-      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.resume, collaborationId),
+    resume: (
+      collaborationId: string,
+      prompt?: string,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(
+        MULTI_FRONTIER_CHANNELS.resume,
+        prompt ? { collaborationId, prompt } : collaborationId,
+      ),
     cancel: (collaborationId: string): Promise<MultiFrontierActionResult> =>
       ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.cancel, collaborationId),
+    reReview: (
+      collaborationId: string,
+      input: MultiFrontierReReviewIntent,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.reReview, {
+        collaborationId,
+        reviewArtifactId: input.reviewArtifactId,
+        ...(input.instruction ? { instruction: input.instruction } : {}),
+      }),
     roleSwap: (
       collaborationId: string,
       nextDriverParticipantId: string,

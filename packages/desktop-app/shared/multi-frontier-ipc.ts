@@ -107,6 +107,17 @@ export interface MultiFrontierCollaborationIdRequest {
   requestId: string;
   action: "start" | "go" | "pause" | "resume" | "cancel" | "subscribe";
   collaborationId: string;
+  /** Present only to re-enter a recovered planning request; it is never persisted. */
+  prompt?: string;
+}
+
+export interface MultiFrontierReReviewRequest {
+  schemaVersion: 1;
+  requestId: string;
+  action: "re-review";
+  collaborationId: string;
+  reviewArtifactId: string;
+  instruction?: string;
 }
 
 export interface MultiFrontierRoleSwapRequest {
@@ -120,6 +131,7 @@ export interface MultiFrontierRoleSwapRequest {
 export type MultiFrontierCollaborationRequest =
   | MultiFrontierCreateCollaborationRequest
   | MultiFrontierCollaborationIdRequest
+  | MultiFrontierReReviewRequest
   | MultiFrontierRoleSwapRequest;
 
 export interface MultiFrontierRendererParticipant {
@@ -156,6 +168,8 @@ export interface MultiFrontierRendererState {
   driverParticipantId?: string;
   driverGeneration?: number;
   approvalState: MultiFrontierApprovalState;
+  pendingCheckpointReviewArtifactId?: string;
+  requiresPlanningPrompt?: boolean;
   artifacts: MultiFrontierArtifactSummary[];
   subscriptions: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
 }
@@ -240,6 +254,7 @@ export function parseMultiFrontierCollaborationRequest(
     "pause",
     "resume",
     "cancel",
+    "re-review",
     "role-swap",
     "subscribe",
   ] as const);
@@ -279,6 +294,22 @@ export function parseMultiFrontierCollaborationRequest(
 
   const collaborationId = readId(input.collaborationId);
   if (!collaborationId) return null;
+  if (action === "re-review") {
+    const reviewArtifactId = readId(input.reviewArtifactId);
+    const instruction = readOptionalText(
+      input.instruction,
+      MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES,
+    );
+    if (!reviewArtifactId || instruction === null) return null;
+    return {
+      schemaVersion: MULTI_FRONTIER_IPC_SCHEMA_VERSION,
+      requestId,
+      action,
+      collaborationId,
+      reviewArtifactId,
+      ...(instruction ? { instruction } : {}),
+    };
+  }
   if (action === "role-swap") {
     const nextDriverParticipantId = readId(input.nextDriverParticipantId);
     if (!nextDriverParticipantId) return null;
@@ -290,11 +321,17 @@ export function parseMultiFrontierCollaborationRequest(
       nextDriverParticipantId,
     };
   }
+  const prompt =
+    action === "resume"
+      ? readOptionalText(input.prompt, MULTI_FRONTIER_IPC_MAX_PROMPT_BYTES)
+      : undefined;
+  if (prompt === null) return null;
   return {
     schemaVersion: MULTI_FRONTIER_IPC_SCHEMA_VERSION,
     requestId,
     action,
     collaborationId,
+    ...(prompt ? { prompt } : {}),
   };
 }
 
@@ -354,6 +391,26 @@ export function normalizeMultiFrontierRendererState(
     artifacts: parseArtifacts(input?.artifacts),
     subscriptions: parseSubscriptions(input?.subscriptions),
   };
+  const pendingCheckpointReviewArtifactId = readId(
+    input?.pendingCheckpointReviewArtifactId,
+  );
+  if (
+    input?.pendingCheckpointReviewArtifactId !== undefined &&
+    !pendingCheckpointReviewArtifactId
+  ) {
+    return null;
+  }
+  if (pendingCheckpointReviewArtifactId) {
+    state.pendingCheckpointReviewArtifactId = pendingCheckpointReviewArtifactId;
+  }
+  if (
+    input?.requiresPlanningPrompt !== undefined &&
+    typeof input.requiresPlanningPrompt !== "boolean"
+  ) {
+    return null;
+  }
+  if (input?.requiresPlanningPrompt === true)
+    state.requiresPlanningPrompt = true;
   if (driverParticipantId) {
     state.driverParticipantId = driverParticipantId;
     state.driverGeneration = driverGeneration!;
@@ -367,6 +424,14 @@ function readOptionalBoolean(value: unknown): boolean | null {
     : typeof value === "boolean"
       ? value
       : null;
+}
+
+function readOptionalText(
+  value: unknown,
+  maxBytes: number,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  return readText(value, maxBytes);
 }
 
 export function normalizeMultiFrontierIpcEvent(
