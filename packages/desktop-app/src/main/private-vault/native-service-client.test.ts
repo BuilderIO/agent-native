@@ -418,6 +418,99 @@ describe("Private Vault native service client", () => {
     }
   });
 
+  it("binds broker object custody to the exact native claimed job", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const jobId = "ffeeddccbbaa99887766554433221100";
+    const jobHash = "ab".repeat(32);
+    const objectId = "11223344556677889900aabbccddeeff";
+    const plaintext = Uint8Array.from([1, 2, 3]);
+    const ciphertext = Uint8Array.from([4, 5, 6]);
+    const revisionId = Buffer.alloc(32, 7);
+    const writerEndpointId = Buffer.alloc(16, 8);
+    const request = vi.fn(async (operation: string, ...arguments_: unknown[]) =>
+      operation === "seal_job_object"
+        ? {
+            version: 3,
+            operation,
+            state: "sealed",
+            vaultId,
+            objectId,
+            contentType: arguments_[5],
+            revision: arguments_[4],
+            epoch: 7,
+            plaintextLength: plaintext.byteLength,
+            revisionId,
+            objectPayload: Buffer.from(ciphertext),
+          }
+        : {
+            version: 3,
+            operation,
+            state: "opened",
+            vaultId,
+            objectId,
+            contentType: "application/vnd.agent-native.content-document+json",
+            revision: arguments_[4],
+            epoch: 7,
+            plaintextLength: plaintext.byteLength,
+            revisionId,
+            writerEndpointId,
+            objectPayload: Buffer.from(plaintext),
+          },
+    );
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+
+    await expect(
+      client.sealJobContentObjectRevision({
+        vaultId,
+        jobId,
+        jobHash,
+        objectId,
+        revision: 2,
+        plaintext,
+      }),
+    ).resolves.toMatchObject({ operation: "seal_job_object", revision: 2 });
+    await expect(
+      client.openJobContentObjectRevision({
+        vaultId,
+        jobId,
+        jobHash,
+        objectId,
+        revision: 2,
+        encodedRevision: ciphertext,
+      }),
+    ).resolves.toMatchObject({ operation: "open_job_object", revision: 2 });
+    expect(request.mock.calls[0]?.slice(0, 7)).toEqual([
+      "seal_job_object",
+      vaultId,
+      jobId,
+      jobHash,
+      objectId,
+      2,
+      "application/vnd.agent-native.content-document+json",
+    ]);
+    expect(request.mock.calls[1]?.slice(0, 6)).toEqual([
+      "open_job_object",
+      vaultId,
+      jobId,
+      jobHash,
+      objectId,
+      2,
+    ]);
+    await expect(
+      client.openJobContentObjectRevision({
+        vaultId,
+        jobId,
+        jobHash: jobHash.toUpperCase(),
+        objectId,
+        revision: 2,
+        encodedRevision: ciphertext,
+      }),
+    ).rejects.toEqual(new PrivateVaultNativeServiceClientError());
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("maps one encrypted broker job through the caller-independent authority boundary", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const endpointId = "11112222333344445555666677778888";

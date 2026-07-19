@@ -66,6 +66,7 @@ static bool gStartupComplete = false;
 static AncPrivateVaultGrantIndex *gGrantIndex = nil;
 static AncPrivateVaultJobProcessor *gJobProcessor = nil;
 static AncPrivateVaultAuthorityStore *gEndpointAuthorityStore = nil;
+static AncPrivateVaultAuthorityStore *gBrokerAuthorityStore = nil;
 static AncPrivateVaultControlLog *gControlLog = nil;
 static AncPrivateVaultEnrollmentOfferArtifactStore *gEnrollmentArtifactStore =
     nil;
@@ -1302,12 +1303,187 @@ static BOOL PVObjectEndpointContext(
     return YES;
 }
 
+static AncPrivateVaultControlLogMember *PVObjectActiveBroker(
+    AncPrivateVaultControlLogState *state,
+    const AncPrivateVaultCustodySnapshot *snapshot) {
+    if (state == nil || snapshot == NULL || snapshot->endpoint_id_length != 16)
+        return nil;
+    NSData *endpointId =
+        [NSData dataWithBytes:snapshot->endpoint_id length:16];
+    NSMutableString *endpointHex = [NSMutableString stringWithCapacity:32];
+    const uint8_t *bytes = endpointId.bytes;
+    for (NSUInteger index = 0; index < endpointId.length; index += 1)
+        [endpointHex appendFormat:@"%02x", bytes[index]];
+    AncPrivateVaultControlLogMember *match = nil;
+    for (AncPrivateVaultControlLogMember *member in state.activeMembers) {
+        if ([member.endpointId isEqualToString:endpointHex]) {
+            if (match != nil) return nil;
+            match = member;
+        }
+    }
+    NSData *snapshotSigning =
+        [NSData dataWithBytes:snapshot->signing_public_key length:32];
+    return match != nil && [match.role isEqualToString:@"broker"] &&
+                   match.unattended &&
+                   [match.signingPublicKey isEqualToData:snapshotSigning]
+               ? match
+               : nil;
+}
+
+static BOOL PVObjectJobScopeAllows(AncPrivateVaultJobContext *job,
+                                   NSData *vaultId, NSData *objectId,
+                                   NSString *contentType) {
+    if (job == nil || vaultId.length != 16 || objectId.length != 16 ||
+        ![job.provider isEqualToString:@"content"] ||
+        ![job.status isEqualToString:@"claimed"] || job.resultRecorded ||
+        job.receiptAcknowledged)
+        return NO;
+    BOOL vaultScoped = [job.resourceId isEqualToData:vaultId];
+    BOOL objectScoped = [job.resourceId isEqualToData:objectId];
+    NSSet<NSString *> *vaultOperations = [NSSet setWithArray:@[
+        @"list-documents", @"search-documents", @"create-document"
+    ]];
+    NSSet<NSString *> *objectOperations = [NSSet setWithArray:@[
+        @"get-document", @"pull-document", @"update-document",
+        @"edit-document", @"move-document", @"delete-document",
+        @"list-document-versions", @"restore-document-version"
+    ]];
+    if (vaultScoped && [vaultOperations containsObject:job.operation]) return YES;
+    if (![objectOperations containsObject:job.operation]) return NO;
+    if (contentType == nil) return YES;
+    return [contentType isEqualToString:
+                            @"application/vnd.agent-native.content-vault-manifest+json"] ||
+           objectScoped;
+}
+
+static BOOL PVObjectBrokerContext(
+    NSString *vaultId, NSData *jobId, NSData *jobHash, NSData *objectId,
+    NSString *contentType, uint64_t nowSeconds,
+    AncPrivateVaultControlLogState **state, NSData **writerEndpointId,
+    AncPrivateVaultGuardedMemory **signingSeed,
+    AncPrivateVaultGuardedMemory **epochKey,
+    AncPrivateVaultJobContext **jobContext) {
+    if (vaultId.length != 32 || jobId.length != 16 || jobHash.length != 32 ||
+        objectId.length != 16 || nowSeconds == 0 ||
+        nowSeconds > UINT64_MAX / 1000 || state == NULL ||
+        writerEndpointId == NULL || signingSeed == NULL || epochKey == NULL ||
+        jobContext == NULL || gBrokerAuthorityStore == nil ||
+        gBrokerCustodyRepository == nil || gGrantIndex == nil)
+        return NO;
+    *state = nil;
+    *writerEndpointId = nil;
+    *signingSeed = nil;
+    *epochKey = nil;
+    *jobContext = nil;
+    AncPrivateVaultJobContext *job = nil;
+    if ([gGrantIndex resolveJobId:jobId jobHash:jobHash vaultId:vaultId
+                          context:&job] != AncPrivateVaultGrantIndexStatusOK ||
+        job == nil || job.expiresAt < nowSeconds)
+        return NO;
+    AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+    if ([gBrokerAuthorityStore loadVaultId:vaultId
+                                 checkpoint:&checkpoint
+                                      error:nil] !=
+            AncPrivateVaultAuthorityStoreStatusOK ||
+        checkpoint == nil || checkpoint.snapshot.verifiedAtMs > nowSeconds * 1000 ||
+        nowSeconds * 1000 - checkpoint.snapshot.verifiedAtMs > 15 * 60 * 1000)
+        return NO;
+    AncPrivateVaultControlLogState *authenticated =
+        AncPrivateVaultControlLogStateCreateFromAuthenticatedCheckpoint(
+            checkpoint);
+    AncPrivateVaultCustodySnapshot snapshot = {0};
+    AncPrivateVaultCustodyHandle *handle = nil;
+    if (authenticated == nil ||
+        ![authenticated.vaultId isEqualToString:vaultId] ||
+        [gBrokerCustodyRepository readVaultId:vaultId
+                                    snapshot:&snapshot
+                                      handle:&handle] !=
+            AncPrivateVaultCustodyRepositoryStatusOK ||
+        handle == nil) {
+        if (handle != nil) [handle close];
+        anc_pv_custody_snapshot_zero(&snapshot);
+        return NO;
+    }
+    NSData *vaultBytes = PVLookupIDData(vaultId.UTF8String);
+    NSData *anchoredHead =
+        [NSData dataWithBytes:snapshot.anchored_head length:32];
+    NSData *membership =
+        [NSData dataWithBytes:snapshot.membership_digest length:32];
+    AncPrivateVaultControlLogMember *member =
+        PVObjectActiveBroker(authenticated, &snapshot);
+    BOOL publicStateOkay =
+        snapshot.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+        snapshot.role == ANC_PV_CUSTODY_ROLE_BROKER &&
+        snapshot.pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+        snapshot.rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
+        snapshot.authority_anchor_present == 1 &&
+        snapshot.vault_id_length == 16 && vaultBytes != nil &&
+        anc_pv_memcmp(snapshot.vault_id, vaultBytes.bytes, 16) == 0 &&
+        snapshot.active_epoch == authenticated.epoch &&
+        snapshot.anchored_sequence == authenticated.sequence &&
+        [anchoredHead isEqualToData:authenticated.headHash] &&
+        [membership isEqualToData:authenticated.membershipHash] && member != nil &&
+        PVObjectJobScopeAllows(job, vaultBytes, objectId, contentType);
+    AncPrivateVaultGuardedMemoryStatus memoryStatus;
+    AncPrivateVaultGuardedMemory *signing =
+        publicStateOkay
+            ? [AncPrivateVaultGuardedMemory memoryWithLength:32
+                                                     status:&memoryStatus]
+            : nil;
+    AncPrivateVaultGuardedMemory *epoch =
+        publicStateOkay
+            ? [AncPrivateVaultGuardedMemory memoryWithLength:32
+                                                     status:&memoryStatus]
+            : nil;
+    __block BOOL copied = NO;
+    AncPrivateVaultCustodyRepositoryStatus borrowed =
+        signing == nil || epoch == nil
+            ? AncPrivateVaultCustodyRepositoryStatusFailed
+            : [handle borrow:^BOOL(
+                          const AncPrivateVaultCustodySecretInputs *secrets) {
+                return [signing borrow:^BOOL(uint8_t *signingBytes,
+                                             size_t signingLength) {
+                    if (signingLength != 32) return NO;
+                    memcpy(signingBytes, secrets->signing_seed, 32);
+                    return [epoch borrow:^BOOL(uint8_t *epochBytes,
+                                               size_t epochLength) {
+                        if (epochLength != 32) return NO;
+                        memcpy(epochBytes, secrets->active_epoch_key, 32);
+                        copied = YES;
+                        return YES;
+                    }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+                }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+            }];
+    AncPrivateVaultCustodyRepositoryStatus closed = [handle close];
+    NSData *endpointId =
+        [NSData dataWithBytes:snapshot.endpoint_id length:16];
+    anc_pv_custody_snapshot_zero(&snapshot);
+    if (!publicStateOkay ||
+        borrowed != AncPrivateVaultCustodyRepositoryStatusOK || !copied ||
+        closed != AncPrivateVaultCustodyRepositoryStatusOK) {
+        if (signing != nil) [signing close];
+        if (epoch != nil) [epoch close];
+        return NO;
+    }
+    *state = authenticated;
+    *writerEndpointId = endpointId;
+    *signingSeed = signing;
+    *epochKey = epoch;
+    *jobContext = job;
+    return YES;
+}
+
 static void PVSealObject(xpc_connection_t peer, xpc_object_t message,
                          const PVRequest *request) {
     @autoreleasepool {
+        BOOL jobBound = strcmp(request->operation, "seal_job_object") == 0;
         NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
         NSData *vaultBytes = PVLookupIDData(request->vaultID);
         NSData *objectId = PVLookupIDData(request->objectID);
+        NSData *jobId =
+            jobBound ? PVLookupIDData(request->jobID) : nil;
+        NSData *jobHash =
+            jobBound ? PVHashData(request->jobHash) : nil;
         NSMutableData *plaintext =
             request->objectPayload == NULL
                 ? nil
@@ -1317,14 +1493,22 @@ static void PVSealObject(xpc_connection_t peer, xpc_object_t message,
         NSData *writerEndpointId = nil;
         AncPrivateVaultGuardedMemory *signing = nil;
         AncPrivateVaultGuardedMemory *epoch = nil;
+        AncPrivateVaultJobContext *job = nil;
         uint64_t nowMilliseconds = 0;
         BOOL contextOkay =
             vaultBytes != nil && objectId != nil && plaintext != nil &&
             [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
             nowMilliseconds >= 1000 &&
             nowMilliseconds / 1000 <= UINT64_C(9007199254740991) &&
-            PVObjectEndpointContext(vaultId, &state, &writerEndpointId,
-                                    &signing, &epoch);
+            (jobBound
+                 ? PVObjectBrokerContext(
+                       vaultId, jobId, jobHash, objectId,
+                       [NSString stringWithUTF8String:
+                                     request->objectContentType],
+                       nowMilliseconds / 1000, &state, &writerEndpointId,
+                       &signing, &epoch, &job)
+                 : PVObjectEndpointContext(vaultId, &state, &writerEndpointId,
+                                           &signing, &epoch));
         NSData *dekEnvelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
         NSData *headerEnvelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
         NSData *chunkEnvelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
@@ -1375,9 +1559,14 @@ static void PVSealObject(xpc_connection_t peer, xpc_object_t message,
 static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
                          const PVRequest *request) {
     @autoreleasepool {
+        BOOL jobBound = strcmp(request->operation, "open_job_object") == 0;
         NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
         NSData *vaultBytes = PVLookupIDData(request->vaultID);
         NSData *objectId = PVLookupIDData(request->objectID);
+        NSData *jobId =
+            jobBound ? PVLookupIDData(request->jobID) : nil;
+        NSData *jobHash =
+            jobBound ? PVHashData(request->jobHash) : nil;
         NSData *encoded =
             request->objectPayload == NULL
                 ? nil
@@ -1387,10 +1576,21 @@ static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
         NSData *unusedWriter = nil;
         AncPrivateVaultGuardedMemory *signing = nil;
         AncPrivateVaultGuardedMemory *epoch = nil;
+        AncPrivateVaultJobContext *job = nil;
+        uint64_t nowMilliseconds = 0;
         BOOL contextOkay =
             vaultBytes != nil && objectId != nil && encoded != nil &&
-            PVObjectEndpointContext(vaultId, &state, &unusedWriter, &signing,
-                                    &epoch);
+            (!jobBound ||
+             ([gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
+              nowMilliseconds >= 1000 &&
+              nowMilliseconds / 1000 <= UINT64_C(9007199254740991))) &&
+            (jobBound
+                 ? PVObjectBrokerContext(
+                       vaultId, jobId, jobHash, objectId, nil,
+                       nowMilliseconds / 1000, &state, &unusedWriter, &signing,
+                       &epoch, &job)
+                 : PVObjectEndpointContext(vaultId, &state, &unusedWriter,
+                                           &signing, &epoch));
         AncPrivateVaultObjectRevisionStatus status;
         AncPrivateVaultOpenedObjectRevision *opened =
             contextOkay ? AncPrivateVaultOpenObjectRevision(
@@ -1405,6 +1605,9 @@ static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
         if (opened == nil || opened.revision != request->objectRevision ||
             opened.epoch != state.epoch ||
             !PVIsContentObjectType(opened.contentType) ||
+            (jobBound &&
+             !PVObjectJobScopeAllows(job, vaultBytes, objectId,
+                                     opened.contentType)) ||
             !signingClosed || !epochClosed) {
             PVSendError(peer, message, "object_open_failed");
             return;
@@ -1950,7 +2153,15 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVSealObject(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "seal_job_object") == 0) {
+                PVSealObject(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "open_object") == 0) {
+                PVOpenObject(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "open_job_object") == 0) {
                 PVOpenObject(peer, message, &request);
                 return;
             }
@@ -2078,6 +2289,7 @@ int main(void) {
         AncPrivateVaultControlLog *controlLog =
             [[AncPrivateVaultControlLog alloc] init];
         gEndpointAuthorityStore = authority;
+        gBrokerAuthorityStore = brokerAuthority;
         gControlLog = controlLog;
         gEnrollmentArtifactStore =
             [[AncPrivateVaultEnrollmentOfferArtifactStore alloc]
@@ -2177,7 +2389,8 @@ int main(void) {
             spool == nil || preparation == nil || authority == nil ||
             brokerAuthority == nil || gGrantIndex == nil ||
             gJobProcessor == nil ||
-            gEndpointAuthorityStore == nil || gControlLog == nil ||
+            gEndpointAuthorityStore == nil || gBrokerAuthorityStore == nil ||
+            gControlLog == nil ||
             gEnrollmentArtifactStore == nil || enrollmentReceiptStore == nil ||
             gEnrollmentCoordinator == nil || gEnrollmentInspectionLock == nil ||
             gEnrollmentInspections == nil ||

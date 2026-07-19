@@ -80,6 +80,8 @@ enum class PVOperation {
   ActivateEnrollment,
   SealObject,
   OpenObject,
+  SealJobObject,
+  OpenJobObject,
 };
 enum class PVFailure {
   None,
@@ -696,8 +698,11 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
   }
 
   if (operation == PVOperation::SealObject ||
-      operation == PVOperation::OpenObject) {
-    const bool sealing = operation == PVOperation::SealObject;
+      operation == PVOperation::OpenObject ||
+      operation == PVOperation::SealJobObject ||
+      operation == PVOperation::OpenJobObject) {
+    const bool sealing = operation == PVOperation::SealObject ||
+                         operation == PVOperation::SealJobObject;
     const char *const sealKeys[] = {
         "version", "ok", "requestId", "state", "vaultId", "objectId",
         "revision", "epoch", "revisionId", "contentType",
@@ -1400,6 +1405,10 @@ void PVExecute(napi_env env, void *data) {
                               ? "seal_object"
                           : request->operation == PVOperation::OpenObject
                               ? "open_object"
+                          : request->operation == PVOperation::SealJobObject
+                              ? "seal_job_object"
+                          : request->operation == PVOperation::OpenJobObject
+                              ? "open_job_object"
                               : "finalize_genesis";
 
   uuid_t requestUUID;
@@ -1452,14 +1461,26 @@ void PVExecute(napi_env env, void *data) {
       request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment ||
       request->operation == PVOperation::SealObject ||
-      request->operation == PVOperation::OpenObject)
+      request->operation == PVOperation::OpenObject ||
+      request->operation == PVOperation::SealJobObject ||
+      request->operation == PVOperation::OpenJobObject)
     xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   if (request->operation == PVOperation::SealObject ||
-      request->operation == PVOperation::OpenObject) {
+      request->operation == PVOperation::OpenObject ||
+      request->operation == PVOperation::SealJobObject ||
+      request->operation == PVOperation::OpenJobObject) {
+    const bool sealing = request->operation == PVOperation::SealObject ||
+                         request->operation == PVOperation::SealJobObject;
+    const bool jobBound = request->operation == PVOperation::SealJobObject ||
+                          request->operation == PVOperation::OpenJobObject;
+    if (jobBound) {
+      xpc_dictionary_set_string(message, "jobId", request->jobID);
+      xpc_dictionary_set_string(message, "jobHash", request->jobHash);
+    }
     xpc_dictionary_set_string(message, "objectId", request->objectID);
     xpc_dictionary_set_int64(
         message, "revision", static_cast<int64_t>(request->objectRevision));
-    if (request->operation == PVOperation::SealObject)
+    if (sealing)
       xpc_dictionary_set_string(message, "contentType", request->contentType);
     xpc_dictionary_set_data(message, "objectPayload",
                             request->objectPayload.data(),
@@ -1574,7 +1595,9 @@ void PVExecute(napi_env env, void *data) {
                 request->operation == PVOperation::AuthorizeEnrollment ||
                 request->operation == PVOperation::ActivateEnrollment ||
                 request->operation == PVOperation::SealObject ||
-                request->operation == PVOperation::OpenObject
+                request->operation == PVOperation::OpenObject ||
+                request->operation == PVOperation::SealJobObject ||
+                request->operation == PVOperation::OpenJobObject
             ? request->vaultID
             : nullptr;
     PVParsedReply parsed =
@@ -1583,10 +1606,13 @@ void PVExecute(napi_env env, void *data) {
       xpc_release(reply);
     if (parsed.failure == PVFailure::None &&
         (request->operation == PVOperation::SealObject ||
-         request->operation == PVOperation::OpenObject) &&
+         request->operation == PVOperation::OpenObject ||
+         request->operation == PVOperation::SealJobObject ||
+         request->operation == PVOperation::OpenJobObject) &&
         (strcmp(parsed.objectID, request->objectID) != 0 ||
          parsed.objectRevision != request->objectRevision ||
-         (request->operation == PVOperation::SealObject &&
+         ((request->operation == PVOperation::SealObject ||
+           request->operation == PVOperation::SealJobObject) &&
           parsed.plaintextLength != request->objectPayload.size())))
       parsed.failure = PVFailure::MalformedReply;
     request->failure = parsed.failure;
@@ -1748,6 +1774,10 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                     ? "seal_object"
                 : request->operation == PVOperation::OpenObject
                     ? "open_object"
+                : request->operation == PVOperation::SealJobObject
+                    ? "seal_job_object"
+                : request->operation == PVOperation::OpenJobObject
+                    ? "open_job_object"
                     : "finalize_genesis");
     if (request->operation != PVOperation::OpenJob &&
         request->operation != PVOperation::SealResult &&
@@ -1812,7 +1842,11 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
       PVSetSafeInteger(env, result, "sequence", request->sequence);
     } else if (request->operation == PVOperation::SealObject ||
-               request->operation == PVOperation::OpenObject) {
+               request->operation == PVOperation::OpenObject ||
+               request->operation == PVOperation::SealJobObject ||
+               request->operation == PVOperation::OpenJobObject) {
+      const bool opening = request->operation == PVOperation::OpenObject ||
+                           request->operation == PVOperation::OpenJobObject;
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "objectId", request->objectID);
       PVSetString(env, result, "contentType", request->contentType);
@@ -1822,7 +1856,7 @@ void PVComplete(napi_env env, napi_status status, void *data) {
                        request->plaintextLength);
       if (!PVSetBuffer(env, result, "revisionId", request->revisionID) ||
           !PVSetBuffer(env, result, "objectPayload", request->body) ||
-          (request->operation == PVOperation::OpenObject &&
+          (opening &&
            !PVSetBuffer(env, result, "writerEndpointId",
                         request->writerEndpointID))) {
         napi_value message;
@@ -2075,6 +2109,10 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::SealObject;
   } else if (strcmp(operation, "open_object") == 0) {
     request->operation = PVOperation::OpenObject;
+  } else if (strcmp(operation, "seal_job_object") == 0) {
+    request->operation = PVOperation::SealJobObject;
+  } else if (strcmp(operation, "open_job_object") == 0) {
+    request->operation = PVOperation::OpenJobObject;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
@@ -2107,6 +2145,8 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       : request->operation == PVOperation::ActivateEnrollment ? 4
       : request->operation == PVOperation::SealObject ? 6
       : request->operation == PVOperation::OpenObject ? 5
+      : request->operation == PVOperation::SealJobObject ? 8
+      : request->operation == PVOperation::OpenJobObject ? 7
           : 1;
   if (argc != expectedArgumentCount) {
     delete request;
@@ -2127,7 +2167,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
       request->operation == PVOperation::AuthorizeEnrollment ||
       request->operation == PVOperation::ActivateEnrollment ||
       request->operation == PVOperation::SealObject ||
-      request->operation == PVOperation::OpenObject) {
+      request->operation == PVOperation::OpenObject ||
+      request->operation == PVOperation::SealJobObject ||
+      request->operation == PVOperation::OpenJobObject) {
     size_t vaultLength = 0;
     if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
         argumentType != napi_string ||
@@ -2144,33 +2186,55 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   const uint8_t *objectPayload = nullptr;
   size_t objectPayloadLength = 0;
   if (request->operation == PVOperation::SealObject ||
-      request->operation == PVOperation::OpenObject) {
+      request->operation == PVOperation::OpenObject ||
+      request->operation == PVOperation::SealJobObject ||
+      request->operation == PVOperation::OpenJobObject) {
+    const bool sealing = request->operation == PVOperation::SealObject ||
+                         request->operation == PVOperation::SealJobObject;
+    const bool jobBound = request->operation == PVOperation::SealJobObject ||
+                          request->operation == PVOperation::OpenJobObject;
+    const size_t objectIndex = jobBound ? 4 : 2;
+    const size_t revisionIndex = objectIndex + 1;
+    const size_t contentTypeIndex = revisionIndex + 1;
+    const size_t payloadIndex = sealing ? contentTypeIndex + 1
+                                        : revisionIndex + 1;
     size_t objectLength = 0;
     double revision = 0;
     void *bytes = nullptr;
     bool isBuffer = false;
-    const size_t payloadIndex =
-        request->operation == PVOperation::SealObject ? 5 : 4;
-    const size_t maximum =
-        request->operation == PVOperation::SealObject
-            ? PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES
-            : PV_OBJECT_REVISION_MAXIMUM_BYTES;
+    const size_t maximum = sealing ? PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES
+                                   : PV_OBJECT_REVISION_MAXIMUM_BYTES;
     bool valid =
-        napi_typeof(env, argv[2], &argumentType) == napi_ok &&
+        napi_typeof(env, argv[objectIndex], &argumentType) == napi_ok &&
         argumentType == napi_string &&
-        napi_get_value_string_utf8(env, argv[2], request->objectID,
+        napi_get_value_string_utf8(env, argv[objectIndex], request->objectID,
                                    sizeof(request->objectID),
                                    &objectLength) == napi_ok &&
         objectLength == 32 && PVIsLowerHex(request->objectID, 32) &&
-        napi_get_value_double(env, argv[3], &revision) == napi_ok &&
+        napi_get_value_double(env, argv[revisionIndex], &revision) == napi_ok &&
         std::isfinite(revision) && std::floor(revision) == revision &&
         revision >= 1 && revision <= 9007199254740991.0;
-    if (valid && request->operation == PVOperation::SealObject) {
+    if (valid && jobBound) {
+      size_t jobLength = 0, hashLength = 0;
+      valid = napi_typeof(env, argv[2], &argumentType) == napi_ok &&
+              argumentType == napi_string &&
+              napi_get_value_string_utf8(env, argv[2], request->jobID,
+                                         sizeof(request->jobID),
+                                         &jobLength) == napi_ok &&
+              jobLength == 32 && PVIsLowerHex(request->jobID, 32) &&
+              napi_typeof(env, argv[3], &argumentType) == napi_ok &&
+              argumentType == napi_string &&
+              napi_get_value_string_utf8(env, argv[3], request->jobHash,
+                                         sizeof(request->jobHash),
+                                         &hashLength) == napi_ok &&
+              hashLength == 64 && PVIsLowerHex(request->jobHash, 64);
+    }
+    if (valid && sealing) {
       size_t contentTypeLength = 0;
-      valid = napi_typeof(env, argv[4], &argumentType) == napi_ok &&
+      valid = napi_typeof(env, argv[contentTypeIndex], &argumentType) == napi_ok &&
               argumentType == napi_string &&
               napi_get_value_string_utf8(
-                  env, argv[4], request->contentType,
+                  env, argv[contentTypeIndex], request->contentType,
                   sizeof(request->contentType), &contentTypeLength) == napi_ok &&
               PVIsContentObjectType(request->contentType);
     }
@@ -2467,7 +2531,9 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
   }
 
   if (request->operation == PVOperation::SealObject ||
-      request->operation == PVOperation::OpenObject) {
+      request->operation == PVOperation::OpenObject ||
+      request->operation == PVOperation::SealJobObject ||
+      request->operation == PVOperation::OpenJobObject) {
     try {
       request->objectPayload.assign(objectPayload,
                                     objectPayload + objectPayloadLength);

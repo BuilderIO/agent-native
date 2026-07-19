@@ -467,6 +467,51 @@ int main(void) {
          parsed.objectPayloadLength == sizeof objectCiphertext);
   xpc_release(openObject);
 
+  const char *objectJobID = "ffeeddccbbaa99887766554433221100";
+  const char *objectJobHash =
+      "abababababababababababababababababababababababababababababababab";
+  xpc_object_t sealJobObject = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "seal_job_object", "request-seal-job-object");
+  xpc_dictionary_set_string(sealJobObject, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(sealJobObject, "jobId", objectJobID);
+  xpc_dictionary_set_string(sealJobObject, "jobHash", objectJobHash);
+  xpc_dictionary_set_string(sealJobObject, "objectId", objectID);
+  xpc_dictionary_set_int64(sealJobObject, "revision", 5);
+  xpc_dictionary_set_string(sealJobObject, "contentType", contentType);
+  xpc_dictionary_set_data(sealJobObject, "objectPayload", objectPlaintext,
+                          sizeof objectPlaintext);
+  assert(PVParseRequest(sealJobObject, &parsed) == PVRequestValid &&
+         strcmp(parsed.jobID, objectJobID) == 0 &&
+         strcmp(parsed.jobHash, objectJobHash) == 0 &&
+         parsed.objectRevision == 5);
+  xpc_release(sealJobObject);
+
+  xpc_object_t openJobObject = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "open_job_object", "request-open-job-object");
+  xpc_dictionary_set_string(openJobObject, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(openJobObject, "jobId", objectJobID);
+  xpc_dictionary_set_string(openJobObject, "jobHash", objectJobHash);
+  xpc_dictionary_set_string(openJobObject, "objectId", objectID);
+  xpc_dictionary_set_int64(openJobObject, "revision", 5);
+  xpc_dictionary_set_data(openJobObject, "objectPayload", objectCiphertext,
+                          sizeof objectCiphertext);
+  assert(PVParseRequest(openJobObject, &parsed) == PVRequestValid &&
+         strcmp(parsed.jobID, objectJobID) == 0 &&
+         strcmp(parsed.jobHash, objectJobHash) == 0 &&
+         parsed.objectContentType == NULL);
+  xpc_release(openJobObject);
+
+  xpc_object_t missingJobHash = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "open_job_object", "request-job-object-hash");
+  xpc_dictionary_set_string(missingJobHash, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(missingJobHash, "jobId", objectJobID);
+  xpc_dictionary_set_string(missingJobHash, "objectId", objectID);
+  xpc_dictionary_set_int64(missingJobHash, "revision", 5);
+  xpc_dictionary_set_data(missingJobHash, "objectPayload", objectCiphertext,
+                          sizeof objectCiphertext);
+  assert(PVParseRequest(missingJobHash, &parsed) == PVRequestInvalid);
+  xpc_release(missingJobHash);
+
   xpc_object_t forgedObjectType =
       PVMakeRequest(PV_PROTOCOL_VERSION, "seal_object", "request-object-type");
   xpc_dictionary_set_string(forgedObjectType, "vaultId", enrollmentVault);

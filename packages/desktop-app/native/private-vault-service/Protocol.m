@@ -195,6 +195,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool activateEnrollment = strcmp(operation, "activate_enroll") == 0;
     bool sealObject = strcmp(operation, "seal_object") == 0;
     bool openObject = strcmp(operation, "open_object") == 0;
+    bool sealJobObject = strcmp(operation, "seal_job_object") == 0;
+    bool openJobObject = strcmp(operation, "open_job_object") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
@@ -203,13 +205,16 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !openJob && !sealResult && !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
-        !activateEnrollment && !sealObject && !openObject) {
+        !activateEnrollment && !sealObject && !openObject && !sealJobObject &&
+        !openJobObject) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (sealObject || openObject) {
+    if (sealObject || openObject || sealJobObject || openJobObject) {
+        bool sealing = sealObject || sealJobObject;
+        bool jobBound = sealJobObject || openJobObject;
         xpc_object_t objectIDValue =
             xpc_dictionary_get_value(message, "objectId");
         xpc_object_t revisionValue =
@@ -231,15 +236,31 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
                     xpc_get_type(contentTypeValue) == XPC_TYPE_STRING
                 ? xpc_dictionary_get_string(message, "contentType")
                 : NULL;
-        size_t maximum = sealObject ? PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES
-                                    : PV_OBJECT_REVISION_MAXIMUM_BYTES;
-        if (fieldCount != (sealObject ? 8 : 7) || vaultIDValue == NULL ||
+        xpc_object_t jobIDValue = xpc_dictionary_get_value(message, "jobId");
+        xpc_object_t jobHashValue =
+            xpc_dictionary_get_value(message, "jobHash");
+        const char *jobHash =
+            jobHashValue != NULL &&
+                    xpc_get_type(jobHashValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "jobHash")
+                : NULL;
+        size_t maximum = sealing ? PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES
+                                 : PV_OBJECT_REVISION_MAXIMUM_BYTES;
+        if (fieldCount != (sealing ? (jobBound ? 10 : 8)
+                                    : (jobBound ? 9 : 7)) ||
+            vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
             !PVIsLowerHex(objectID, 32) || revision <= 0 ||
             revision > INT64_C(9007199254740991) ||
-            (sealObject && !PVIsContentObjectType(contentType)) ||
-            (!sealObject && contentTypeValue != NULL) ||
+            (sealing && !PVIsContentObjectType(contentType)) ||
+            (!sealing && contentTypeValue != NULL) ||
+            (jobBound &&
+             (jobIDValue == NULL ||
+              xpc_get_type(jobIDValue) != XPC_TYPE_STRING ||
+              !PVIsVaultID(xpc_dictionary_get_string(message, "jobId")) ||
+              !PVIsLowerHex(jobHash, 64))) ||
+            (!jobBound && (jobIDValue != NULL || jobHashValue != NULL)) ||
             !PVReadBoundedData(message, "objectPayload", maximum,
                                &request->objectPayload,
                                &request->objectPayloadLength)) {
@@ -248,6 +269,10 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         request->objectID = objectID;
         request->objectRevision = (uint64_t)revision;
         request->objectContentType = contentType;
+        if (jobBound) {
+            request->jobID = xpc_dictionary_get_string(message, "jobId");
+            request->jobHash = jobHash;
+        }
     } else if (prepareEnrollment || challengeEnrollment) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||

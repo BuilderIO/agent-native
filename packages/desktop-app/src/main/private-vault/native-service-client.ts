@@ -70,7 +70,9 @@ type NativeOperation =
   | "authorize_enroll"
   | "activate_enroll"
   | "seal_object"
-  | "open_object";
+  | "open_object"
+  | "seal_job_object"
+  | "open_job_object";
 
 interface NativeAddon {
   request(
@@ -135,6 +137,12 @@ export interface PrivateVaultNativeServiceClient
   openContentObjectRevision(
     input: NativeOpenContentObjectInput,
   ): Promise<NativeOpenedContentObjectResult>;
+  sealJobContentObjectRevision(
+    input: NativeSealJobContentObjectInput,
+  ): Promise<NativeSealedJobContentObjectResult>;
+  openJobContentObjectRevision(
+    input: NativeOpenJobContentObjectInput,
+  ): Promise<NativeOpenedJobContentObjectResult>;
 }
 
 export interface NativeSealContentObjectInput {
@@ -151,6 +159,17 @@ export interface NativeOpenContentObjectInput {
   readonly revision: number;
   readonly encodedRevision: Uint8Array;
 }
+
+export interface NativeContentObjectJobContext {
+  readonly jobId: string;
+  readonly jobHash: string;
+}
+
+export interface NativeSealJobContentObjectInput
+  extends NativeSealContentObjectInput, NativeContentObjectJobContext {}
+
+export interface NativeOpenJobContentObjectInput
+  extends NativeOpenContentObjectInput, NativeContentObjectJobContext {}
 
 export type NativeContentObjectType =
   | "application/vnd.agent-native.content-document+json"
@@ -176,6 +195,19 @@ export interface NativeSealedContentObjectResult extends NativeContentObjectResu
 
 export interface NativeOpenedContentObjectResult extends NativeContentObjectResultBase {
   readonly operation: "open_object";
+  readonly state: "opened";
+  readonly writerEndpointId: Uint8Array;
+  readonly plaintext: Uint8Array;
+}
+
+export interface NativeSealedJobContentObjectResult extends NativeContentObjectResultBase {
+  readonly operation: "seal_job_object";
+  readonly state: "sealed";
+  readonly encodedRevision: Uint8Array;
+}
+
+export interface NativeOpenedJobContentObjectResult extends NativeContentObjectResultBase {
+  readonly operation: "open_job_object";
   readonly state: "opened";
   readonly writerEndpointId: Uint8Array;
   readonly plaintext: Uint8Array;
@@ -567,14 +599,22 @@ function isContentObjectType(value: unknown): value is NativeContentObjectType {
 
 function parseContentObjectResult(
   value: unknown,
-  operation: "seal_object" | "open_object",
+  operation:
+    | "seal_object"
+    | "open_object"
+    | "seal_job_object"
+    | "open_job_object",
   expected: {
     readonly vaultId: string;
     readonly objectId: string;
     readonly revision: number;
   },
-): NativeSealedContentObjectResult | NativeOpenedContentObjectResult {
-  const opened = operation === "open_object";
+):
+  | NativeSealedContentObjectResult
+  | NativeOpenedContentObjectResult
+  | NativeSealedJobContentObjectResult
+  | NativeOpenedJobContentObjectResult {
+  const opened = operation === "open_object" || operation === "open_job_object";
   const keys = [
     "version",
     "operation",
@@ -637,14 +677,14 @@ function parseContentObjectResult(
   return opened
     ? Object.freeze({
         ...base,
-        operation: "open_object" as const,
+        operation,
         state: "opened" as const,
         writerEndpointId: copyBoundedBytes(value.writerEndpointId, 16),
         plaintext: objectPayload,
       })
     : Object.freeze({
         ...base,
-        operation: "seal_object" as const,
+        operation,
         state: "sealed" as const,
         encodedRevision: objectPayload,
       });
@@ -1596,6 +1636,91 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
           "open_object",
           input,
         ) as NativeOpenedContentObjectResult;
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        encoded.fill(0);
+      }
+    });
+  }
+
+  sealJobContentObjectRevision(
+    input: NativeSealJobContentObjectInput,
+  ): Promise<NativeSealedJobContentObjectResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.jobId, 32) ||
+      !isLowerHex(input.jobHash, 64) ||
+      !isLowerHex(input.objectId, 32) ||
+      !isSafeInteger(input.revision, true)
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let plaintext: Buffer;
+    try {
+      plaintext = Buffer.from(copyBoundedBytes(input.plaintext, 1024 * 1024));
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseContentObjectResult(
+          await addon.request(
+            "seal_job_object",
+            input.vaultId,
+            input.jobId,
+            input.jobHash,
+            input.objectId,
+            input.revision,
+            input.contentType ?? CONTENT_DOCUMENT_TYPE,
+            plaintext,
+          ),
+          "seal_job_object",
+          input,
+        ) as NativeSealedJobContentObjectResult;
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      } finally {
+        plaintext.fill(0);
+      }
+    });
+  }
+
+  openJobContentObjectRevision(
+    input: NativeOpenJobContentObjectInput,
+  ): Promise<NativeOpenedJobContentObjectResult> {
+    if (
+      !isLowerHex(input.vaultId, 32) ||
+      !isLowerHex(input.jobId, 32) ||
+      !isLowerHex(input.jobHash, 64) ||
+      !isLowerHex(input.objectId, 32) ||
+      !isSafeInteger(input.revision, true)
+    )
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    let encoded: Buffer;
+    try {
+      encoded = Buffer.from(
+        copyBoundedBytes(input.encodedRevision, 1024 * 1024 + 64 * 1024),
+      );
+    } catch {
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    }
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseContentObjectResult(
+          await addon.request(
+            "open_job_object",
+            input.vaultId,
+            input.jobId,
+            input.jobHash,
+            input.objectId,
+            input.revision,
+            encoded,
+          ),
+          "open_job_object",
+          input,
+        ) as NativeOpenedJobContentObjectResult;
       } catch {
         throw new PrivateVaultNativeServiceClientError();
       } finally {
