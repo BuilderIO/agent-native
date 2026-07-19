@@ -708,6 +708,15 @@ export class MultiFrontierCoordinator {
   }
 
   async cancel(): Promise<LocalFrontierCoordinatorState> {
+    if (!this.#state) {
+      this.#assertUsable();
+      const persisted = await this.#store.read(this.#collaborationId);
+      if (!persisted || persisted.phase !== "paused") {
+        throw new Error("Only a paused collaboration can be canceled.");
+      }
+      this.#assertPersistedParticipants(persisted);
+      this.#state = cloneState(persisted);
+    }
     this.#requireNonTerminalState();
     this.#beginLifecycleFence("cancel");
     await this.#cancelAndSettleOwnedWork();

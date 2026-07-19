@@ -151,6 +151,34 @@ describe("MultiFrontierManager", () => {
     );
   });
 
+  it("cancels a recovered paused collaboration without reconnecting participants", async () => {
+    useStore();
+    const initial = createManager([]);
+    const created = await initial.create(createRequest());
+    const collaborationId = created.snapshot!.collaborationId;
+    await initial.start(action("start", collaborationId));
+    await initial.pause(action("pause", collaborationId));
+    await initial.dispose();
+
+    const recoveredTurns: LocalFrontierTurnInput[] = [];
+    const connectionEvents: string[] = [];
+    const recovered = createManager(recoveredTurns, { connectionEvents });
+    await expect(
+      recovered.cancel(action("cancel", collaborationId)),
+    ).resolves.toMatchObject({
+      snapshot: { phase: "canceled" },
+    });
+
+    expect(recoveredTurns).toHaveLength(0);
+    expect(connectionEvents).toHaveLength(0);
+    expect(getMultiFrontierRun(collaborationId)).toMatchObject({
+      phase: "canceled",
+      participants: [{ permission: "read_only" }, { permission: "read_only" }],
+    });
+    expect(getMultiFrontierRun(collaborationId)?.driver).toBeNull();
+    expect(getMultiFrontierRun(collaborationId)?.recovery).toBeUndefined();
+  });
+
   it("keeps auto-continue out of renderer approval affordances and pauses consequential planning findings", async () => {
     useStore();
     const turns: LocalFrontierTurnInput[] = [];
@@ -471,6 +499,7 @@ function createManager(
     omitImplementationTests?: boolean;
     planningGate?: Promise<void>;
     onParticipants?: (sessionRefs: Readonly<Record<string, string>>) => void;
+    connectionEvents?: string[];
   } = {},
 ): MultiFrontierManager {
   return new MultiFrontierManager({
@@ -502,14 +531,19 @@ function participant(
     checkpointFindings?: boolean;
     omitImplementationTests?: boolean;
     planningGate?: Promise<void>;
+    connectionEvents?: string[];
   },
 ): LocalFrontierParticipant {
   return {
     participantId: config.participantId,
     provider: config.providerId,
     runtime: config.providerId === "codex" ? "codex-cli" : "claude-code",
-    async start(_input: LocalFrontierSessionInput) {},
-    async resume(_input: LocalFrontierSessionInput) {},
+    async start(_input: LocalFrontierSessionInput) {
+      options.connectionEvents?.push("start");
+    },
+    async resume(_input: LocalFrontierSessionInput) {
+      options.connectionEvents?.push("resume");
+    },
     async runTurn(input) {
       turns.push(input);
       if (input.phase === "proposing" && options.planningGate) {
@@ -628,7 +662,7 @@ function createRequest(): MultiFrontierCreateCollaborationRequest {
 }
 
 function action(
-  actionName: "start" | "go" | "pause" | "resume",
+  actionName: "start" | "go" | "pause" | "resume" | "cancel",
   collaborationId: string,
 ) {
   return {

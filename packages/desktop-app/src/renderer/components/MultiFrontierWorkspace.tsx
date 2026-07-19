@@ -367,7 +367,7 @@ export function MultiFrontierParticipantSettings({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[min(26rem,calc(100vw-2rem))] border-border/40 p-3 shadow-xl"
+        className="w-[min(26rem,calc(100vw-2rem))] rounded-xl border-0 p-3 shadow-xl"
       >
         <div className="space-y-2">
           <p className="px-1 text-sm font-medium">Participants</p>
@@ -582,7 +582,7 @@ function UsagePopover({
       <PopoverContent
         align="start"
         sideOffset={8}
-        className="w-80 border-border/40 p-4 shadow-xl"
+        className="w-80 rounded-xl border-0 p-4 shadow-xl"
       >
         <div className="flex items-start justify-between gap-3">
           <p className="text-sm font-medium">
