@@ -50,6 +50,10 @@ import {
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
 import {
+  canAddRewindHistory,
+  rewindHistoryUnavailableReason,
+} from "@/lib/rewind-visibility";
+import {
   parseEdits,
   getExcludedRanges,
   formatMs,
@@ -640,7 +644,14 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenStitch={() => setStitchOpen(true)}
         onOpenRewind={() => setRewindOpen(true)}
         rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
-        rewindAvailable={playerData?.role === "owner"}
+        rewindAvailable={canAddRewindHistory(
+          playerData?.role,
+          recording?.visibility,
+        )}
+        rewindUnavailableReason={rewindHistoryUnavailableReason(
+          playerData?.role,
+          recording?.visibility,
+        )}
         chaptersOpen={chaptersOpen}
       />
 
@@ -793,17 +804,19 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
-      <RewindExtensionDialog
-        open={rewindOpen}
-        onOpenChange={setRewindOpen}
-        recordingId={recordingId}
-        durationMs={durationMs}
-        videoFormat={videoFormat}
-        hasAudio={Boolean(recording.hasAudio)}
-        onApplied={async () => {
-          await playerDataQuery.refetch();
-        }}
-      />
+      {canAddRewindHistory(playerData?.role, recording?.visibility) ? (
+        <RewindExtensionDialog
+          open={rewindOpen}
+          onOpenChange={setRewindOpen}
+          recordingId={recordingId}
+          durationMs={durationMs}
+          videoFormat={videoFormat}
+          hasAudio={Boolean(recording.hasAudio)}
+          onApplied={async () => {
+            await playerDataQuery.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

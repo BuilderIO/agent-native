@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -483,6 +483,34 @@ describe("Screen Memory stdio MCP tools", () => {
     ).toContain("2020-01-01T00:00:50.000Z");
     expect(contactSheetRangeIsValid(15 * 60_000, true)).toBe(true);
     expect(contactSheetRangeIsValid(15 * 60_000, false)).toBe(false);
+  });
+
+  it("rejects retained-segment paths that escape the configured store", async () => {
+    const store = await mkdtemp(join(tmpdir(), "screen-memory-frame-store-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "screen-memory-frame-outside-"),
+    );
+    const outsideMedia = join(outside, "private-segment.mp4");
+    const escapedMedia = join(store, "escaped.mp4");
+    await writeFile(outsideMedia, "not really a movie");
+    await symlink(outsideMedia, escapedMedia);
+    await writeFile(
+      join(store, "segment-escaped.json"),
+      JSON.stringify({
+        id: "segment-escaped",
+        startedAt: "2020-01-01T00:00:00.000Z",
+        endedAt: "2020-01-01T00:01:00.000Z",
+        path: escapedMedia,
+        mimeType: "video/mp4",
+        bytes: 1,
+        durationMs: 60000,
+      }),
+    );
+    expect(() =>
+      readScreenMemoryFrame(store, "2020-01-01T00:00:20.000Z", () =>
+        Buffer.from("jpeg"),
+      ),
+    ).toThrow("outside the local memory store");
   });
 
   it("keeps frame activity receipts content-free while retaining bounded provenance", async () => {

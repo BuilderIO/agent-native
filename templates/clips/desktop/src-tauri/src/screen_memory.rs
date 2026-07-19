@@ -58,6 +58,8 @@ struct ScreenMemoryRuntime {
     last_error: Option<String>,
     ocr_queue: VecDeque<ScreenMemoryOcrJob>,
     ocr_worker_running: bool,
+    ocr_active_segment: Option<String>,
+    ocr_cancelled_segments: BTreeSet<String>,
     transcript_queue: VecDeque<ScreenMemoryTranscriptJob>,
     transcript_worker_running: bool,
     transcript_active_segment: Option<String>,
@@ -710,6 +712,7 @@ pub async fn screen_memory_update_agent_handoff(
         .ok_or_else(|| "Rewind handoff is not an object.".to_string())?;
     object.insert("status".to_string(), serde_json::json!(status));
     object.insert("updatedAt".to_string(), serde_json::json!(now_iso()));
+    scrub_terminal_handoff_fields(object, &status);
     if let Some(result) = result.and_then(|value| value.as_object().cloned()) {
         for (key, value) in result {
             if matches!(
@@ -727,6 +730,18 @@ pub async fn screen_memory_update_agent_handoff(
         );
     }
     write_agent_handoff(&path, &value)
+}
+
+fn scrub_terminal_handoff_fields(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    status: &str,
+) {
+    if matches!(status, "ready" | "declined" | "failed") {
+        // The request reason is useful while the user is reviewing or the
+        // handoff is processing, but it must not become a second durable
+        // transcript once the request reaches a terminal state.
+        object.remove("reason");
+    }
 }
 
 #[tauri::command]
@@ -1605,6 +1620,9 @@ fn discard_segment_artifacts(app: &AppHandle, segment_id: &str) -> Result<(), St
         let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
         runtime.ocr_queue.retain(|job| job.segment.id != segment_id);
         runtime
+            .ocr_cancelled_segments
+            .insert(segment_id.to_string());
+        runtime
             .transcript_queue
             .retain(|job| job.segment.id != segment_id);
         runtime
@@ -2273,6 +2291,9 @@ fn enqueue_segment_ocr(
             .inner
             .lock()
             .map(|mut runtime| {
+                if runtime.ocr_cancelled_segments.contains(&segment.id) {
+                    return false;
+                }
                 runtime.ocr_queue.push_back(ScreenMemoryOcrJob {
                     segment,
                     sample_interval_seconds,
@@ -2294,29 +2315,39 @@ fn enqueue_segment_ocr(
 
 fn run_ocr_queue(app: AppHandle) {
     loop {
-        let job = match app.try_state::<ScreenMemoryState>().and_then(|state| {
-            state
-                .inner
-                .lock()
-                .ok()
-                .and_then(|mut runtime| runtime.ocr_queue.pop_front())
-        }) {
-            Some(job) => job,
-            None => {
-                if let Some(state) = app.try_state::<ScreenMemoryState>() {
-                    if let Ok(mut runtime) = state.inner.lock() {
-                        runtime.ocr_worker_running = false;
-                    }
-                }
+        let Some(state) = app.try_state::<ScreenMemoryState>() else {
+            return;
+        };
+        let job = {
+            let Ok(mut runtime) = state.inner.lock() else {
                 return;
-            }
+            };
+            let Some(job) = take_next_ocr_job(&mut runtime) else {
+                return;
+            };
+            job
         };
         let state = app.state::<ScreenMemoryState>();
         let Ok(_indexing) = state.indexing.lock() else {
             return;
         };
         let _ = run_ocr_job(&app, job);
+        if let Ok(mut runtime) = state.inner.lock() {
+            if let Some(segment_id) = runtime.ocr_active_segment.take() {
+                runtime.ocr_cancelled_segments.remove(&segment_id);
+            }
+        };
     }
+}
+
+fn take_next_ocr_job(runtime: &mut ScreenMemoryRuntime) -> Option<ScreenMemoryOcrJob> {
+    let job = runtime.ocr_queue.pop_front();
+    if let Some(job) = job.as_ref() {
+        runtime.ocr_active_segment = Some(job.segment.id.clone());
+    } else {
+        runtime.ocr_worker_running = false;
+    }
+    job
 }
 
 fn write_ocr_status(
@@ -2326,12 +2357,42 @@ fn write_ocr_status(
 ) -> Result<(), String> {
     let data = serde_json::to_vec_pretty(status)
         .map_err(|err| format!("screen memory OCR status encode failed: {err}"))?;
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    if runtime.ocr_cancelled_segments.contains(segment_id) {
+        return Ok(());
+    }
     std::fs::write(segment_ocr_status_path(app, segment_id)?, data)
         .map_err(|err| format!("screen memory OCR status write failed: {err}"))
 }
 
+fn write_ocr_rows(
+    app: &AppHandle,
+    segment_id: &str,
+    rows: &[crate::screen_memory_ocr::ScreenMemoryOcrRow],
+) -> Result<(), String> {
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    if runtime.ocr_cancelled_segments.contains(segment_id) {
+        return Ok(());
+    }
+    let rows_path = segment_ocr_rows_path(app, segment_id)?;
+    let mut file = File::create(rows_path)
+        .map_err(|err| format!("screen memory OCR rows open failed: {err}"))?;
+    for row in rows {
+        serde_json::to_writer(&mut file, row)
+            .map_err(|err| format!("screen memory OCR row encode failed: {err}"))?;
+        file.write_all(b"\n")
+            .map_err(|err| format!("screen memory OCR row write failed: {err}"))?;
+    }
+    Ok(())
+}
+
 fn run_ocr_job(app: &AppHandle, job: ScreenMemoryOcrJob) -> Result<(), String> {
     let started_at = now_iso();
+    if !job.segment.path.exists() {
+        return Ok(());
+    }
     if job.segment.exclusion_tainted {
         return write_ocr_status(
             app,
@@ -2365,15 +2426,7 @@ fn run_ocr_job(app: &AppHandle, job: ScreenMemoryOcrJob) -> Result<(), String> {
         job.sample_interval_seconds,
     ) {
         Ok(rows) => {
-            let rows_path = segment_ocr_rows_path(app, &job.segment.id)?;
-            let mut file = File::create(rows_path)
-                .map_err(|err| format!("screen memory OCR rows open failed: {err}"))?;
-            for row in &rows {
-                serde_json::to_writer(&mut file, row)
-                    .map_err(|err| format!("screen memory OCR row encode failed: {err}"))?;
-                file.write_all(b"\n")
-                    .map_err(|err| format!("screen memory OCR row write failed: {err}"))?;
-            }
+            write_ocr_rows(app, &job.segment.id, &rows)?;
             let result = write_ocr_status(
                 app,
                 &job.segment.id,
@@ -2471,28 +2524,18 @@ fn segment_transcript_eligible(segment: &ScreenMemorySegmentMetadata) -> bool {
 
 fn run_transcript_queue(app: AppHandle) {
     loop {
-        let job = match app.try_state::<ScreenMemoryState>().and_then(|state| {
-            state
-                .inner
-                .lock()
-                .ok()
-                .and_then(|mut runtime| runtime.transcript_queue.pop_front())
-        }) {
-            Some(job) => job,
-            None => {
-                if let Some(state) = app.try_state::<ScreenMemoryState>() {
-                    if let Ok(mut runtime) = state.inner.lock() {
-                        runtime.transcript_worker_running = false;
-                    }
-                }
-                return;
-            }
+        let Some(state) = app.try_state::<ScreenMemoryState>() else {
+            return;
         };
-        if let Some(state) = app.try_state::<ScreenMemoryState>() {
-            if let Ok(mut runtime) = state.inner.lock() {
-                runtime.transcript_active_segment = Some(job.segment.id.clone());
-            }
-        }
+        let job = {
+            let Ok(mut runtime) = state.inner.lock() else {
+                return;
+            };
+            let Some(job) = take_next_transcript_job(&mut runtime) else {
+                return;
+            };
+            job
+        };
         let state = app.state::<ScreenMemoryState>();
         let Ok(_indexing) = state.indexing.lock() else {
             return;
@@ -2504,6 +2547,18 @@ fn run_transcript_queue(app: AppHandle) {
             }
         };
     }
+}
+
+fn take_next_transcript_job(
+    runtime: &mut ScreenMemoryRuntime,
+) -> Option<ScreenMemoryTranscriptJob> {
+    let job = runtime.transcript_queue.pop_front();
+    if let Some(job) = job.as_ref() {
+        runtime.transcript_active_segment = Some(job.segment.id.clone());
+    } else {
+        runtime.transcript_worker_running = false;
+    }
+    job
 }
 
 fn write_transcript_status(
@@ -3017,18 +3072,26 @@ fn retain_events_with_media_coverage(
 }
 
 fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDeleteResult, String> {
-    if let Some(state) = app.try_state::<ScreenMemoryState>() {
+    let state = app.try_state::<ScreenMemoryState>();
+    if let Some(state) = state.as_ref() {
         if let Ok(mut runtime) = state.inner.lock() {
+            runtime.ocr_queue.retain(|job| job.segment.id != segment_id);
+            runtime.ocr_cancelled_segments.insert(segment_id.to_owned());
             runtime
                 .transcript_queue
                 .retain(|job| job.segment.id != segment_id);
-            if runtime.transcript_active_segment.as_deref() == Some(segment_id) {
-                runtime
-                    .transcript_cancelled_segments
-                    .insert(segment_id.to_owned());
-            }
+            runtime
+                .transcript_cancelled_segments
+                .insert(segment_id.to_owned());
         }
     }
+    // Wait for a currently-running derivative job to observe cancellation
+    // before removing the source and its sidecars. This makes Clear and
+    // retention deletion a real boundary instead of a hopeful suggestion.
+    let _indexing = state
+        .as_ref()
+        .map(|state| state.indexing.lock().map_err(|error| error.to_string()))
+        .transpose()?;
     let metadata_path = segment_metadata_path(app, segment_id)?;
     let segment = read_segment_metadata_path(&metadata_path).ok();
     let mut deleted_segments = 0_usize;
@@ -3049,6 +3112,13 @@ fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDelet
     remove_file_if_exists(&segment_ocr_status_path(app, segment_id)?)?;
     remove_transcript_sidecars(&screen_memory_dir(app)?, segment_id)?;
     refresh_rewind_chapters(app)?;
+    crate::rewind_clip::clear_preview_artifacts(app)?;
+    if let Some(state) = state.as_ref() {
+        if let Ok(mut runtime) = state.inner.lock() {
+            runtime.ocr_cancelled_segments.remove(segment_id);
+            runtime.transcript_cancelled_segments.remove(segment_id);
+        }
+    }
     Ok(ScreenMemoryDeleteResult {
         deleted_segments,
         deleted_bytes,
@@ -3056,6 +3126,36 @@ fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDelet
 }
 
 fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, String> {
+    let state = app.try_state::<ScreenMemoryState>();
+    if let Some(state) = state.as_ref() {
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        let queued_ocr: Vec<_> = runtime
+            .ocr_queue
+            .iter()
+            .map(|job| job.segment.id.clone())
+            .collect();
+        let queued_transcripts: Vec<_> = runtime
+            .transcript_queue
+            .iter()
+            .map(|job| job.segment.id.clone())
+            .collect();
+        runtime.ocr_cancelled_segments.extend(queued_ocr);
+        runtime
+            .transcript_cancelled_segments
+            .extend(queued_transcripts);
+        if let Some(segment_id) = runtime.ocr_active_segment.clone() {
+            runtime.ocr_cancelled_segments.insert(segment_id);
+        }
+        if let Some(segment_id) = runtime.transcript_active_segment.clone() {
+            runtime.transcript_cancelled_segments.insert(segment_id);
+        }
+        runtime.ocr_queue.clear();
+        runtime.transcript_queue.clear();
+    }
+    let _indexing = state
+        .as_ref()
+        .map(|state| state.indexing.lock().map_err(|error| error.to_string()))
+        .transpose()?;
     let dir = screen_memory_dir(app)?;
     let mut deleted_segments = 0_usize;
     let mut deleted_bytes = 0_u64;
@@ -3081,6 +3181,13 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         }
     }
     crate::rewind_chapters::clear(&dir)?;
+    crate::rewind_clip::clear_preview_artifacts(app)?;
+    if let Some(state) = state.as_ref() {
+        if let Ok(mut runtime) = state.inner.lock() {
+            runtime.ocr_cancelled_segments.clear();
+            runtime.transcript_cancelled_segments.clear();
+        }
+    }
     Ok(ScreenMemoryDeleteResult {
         deleted_segments,
         deleted_bytes,
@@ -3155,6 +3262,59 @@ command = "keep"
             coverage_gap_reason: None,
             accessibility: None,
         }
+    }
+
+    fn segment(id: &str) -> ScreenMemorySegmentMetadata {
+        ScreenMemorySegmentMetadata {
+            id: id.into(),
+            path: PathBuf::from(format!("{id}.mp4")),
+            file_name: format!("{id}.mp4"),
+            mime_type: "video/mp4".into(),
+            started_at: "2026-07-19T10:00:00Z".into(),
+            ended_at: "2026-07-19T10:00:01Z".into(),
+            duration_ms: 1_000,
+            width: Some(1280),
+            height: Some(720),
+            bytes: 1,
+            system_audio_path: None,
+            microphone_path: None,
+            corrupt: false,
+            error: None,
+            capture_mode: RewindCaptureMode::VisualsAudio,
+            exclusion_tainted: false,
+            graph_epoch_id: Some("test-epoch".into()),
+            graph_started_elapsed_ms: 0,
+            graph_ended_elapsed_ms: 1_000,
+        }
+    }
+
+    #[test]
+    fn derivative_dequeue_marks_the_job_active_in_the_same_runtime_mutation() {
+        let mut runtime = ScreenMemoryRuntime {
+            ocr_worker_running: true,
+            transcript_worker_running: true,
+            ..ScreenMemoryRuntime::default()
+        };
+        runtime.ocr_queue.push_back(ScreenMemoryOcrJob {
+            segment: segment("ocr"),
+            sample_interval_seconds: 10,
+        });
+        runtime
+            .transcript_queue
+            .push_back(ScreenMemoryTranscriptJob {
+                segment: segment("transcript"),
+            });
+
+        assert_eq!(take_next_ocr_job(&mut runtime).unwrap().segment.id, "ocr");
+        assert_eq!(runtime.ocr_active_segment.as_deref(), Some("ocr"));
+        assert_eq!(
+            take_next_transcript_job(&mut runtime).unwrap().segment.id,
+            "transcript"
+        );
+        assert_eq!(
+            runtime.transcript_active_segment.as_deref(),
+            Some("transcript")
+        );
     }
 
     #[test]
@@ -3543,5 +3703,20 @@ command = "keep"
         assert!(!temporary_audio_lease_available(
             true, false, true, false, false
         ));
+    }
+
+    #[test]
+    fn terminal_handoffs_do_not_retain_agent_reason_text() {
+        let mut object = serde_json::json!({
+            "status": "pending",
+            "reason": "private words from the requested interval"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        scrub_terminal_handoff_fields(&mut object, "processing");
+        assert!(object.contains_key("reason"));
+        scrub_terminal_handoff_fields(&mut object, "declined");
+        assert!(!object.contains_key("reason"));
     }
 }

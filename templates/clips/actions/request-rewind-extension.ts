@@ -4,8 +4,11 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { isPrivateClip } from "../app/lib/rewind-visibility.js";
+import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export const REWIND_EXTENSION_PREFIX = "rewind-extension-request-";
@@ -42,6 +45,15 @@ export default defineAction({
   }),
   run: async ({ recordingId, seconds }) => {
     await assertAccess("recording", recordingId, "owner");
+    const [recording] = await getDb()
+      .select({ visibility: schema.recordings.visibility })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, recordingId));
+    if (!recording || !isPrivateClip(recording.visibility)) {
+      throw new Error(
+        "Make this Clip private before adding local Rewind history.",
+      );
+    }
     const key = rewindExtensionKey(recordingId);
     const existing = (await readAppState(key)) as RewindExtensionRequest | null;
     if (existing && !["failed", "applied"].includes(existing.status)) {

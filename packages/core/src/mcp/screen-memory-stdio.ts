@@ -668,6 +668,23 @@ function retainedSegmentAt(
     );
   if (!segment.path || !fs.existsSync(segment.path))
     throw new Error("That Rewind segment is no longer retained locally.");
+  let storeRoot: string;
+  let canonicalSegmentPath: string;
+  try {
+    storeRoot = fs.realpathSync(storeDir);
+    canonicalSegmentPath = fs.realpathSync(segment.path);
+  } catch {
+    throw new Error("That Rewind segment is no longer retained locally.");
+  }
+  const relative = path.relative(storeRoot, canonicalSegmentPath);
+  if (
+    path.isAbsolute(relative) ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    !fs.statSync(canonicalSegmentPath).isFile()
+  ) {
+    throw new Error("That Rewind segment is outside the local memory store.");
+  }
   if (segment.corrupt)
     throw new Error(
       "That Rewind segment is corrupt and cannot provide a frame.",
@@ -676,7 +693,7 @@ function retainedSegmentAt(
     throw new Error(
       "That Rewind interval was excluded from capture and cannot provide a frame.",
     );
-  return segment;
+  return { ...segment, path: canonicalSegmentPath };
 }
 
 function frameContent(

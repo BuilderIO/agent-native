@@ -6,6 +6,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -86,6 +87,14 @@ export default defineAction({
       );
     if (!recording || !preRoll) {
       throw new Error("The Clip or its local Rewind pre-roll is unavailable.");
+    }
+    if (
+      !isPrivateClip(recording.visibility) ||
+      !isPrivateClip(preRoll.visibility)
+    ) {
+      throw new Error(
+        "Rewind history can only be added to a private Clip from a private pre-roll.",
+      );
     }
     const key = rewindExtensionKey(args.recordingId);
     const request = (await readAppState(key)) as RewindExtensionRequest | null;

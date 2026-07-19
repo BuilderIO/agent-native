@@ -413,6 +413,103 @@ fn validate_and_plan(
     Ok(slices)
 }
 
+fn validate_and_plan_wall_clock(
+    segments: &[ScreenMemorySegmentMetadata],
+    started: DateTime<Utc>,
+    ended: DateTime<Utc>,
+) -> Result<(Vec<NativeMediaSlice>, Vec<ScreenMemorySegmentMetadata>), String> {
+    const MAX_SEGMENT_BOUNDARY_QUANTIZATION_MS: i64 = 2;
+    let mut timed = segments
+        .iter()
+        .filter_map(|segment| {
+            let segment_started = DateTime::parse_from_rfc3339(&segment.started_at)
+                .ok()?
+                .with_timezone(&Utc);
+            let segment_ended = DateTime::parse_from_rfc3339(&segment.ended_at)
+                .ok()?
+                .with_timezone(&Utc);
+            Some((segment_started, segment_ended, segment.clone()))
+        })
+        .collect::<Vec<_>>();
+    timed.sort_by_key(|(segment_started, _, _)| *segment_started);
+
+    let mut cursor = started;
+    let mut slices = Vec::new();
+    let mut selected = Vec::new();
+    let mut previous: Option<(Option<String>, u64, DateTime<Utc>)> = None;
+    for (wall_started, wall_ended, segment) in timed {
+        let graph_duration_ms = segment
+            .graph_ended_elapsed_ms
+            .checked_sub(segment.graph_started_elapsed_ms)
+            .filter(|duration| *duration > 0);
+        let duration_ms = graph_duration_ms.unwrap_or_else(|| {
+            wall_ended
+                .signed_duration_since(wall_started)
+                .num_milliseconds()
+                .max(0) as u64
+        });
+        let normalized_started = previous
+            .as_ref()
+            .and_then(
+                |(previous_epoch, previous_graph_end, previous_normalized_end)| {
+                    let same_epoch = segment.graph_epoch_id.is_some()
+                        && segment.graph_epoch_id == *previous_epoch;
+                    let graph_skew = segment
+                        .graph_started_elapsed_ms
+                        .abs_diff(*previous_graph_end);
+                    (same_epoch && graph_skew <= 2).then_some(*previous_normalized_end)
+                },
+            )
+            .unwrap_or(wall_started);
+        let normalized_ended = normalized_started
+            + chrono::Duration::milliseconds(i64::try_from(duration_ms).unwrap_or(i64::MAX));
+        previous = Some((
+            segment.graph_epoch_id.clone(),
+            segment.graph_ended_elapsed_ms,
+            normalized_ended,
+        ));
+
+        let overlap_start = started.max(normalized_started).max(cursor);
+        let overlap_end = ended.min(normalized_ended);
+        if overlap_start >= overlap_end {
+            continue;
+        }
+        if segment.corrupt || segment.error.is_some() || segment.exclusion_tainted {
+            return Err("selected Rewind media is corrupt, tainted, or incomplete".into());
+        }
+        if overlap_start
+            .signed_duration_since(cursor)
+            .num_milliseconds()
+            > MAX_SEGMENT_BOUNDARY_QUANTIZATION_MS
+        {
+            return Err("selected Rewind interval contains a coverage gap".into());
+        }
+        let start_ms = overlap_start
+            .signed_duration_since(normalized_started)
+            .num_milliseconds()
+            .max(0) as u64;
+        let end_ms = overlap_end
+            .signed_duration_since(normalized_started)
+            .num_milliseconds()
+            .max(0) as u64;
+        slices.push(NativeMediaSlice {
+            path: segment.path.clone(),
+            system_audio_path: segment.system_audio_path.clone(),
+            microphone_path: segment.microphone_path.clone(),
+            start_ms,
+            end_ms,
+        });
+        selected.push(segment);
+        cursor = cursor.max(overlap_end);
+    }
+    if ended.signed_duration_since(cursor).num_milliseconds() > MAX_SEGMENT_BOUNDARY_QUANTIZATION_MS
+        || slices.is_empty()
+    {
+        return Err("selected Rewind interval is not fully covered".into());
+    }
+    Ok((slices, selected))
+}
+
 fn select_audio(
     sources: &[CaptureSource],
     include_mic: bool,
@@ -483,41 +580,82 @@ fn materialize_wall_clock_exact(
     {
         return Err("Rewind handoff must be between one millisecond and five minutes.".into());
     }
-    let fenced = screen_memory::fence_active_for_clip(app)?;
-    let graph_started_at = {
-        let graph = app.state::<CaptureGraphState>();
-        let graph = graph.0.lock().map_err(|error| error.to_string())?;
-        let status = graph
-            .status_at(std::time::Instant::now())
-            .map_err(|error| error.to_string())?;
-        DateTime::parse_from_rfc3339(&status.graph_started_at)
-            .map_err(|_| "Rewind graph clock is unavailable.".to_string())?
-            .with_timezone(&Utc)
+    let materialize = || {
+        materialize_retained_wall_clock_exact(
+            app,
+            started,
+            ended,
+            output.clone(),
+            include_mic,
+            include_system_audio,
+        )
     };
-    let start_ms = started
-        .signed_duration_since(graph_started_at)
-        .num_milliseconds();
-    let end_ms = ended
-        .signed_duration_since(graph_started_at)
-        .num_milliseconds();
-    if start_ms < 0 || end_ms < 0 {
-        return Err("The requested Rewind range predates this Clips session.".into());
+    match materialize() {
+        Ok(artifact) => Ok(artifact),
+        Err(initial_error) => {
+            // A request ending near “now” may overlap the still-open segment.
+            // Fence once and retry. Older retained ranges never depend on the
+            // current capture graph, so they survive app restarts and pauses.
+            if Utc::now().signed_duration_since(ended).num_minutes() <= 6
+                && screen_memory::fence_active_for_clip(app).is_ok()
+            {
+                materialize()
+            } else {
+                Err(initial_error)
+            }
+        }
     }
-    let start_ms = u64::try_from(start_ms).map_err(|error| error.to_string())?;
-    let end_ms = u64::try_from(end_ms).map_err(|error| error.to_string())?;
-    if end_ms > fenced.graph_ended_elapsed_ms.saturating_add(1_000) {
-        return Err("The requested Rewind range has not finished recording.".into());
+}
+
+fn materialize_retained_wall_clock_exact(
+    app: &AppHandle,
+    started: DateTime<Utc>,
+    ended: DateTime<Utc>,
+    output: PathBuf,
+    include_mic: bool,
+    include_system_audio: bool,
+) -> Result<FinalizedNativeArtifact, String> {
+    let segments = screen_memory::finalized_segments(app)?;
+    let (slices, selected) = validate_and_plan_wall_clock(&segments, started, ended)?;
+    let pin_id = format!("rewind-wall-clock-{}", Utc::now().timestamp_micros());
+    let mut pinned_segments = Vec::new();
+    let outcome = (|| {
+        for segment in &selected {
+            screen_memory::pin_segment(app, &segment.id, &pin_id)?;
+            pinned_segments.push(segment.id.clone());
+        }
+        let audio_available = selected
+            .iter()
+            .all(|segment| segment.capture_mode == crate::config::RewindCaptureMode::VisualsAudio);
+        if (include_mic || include_system_audio) && !audio_available {
+            return Err("The selected Rewind range does not contain the requested audio.".into());
+        }
+        let audio_selection = match (include_mic, include_system_audio) {
+            (false, false) => NativeAudioSelection::None,
+            (true, false) => NativeAudioSelection::Microphone,
+            (false, true) => NativeAudioSelection::System,
+            (true, true) => NativeAudioSelection::MixBoth,
+        };
+        native_screen::materialize_mp4_slices_exact(&slices, &output, audio_selection)?;
+        let first = selected
+            .first()
+            .ok_or_else(|| "no Rewind media selected".to_string())?;
+        Ok(FinalizedNativeArtifact::rewind_mp4(
+            output,
+            ended
+                .signed_duration_since(started)
+                .num_milliseconds()
+                .max(0) as u128,
+            first.width,
+            first.height,
+            include_mic,
+            include_system_audio,
+        ))
+    })();
+    for segment_id in pinned_segments {
+        let _ = screen_memory::unpin_segment(app, &segment_id, &pin_id);
     }
-    materialize_graph_interval_exact(
-        app,
-        start_ms,
-        end_ms.min(fenced.graph_ended_elapsed_ms),
-        started.to_rfc3339(),
-        ended.to_rfc3339(),
-        output,
-        "agent-requested Rewind handoff",
-        Some((include_mic, include_system_audio)),
-    )
+    outcome
 }
 
 fn materialize_graph_interval_exact(
@@ -681,6 +819,7 @@ pub(crate) async fn rewind_agent_handoff_preview(
         .app_local_data_dir()
         .map_err(|error| format!("local preview directory unavailable: {error}"))?
         .join("rewind-previews");
+    cleanup_expired_preview_artifacts(&output_dir, std::time::Duration::from_secs(15 * 60))?;
     std::fs::create_dir_all(&output_dir)
         .map_err(|error| format!("local preview directory unavailable: {error}"))?;
     let output = output_dir.join(format!("{safe_request_id}-preview.mp4"));
@@ -707,7 +846,50 @@ pub(crate) async fn rewind_agent_handoff_preview(
         .spawn()
         .map_err(|error| format!("could not open Rewind handoff preview: {error}"))?;
 
+    let expiring_output = output.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(15 * 60));
+        let _ = std::fs::remove_file(expiring_output);
+    });
+
     Ok(output.to_string_lossy().to_string())
+}
+
+fn cleanup_expired_preview_artifacts(
+    directory: &std::path::Path,
+    max_age: std::time::Duration,
+) -> Result<(), String> {
+    let now = std::time::SystemTime::now();
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let expired = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= max_age);
+        if path.is_file() && expired {
+            std::fs::remove_file(&path)
+                .map_err(|error| format!("could not remove expired preview: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn clear_preview_artifacts(app: &AppHandle) -> Result<(), String> {
+    let directory = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("local preview directory unavailable: {error}"))?
+        .join("rewind-previews");
+    match std::fs::remove_dir_all(&directory) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("could not clear local Rewind previews: {error}")),
+    }
 }
 
 fn materialize(
@@ -962,6 +1144,19 @@ mod tests {
         }
     }
 
+    fn wall_segment(
+        id: &str,
+        started_at: &str,
+        ended_at: &str,
+        epoch: &str,
+    ) -> ScreenMemorySegmentMetadata {
+        let mut value = segment(id, 0, 100);
+        value.started_at = started_at.into();
+        value.ended_at = ended_at.into();
+        value.graph_epoch_id = Some(epoch.into());
+        value
+    }
+
     #[test]
     fn slice_math_has_no_pre_roll_and_exact_overlap() {
         let slices =
@@ -1043,5 +1238,104 @@ mod tests {
         assert_eq!(slices.len(), 2);
         assert_eq!(slices[0].path, PathBuf::from("before.mp4"));
         assert_eq!(slices[1].path, PathBuf::from("after.mp4"));
+    }
+
+    #[test]
+    fn wall_clock_planning_crosses_capture_graph_epochs() {
+        let started = DateTime::parse_from_rfc3339("2026-07-19T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ended = DateTime::parse_from_rfc3339("2026-07-19T10:00:00.200Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let segments = [
+            wall_segment(
+                "before-restart",
+                "2026-07-19T10:00:00Z",
+                "2026-07-19T10:00:00.100Z",
+                "epoch-before-restart",
+            ),
+            wall_segment(
+                "after-restart",
+                "2026-07-19T10:00:00.100Z",
+                "2026-07-19T10:00:00.200Z",
+                "epoch-after-restart",
+            ),
+        ];
+        let (slices, selected) = validate_and_plan_wall_clock(&segments, started, ended).unwrap();
+        assert_eq!(slices.len(), 2);
+        assert_eq!(selected[0].id, "before-restart");
+        assert_eq!(selected[1].id, "after-restart");
+    }
+
+    #[test]
+    fn wall_clock_planning_uses_graph_continuity_across_rotation_skew() {
+        let started = DateTime::parse_from_rfc3339("2026-07-19T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ended = DateTime::parse_from_rfc3339("2026-07-19T10:00:00.200Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let first = wall_segment(
+            "before-rotation",
+            "2026-07-19T10:00:00Z",
+            "2026-07-19T10:00:00.100Z",
+            "same-epoch",
+        );
+        let mut second = wall_segment(
+            "after-rotation",
+            "2026-07-19T10:00:00.150Z",
+            "2026-07-19T10:00:00.250Z",
+            "same-epoch",
+        );
+        second.graph_started_elapsed_ms = 100;
+        second.graph_ended_elapsed_ms = 200;
+        let (slices, selected) =
+            validate_and_plan_wall_clock(&[first, second], started, ended).unwrap();
+        assert_eq!(slices.len(), 2);
+        assert_eq!(selected[1].id, "after-rotation");
+        assert_eq!(slices[1].start_ms, 0);
+        assert_eq!(slices[1].end_ms, 100);
+    }
+
+    #[test]
+    fn wall_clock_planning_rejects_real_gaps() {
+        let started = DateTime::parse_from_rfc3339("2026-07-19T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ended = DateTime::parse_from_rfc3339("2026-07-19T10:00:00.200Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut first = wall_segment(
+            "a",
+            "2026-07-19T10:00:00Z",
+            "2026-07-19T10:00:00.090Z",
+            "one",
+        );
+        first.graph_ended_elapsed_ms = 90;
+        let segments = [
+            first,
+            wall_segment(
+                "b",
+                "2026-07-19T10:00:00.100Z",
+                "2026-07-19T10:00:00.200Z",
+                "two",
+            ),
+        ];
+        assert!(validate_and_plan_wall_clock(&segments, started, ended).is_err());
+    }
+
+    #[test]
+    fn expired_preview_cleanup_removes_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "clips-rewind-preview-test-{}",
+            Utc::now().timestamp_micros()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let preview = directory.join("preview.mp4");
+        std::fs::write(&preview, b"preview").unwrap();
+        cleanup_expired_preview_artifacts(&directory, std::time::Duration::ZERO).unwrap();
+        assert!(!preview.exists());
+        let _ = std::fs::remove_dir_all(directory);
     }
 }

@@ -88,6 +88,7 @@ export interface EditorToolbarProps {
   onOpenRewind: () => void;
   rewindAlreadyAdded?: boolean;
   rewindAvailable?: boolean;
+  rewindUnavailableReason?: string;
   chaptersOpen?: boolean;
 }
 
@@ -110,6 +111,7 @@ export function EditorToolbar({
   onOpenRewind,
   rewindAlreadyAdded,
   rewindAvailable = true,
+  rewindUnavailableReason,
   chaptersOpen,
 }: EditorToolbarProps) {
   const t = useT();
@@ -495,7 +497,8 @@ export function EditorToolbar({
           >
             <IconHistory className="mr-2 h-4 w-4" />
             {!rewindAvailable
-              ? "Only the owner can add Rewind history"
+              ? (rewindUnavailableReason ??
+                "Only the owner can add Rewind history")
               : rewindAlreadyAdded
                 ? "Rewind history added"
                 : "Add what happened before…"}
