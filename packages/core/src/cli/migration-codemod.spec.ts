@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { MigrationManifest } from "../package-lifecycle/migration-manifest.js";
 import {
+  createMigrationPlanningTargetResolver,
   formatMigrationCodemodDiff,
   runMigrationCodemods,
 } from "./migration-codemod.js";
@@ -200,6 +201,134 @@ describe("runMigrationCodemods", () => {
       expect.arrayContaining([
         expect.stringContaining("not exported by an installed package"),
       ]),
+    );
+  });
+
+  it("plans a moved import and dependency when the target package is missing", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      'import { Editor } from "@agent-native/core/client/editor";\nvoid Editor;\n',
+    );
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client/editor": {
+              to: "@agent-native/toolkit/editor",
+            },
+          },
+        },
+      ],
+      targetExists: createMigrationPlanningTargetResolver(root),
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.changes.map((change) => change.file)).toEqual([
+      source,
+      packageFile,
+    ]);
+    expect(result.changes[0]?.after).toContain(
+      'from "@agent-native/toolkit/editor"',
+    );
+    expect(result.changes[1]?.after).toContain(
+      '"@agent-native/toolkit": "latest"',
+    );
+  });
+
+  it("skips a missing subpath when the target package is installed", () => {
+    const { root, source } = fixture();
+    fs.writeFileSync(
+      source,
+      'import { Editor } from "@agent-native/core/client/editor";\nvoid Editor;\n',
+    );
+    const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkitDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkitDir, "package.json"),
+      `${JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: { ".": "./index.js" },
+      })}\n`,
+    );
+    fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client/editor": {
+              to: "@agent-native/toolkit/editor",
+            },
+          },
+        },
+      ],
+      targetExists: createMigrationPlanningTargetResolver(root),
+    });
+
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("not exported by an installed package"),
+    ]);
+  });
+
+  it("resolves migration targets from the owning workspace package", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-codemod-workspace-"),
+    );
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      `${JSON.stringify({ private: true, workspaces: ["apps/*"] })}\n`,
+    );
+    const appRoot = path.join(root, "apps/chat");
+    const source = path.join(appRoot, "src/index.tsx");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      `${JSON.stringify({
+        name: "chat",
+        dependencies: { "@agent-native/core": "0.110.2" },
+      })}\n`,
+    );
+    fs.writeFileSync(
+      source,
+      'import { Editor } from "@agent-native/core/client/editor";\nvoid Editor;\n',
+    );
+    const toolkitDir = path.join(appRoot, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkitDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkitDir, "package.json"),
+      `${JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: { "./editor": "./editor.js" },
+      })}\n`,
+    );
+    fs.writeFileSync(path.join(toolkitDir, "editor.js"), "export {};\n");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client/editor": {
+              to: "@agent-native/toolkit/editor",
+            },
+          },
+        },
+      ],
+      apply: true,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/editor"',
     );
   });
 });

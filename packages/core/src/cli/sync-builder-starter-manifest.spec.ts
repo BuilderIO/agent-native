@@ -13,6 +13,9 @@ import {
   generateStandaloneChatManifest,
   listStarterSyncPaths,
   mergeStarterManifest,
+  migrateStarterSources,
+  resolveStarterCoreVersion,
+  STARTER_SOURCE_MIGRATION_PATHS,
   STARTER_TOOLCHAIN_SYNC_PATHS,
   syncStarterManifestFiles,
   workspaceFileSyncChanged,
@@ -101,6 +104,12 @@ describe("sync-builder-starter-manifest", () => {
 
   it("includes pnpm-lock.yaml in starter CI staging paths", () => {
     expect(listStarterSyncPaths()).toContain("pnpm-lock.yaml");
+  });
+
+  it("includes source pathspecs for manifest-driven migrations", () => {
+    expect(listStarterSyncPaths()).toEqual(
+      expect.arrayContaining([...STARTER_SOURCE_MIGRATION_PATHS]),
+    );
   });
 
   it(
@@ -220,6 +229,109 @@ describe("sync-builder-starter-manifest", () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+
+    it(
+      "applies active import migrations to starter-owned source",
+      () => {
+        tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "an-starter-sync-spec-"),
+        );
+        const { packageJson, pnpmWorkspaceYaml } =
+          generateStandaloneChatManifest(repoRoot);
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          `${JSON.stringify(packageJson, null, 2)}\n`,
+        );
+        if (pnpmWorkspaceYaml) {
+          fs.writeFileSync(
+            path.join(tempDir, "pnpm-workspace.yaml"),
+            pnpmWorkspaceYaml,
+          );
+        }
+        const routePath = path.join(tempDir, "app/routes/_index.tsx");
+        fs.mkdirSync(path.dirname(routePath), { recursive: true });
+        fs.writeFileSync(
+          routePath,
+          [
+            'import { PromptComposer, openAgentSidebar, sendToAgentChat } from "@agent-native/core/client";',
+            "void PromptComposer;",
+            "void openAgentSidebar;",
+            "void sendToAgentChat;",
+            "",
+          ].join("\n"),
+        );
+
+        const result = syncStarterManifestFiles({
+          starterDir: tempDir,
+          repoRoot,
+          write: true,
+        });
+        const migrated = fs.readFileSync(routePath, "utf-8");
+
+        expect(result.changedSourceMigrationPaths).toContain(
+          "app/routes/_index.tsx",
+        );
+        expect(result.sourceMigrationWarnings).toEqual([]);
+        expect(migrated).toContain(
+          'from "@agent-native/core/client/agent-chat"',
+        );
+        expect(migrated).toContain('from "@agent-native/core/client/composer"');
+        expect(migrated).toContain(
+          'from "@agent-native/core/client/navigation"',
+        );
+        expect(migrated).not.toContain('from "@agent-native/core/client"');
+
+        expect(
+          migrateStarterSources({
+            starterDir: tempDir,
+            repoRoot,
+            coreVersion: resolveStarterCoreVersion(packageJson, repoRoot),
+            write: true,
+          }).changedPaths,
+        ).toEqual([]);
+      },
+      STARTER_MANIFEST_TIMEOUT_MS,
+    );
+
+    it(
+      "leaves source untouched when the starter predates the migration manifest",
+      () => {
+        tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "an-starter-sync-spec-"),
+        );
+        const { packageJson, pnpmWorkspaceYaml } =
+          generateStandaloneChatManifest(repoRoot);
+        const oldPackageJson = structuredClone(packageJson) as {
+          dependencies: Record<string, string>;
+        };
+        oldPackageJson.dependencies["@agent-native/core"] = "0.109.9";
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          `${JSON.stringify(oldPackageJson, null, 2)}\n`,
+        );
+        if (pnpmWorkspaceYaml) {
+          fs.writeFileSync(
+            path.join(tempDir, "pnpm-workspace.yaml"),
+            pnpmWorkspaceYaml,
+          );
+        }
+        const routePath = path.join(tempDir, "app/routes/_index.tsx");
+        fs.mkdirSync(path.dirname(routePath), { recursive: true });
+        const original =
+          'import { PromptComposer } from "@agent-native/core/client";\n';
+        fs.writeFileSync(routePath, original);
+
+        const result = syncStarterManifestFiles({
+          starterDir: tempDir,
+          repoRoot,
+          write: true,
+        });
+
+        expect(result.changedSourceMigrationPaths).toEqual([]);
+        expect(fs.readFileSync(routePath, "utf-8")).toBe(original);
+      },
+      STARTER_MANIFEST_TIMEOUT_MS,
+    );
 
     it(
       "reports no changes when starter already matches the canonical manifest",
