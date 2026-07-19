@@ -64,14 +64,62 @@ export async function computeCaptureAudienceId(input: {
   return `aud_${identityHash.slice(0, 24)}`;
 }
 
-export async function ensureCaptureAudience(input: {
+type BrainDb = ReturnType<typeof getDb>;
+
+interface CaptureAudienceInput {
   captureId: string;
   source: typeof schema.brainSources.$inferSelect;
   kind?: BrainAudienceAssignment["kind"];
   memberEmails?: string[];
   upstreamRefHash?: string | null;
-}): Promise<BrainAudienceAssignment> {
+}
+
+interface DeferredAudienceInvalidation {
+  captureId: string;
+  sourceId: string;
+  previousAclHash: string;
+  aclHash: string;
+}
+
+async function flushAudienceInvalidations(
+  invalidations: DeferredAudienceInvalidation[],
+) {
+  if (!invalidations.length) return;
+  const [{ enqueueCaptureInvalidation }, { invalidateDerivedForCapture }] =
+    await Promise.all([import("./ingest-queue.js"), import("./brain.js")]);
+  for (const invalidation of invalidations) {
+    await invalidateDerivedForCapture(invalidation.captureId);
+    await enqueueCaptureInvalidation({
+      captureId: invalidation.captureId,
+      sourceId: invalidation.sourceId,
+      reason: "access-changed",
+      previous: { aclHash: invalidation.previousAclHash },
+      next: { aclHash: invalidation.aclHash },
+    });
+  }
+}
+
+export async function ensureCaptureAudience(
+  input: CaptureAudienceInput,
+): Promise<BrainAudienceAssignment> {
   const db = getDb();
+  const invalidations: DeferredAudienceInvalidation[] = [];
+  const assignment = await db.transaction((tx) =>
+    ensureCaptureAudienceMutation(
+      input,
+      tx as unknown as BrainDb,
+      invalidations,
+    ),
+  );
+  await flushAudienceInvalidations(invalidations);
+  return assignment;
+}
+
+async function ensureCaptureAudienceMutation(
+  input: CaptureAudienceInput,
+  db: BrainDb,
+  invalidations: DeferredAudienceInvalidation[],
+): Promise<BrainAudienceAssignment> {
   const now = nowIso();
   const kind =
     input.kind ??
@@ -128,26 +176,34 @@ export async function ensureCaptureAudience(input: {
 
   if (kind === "org" && input.source.orgId) {
     members.splice(0, members.length);
-    await upsertAudienceMember({
-      audienceId,
-      principalType: "org",
-      principalId: input.source.orgId,
-      syncedAt: now,
-    });
+    await upsertAudienceMember(
+      {
+        audienceId,
+        principalType: "org",
+        principalId: input.source.orgId,
+        syncedAt: now,
+      },
+      db,
+    );
   } else if (kind === "org") {
-    await upsertAudienceMember({
-      audienceId,
-      principalType: "user",
-      principalId: normalizeEmail(input.source.ownerEmail),
-      syncedAt: now,
-    });
+    await upsertAudienceMember(
+      {
+        audienceId,
+        principalType: "user",
+        principalId: normalizeEmail(input.source.ownerEmail),
+        syncedAt: now,
+      },
+      db,
+    );
   } else if (
     audienceMembershipNeedsReplace(previousAudience?.aclHash, aclHash)
   ) {
-    await replaceAudienceUserMembers(
+    await replaceAudienceUserMembersMutation(
       audienceId,
       members.map((email) => ({ email })),
       { previousAclHash: previousAudience?.aclHash },
+      db,
+      invalidations,
     );
   }
 
@@ -174,15 +230,18 @@ export async function ensureCaptureAudience(input: {
   return { audienceId, aclHash, kind };
 }
 
-export async function upsertAudienceMember(input: {
-  audienceId: string;
-  principalType: "user" | "org";
-  principalId: string;
-  upstreamPrincipalHash?: string | null;
-  syncedAt: string;
-}) {
+export async function upsertAudienceMember(
+  input: {
+    audienceId: string;
+    principalType: "user" | "org";
+    principalId: string;
+    upstreamPrincipalHash?: string | null;
+    syncedAt: string;
+  },
+  db = getDb(),
+) {
   const now = nowIso();
-  await getDb()
+  await db
     .insert(schema.brainAudienceMembers)
     .values({
       id: nanoid(),
@@ -412,6 +471,27 @@ export async function replaceAudienceUserMembers(
   options: { previousAclHash?: string } = {},
 ) {
   const db = getDb();
+  const invalidations: DeferredAudienceInvalidation[] = [];
+  const result = await db.transaction((tx) =>
+    replaceAudienceUserMembersMutation(
+      audienceId,
+      members,
+      options,
+      tx as unknown as BrainDb,
+      invalidations,
+    ),
+  );
+  await flushAudienceInvalidations(invalidations);
+  return result;
+}
+
+async function replaceAudienceUserMembersMutation(
+  audienceId: string,
+  members: Array<{ email: string; upstreamPrincipalHash?: string }>,
+  options: { previousAclHash?: string },
+  db: BrainDb,
+  invalidations: DeferredAudienceInvalidation[],
+) {
   const now = nowIso();
   const emails = Array.from(
     new Set(members.map((member) => normalizeEmail(member.email))),
@@ -439,13 +519,16 @@ export async function replaceAudienceUserMembers(
     const member = members.find(
       (candidate) => normalizeEmail(candidate.email) === email,
     );
-    await upsertAudienceMember({
-      audienceId,
-      principalType: "user",
-      principalId: email,
-      upstreamPrincipalHash: member?.upstreamPrincipalHash,
-      syncedAt: now,
-    });
+    await upsertAudienceMember(
+      {
+        audienceId,
+        principalType: "user",
+        principalId: email,
+        upstreamPrincipalHash: member?.upstreamPrincipalHash,
+        syncedAt: now,
+      },
+      db,
+    );
   }
   const aclHash = await computeAudienceAclHash(
     audience.kind as BrainAudienceAssignment["kind"],
@@ -476,16 +559,12 @@ export async function replaceAudienceUserMembers(
         .update(schema.brainRawCaptures)
         .set({ audienceAclHash: aclHash, updatedAt: now })
         .where(inArray(schema.brainRawCaptures.id, captureIds));
-      const [{ enqueueCaptureInvalidation }, { invalidateDerivedForCapture }] =
-        await Promise.all([import("./ingest-queue.js"), import("./brain.js")]);
       for (const captureId of captureIds) {
-        await invalidateDerivedForCapture(captureId);
-        await enqueueCaptureInvalidation({
+        invalidations.push({
           captureId,
           sourceId: audience.sourceId,
-          reason: "access-changed",
-          previous: { aclHash: previousAclHash },
-          next: { aclHash },
+          previousAclHash,
+          aclHash,
         });
       }
     }

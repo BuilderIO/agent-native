@@ -9,6 +9,7 @@ type Condition =
   | { op: "isNull"; col: Column }
   | { op: "lte"; col: Column; val: unknown }
   | { op: "like"; col: Column; val: unknown }
+  | { op: "noUpstreamDeletion" }
   | { op: "captureSourceAccessible" }
   | { op: "access" };
 
@@ -203,6 +204,9 @@ const mocks = vi.hoisted(() => {
     beforeThrow: null as ((tableRef: Row, row: Row) => void) | null,
   };
   const queueClaimRowsAffected = { value: null as number | null };
+  const audienceHook = {
+    value: null as null | ((captureId: string) => Promise<void>),
+  };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
       if (sql.includes("WHERE id = ? AND capture_id = ?")) {
@@ -285,6 +289,13 @@ const mocks = vi.hoisted(() => {
   const matches = (row: Row, condition?: Condition): boolean => {
     if (!condition) return true;
     if (condition.op === "access") return true;
+    if (condition.op === "noUpstreamDeletion") {
+      return !rows.sensitivityEvents.some(
+        (event) =>
+          event.policyVersion === "upstream-deleted-v1" &&
+          event.disposition === "suppressed",
+      );
+    }
     if (condition.op === "captureSourceAccessible") {
       return rows.sources.some((source) => source.id === row.sourceId);
     }
@@ -463,13 +474,26 @@ const mocks = vi.hoisted(() => {
       return { rowsAffected };
     }),
   }));
+  const dbBase = {
+    select,
+    selectDistinct: select,
+    insert,
+    update,
+    delete: deleteRows,
+  };
+  const db = {
+    ...dbBase,
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback(dbBase),
+  };
 
   return {
     schema,
-    db: { select, selectDistinct: select, insert, update, delete: deleteRows },
+    db,
     rows,
     insertControls,
     queueClaimRowsAffected,
+    audienceHook,
     dbExec,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
@@ -532,6 +556,7 @@ vi.mock("drizzle-orm", () => ({
   like: (col: Column, val: unknown) => ({ op: "like", col, val }),
   lte: (col: Column, val: unknown) => ({ op: "lte", col, val }),
   ne: (col: Column, val: unknown) => ({ op: "ne", col, val }),
+  notExists: () => ({ op: "noUpstreamDeletion" }),
   or: (...conditions: Condition[]) => ({ op: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("${}");
@@ -590,6 +615,7 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("./audiences.js", () => ({
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
+    await mocks.audienceHook.value?.(captureId);
     if (
       !mocks.rows.captureAudiences.some((row) => row.captureId === captureId)
     ) {
@@ -691,6 +717,7 @@ import {
   buildBrainAgentGuidance,
   createCapture,
   previewKnowledgeCanonicalResource,
+  retireUpstreamDeletedCapture,
   safeCitationUrl,
   serializeSource,
   setKnowledgeCanonicalResource,
@@ -724,6 +751,7 @@ function resetMocks() {
   mocks.insertControls.error = null;
   mocks.insertControls.beforeThrow = null;
   mocks.queueClaimRowsAffected.value = null;
+  mocks.audienceHook.value = null;
   mocks.userEmail = "owner@example.test";
   mocks.orgId = "org-1";
   mocks.settings = {
@@ -1144,6 +1172,161 @@ describe("Brain knowledge quality gates", () => {
       expect.objectContaining({
         reason: "content-changed",
         next: expect.any(Object),
+      }),
+    );
+  });
+
+  it("prevents an in-flight refresh from recreating an upstream-deleted capture", async () => {
+    seedSource({ provider: "slack" });
+    const externalId = "slack:C123:1770919200.000100";
+
+    await expect(
+      retireUpstreamDeletedCapture({
+        sourceId: "source-1",
+        externalId,
+        provider: "slack",
+      }),
+    ).resolves.toBe(false);
+
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId,
+        title: "Deleted thread",
+        kind: "message",
+        content: "Decision: ship the API launch.",
+      }),
+    ).rejects.toBeInstanceOf(BrainCaptureBlockedError);
+    expect(mocks.rows.captures).toHaveLength(0);
+    expect(mocks.rows.sensitivityEvents[0]).toMatchObject({
+      sourceId: "source-1",
+      disposition: "suppressed",
+      policyVersion: "upstream-deleted-v1",
+    });
+  });
+
+  it("keeps a capture pending when deletion lands during persistence", async () => {
+    seedSource({ provider: "slack" });
+    const externalId = "slack:C123:1770919200.000100";
+    mocks.audienceHook.value = async () => {
+      mocks.audienceHook.value = null;
+      await retireUpstreamDeletedCapture({
+        sourceId: "source-1",
+        externalId,
+        provider: "slack",
+      });
+    };
+
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId,
+        title: "Deleted thread",
+        kind: "message",
+        content: "Decision: ship the API launch.",
+      }),
+    ).rejects.toBeInstanceOf(BrainCaptureBlockedError);
+
+    expect(mocks.rows.captures[0]).toMatchObject({
+      content: "",
+      status: "ignored",
+      sensitivityDisposition: "pending",
+      audienceAclHash: null,
+    });
+    expect(mocks.rows.captureAudiences).toHaveLength(0);
+  });
+
+  it("keeps an existing allowed capture intact when audience refresh fails", async () => {
+    seedSource({ provider: "slack" });
+    const externalId = "slack:C123:1770919200.000100";
+    const original = seedCapture({ externalId });
+    mocks.audienceHook.value = async () => {
+      throw new Error("Slack membership refresh failed");
+    };
+
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId,
+        title: "Updated thread",
+        kind: "message",
+        content: "Decision: delay the API launch.",
+      }),
+    ).rejects.toThrow("Slack membership refresh failed");
+
+    expect(mocks.rows.captures[0]).toMatchObject({
+      title: original.title,
+      content: original.content,
+      contentHash: original.contentHash,
+      sensitivityDisposition: "allowed",
+      audienceAclHash: "acl-hash",
+    });
+  });
+
+  it("scrubs and unindexes an existing upstream-deleted capture", async () => {
+    seedSource({ provider: "slack" });
+    const externalId = "slack:C123:1770919200.000100";
+    seedCapture({ externalId });
+    const enqueue = vi.mocked(enqueueCaptureInvalidation);
+
+    await expect(
+      retireUpstreamDeletedCapture({
+        sourceId: "source-1",
+        externalId,
+        provider: "slack",
+      }),
+    ).resolves.toBe(true);
+
+    expect(mocks.rows.captures[0]).toMatchObject({
+      title: "Deleted upstream capture",
+      content: "",
+      metadataJson: "{}",
+      status: "ignored",
+      sensitivityDisposition: "pending",
+      audienceAclHash: null,
+    });
+    expect(mocks.rows.captureAudiences).toHaveLength(0);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        captureId: "capture-1",
+        sourceId: "source-1",
+        reason: "upstream-deleted",
+      }),
+    );
+  });
+
+  it.each([
+    {
+      label: "title",
+      update: { title: "Updated planning note" },
+    },
+    {
+      label: "capturedAt",
+      update: { capturedAt: "2026-05-21T15:00:00.000Z" },
+    },
+  ])("requeues when indexed capture $label changes", async ({ update }) => {
+    seedSource();
+    const enqueue = vi.mocked(enqueueCaptureInvalidation);
+    const input = {
+      sourceId: "source-1",
+      externalId: "capture-ext-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+      capturedAt: "2026-05-20T15:00:00.000Z",
+    } as const;
+    await createCapture(input);
+    enqueue.mockClear();
+
+    await createCapture({ ...input, ...update });
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "content-changed",
+        next: expect.objectContaining({
+          contentHash: await sha256Hex(input.content),
+        }),
       }),
     );
   });
@@ -2479,7 +2662,8 @@ describe("Brain connector smoke coverage", () => {
     ).toEqual(segments.map((segment) => segment.text));
   });
 
-  it("maps explicitly configured private Slack channels to member-scoped audiences", async () => {
+  it("paginates private Slack membership before deriving the member-scoped audience", async () => {
+    const membershipCursors: Array<string | null> = [];
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/conversations.info")) {
@@ -2519,7 +2703,15 @@ describe("Brain connector smoke coverage", () => {
         });
       }
       if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: ["U123", "U456"] });
+        const cursor = url.searchParams.get("cursor");
+        membershipCursors.push(cursor);
+        return cursor === "members-page-2"
+          ? Response.json({ ok: true, members: ["U789"] })
+          : Response.json({
+              ok: true,
+              members: ["U123", "U456"],
+              response_metadata: { next_cursor: "members-page-2" },
+            });
       }
       if (url.pathname.endsWith("/users.info")) {
         const user = url.searchParams.get("user");
@@ -2528,7 +2720,11 @@ describe("Brain connector smoke coverage", () => {
           user: {
             profile: {
               email:
-                user === "U123" ? "ada@example.test" : "grace@example.test",
+                user === "U123"
+                  ? "ada@example.test"
+                  : user === "U456"
+                    ? "grace@example.test"
+                    : "lin@example.test",
             },
           },
         });
@@ -2552,11 +2748,12 @@ describe("Brain connector smoke coverage", () => {
     const result = await runConnectorSync(source as never);
 
     expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(membershipCursors).toEqual([null, "members-page-2"]);
     expect(
       fetchSpy.mock.calls.filter((call) =>
         String(call[0]).includes("users.info"),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(JSON.stringify(result.captures[0]?.metadata)).not.toContain(
       "ada@example.test",
     );

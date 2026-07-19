@@ -137,6 +137,28 @@ describe("capture sanitization", () => {
     expect(result.content).toBe("Decision: ship the API launch.");
   });
 
+  it.each([
+    ["recruiting", "Candidate interview notes"],
+    ["compensation", "Salary adjustment discussion"],
+    ["privileged-legal", "Attorney-client privileged launch advice"],
+  ])(
+    "blocks a %s-sensitive title even when the body is clean",
+    async (category, title) => {
+      const result = await sanitizeCaptureForStorage({
+        ...baseInput,
+        kind: "note",
+        title,
+        sourceConfig: { sanitizeBeforeStorage: false },
+        content: "Decision: ship the API launch.",
+      });
+
+      expect(result.decision?.disposition).toBe("suppressed");
+      expect(result.decision?.categories).toContain(category);
+      expect(result.title).not.toContain(title);
+      expect(result.content).not.toContain("ship the API launch");
+    },
+  );
+
   it("does not let a product decision make mixed HR content storable", async () => {
     const result = await sanitizeCaptureForStorage({
       ...baseInput,

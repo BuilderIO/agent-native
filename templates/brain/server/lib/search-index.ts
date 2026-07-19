@@ -351,6 +351,69 @@ async function indexExternalSearchLanes(input: {
   }
 }
 
+async function retireExternalSearchLanesForArtifacts(
+  artifactIds: string[],
+  now: string,
+) {
+  if (!artifactIds.length) return;
+  const db = getDb();
+  const bursts = await db
+    .select({ id: schema.brainSearchBursts.id })
+    .from(schema.brainSearchBursts)
+    .where(inArray(schema.brainSearchBursts.artifactId, artifactIds));
+  const targetIds = [...artifactIds, ...bursts.map((burst) => burst.id)];
+  const embeddings = await db
+    .select({
+      vectorKey: schema.brainSearchEmbeddings.vectorKey,
+      dimensions: schema.brainSearchEmbeddings.dimensions,
+    })
+    .from(schema.brainSearchEmbeddings)
+    .where(
+      and(
+        eq(schema.brainSearchEmbeddings.status, "active"),
+        inArray(schema.brainSearchEmbeddings.targetId, targetIds),
+      ),
+    );
+  await db
+    .update(schema.brainSearchEmbeddings)
+    .set({ status: "stale", updatedAt: now })
+    .where(
+      and(
+        eq(schema.brainSearchEmbeddings.status, "active"),
+        inArray(schema.brainSearchEmbeddings.targetId, targetIds),
+      ),
+    );
+  if (!isPostgres()) return;
+  try {
+    await deletePostgresFtsDocuments(
+      getDbExec(),
+      artifactIds,
+      SEARCH_NAMESPACE,
+    );
+  } catch {
+    // Authoritative SQL metadata filters stale external candidates.
+  }
+  for (const dimensions of new Set(
+    embeddings.map((embedding) => embedding.dimensions),
+  )) {
+    try {
+      await deletePgVectors(
+        getDbExec(),
+        {
+          dimensions,
+          vectorKeys: embeddings
+            .filter((embedding) => embedding.dimensions === dimensions)
+            .map((embedding) => embedding.vectorKey),
+          namespace: SEARCH_NAMESPACE,
+        },
+        true,
+      );
+    } catch {
+      // Other dimensions and the FTS lane can still be cleaned independently.
+    }
+  }
+}
+
 /**
  * Writes only allowed captures with an explicit audience assignment. Callers own
  * enqueueing; this helper deliberately refuses pending/quarantined material.
@@ -380,6 +443,15 @@ export async function indexCaptureForSearch(input: {
     sensitivityPolicyVersion: input.capture.sensitivityPolicyVersion!,
   });
   const db = getDb();
+  const activeArtifacts = await db
+    .select({ id: schema.brainSearchArtifacts.id })
+    .from(schema.brainSearchArtifacts)
+    .where(
+      and(
+        eq(schema.brainSearchArtifacts.captureId, input.capture.id),
+        eq(schema.brainSearchArtifacts.status, "active"),
+      ),
+    );
   await db
     .update(schema.brainSearchArtifacts)
     .set({ status: "stale", updatedAt: now })
@@ -389,6 +461,10 @@ export async function indexCaptureForSearch(input: {
         eq(schema.brainSearchArtifacts.status, "active"),
       ),
     );
+  await retireExternalSearchLanesForArtifacts(
+    activeArtifacts.map((artifact) => artifact.id),
+    now,
+  );
   await db
     .insert(schema.brainSearchArtifacts)
     .values({
@@ -520,10 +596,12 @@ export async function indexCaptureForSearch(input: {
     // SQL artifacts remain searchable when an optional external lane is unavailable.
   }
   if (!(await currentIndexSnapshotMatches(input.capture, input.audience))) {
+    const staleAt = nowIso();
     await db
       .update(schema.brainSearchArtifacts)
-      .set({ status: "stale", updatedAt: nowIso() })
+      .set({ status: "stale", updatedAt: staleAt })
       .where(eq(schema.brainSearchArtifacts.id, storedArtifact.id));
+    await retireExternalSearchLanesForArtifacts([storedArtifact.id], staleAt);
     return { indexed: false, reason: "stale-capture-snapshot" };
   }
   return { indexed: true };

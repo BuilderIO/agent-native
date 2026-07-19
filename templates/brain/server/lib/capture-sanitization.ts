@@ -350,8 +350,9 @@ function buildClassifierSystemPrompt(settings: BrainSettings) {
   const custom = settings.sensitivityCustomInstructions?.trim();
   return [
     "You are Brain's privacy classifier. Return only one JSON object.",
-    "Classify content as allowed, suppressed, or quarantined. When uncertain, choose quarantined.",
+    "Classify the capture title and body together as allowed, suppressed, or quarantined. When uncertain, choose quarantined.",
     "Never lower privacy protection. Custom instructions can only make the result stricter.",
+    "safeContent and safeSegments must contain only sanitized body content, never the capture title.",
     "Do not include sensitive text in safeContent or safeSegments.",
     'Schema: {"disposition":"allowed|suppressed|quarantined","categories":["performance|discipline|termination|layoff-reorg|compensation|recruiting|health-accommodation|investigation|privileged-legal|secret-credential|personal"],"safeContent":"string","safeSegments":[{"text":"string","sourceUrl":"optional https URL"}]}.',
     custom
@@ -419,8 +420,15 @@ async function classifyWithApprovedModel(
     modelInputLimit(input),
     DEFAULT_MAX_MODEL_INPUT_CHARS,
   );
-  const screened = screenSensitivityDeterministically(input.content);
-  const safeInput = screened.safeLines.join("\n").slice(0, maxChars);
+  const screenedTitle = screenSensitivityDeterministically(input.title);
+  const screenedContent = screenSensitivityDeterministically(input.content);
+  const safeInput = [
+    `Capture title: ${sanitizeSensitiveText(screenedTitle.safeLines.join(" "))}`,
+    "Capture body:",
+    screenedContent.safeLines.join("\n"),
+  ]
+    .join("\n")
+    .slice(0, maxChars);
   if (!safeInput) return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
@@ -493,7 +501,11 @@ export async function sanitizeCaptureForStorage(
   const { metadata: sanitizedMetadata, strippedKeys } =
     sanitizeMetadata(metadata);
   const capturedAt = input.capturedAt ?? new Date(0).toISOString();
-  let decision = deterministicQuarantineDecision(input.content, capturedAt);
+  const titleDecision = fallbackSensitivityDecision(input.title, capturedAt);
+  let decision =
+    deterministicQuarantineDecision(input.title, capturedAt) ??
+    (titleDecision.disposition === "allowed" ? null : titleDecision) ??
+    deterministicQuarantineDecision(input.content, capturedAt);
   let fallbackReason: string | undefined;
   const classifierConfigured = Boolean(
     stringSetting(input.settings.privacyClassifierModel) &&

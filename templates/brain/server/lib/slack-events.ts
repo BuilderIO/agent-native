@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { parseJson } from "./brain.js";
+import { parseJson, retireUpstreamDeletedCapture } from "./brain.js";
 import { enqueueBrainOperation } from "./ingest-queue.js";
 import { resolveSourceCredential } from "./source-credentials.js";
 
@@ -19,6 +19,7 @@ export interface SlackEventsEnvelope {
     ts?: string;
     thread_ts?: string;
     deleted_ts?: string;
+    previous_message?: { ts?: string; thread_ts?: string };
     item?: { type?: string; channel?: string; ts?: string };
   };
 }
@@ -88,13 +89,22 @@ function includesPublicChannels(config: Record<string, unknown>) {
   return false;
 }
 
-function eventLocation(payload: SlackEventsEnvelope) {
+export function slackEventDirective(payload: SlackEventsEnvelope) {
   const event = payload.event;
   if (!event) return null;
   if (event.type === "message") {
-    const threadTs = event.thread_ts ?? event.ts ?? event.deleted_ts;
+    const retiring = event.subtype === "message_deleted";
+    const threadTs = retiring
+      ? (event.previous_message?.thread_ts ??
+        event.previous_message?.ts ??
+        event.deleted_ts)
+      : (event.thread_ts ?? event.ts);
     return event.channel && threadTs
-      ? { channelId: event.channel, threadTs }
+      ? {
+          action: retiring ? ("retire" as const) : ("refresh" as const),
+          channelId: event.channel,
+          threadTs,
+        }
       : null;
   }
   if (
@@ -103,7 +113,11 @@ function eventLocation(payload: SlackEventsEnvelope) {
     event.item.channel &&
     event.item.ts
   ) {
-    return { channelId: event.item.channel, threadTs: event.item.ts };
+    return {
+      action: "refresh" as const,
+      channelId: event.item.channel,
+      threadTs: event.item.ts,
+    };
   }
   return null;
 }
@@ -196,9 +210,21 @@ async function sourceSigningSecret(source: SlackSource) {
   });
 }
 
+export async function retireSlackThreadCapture(input: {
+  sourceId: string;
+  channelId: string;
+  threadTs: string;
+}) {
+  return retireUpstreamDeletedCapture({
+    sourceId: input.sourceId,
+    externalId: `slack:${input.channelId}:${input.threadTs}`,
+    provider: "slack",
+  });
+}
+
 /**
- * Verify a Brain Slack event and enqueue an ID-only refresh operation. The raw
- * event body is never stored, logged, or passed to the queue worker.
+ * Verify a Brain Slack event and either enqueue an ID-only refresh or retire a
+ * deleted upstream thread. The raw event body is never stored or logged.
  */
 export async function enqueueSlackThreadRefreshFromEvent(input: {
   rawBody: string;
@@ -210,8 +236,8 @@ export async function enqueueSlackThreadRefreshFromEvent(input: {
 > {
   const payload = parseSlackEventsEnvelope(input.rawBody);
   if (!payload?.team_id) return { status: "invalid" };
-  const location = eventLocation(payload);
-  const source = await matchingSlackSource(payload, location);
+  const directive = slackEventDirective(payload);
+  const source = await matchingSlackSource(payload, directive);
   if (!source) return { status: "ignored" };
   const signingSecret = await sourceSigningSecret(source);
   if (!signingSecret) return { status: "missing-signing-secret" };
@@ -231,16 +257,24 @@ export async function enqueueSlackThreadRefreshFromEvent(input: {
   ) {
     return { status: "queued", challenge: payload.challenge };
   }
-  if (!location) return { status: "ignored" };
+  if (!directive) return { status: "ignored" };
+  if (directive.action === "retire") {
+    await retireSlackThreadCapture({
+      sourceId: source.id,
+      channelId: directive.channelId,
+      threadTs: directive.threadTs,
+    });
+    return { status: "queued" };
+  }
   await enqueueBrainOperation({
     operation: "slack-thread-refresh",
-    dedupeKey: `slack-thread-refresh:${source.id}:${location.channelId}:${location.threadTs}`,
+    dedupeKey: `slack-thread-refresh:${source.id}:${directive.channelId}:${directive.threadTs}`,
     sourceId: source.id,
     priority: 20,
     payload: {
       teamId: payload.team_id,
-      channelId: location.channelId,
-      threadTs: location.threadTs,
+      channelId: directive.channelId,
+      threadTs: directive.threadTs,
     },
   });
   return { status: "queued" };

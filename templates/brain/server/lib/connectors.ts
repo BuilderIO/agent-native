@@ -217,6 +217,7 @@ interface SlackListResponse {
 
 interface SlackMembersResponse {
   members?: string[];
+  response_metadata?: { next_cursor?: string };
 }
 
 interface SlackUserInfoResponse {
@@ -1005,14 +1006,25 @@ async function slackPrivateChannelMemberEmails(
   channelId: string,
   userEmailCache: SlackUserEmailCache,
 ): Promise<string[] | null> {
-  const response = await slackApi<SlackMembersResponse>(
-    token,
-    "conversations.members",
-    { channel: channelId, limit: 1_000 },
-  );
-  const userIds = Array.from(
-    new Set((response.members ?? []).filter((value) => Boolean(value))),
-  );
+  const memberIds = new Set<string>();
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  while (true) {
+    const response = await slackApi<SlackMembersResponse>(
+      token,
+      "conversations.members",
+      { channel: channelId, limit: 1_000, cursor },
+    );
+    for (const memberId of response.members ?? []) {
+      if (memberId) memberIds.add(memberId);
+    }
+    const nextCursor = response.response_metadata?.next_cursor?.trim();
+    if (!nextCursor) break;
+    if (seenCursors.has(nextCursor)) return null;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  const userIds = Array.from(memberIds);
   if (!userIds.length) return null;
   if (
     userIds.some(

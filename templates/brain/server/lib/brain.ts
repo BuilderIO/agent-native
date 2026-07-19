@@ -29,6 +29,7 @@ import {
   isNull,
   like,
   lte,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -646,6 +647,52 @@ function isUniqueConflict(error: unknown): boolean {
   return /unique constraint|duplicate key|unique/i.test(message);
 }
 
+const UPSTREAM_DELETED_POLICY_VERSION = "upstream-deleted-v1";
+
+async function upstreamDeletionLocatorHmac(
+  sourceId: string,
+  externalId: string,
+) {
+  return sha256Hex(`${sourceId}\0${externalId}`);
+}
+
+async function findUpstreamDeletionReceipt(
+  sourceId: string,
+  externalId: string,
+): Promise<BrainSensitivityReceipt | null> {
+  const [receipt] = await getDb()
+    .select({
+      id: schema.brainSensitivityEvents.id,
+      sourceId: schema.brainSensitivityEvents.sourceId,
+    })
+    .from(schema.brainSensitivityEvents)
+    .where(
+      and(
+        eq(
+          schema.brainSensitivityEvents.locatorHmac,
+          await upstreamDeletionLocatorHmac(sourceId, externalId),
+        ),
+        eq(
+          schema.brainSensitivityEvents.policyVersion,
+          UPSTREAM_DELETED_POLICY_VERSION,
+        ),
+        eq(schema.brainSensitivityEvents.disposition, "suppressed"),
+      ),
+    )
+    .limit(1);
+  return receipt
+    ? {
+        id: receipt.id,
+        sourceId: receipt.sourceId,
+        disposition: "suppressed",
+        categories: [],
+        confidenceBand: "deterministic",
+        policyVersion: UPSTREAM_DELETED_POLICY_VERSION,
+        expiresAt: null,
+      }
+    : null;
+}
+
 export async function createCapture(values: {
   id?: string;
   sourceId: string;
@@ -680,6 +727,12 @@ export async function createCapture(values: {
         )
         .limit(1)
     : [];
+  const upstreamDeletionReceipt = values.externalId
+    ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
+    : null;
+  if (upstreamDeletionReceipt) {
+    throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  }
   const settings = await readBrainSettings();
   const metadata = sanitizeGranolaCaptureMetadataLinks(
     source.provider as BrainSourceProvider,
@@ -720,36 +773,16 @@ export async function createCapture(values: {
     throw new BrainCaptureBlockedError(receipt);
   }
   const nextContentHash = await contentHash(sanitized.content);
+  const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const contentChanged = existing?.contentHash !== nextContentHash;
+  const indexedMetadataChanged = Boolean(
+    existing &&
+    (existing.title !== sanitized.title ||
+      existing.capturedAt !== nextCapturedAt),
+  );
   const captureId = existing?.id ?? id;
-  const audience = await ensureCaptureAudience({
-    captureId,
-    source,
-    kind: values.audience?.kind,
-    memberEmails:
-      values.audience?.memberEmails ??
-      (source.visibility === "org" ? undefined : [source.ownerEmail]),
-    upstreamRefHash: values.audience?.upstreamRefHash,
-  });
   try {
-    if (existing) {
-      await db
-        .update(schema.brainRawCaptures)
-        .set({
-          title: sanitized.title,
-          kind: values.kind,
-          content: sanitized.content,
-          contentHash: nextContentHash,
-          metadataJson: stableJson(sanitized.metadata),
-          capturedAt: values.capturedAt ?? existing.capturedAt,
-          status: values.status ?? "queued",
-          distilledAt: values.status === "distilled" ? now : null,
-          sensitivityDisposition: "allowed",
-          sensitivityPolicyVersion: sanitized.decision.policyVersion,
-          audienceAclHash: audience.aclHash,
-          updatedAt: now,
-        })
-        .where(eq(schema.brainRawCaptures.id, existing.id));
-    } else {
+    if (!existing) {
       await db.insert(schema.brainRawCaptures).values({
         id,
         sourceId: values.sourceId,
@@ -759,13 +792,13 @@ export async function createCapture(values: {
         content: sanitized.content,
         contentHash: nextContentHash,
         metadataJson: stableJson(sanitized.metadata),
-        capturedAt: values.capturedAt ?? now,
+        capturedAt: nextCapturedAt,
         importedBy: requireUserEmail(),
         status: values.status ?? "queued",
         distilledAt: values.status === "distilled" ? now : null,
-        sensitivityDisposition: "allowed",
+        sensitivityDisposition: "pending",
         sensitivityPolicyVersion: sanitized.decision.policyVersion,
-        audienceAclHash: audience.aclHash,
+        audienceAclHash: null,
         createdAt: now,
         updatedAt: now,
       });
@@ -791,7 +824,84 @@ export async function createCapture(values: {
     }
     throw err;
   }
-  if (existing?.contentHash && existing.contentHash !== nextContentHash) {
+  const racedDeletionReceipt = values.externalId
+    ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
+    : null;
+  if (racedDeletionReceipt) {
+    await retireUpstreamDeletedCapture({
+      sourceId: values.sourceId,
+      externalId: values.externalId!,
+      provider: source.provider as BrainSourceProvider,
+    });
+    throw new BrainCaptureBlockedError(racedDeletionReceipt);
+  }
+  const audience = await ensureCaptureAudience({
+    captureId,
+    source,
+    kind: values.audience?.kind,
+    memberEmails:
+      values.audience?.memberEmails ??
+      (source.visibility === "org" ? undefined : [source.ownerEmail]),
+    upstreamRefHash: values.audience?.upstreamRefHash,
+  });
+  const finalizationClauses = [eq(schema.brainRawCaptures.id, captureId)];
+  if (values.externalId) {
+    const locatorHmac = await upstreamDeletionLocatorHmac(
+      values.sourceId,
+      values.externalId,
+    );
+    finalizationClauses.push(
+      notExists(
+        db
+          .select({ id: schema.brainSensitivityEvents.id })
+          .from(schema.brainSensitivityEvents)
+          .where(
+            and(
+              eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
+              eq(
+                schema.brainSensitivityEvents.policyVersion,
+                UPSTREAM_DELETED_POLICY_VERSION,
+              ),
+              eq(schema.brainSensitivityEvents.disposition, "suppressed"),
+            ),
+          ),
+      ),
+    );
+  }
+  const finalized = await db
+    .update(schema.brainRawCaptures)
+    .set({
+      title: sanitized.title,
+      kind: values.kind,
+      content: sanitized.content,
+      contentHash: nextContentHash,
+      metadataJson: stableJson(sanitized.metadata),
+      capturedAt: nextCapturedAt,
+      status: values.status ?? "queued",
+      distilledAt: values.status === "distilled" ? now : null,
+      sensitivityDisposition: "allowed",
+      sensitivityPolicyVersion: sanitized.decision.policyVersion,
+      audienceAclHash: audience.aclHash,
+      updatedAt: now,
+    })
+    .where(and(...finalizationClauses));
+  if (finalized.rowsAffected === 0 && values.externalId) {
+    await db
+      .delete(schema.brainCaptureAudiences)
+      .where(eq(schema.brainCaptureAudiences.captureId, captureId));
+    await retireUpstreamDeletedCapture({
+      sourceId: values.sourceId,
+      externalId: values.externalId,
+      provider: source.provider as BrainSourceProvider,
+    });
+    const receipt = await findUpstreamDeletionReceipt(
+      values.sourceId,
+      values.externalId,
+    );
+    if (receipt) throw new BrainCaptureBlockedError(receipt);
+    throw new Error("Capture finalization was blocked");
+  }
+  if (existing?.contentHash && contentChanged) {
     await invalidateDerivedForCapture(captureId);
   }
   const [capture] = await db
@@ -800,7 +910,7 @@ export async function createCapture(values: {
     .where(eq(schema.brainRawCaptures.id, captureId))
     .limit(1);
   const invalidationReason =
-    !existing || existing.contentHash !== nextContentHash
+    !existing || contentChanged || indexedMetadataChanged
       ? "content-changed"
       : existing.audienceAclHash !== audience.aclHash
         ? "access-changed"
@@ -852,6 +962,154 @@ export class BrainCaptureBlockedError extends Error {
   }
 }
 
+export async function retireUpstreamDeletedCapture(input: {
+  sourceId: string;
+  externalId: string;
+  provider: BrainSourceProvider;
+}) {
+  const db = getDb();
+  const now = nowIso();
+  const locatorHmac = await upstreamDeletionLocatorHmac(
+    input.sourceId,
+    input.externalId,
+  );
+  const eventId = `sensitivity_${nanoid(18)}`;
+  const emptyContentHash = await contentHash("");
+  const [captureBeforeRetirement] = await db
+    .select({ id: schema.brainRawCaptures.id })
+    .from(schema.brainRawCaptures)
+    .where(
+      and(
+        eq(schema.brainRawCaptures.sourceId, input.sourceId),
+        eq(schema.brainRawCaptures.externalId, input.externalId),
+      ),
+    )
+    .limit(1);
+  if (captureBeforeRetirement) {
+    const knowledge = await db
+      .select({
+        publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
+      })
+      .from(schema.brainKnowledge)
+      .where(
+        or(
+          eq(schema.brainKnowledge.captureId, captureBeforeRetirement.id),
+          like(
+            schema.brainKnowledge.evidenceJson,
+            `%${captureBeforeRetirement.id}%`,
+          ),
+        ),
+      );
+    for (const row of knowledge) {
+      if (row.publishedResourcePath) {
+        await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
+      }
+    }
+  }
+  let capture:
+    | {
+        id: string;
+        contentHash: string | null;
+        sensitivityPolicyVersion: string | null;
+        audienceAclHash: string | null;
+      }
+    | undefined;
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(schema.brainSensitivityEvents)
+      .values({
+        id: eventId,
+        sourceId: input.sourceId,
+        captureId: null,
+        locatorHmac,
+        disposition: "suppressed",
+        categoriesJson: "[]",
+        confidenceBand: "deterministic",
+        policyVersion: UPSTREAM_DELETED_POLICY_VERSION,
+        upstreamProvider: input.provider,
+        quarantineBlobHandle: null,
+        expiresAt: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.brainSensitivityEvents.locatorHmac,
+          schema.brainSensitivityEvents.policyVersion,
+        ],
+        set: {
+          disposition: "suppressed",
+          quarantineBlobHandle: null,
+          expiresAt: null,
+          updatedAt: now,
+        },
+      });
+    [capture] = await tx
+      .select({
+        id: schema.brainRawCaptures.id,
+        contentHash: schema.brainRawCaptures.contentHash,
+        sensitivityPolicyVersion:
+          schema.brainRawCaptures.sensitivityPolicyVersion,
+        audienceAclHash: schema.brainRawCaptures.audienceAclHash,
+      })
+      .from(schema.brainRawCaptures)
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, input.sourceId),
+          eq(schema.brainRawCaptures.externalId, input.externalId),
+        ),
+      )
+      .limit(1);
+    if (!capture) return;
+
+    await tx
+      .update(schema.brainSensitivityEvents)
+      .set({ captureId: capture.id, updatedAt: now })
+      .where(
+        and(
+          eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
+          eq(
+            schema.brainSensitivityEvents.policyVersion,
+            UPSTREAM_DELETED_POLICY_VERSION,
+          ),
+        ),
+      );
+    await tx
+      .update(schema.brainRawCaptures)
+      .set({
+        title: "Deleted upstream capture",
+        content: "",
+        contentHash: emptyContentHash,
+        metadataJson: "{}",
+        status: "ignored",
+        sensitivityDisposition: "pending",
+        audienceAclHash: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.brainRawCaptures.id, capture.id));
+    await tx
+      .delete(schema.brainCaptureAudiences)
+      .where(eq(schema.brainCaptureAudiences.captureId, capture.id));
+    await invalidateDerivedForCapture(
+      capture.id,
+      tx as unknown as ReturnType<typeof getDb>,
+      { deletePublishedResources: false },
+    );
+  });
+  if (!capture) return false;
+  await enqueueCaptureInvalidation({
+    captureId: capture.id,
+    sourceId: input.sourceId,
+    reason: "upstream-deleted",
+    previous: {
+      contentHash: capture.contentHash ?? undefined,
+      sensitivityPolicyVersion: capture.sensitivityPolicyVersion ?? undefined,
+      aclHash: capture.audienceAclHash ?? undefined,
+    },
+  });
+  return true;
+}
+
 function privateQuarantineProvider(provider: BrainSourceProvider) {
   return provider === "generic" || provider === "clips";
 }
@@ -863,8 +1121,11 @@ async function deleteQuarantineHandle(value: string | null | undefined) {
   } catch {}
 }
 
-export async function invalidateDerivedForCapture(captureId: string) {
-  const db = getDb();
+export async function invalidateDerivedForCapture(
+  captureId: string,
+  db = getDb(),
+  options: { deletePublishedResources?: boolean } = {},
+) {
   const needle = `%${captureId}%`;
   const knowledge = await db
     .select({
@@ -878,9 +1139,11 @@ export async function invalidateDerivedForCapture(captureId: string) {
         like(schema.brainKnowledge.evidenceJson, needle),
       ),
     );
-  for (const row of knowledge) {
-    if (row.publishedResourcePath) {
-      await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
+  if (options.deletePublishedResources !== false) {
+    for (const row of knowledge) {
+      if (row.publishedResourcePath) {
+        await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
+      }
     }
   }
   if (knowledge.length) {
