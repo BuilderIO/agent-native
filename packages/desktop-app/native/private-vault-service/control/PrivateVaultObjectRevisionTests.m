@@ -188,9 +188,6 @@ int main(void) {
             fixtureBundle, fixtureVault, fixtureObject,
             State(fixtureVault, fixtureWriter, fixturePublic), fixtureEpoch,
             &status);
-    if (fixtureOpened == nil)
-      fprintf(stderr, "fixture status=%ld category=%s\n", (long)status,
-              AncPrivateVaultObjectRevisionCategory(status).UTF8String);
     assert(fixtureOpened != nil &&
            status == AncPrivateVaultObjectRevisionStatusOK &&
            [fixtureOpened.plaintext isEqualToData:

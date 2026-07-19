@@ -54,7 +54,11 @@ static bool PVHasOnlyProtocolKeys(xpc_object_t message,
                 strcmp(key, "resultPayload") == 0 ||
                 strcmp(key, "epoch") == 0 ||
                 strcmp(key, "retryCount") == 0 ||
-                strcmp(key, "algorithmId") == 0) {
+                strcmp(key, "algorithmId") == 0 ||
+                strcmp(key, "objectId") == 0 ||
+                strcmp(key, "revision") == 0 ||
+                strcmp(key, "contentType") == 0 ||
+                strcmp(key, "objectPayload") == 0) {
                 return true;
             }
             if (strcmp(key, "unsignedProof") == 0) return true;
@@ -179,6 +183,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
     bool decideEnrollment = strcmp(operation, "decide_enroll") == 0;
     bool authorizeEnrollment = strcmp(operation, "authorize_enroll") == 0;
     bool activateEnrollment = strcmp(operation, "activate_enroll") == 0;
+    bool sealObject = strcmp(operation, "seal_object") == 0;
+    bool openObject = strcmp(operation, "open_object") == 0;
     if (strcmp(operation, "health") != 0 && strcmp(operation, "lock") != 0 &&
         !unlock && !resumeRotation && !commitGenesis && !prepareGenesis &&
         !confirmGenesis && !listGenesis && !inspectAdmission &&
@@ -187,13 +193,56 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         !openJob && !sealResult && !completeResult && !pendingResult &&
         !signRequest && !prepareEnrollment && !challengeEnrollment &&
         !inspectEnrollment && !decideEnrollment && !authorizeEnrollment &&
-        !activateEnrollment) {
+        !activateEnrollment && !sealObject && !openObject) {
         return PVRequestUnsupportedOperation;
     }
 
     xpc_object_t vaultIDValue = xpc_dictionary_get_value(message, "vaultId");
     xpc_object_t lookupIDValue = xpc_dictionary_get_value(message, "lookupId");
-    if (prepareEnrollment || challengeEnrollment) {
+    if (sealObject || openObject) {
+        xpc_object_t objectIDValue =
+            xpc_dictionary_get_value(message, "objectId");
+        xpc_object_t revisionValue =
+            xpc_dictionary_get_value(message, "revision");
+        xpc_object_t contentTypeValue =
+            xpc_dictionary_get_value(message, "contentType");
+        const char *objectID =
+            objectIDValue != NULL &&
+                    xpc_get_type(objectIDValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "objectId")
+                : NULL;
+        int64_t revision =
+            revisionValue != NULL &&
+                    xpc_get_type(revisionValue) == XPC_TYPE_INT64
+                ? xpc_dictionary_get_int64(message, "revision")
+                : 0;
+        const char *contentType =
+            contentTypeValue != NULL &&
+                    xpc_get_type(contentTypeValue) == XPC_TYPE_STRING
+                ? xpc_dictionary_get_string(message, "contentType")
+                : NULL;
+        size_t maximum = sealObject ? PV_OBJECT_PLAINTEXT_MAXIMUM_BYTES
+                                    : PV_OBJECT_REVISION_MAXIMUM_BYTES;
+        if (fieldCount != (sealObject ? 8 : 7) || vaultIDValue == NULL ||
+            xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
+            !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId")) ||
+            !PVIsLowerHex(objectID, 32) || revision <= 0 ||
+            revision > INT64_C(9007199254740991) ||
+            (sealObject &&
+             (contentType == NULL ||
+              strcmp(contentType,
+                     "application/vnd.agent-native.content-document+json") !=
+                  0)) ||
+            (!sealObject && contentTypeValue != NULL) ||
+            !PVReadBoundedData(message, "objectPayload", maximum,
+                               &request->objectPayload,
+                               &request->objectPayloadLength)) {
+            return PVRequestInvalid;
+        }
+        request->objectID = objectID;
+        request->objectRevision = (uint64_t)revision;
+        request->objectContentType = contentType;
+    } else if (prepareEnrollment || challengeEnrollment) {
         if (fieldCount != 4 || vaultIDValue == NULL ||
             xpc_get_type(vaultIDValue) != XPC_TYPE_STRING ||
             !PVIsVaultID(xpc_dictionary_get_string(message, "vaultId"))) {
@@ -423,7 +472,8 @@ PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request) {
         unlock || resumeRotation || recoverStatus || openJob || sealResult ||
                 completeResult || pendingResult || prepareEnrollment ||
                 challengeEnrollment || inspectEnrollment ||
-                authorizeEnrollment || activateEnrollment
+                authorizeEnrollment || activateEnrollment || sealObject ||
+                openObject
             ? xpc_dictionary_get_string(message, "vaultId")
             : NULL;
     request->lookupID =

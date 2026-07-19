@@ -46,6 +46,7 @@
 #import "PrivateVaultEnrollmentOfferArtifactStore.h"
 #import "PrivateVaultEnrollmentSasReceiptStore.h"
 #import "PrivateVaultEnrollmentCoordinator.h"
+#import "PrivateVaultObjectRevision.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -70,6 +71,7 @@ static AncPrivateVaultEnrollmentOfferArtifactStore *gEnrollmentArtifactStore =
     nil;
 static AncPrivateVaultEnrollmentSasReceiptStore *gEnrollmentReceiptStore = nil;
 static AncPrivateVaultEnrollmentCoordinator *gEnrollmentCoordinator = nil;
+static id<AncPrivateVaultGenesisTrustedClock> gTrustedClock = nil;
 static NSMutableDictionary<NSString *, id> *gEnrollmentInspections = nil;
 static NSLock *gEnrollmentInspectionLock = nil;
 
@@ -1162,6 +1164,265 @@ static BOOL PVEnrollmentEndpointSecrets(
     return YES;
 }
 
+static AncPrivateVaultControlLogMember *PVObjectActiveEndpoint(
+    AncPrivateVaultControlLogState *state,
+    const AncPrivateVaultCustodySnapshot *snapshot) {
+    if (state == nil || snapshot == NULL || snapshot->endpoint_id_length != 16)
+        return nil;
+    NSData *endpointId =
+        [NSData dataWithBytes:snapshot->endpoint_id length:16];
+    NSMutableString *endpointHex = [NSMutableString stringWithCapacity:32];
+    const uint8_t *bytes = endpointId.bytes;
+    for (NSUInteger index = 0; index < endpointId.length; index += 1)
+        [endpointHex appendFormat:@"%02x", bytes[index]];
+    AncPrivateVaultControlLogMember *match = nil;
+    for (AncPrivateVaultControlLogMember *member in state.activeMembers) {
+        if ([member.endpointId isEqualToString:endpointHex]) {
+            if (match != nil) return nil;
+            match = member;
+        }
+    }
+    NSData *snapshotSigning =
+        [NSData dataWithBytes:snapshot->signing_public_key length:32];
+    return match != nil && [match.role isEqualToString:@"endpoint"] &&
+                   !match.unattended &&
+                   [match.signingPublicKey isEqualToData:snapshotSigning]
+               ? match
+               : nil;
+}
+
+static BOOL PVObjectEndpointContext(
+    NSString *vaultId, AncPrivateVaultControlLogState **state,
+    NSData **writerEndpointId, AncPrivateVaultGuardedMemory **signingSeed,
+    AncPrivateVaultGuardedMemory **epochKey) {
+    if (vaultId.length != 32 || state == NULL || writerEndpointId == NULL ||
+        signingSeed == NULL || epochKey == NULL ||
+        gEndpointAuthorityStore == nil || gCustodyRepository == nil) {
+        return NO;
+    }
+    *state = nil;
+    *writerEndpointId = nil;
+    *signingSeed = nil;
+    *epochKey = nil;
+    AncPrivateVaultAuthorityCheckpoint *checkpoint = nil;
+    if ([gEndpointAuthorityStore loadVaultId:vaultId
+                                  checkpoint:&checkpoint
+                                       error:nil] !=
+            AncPrivateVaultAuthorityStoreStatusOK ||
+        checkpoint == nil) {
+        return NO;
+    }
+    AncPrivateVaultControlLogState *authenticated =
+        AncPrivateVaultControlLogStateCreateFromAuthenticatedCheckpoint(
+            checkpoint);
+    AncPrivateVaultCustodySnapshot snapshot = {0};
+    AncPrivateVaultCustodyHandle *handle = nil;
+    if (authenticated == nil ||
+        ![authenticated.vaultId isEqualToString:vaultId] ||
+        [gCustodyRepository readVaultId:vaultId
+                              snapshot:&snapshot
+                                handle:&handle] !=
+            AncPrivateVaultCustodyRepositoryStatusOK ||
+        handle == nil) {
+        if (handle != nil) [handle close];
+        anc_pv_custody_snapshot_zero(&snapshot);
+        return NO;
+    }
+    NSData *vaultBytes = PVLookupIDData(vaultId.UTF8String);
+    NSData *anchoredHead =
+        [NSData dataWithBytes:snapshot.anchored_head length:32];
+    NSData *membership =
+        [NSData dataWithBytes:snapshot.membership_digest length:32];
+    AncPrivateVaultControlLogMember *member =
+        PVObjectActiveEndpoint(authenticated, &snapshot);
+    BOOL publicStateOkay =
+        snapshot.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE &&
+        snapshot.role == ANC_PV_CUSTODY_ROLE_ENDPOINT &&
+        snapshot.pending_kind == ANC_PV_CUSTODY_PENDING_NONE &&
+        snapshot.rotation_phase == ANC_PV_CUSTODY_ROTATION_NONE &&
+        snapshot.authority_anchor_present == 1 &&
+        snapshot.vault_id_length == 16 && vaultBytes != nil &&
+        anc_pv_memcmp(snapshot.vault_id, vaultBytes.bytes, 16) == 0 &&
+        snapshot.active_epoch == authenticated.epoch &&
+        snapshot.anchored_sequence == authenticated.sequence &&
+        [anchoredHead isEqualToData:authenticated.headHash] &&
+        [membership isEqualToData:authenticated.membershipHash] && member != nil;
+    AncPrivateVaultGuardedMemoryStatus memoryStatus;
+    AncPrivateVaultGuardedMemory *signing =
+        publicStateOkay
+            ? [AncPrivateVaultGuardedMemory memoryWithLength:32
+                                                     status:&memoryStatus]
+            : nil;
+    AncPrivateVaultGuardedMemory *epoch =
+        publicStateOkay
+            ? [AncPrivateVaultGuardedMemory memoryWithLength:32
+                                                     status:&memoryStatus]
+            : nil;
+    __block BOOL copied = NO;
+    AncPrivateVaultCustodyRepositoryStatus borrowed =
+        signing == nil || epoch == nil
+            ? AncPrivateVaultCustodyRepositoryStatusFailed
+            : [handle borrow:^BOOL(
+                          const AncPrivateVaultCustodySecretInputs *secrets) {
+                return [signing borrow:^BOOL(uint8_t *signingBytes,
+                                             size_t signingLength) {
+                    if (signingLength != 32) return NO;
+                    memcpy(signingBytes, secrets->signing_seed, 32);
+                    return [epoch borrow:^BOOL(uint8_t *epochBytes,
+                                               size_t epochLength) {
+                        if (epochLength != 32) return NO;
+                        memcpy(epochBytes, secrets->active_epoch_key, 32);
+                        copied = YES;
+                        return YES;
+                    }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+                }] == AncPrivateVaultGuardedMemoryStatusOK && copied;
+            }];
+    AncPrivateVaultCustodyRepositoryStatus closed = [handle close];
+    NSData *endpointId =
+        [NSData dataWithBytes:snapshot.endpoint_id length:16];
+    anc_pv_custody_snapshot_zero(&snapshot);
+    if (!publicStateOkay ||
+        borrowed != AncPrivateVaultCustodyRepositoryStatusOK || !copied ||
+        closed != AncPrivateVaultCustodyRepositoryStatusOK) {
+        if (signing != nil) [signing close];
+        if (epoch != nil) [epoch close];
+        return NO;
+    }
+    *state = authenticated;
+    *writerEndpointId = endpointId;
+    *signingSeed = signing;
+    *epochKey = epoch;
+    return YES;
+}
+
+static void PVSealObject(xpc_connection_t peer, xpc_object_t message,
+                         const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        NSData *objectId = PVLookupIDData(request->objectID);
+        NSMutableData *plaintext =
+            request->objectPayload == NULL
+                ? nil
+                : [NSMutableData dataWithBytes:request->objectPayload
+                                        length:request->objectPayloadLength];
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *writerEndpointId = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *epoch = nil;
+        uint64_t nowMilliseconds = 0;
+        BOOL contextOkay =
+            vaultBytes != nil && objectId != nil && plaintext != nil &&
+            [gTrustedClock readNowMilliseconds:&nowMilliseconds] &&
+            nowMilliseconds >= 1000 &&
+            nowMilliseconds / 1000 <= UINT64_C(9007199254740991) &&
+            PVObjectEndpointContext(vaultId, &state, &writerEndpointId,
+                                    &signing, &epoch);
+        NSData *dekEnvelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *headerEnvelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *chunkEnvelopeId = contextOkay ? PVEnrollmentRandom(16) : nil;
+        NSData *dekNonce = contextOkay ? PVEnrollmentRandom(24) : nil;
+        AncPrivateVaultObjectRevisionStatus status;
+        AncPrivateVaultSealedObjectRevision *sealed =
+            dekEnvelopeId == nil || headerEnvelopeId == nil ||
+                    chunkEnvelopeId == nil || dekNonce == nil
+                ? nil
+                : AncPrivateVaultSealObjectRevision(
+                      vaultBytes, objectId, writerEndpointId,
+                      request->objectRevision, state.epoch,
+                      [NSString stringWithUTF8String:request->objectContentType],
+                      plaintext, nowMilliseconds / 1000, dekEnvelopeId,
+                      headerEnvelopeId, chunkEnvelopeId, dekNonce, state,
+                      signing, epoch, &status);
+        if (plaintext != nil)
+            anc_pv_zeroize(plaintext.mutableBytes, plaintext.length);
+        BOOL signingClosed =
+            signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL epochClosed =
+            epoch != nil && [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+        if (sealed == nil || !signingClosed || !epochClosed) {
+            PVSendError(peer, message, "object_seal_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "sealed");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "objectId", request->objectID);
+        xpc_dictionary_set_uint64(reply, "revision", sealed.revision);
+        xpc_dictionary_set_uint64(reply, "epoch", sealed.epoch);
+        xpc_dictionary_set_data(reply, "revisionId", sealed.revisionId.bytes,
+                                sealed.revisionId.length);
+        xpc_dictionary_set_string(reply, "contentType",
+                                  sealed.contentType.UTF8String);
+        xpc_dictionary_set_int64(reply, "plaintextLength",
+                                 (int64_t)sealed.plaintextLength);
+        xpc_dictionary_set_data(reply, "objectPayload",
+                                sealed.encodedRevision.bytes,
+                                sealed.encodedRevision.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
+static void PVOpenObject(xpc_connection_t peer, xpc_object_t message,
+                         const PVRequest *request) {
+    @autoreleasepool {
+        NSString *vaultId = [NSString stringWithUTF8String:request->vaultID];
+        NSData *vaultBytes = PVLookupIDData(request->vaultID);
+        NSData *objectId = PVLookupIDData(request->objectID);
+        NSData *encoded =
+            request->objectPayload == NULL
+                ? nil
+                : [NSData dataWithBytes:request->objectPayload
+                                 length:request->objectPayloadLength];
+        AncPrivateVaultControlLogState *state = nil;
+        NSData *unusedWriter = nil;
+        AncPrivateVaultGuardedMemory *signing = nil;
+        AncPrivateVaultGuardedMemory *epoch = nil;
+        BOOL contextOkay =
+            vaultBytes != nil && objectId != nil && encoded != nil &&
+            PVObjectEndpointContext(vaultId, &state, &unusedWriter, &signing,
+                                    &epoch);
+        AncPrivateVaultObjectRevisionStatus status;
+        AncPrivateVaultOpenedObjectRevision *opened =
+            contextOkay ? AncPrivateVaultOpenObjectRevision(
+                              encoded, vaultBytes, objectId, state, epoch,
+                              &status)
+                        : nil;
+        BOOL signingClosed =
+            signing != nil &&
+            [signing close] == AncPrivateVaultGuardedMemoryStatusOK;
+        BOOL epochClosed =
+            epoch != nil && [epoch close] == AncPrivateVaultGuardedMemoryStatusOK;
+        if (opened == nil || opened.revision != request->objectRevision ||
+            opened.epoch != state.epoch ||
+            ![opened.contentType isEqualToString:
+                @"application/vnd.agent-native.content-document+json"] ||
+            !signingClosed || !epochClosed) {
+            PVSendError(peer, message, "object_open_failed");
+            return;
+        }
+        xpc_object_t reply = PVCreateReply(message, request);
+        if (reply == NULL) return;
+        xpc_dictionary_set_string(reply, "state", "opened");
+        xpc_dictionary_set_string(reply, "vaultId", request->vaultID);
+        xpc_dictionary_set_string(reply, "objectId", request->objectID);
+        xpc_dictionary_set_uint64(reply, "revision", opened.revision);
+        xpc_dictionary_set_uint64(reply, "epoch", opened.epoch);
+        xpc_dictionary_set_data(reply, "revisionId", opened.revisionId.bytes,
+                                opened.revisionId.length);
+        xpc_dictionary_set_data(reply, "writerEndpointId",
+                                opened.writerEndpointId.bytes,
+                                opened.writerEndpointId.length);
+        xpc_dictionary_set_string(reply, "contentType",
+                                  opened.contentType.UTF8String);
+        xpc_dictionary_set_data(reply, "objectPayload", opened.plaintext.bytes,
+                                opened.plaintext.length);
+        xpc_connection_send_message(peer, reply);
+    }
+}
+
 static void PVChallengeEnrollment(xpc_connection_t peer, xpc_object_t message,
                                   const PVRequest *request) {
     @autoreleasepool {
@@ -1679,6 +1940,14 @@ static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
                 PVActivateEnrollment(peer, message, &request);
                 return;
             }
+            if (strcmp(request.operation, "seal_object") == 0) {
+                PVSealObject(peer, message, &request);
+                return;
+            }
+            if (strcmp(request.operation, "open_object") == 0) {
+                PVOpenObject(peer, message, &request);
+                return;
+            }
             if (strcmp(request.operation, "accept_bootstrap") == 0) {
                 PVAcceptBootstrap(peer, message, &request);
                 return;
@@ -1839,6 +2108,7 @@ int main(void) {
                 initWithStore:trustedTimeStore
                   systemClock:
                       [AncPrivateVaultGenesisSystemTrustedClock new]];
+        gTrustedClock = genesisTrustedClock;
         gGenesisCoordinator = [[AncPrivateVaultGenesisCoordinator alloc]
             initWithArtifactStore:genesisArtifacts
                   authorityStore:authority

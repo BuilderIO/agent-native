@@ -1164,8 +1164,14 @@ the hosted caller cannot nominate a writer or epoch. Core hostile-coordinate
 tests, independent native-generated inner-envelope replay, arm64 and x86_64
 native seal/open tests, Core typecheck, production universal service build, and
 the pageable-custody guard pass. The primitive is not yet a document product:
-typed XPC operations, the local encrypted index, existing Content action-name
-adapters, and signed-Desktop UI remain open.
+the local encrypted index, existing Content action-name adapters, and
+signed-Desktop UI remain open. The typed native protocol now exposes bounded
+`seal_object` and `open_object` operations only to the code-signed Desktop
+client. Both operations require active attended endpoint custody to match the
+entire authenticated authority anchor, current epoch, membership digest, and
+writer key before using guarded signing or epoch keys. Protocol rejection
+tests, the universal production service build, both native architecture
+corpora, and the independent Core vector pass at this boundary.
 
 ### PR 7 — Migration, export, recovery, and rollback
 

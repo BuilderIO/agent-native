@@ -419,6 +419,95 @@ int main(void) {
              sizeof enrollmentAuthorization);
   xpc_release(activateEnrollment);
 
+  const char *objectID = "11223344556677889900aabbccddeeff";
+  const char *contentType =
+      "application/vnd.agent-native.content-document+json";
+  const uint8_t objectPlaintext[] = {'{', '}', '\n'};
+  const uint8_t objectCiphertext[] = {0xa4, 0x01, 0x02, 0x03};
+  xpc_object_t sealObject =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_object", "request-seal-object");
+  xpc_dictionary_set_string(sealObject, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(sealObject, "objectId", objectID);
+  xpc_dictionary_set_int64(sealObject, "revision", 4);
+  xpc_dictionary_set_string(sealObject, "contentType", contentType);
+  xpc_dictionary_set_data(sealObject, "objectPayload", objectPlaintext,
+                          sizeof objectPlaintext);
+  assert(PVParseRequest(sealObject, &parsed) == PVRequestValid &&
+         strcmp(parsed.objectID, objectID) == 0 &&
+         parsed.objectRevision == 4 &&
+         strcmp(parsed.objectContentType, contentType) == 0 &&
+         parsed.objectPayloadLength == sizeof objectPlaintext);
+  xpc_release(sealObject);
+
+  xpc_object_t openObject =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "open_object", "request-open-object");
+  xpc_dictionary_set_string(openObject, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(openObject, "objectId", objectID);
+  xpc_dictionary_set_int64(openObject, "revision", 4);
+  xpc_dictionary_set_data(openObject, "objectPayload", objectCiphertext,
+                          sizeof objectCiphertext);
+  assert(PVParseRequest(openObject, &parsed) == PVRequestValid &&
+         strcmp(parsed.objectID, objectID) == 0 &&
+         parsed.objectRevision == 4 &&
+         parsed.objectContentType == NULL &&
+         parsed.objectPayloadLength == sizeof objectCiphertext);
+  xpc_release(openObject);
+
+  xpc_object_t forgedObjectType =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_object", "request-object-type");
+  xpc_dictionary_set_string(forgedObjectType, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(forgedObjectType, "objectId", objectID);
+  xpc_dictionary_set_int64(forgedObjectType, "revision", 1);
+  xpc_dictionary_set_string(forgedObjectType, "contentType", "text/plain");
+  xpc_dictionary_set_data(forgedObjectType, "objectPayload", objectPlaintext,
+                          sizeof objectPlaintext);
+  assert(PVParseRequest(forgedObjectType, &parsed) == PVRequestInvalid);
+  xpc_release(forgedObjectType);
+
+  xpc_object_t openObjectWithType = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "open_object", "request-open-object-type");
+  xpc_dictionary_set_string(openObjectWithType, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(openObjectWithType, "objectId", objectID);
+  xpc_dictionary_set_int64(openObjectWithType, "revision", 1);
+  xpc_dictionary_set_string(openObjectWithType, "contentType", contentType);
+  xpc_dictionary_set_data(openObjectWithType, "objectPayload", objectCiphertext,
+                          sizeof objectCiphertext);
+  assert(PVParseRequest(openObjectWithType, &parsed) == PVRequestInvalid);
+  xpc_release(openObjectWithType);
+
+  xpc_object_t unsafeObjectRevision = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "open_object", "request-unsafe-object-revision");
+  xpc_dictionary_set_string(unsafeObjectRevision, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(unsafeObjectRevision, "objectId", objectID);
+  xpc_dictionary_set_int64(unsafeObjectRevision, "revision",
+                           INT64_C(9007199254740992));
+  xpc_dictionary_set_data(unsafeObjectRevision, "objectPayload",
+                          objectCiphertext, sizeof objectCiphertext);
+  assert(PVParseRequest(unsafeObjectRevision, &parsed) == PVRequestInvalid);
+  xpc_release(unsafeObjectRevision);
+
+  xpc_object_t uppercaseObject = PVMakeRequest(
+      PV_PROTOCOL_VERSION, "seal_object", "request-uppercase-object");
+  xpc_dictionary_set_string(uppercaseObject, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(uppercaseObject, "objectId",
+                            "11223344556677889900AABBCCDDEEFF");
+  xpc_dictionary_set_int64(uppercaseObject, "revision", 1);
+  xpc_dictionary_set_string(uppercaseObject, "contentType", contentType);
+  xpc_dictionary_set_data(uppercaseObject, "objectPayload", objectPlaintext,
+                          sizeof objectPlaintext);
+  assert(PVParseRequest(uppercaseObject, &parsed) == PVRequestInvalid);
+  xpc_release(uppercaseObject);
+
+  xpc_object_t emptyObject =
+      PVMakeRequest(PV_PROTOCOL_VERSION, "seal_object", "request-empty-object");
+  xpc_dictionary_set_string(emptyObject, "vaultId", enrollmentVault);
+  xpc_dictionary_set_string(emptyObject, "objectId", objectID);
+  xpc_dictionary_set_int64(emptyObject, "revision", 1);
+  xpc_dictionary_set_string(emptyObject, "contentType", contentType);
+  xpc_dictionary_set_data(emptyObject, "objectPayload", objectPlaintext, 0);
+  assert(PVParseRequest(emptyObject, &parsed) == PVRequestInvalid);
+  xpc_release(emptyObject);
+
   xpc_object_t forgedDecision = PVMakeRequest(
       PV_PROTOCOL_VERSION, "decide_enroll", "request-forged-enroll");
   xpc_dictionary_set_string(forgedDecision, "ceremonyToken", ceremonyToken);
