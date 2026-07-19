@@ -385,6 +385,7 @@ export function previewDraftMissingCasRecovery(args: {
 }
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
+type SidebarMessageKey = keyof (typeof messagesByLocale)["en-US"]["sidebar"];
 
 export function dbText(
   key: DatabaseMessageKey,
@@ -403,6 +404,15 @@ export function dbText(
       current.split(`{{${name}}}`).join(String(value)),
     text,
   );
+}
+
+function sidebarText(key: SidebarMessageKey): string {
+  const locale =
+    typeof document === "undefined" ? "en-US" : document.documentElement.lang;
+  const messages =
+    messagesByLocale[locale as keyof typeof messagesByLocale] ??
+    messagesByLocale["en-US"];
+  return messages.sidebar[key] ?? messagesByLocale["en-US"].sidebar[key];
 }
 
 export type CreateDatabaseRowHandler = (
@@ -4799,7 +4809,7 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconStarOff className="mr-2 size-4 text-muted-foreground" />
-                      Remove from Favorites
+                      {sidebarText("removeFromFavorites")}
                     </DropdownMenuItem>
                   ) : canManage ? (
                     <DropdownMenuItem
@@ -18159,7 +18169,7 @@ export function RowActionsCell({
               }}
             >
               <IconStarOff className="mr-2 size-4 text-muted-foreground" />
-              Remove from Favorites
+              {sidebarText("removeFromFavorites")}
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
