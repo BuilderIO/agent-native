@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.111.1
+
+### Patch Changes
+
+- 1a0a0af: Rename the "Agent workspace" surface to "Manage agent" and the agent panel "Workspace" tab to "Resources"
+
 ## 0.111.0
 
 ### Minor Changes
