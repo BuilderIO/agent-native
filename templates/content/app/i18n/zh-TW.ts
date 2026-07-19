@@ -1011,9 +1011,9 @@ const messages = {
   },
   localFiles: {
     unsupportedElectron:
-      "此處無法使用本機資料夾同步。請在 Agent Native Desktop 中開啟此頁面。瀏覽器資料夾存取功能尚未啟用。",
+      "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     unsupportedBrowser:
-      "此處無法使用本機資料夾同步。請在 Agent Native Desktop 中開啟此頁面。瀏覽器資料夾存取功能尚未啟用。",
+      "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已建立 {{count}} 個",
     summaryUpdated: "已更新 {{count}} 個",
