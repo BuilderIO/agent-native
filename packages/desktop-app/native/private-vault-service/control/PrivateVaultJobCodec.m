@@ -58,6 +58,28 @@ static const NSUInteger kPayloadMaximum = 16 * 1024 * 1024;
 @implementation AncPrivateVaultVerifiedResult
 @end
 
+@implementation AncPrivateVaultOpenedResult {
+  NSMutableData *_mutablePayload;
+  BOOL _closed;
+}
+- (instancetype)initWithPayload:(NSData *)payload state:(NSString *)state {
+  self = [super init];
+  if (self != nil) {
+    _mutablePayload = [payload mutableCopy];
+    _payload = _mutablePayload;
+    _state = [state copy];
+  }
+  return self;
+}
+- (BOOL)isClosed { return _closed; }
+- (void)close {
+  if (_closed) return;
+  anc_pv_zeroize(_mutablePayload.mutableBytes, _mutablePayload.length);
+  _closed = YES;
+}
+- (void)dealloc { [self close]; }
+@end
+
 static void SetStatus(AncPrivateVaultJobCodecStatus *status,
                       AncPrivateVaultJobCodecStatus value) {
   if (status != NULL) *status = value;
@@ -244,6 +266,60 @@ AncPrivateVaultVerifiedResult *AncPrivateVaultVerifyResultEnvelope(
   verified.state = [state.textValue copy];
   SetStatus(status, AncPrivateVaultJobCodecStatusOK);
   return verified;
+}
+
+AncPrivateVaultOpenedResult *AncPrivateVaultOpenResultEnvelope(
+    NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
+    NSData *expectedJobHash, NSData *expectedRecipientEndpointId,
+    const uint8_t brokerSigningPublicKey[ANC_PV_SIGN_PUBLIC_KEY_BYTES],
+    const uint8_t brokerBoxPublicKey[ANC_PV_BOX_PUBLIC_KEY_BYTES],
+    const uint8_t recipientBoxPrivateKey[ANC_PV_BOX_PRIVATE_KEY_BYTES],
+    AncPrivateVaultJobCodecStatus *status) {
+  AncPrivateVaultVerifiedResult *verified =
+      AncPrivateVaultVerifyResultEnvelope(
+          envelope, expectedVaultId, expectedJobId, expectedJobHash,
+          expectedRecipientEndpointId, brokerSigningPublicKey, status);
+  if (verified == nil || brokerBoxPublicKey == NULL ||
+      recipientBoxPrivateKey == NULL) {
+    if (verified != nil)
+      SetStatus(status, AncPrivateVaultJobCodecStatusInvalid);
+    return nil;
+  }
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *root = AncPrivateVaultCanonicalDecode(
+      envelope, kEnvelopeMaximum, &canonicalStatus);
+  NSDictionary *map = root.type == AncPrivateVaultCanonicalTypeMap
+                          ? root.mapValue
+                          : nil;
+  NSData *packed =
+      Field(map, 103, AncPrivateVaultCanonicalTypeBytes).bytesValue;
+  if (packed.length < 24 + 16 + sizeof kResultDomain ||
+      packed.length > kPayloadMaximum + 24 + 16 + sizeof kResultDomain) {
+    SetStatus(status, AncPrivateVaultJobCodecStatusInvalid);
+    return nil;
+  }
+  const uint8_t *packedBytes = packed.bytes;
+  NSUInteger ciphertextLength = packed.length - 24;
+  NSMutableData *opened = [NSMutableData dataWithLength:ciphertextLength - 16];
+  size_t openedLength = 0;
+  if (anc_pv_box_open(opened.mutableBytes, opened.length, &openedLength,
+                      packedBytes + 24, ciphertextLength, packedBytes,
+                      brokerBoxPublicKey, recipientBoxPrivateKey) !=
+          ANC_PV_CRYPTO_OK ||
+      openedLength < sizeof kResultDomain ||
+      memcmp(opened.bytes, kResultDomain, sizeof kResultDomain) != 0 ||
+      openedLength - sizeof kResultDomain > kPayloadMaximum) {
+    anc_pv_zeroize(opened.mutableBytes, opened.length);
+    SetStatus(status, AncPrivateVaultJobCodecStatusCrypto);
+    return nil;
+  }
+  NSData *payload =
+      [NSData dataWithBytes:(const uint8_t *)opened.bytes + sizeof kResultDomain
+                     length:openedLength - sizeof kResultDomain];
+  anc_pv_zeroize(opened.mutableBytes, opened.length);
+  SetStatus(status, AncPrivateVaultJobCodecStatusOK);
+  return [[AncPrivateVaultOpenedResult alloc] initWithPayload:payload
+                                                        state:verified.state];
 }
 
 static NSData *DomainMessage(const uint8_t *domain, size_t domainLength,

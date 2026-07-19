@@ -42,6 +42,16 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultJobCodecStatus) {
 @property(nonatomic, readonly) NSString *state;
 @end
 
+@interface AncPrivateVaultOpenedResult : NSObject
+@property(nonatomic, readonly) NSData *payload;
+@property(nonatomic, readonly) NSString *state;
+@property(nonatomic, readonly, getter=isClosed) BOOL closed;
+- (instancetype)initWithPayload:(NSData *)payload
+                           state:(NSString *)state NS_DESIGNATED_INITIALIZER;
+- (void)close;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
 FOUNDATION_EXPORT AncPrivateVaultJobCoordinates *_Nullable
 AncPrivateVaultInspectJobEnvelope(
     NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
@@ -58,6 +68,15 @@ AncPrivateVaultVerifyResultEnvelope(
     NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
     NSData *expectedJobHash, NSData *expectedRecipientEndpointId,
     const uint8_t *_Nonnull brokerSigningPublicKey,
+    AncPrivateVaultJobCodecStatus *status);
+
+FOUNDATION_EXPORT AncPrivateVaultOpenedResult *_Nullable
+AncPrivateVaultOpenResultEnvelope(
+    NSData *envelope, NSData *expectedVaultId, NSData *expectedJobId,
+    NSData *expectedJobHash, NSData *expectedRecipientEndpointId,
+    const uint8_t *_Nonnull brokerSigningPublicKey,
+    const uint8_t *_Nonnull brokerBoxPublicKey,
+    const uint8_t *_Nonnull recipientBoxPrivateKey,
     AncPrivateVaultJobCodecStatus *status);
 
 FOUNDATION_EXPORT AncPrivateVaultOpenedJob *_Nullable

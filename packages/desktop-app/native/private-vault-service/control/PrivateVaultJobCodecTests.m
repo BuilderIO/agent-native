@@ -98,6 +98,24 @@ int main(void) {
             Pattern(0x03, 16), signingPublic, &status);
     assert(status == AncPrivateVaultJobCodecStatusOK &&
            [verifiedResult.state isEqualToString:@"completed"]);
+    AncPrivateVaultOpenedResult *openedResult =
+        AncPrivateVaultOpenResultEnvelope(
+            result, Pattern(0x01, 16), Pattern(0x06, 16), opened.jobHash,
+            Pattern(0x03, 16), signingPublic, recipientBoxPublic,
+            senderBoxPrivate, &status);
+    NSString *openedResultText =
+        [[NSString alloc] initWithData:openedResult.payload
+                              encoding:NSUTF8StringEncoding];
+    assert(status == AncPrivateVaultJobCodecStatusOK && openedResult != nil &&
+           [openedResult.state isEqualToString:@"completed"] &&
+           [openedResultText isEqualToString:@"synthetic encrypted job result"]);
+    [openedResult close];
+    assert(openedResult.isClosed);
+    assert(AncPrivateVaultOpenResultEnvelope(
+               result, Pattern(0x01, 16), Pattern(0x06, 16), opened.jobHash,
+               Pattern(0x03, 16), signingPublic, recipientBoxPublic,
+               recipientBoxPrivate, &status) == nil);
+    assert(status == AncPrivateVaultJobCodecStatusCrypto);
     assert(AncPrivateVaultVerifyResultEnvelope(
                result, Pattern(0x01, 16), Pattern(0x06, 16),
                Pattern(0xff, 32), Pattern(0x03, 16), signingPublic,
