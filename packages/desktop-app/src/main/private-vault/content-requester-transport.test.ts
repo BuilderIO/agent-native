@@ -131,4 +131,24 @@ describe("Content requester transport", () => {
       new PrivateVaultContentRequesterTransportError(),
     );
   });
+
+  it("preserves a hosted not-found status for bounded result polling", async () => {
+    const fetch = vi.fn(
+      async () =>
+        ({
+          ok: false,
+          status: 404,
+          url: `https://content.example.test/api/private-vault/jobs/${jobId}/result`,
+          redirected: false,
+          headers: new Headers(),
+        }) as unknown as Response,
+    );
+    const transport = new PrivateVaultContentRequesterTransport({
+      origin: "https://content.example.test",
+      session: { fetch },
+    });
+    await expect(transport.getResult({ vaultId, jobId })).rejects.toEqual(
+      new PrivateVaultContentRequesterTransportError(404),
+    );
+  });
 });

@@ -6,7 +6,7 @@ const MAXIMUM_RESULT_BYTES = 16 * 1024 * 1024 + 64 * 1024;
 const MAXIMUM_JSON_BYTES = 4096;
 
 export class PrivateVaultContentRequesterTransportError extends Error {
-  constructor() {
+  constructor(readonly status?: number) {
     super("Private Vault requester transport unavailable");
     this.name = "PrivateVaultContentRequesterTransportError";
   }
@@ -140,6 +140,8 @@ export class PrivateVaultContentRequesterTransport {
         },
         body: ciphertext,
       });
+      if (!response.ok)
+        throw new PrivateVaultContentRequesterTransportError(response.status);
       const result = await exactJson(response, url);
       if (
         result.vaultId !== input.vaultId ||
@@ -152,7 +154,9 @@ export class PrivateVaultContentRequesterTransport {
       )
         throw new Error();
       return Object.freeze({ ...result });
-    } catch {
+    } catch (error) {
+      if (error instanceof PrivateVaultContentRequesterTransportError)
+        throw error;
       throw new PrivateVaultContentRequesterTransportError();
     } finally {
       ciphertext.fill(0);
@@ -206,6 +210,8 @@ export class PrivateVaultContentRequesterTransport {
         },
         body: ciphertext,
       });
+      if (!response.ok)
+        throw new PrivateVaultContentRequesterTransportError(response.status);
       const result = await exactJson(response, url);
       if (
         result.vaultId !== input.vaultId ||
@@ -220,7 +226,9 @@ export class PrivateVaultContentRequesterTransport {
       )
         throw new Error();
       return Object.freeze({ ...result });
-    } catch {
+    } catch (error) {
+      if (error instanceof PrivateVaultContentRequesterTransportError)
+        throw error;
       throw new PrivateVaultContentRequesterTransportError();
     } finally {
       ciphertext.fill(0);
@@ -244,6 +252,8 @@ export class PrivateVaultContentRequesterTransport {
           "X-ANC-Vault-Id": input.vaultId,
         },
       });
+      if (!response.ok)
+        throw new PrivateVaultContentRequesterTransportError(response.status);
       const length = response.headers.get("content-length");
       const state = response.headers.get("x-anc-job-state");
       const epoch = Number(response.headers.get("x-anc-epoch"));
@@ -273,7 +283,9 @@ export class PrivateVaultContentRequesterTransport {
         algorithmId: "anc/v1" as const,
         ciphertext,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof PrivateVaultContentRequesterTransportError)
+        throw error;
       throw new PrivateVaultContentRequesterTransportError();
     }
   }
