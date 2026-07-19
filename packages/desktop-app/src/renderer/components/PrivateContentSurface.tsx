@@ -1,10 +1,13 @@
 import type {
   DesktopPrivateContentDocument,
   DesktopPrivateContentSummary,
+  DesktopPrivateContentVersion,
 } from "@shared/ipc-channels";
 import {
   IconArrowLeft,
+  IconArrowBackUp,
   IconFilePlus,
+  IconHistory,
   IconLock,
   IconRefresh,
   IconSearch,
@@ -39,6 +42,20 @@ function privateDocument(value: unknown): DesktopPrivateContentDocument | null {
   return value as DesktopPrivateContentDocument;
 }
 
+function privateVersions(value: unknown): DesktopPrivateContentVersion[] {
+  if (!value || typeof value !== "object") return [];
+  const versions = (value as { versions?: unknown }).versions;
+  if (!Array.isArray(versions)) return [];
+  return versions.filter(
+    (version): version is DesktopPrivateContentVersion =>
+      !!version &&
+      typeof version === "object" &&
+      typeof (version as DesktopPrivateContentVersion).id === "string" &&
+      typeof (version as DesktopPrivateContentVersion).revision === "number" &&
+      typeof (version as DesktopPrivateContentVersion).content === "string",
+  );
+}
+
 export default function PrivateContentSurface({
   onClose,
 }: {
@@ -58,6 +75,11 @@ export default function PrivateContentSurface({
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [versions, setVersions] = useState<DesktopPrivateContentVersion[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
+    null,
+  );
 
   const loadList = useCallback(async () => {
     const response = await window.electronAPI.privateContent.list();
@@ -99,6 +121,8 @@ export default function PrivateContentSurface({
 
   const selectDocument = async (id: string) => {
     setConfirmDelete(false);
+    setShowVersions(false);
+    setVersions([]);
     const response = await window.electronAPI.privateContent.get(id);
     if (!response.ok) return setMessage(response.error);
     const document = privateDocument(response.value);
@@ -156,6 +180,45 @@ export default function PrivateContentSurface({
     setTitle("");
     setContent("");
     setConfirmDelete(false);
+    setShowVersions(false);
+    setVersions([]);
+    await loadList();
+  };
+
+  const openVersions = async () => {
+    if (!selected) return;
+    if (showVersions) {
+      setShowVersions(false);
+      return;
+    }
+    const response = await window.electronAPI.privateContent.listVersions(
+      selected.id,
+    );
+    if (!response.ok) return setMessage(response.error);
+    setVersions(privateVersions(response.value));
+    setShowVersions(true);
+    setMessage("");
+  };
+
+  const restoreVersion = async (revisionId: string) => {
+    if (!selected) return;
+    if (restoringVersionId !== revisionId) {
+      setRestoringVersionId(revisionId);
+      return;
+    }
+    const response = await window.electronAPI.privateContent.restoreVersion({
+      id: selected.id,
+      revisionId,
+    });
+    if (!response.ok) return setMessage(response.error);
+    const restored = privateDocument(response.value);
+    if (!restored) return setMessage("Private document is unavailable.");
+    setSelected(restored);
+    setTitle(restored.title);
+    setContent(restored.content);
+    setRestoringVersionId(null);
+    setShowVersions(false);
+    setMessage("Restored as a new encrypted version.");
     await loadList();
   };
 
@@ -165,6 +228,8 @@ export default function PrivateContentSurface({
     setSelected(null);
     setTitle("");
     setContent("");
+    setVersions([]);
+    setShowVersions(false);
     setState("locked");
   };
 
@@ -274,6 +339,10 @@ export default function PrivateContentSurface({
             />
             <div className="private-content-editor-footer">
               <span>{message}</span>
+              <button onClick={() => void openVersions()} type="button">
+                <IconHistory size={14} />
+                {showVersions ? "Close history" : "History"}
+              </button>
               <button
                 className={confirmDelete ? "is-confirming" : ""}
                 onClick={() => void remove()}
@@ -290,6 +359,52 @@ export default function PrivateContentSurface({
                 Save encrypted
               </button>
             </div>
+            {showVersions && (
+              <aside
+                aria-label="Encrypted document history"
+                className="private-content-history"
+              >
+                <div className="private-content-history-heading">
+                  <strong>Encrypted history</strong>
+                  <span>
+                    Restoring creates a new revision; history is never
+                    rewritten.
+                  </span>
+                </div>
+                <div className="private-content-history-list">
+                  {versions.map((version, index) => (
+                    <div key={version.id}>
+                      <div>
+                        <strong>
+                          {index === 0
+                            ? `Current · version ${version.revision}`
+                            : `Version ${version.revision}`}
+                        </strong>
+                        <span>
+                          {new Date(version.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                      {index > 0 && (
+                        <button
+                          className={
+                            restoringVersionId === version.id
+                              ? "is-confirming"
+                              : ""
+                          }
+                          onClick={() => void restoreVersion(version.id)}
+                          type="button"
+                        >
+                          <IconArrowBackUp size={14} />
+                          {restoringVersionId === version.id
+                            ? "Confirm restore"
+                            : "Restore"}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </aside>
+            )}
           </>
         ) : (
           <div className="private-content-empty">

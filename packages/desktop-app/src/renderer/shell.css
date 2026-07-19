@@ -779,6 +779,70 @@ body {
   text-align: center;
 }
 
+.private-content-history {
+  max-height: 240px;
+  margin-top: 14px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #171920;
+}
+
+.private-content-history-heading,
+.private-content-history-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px;
+}
+
+.private-content-history-heading {
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: #171920;
+  z-index: 1;
+}
+
+.private-content-history-heading strong,
+.private-content-history-list strong {
+  color: #d9dde7;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.private-content-history-heading span,
+.private-content-history-list span {
+  color: #858da0;
+  font-size: 10px;
+}
+
+.private-content-history-list > div + div {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.private-content-history-list > div > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.private-content-history-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #aeb5c5;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.private-content-history-list button.is-confirming {
+  color: #e4c08e;
+}
+
 .code-agents-shell-surface {
   position: absolute;
   inset: 0;

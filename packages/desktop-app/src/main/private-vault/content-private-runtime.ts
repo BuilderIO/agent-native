@@ -31,6 +31,8 @@ type PrivateContentDocuments = DocumentLifecycle &
     | "createDocument"
     | "updateDocument"
     | "deleteDocument"
+    | "listDocumentVersions"
+    | "restoreDocumentVersion"
   >;
 
 export class PrivateVaultContentRuntimeError extends Error {

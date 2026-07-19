@@ -659,6 +659,16 @@ interface ElectronAPI {
     ): Promise<
       import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
     >;
+    listVersions(
+      id: string,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
+    restoreVersion(
+      request: import("@shared/ipc-channels").DesktopPrivateContentRestoreVersionRequest,
+    ): Promise<
+      import("@shared/ipc-channels").DesktopPrivateContentResult<unknown>
+    >;
   };
 
   windowControls: {

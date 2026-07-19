@@ -42,6 +42,7 @@ import {
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentRestoreVersionRequest,
   type DesktopPrivateContentResult,
   type DesktopPrivateContentUpdateRequest,
   type DesktopShortcutActivationRequest,
@@ -110,6 +111,12 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_UPDATE, request),
     delete: (id: string): Promise<DesktopPrivateContentResult<unknown>> =>
       ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_DELETE, id),
+    listVersions: (id: string): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_LIST_VERSIONS, id),
+    restoreVersion: (
+      request: DesktopPrivateContentRestoreVersionRequest,
+    ): Promise<DesktopPrivateContentResult<unknown>> =>
+      ipcRenderer.invoke(IPC.CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION, request),
   },
 
   /** Window chrome controls */

@@ -77,6 +77,10 @@ export const IPC = {
   CONTENT_PRIVATE_RUNTIME_CREATE: "content-private-runtime:create",
   CONTENT_PRIVATE_RUNTIME_UPDATE: "content-private-runtime:update",
   CONTENT_PRIVATE_RUNTIME_DELETE: "content-private-runtime:delete",
+  CONTENT_PRIVATE_RUNTIME_LIST_VERSIONS:
+    "content-private-runtime:list-versions",
+  CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION:
+    "content-private-runtime:restore-version",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -417,6 +421,20 @@ export interface DesktopPrivateContentUpdateRequest {
   position?: number;
   isFavorite?: boolean;
   hideFromSearch?: boolean;
+}
+
+export interface DesktopPrivateContentVersion {
+  id: string;
+  documentId: string;
+  revision: number;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface DesktopPrivateContentRestoreVersionRequest {
+  id: string;
+  revisionId: string;
 }
 
 export type DesktopPrivateContentResult<T> =

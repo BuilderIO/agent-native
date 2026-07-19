@@ -1,6 +1,7 @@
 import {
   IPC,
   type DesktopPrivateContentCreateRequest,
+  type DesktopPrivateContentRestoreVersionRequest,
   type DesktopPrivateContentResult,
   type DesktopPrivateContentUpdateRequest,
 } from "@shared/ipc-channels";
@@ -11,6 +12,7 @@ import type { PrivateVaultContentRuntime } from "../private-vault/content-privat
 
 const UNAVAILABLE = "Private Content is locked or unavailable.";
 const opaqueIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
+const revisionIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const createSchema = z
   .object({
     title: z.string().max(16_384),
@@ -55,6 +57,12 @@ type RuntimeSurface = Pick<
       input: Omit<DesktopPrivateContentUpdateRequest, "id">,
     ): Promise<unknown>;
     deleteDocument(vaultId: string, objectId: string): Promise<unknown>;
+    listDocumentVersions(vaultId: string, objectId: string): Promise<unknown>;
+    restoreDocumentVersion(
+      vaultId: string,
+      objectId: string,
+      revisionId: string,
+    ): Promise<unknown>;
   };
 };
 
@@ -153,6 +161,31 @@ export function createContentPrivateRuntimeIpcHandlers(input: {
         const value = runtime(event);
         return value.documents().deleteDocument(activeVault(value), id);
       }),
+    listVersions: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const id = opaqueIdSchema.parse(arguments_[0]);
+        const value = runtime(event);
+        return value.documents().listDocumentVersions(activeVault(value), id);
+      }),
+    restoreVersion: (event: IpcMainInvokeEvent, ...arguments_: unknown[]) =>
+      result(async () => {
+        if (arguments_.length !== 1) throw new Error();
+        const parsed = z
+          .object({ id: opaqueIdSchema, revisionId: revisionIdSchema })
+          .strict()
+          .parse(
+            arguments_[0],
+          ) satisfies DesktopPrivateContentRestoreVersionRequest;
+        const value = runtime(event);
+        return value
+          .documents()
+          .restoreDocumentVersion(
+            activeVault(value),
+            parsed.id,
+            parsed.revisionId,
+          );
+      }),
   };
 }
 
@@ -169,4 +202,12 @@ export function registerContentPrivateRuntimeIpc(input: {
   ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_CREATE, handlers.create);
   ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_UPDATE, handlers.update);
   ipcMain.handle(IPC.CONTENT_PRIVATE_RUNTIME_DELETE, handlers.delete);
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_LIST_VERSIONS,
+    handlers.listVersions,
+  );
+  ipcMain.handle(
+    IPC.CONTENT_PRIVATE_RUNTIME_RESTORE_VERSION,
+    handlers.restoreVersion,
+  );
 }

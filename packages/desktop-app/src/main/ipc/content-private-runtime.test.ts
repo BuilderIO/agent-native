@@ -13,6 +13,8 @@ function fixture(allowed = true) {
     createDocument: vi.fn(async () => ({ id: documentId })),
     updateDocument: vi.fn(async () => ({ id: documentId })),
     deleteDocument: vi.fn(async () => ({ success: true })),
+    listDocumentVersions: vi.fn(async () => ({ versions: [] })),
+    restoreDocumentVersion: vi.fn(async () => ({ id: documentId })),
   };
   const runtime = {
     start: vi.fn(async () => undefined),
@@ -48,6 +50,11 @@ describe("signed Private Content IPC", () => {
       title: "Revised",
     });
     await source.handlers.delete(event, documentId);
+    await source.handlers.listVersions(event, documentId);
+    await source.handlers.restoreVersion(event, {
+      id: documentId,
+      revisionId: "33".repeat(32),
+    });
 
     expect(source.documents.createDocument).toHaveBeenCalledWith(
       vaultId,
@@ -61,6 +68,15 @@ describe("signed Private Content IPC", () => {
       vaultId,
       "private",
       20,
+    );
+    expect(source.documents.listDocumentVersions).toHaveBeenCalledWith(
+      vaultId,
+      documentId,
+    );
+    expect(source.documents.restoreDocumentVersion).toHaveBeenCalledWith(
+      vaultId,
+      documentId,
+      "33".repeat(32),
     );
   });
 
@@ -78,6 +94,12 @@ describe("signed Private Content IPC", () => {
       source.handlers.create({} as never, {
         title: "Valid",
         smuggled: "no",
+      }),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(
+      source.handlers.restoreVersion({} as never, {
+        id: documentId,
+        revisionId: "not-a-revision",
       }),
     ).resolves.toMatchObject({ ok: false });
     expect(source.documents.getDocument).not.toHaveBeenCalled();
