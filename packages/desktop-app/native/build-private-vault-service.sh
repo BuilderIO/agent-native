@@ -13,6 +13,7 @@ SOURCES=(
   "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m"
+  "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorizer.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorization.m"
   "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceipt.m"
   "$SOURCE_ROOT/control/PrivateVaultEekWrap.m"
@@ -790,6 +791,7 @@ case "${PRIVATE_VAULT_BUILD_ENROLLMENT_AUTHORIZATION_TESTS:-}" in
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
       "$SOURCE_ROOT/control/PrivateVaultEnrollmentOffer.m" \
       "$SOURCE_ROOT/control/PrivateVaultEnrollmentChallenge.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorizer.m" \
       "$SOURCE_ROOT/control/PrivateVaultEekWrap.m" \
       "$SOURCE_ROOT/control/PrivateVaultEnrollmentAuthorization.m" \
       "$SOURCE_ROOT/control/PrivateVaultEnrollmentSasReceipt.m" \

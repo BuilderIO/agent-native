@@ -5,6 +5,7 @@
 #import "PrivateVaultCrypto.h"
 #import "PrivateVaultEnrollmentAuthorization.h"
 #import "PrivateVaultEnrollmentAuthorizationInternal.h"
+#import "PrivateVaultEnrollmentAuthorizer.h"
 #import "PrivateVaultEnrollmentCoordinator.h"
 #import "PrivateVaultEnrollmentOffer.h"
 #import "PrivateVaultEnrollmentSasReceipt.h"
@@ -283,6 +284,68 @@ int main(void) {
         Sign(challengeUnsigned, @182, "anc/v1/enrollment-challenge",
              authorizerSigningPrivate);
     NSData *challengeHash = Hash("anc/v1/enrollment-challenge", challenge);
+    AncPrivateVaultGuardedMemoryStatus memoryStatus;
+    AncPrivateVaultGuardedMemory *authorizerSigningGuard =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    AncPrivateVaultGuardedMemory *authorizerAgreementGuard =
+        [AncPrivateVaultGuardedMemory memoryWithLength:32 status:&memoryStatus];
+    const uint8_t *authorizerSigningSeedBytes = authorizerSigningSeed;
+    const uint8_t *authorizerBoxSeedBytes = authorizerBoxSeed;
+    assert(authorizerSigningGuard != nil && authorizerAgreementGuard != nil &&
+           [authorizerSigningGuard borrow:^BOOL(uint8_t *bytes, size_t length) {
+             assert(length == 32);
+             memcpy(bytes, authorizerSigningSeedBytes, 32);
+             return YES;
+           }] == AncPrivateVaultGuardedMemoryStatusOK &&
+           [authorizerAgreementGuard
+               borrow:^BOOL(uint8_t *bytes, size_t length) {
+                 assert(length == 32);
+                 memcpy(bytes, authorizerBoxSeedBytes, 32);
+                 return YES;
+               }] == AncPrivateVaultGuardedMemoryStatusOK);
+    AncPrivateVaultEnrollmentAuthorizerStatus authorizerStatus;
+    AncPrivateVaultPreparedEnrollmentChallenge *preparedChallenge =
+        AncPrivateVaultBuildEnrollmentChallenge(
+            offer.encodedOffer, offer.candidateKeyProof,
+            State(authorizerSigning, authorizerAgreement),
+            authorizerSigningGuard, authorizerAgreementGuard,
+            Repeated(0x0f, 16), Repeated(0xa7, 32), 1721111100, 1721111120,
+            1721111720, &authorizerStatus);
+    assert(authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusOK &&
+           preparedChallenge != nil &&
+           [preparedChallenge.encodedChallenge isEqualToData:challenge] &&
+           [preparedChallenge.verifiedChallenge.challengeHash
+               isEqualToData:challengeHash]);
+    assert(AncPrivateVaultBuildEnrollmentChallenge(
+               offer.encodedOffer, Repeated(0x99, 63),
+               State(authorizerSigning, authorizerAgreement),
+               authorizerSigningGuard, authorizerAgreementGuard,
+               Repeated(0x0f, 16), Repeated(0xa7, 32), 1721111100,
+               1721111120, 1721111720, &authorizerStatus) == nil &&
+           authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusInvalid);
+    assert(AncPrivateVaultBuildEnrollmentChallenge(
+               offer.encodedOffer, offer.candidateKeyProof,
+               State(authorizerSigning, authorizerAgreement),
+               authorizerSigningGuard, authorizerAgreementGuard,
+               Repeated(0x0f, 16), Repeated(0xa7, 32), 1721111100,
+               1721111120, 1721111721, &authorizerStatus) == nil &&
+           authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusInvalid);
+    assert([authorizerSigningGuard borrow:^BOOL(uint8_t *bytes, size_t length) {
+             assert(length == 32);
+             bytes[0] ^= 1;
+             return YES;
+           }] == AncPrivateVaultGuardedMemoryStatusOK &&
+           AncPrivateVaultBuildEnrollmentChallenge(
+               offer.encodedOffer, offer.candidateKeyProof,
+               State(authorizerSigning, authorizerAgreement),
+               authorizerSigningGuard, authorizerAgreementGuard,
+               Repeated(0x0f, 16), Repeated(0xa7, 32), 1721111100,
+               1721111120, 1721111720, &authorizerStatus) == nil &&
+           authorizerStatus == AncPrivateVaultEnrollmentAuthorizerStatusConflict &&
+           [authorizerSigningGuard close] ==
+               AncPrivateVaultGuardedMemoryStatusOK &&
+           [authorizerAgreementGuard close] ==
+               AncPrivateVaultGuardedMemoryStatusOK);
 
     NSDictionary *endpointUnsigned = @{
       @1 : [AncPrivateVaultCanonicalValue text:@"anc/v1"],
