@@ -308,7 +308,7 @@ export interface CreateProviderApiRequestActionOptions<
   needsApproval?:
     | boolean
     | ((
-        args: ProviderRequestActionArgs,
+        args: z.output<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
 }

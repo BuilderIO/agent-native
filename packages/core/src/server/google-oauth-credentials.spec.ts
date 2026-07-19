@@ -113,4 +113,13 @@ describe("resolveGoogleSignInCredentials", () => {
       { clientId: "environment-client", clientSecret: "environment-secret" },
     ]);
   });
+
+  it("fails closed when a bare reader has no complete primary credential pair", async () => {
+    await expect(
+      resolveGoogleProviderCredentialCandidatesWithReader({
+        readCredential: () => null,
+        credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+      }),
+    ).resolves.toEqual([]);
+  });
 });

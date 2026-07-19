@@ -80,5 +80,4 @@ export default createQueryStagedDatasetAction({
   appId: DISPATCH_APP_ID,
   getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
   http: false,
-  readOnly: true,
 });

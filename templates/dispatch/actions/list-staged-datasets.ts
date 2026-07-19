@@ -11,5 +11,4 @@ export default createListStagedDatasetsAction({
   appId: DISPATCH_APP_ID,
   getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
   http: { method: "GET" },
-  readOnly: true,
 });

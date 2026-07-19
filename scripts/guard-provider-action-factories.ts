@@ -1,7 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-const TEMPLATE_NAMES = [
+// This syntax-level guard intentionally requires direct named factory imports.
+// It does not resolve aliases, re-exports, or computed factory references.
+const REQUIRED_TEMPLATE_NAMES = [
   "analytics",
   "brain",
   "calendar",
@@ -11,6 +13,8 @@ const TEMPLATE_NAMES = [
   "mail",
   "slides",
 ] as const;
+
+const PACKAGE_DISPATCH_ACTIONS = "packages/dispatch/src/actions";
 
 const ACTION_FACTORIES = {
   "provider-api-request": {
@@ -149,27 +153,64 @@ export function checkProviderActionFactories(
   repoRoot: string,
 ): ProviderActionFactoryViolation[] {
   const violations: ProviderActionFactoryViolation[] = [];
-  for (const template of TEMPLATE_NAMES) {
-    for (const action of Object.keys(ACTION_FACTORIES) as ActionName[]) {
-      const file = path.join("templates", template, "actions", `${action}.ts`);
-      const absoluteFile = path.join(repoRoot, file);
-      if (!existsSync(absoluteFile)) {
+  for (const template of REQUIRED_TEMPLATE_NAMES) {
+    checkProviderActionDirectory(
+      repoRoot,
+      path.join("templates", template, "actions"),
+      true,
+      violations,
+    );
+  }
+
+  for (const entry of readdirSync(path.join(repoRoot, "templates"), {
+    withFileTypes: true,
+  })) {
+    if (!entry.isDirectory() || REQUIRED_TEMPLATE_NAMES.includes(entry.name)) {
+      continue;
+    }
+    checkProviderActionDirectory(
+      repoRoot,
+      path.join("templates", entry.name, "actions"),
+      false,
+      violations,
+    );
+  }
+
+  checkProviderActionDirectory(
+    repoRoot,
+    PACKAGE_DISPATCH_ACTIONS,
+    false,
+    violations,
+  );
+  return violations;
+}
+
+function checkProviderActionDirectory(
+  repoRoot: string,
+  actionDirectory: string,
+  required: boolean,
+  violations: ProviderActionFactoryViolation[],
+): void {
+  for (const action of Object.keys(ACTION_FACTORIES) as ActionName[]) {
+    const file = path.join(actionDirectory, `${action}.ts`);
+    const absoluteFile = path.join(repoRoot, file);
+    if (!existsSync(absoluteFile)) {
+      if (required) {
         violations.push({
           file,
           message: "required provider action is missing",
         });
-        continue;
       }
-      violations.push(
-        ...analyzeProviderActionFactorySource(
-          file,
-          readFileSync(absoluteFile, "utf8"),
-          action,
-        ),
-      );
+      continue;
     }
+    violations.push(
+      ...analyzeProviderActionFactorySource(
+        file,
+        readFileSync(absoluteFile, "utf8"),
+        action,
+      ),
+    );
   }
-  return violations;
 }
 
 function main(): void {

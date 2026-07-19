@@ -16,7 +16,10 @@
  *   Userinfo: https://www.googleapis.com/oauth2/v2/userinfo
  */
 
-import { resolveGoogleProviderCredentialCandidatesWithReader } from "@agent-native/core/server";
+import {
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  resolveGoogleProviderCredentialCandidatesWithReader,
+} from "@agent-native/core/server";
 
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -95,6 +98,7 @@ export async function resolveGoogleOAuthCredentialCandidates(): Promise<
 > {
   return resolveGoogleProviderCredentialCandidatesWithReader({
     readCredential: (key) => process.env[key],
+    credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
   });
 }
 

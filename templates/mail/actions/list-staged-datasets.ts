@@ -14,5 +14,4 @@ export default createListStagedDatasetsAction({
   appId: MAIL_APP_ID,
   getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
   http: { method: "GET" },
-  readOnly: true,
 });

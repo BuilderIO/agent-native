@@ -103,6 +103,33 @@ describe("provider API action factories", () => {
     expect(docs.readOnly).toBe(true);
   });
 
+  it("types approval predicates from the caller's request schema output", () => {
+    const requestSchema = z.object({
+      provider: z.literal("figma"),
+      method: z.enum(["GET", "POST"]).default("GET"),
+      path: z.string().min(1),
+      approvalScope: z.literal("design"),
+    });
+    const requiresDesignApproval = (args: z.output<typeof requestSchema>) =>
+      args.approvalScope === "design" && args.method === "POST";
+    const request = createProviderApiRequestAction(
+      { executeRequest: vi.fn() },
+      { schema: requestSchema, needsApproval: requiresDesignApproval },
+    );
+
+    expect(typeof request.needsApproval).toBe("function");
+    if (typeof request.needsApproval === "function") {
+      expect(
+        request.needsApproval({
+          provider: "figma",
+          method: "POST",
+          path: "/v1/files/example",
+          approvalScope: "design",
+        }),
+      ).toBe(true);
+    }
+  });
+
   it("requires an app id and owner when staging is requested", async () => {
     const action = createProviderApiRequestAction({ executeRequest: vi.fn() });
     await expect(

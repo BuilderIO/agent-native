@@ -83,5 +83,4 @@ export default createQueryStagedDatasetAction({
   appId: SLIDES_APP_ID,
   getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
   http: false,
-  readOnly: true,
 });
