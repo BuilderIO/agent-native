@@ -184,6 +184,11 @@ import {
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
 import {
+  createMultiFrontierQuitGuard,
+  initializeMultiFrontierAppIntegration,
+  type MultiFrontierAppIntegration,
+} from "./multi-frontier-app-integration.js";
+import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
@@ -1559,6 +1564,12 @@ let remoteConnectorLastExitSignal: string | null | undefined;
 let remoteConnectorNextRestartAt: string | undefined;
 let remoteConnectorError: string | undefined;
 let appIsQuitting = false;
+let multiFrontierAppIntegration: MultiFrontierAppIntegration | undefined;
+let multiFrontierDisposePromise: Promise<void> | undefined;
+const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
+  dispose: () => disposeMultiFrontierAppIntegration(),
+  reissueQuit: () => app.quit(),
+});
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
   "clipboard-read",
@@ -4767,6 +4778,33 @@ function listCodeAgentProjects(): CodeAgentProjectListResult {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function listMultiFrontierWorkspaces(): {
+  selectedPath?: string;
+  workspaces: Array<{ id: string; path: string }>;
+} {
+  const defaultPath = resolveCodeAgentsTerminalCwd({});
+  const state = readCodeAgentProjectsState();
+  const projects = [
+    normalizeProjectFolder(defaultPath),
+    ...state.projects.filter((project) => project.path !== defaultPath),
+  ];
+  return {
+    selectedPath: state.selectedPath ?? defaultPath,
+    workspaces: projects.map(({ id, path: projectPath }) => ({
+      id,
+      path: projectPath,
+    })),
+  };
+}
+
+function disposeMultiFrontierAppIntegration(): Promise<void> {
+  if (!multiFrontierDisposePromise) {
+    multiFrontierDisposePromise =
+      multiFrontierAppIntegration?.dispose() ?? Promise.resolve();
+  }
+  return multiFrontierDisposePromise;
 }
 
 async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
@@ -9173,6 +9211,13 @@ app.whenReady().then(async () => {
   console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
+  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
+    ipcMain,
+    storeRoot: codeAgentStoreRoot(),
+    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    listWorkspaces: listMultiFrontierWorkspaces,
+    resolveDirectory: resolveUsableDirectory,
+  });
   registerDesktopShortcutBindings();
 
   const win = createWindow();
@@ -9275,21 +9320,24 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
-  appIsQuitting = true;
-  for (const appId of managedDesktopAppProcesses.keys()) {
-    stopManagedDesktopApp(appId);
+app.on("before-quit", (event) => {
+  if (!appIsQuitting) {
+    appIsQuitting = true;
+    for (const appId of managedDesktopAppProcesses.keys()) {
+      stopManagedDesktopApp(appId);
+    }
+    pauseActiveCodeAgentProcessesForShutdown();
+    if (remoteConnectorRestartTimer) {
+      clearTimeout(remoteConnectorRestartTimer);
+      remoteConnectorRestartTimer = null;
+    }
+    remoteConnectorProcess?.kill("SIGTERM");
+    remoteConnectorProcess = null;
+    void desktopComputerMcpBridge?.close();
+    desktopComputerMcpBridge = null;
+    desktopBrowserControlBridge = null;
   }
-  pauseActiveCodeAgentProcessesForShutdown();
-  if (remoteConnectorRestartTimer) {
-    clearTimeout(remoteConnectorRestartTimer);
-    remoteConnectorRestartTimer = null;
-  }
-  remoteConnectorProcess?.kill("SIGTERM");
-  remoteConnectorProcess = null;
-  void desktopComputerMcpBridge?.close();
-  desktopComputerMcpBridge = null;
-  desktopBrowserControlBridge = null;
+  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {
