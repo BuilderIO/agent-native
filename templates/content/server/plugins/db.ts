@@ -1410,6 +1410,37 @@ const runContentMigrations = runMigrations(
       ALTER TABLE content_encrypted_vault_migrations
         ADD COLUMN IF NOT EXISTS cutover_manifest_ciphertext_hash TEXT`,
     },
+    {
+      version: 110,
+      name: "content-private-vault-signed-disclosures",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_signed_disclosures (
+        disclosure_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        endpoint_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        grant_id TEXT NOT NULL,
+        grant_ref TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        scope_hash TEXT NOT NULL,
+        issued_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        signed_envelope TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_signed_disclosures_scope_time_idx
+        ON content_encrypted_vault_signed_disclosures (owner_email, org_id, vault_id, server_received_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_signed_disclosures_job_unique
+        ON content_encrypted_vault_signed_disclosures (vault_id, job_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

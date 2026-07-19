@@ -700,6 +700,11 @@ export const sqlPrivateVaultRetentionStore: PrivateVaultRetentionStore = {
           .delete(schema.contentEncryptedVaultDisclosures)
           .where(scopeWhere(schema.contentEncryptedVaultDisclosures, item));
         await tx
+          .delete(schema.contentEncryptedVaultSignedDisclosures)
+          .where(
+            scopeWhere(schema.contentEncryptedVaultSignedDisclosures, item),
+          );
+        await tx
           .delete(schema.contentEncryptedVaultAccessEvents)
           .where(scopeWhere(schema.contentEncryptedVaultAccessEvents, item));
         await tx
@@ -859,7 +864,37 @@ export const sqlPrivateVaultRetentionStore: PrivateVaultRetentionStore = {
         ),
       );
     }
-    return accessRows.length + disclosureRows.length;
+    const signedRemaining = remaining - disclosureRows.length;
+    if (signedRemaining <= 0) return accessRows.length + disclosureRows.length;
+    const signedDisclosureRows = await db
+      .select({
+        id: schema.contentEncryptedVaultSignedDisclosures.disclosureId,
+      })
+      .from(schema.contentEncryptedVaultSignedDisclosures)
+      .where(
+        lte(
+          schema.contentEncryptedVaultSignedDisclosures.serverReceivedAt,
+          cutoff,
+        ),
+      )
+      .limit(signedRemaining);
+    if (signedDisclosureRows.length > 0) {
+      await db.delete(schema.contentEncryptedVaultSignedDisclosures).where(
+        and(
+          inArray(
+            schema.contentEncryptedVaultSignedDisclosures.disclosureId,
+            signedDisclosureRows.map((row) => row.id),
+          ),
+          lte(
+            schema.contentEncryptedVaultSignedDisclosures.serverReceivedAt,
+            cutoff,
+          ),
+        ),
+      );
+    }
+    return (
+      accessRows.length + disclosureRows.length + signedDisclosureRows.length
+    );
   },
 };
 

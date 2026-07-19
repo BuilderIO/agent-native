@@ -93,7 +93,11 @@ describe("Private Vault broker authentication", () => {
         body,
         now,
       }),
-    ).resolves.toEqual({ ...scope, endpointId });
+    ).resolves.toEqual({
+      ...scope,
+      endpointId,
+      signingPublicKey: new Uint8Array(32).fill(7),
+    });
     expect(verifyEndpointRequestProof).toHaveBeenCalledWith(
       expect.objectContaining({
         proof: { opaque: true },

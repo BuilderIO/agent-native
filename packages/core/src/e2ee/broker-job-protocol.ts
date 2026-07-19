@@ -29,6 +29,7 @@ export const ancV1BrokerClaimRequestSchema = z
 export const ancV1BrokerClaimedJobSchema = z
   .object({
     jobId: opaqueIdSchema,
+    grantId: opaqueIdSchema,
     epoch: positive,
     retryCount,
     algorithmId: opaqueAlgorithmIdSchema,

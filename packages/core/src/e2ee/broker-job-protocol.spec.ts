@@ -31,6 +31,7 @@ import { E2EE_SIZE_LIMITS } from "./suite.js";
 const base = { version: 1 as const, suite: "anc/v1" as const };
 const job = {
   jobId: "job-12345678",
+  grantId: "grant-12345678",
   epoch: 1,
   retryCount: 0,
   algorithmId: "anc-v1-job",
@@ -143,7 +144,11 @@ describe("anc/v1 broker job protocol", () => {
       metadata: {
         ...base,
         type: "broker-job-request-response",
-        ...job,
+        jobId: job.jobId,
+        epoch: job.epoch,
+        retryCount: job.retryCount,
+        algorithmId: job.algorithmId,
+        ciphertextByteLength: job.ciphertextByteLength,
       },
       ciphertext: requestCiphertext,
     });

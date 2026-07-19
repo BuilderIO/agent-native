@@ -10,6 +10,10 @@ import {
 import { sqlPrivateVaultEndpointRequestNonceStore } from "./private-vault-endpoint-request-nonces.js";
 import type { PrivateVaultEndpointPrincipal } from "./private-vault-jobs.js";
 
+export interface PrivateVaultAuthenticatedBrokerPrincipal extends PrivateVaultEndpointPrincipal {
+  signingPublicKey: Uint8Array;
+}
+
 export class PrivateVaultBrokerAuthenticationError extends Error {
   constructor() {
     super("Private Vault broker authentication failed");
@@ -41,9 +45,11 @@ export async function authenticatePrivateVaultBrokerRequest(input: {
   path: string;
   body: Uint8Array;
   now?: Date;
-}): Promise<PrivateVaultEndpointPrincipal> {
+}): Promise<PrivateVaultAuthenticatedBrokerPrincipal> {
   const now = input.now ?? new Date();
-  const resolved: { principal: PrivateVaultEndpointPrincipal | null } = {
+  const resolved: {
+    principal: PrivateVaultAuthenticatedBrokerPrincipal | null;
+  } = {
     principal: null,
   };
   try {
@@ -62,7 +68,11 @@ export async function authenticatePrivateVaultBrokerRequest(input: {
             endpointId,
           );
         if (!authority) return null;
-        resolved.principal = { ...scope, endpointId };
+        resolved.principal = {
+          ...scope,
+          endpointId,
+          signingPublicKey: Uint8Array.from(authority.signingPublicKey),
+        };
         return {
           vaultId,
           endpointId,
@@ -85,7 +95,14 @@ export async function authenticatePrivateVaultBrokerRequest(input: {
           return false;
         }
         return sqlPrivateVaultEndpointRequestNonceStore.claimAuthorizedControlRequest(
-          { ...resolved.principal, nonce, expiresAt },
+          {
+            ownerEmail: resolved.principal.ownerEmail,
+            orgId: resolved.principal.orgId,
+            vaultId: resolved.principal.vaultId,
+            endpointId: resolved.principal.endpointId,
+            nonce,
+            expiresAt,
+          },
         );
       },
     });

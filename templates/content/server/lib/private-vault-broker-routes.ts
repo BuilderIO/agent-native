@@ -1,16 +1,19 @@
 import {
   ANC_V1_BROKER_CONTROL_MAX_BYTES,
   ANC_V1_BROKER_RESULT_FRAME_MAX_BYTES,
+  decodeAncV1BrokerDisclosureRequest,
   decodeAncV1BrokerAckRequest,
   decodeAncV1BrokerClaimRequest,
   decodeAncV1BrokerRequestRequest,
   decodeAncV1BrokerResultFrame,
   decodeAncV1BrokerRetryRequest,
   encodeAncV1BrokerAckResponse,
+  encodeAncV1BrokerDisclosureResponse,
   encodeAncV1BrokerClaimResponse,
   encodeAncV1BrokerRequestFrame,
   encodeAncV1BrokerResultResponse,
   encodeAncV1BrokerRetryResponse,
+  verifyAncV1BrokerDisclosure,
 } from "@agent-native/core/e2ee";
 import {
   getHeader,
@@ -29,6 +32,7 @@ import {
   PrivateVaultJobNotFoundError,
   privateVaultJobService,
 } from "./private-vault-jobs.js";
+import { privateVaultSignedDisclosureService } from "./private-vault-signed-disclosures.js";
 
 export const PRIVATE_VAULT_BROKER_PATHS = Object.freeze({
   claim: "/api/private-vault/jobs/broker/claim",
@@ -36,6 +40,7 @@ export const PRIVATE_VAULT_BROKER_PATHS = Object.freeze({
   ack: "/api/private-vault/jobs/broker/ack",
   retry: "/api/private-vault/jobs/broker/retry",
   result: "/api/private-vault/jobs/broker/result",
+  disclosure: "/api/private-vault/jobs/broker/disclosure",
 } as const);
 
 export type PrivateVaultBrokerRoute = keyof typeof PRIVATE_VAULT_BROKER_PATHS;
@@ -71,7 +76,9 @@ export async function handlePrivateVaultBrokerRoute(
   const maximum =
     route === "result"
       ? ANC_V1_BROKER_RESULT_FRAME_MAX_BYTES
-      : ANC_V1_BROKER_CONTROL_MAX_BYTES;
+      : route === "disclosure"
+        ? 96 * 1024
+        : ANC_V1_BROKER_CONTROL_MAX_BYTES;
   const contentLength = positiveLength(
     getHeader(event, "content-length")?.trim() ?? "",
   );
@@ -95,6 +102,35 @@ export async function handlePrivateVaultBrokerRoute(
       getHeader(event, "x-anc-endpoint-proof")?.trim() ?? "",
     );
 
+    if (route === "disclosure") {
+      const request = decodeAncV1BrokerDisclosureRequest(body);
+      const principal = await authenticatePrivateVaultBrokerRequest({
+        proof,
+        method: "POST",
+        path,
+        body,
+      });
+      const verified = await verifyAncV1BrokerDisclosure({
+        request,
+        brokerSigningPublicKey: principal.signingPublicKey,
+        nowSeconds: Math.floor(Date.now() / 1000),
+      });
+      await privateVaultSignedDisclosureService.append({
+        principal,
+        disclosure: verified,
+      });
+      return response(
+        event,
+        encodeAncV1BrokerDisclosureResponse({
+          version: 1,
+          suite: "anc/v1",
+          type: "broker-disclosure-response",
+          disclosureId: verified.disclosureId,
+          state: "stored",
+        }),
+      );
+    }
+
     if (route === "claim") {
       decodeAncV1BrokerClaimRequest(body);
       const principal = await authenticatePrivateVaultBrokerRequest({
@@ -113,6 +149,7 @@ export async function handlePrivateVaultBrokerRoute(
           job: job
             ? {
                 jobId: job.jobId,
+                grantId: job.grantId,
                 epoch: job.epoch,
                 retryCount: job.retryCount,
                 algorithmId: job.algorithmId,

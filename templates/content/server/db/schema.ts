@@ -989,6 +989,43 @@ export const contentEncryptedVaultDisclosures = table(
   ],
 );
 
+export const contentEncryptedVaultSignedDisclosures = table(
+  "content_encrypted_vault_signed_disclosures",
+  {
+    disclosureId: text("disclosure_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    endpointId: text("endpoint_id").notNull(),
+    jobId: text("job_id").notNull(),
+    grantId: text("grant_id").notNull(),
+    grantRef: text("grant_ref").notNull(),
+    resourceId: text("resource_id").notNull(),
+    operation: text("operation").notNull(),
+    providerId: text("provider_id").notNull(),
+    destination: text("destination").notNull(),
+    outcome: text("outcome").notNull(),
+    scopeHash: text("scope_hash").notNull(),
+    issuedAt: text("issued_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    signedEnvelope: text("signed_envelope").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (disclosure) => [
+    index("content_encrypted_vault_signed_disclosures_scope_time_idx").on(
+      disclosure.ownerEmail,
+      disclosure.orgId,
+      disclosure.vaultId,
+      disclosure.serverReceivedAt,
+    ),
+    uniqueIndex("content_encrypted_vault_signed_disclosures_job_unique").on(
+      disclosure.vaultId,
+      disclosure.jobId,
+    ),
+  ],
+);
+
 export const contentEncryptedVaultObjects = table(
   "content_encrypted_vault_objects",
   {

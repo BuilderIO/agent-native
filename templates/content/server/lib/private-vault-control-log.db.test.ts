@@ -348,6 +348,7 @@ describe("Private Vault signed control-log persistence", () => {
     ).resolves.toEqual({
       ...scope(vaultId),
       endpointId: broker.member.endpointId,
+      signingPublicKey: broker.pair.publicKey,
     });
     await expect(
       authenticatePrivateVaultBrokerRequest(request),

@@ -1,14 +1,22 @@
 import {
   decodeAncV1BrokerAckResponse,
   decodeAncV1BrokerClaimResponse,
+  decodeAncV1BrokerDisclosureResponse,
   decodeAncV1BrokerRequestFrame,
   decodeAncV1BrokerResultResponse,
   decodeAncV1BrokerRetryResponse,
   encodeAncV1BrokerAckRequest,
   encodeAncV1BrokerClaimRequest,
+  encodeAncV1BrokerDisclosureRequest,
   encodeAncV1BrokerRequestRequest,
   encodeAncV1BrokerResultFrame,
   encodeAncV1BrokerRetryRequest,
+  ancV1BytesToHex,
+  ancV1Hash,
+  ancV1SignDetached,
+  ancV1SigningKeypairFromSeed,
+  encodeAncV1Canonical,
+  E2EE_ENVELOPE_FIELDS,
 } from "@agent-native/core/e2ee";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +32,7 @@ const service = vi.hoisted(() => ({
   retry: vi.fn(),
   submitResult: vi.fn(),
 }));
+const signedDisclosureService = vi.hoisted(() => ({ append: vi.fn() }));
 
 vi.mock("h3", () => ({
   getHeader: (event: TestEvent, name: string) => event.headers[name],
@@ -44,6 +53,10 @@ vi.mock("./private-vault-jobs.js", () => ({
   PrivateVaultJobConflictError: class extends Error {},
   PrivateVaultJobNotFoundError: class extends Error {},
   privateVaultJobService: service,
+}));
+vi.mock("./private-vault-signed-disclosures.js", () => ({
+  PrivateVaultSignedDisclosureConflictError: class extends Error {},
+  privateVaultSignedDisclosureService: signedDisclosureService,
 }));
 
 import { handlePrivateVaultBrokerRoute } from "./private-vault-broker-routes.js";
@@ -98,6 +111,92 @@ beforeEach(() => {
 });
 
 describe("Private Vault fixed broker routes", () => {
+  it("stores only a broker-signed disclosure bound to its exact destination", async () => {
+    const p = (byte: number, length: number) =>
+      new Uint8Array(length).fill(byte);
+    const signing = await ancV1SigningKeypairFromSeed(p(0x44, 32));
+    const vaultId = p(0x01, 16);
+    const endpointId = p(0x05, 16);
+    const resourceId = p(0x02, 16);
+    const grantRef = p(0x03, 32);
+    const operation = "get-document";
+    const providerId = "codex-cli";
+    const destination = "gpt-5.6";
+    const now = Math.floor(Date.now() / 1000);
+    const scopeHash = await ancV1Hash(
+      "disclosure",
+      encodeAncV1Canonical([resourceId, operation]),
+    );
+    const fields = E2EE_ENVELOPE_FIELDS.disclosure;
+    const unsigned = new Map<number, string | number | Uint8Array>([
+      [1, "anc/v1"],
+      [2, vaultId],
+      [3, "disclosure"],
+      [4, now],
+      [5, p(0x04, 16)],
+      [fields.grantRef, grantRef],
+      [fields.providerId, providerId],
+      [fields.destination, destination],
+      [fields.scopeHash, scopeHash],
+      [fields.issuedAt, now],
+      [fields.expiresAt, now + 600],
+    ]);
+    const signature = await ancV1SignDetached(
+      "disclosure",
+      encodeAncV1Canonical(unsigned),
+      signing.privateKey,
+    );
+    const signedEnvelope = encodeAncV1Canonical(
+      new Map<number, string | number | Uint8Array>([
+        ...unsigned,
+        [fields.signature, signature],
+      ]),
+    );
+    const disclosurePrincipal = {
+      ...principal,
+      vaultId: ancV1BytesToHex(vaultId),
+      endpointId: ancV1BytesToHex(endpointId),
+      signingPublicKey: signing.publicKey,
+    };
+    authenticatePrivateVaultBrokerRequest.mockResolvedValueOnce(
+      disclosurePrincipal,
+    );
+    const body = encodeAncV1BrokerDisclosureRequest({
+      ...base,
+      type: "broker-disclosure-request",
+      vaultId: disclosurePrincipal.vaultId,
+      endpointId: disclosurePrincipal.endpointId,
+      jobId: ancV1BytesToHex(p(0x06, 16)),
+      grantId: ancV1BytesToHex(p(0x07, 16)),
+      resourceId: ancV1BytesToHex(resourceId),
+      operation,
+      providerId,
+      destination,
+      outcome: "allowed",
+      signedEnvelope,
+    });
+    const output = await handlePrivateVaultBrokerRoute(
+      event(body) as never,
+      "disclosure",
+    );
+    expect(decodeAncV1BrokerDisclosureResponse(output as Uint8Array)).toEqual({
+      ...base,
+      type: "broker-disclosure-response",
+      disclosureId: ancV1BytesToHex(p(0x04, 16)),
+      state: "stored",
+    });
+    expect(signedDisclosureService.append).toHaveBeenCalledWith({
+      principal: disclosurePrincipal,
+      disclosure: expect.objectContaining({
+        vaultId: disclosurePrincipal.vaultId,
+        endpointId: disclosurePrincipal.endpointId,
+        providerId,
+        destination,
+        scopeHash: ancV1BytesToHex(scopeHash),
+      }),
+    });
+  });
+
   it("claims only content-free job coordinates", async () => {
     service.claim.mockResolvedValue(job);
     const body = encodeAncV1BrokerClaimRequest({
@@ -113,6 +212,7 @@ describe("Private Vault fixed broker routes", () => {
       type: "broker-job-claim-response",
       job: {
         jobId: job.jobId,
+        grantId: job.grantId,
         epoch: 1,
         retryCount: 0,
         algorithmId: job.algorithmId,
