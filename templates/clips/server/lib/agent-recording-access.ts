@@ -1,12 +1,15 @@
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
-import { ownerEmailMatches } from "./recordings.js";
 
 type AgentRecordingAccessOptions = {
   agentOnly?: boolean;
   userEmail?: string;
 };
+
+export function isAgentRecordingCaller(caller: string | undefined): boolean {
+  return caller === "tool" || caller === "mcp" || caller === "a2a";
+}
 
 function normalizeEmail(email: string | undefined): string | null {
   const normalized = email?.trim().toLowerCase();
@@ -35,7 +38,7 @@ export function agentRecordingAccessFilter(
   const viewed = sql`exists (select 1 from ${viewersTable}
                     where ${viewersTable.recordingId} = ${resourceTable.id}
                       and lower(${viewersTable.viewerEmail}) = ${normalizedEmail})`;
-  const owner = ownerEmailMatches(resourceTable.ownerEmail, normalizedEmail);
+  const owner = sql`lower(${resourceTable.ownerEmail}) = ${normalizedEmail}`;
 
   return (
     or(

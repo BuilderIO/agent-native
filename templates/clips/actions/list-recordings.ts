@@ -15,8 +15,11 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  agentRecordingAccessFilter,
+  isAgentRecordingCaller,
+} from "../server/lib/agent-recording-access.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
-import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
@@ -110,7 +113,7 @@ export default defineAction({
       .describe("Include playable media fields for editor workflows"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
 
     const whereClauses = [
@@ -118,6 +121,10 @@ export default defineAction({
         schema.recordings,
         schema.recordingShares,
         schema.recordingViewers,
+        {
+          agentOnly: isAgentRecordingCaller(ctx?.caller),
+          userEmail: ctx?.userEmail,
+        },
       ),
     ];
 

@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAccessFilter = vi.hoisted(() => vi.fn(() => ({ kind: "normal" })));
+const mockGetRequestUserEmail = vi.hoisted(() =>
+  vi.fn(() => " Viewer@Example.com "),
+);
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => " Viewer@Example.com ",
+  getRequestUserEmail: () => mockGetRequestUserEmail(),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -14,32 +17,53 @@ vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
   or: (...conditions: unknown[]) => ({ kind: "or", conditions }),
-  sql: (strings: TemplateStringsArray) => ({
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     kind: "sql",
-    text: strings.join("?").toLowerCase(),
+    text: strings
+      .reduce(
+        (result, string, index) =>
+          `${result}${string}${values[index] === undefined ? "" : values[index]}`,
+        "",
+      )
+      .toLowerCase(),
   }),
 }));
 
 import { agentRecordingAccessFilter } from "./agent-recording-access.js";
 
 describe("agentRecordingAccessFilter", () => {
-  it("keeps public recordings scoped to the current user's viewer history", () => {
+  const recordings = {
+    id: "recordings.id",
+    ownerEmail: "recordings.ownerEmail",
+    visibility: "recordings.visibility",
+  };
+  const shares = { resourceId: "shares.resourceId" };
+  const viewers = {
+    recordingId: "viewers.recordingId",
+    viewerEmail: "viewers.viewerEmail",
+  };
+
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue(" Viewer@Example.com ");
+  });
+
+  it("keeps agent reads scoped to owned or previously viewed recordings", () => {
     const filter = agentRecordingAccessFilter(
-      {
-        id: "recordings.id",
-        visibility: "recordings.visibility",
-      },
-      { resourceId: "shares.resourceId" },
-      {
-        recordingId: "viewers.recordingId",
-        viewerEmail: "viewers.viewerEmail",
-      },
+      recordings,
+      shares,
+      viewers,
+      { agentOnly: true },
     );
 
     expect(filter).toEqual({
       kind: "or",
       conditions: [
-        { kind: "normal" },
+        {
+          kind: "sql",
+          text: expect.stringContaining(
+            "lower(recordings.owneremail) = viewer@example.com",
+          ),
+        },
         {
           kind: "and",
           conditions: [
@@ -50,7 +74,17 @@ describe("agentRecordingAccessFilter", () => {
             },
             expect.objectContaining({
               kind: "sql",
-              text: expect.stringContaining("viewer@example.com"),
+              text: expect.stringContaining("exists"),
+            }),
+          ],
+        },
+        {
+          kind: "and",
+          conditions: [
+            { kind: "normal" },
+            expect.objectContaining({
+              kind: "sql",
+              text: expect.stringContaining("exists"),
             }),
           ],
         },
@@ -58,14 +92,26 @@ describe("agentRecordingAccessFilter", () => {
     });
   });
 
-  it("does not add public discovery for anonymous callers", () => {
+  it("preserves normal sharing for non-agent callers", () => {
     const filter = agentRecordingAccessFilter(
-      { visibility: "recordings.visibility" },
-      {},
-      {},
-      undefined,
+      recordings,
+      shares,
+      viewers,
+      { agentOnly: false },
     );
 
     expect(filter).toEqual({ kind: "normal" });
+  });
+
+  it("fails closed when an agent has no identity", () => {
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    const filter = agentRecordingAccessFilter(
+      recordings,
+      shares,
+      viewers,
+      { agentOnly: true, userEmail: undefined },
+    );
+
+    expect(filter).toEqual({ kind: "sql", text: "1 = 0" });
   });
 });

@@ -162,7 +162,7 @@ describe("get-recording-player-data direct public access", () => {
       expect(mockDb.select).toHaveBeenCalledWith({
         id: "recordingShares.id",
       });
-    expect(mockShareLimit).toHaveBeenCalledTimes(2);
+      expect(mockShareLimit).toHaveBeenCalledTimes(1);
     },
   );
 });

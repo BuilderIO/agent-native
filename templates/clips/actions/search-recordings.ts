@@ -4,7 +4,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import {
+  agentRecordingAccessFilter,
+  isAgentRecordingCaller,
+} from "../server/lib/agent-recording-access.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 80;
@@ -108,9 +111,13 @@ export default defineAction({
     }),
   },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const pattern = buildCaseInsensitiveSearchPattern(args.query);
+    const recordingAccess = {
+      agentOnly: isAgentRecordingCaller(ctx?.caller),
+      userEmail: ctx?.userEmail,
+    };
 
     // Title/description matches on the recordings table
     const recMatches = await db
@@ -132,6 +139,7 @@ export default defineAction({
             schema.recordings,
             schema.recordingShares,
             schema.recordingViewers,
+            recordingAccess,
           ),
           sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
         ),
@@ -166,6 +174,7 @@ export default defineAction({
             schema.recordings,
             schema.recordingShares,
             schema.recordingViewers,
+            recordingAccess,
           ),
           sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
@@ -198,6 +207,7 @@ export default defineAction({
             schema.recordings,
             schema.recordingShares,
             schema.recordingViewers,
+            recordingAccess,
           ),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
