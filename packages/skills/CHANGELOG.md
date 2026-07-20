@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.370
+
+### Patch Changes
+
+- Updated dependencies [f3dcee3]
+  - @agent-native/core@0.114.4
+
 ## 0.2.369
 
 ### Patch Changes
