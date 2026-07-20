@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -140,6 +142,16 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     );
+    const menu = document.querySelector<HTMLElement>('[role="listbox"]');
+    expect(menu?.classList.contains("code-agents-select-content")).toBe(true);
+    expect(
+      menu?.classList.contains("code-agents-multi-frontier-mode-menu"),
+    ).toBe(true);
+    expect(
+      options.every((option) =>
+        option.classList.contains("code-agents-multi-frontier-mode-menu-item"),
+      ),
+    ).toBe(true);
     expect(options.map((option) => option.textContent)).toContain(
       "Multi-Frontier",
     );
@@ -155,6 +167,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     });
 
     expect(onModeChange).toHaveBeenCalledWith("multi-frontier");
+  });
+
+  it("registers toolkit overlay styles in the desktop Tailwind build", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

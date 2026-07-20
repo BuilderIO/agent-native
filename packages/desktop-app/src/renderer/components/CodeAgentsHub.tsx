@@ -965,10 +965,25 @@ export function MultiFrontierModeControl({
         >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="code-agents-mode-menu">
-          <SelectItem value="plan">Plan</SelectItem>
-          <SelectItem value="auto">Auto</SelectItem>
-          <SelectItem value="multi-frontier">Multi-Frontier</SelectItem>
+        <SelectContent className="code-agents-select-content code-agents-mode-menu code-agents-multi-frontier-mode-menu">
+          <SelectItem
+            className="code-agents-multi-frontier-mode-menu-item"
+            value="plan"
+          >
+            Plan
+          </SelectItem>
+          <SelectItem
+            className="code-agents-multi-frontier-mode-menu-item"
+            value="auto"
+          >
+            Auto
+          </SelectItem>
+          <SelectItem
+            className="code-agents-multi-frontier-mode-menu-item"
+            value="multi-frontier"
+          >
+            Multi-Frontier
+          </SelectItem>
         </SelectContent>
       </Select>
       <MultiFrontierParticipantSettings
