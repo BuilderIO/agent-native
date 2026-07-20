@@ -707,7 +707,6 @@ export function databaseSidebarRootItems(
   return visibleItems.filter((item) => {
     const parentId = item.document.parentId;
     if (!parentId) return true;
-    if (item.document.databaseMembership) return false;
     return !documentIds.has(parentId);
   });
 }

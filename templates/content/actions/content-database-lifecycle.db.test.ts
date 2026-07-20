@@ -24,6 +24,7 @@ let getContentDatabaseAction: typeof import("./get-content-database.js").default
 let listDocumentsAction: typeof import("./list-documents.js").default;
 let listTrashedContentDatabasesAction: typeof import("./list-trashed-content-databases.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
+let pullDocumentAction: typeof import("./pull-document.js").default;
 let listDocumentPropertiesAction: typeof import("./list-document-properties.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
@@ -52,6 +53,7 @@ beforeAll(async () => {
     await import("./list-trashed-content-databases.js")
   ).default;
   getDocumentAction = (await import("./get-document.js")).default;
+  pullDocumentAction = (await import("./pull-document.js")).default;
   listDocumentPropertiesAction = (await import("./list-document-properties.js"))
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
@@ -307,6 +309,49 @@ describe("document trash lifecycle", () => {
       permanentlyDeleteDocumentAction.run({ id: documentId }),
     );
     expect(await documentRow(documentId)).toBeUndefined();
+  });
+
+  it("permanently deletes only a selected Trash root", async () => {
+    const rootId = await createDocument({ title: "Trash root" });
+    const childId = await createDocument({
+      parentId: rootId,
+      title: "Trash child",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: rootId }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        permanentlyDeleteDocumentAction.run({ id: childId }),
+      ),
+    ).rejects.toThrow("Trash root");
+    expect(await documentRow(rootId)).toBeDefined();
+    expect(await documentRow(childId)).toBeDefined();
+  });
+
+  it("preserves an independently trashed descendant when deleting its parent root", async () => {
+    const rootId = await createDocument({ title: "Later root" });
+    const childId = await createDocument({
+      parentId: rootId,
+      title: "Earlier root",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: childId }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: rootId }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      permanentlyDeleteDocumentAction.run({ id: rootId }),
+    );
+
+    expect(await documentRow(rootId)).toBeUndefined();
+    expect(await documentRow(childId)).toMatchObject({
+      parentId: null,
+      trashRootId: childId,
+      trashedAt: expect.any(String),
+    });
   });
 
   it("does not expose another owner's trashed page title", async () => {
@@ -645,9 +690,74 @@ describe("content database soft-delete actions and reads", () => {
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
+        pullDocumentAction.run({ id: rowDocumentId, format: "markdown" }),
+      ),
+    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
         listDocumentPropertiesAction.run({ documentId: rowDocumentId }),
       ),
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+  });
+
+  it("rejects restoring a database whose page belongs to another Trash root", async () => {
+    const rootId = await createDocument({ title: "Parent Trash root" });
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      backingParentId: rootId,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: rootId }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        restoreContentDatabaseAction.run({ databaseId }),
+      ),
+    ).rejects.toThrow("Restore the parent Trash item instead");
+    expect(await databaseRow(databaseId)).toMatchObject({
+      deletedAt: expect.any(String),
+    });
+    expect(await documentRow(databaseDocumentId)).toMatchObject({
+      trashRootId: rootId,
+      trashedAt: expect.any(String),
+    });
+  });
+
+  it("requires backing-page admin access before deleting an inline database", async () => {
+    const hostDocumentId = await createDocument({ title: "Shared host" });
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId: nextId("inline_database"),
+    });
+    const db = getDb();
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: hostDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: databaseDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        deleteContentDatabaseAction.run({ databaseId }),
+      ),
+    ).rejects.toThrow(`Requires admin role on document ${databaseDocumentId}`);
+    expect(await documentRow(databaseDocumentId)).toMatchObject({
+      trashedAt: null,
+    });
+    expect(await databaseRow(databaseId)).toMatchObject({ deletedAt: null });
   });
 
   it("blocks row mutations for soft-deleted databases", async () => {

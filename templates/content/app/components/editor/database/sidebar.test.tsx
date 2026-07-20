@@ -190,7 +190,8 @@ describe("DatabaseSidebarView", () => {
     expect(databaseSidebarRootItems([orphan], [orphan])).toEqual([orphan]);
   });
 
-  it("does not promote a database row whose database page is outside Files", () => {
+  it("does not promote a database row when its database page is in Files", () => {
+    const databasePage = item("database-page", "Database");
     const databaseRow = item("row", "Database row", "database-page");
     databaseRow.document.databaseMembership = {
       databaseId: "database",
@@ -199,7 +200,12 @@ describe("DatabaseSidebarView", () => {
       position: 0,
     };
 
-    expect(databaseSidebarRootItems([databaseRow], [databaseRow])).toEqual([]);
+    expect(
+      databaseSidebarRootItems(
+        [databaseRow, databasePage],
+        [databaseRow, databasePage],
+      ).map((candidate) => candidate.document.id),
+    ).toEqual(["database-page"]);
   });
 
   it("reveals descendants only after their parent is explicitly expanded", async () => {

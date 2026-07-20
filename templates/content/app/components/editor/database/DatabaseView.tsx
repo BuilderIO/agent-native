@@ -842,6 +842,9 @@ function DatabaseTable({
   const filters = activeView.filters;
   const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
+  const workspaceCreationPropertyValues = isWorkspaceCatalog
+    ? databasePropertyValuesForNewItem(filters, properties, filterMode)
+    : undefined;
   const columnWidths = activeView.columnWidths;
   const databaseGroupProperty = useMemo(
     () => databaseViewGroupingProperty(activeView, orderedProperties),
@@ -2391,7 +2394,10 @@ function DatabaseTable({
             ) : null}
           </Button>
           {canEdit && isWorkspaceCatalog ? (
-            <WorkspaceSourceMenu align="end">
+            <WorkspaceSourceMenu
+              align="end"
+              propertyValues={workspaceCreationPropertyValues}
+            >
               <Button
                 type="button"
                 size="sm"
@@ -2525,6 +2531,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
@@ -2553,6 +2560,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -2576,6 +2584,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -2599,6 +2608,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -2625,6 +2635,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -2660,6 +2671,7 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           columnWidths={columnWidths}
@@ -5029,6 +5041,7 @@ function DatabaseTableView({
   sources,
   databaseDocumentId,
   canEdit,
+  workspaceCreationPropertyValues,
   isLoading,
   isCreating,
   columnWidths,
@@ -5074,6 +5087,7 @@ function DatabaseTableView({
   sources: ContentDatabaseSource[];
   databaseDocumentId: string;
   canEdit: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   isLoading: boolean;
   isCreating: boolean;
   columnWidths: Record<string, number>;
@@ -5616,6 +5630,9 @@ function DatabaseTableView({
                     columnWidths={columnWidths}
                     databaseDocumentId={databaseDocumentId}
                     workspaceCatalog={isWorkspaceCatalog}
+                    workspaceCreationPropertyValues={
+                      workspaceCreationPropertyValues
+                    }
                     canEdit={canEdit}
                     selectedIdSet={selectedIdSet}
                     wrapCells={wrapCells}
@@ -5688,6 +5705,7 @@ function DatabaseTableView({
                   properties={properties}
                   columnWidths={columnWidths}
                   rowDensity={rowDensity}
+                  propertyValues={workspaceCreationPropertyValues}
                   actionColumnWidth={actionColumnWidth}
                 />
               ) : (
@@ -11596,6 +11614,7 @@ function DatabaseCalendarView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -11615,6 +11634,7 @@ function DatabaseCalendarView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -11653,6 +11673,7 @@ function DatabaseCalendarView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const monthLabel = month.toLocaleDateString(undefined, {
@@ -12045,6 +12066,7 @@ function DatabaseBoardView({
   groupProperty,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   isMoving,
@@ -12068,6 +12090,7 @@ function DatabaseBoardView({
   groupProperty: DocumentProperty | null;
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   isMoving: boolean;
@@ -12374,7 +12397,7 @@ function DatabaseBoardView({
                           {dbText("noMatchingPages")}
                         </div>
                       ) : null}
-                      {canEdit ? (
+                      {canEdit && canCreateItems ? (
                         <NewBoardCard
                           group={group}
                           disabled={isCreating}
@@ -12812,15 +12835,17 @@ function WorkspaceSourceMenuRow({
   columnWidths,
   rowDensity,
   actionColumnWidth = ACTION_COLUMN_WIDTH,
+  propertyValues,
 }: {
   label: string;
   properties: DocumentProperty[];
   columnWidths: Record<string, number>;
   rowDensity: DatabaseRowDensity;
   actionColumnWidth?: number;
+  propertyValues?: Record<string, DocumentPropertyValue>;
 }) {
   return (
-    <WorkspaceSourceMenu>
+    <WorkspaceSourceMenu propertyValues={propertyValues}>
       <button
         type="button"
         aria-label={label}
@@ -17877,6 +17902,7 @@ function DatabaseGroupedTableSection({
   columnWidths,
   databaseDocumentId,
   workspaceCatalog,
+  workspaceCreationPropertyValues,
   canEdit,
   selectedIdSet,
   wrapCells,
@@ -17899,6 +17925,7 @@ function DatabaseGroupedTableSection({
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
   workspaceCatalog: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   canEdit: boolean;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
@@ -17970,6 +17997,18 @@ function DatabaseGroupedTableSection({
                 properties={properties}
                 columnWidths={columnWidths}
                 rowDensity={rowDensity}
+                propertyValues={{
+                  ...workspaceCreationPropertyValues,
+                  ...(group.property && group.value !== BOARD_UNGROUPED_VALUE
+                    ? {
+                        [group.property.definition.id]:
+                          boardGroupValueForProperty(
+                            group.property,
+                            group.value,
+                          ),
+                      }
+                    : {}),
+                }}
               />
             ) : (
               <NewDatabaseRow

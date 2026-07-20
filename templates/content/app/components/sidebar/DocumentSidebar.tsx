@@ -437,9 +437,6 @@ export function DocumentSidebar({
   const sidebarStateHydratedRef = useRef(false);
   const expandedWorkspaceIdsRef = useRef<string[]>([]);
   const expandedDocumentIdsRef = useRef<string[]>([]);
-  const sidebarStateWriteTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
   const contentSpaceState = contentSpaceAvailability({
     hasSelectedSpace: Boolean(selectedSpace),
     contentSpacesLoading: contentSpacesQuery.isLoading,
@@ -490,19 +487,17 @@ export function DocumentSidebar({
   const queueSidebarStateWrite = useCallback(
     (workspaceIds: string[], documentIds: string[]) => {
       if (!sidebarStateHydratedRef.current) return;
-      if (sidebarStateWriteTimerRef.current) {
-        clearTimeout(sidebarStateWriteTimerRef.current);
-      }
-      sidebarStateWriteTimerRef.current = setTimeout(() => {
-        sidebarStateWriteTimerRef.current = null;
-        void sidebarStateWriteQueueRef
-          .current?.({
-            version: CONTENT_SIDEBAR_STATE_VERSION,
-            expandedWorkspaceIds: workspaceIds,
-            expandedDocumentIds: documentIds,
-          })
-          .catch(() => undefined);
-      }, 150);
+      void sidebarStateWriteQueueRef
+        .current?.({
+          version: CONTENT_SIDEBAR_STATE_VERSION,
+          expandedWorkspaceIds: workspaceIds,
+          expandedDocumentIds: documentIds,
+        })
+        .catch((error) => {
+          toast.error("Failed to save sidebar state", {
+            description: error instanceof Error ? error.message : String(error),
+          });
+        });
     },
     [],
   );
@@ -533,15 +528,6 @@ export function DocumentSidebar({
       });
     },
     [queueSidebarStateWrite],
-  );
-
-  useEffect(
-    () => () => {
-      if (sidebarStateWriteTimerRef.current) {
-        clearTimeout(sidebarStateWriteTimerRef.current);
-      }
-    },
-    [],
   );
 
   const handleSelectContentSpace = useCallback(

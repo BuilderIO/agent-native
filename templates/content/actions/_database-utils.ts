@@ -22,7 +22,10 @@ import type {
   ContentDatabaseResponse,
 } from "../shared/api.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
-import { listContentOrganizationMemberships } from "./_content-space-access.js";
+import {
+  listContentOrganizationMemberships,
+  normalizeContentSpaceEmail,
+} from "./_content-space-access.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import {
   applyFederatedOverlayValues,
@@ -302,9 +305,14 @@ export async function getContentDatabaseResponse(
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
   const userEmail = getRequestUserEmail();
+  const normalizedUserEmail = userEmail
+    ? normalizeContentSpaceEmail(userEmail)
+    : null;
   const activeOrgId = getRequestOrgId();
   const authorizedOrgIds =
-    database.systemRole === "favorites" && userEmail
+    (database.systemRole === "favorites" ||
+      database.systemRole === "workspaces") &&
+    userEmail
       ? [
           ...new Set([
             ...(await listContentOrganizationMemberships(userEmail)).map(
@@ -314,6 +322,45 @@ export async function getContentDatabaseResponse(
           ]),
         ]
       : [];
+  const workspacesVisibleDocumentIds =
+    database.systemRole === "workspaces" && normalizedUserEmail
+      ? (
+          await db
+            .select({
+              documentId: schema.contentSpaceCatalogItems.documentId,
+              ownerEmail: schema.contentSpaces.ownerEmail,
+              orgId: schema.contentSpaces.orgId,
+            })
+            .from(schema.contentSpaceCatalogItems)
+            .innerJoin(
+              schema.contentSpaces,
+              eq(
+                schema.contentSpaces.id,
+                schema.contentSpaceCatalogItems.spaceId,
+              ),
+            )
+            .where(
+              and(
+                eq(
+                  schema.contentSpaceCatalogItems.catalogDatabaseId,
+                  databaseId,
+                ),
+                eq(
+                  schema.contentSpaceCatalogItems.ownerEmail,
+                  normalizedUserEmail,
+                ),
+                isNull(schema.contentSpaces.archivedAt),
+              ),
+            )
+        )
+          .filter(
+            (row) =>
+              normalizeContentSpaceEmail(row.ownerEmail) ===
+                normalizedUserEmail ||
+              (!!row.orgId && authorizedOrgIds.includes(row.orgId)),
+          )
+          .map((row) => row.documentId)
+      : null;
   const favoritesVisibleDocumentIds =
     database.systemRole === "favorites" && userEmail
       ? (
@@ -368,6 +415,14 @@ export async function getContentDatabaseResponse(
           )
         : sql`1 = 0`
       : undefined,
+    workspacesVisibleDocumentIds
+      ? workspacesVisibleDocumentIds.length > 0
+        ? inArray(
+            schema.contentDatabaseItems.documentId,
+            workspacesVisibleDocumentIds,
+          )
+        : sql`1 = 0`
+      : undefined,
   );
   const [itemCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
@@ -401,19 +456,23 @@ export async function getContentDatabaseResponse(
                 ? favoritesVisibleDocumentIds?.length
                   ? inArray(schema.documents.id, favoritesVisibleDocumentIds)
                   : sql`1 = 0`
-                : database.systemRole === "files" && database.orgId
-                  ? and(
-                      eq(schema.documents.orgId, database.orgId),
-                      or(
-                        eq(schema.documents.visibility, "org"),
-                        eq(schema.documents.visibility, "public"),
-                      ),
-                      or(
-                        eq(schema.documents.hideFromSearch, 0),
-                        isNull(schema.documents.hideFromSearch),
-                      ),
-                    )
-                  : eq(schema.documents.ownerEmail, database.ownerEmail),
+                : database.systemRole === "workspaces"
+                  ? workspacesVisibleDocumentIds?.length
+                    ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+                    : sql`1 = 0`
+                  : database.systemRole === "files" && database.orgId
+                    ? and(
+                        eq(schema.documents.orgId, database.orgId),
+                        or(
+                          eq(schema.documents.visibility, "org"),
+                          eq(schema.documents.visibility, "public"),
+                        ),
+                        or(
+                          eq(schema.documents.hideFromSearch, 0),
+                          isNull(schema.documents.hideFromSearch),
+                        ),
+                      )
+                    : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];

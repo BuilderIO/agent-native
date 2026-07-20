@@ -23,6 +23,10 @@ describe("Workspaces database lifecycle", () => {
     );
     expect(source).toContain('t("sidebar.addWorkspace")');
     expect(source).toContain("label={newRowLabel}");
+    expect(source).toContain(
+      "propertyValues={workspaceCreationPropertyValues}",
+    );
+    expect(source).toContain("canCreateItems={!isWorkspaceCatalog}");
     expect(source).toContain('fallback={workspaceCatalog ? "folder" : "page"}');
     expect(source).toContain('workspaceSpace?.kind === "user"');
     expect(source).toContain("deleteContentSpace.mutateAsync");

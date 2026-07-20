@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -17,6 +18,7 @@ export default defineAction({
     if (database.systemRole) {
       throw new Error("System Content databases cannot be deleted");
     }
+    await assertAccess("document", database.documentId, "admin");
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
     await db.transaction((tx) =>

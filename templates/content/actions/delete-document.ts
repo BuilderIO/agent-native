@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
+import { renumberDatabaseRows } from "./_database-row-batch.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -274,6 +275,30 @@ export async function restoreDocumentSubtree(
       );
   }
 
+  const databaseIds = [
+    ...new Set(
+      (
+        await db
+          .select({ databaseId: schema.contentDatabaseItems.databaseId })
+          .from(schema.contentDatabaseItems)
+          .where(inArray(schema.contentDatabaseItems.documentId, documentIds))
+      ).map((item) => item.databaseId),
+    ),
+  ];
+  for (const databaseId of databaseIds) {
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.id, databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (database) await renumberDatabaseRows(db, database, now);
+  }
+
   return documentIds;
 }
 
@@ -293,6 +318,20 @@ export async function deleteDocumentRecursive(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  return deleteCollectedDocuments(
+    db,
+    documentIds,
+    ownedDatabaseIds,
+    ownerEmail,
+  );
+}
+
+async function deleteCollectedDocuments(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownedDatabaseIds: string[],
+  ownerEmail: string,
+): Promise<string[]> {
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
   const propertyDefinitionIds: string[] = [];
@@ -473,6 +512,69 @@ export async function deleteDocumentRecursive(
   });
 
   return documentIds;
+}
+
+export async function deleteTrashedDocumentSubtree(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+): Promise<string[]> {
+  const [root] = await db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, id),
+        eq(schema.documents.ownerEmail, ownerEmail),
+        eq(schema.documents.trashRootId, id),
+        isNotNull(schema.documents.trashedAt),
+      ),
+    )
+    .limit(1);
+  if (!root) {
+    throw new Error(
+      "Document must be in Trash and be a Trash root before permanent deletion",
+    );
+  }
+
+  const documentIds = (
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.trashRootId, id),
+          isNotNull(schema.documents.trashedAt),
+        ),
+      )
+  ).map((document) => document.id);
+  const ownedDatabaseIds = await selectOwnedDatabaseIds(
+    db,
+    documentIds,
+    ownerEmail,
+  ).then((rows) => rows.map((database) => database.id));
+
+  await db
+    .update(schema.documents)
+    .set({ parentId: null, updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(schema.documents.ownerEmail, ownerEmail),
+        inArray(schema.documents.parentId, documentIds),
+        or(
+          isNull(schema.documents.trashRootId),
+          ne(schema.documents.trashRootId, id),
+        ),
+      ),
+    );
+
+  return deleteCollectedDocuments(
+    db,
+    documentIds,
+    ownedDatabaseIds,
+    ownerEmail,
+  );
 }
 
 export default defineAction({

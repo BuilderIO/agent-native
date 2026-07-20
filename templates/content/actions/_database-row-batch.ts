@@ -151,6 +151,7 @@ export async function resolveDatabaseRowsForBatch(
         eq(schema.contentDatabaseItems.databaseId, database.id),
         rowPredicates.length === 1 ? rowPredicates[0] : or(...rowPredicates),
         isNull(schema.contentDatabases.deletedAt),
+        isNull(schema.documents.trashedAt),
       ),
     )
     .orderBy(asc(schema.contentDatabaseItems.position));

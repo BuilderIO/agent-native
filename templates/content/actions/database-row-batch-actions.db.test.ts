@@ -15,8 +15,10 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
+let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
+let restoreDocumentAction: typeof import("./restore-document.js").default;
 let spaceId: string;
 
 const OWNER = "owner@example.com";
@@ -29,9 +31,12 @@ beforeAll(async () => {
   schema = dbModule.schema;
   duplicateDatabaseItemsAction = (await import("./duplicate-database-items.js"))
     .default;
+  duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
+    .default;
   deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
+  restoreDocumentAction = (await import("./restore-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   const { systemIdsForContentSpace } = await import("./_content-spaces.js");
@@ -379,6 +384,37 @@ describe("database row batch actions", () => {
       .from(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.documentId, rows[1].documentId));
     expect(preservedValues).toHaveLength(1);
+  });
+
+  it("rejects duplicating trashed rows and restores unique ordering", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(2);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDatabaseItemsAction.run({
+        databaseId,
+        itemIds: [rows[0].itemId],
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+      ),
+    ).rejects.toThrow("Database row not found");
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ).rejects.toThrow("All requested rows must exist in the target database");
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocumentAction.run({ id: rows[0].documentId }),
+    );
+    const restoredRows = await orderedRows(databaseId);
+    expect(restoredRows.map((row) => row.itemPosition)).toEqual([0, 1]);
+    expect(restoredRows.map((row) => row.documentPosition)).toEqual([0, 1]);
   });
 
   it("rejects unauthorized delete batches before writing", async () => {

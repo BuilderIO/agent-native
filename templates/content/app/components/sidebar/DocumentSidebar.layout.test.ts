@@ -194,6 +194,8 @@ describe("document sidebar layout", () => {
       "if (!selectedSpace || !sidebarStateHydratedRef.current) return",
     );
     expect(sidebar).toContain("createContentSidebarStateWriteQueue");
+    expect(sidebar).not.toContain("sidebarStateWriteTimerRef");
+    expect(sidebar).toContain('toast.error("Failed to save sidebar state"');
     expect(sidebar).toContain(
       '"group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md"',
     );
