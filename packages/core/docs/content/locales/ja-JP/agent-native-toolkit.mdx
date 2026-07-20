@@ -117,3 +117,9 @@ Toolkit は、高品質なエージェント型アプリケーションのため
 - [**テンプレートの作成**](/docs/creating-templates) — テンプレートをエンドツーエンドで作成し、キットの位置を確認します。
 - [**コンポーネント API**](/docs/components) — すべての公開 React export のリファレンス。
 - [**パッケージライフサイクル**](/docs/package-lifecycle) — manifest 駆動の Toolkit 能力モジュールを安全に調査、追加、eject します。
+
+## Kit のカスタマイズと排出 {#customize-or-eject}
+
+公開 API の設定 → 公開プリミティブの合成 → 最小単位の排出 → 共有シームの提案、の順に進めます。`agent-native eject --list` と `agent-native eject inspect <unit>` で調べ、`--apply` を追加する前に `agent-native eject <unit> --app <app>` をプレビューします。
+
+Toolkit マニフェストは、すべての公開エントリポイントを網羅します。アプリはソースと import の書き換えを `agent-native.ejections.json` に記録します。`agent-native eject diff <unit> --app <app>` は差分を表示し、hash と import が未変更の場合だけ `restore` を実行します。First-party unit は remote MCP catalog、workspace connection、provider API definition、messaging adapter、setup/readiness UI、domain package も網羅します。First-party recipe の欠落は release guard を失敗させます。外部 package には add blueprint を出力し、保護された Core contract は公開 extension seam の背後に残します。

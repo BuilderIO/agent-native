@@ -35,10 +35,11 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/corpus/` for source examples.
 
 When intentionally customizing shared UI, read `customizing-agent-native`.
-Configure or compose public components first. If needed, inspect the installed
-Toolkit source or Core corpus and copy only the smallest UI piece into app-owned
-source. Never edit `node_modules`, deep-import private source, or copy runtime
-auth, data, action, or agent-chat internals.
+Use the supported ladder: configure → compose → eject the smallest unit →
+propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
+commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+private source, or eject protected runtime auth, data, action, or agent-chat
+internals.
 
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
@@ -163,7 +164,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | Skill                      | When to read                                                                      |
 | -------------------------- | --------------------------------------------------------------------------------- |
 | `agent-native-docs`        | Before using advanced Agent Native framework APIs or generated-app features       |
-| `customizing-agent-native` | Before overriding or selectively copying shared Agent Native UI                   |
+| `customizing-agent-native` | Before configuring, composing, or ejecting shared Agent Native features           |
 | `adding-a-feature`         | **Read first when adding ANY new feature** — the four-area parity checklist       |
 | `feature-flags`            | Before shipping a staged production rollout or replacing a compile-time switch    |
 | `real-time-sync`           | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |

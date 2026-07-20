@@ -1,6 +1,6 @@
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
 import type {
   BrainCaptureKind,
@@ -18,6 +18,7 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
+import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   ensureSlackPublicChannelMembership,
   type SlackChannelJoinResponse,
@@ -232,6 +233,10 @@ interface SlackUserInfoResponse {
 type SlackUserEmailCache = Map<string, string | null>;
 
 const SLACK_USER_LOOKUP_CONCURRENCY = 4;
+const SLACK_THREAD_CAPTURE_CONCURRENCY = 4;
+const GRANOLA_NOTE_CAPTURE_CONCURRENCY = 4;
+const CONNECTOR_SYNC_LEASE_MS = 10 * 60 * 1_000;
+const CONNECTOR_SYNC_HEARTBEAT_MS = Math.floor(CONNECTOR_SYNC_LEASE_MS / 3);
 
 interface SlackPermalinkResponse {
   permalink?: string;
@@ -2017,48 +2022,170 @@ async function githubRefsFromLinkedSources(
   return Array.from(refsByKey.values());
 }
 
-async function createRun(source: SourceRow) {
+interface ConnectorSyncRunLease {
+  runId: string;
+  leaseToken: string;
+}
+
+class ConnectorSyncAlreadyRunningError extends Error {
+  constructor(public readonly runId: string) {
+    super("A sync is already running for this Brain source");
+    this.name = "ConnectorSyncAlreadyRunningError";
+  }
+}
+
+async function createRun(
+  source: SourceRow,
+  options: { exclusive?: boolean } = {},
+): Promise<ConnectorSyncRunLease> {
   const db = getDb();
+  const exclusive = options.exclusive !== false;
   const runId = nanoid();
-  await db.insert(schema.brainSyncRuns).values({
-    id: runId,
-    sourceId: source.id,
-    provider: source.provider,
-    status: "running",
-    statsJson: "{}",
-    error: null,
-    startedAt: nowIso(),
-    completedAt: null,
-  });
-  return runId;
+  const leaseToken = nanoid();
+  const now = nowIso();
+  const staleStartedAt = new Date(
+    Date.now() - CONNECTOR_SYNC_LEASE_MS,
+  ).toISOString();
+  await db
+    .update(schema.brainSyncRuns)
+    .set({
+      activeSourceId: null,
+      status: "error",
+      error: "Sync lease expired before completion",
+      leaseToken: null,
+      leaseExpiresAt: null,
+      completedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.brainSyncRuns.sourceId, source.id),
+        eq(schema.brainSyncRuns.status, "running"),
+        or(
+          lte(schema.brainSyncRuns.leaseExpiresAt, now),
+          and(
+            isNull(schema.brainSyncRuns.leaseExpiresAt),
+            lte(schema.brainSyncRuns.startedAt, staleStartedAt),
+          ),
+        ),
+      ),
+    );
+  try {
+    await db.insert(schema.brainSyncRuns).values({
+      id: runId,
+      sourceId: source.id,
+      activeSourceId: exclusive ? source.id : null,
+      provider: source.provider,
+      status: "running",
+      statsJson: "{}",
+      error: null,
+      leaseToken,
+      leaseExpiresAt: new Date(
+        Date.now() + CONNECTOR_SYNC_LEASE_MS,
+      ).toISOString(),
+      startedAt: now,
+      completedAt: null,
+    });
+  } catch (error) {
+    if (!exclusive) throw error;
+    const [active] = await db
+      .select({ id: schema.brainSyncRuns.id })
+      .from(schema.brainSyncRuns)
+      .where(eq(schema.brainSyncRuns.activeSourceId, source.id))
+      .limit(1);
+    if (active) throw new ConnectorSyncAlreadyRunningError(active.id);
+    throw error;
+  }
+  return { runId, leaseToken };
+}
+
+async function renewRunLease(run: ConnectorSyncRunLease) {
+  const renewed = await getDb()
+    .update(schema.brainSyncRuns)
+    .set({
+      leaseExpiresAt: new Date(
+        Date.now() + CONNECTOR_SYNC_LEASE_MS,
+      ).toISOString(),
+    })
+    .where(
+      and(
+        eq(schema.brainSyncRuns.id, run.runId),
+        eq(schema.brainSyncRuns.leaseToken, run.leaseToken),
+        eq(schema.brainSyncRuns.status, "running"),
+      ),
+    );
+  if (renewed.rowsAffected === 0) {
+    throw new Error("Brain source sync lease was lost");
+  }
+}
+
+function startRunLeaseHeartbeat(run: ConnectorSyncRunLease) {
+  let stopped = false;
+  let failure: unknown;
+  let pendingRenewal: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (stopped || failure || pendingRenewal) return;
+    pendingRenewal = renewRunLease(run)
+      .catch((error) => {
+        failure = error;
+        clearInterval(timer);
+      })
+      .finally(() => {
+        pendingRenewal = null;
+      });
+  }, CONNECTOR_SYNC_HEARTBEAT_MS);
+  timer.unref?.();
+
+  return {
+    assertHealthy() {
+      if (failure) throw failure;
+    },
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      await pendingRenewal;
+    },
+  };
 }
 
 async function finishRun(
-  runId: string,
+  run: ConnectorSyncRunLease,
   status: "success" | "error",
   stats: Record<string, unknown>,
   error?: string | null,
 ) {
-  await getDb()
+  const finished = await getDb()
     .update(schema.brainSyncRuns)
     .set({
+      activeSourceId: null,
       status,
       statsJson: stableJson(stats),
       error: error ?? null,
+      leaseToken: null,
+      leaseExpiresAt: null,
       completedAt: nowIso(),
     })
-    .where(eq(schema.brainSyncRuns.id, runId));
+    .where(
+      and(
+        eq(schema.brainSyncRuns.id, run.runId),
+        eq(schema.brainSyncRuns.leaseToken, run.leaseToken),
+      ),
+    );
+  if (finished.rowsAffected === 0) {
+    throw new Error("Brain source sync lease was lost");
+  }
 }
 
 async function syncFromConfiguredItems(
   source: SourceRow,
   emptyMessage: string,
 ): Promise<ConnectorSyncResult> {
-  const runId = await createRun(source);
+  const run = await createRun(source);
+  const { runId } = run;
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
   const items = transcriptItems(config);
   const captures = [];
   let sensitivityBlocked = 0;
+  const heartbeat = startRunLeaseHeartbeat(run);
 
   try {
     for (const item of items) {
@@ -2078,11 +2205,11 @@ async function syncFromConfiguredItems(
       if (captureResult.capture)
         captures.push(serializeCapture(captureResult.capture));
       if (captureResult.blocked) sensitivityBlocked += 1;
+      heartbeat.assertHealthy();
     }
-    await finishRun(runId, "success", {
-      capturesCreated: captures.length,
-      sensitivityBlocked,
-    });
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
+    await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
       .set({
@@ -2097,6 +2224,10 @@ async function syncFromConfiguredItems(
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(run, "success", {
+      capturesCreated: captures.length,
+      sensitivityBlocked,
+    });
     return {
       runId,
       sourceId: source.id,
@@ -2107,13 +2238,9 @@ async function syncFromConfiguredItems(
       message: captures.length ? "Imported configured captures" : emptyMessage,
     };
   } catch (err) {
+    await heartbeat.stop();
     const message = err instanceof Error ? err.message : String(err);
-    await finishRun(
-      runId,
-      "error",
-      { capturesCreated: captures.length },
-      message,
-    );
+    await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
       .set({ lastError: message, status: "error", updatedAt: nowIso() })
@@ -2123,6 +2250,12 @@ async function syncFromConfiguredItems(
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      "error",
+      { capturesCreated: captures.length },
+      message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -2144,7 +2277,8 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     );
   }
 
-  const runId = await createRun(source);
+  const run = await createRun(source);
+  const { runId } = run;
   const db = getDb();
   const cursor = parseJson<SlackSyncCursor>(source.cursorJson, {});
   const nextCursor: SlackSyncCursor = {
@@ -2193,6 +2327,12 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     15,
     { min: 0, max: 50, nestedKey: "slack" },
   );
+  const threadCaptureConcurrency = configuredNumber(
+    config,
+    ["threadCaptureConcurrency", "threadConcurrency"],
+    SLACK_THREAD_CAPTURE_CONCURRENCY,
+    { min: 1, max: 8, nestedKey: "slack" },
+  );
   const initialOldest = slackTsFromDateish(
     typeof config.oldest === "string"
       ? config.oldest
@@ -2216,6 +2356,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     messagesSeen: 0,
     capturesCreated: 0,
     threadsFetched: 0,
+    threadCaptureConcurrency,
     sensitivityBlocked: 0,
     publicChannelsJoined: 0,
     publicChannelsAlreadyJoined: 0,
@@ -2368,34 +2509,70 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         }
 
         const fetchedThreadTs = new Set<string>();
+        const threadWork: Array<{
+          message: SlackMessage;
+          threadTs: string;
+          fetchPermalink: boolean;
+        }> = [];
         for (const message of messages) {
           const threadTs = message.thread_ts ?? message.ts;
           if (!threadTs || fetchedThreadTs.has(threadTs)) continue;
           fetchedThreadTs.add(threadTs);
-          let permalink: string | null = null;
-          if (permalinkCalls < permalinkLimit) {
-            permalink = await slackPermalink(token, channel.id, threadTs);
+          const fetchPermalink = permalinkCalls < permalinkLimit;
+          if (fetchPermalink) {
             permalinkCalls += 1;
           }
-          const thread = await slackApi<SlackRepliesResponse>(
-            token,
-            "conversations.replies",
-            { channel: channel.id, ts: threadTs, limit: 1_000 },
+          threadWork.push({ message, threadTs, fetchPermalink });
+        }
+
+        for (
+          let offset = 0;
+          offset < threadWork.length;
+          offset += threadCaptureConcurrency
+        ) {
+          const batch = threadWork.slice(
+            offset,
+            offset + threadCaptureConcurrency,
           );
-          stats.threadsFetched = Number(stats.threadsFetched) + 1;
-          const captureResult = await createSlackThreadCapture({
-            source,
-            channel,
-            messages: thread.messages?.length ? thread.messages : [message],
-            permalink,
-            syncRunId: runId,
-            memberEmails: privateMemberEmails,
-          });
-          if (captureResult.capture)
-            captures.push(serializeCapture(captureResult.capture));
-          if (captureResult.blocked) {
-            stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+          const results = await Promise.allSettled(
+            batch.map(async ({ message, threadTs, fetchPermalink }) => {
+              const permalink = fetchPermalink
+                ? await slackPermalink(token, channel.id, threadTs)
+                : null;
+              const thread = await slackApi<SlackRepliesResponse>(
+                token,
+                "conversations.replies",
+                { channel: channel.id, ts: threadTs, limit: 1_000 },
+              );
+              stats.threadsFetched = Number(stats.threadsFetched) + 1;
+              return createSlackThreadCapture({
+                source,
+                channel,
+                messages: thread.messages?.length ? thread.messages : [message],
+                permalink,
+                syncRunId: runId,
+                memberEmails: privateMemberEmails,
+              });
+            }),
+          );
+          let batchFailed = false;
+          let batchError: unknown;
+          for (const result of results) {
+            if (result.status === "rejected") {
+              if (!batchFailed) batchError = result.reason;
+              batchFailed = true;
+              continue;
+            }
+            const captureResult = result.value;
+            if (captureResult.capture) {
+              captures.push(serializeCapture(captureResult.capture));
+            }
+            if (captureResult.blocked) {
+              stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+            }
           }
+          if (batchFailed) throw batchError;
+          await renewRunLease(run);
         }
 
         const nextPage = data.response_metadata?.next_cursor;
@@ -2418,7 +2595,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     }
 
     stats.capturesCreated = captures.length;
-    await finishRun(runId, "success", stats);
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -2434,6 +2611,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(run, "success", stats);
     return {
       runId,
       sourceId: source.id,
@@ -2457,12 +2635,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await finishRun(
-      runId,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -2477,6 +2650,12 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -2519,7 +2698,8 @@ export async function refreshSlackThreadCapture(
       `Slack thread refresh rejected for channel ${channelId}: it is not in this source's public or explicit channel scope`,
     );
   }
-  const runId = await createRun(source);
+  const run = await createRun(source, { exclusive: false });
+  const { runId } = run;
   try {
     const token = await requireConnectorCredential(
       "SLACK_BOT_TOKEN",
@@ -2573,7 +2753,7 @@ export async function refreshSlackThreadCapture(
       capturesCreated: captureResult.capture ? 1 : 0,
       sensitivityBlocked: captureResult.blocked ? 1 : 0,
     };
-    await finishRun(runId, "success", stats);
+    await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
       .set({
@@ -2588,6 +2768,7 @@ export async function refreshSlackThreadCapture(
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(run, "success", stats);
     return {
       runId,
       capture: captureResult.capture
@@ -2596,7 +2777,7 @@ export async function refreshSlackThreadCapture(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await finishRun(runId, "error", { capturesCreated: 0 }, message);
+    await finishRun(run, "error", { capturesCreated: 0 }, message);
     throw error;
   }
 }
@@ -2610,7 +2791,8 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
     );
   }
 
-  const runId = await createRun(source);
+  const run = await createRun(source);
+  const { runId } = run;
   const db = getDb();
   const cursor = parseJson<GranolaSyncCursor>(source.cursorJson, {});
   const pageSize = configuredNumber(config, ["pageSize", "limit"], 10, {
@@ -2624,6 +2806,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
     1,
     { min: 1, max: 5, nestedKey: "granola" },
   );
+  const noteCaptureConcurrency = configuredNumber(
+    config,
+    ["noteCaptureConcurrency", "captureConcurrency"],
+    GRANOLA_NOTE_CAPTURE_CONCURRENCY,
+    { min: 1, max: 8, nestedKey: "granola" },
+  );
   const configuredUpdatedAfter =
     typeof config.updatedAfter === "string"
       ? config.updatedAfter
@@ -2636,6 +2824,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
   const stats: Record<string, unknown> = {
     notesSeen: 0,
     notesFetched: 0,
+    noteCaptureConcurrency,
     capturesCreated: 0,
     rateLimited: false,
   };
@@ -2659,45 +2848,92 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
       const notes = list.notes ?? [];
       stats.notesSeen = Number(stats.notesSeen) + notes.length;
 
-      for (const listed of notes) {
-        if (!listed.id) continue;
-        const note = await granolaApi<GranolaNote>(
-          token,
-          `/notes/${encodeURIComponent(listed.id)}`,
-          { include: "transcript" },
+      const fetchableNotes = notes.filter(
+        (listed): listed is GranolaListNote & { id: string } =>
+          Boolean(listed.id),
+      );
+      for (
+        let offset = 0;
+        offset < fetchableNotes.length;
+        offset += noteCaptureConcurrency
+      ) {
+        const batch = fetchableNotes.slice(
+          offset,
+          offset + noteCaptureConcurrency,
         );
-        stats.notesFetched = Number(stats.notesFetched) + 1;
-        const normalized = normalizeGranolaNote({
-          ...listed,
-          ...note,
-        });
-        const captureResult = await createConnectorCapture({
-          sourceId: source.id,
-          externalId: normalized.externalId,
-          title: normalized.title,
-          kind: "transcript",
-          content: normalized.content,
-          capturedAt: normalized.capturedAt,
-          metadata: {
-            ...normalized.metadata,
-            connector: "granola",
-            syncRunId: runId,
-          },
-        });
-        if (captureResult.capture)
-          captures.push(serializeCapture(captureResult.capture));
-        if (captureResult.blocked) {
-          stats.sensitivityBlocked = Number(stats.sensitivityBlocked ?? 0) + 1;
+        const results = await Promise.allSettled(
+          batch.map(async (listed) => {
+            const note = await granolaApi<GranolaNote>(
+              token,
+              `/notes/${encodeURIComponent(listed.id)}`,
+              { include: "transcript" },
+            );
+            stats.notesFetched = Number(stats.notesFetched) + 1;
+            const combinedNote = {
+              ...listed,
+              ...note,
+            };
+            const normalized = normalizeGranolaNote(combinedNote);
+            const calendar = objectValue(combinedNote.calendar_event);
+            const memberEmails = resolveMeetingMemberEmails(
+              [
+                combinedNote.attendees,
+                combinedNote.owner,
+                calendar.invitees,
+                calendar.organiser,
+              ],
+              source.ownerEmail,
+            );
+            const captureResult = await createConnectorCapture({
+              sourceId: source.id,
+              externalId: normalized.externalId,
+              title: normalized.title,
+              kind: "transcript",
+              content: normalized.content,
+              capturedAt: normalized.capturedAt,
+              metadata: {
+                ...normalized.metadata,
+                connector: "granola",
+                syncRunId: runId,
+              },
+              audience: {
+                kind: "meeting",
+                memberEmails,
+                upstreamRefHash: normalized.externalId ?? listed.id,
+              },
+            });
+            return {
+              captureResult,
+              candidateUpdatedAt: note.updated_at ?? listed.updated_at,
+            };
+          }),
+        );
+        let batchFailed = false;
+        let batchError: unknown;
+        for (const result of results) {
+          if (result.status === "rejected") {
+            if (!batchFailed) batchError = result.reason;
+            batchFailed = true;
+            continue;
+          }
+          const { captureResult, candidateUpdatedAt } = result.value;
+          if (captureResult.capture) {
+            captures.push(serializeCapture(captureResult.capture));
+          }
+          if (captureResult.blocked) {
+            stats.sensitivityBlocked =
+              Number(stats.sensitivityBlocked ?? 0) + 1;
+          }
+          if (
+            candidateUpdatedAt &&
+            (!maxUpdatedAt ||
+              Date.parse(candidateUpdatedAt) > Date.parse(maxUpdatedAt))
+          ) {
+            maxUpdatedAt = candidateUpdatedAt;
+          }
         }
-
-        const candidateUpdatedAt = note.updated_at ?? listed.updated_at;
-        if (
-          candidateUpdatedAt &&
-          (!maxUpdatedAt ||
-            Date.parse(candidateUpdatedAt) > Date.parse(maxUpdatedAt))
-        ) {
-          maxUpdatedAt = candidateUpdatedAt;
-        }
+        if (batchFailed) throw batchError;
+        await renewRunLease(run);
       }
 
       const hasMore = list.hasMore ?? list.has_more ?? false;
@@ -2718,7 +2954,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
     };
 
     stats.capturesCreated = captures.length;
-    await finishRun(runId, "success", stats);
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -2734,6 +2970,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(run, "success", stats);
     return {
       runId,
       sourceId: source.id,
@@ -2756,12 +2993,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await finishRun(
-      runId,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -2776,6 +3008,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -2798,7 +3036,8 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     );
   }
 
-  const runId = await createRun(source);
+  const run = await createRun(source);
+  const { runId } = run;
   const db = getDb();
   const cursor = parseJson<GitHubSyncCursor>(source.cursorJson, {});
   const nextCursor: GitHubSyncCursor = {
@@ -2890,6 +3129,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     includePullRequests,
     rateLimited: false,
   };
+  const heartbeat = startRunLeaseHeartbeat(run);
 
   try {
     const token = await requireConnectorCredential(
@@ -2910,7 +3150,9 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     }
     if (!includeIssues && !includePullRequests) {
-      await finishRun(runId, "success", stats);
+      await heartbeat.stop();
+      heartbeat.assertHealthy();
+      await renewRunLease(run);
       await db
         .update(schema.brainSources)
         .set({
@@ -2926,6 +3168,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
             eq(schema.brainSources.id, source.id),
           ),
         );
+      await finishRun(run, "success", stats);
       return {
         runId,
         sourceId: source.id,
@@ -2997,6 +3240,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       }
       stats.itemsSeen = Number(stats.itemsSeen) + 1;
       stats.linkedRefsImported = Number(stats.linkedRefsImported) + 1;
+      heartbeat.assertHealthy();
     }
 
     for (const repo of repositories.slice(0, maxRepositories)) {
@@ -3061,6 +3305,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         if (captureResult.blocked) {
           stats.sensitivityBlocked = Number(stats.sensitivityBlocked ?? 0) + 1;
         }
+        heartbeat.assertHealthy();
 
         const candidateUpdatedAt = item.updated_at;
         if (
@@ -3077,7 +3322,9 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     }
 
     stats.capturesCreated = captures.length;
-    await finishRun(runId, "success", stats);
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -3093,6 +3340,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(run, "success", stats);
     return {
       runId,
       sourceId: source.id,
@@ -3106,6 +3354,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         : "GitHub sync completed with no new issues or pull requests",
     };
   } catch (err) {
+    await heartbeat.stop();
     const message = err instanceof Error ? err.message : String(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: GitHubSyncCursor = {
@@ -3116,12 +3365,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await finishRun(
-      runId,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
@@ -3136,6 +3380,12 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
     return {
       runId,
       sourceId: source.id,
@@ -3188,5 +3438,21 @@ const connectors: Record<BrainSourceProvider, Connector> = {
 
 export async function runConnectorSync(source: SourceRow) {
   await assertAccess("brain-source", source.id, "editor");
-  return connectors[source.provider as BrainSourceProvider].sync(source);
+  try {
+    return await connectors[source.provider as BrainSourceProvider].sync(
+      source,
+    );
+  } catch (error) {
+    if (!(error instanceof ConnectorSyncAlreadyRunningError)) throw error;
+    return {
+      runId: error.runId,
+      sourceId: source.id,
+      provider: source.provider as BrainSourceProvider,
+      status: "success" as const,
+      capturesCreated: 0,
+      captures: [],
+      stats: { alreadyRunning: true },
+      message: error.message,
+    };
+  }
 }

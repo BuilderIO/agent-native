@@ -54,8 +54,9 @@ workflow needs durable UI around the conversation.
 - Prefer those installed docs over memory or public docs when package APIs,
   generated-app conventions, workspaces, actions, or agent surfaces are involved.
 - Read `customizing-agent-native` before overriding the chat shell or shared UI.
-  Keep Core thread/runtime behavior, try public props and composition first,
-  and copy only the smallest presentation component into app-owned source.
+  Keep Core thread/runtime behavior and use the supported ladder: configure →
+  compose → eject the smallest presentation unit → propose a shared seam.
+  Preview before `--apply` and commit `agent-native.ejections.json`.
 
 ## Skills
 

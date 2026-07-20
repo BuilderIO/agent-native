@@ -233,8 +233,8 @@ Read the relevant skill before making changes in that area:
 - `agent-native-toolkit` for deciding whether settings, app chrome,
   collaboration, sharing, navigation, organization, comments, or history belong
   in reusable framework/toolkit primitives.
-- `customizing-agent-native` before adapting or selectively copying installed
-  Toolkit/Core UI into app-owned source.
+- `customizing-agent-native` before configuring, composing, or ejecting an
+  installed Toolkit/Core feature into app-owned source.
 - `composable-mini-apps` for many one-job headless apps that discover siblings
   and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.

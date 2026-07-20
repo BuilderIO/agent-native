@@ -947,6 +947,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
+    { specifier: "highlight.js/lib/core", packageName: "highlight.js" },
     { specifier: "html2canvas" },
     { specifier: "i18next" },
     { specifier: "input-otp" },
@@ -958,6 +959,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "react-day-picker" },
     { specifier: "react-i18next" },
     { specifier: "react-markdown" },
+    { specifier: "react-dom/server", packageName: "react-dom" },
     { specifier: "react-resizable-panels" },
     { specifier: "recharts" },
     ...(hasDep("react-router", cwd)
@@ -990,6 +992,25 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     },
     { specifier: "sonner" },
     { specifier: "tailwind-merge" },
+    ...(hasDep("@agent-native/toolkit", cwd)
+      ? [
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+            packageName: "@agent-native/toolkit",
+          },
+        ]
+      : []),
     { specifier: "vaul" },
     { specifier: "y-protocols/awareness", packageName: "y-protocols" },
     { specifier: "yjs" },
@@ -2689,9 +2710,11 @@ function createAgentNativeConfig(
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
-  const monorepoCoreAllow = [
+  const monorepoPackageAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
+    path.resolve(cwd, "../../packages/toolkit"),
+    path.resolve(cwd, "../toolkit"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
   const monorepoNodeModulesAllow = [
     path.resolve(cwd, "../../node_modules"),
@@ -2796,7 +2819,7 @@ function createAgentNativeConfig(
         ...(userConfig.server?.fs ?? {}),
         allow: [
           ".",
-          ...monorepoCoreAllow,
+          ...monorepoPackageAllow,
           ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...localWorkspacePackageAllow,

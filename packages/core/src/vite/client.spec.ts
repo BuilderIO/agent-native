@@ -1144,8 +1144,10 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@agent-native/toolkit": "workspace:*",
           "@paper-design/shaders-react": "0.0.76",
           html2canvas: "^1.4.1",
+          "react-dom": "^19.2.7",
           "react-router": "^8.0.1",
         },
       }),
@@ -1194,8 +1196,19 @@ describe("local-core dev aliases and router dedupe", () => {
     );
     expect(deps).toContain("html2canvas");
     expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toContain("react-dom/server");
     expect(deps).toContain("react-router");
     expect(deps).not.toContain("@agent-native/core > react-router");
+    expect(deps).toContain("@agent-native/core > highlight.js/lib/core");
+    expect(deps).toContain(
+      "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+    );
+    expect(deps).toContain(
+      "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+    );
+    expect(deps).toContain(
+      "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+    );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -1414,10 +1427,13 @@ describe("local-core dev aliases and router dedupe", () => {
     const appDir = path.join(tmpDir, "templates", "forms");
     const nodeModulesDir = path.join(tmpDir, "node_modules");
     const coreDir = path.join(tmpDir, "packages", "core");
+    const toolkitDir = path.join(tmpDir, "packages", "toolkit");
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(nodeModulesDir, { recursive: true });
     fs.mkdirSync(coreDir, { recursive: true });
+    fs.mkdirSync(toolkitDir, { recursive: true });
     fs.writeFileSync(path.join(coreDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(toolkitDir, "package.json"), "{}");
 
     try {
       process.chdir(appDir);
@@ -1428,6 +1444,9 @@ describe("local-core dev aliases and router dedupe", () => {
 
       expect(fsAllow).toContain(
         fs.realpathSync(path.join(tmpDir, "packages", "core")),
+      );
+      expect(fsAllow).toContain(
+        fs.realpathSync(path.join(tmpDir, "packages", "toolkit")),
       );
       expect(fsAllow).toContain(fs.realpathSync(nodeModulesDir));
     } finally {

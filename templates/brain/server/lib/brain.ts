@@ -1475,6 +1475,34 @@ export interface WriteKnowledgeInput {
   publishCanonical?: boolean;
 }
 
+async function evidenceSourceReviewPolicy(
+  evidence: BrainEvidence[],
+): Promise<"required" | "disabled" | "legacy"> {
+  const sourceIds = Array.from(
+    new Set(evidence.map((item) => item.sourceId).filter(Boolean)),
+  );
+  if (!sourceIds.length) return "legacy";
+  const sources = await getDb()
+    .select({
+      id: schema.brainSources.id,
+      configJson: schema.brainSources.configJson,
+    })
+    .from(schema.brainSources)
+    .where(
+      and(
+        inArray(schema.brainSources.id, sourceIds),
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+      ),
+    );
+  if (sources.length !== sourceIds.length) return "required";
+  const values = sources.map(
+    (source) =>
+      parseJson<Record<string, unknown>>(source.configJson, {}).reviewRequired,
+  );
+  if (values.includes(true)) return "required";
+  return values.every((value) => value === false) ? "disabled" : "legacy";
+}
+
 function slugify(value: string): string {
   return (
     value
@@ -1899,13 +1927,24 @@ export async function writeKnowledgeRecord(
   const status = redacted.redacted ? "redacted" : statusForTier(tier);
   const highConfidenceAutoPublish =
     (input.confidence ?? 80) >= 90 && !input.knowledgeId && !redacted.redacted;
+  const sourceReviewPolicy =
+    !options.bypassProposal &&
+    tier === "company" &&
+    input.proposalMode !== "always" &&
+    input.proposalMode !== "never"
+      ? await evidenceSourceReviewPolicy(evidence)
+      : "legacy";
+  const autoModeNeedsProposal =
+    sourceReviewPolicy === "required" ||
+    (sourceReviewPolicy === "legacy" &&
+      settings.requireApprovalForCompanyKnowledge &&
+      !highConfidenceAutoPublish);
   const needsProposal =
     !options.bypassProposal &&
     (input.proposalMode === "always" ||
       (input.proposalMode !== "never" &&
         tier === "company" &&
-        settings.requireApprovalForCompanyKnowledge &&
-        !highConfidenceAutoPublish));
+        autoModeNeedsProposal));
 
   const payload = {
     knowledgeId: input.knowledgeId,

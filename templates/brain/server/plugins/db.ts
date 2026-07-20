@@ -474,6 +474,16 @@ const runBrainMigrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS brain_audience_source_dependency_source_idx ON brain_audience_source_dependencies (source_id, audience_id)`,
       ].join(";\n"),
     },
+    {
+      version: 25,
+      name: "brain-sync-run-source-leases",
+      sql: [
+        `ALTER TABLE brain_sync_runs ADD COLUMN IF NOT EXISTS active_source_id TEXT`,
+        `ALTER TABLE brain_sync_runs ADD COLUMN IF NOT EXISTS lease_token TEXT`,
+        `ALTER TABLE brain_sync_runs ADD COLUMN IF NOT EXISTS lease_expires_at TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS brain_sync_runs_active_source_idx ON brain_sync_runs (active_source_id)`,
+      ].join(";\n"),
+    },
   ],
   { table: "brain_migrations" },
 );

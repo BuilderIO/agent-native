@@ -18,6 +18,7 @@ const guards = [
   "guard:no-core-client-barrel-imports",
   "guard:toolkit-must-not-import-core",
   "guard:migration-manifest",
+  "guard:eject-manifests",
   "guard:no-generated-artifacts",
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",

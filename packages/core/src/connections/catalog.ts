@@ -59,6 +59,7 @@ export interface WorkspaceConnectionProvider {
 export interface ListWorkspaceConnectionProvidersOptions {
   capability?: WorkspaceConnectionCapability;
   templateUse?: WorkspaceConnectionTemplateUse;
+  providerOverrides?: readonly WorkspaceConnectionProvider[];
 }
 
 export function defineWorkspaceConnectionProvider<
@@ -360,33 +361,46 @@ const PROVIDERS_BY_ID = new Map<
 export function listWorkspaceConnectionProviders(
   options: ListWorkspaceConnectionProvidersOptions = {},
 ): WorkspaceConnectionProvider[] {
-  return WORKSPACE_CONNECTION_PROVIDERS.filter((provider) => {
-    if (
-      options.capability &&
-      !includesWorkspaceConnectionCapability(
-        provider.capabilities,
-        options.capability,
-      )
-    ) {
-      return false;
-    }
-    if (
-      options.templateUse &&
-      !includesWorkspaceConnectionTemplateUse(
-        provider.recommendedTemplateUses,
-        options.templateUse,
-      )
-    ) {
-      return false;
-    }
-    return true;
-  }).map((provider) => ({ ...provider }));
+  return mergeWorkspaceConnectionProviders(options.providerOverrides)
+    .filter((provider) => {
+      if (
+        options.capability &&
+        !includesWorkspaceConnectionCapability(
+          provider.capabilities,
+          options.capability,
+        )
+      ) {
+        return false;
+      }
+      if (
+        options.templateUse &&
+        !includesWorkspaceConnectionTemplateUse(
+          provider.recommendedTemplateUses,
+          options.templateUse,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((provider) => ({ ...provider }));
+}
+
+export function mergeWorkspaceConnectionProviders(
+  overrides: readonly WorkspaceConnectionProvider[] = [],
+): WorkspaceConnectionProvider[] {
+  return mergeDefinitionsById(WORKSPACE_CONNECTION_PROVIDERS, overrides);
 }
 
 export function getWorkspaceConnectionProvider(
   id: string,
+  overrides: readonly WorkspaceConnectionProvider[] = [],
 ): WorkspaceConnectionProvider | undefined {
-  const provider = PROVIDERS_BY_ID.get(id as WorkspaceConnectionProviderId);
+  const provider = overrides.length
+    ? mergeWorkspaceConnectionProviders(overrides).find(
+        (candidate) => candidate.id === id,
+      )
+    : PROVIDERS_BY_ID.get(id as WorkspaceConnectionProviderId);
   return provider ? { ...provider } : undefined;
 }
 
@@ -398,14 +412,16 @@ export function isWorkspaceConnectionProviderId(
 
 export function listWorkspaceConnectionProvidersForTemplate(
   templateUse: WorkspaceConnectionTemplateUse,
+  providerOverrides: readonly WorkspaceConnectionProvider[] = [],
 ): WorkspaceConnectionProvider[] {
-  return listWorkspaceConnectionProviders({ templateUse });
+  return listWorkspaceConnectionProviders({ templateUse, providerOverrides });
 }
 
 export function listWorkspaceConnectionProvidersForCapability(
   capability: WorkspaceConnectionCapability,
+  providerOverrides: readonly WorkspaceConnectionProvider[] = [],
 ): WorkspaceConnectionProvider[] {
-  return listWorkspaceConnectionProviders({ capability });
+  return listWorkspaceConnectionProviders({ capability, providerOverrides });
 }
 
 export function workspaceConnectionProviderSupports(
@@ -432,3 +448,4 @@ function includesWorkspaceConnectionTemplateUse(
 ): boolean {
   return templateUses.includes(templateUse);
 }
+import { mergeDefinitionsById } from "../shared/merge-by-id.js";

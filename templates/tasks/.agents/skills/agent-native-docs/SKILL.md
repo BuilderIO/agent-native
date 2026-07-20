@@ -59,22 +59,24 @@ read files under `node_modules/@agent-native/core/corpus/core/` or
 
 Toolkit source is searchable at `toolkit/` in the Core corpus and also ships as
 readable TypeScript under `node_modules/@agent-native/toolkit/src/`. Read
-`customizing-agent-native` before copying a shared component: inspect package
-source as a read-only reference, copy only the smallest UI piece into app-owned
-source, and preserve public actions, application state, auth, and agent-chat
-runtime contracts. Never edit `node_modules` or deep-import its private source.
+`customizing-agent-native` before taking ownership of a shared component: inspect package
+source as a read-only reference, then configure, compose, or eject the smallest
+supported unit into app-owned source. Preserve public actions, application
+state, auth, and agent-chat runtime contracts. Never edit `node_modules` or
+deep-import its private source. Manual copying is only the fallback described by
+an unknown third-party package's add-style blueprint.
 
 ## Useful Slugs
 
-| Need | Slugs |
-| --- | --- |
-| Actions and typed client calls | `actions`, `client` |
-| SQL, auth, access, sharing | `database`, `authentication`, `security`, `sharing` |
-| UI state visible to the agent | `context-awareness` |
-| Headless and chat-first apps | `pure-agent-apps`, `agent-surfaces`, `using-your-agent` |
-| Automations and schedules | `automations`, `recurring-jobs` |
-| Cross-app and external agents | `a2a-protocol`, `external-agents`, `mcp-protocol`, `mcp-apps` |
-| Skills and instructions | `skills-guide`, `writing-agent-instructions` |
+| Need                           | Slugs                                                         |
+| ------------------------------ | ------------------------------------------------------------- |
+| Actions and typed client calls | `actions`, `client`                                           |
+| SQL, auth, access, sharing     | `database`, `authentication`, `security`, `sharing`           |
+| UI state visible to the agent  | `context-awareness`                                           |
+| Headless and chat-first apps   | `pure-agent-apps`, `agent-surfaces`, `using-your-agent`       |
+| Automations and schedules      | `automations`, `recurring-jobs`                               |
+| Cross-app and external agents  | `a2a-protocol`, `external-agents`, `mcp-protocol`, `mcp-apps` |
+| Skills and instructions        | `skills-guide`, `writing-agent-instructions`                  |
 
 ## Don't
 
