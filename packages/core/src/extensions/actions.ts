@@ -909,6 +909,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const userEmail = getRequestUserEmail()?.toLowerCase() ?? "";
         const scope = args?.scope ?? "user";
         const orgId = getRequestOrgId();
+        if ((scope === "org" || scope === "all") && !orgId)
+          return "Error: org context required for scope=org or scope=all.";
         const itemId = args?.itemId ? String(args.itemId).trim() : null;
         const limit = Math.min(Math.max(1, Number(args?.limit) || 100), 1000);
         const client = getDbExec();
