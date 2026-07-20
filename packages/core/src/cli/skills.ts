@@ -1639,7 +1639,12 @@ function detectStandaloneScaffoldTemplate(
     path.join(projectRoot, "actions", "hello.ts"),
   );
   if (!hasAppDir && hasHeadlessHello) return "headless";
-  return hasAppDir ? "default" : undefined;
+
+  const looksLikeDefaultTemplate =
+    fs.existsSync(path.join(projectRoot, "app", "routes", "database.tsx")) &&
+    fs.existsSync(path.join(projectRoot, "app", "routes", "_index.tsx")) &&
+    fs.existsSync(path.join(projectRoot, "actions", "view-screen.ts"));
+  return looksLikeDefaultTemplate ? "default" : undefined;
 }
 
 function listImmediateSkillDirs(dir: string): string[] {

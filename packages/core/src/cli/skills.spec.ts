@@ -2263,65 +2263,38 @@ describe("agent-native skills", () => {
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
   });
 
-  it("updates framework skills in named standalone UI templates", async () => {
+  it("does not overwrite same-named skills in an unmarked UI template", async () => {
     const root = tmpDir();
+    const skillPath = path.join(
+      root,
+      ".agents",
+      "skills",
+      "agent-native-toolkit",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
     fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
-    fs.mkdirSync(path.join(root, ".agents", "skills", "agent-native-docs"), {
-      recursive: true,
-    });
-    fs.mkdirSync(path.join(root, ".agents", "skills", "app-specific"), {
-      recursive: true,
-    });
     fs.writeFileSync(
       path.join(root, "package.json"),
       JSON.stringify(
         {
-          name: "analytics-app",
+          name: "custom-ui-app",
           dependencies: { "@agent-native/core": "latest" },
         },
         null,
         2,
       ),
     );
-    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Analytics\n");
-    fs.writeFileSync(path.join(root, "app", "root.tsx"), "export {}\n");
-    fs.writeFileSync(
-      path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
-      "old docs skill\n",
-    );
-    fs.writeFileSync(
-      path.join(root, ".agents", "skills", "app-specific", "SKILL.md"),
-      "app-owned guidance\n",
-    );
+    fs.writeFileSync(skillPath, "app-owned Toolkit guidance\n");
 
     await runSkills(["update", "scaffold", "--scope", "project"], {
       baseDir: root,
       runCommand: async () => 0,
     });
 
-    expect(
-      fs.readFileSync(
-        path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
-        "utf-8",
-      ),
-    ).toContain("# Agent Native Docs");
-    expect(
-      fs.existsSync(
-        path.join(
-          root,
-          ".agents",
-          "skills",
-          "agent-native-toolkit",
-          "SKILL.md",
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      fs.readFileSync(
-        path.join(root, ".agents", "skills", "app-specific", "SKILL.md"),
-        "utf-8",
-      ),
-    ).toBe("app-owned guidance\n");
+    expect(fs.readFileSync(skillPath, "utf-8")).toBe(
+      "app-owned Toolkit guidance\n",
+    );
   });
 
   it("registers the skill against a --mcp-url override (bare origin gets the mcp path)", async () => {
