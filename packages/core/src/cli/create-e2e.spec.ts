@@ -39,6 +39,7 @@ import {
   _tarExtractArgs,
 } from "./create.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { runSkills } from "./skills.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -195,20 +196,22 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     await createApp("test-app", { template: "chat" });
     const root = path.join(tmpDir, "test-app");
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    const pkg = readPkg(root);
+    const toolkitSkill = path.join(
+      root,
+      ".agents",
+      "skills",
+      "agent-native-toolkit",
+      "SKILL.md",
+    );
 
     expect(agents).toContain("agent-native-toolkit");
     expect(agents).toContain("customizing-agent-native");
-    expect(
-      fs.existsSync(
-        path.join(
-          root,
-          ".agents",
-          "skills",
-          "agent-native-toolkit",
-          "SKILL.md",
-        ),
-      ),
-    ).toBe(true);
+    expect(pkg["agent-native"]?.scaffold).toEqual({
+      template: "chat",
+      frameworkSkills: "default",
+    });
+    expect(fs.existsSync(toolkitSkill)).toBe(true);
     expect(
       fs.existsSync(
         path.join(
@@ -220,6 +223,15 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
         ),
       ),
     ).toBe(true);
+
+    fs.writeFileSync(toolkitSkill, "outdated framework guidance\n");
+    await runSkills(["update", "scaffold", "--scope", "project"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+    expect(fs.readFileSync(toolkitSkill, "utf-8")).toContain(
+      "# Agent-Native Toolkit",
+    );
   });
 
   it("resolves all workspace:* deps for standalone install", async () => {
@@ -331,6 +343,10 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     }
 
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    expect(readPkg(root)["agent-native"]?.scaffold).toEqual({
+      template: "headless",
+      frameworkSkills: "headless",
+    });
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");
     expect(agents).toContain("Chat template");

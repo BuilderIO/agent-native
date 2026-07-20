@@ -1697,8 +1697,31 @@ function fixPackageJsonName(
     ) {
       pkg.description = defaultPackageDescriptionForScaffold(name);
     }
+    const scaffoldGuidance = scaffoldGuidanceForTemplate(templateName);
+    if (scaffoldGuidance) {
+      const agentNative =
+        pkg["agent-native"] &&
+        typeof pkg["agent-native"] === "object" &&
+        !Array.isArray(pkg["agent-native"])
+          ? pkg["agent-native"]
+          : {};
+      agentNative.scaffold = {
+        template: trackingTemplateName(templateName),
+        frameworkSkills: scaffoldGuidance,
+      };
+      pkg["agent-native"] = agentNative;
+    }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
+}
+
+function scaffoldGuidanceForTemplate(
+  templateName: string | undefined,
+): "default" | "headless" | undefined {
+  if (!templateName || templateName.startsWith("github:")) return undefined;
+  const normalized = normalizeTemplateName(templateName);
+  if (normalized === "headless") return "headless";
+  return getTemplate(normalized) ? "default" : undefined;
 }
 
 function fixWebManifestName(
