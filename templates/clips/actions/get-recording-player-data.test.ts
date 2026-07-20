@@ -68,6 +68,11 @@ vi.mock("../server/db/index.js", () => ({
       principalId: "recordingShares.principalId",
       resourceId: "recordingShares.resourceId",
     },
+    recordingViewers: {
+      id: "recordingViewers.id",
+      recordingId: "recordingViewers.recordingId",
+      viewerEmail: "recordingViewers.viewerEmail",
+    },
     recordingTranscripts: { recordingId: "recordingTranscripts.recordingId" },
     recordingComments: {
       recordingId: "recordingComments.recordingId",
@@ -157,7 +162,7 @@ describe("get-recording-player-data direct public access", () => {
       expect(mockDb.select).toHaveBeenCalledWith({
         id: "recordingShares.id",
       });
-      expect(mockShareLimit).toHaveBeenCalledTimes(1);
+    expect(mockShareLimit).toHaveBeenCalledTimes(2);
     },
   );
 });

@@ -1,10 +1,10 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 80;
@@ -92,7 +92,7 @@ function transcriptMatch(
 
 export default defineAction({
   description:
-    "Search recordings by title, description, transcript text, or comments. Transcript and comment matches include timestamps for jumping to the matching moment.",
+    "Search recordings by title, description, transcript text, or comments. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -128,7 +128,11 @@ export default defineAction({
       .from(schema.recordings)
       .where(
         and(
-          accessFilter(schema.recordings, schema.recordingShares),
+          agentRecordingAccessFilter(
+            schema.recordings,
+            schema.recordingShares,
+            schema.recordingViewers,
+          ),
           sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
@@ -158,7 +162,11 @@ export default defineAction({
       )
       .where(
         and(
-          accessFilter(schema.recordings, schema.recordingShares),
+          agentRecordingAccessFilter(
+            schema.recordings,
+            schema.recordingShares,
+            schema.recordingViewers,
+          ),
           sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -186,7 +194,11 @@ export default defineAction({
       )
       .where(
         and(
-          accessFilter(schema.recordings, schema.recordingShares),
+          agentRecordingAccessFilter(
+            schema.recordings,
+            schema.recordingShares,
+            schema.recordingViewers,
+          ),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )

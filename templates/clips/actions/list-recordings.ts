@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -17,6 +16,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
@@ -62,7 +62,7 @@ export function resolveListRecordingMedia(
 
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. The shared view returns accessible recordings owned by someone else.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else.",
   schema: z.object({
     view: z
       .enum(["library", "shared", "space", "archive", "trash", "all"])
@@ -114,7 +114,11 @@ export default defineAction({
     const db = getDb();
 
     const whereClauses = [
-      accessFilter(schema.recordings, schema.recordingShares),
+      agentRecordingAccessFilter(
+        schema.recordings,
+        schema.recordingShares,
+        schema.recordingViewers,
+      ),
     ];
 
     const orgId = await getActiveOrganizationId();

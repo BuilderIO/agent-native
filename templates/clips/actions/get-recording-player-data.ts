@@ -29,6 +29,7 @@ import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { hasViewedPublicRecording } from "../server/lib/agent-recording-access.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -122,6 +123,17 @@ export default defineAction({
 
     let hasExplicitShare = access.role === "owner";
     if (rec.visibility === "public" && access.role !== "owner") {
+      hasExplicitShare = await hasViewedPublicRecording(
+        db,
+        schema.recordingViewers,
+        args.recordingId,
+      );
+    }
+    if (
+      rec.visibility === "public" &&
+      access.role !== "owner" &&
+      !hasExplicitShare
+    ) {
       const userEmail = getRequestUserEmail()?.trim().toLowerCase();
       const orgId = getRequestOrgId();
       const principals = [];
