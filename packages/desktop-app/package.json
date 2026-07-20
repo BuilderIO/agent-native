@@ -19,7 +19,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && vite build --config electron.vite.code-agent-runner.config.ts && AGENT_NATIVE_PACKAGED_MULTI_FRONTIER_SMOKE=1 vite build --config electron.vite.code-agent-runner.config.ts",
+    "build": "electron-vite build && vite build --config electron.vite.code-agent-runner.config.ts && cross-env AGENT_NATIVE_PACKAGED_MULTI_FRONTIER_SMOKE=1 vite build --config electron.vite.code-agent-runner.config.ts",
     "build:native:mac": "bash native/build-macos-helper.sh",
     "build:chrome-extension": "pnpm --dir ../agent-chrome-extension build",
     "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && pnpm build && electron-builder --mac --config",
@@ -50,6 +50,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react-swc": "^4.0.0",
+    "cross-env": "10.1.0",
     "electron": "^41.2.2",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
