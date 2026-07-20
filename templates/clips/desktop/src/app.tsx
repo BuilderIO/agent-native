@@ -86,6 +86,7 @@ import {
   type RecorderStopResult,
 } from "./lib/recorder";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
+import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
   loadBool,
   loadString,
@@ -946,6 +947,11 @@ export function App() {
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
+  const homeRewindPresentation = getRewindStatusPresentation({
+    status: homeScreenMemoryStatus,
+    config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
+    clipRecordingActive: isRecording || recordingFlowActive,
+  });
   useEffect(() => {
     if (featureConfig?.screenMemory?.enabled !== true) {
       setHomeScreenMemoryStatus(null);
@@ -961,9 +967,20 @@ export function App() {
     };
     refresh();
     const timer = window.setInterval(refresh, popoverVisible ? 5_000 : 30_000);
+    let unlisten: (() => void) | undefined;
+    listen("clips:screen-memory-changed", refresh)
+      .then((stopListening) => {
+        if (cancelled) {
+          stopListening();
+          return;
+        }
+        unlisten = stopListening;
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      unlisten?.();
     };
   }, [featureConfig?.screenMemory?.enabled, popoverVisible]);
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
@@ -3633,34 +3650,12 @@ export function App() {
         <section className="rewind-home-card" aria-label="Rewind status">
           <div className="rewind-home-status">
             <span
-              className={`rewind-home-dot ${
-                featureConfig?.screenMemory?.enabled === true &&
-                featureConfig.screenMemory.paused !== true &&
-                homeScreenMemoryStatus?.state === "recording"
-                  ? "is-live"
-                  : ""
-              }`}
+              className={`rewind-home-dot ${homeRewindPresentation.isLive ? "is-live" : ""}`}
             />
             <div>
-              <strong>
-                {featureConfig?.screenMemory?.enabled !== true
-                  ? "Rewind is off"
-                  : featureConfig.screenMemory.paused === true
-                    ? "Rewind is paused"
-                    : homeScreenMemoryStatus?.exclusionActive
-                      ? "Rewind is protecting a private moment"
-                      : "Rewind is remembering"}
-              </strong>
-              {featureConfig?.screenMemory?.enabled !== true ||
-              featureConfig.screenMemory.paused ||
-              homeScreenMemoryStatus?.exclusionActive ? (
-                <p>
-                  {featureConfig?.screenMemory?.enabled !== true
-                    ? "Private memory for moments you may need later."
-                    : featureConfig.screenMemory.paused
-                      ? "Existing local memory is still available."
-                      : "An excluded app is being skipped."}
-                </p>
+              <strong>{homeRewindPresentation.title}</strong>
+              {!homeRewindPresentation.isLive ? (
+                <p>{homeRewindPresentation.detail}</p>
               ) : null}
             </div>
             <div className="rewind-home-controls">
@@ -4976,7 +4971,11 @@ function Setup({
     (sum, segment) => sum + segment.bytes,
     0,
   );
-  const screenMemoryRecording = screenMemoryStatus?.state === "recording";
+  const rewindStatusPresentation = getRewindStatusPresentation({
+    status: screenMemoryStatus,
+    config: screenMemory,
+    clipRecordingActive: recordingActive,
+  });
   const captureControlsLocked = recordingActive;
 
   useEffect(() => {
@@ -5431,6 +5430,7 @@ function Setup({
         .catch(() => {});
     };
     refresh();
+    const timer = window.setInterval(refresh, 5_000);
     const unlistens: Array<() => void> = [];
     const track = (p: Promise<() => void>) => {
       p.then((u) => {
@@ -5448,6 +5448,7 @@ function Setup({
     track(listen("clips:screen-memory-changed", refresh));
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
       unlistens.forEach((u) => {
         try {
           u();
@@ -6044,17 +6045,13 @@ function Setup({
             </div>
             <div className="rewind-settings-status">
               <span
-                className={`rewind-home-dot ${screenMemoryRecording ? "is-live" : ""}`}
+                className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
               />
               <span>
-                {screenMemoryStatus?.exclusionActive
-                  ? screenMemoryStatus.coverage
-                  : screenMemoryRecording
-                    ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
-                    : screenMemory.paused
-                      ? "Paused. Existing memory remains available."
-                      : screenMemoryStatus?.lastError ||
-                        "Waiting for screen-recording permission."}
+                {rewindStatusPresentation.kind === "recording" &&
+                !rewindStatusPresentation.hasError
+                  ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
+                  : rewindStatusPresentation.detail}
               </span>
             </div>
             <div className="setup-section-heading">Privacy</div>
@@ -6550,17 +6547,11 @@ function Setup({
       <div className="setup-section rewind-settings-entry">
         <div className="rewind-settings-entry-main">
           <span
-            className={`rewind-home-dot ${screenMemoryRecording ? "is-live" : ""}`}
+            className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
           />
           <div>
             <strong>Rewind</strong>
-            <p className="setup-hint">
-              {!screenMemory.enabled
-                ? "Off"
-                : screenMemory.paused
-                  ? "Paused · existing local memory is still available"
-                  : "Remembering locally"}
-            </p>
+            <p className="setup-hint">{rewindStatusPresentation.title}</p>
           </div>
         </div>
         <button type="button" className="secondary" onClick={onOpenRewind}>
@@ -6738,21 +6729,16 @@ function Setup({
               bundle ID cannot be detected.
             </p>
             <div className="whisper-status">
-              {screenMemoryRecording ? (
+              {rewindStatusPresentation.isLive ? (
                 <IconCircleCheck size={13} className="whisper-status-icon" />
               ) : (
                 <IconAlertTriangle size={13} className="whisper-status-icon" />
               )}
               <span>
-                {screenMemoryStatus?.exclusionActive
-                  ? screenMemoryStatus.coverage
-                  : screenMemoryRecording
-                    ? `Rewind is retaining local coverage: ${screenMemorySegments.length} segment${screenMemorySegments.length === 1 ? "" : "s"}, ${formatStorageBytes(screenMemoryTotalBytes)}.`
-                    : screenMemory.paused
-                      ? "Capture paused. Existing local coverage remains available."
-                      : screenMemoryStatus?.lastError
-                        ? screenMemoryStatus.lastError
-                        : "Capture status is waiting for screen-recording permission."}
+                {rewindStatusPresentation.kind === "recording" &&
+                !rewindStatusPresentation.hasError
+                  ? `Rewind is retaining local coverage: ${screenMemorySegments.length} segment${screenMemorySegments.length === 1 ? "" : "s"}, ${formatStorageBytes(screenMemoryTotalBytes)}.`
+                  : rewindStatusPresentation.detail}
               </span>
             </div>
             {screenMemorySegments[0] ? (
