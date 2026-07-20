@@ -364,7 +364,11 @@ export function EmbeddedExtension({
           : [];
 
         const detailedTrace = errorDetails
-          .map((e) => (e.stack ? `${e.message}\n${e.stack}` : e.message))
+          .filter((e) => e && typeof e === "object")
+          .map((e) => {
+            const msg = typeof e.message === "string" ? e.message : String(e.message);
+            return typeof e.stack === "string" ? `${msg}\n${e.stack}` : msg;
+          })
           .join("\n\n");
 
         // Force a fresh read from the server, same as ExtensionViewer's fix
@@ -493,7 +497,7 @@ export function EmbeddedExtension({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId]);
+  }, [extensionId, slotId]);
 
   if (!extension) {
     if (!isLoading && !isFetching) return null;
