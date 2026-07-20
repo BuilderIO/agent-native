@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.15.4
+
+### Patch Changes
+
+- Updated dependencies [8453025]
+  - @agent-native/toolkit@0.8.0
+
 ## 0.15.3
 
 ### Patch Changes
