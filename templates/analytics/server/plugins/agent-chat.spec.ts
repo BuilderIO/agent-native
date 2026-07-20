@@ -19,6 +19,7 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
@@ -41,6 +42,10 @@ function action(readOnly = true): ActionEntry {
 }
 
 describe("Analytics agent Plan mode policy", () => {
+  it("recovers a silent background dashboard run before the long chunk timeout", () => {
+    expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
+  });
+
   it("injects the simple, time-bounded metric fast path into source guidance", () => {
     const guidance = analyticsSourceGuidanceOpening();
 

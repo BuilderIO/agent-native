@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   _agentChatPromptSectionsForTests,
   buildLeanRunPolicyPrompt,
+  resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
@@ -74,6 +75,22 @@ describe("lean production run policy", () => {
     expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
       restriction + codeExecution,
     );
+  });
+});
+
+describe("interactive agent run options", () => {
+  it("forwards an app's durable no-progress watchdog to every interactive handler", () => {
+    expect(
+      resolveInteractiveAgentRunOptions({
+        runSoftTimeoutMs: 13 * 60_000,
+        runNoProgressTimeoutMs: 3 * 60_000,
+        durableBackgroundRuns: true,
+      }),
+    ).toEqual({
+      runSoftTimeoutMs: 13 * 60_000,
+      runNoProgressTimeoutMs: 3 * 60_000,
+      durableBackgroundRuns: true,
+    });
   });
 });
 
