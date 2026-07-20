@@ -53,6 +53,23 @@ const MULTI_FRONTIER_PROVIDERS: readonly MultiFrontierProviderId[] = [
   "codex",
   "claude",
 ];
+const MULTI_FRONTIER_RUN_MODES = [
+  {
+    value: "plan",
+    label: "Plan",
+    description: "Inspect and propose only",
+  },
+  {
+    value: "auto",
+    label: "Auto",
+    description: "One agent plans and builds",
+  },
+  {
+    value: "multi-frontier",
+    label: "Multi-Frontier",
+    description: "Codex + Claude plan, cross-review, then one builds",
+  },
+] as const;
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
@@ -966,24 +983,22 @@ export function MultiFrontierModeControl({
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="code-agents-select-content code-agents-mode-menu code-agents-multi-frontier-mode-menu">
-          <SelectItem
-            className="code-agents-multi-frontier-mode-menu-item"
-            value="plan"
-          >
-            Plan
-          </SelectItem>
-          <SelectItem
-            className="code-agents-multi-frontier-mode-menu-item"
-            value="auto"
-          >
-            Auto
-          </SelectItem>
-          <SelectItem
-            className="code-agents-multi-frontier-mode-menu-item"
-            value="multi-frontier"
-          >
-            Multi-Frontier
-          </SelectItem>
+          {MULTI_FRONTIER_RUN_MODES.map((mode) => (
+            <SelectItem
+              key={mode.value}
+              className="code-agents-multi-frontier-mode-menu-item"
+              value={mode.value}
+            >
+              <span className="code-agents-multi-frontier-mode-option">
+                <span className="code-agents-multi-frontier-mode-option__label">
+                  {mode.label}
+                </span>
+                <span className="code-agents-multi-frontier-mode-option__description">
+                  {mode.description}
+                </span>
+              </span>
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
       <MultiFrontierParticipantSettings

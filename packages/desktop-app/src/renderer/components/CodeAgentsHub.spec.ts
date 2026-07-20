@@ -152,12 +152,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
         option.classList.contains("code-agents-multi-frontier-mode-menu-item"),
       ),
     ).toBe(true);
-    expect(options.map((option) => option.textContent)).toContain(
-      "Multi-Frontier",
+    expect(document.body.textContent).toContain(
+      "Codex + Claude plan, cross-review, then one builds",
     );
 
-    const multiFrontierOption = options.find(
-      (option) => option.textContent === "Multi-Frontier",
+    const multiFrontierOption = options.find((option) =>
+      option.textContent?.startsWith("Multi-Frontier"),
     );
     expect(multiFrontierOption).toBeDefined();
 

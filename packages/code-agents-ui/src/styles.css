@@ -1532,19 +1532,51 @@
 }
 
 .code-agents-multi-frontier-mode-menu {
-  min-width: 148px;
-  max-width: 196px;
+  min-width: 264px;
+  max-width: 288px;
 }
 
 .code-agents-multi-frontier-mode-menu
   .code-agents-multi-frontier-mode-menu-item {
-  min-height: 32px;
+  min-height: 46px;
+  align-items: flex-start;
   border-radius: calc(var(--radius) - 3px);
-  padding: 6px 9px 6px 28px;
+  padding: 7px 9px 7px 28px;
   color: hsl(var(--foreground) / 0.88);
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
+}
+
+.code-agents-multi-frontier-mode-menu
+  .code-agents-multi-frontier-mode-menu-item
+  > span:first-child {
+  top: 9px;
+}
+
+.code-agents-multi-frontier-mode-option {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.code-agents-multi-frontier-mode-option__label,
+.code-agents-multi-frontier-mode-option__description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-multi-frontier-mode-option__label {
+  color: hsl(var(--foreground) / 0.9);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.code-agents-multi-frontier-mode-option__description {
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .code-agents-button,
