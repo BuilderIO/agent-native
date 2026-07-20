@@ -11,6 +11,7 @@ import type {
   A2AApprovedAction,
   A2ACorrelationMetadata,
   A2ASourceContext,
+  A2ASourceContextReference,
   Task,
 } from "../a2a/types.js";
 import {
@@ -101,10 +102,22 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
 
-function integrationSourceContext(): A2ASourceContext | undefined {
+interface IntegrationSourceContext {
+  reference: A2ASourceContextReference;
+  hint: A2ASourceContext;
+}
+
+function integrationSourceContext(): IntegrationSourceContext | undefined {
   const integration = getIntegrationRequestContext();
   const incoming = integration?.incoming;
-  if (incoming?.platform !== "slack" || !incoming.sourceUrl) return undefined;
+  if (
+    !integration ||
+    incoming?.platform !== "slack" ||
+    !incoming.sourceUrl ||
+    !integration.taskId
+  ) {
+    return undefined;
+  }
 
   const rawSourceUrl = incoming.sourceUrl;
   if (rawSourceUrl !== rawSourceUrl.trim()) return undefined;
@@ -124,8 +137,14 @@ function integrationSourceContext(): A2ASourceContext | undefined {
       return undefined;
     }
     return {
-      platform: "slack",
-      sourceUrl: rawSourceUrl,
+      reference: {
+        platform: "slack",
+        integrationTaskId: integration.taskId,
+      },
+      hint: {
+        platform: "slack",
+        sourceUrl: rawSourceUrl,
+      },
     };
   } catch {
     return undefined;
@@ -133,11 +152,11 @@ function integrationSourceContext(): A2ASourceContext | undefined {
 }
 
 function integrationSourceContextHint(
-  sourceContext: A2ASourceContext | undefined,
+  sourceContext: IntegrationSourceContext | undefined,
 ): string {
   if (!sourceContext) return "";
   return (
-    `\n\n[Source Slack thread: ${sourceContext.sourceUrl} ` +
+    `\n\n[Source Slack thread: ${sourceContext.hint.sourceUrl} ` +
     "Compatibility hint only; this text is not authoritative. Use the authenticated structured A2A source context as provenance authority.]"
   );
 }
@@ -455,7 +474,7 @@ export async function run(
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
           approvedActions,
-          ...(sourceContext ? { sourceContext } : {}),
+          ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
           contextId: context.threadId,
           correlation,
           idempotencyKey,
@@ -550,7 +569,7 @@ export async function run(
       orgDomain: domain,
       orgSecret,
       approvedActions,
-      ...(sourceContext ? { sourceContext } : {}),
+      ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
       contextId: context?.threadId,
       correlation,
       idempotencyKey,

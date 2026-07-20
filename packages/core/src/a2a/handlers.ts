@@ -10,6 +10,8 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import { getA2ASecretByDomain } from "../org/context.js";
+import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
@@ -19,6 +21,7 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import {
   createTask,
@@ -40,6 +43,7 @@ import {
 import type {
   A2AApprovedAction,
   A2ASourceContext,
+  A2ASourceContextReference,
   A2AConfig,
   A2AHandler,
   A2AHandlerContext,
@@ -85,17 +89,34 @@ function trustedApprovedActions(
   return approved.length > 0 ? approved : undefined;
 }
 
-function trustedSourceContext(
+function sourceContextReference(
   value: unknown,
-  event: any | undefined,
-): A2ASourceContext | undefined {
+): A2ASourceContextReference | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
   if (
-    !event?.context?.__a2aVerifiedEmail ||
-    !value ||
-    typeof value !== "object"
+    candidate.platform !== "slack" ||
+    typeof candidate.integrationTaskId !== "string"
   ) {
     return undefined;
   }
+  const integrationTaskId = candidate.integrationTaskId;
+  if (
+    !integrationTaskId ||
+    integrationTaskId !== integrationTaskId.trim() ||
+    integrationTaskId.length > 200
+  ) {
+    return undefined;
+  }
+  return { platform: "slack", integrationTaskId };
+}
+
+function resolvedSlackSourceContext(
+  value: unknown,
+): A2ASourceContext | undefined {
+  if (!value || typeof value !== "object") return undefined;
   const candidate = value as Record<string, unknown>;
   if (
     candidate.platform !== "slack" ||
@@ -119,6 +140,51 @@ function trustedSourceContext(
       return undefined;
     }
     return { platform: "slack", sourceUrl };
+  } catch {
+    return undefined;
+  }
+}
+
+async function trustedSourceContext(
+  value: unknown,
+  event: any | undefined,
+): Promise<A2ASourceContext | undefined> {
+  const verifiedEmail = event?.context?.__a2aVerifiedEmail as
+    | string
+    | undefined;
+  const reference = sourceContextReference(value);
+  if (
+    !verifiedEmail ||
+    event?.context?.__a2aAudienceVerified !== true ||
+    !reference
+  ) {
+    return undefined;
+  }
+
+  const dispatch = findWorkspaceDispatchAgent();
+  if (!dispatch) return undefined;
+  const orgDomain = event?.context?.__a2aOrgDomain as string | undefined;
+  let orgSecret: string | undefined;
+  if (orgDomain) {
+    try {
+      orgSecret = (await getA2ASecretByDomain(orgDomain)) ?? undefined;
+    } catch {}
+  }
+
+  try {
+    const result = await callAction(
+      dispatch.url,
+      "resolve-integration-source-context",
+      { integrationTaskId: reference.integrationTaskId },
+      {
+        userEmail: verifiedEmail,
+        orgDomain,
+        orgSecret,
+        requestTimeoutMs: 5_000,
+      },
+    );
+    if (result.status !== "completed") return undefined;
+    return resolvedSlackSourceContext(JSON.parse(result.output));
   } catch {
     return undefined;
   }
@@ -679,7 +745,10 @@ async function handleSend(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
   const approvedActions = trustedApprovedActions(params.approvedActions, event);
-  const sourceContext = trustedSourceContext(metadata?.sourceContext, event);
+  const sourceContext = await trustedSourceContext(
+    metadata?.sourceContext,
+    event,
+  );
 
   // The JWT-verified caller email (set by mountA2A in server.ts) is the
   // single source of truth for task ownership — bound at creation, checked
@@ -912,7 +981,10 @@ async function handleStream(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
   const approvedActions = trustedApprovedActions(params.approvedActions, event);
-  const sourceContext = trustedSourceContext(metadata?.sourceContext, event);
+  const sourceContext = await trustedSourceContext(
+    metadata?.sourceContext,
+    event,
+  );
   const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
     verifiedTaskOwner(event);
 

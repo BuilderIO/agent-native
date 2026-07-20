@@ -429,7 +429,7 @@ async function enqueueAndDispatch(
   options: WebhookHandlerOptions,
   handlerStartedAt = Date.now(),
 ): Promise<void> {
-  const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const taskId = crypto.randomUUID();
 
   // Resolve the org id once at enqueue-time so the processor doesn't have to
   // re-derive it (and so we can drop it on the row for observability).
