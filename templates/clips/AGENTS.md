@@ -116,10 +116,15 @@ ladder.
   segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
   frame at a timestamp. Password-protected clips require the password once to
   mint a short-lived token returned inside agent-context links.
-- If public agent context or transcript APIs report `transcript.status` as
-  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
-  times, especially for long recordings. Do not pivot straight to frames or tell
-  the user there is no transcript until the retry budget is exhausted.
+- If a public agent discovery/context/transcript payload reports
+  `agentReadiness.state` as `"preparing"` (the clip is `"uploading"` or
+  `"processing"`), wait 15 seconds and retry `agentContextUrl`; do not open the
+  share page, fetch frames, or draw conclusions until the recording status is
+  `"ready"`.
+  If `transcript.status` is `"pending"` after the clip is ready, wait 15-30
+  seconds and retry the context/transcript URL a few times, especially for long
+  recordings. Do not pivot straight to frames or tell the user there is no
+  transcript until the retry budget is exhausted.
 - If transcription failed because Builder transcription credits are exhausted,
   tell the user that clearly and point them to Builder.io credits/upgrade or a
   Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
