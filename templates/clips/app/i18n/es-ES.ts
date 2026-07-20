@@ -949,6 +949,18 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     summary: "Resumen",
     keyPoints: "Puntos clave",
     actionItems: "Elementos de acción",
+    sharedContent: "Contenido compartido",
+    summaryIncluded: "Resumen, puntos clave y elementos de acción",
+    includeTranscript: "Incluir la transcripción completa",
+    includeTranscriptDescription:
+      "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
+    transcriptUnavailable: "La transcripción aún no está lista.",
+    transcript: "Transcripción",
+    copyTranscript: "Copiar transcripción",
+    transcriptCopied: "Transcripción copiada",
+    copyTranscriptFailed: "No se pudo copiar la transcripción",
+    updateTranscriptSharingFailed:
+      "No se pudo actualizar el uso compartido de la transcripción",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip movido a la papelera",

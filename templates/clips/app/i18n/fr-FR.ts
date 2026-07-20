@@ -951,6 +951,18 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     summary: "Résumé",
     keyPoints: "Points clés",
     actionItems: "Actions à faire",
+    sharedContent: "Contenu partagé",
+    summaryIncluded: "Résumé, points clés et actions à faire",
+    includeTranscript: "Inclure la transcription complète",
+    includeTranscriptDescription:
+      "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
+    transcriptUnavailable: "La transcription n’est pas encore prête.",
+    transcript: "Transcription",
+    copyTranscript: "Copier la transcription",
+    transcriptCopied: "Transcription copiée",
+    copyTranscriptFailed: "Impossible de copier la transcription",
+    updateTranscriptSharingFailed:
+      "Impossible de modifier le partage de la transcription",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip déplacé vers la corbeille",

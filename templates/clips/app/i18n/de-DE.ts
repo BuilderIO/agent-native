@@ -957,6 +957,18 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     summary: "Zusammenfassung",
     keyPoints: "Kernpunkte",
     actionItems: "Aufgaben",
+    sharedContent: "Geteilte Inhalte",
+    summaryIncluded: "Zusammenfassung, Kernpunkte und Aufgaben",
+    includeTranscript: "Vollständiges Transkript einschließen",
+    includeTranscriptDescription:
+      "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
+    transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    transcript: "Transkript",
+    copyTranscript: "Transkript kopieren",
+    transcriptCopied: "Transkript kopiert",
+    copyTranscriptFailed: "Transkript konnte nicht kopiert werden",
+    updateTranscriptSharingFailed:
+      "Die Transkriptfreigabe konnte nicht aktualisiert werden",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip in den Papierkorb verschoben",

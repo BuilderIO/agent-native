@@ -102,6 +102,11 @@ ladder.
   sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
+- Meeting share links include the summary, key points, and action items. The
+  full transcript is an explicit, default-off setting: call `update-meeting`
+  with `shareTranscript=true|false` only when the owner or a share admin asks
+  to change what the meeting link exposes. This does not change the linked
+  recording's visibility or expose its media.
 - Use `list-recordings --view=shared` for the current user's "Shared with me"
   collection. It returns recordings admitted by sharing access that are owned
   by someone else; public-link-only clips remain out of this list.
