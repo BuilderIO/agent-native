@@ -1502,6 +1502,22 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
+  rewindExtension: {
+    title: "이전에 있었던 내용 추가",
+    description:
+      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
+    progressLabel: "Rewind 기록 처리 진행률",
+    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
+    privateFirstDescription:
+      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
+    makePrivateContinue: "비공개로 설정하고 계속",
+    add30Seconds: "이전 30초 추가",
+    add5Minutes: "이전 5분 추가",
+    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
+    privateReady:
+      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
+  },
+  timeline: { clipStartedHere: "클립이 여기서 시작됨" },
 };
 
 export default messages;
