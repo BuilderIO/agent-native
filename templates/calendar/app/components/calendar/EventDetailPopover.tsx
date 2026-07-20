@@ -1474,7 +1474,8 @@ export function EventDetailPopover({
           const target = e.target as HTMLElement;
           if (
             target.closest("[data-apollo-popover]") ||
-            target.closest("[data-attendee-autocomplete]")
+            target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-time-picker-popover]")
           ) {
             e.preventDefault();
             return;
