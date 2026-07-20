@@ -494,12 +494,12 @@ export function DocumentSidebar({
           expandedDocumentIds: documentIds,
         })
         .catch((error) => {
-          toast.error("Failed to save sidebar state", {
+          toast.error(t("sidebar.failedSaveSidebarState"), {
             description: error instanceof Error ? error.message : String(error),
           });
         });
     },
-    [],
+    [t],
   );
 
   const updateExpandedWorkspaceIds = useCallback(

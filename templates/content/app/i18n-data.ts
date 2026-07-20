@@ -3131,6 +3131,7 @@ const enUS = {
     failedRemoveLocalFiles: "Failed to remove local files",
     failedRestoreDatabase: "Failed to restore database",
     failedRestorePage: "Failed to restore page",
+    failedSaveSidebarState: "Failed to save sidebar state",
     deletePageDescription:
       "“{{title}}” and all its sub-pages will move to Trash. You can restore them later.",
     deletePageQuestion: "Move page to Trash?",
@@ -3341,6 +3342,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "移除本地文件失败",
       failedPermanentDeleteDatabase: "永久删除数据库失败",
       failedRestoreDatabase: "恢复数据库失败",
+      failedSaveSidebarState: "保存侧边栏状态失败",
       localFilesActions: "本地文件操作",
       localFilesRemoved: "本地文件已移除",
       localFilesRemovedDescription: "已移除 {{count}} 个项目",
@@ -3640,6 +3642,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "No se pudo eliminar permanentemente la base de datos",
       failedRestoreDatabase: "No se pudo restaurar la base de datos",
+      failedSaveSidebarState:
+        "No se pudo guardar el estado de la barra lateral",
       localFilesActions: "Acciones de archivos locales",
       localFilesRemoved: "Archivos locales quitados",
       localFilesRemovedDescription: "{{count}} elementos quitados",
@@ -3703,6 +3707,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "移除本機檔案失敗",
       failedPermanentDeleteDatabase: "永久刪除資料庫失敗",
       failedRestoreDatabase: "還原資料庫失敗",
+      failedSaveSidebarState: "儲存側邊欄狀態失敗",
       localFilesActions: "本機檔案操作",
       localFilesRemoved: "已移除本機檔案",
       localFilesRemovedDescription: "已移除 {{count}} 個項目",
@@ -3736,6 +3741,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Échec de la suppression définitive de la base de données",
       failedRestoreDatabase: "Échec de la restauration de la base de données",
+      failedSaveSidebarState:
+        "Échec de l’enregistrement de l’état de la barre latérale",
       localFilesActions: "Actions des fichiers locaux",
       localFilesRemoved: "Fichiers locaux supprimés",
       localFilesRemovedDescription: "{{count}} éléments supprimés",
@@ -3769,6 +3776,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Datenbank konnte nicht endgültig gelöscht werden",
       failedRestoreDatabase: "Datenbank konnte nicht wiederhergestellt werden",
+      failedSaveSidebarState:
+        "Der Seitenleistenstatus konnte nicht gespeichert werden",
       localFilesActions: "Aktionen für lokale Dateien",
       localFilesRemoved: "Lokale Dateien entfernt",
       localFilesRemovedDescription: "{{count}} Elemente entfernt",
@@ -3801,6 +3810,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "ローカルファイルを削除できませんでした",
       failedPermanentDeleteDatabase: "データベースを完全に削除できませんでした",
       failedRestoreDatabase: "データベースを復元できませんでした",
+      failedSaveSidebarState: "サイドバーの状態を保存できませんでした",
       localFilesActions: "ローカルファイルの操作",
       localFilesRemoved: "ローカルファイルを削除しました",
       localFilesRemovedDescription: "{{count}} 件を削除しました",
@@ -3833,6 +3843,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "로컬 파일을 제거하지 못했습니다",
       failedPermanentDeleteDatabase: "데이터베이스를 영구 삭제하지 못했습니다",
       failedRestoreDatabase: "데이터베이스를 복원하지 못했습니다",
+      failedSaveSidebarState: "사이드바 상태를 저장하지 못했습니다",
       localFilesActions: "로컬 파일 작업",
       localFilesRemoved: "로컬 파일이 제거되었습니다",
       localFilesRemovedDescription: "{{count}}개 항목 제거됨",
@@ -3866,6 +3877,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Falha ao excluir banco de dados permanentemente",
       failedRestoreDatabase: "Falha ao restaurar banco de dados",
+      failedSaveSidebarState: "Falha ao salvar o estado da barra lateral",
       localFilesActions: "Ações de arquivos locais",
       localFilesRemoved: "Arquivos locais removidos",
       localFilesRemovedDescription: "{{count}} itens removidos",
@@ -3897,6 +3909,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "स्थानीय फ़ाइलें हटाई नहीं जा सकीं",
       failedPermanentDeleteDatabase: "डेटाबेस स्थायी रूप से हटाया नहीं जा सका",
       failedRestoreDatabase: "डेटाबेस बहाल नहीं हो सका",
+      failedSaveSidebarState: "साइडबार की स्थिति सहेजी नहीं जा सकी",
       localFilesActions: "स्थानीय फ़ाइल क्रियाएं",
       localFilesRemoved: "स्थानीय फ़ाइलें हटाई गईं",
       localFilesRemovedDescription: "{{count}} आइटम हटाए गए",
@@ -3937,6 +3950,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "هل تريد إزالة الملفات المحلية من الشريط الجانبي؟",
       failedPermanentDeleteDatabase: "فشل حذف قاعدة البيانات نهائيًا",
       failedRestoreDatabase: "فشلت استعادة قاعدة البيانات",
+      failedSaveSidebarState: "فشل حفظ حالة الشريط الجانبي",
       new: "جديد",
       page: "صفحة",
       restoreDatabase: "استعادة",

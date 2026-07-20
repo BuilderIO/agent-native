@@ -87,7 +87,10 @@ export function WorkspaceSourceMenu({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link to="/local-files">
+            <Link
+              to="/local-files"
+              state={{ workspacePropertyValues: propertyValues }}
+            >
               <IconFolder className="me-2 size-4" />
               {t("sidebar.localFolder")}
             </Link>

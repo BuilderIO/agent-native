@@ -1133,6 +1133,7 @@ const messages = {
     failedMovePage: "行動頁面失敗",
     failedRestoreDatabase: "還原資料庫失敗",
     failedRestorePage: "還原頁面失敗",
+    failedSaveSidebarState: "儲存側邊欄狀態失敗",
     deletePageDescription:
       "「{{title}}」及其所有子頁面將被永久刪除。此操作無法復原。",
     deletePageQuestion: "刪除頁面？",

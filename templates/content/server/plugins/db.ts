@@ -863,6 +863,28 @@ const runContentMigrations = runMigrations(
         ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT;
         CREATE INDEX IF NOT EXISTS documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)`,
     },
+    {
+      version: 77,
+      name: "backfill-database-trash-roots",
+      // guard:allow-unscoped — boot migration claims only backing documents whose own database is already archived.
+      sql: `UPDATE documents
+        SET trashed_at = (
+          SELECT content_databases.deleted_at
+          FROM content_databases
+          WHERE content_databases.document_id = documents.id
+            AND content_databases.deleted_at IS NOT NULL
+          ORDER BY content_databases.deleted_at ASC
+          LIMIT 1
+        ),
+        trash_root_id = documents.id
+        WHERE documents.trashed_at IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM content_databases
+            WHERE content_databases.document_id = documents.id
+              AND content_databases.deleted_at IS NOT NULL
+          )`,
+    },
   ],
   { table: "content_migrations" },
 );

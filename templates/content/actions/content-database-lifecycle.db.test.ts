@@ -821,7 +821,7 @@ describe("content database soft-delete actions and reads", () => {
           documentId: ownedDeleted.databaseDocumentId,
           ownerDocumentId: null,
           deletedAt,
-          canPermanentlyDelete: true,
+          canPermanentlyDelete: false,
         },
       ]),
     );

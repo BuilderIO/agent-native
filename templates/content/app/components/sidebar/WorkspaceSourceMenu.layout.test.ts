@@ -10,7 +10,10 @@ describe("WorkspaceSourceMenu", () => {
     );
 
     expect(source).toContain('t("sidebar.newWorkspace")');
-    expect(source).toContain('<Link to="/local-files">');
+    expect(source).toContain('to="/local-files"');
+    expect(source).toContain(
+      "state={{ workspacePropertyValues: propertyValues }}",
+    );
     expect(source).toContain('t("sidebar.localFolder")');
     expect(source).toContain("createContentSpace.mutateAsync");
     expect(source).toContain("propertyValues,");
