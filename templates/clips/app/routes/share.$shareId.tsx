@@ -69,6 +69,7 @@ import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
 import {
   buildAgentApiUrls,
+  buildAgentDiscoveryPayload,
   CLIPS_AGENT_ACCESS_PARAM,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   safeJsonForHtml,
@@ -305,20 +306,18 @@ function AgentDiscovery({
   recording,
   agentContextUrl,
 }: {
-  recording: Pick<SharePageMetaRecording, "id" | "title"> | null;
+  recording: Pick<SharePageMetaRecording, "id" | "title" | "status"> | null;
   agentContextUrl: string | null;
 }) {
   const t = useT();
   if (!recording || !agentContextUrl) return null;
 
-  const payload = {
-    type: "agent-native.clip.discovery",
-    clipId: recording.id,
+  const payload = buildAgentDiscoveryPayload({
+    recordingId: recording.id,
     title: recording.title,
+    status: recording.status,
     agentContextUrl,
-    instructions:
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
-  };
+  });
 
   return (
     <>

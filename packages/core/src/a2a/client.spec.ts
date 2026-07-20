@@ -250,6 +250,26 @@ describe("A2AClient", () => {
     );
   });
 
+  it("transports structured source context in A2A metadata", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.metadata.sourceContext).toEqual({
+        platform: "slack",
+        integrationTaskId: "integration-task-1",
+      });
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "capture this", {
+      async: false,
+      sourceContext: {
+        platform: "slack",
+        integrationTaskId: "integration-task-1",
+      },
+    });
+  });
+
   it("sends bounded correlation metadata and idempotency at the protocol top level", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

@@ -64,6 +64,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["recording_viewers", "counted_view", false],
     ["recording_viewers", "cta_clicked", false],
     ["meeting_participants", "is_organizer", false],
+    ["clips_meetings", "share_transcript", false],
   ];
   for (const [table, column, defaultTrue] of alters) {
     try {
@@ -832,6 +833,11 @@ const migrations = runMigrations(
         `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers (recording_id, viewer_key)`,
       ].join("; "),
+    },
+    {
+      version: 49,
+      name: "clips-meetings-share-transcript",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS share_transcript INTEGER NOT NULL DEFAULT 0`,
     },
   ],
   { table: "clips_migrations" },

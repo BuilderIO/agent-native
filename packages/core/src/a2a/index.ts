@@ -20,6 +20,7 @@ export type {
   A2AHandler,
   A2AHandlerContext,
   A2AHandlerResult,
+  A2ASourceContext,
   AgentCard,
   AgentSkill,
   AgentCapabilities,

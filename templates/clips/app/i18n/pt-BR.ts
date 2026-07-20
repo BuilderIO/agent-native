@@ -945,6 +945,18 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     summary: "Resumo",
     keyPoints: "Pontos principais",
     actionItems: "Itens de ação",
+    sharedContent: "Conteúdo compartilhado",
+    summaryIncluded: "Resumo, pontos principais e itens de ação",
+    includeTranscript: "Incluir transcrição completa",
+    includeTranscriptDescription:
+      "Qualquer pessoa com acesso a esta reunião pode ler a transcrição completa.",
+    transcriptUnavailable: "A transcrição ainda não está pronta.",
+    transcript: "Transcrição",
+    copyTranscript: "Copiar transcrição",
+    transcriptCopied: "Transcrição copiada",
+    copyTranscriptFailed: "Não foi possível copiar a transcrição",
+    updateTranscriptSharingFailed:
+      "Não foi possível atualizar o compartilhamento da transcrição",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clipe movido para a lixeira",

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentAccessTokenResourceId,
   buildAgentApiUrls,
+  buildAgentDiscoveryPayload,
   buildRecommendedFrames,
   formatAgentTimestamp,
   safeJsonForHtml,
@@ -10,6 +11,25 @@ import {
 } from "./agent-context";
 
 describe("agent clip context helpers", () => {
+  it("tells an agent to wait when a shared clip is still uploading", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "uploading",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.recordingStatus).toBe("uploading");
+    expect(payload.agentReadiness).toMatchObject({
+      state: "preparing",
+      retryAfterSeconds: 15,
+    });
+    expect(payload.instructions).toMatch(/still uploading/i);
+    expect(payload.instructions).toMatch(/wait 15 seconds/i);
+    expect(payload.instructions).not.toMatch(/JPEG frame URLs/i);
+  });
+
   it("scopes private agent access tokens separately from media tokens", () => {
     expect(agentAccessTokenResourceId("rec-1")).toBe(
       "clip-agent-context:rec-1",

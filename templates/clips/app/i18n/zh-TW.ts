@@ -884,6 +884,17 @@ const messages = {
     summary: "摘要",
     keyPoints: "要點",
     actionItems: "行動項",
+    sharedContent: "共享內容",
+    summaryIncluded: "摘要、要點和行動項",
+    includeTranscript: "包含完整逐字稿",
+    includeTranscriptDescription:
+      "任何有權存取此會議的人都可以閱讀完整逐字稿。",
+    transcriptUnavailable: "逐字稿尚未準備好。",
+    transcript: "逐字稿",
+    copyTranscript: "複製逐字稿",
+    transcriptCopied: "已複製逐字稿",
+    copyTranscriptFailed: "無法複製逐字稿",
+    updateTranscriptSharingFailed: "無法更新逐字稿分享設定",
   },
   deleteRecordingMenu: {
     movedToTrash: "剪輯已移至廢紙簍",

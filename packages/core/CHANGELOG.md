@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.114.5
+
+### Patch Changes
+
+- 570be31: Skip visual recap publishing when the authoring agent does not produce recap source.
+- Updated dependencies [570be31]
+  - @agent-native/recap-cli@0.4.5
+
+## 0.114.4
+
+### Patch Changes
+
+- f3dcee3: Suppress provisional artifact warnings while delegated work is still running, and preserve verified Slack provenance for cross-app intake through an audience-scoped, fail-closed resolver.
+
 ## 0.114.3
 
 ### Patch Changes

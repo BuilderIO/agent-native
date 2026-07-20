@@ -1,9 +1,9 @@
 import type { H3Event } from "h3";
 
 import {
-  appendA2AArtifactLinks,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  guardA2AArtifactResponse,
   type A2AArtifactIdentity,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
@@ -429,7 +429,7 @@ async function enqueueAndDispatch(
   options: WebhookHandlerOptions,
   handlerStartedAt = Date.now(),
 ): Promise<void> {
-  const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const taskId = crypto.randomUUID();
 
   // Resolve the org id once at enqueue-time so the processor doesn't have to
   // re-derive it (and so we can drop it on the row for observability).
@@ -1029,7 +1029,7 @@ async function processIncomingMessage(
             }
           }
 
-          const suppressPlatformReply =
+          let suppressPlatformReply =
             queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
 
@@ -1088,10 +1088,20 @@ async function processIncomingMessage(
           // platforms with rich blocks (Slack) can render a button instead
           // of inlining a `<url|text>` link that auto-unfurls into a giant
           // preview card.
-          if (!suppressPlatformReply) {
-            responseText = appendA2AArtifactLinks(responseText, toolResults, {
-              baseUrl: appBaseUrl || undefined,
-            });
+          const guardedResponse = guardA2AArtifactResponse(
+            responseText,
+            toolResults,
+            { baseUrl: appBaseUrl || undefined },
+          );
+          const queuedArtifactRejection =
+            queuedA2AContinuation &&
+            guardedResponse.rejectedUnverifiedArtifactReferences;
+          if (queuedArtifactRejection && verifiedMutationReceipt) {
+            responseText = verifiedMutationReceipt;
+            suppressPlatformReply = false;
+          } else {
+            responseText = guardedResponse.text;
+            suppressPlatformReply ||= queuedArtifactRejection;
           }
           const threadDeepLinkUrl =
             appBaseUrl && threadId
