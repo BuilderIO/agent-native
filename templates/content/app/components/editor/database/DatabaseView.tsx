@@ -189,6 +189,7 @@ import {
 import {
   useContentSpaces,
   useCreateContentSpace,
+  useDeleteContentSpace,
 } from "@/hooks/use-content-spaces";
 import {
   useConfigureDocumentProperty,
@@ -4011,6 +4012,7 @@ function DatabaseItemPreview({
   const contentSpaces = useContentSpaces();
   const updateDocument = useUpdateDocument();
   const deleteDocument = useDeleteDocument();
+  const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document, isLoading } = useDocument(item.document.id);
   const { data: persistedPreviewDraft } = usePreviewDocumentDraft(
@@ -4690,10 +4692,14 @@ function DatabaseItemPreview({
     }
 
     try {
-      await deleteDocument.mutateAsync({
-        id: item.document.id,
-        databaseDocumentId,
-      });
+      if (canDeleteWorkspace && workspaceSpace) {
+        await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+      } else {
+        await deleteDocument.mutateAsync({
+          id: item.document.id,
+          databaseDocumentId,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -5014,10 +5020,14 @@ function DatabaseItemPreview({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={
+                deleteDocument.isPending || deleteContentSpace.isPending
+              }
               onClick={() => void deletePreviewRow()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteDocument.isPending || deleteContentSpace.isPending
+                ? "Deleting..."
+                : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -18130,6 +18140,7 @@ export function RowActionsCell({
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
   const deleteDocument = useDeleteDocument();
+  const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -18161,10 +18172,14 @@ export function RowActionsCell({
   async function deleteRow() {
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
-      await deleteDocument.mutateAsync({
-        id: item.document.id,
-        databaseDocumentId,
-      });
+      if (canDeleteWorkspace && workspaceSpace) {
+        await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+      } else {
+        await deleteDocument.mutateAsync({
+          id: item.document.id,
+          databaseDocumentId,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -18280,10 +18295,14 @@ export function RowActionsCell({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={
+                deleteDocument.isPending || deleteContentSpace.isPending
+              }
               onClick={() => void deleteRow()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteDocument.isPending || deleteContentSpace.isPending
+                ? "Deleting..."
+                : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

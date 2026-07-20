@@ -76,3 +76,25 @@ export function useCreateContentSpace() {
     },
   });
 }
+
+export function useDeleteContentSpace() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; spaceId: string; deletedDocuments: number },
+    { spaceId: string }
+  >("delete-content-space", {
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.refetchQueries({
+          queryKey: ["action", "list-content-spaces"],
+        }),
+        queryClient.refetchQueries({
+          queryKey: ["action", "get-content-database"],
+        }),
+        queryClient.refetchQueries({
+          queryKey: ["action", "list-documents"],
+        }),
+      ]);
+    },
+  });
+}

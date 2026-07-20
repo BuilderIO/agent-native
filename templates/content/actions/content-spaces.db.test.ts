@@ -259,10 +259,7 @@ describe("Content space provisioning", () => {
           itemIds: [first.catalogItemId],
         }),
       ).rejects.toThrow("Workspace references cannot be duplicated as pages");
-      await deleteDocumentAction.run({
-        id: first.catalogDocumentId,
-        databaseDocumentId: ownerSpaces.catalogDocumentId,
-      });
+      await deleteContentSpaceAction.run({ spaceId: first.spaceId });
     });
     const deletedWorkspaceRows = await Promise.all([
       getDb()
