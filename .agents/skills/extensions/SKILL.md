@@ -144,6 +144,25 @@ persistence** — it handles everything automatically. Only use
 `dbQuery`/`dbExec` when querying the app's existing tables. See
 `references/api.md` for the full `get`/`remove`/scope reference.
 
+### Agent-side extension data access
+
+The agent can read and write `extensionData` directly using two dedicated
+actions — no need to go through the iframe bridge or raw SQL:
+
+| Action                | Purpose                                           |
+| --------------------- | ------------------------------------------------- |
+| `extension-data-set`  | Upsert an item in an extension's data store       |
+| `extension-data-get`  | Read items from an extension's data store         |
+
+Use `extension-data-set` when the agent needs to seed, refresh, or update
+data that an extension reads at render time via `extensionData.get()`. This
+is the correct path for agent-driven dashboard refreshes — the agent
+fetches fresh data from providers, then writes the merged result with
+`extension-data-set`, and the extension picks it up on next load.
+
+Use `extension-data-get` to inspect what data an extension currently stores,
+or to verify a write succeeded.
+
 ## What extensions are
 
 Extensions are mini Alpine.js apps that run inside sandboxed iframes. They
