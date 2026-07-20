@@ -760,6 +760,10 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
+  const newDatabaseRowLabel =
+    data?.database.systemRole === "workspaces"
+      ? t("sidebar.newWorkspace")
+      : dbText("newPage");
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
@@ -1425,7 +1429,7 @@ function DatabaseTable({
         workspaceCreateRequestIdRef.current ?? crypto.randomUUID();
       workspaceCreateRequestIdRef.current = requestId;
       try {
-        const created = await createContentSpace.mutateAsync({
+        await createContentSpace.mutateAsync({
           name,
           requestId,
           propertyValues:
@@ -1434,7 +1438,6 @@ function DatabaseTable({
               : undefined,
         });
         workspaceCreateRequestIdRef.current = null;
-        navigate(`/page/${created.filesDocumentId}`);
       } catch (err) {
         toast.error(dbText("failedToCreateRow"), {
           description:
@@ -2661,6 +2664,7 @@ function DatabaseTable({
         />
       ) : (
         <DatabaseTableView
+          newRowLabel={newDatabaseRowLabel}
           properties={tableProperties}
           groupableProperties={orderedProperties}
           items={visibleItems}
@@ -4993,6 +4997,7 @@ function DatabaseItemPreview({
 }
 
 function DatabaseTableView({
+  newRowLabel,
   properties,
   groupableProperties,
   items,
@@ -5037,6 +5042,7 @@ function DatabaseTableView({
   onDeletedPreviewItems,
   onOpenPage,
 }: {
+  newRowLabel: string;
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -5588,6 +5594,7 @@ function DatabaseTableView({
                     wrapCells={wrapCells}
                     rowDensity={rowDensity}
                     isCreating={isCreating}
+                    newRowLabel={newRowLabel}
                     focusedTitleDocumentId={focusedTitleDocumentId}
                     collapsed={databaseGroupIsCollapsed(
                       collapsedGroupIds,
@@ -5648,6 +5655,7 @@ function DatabaseTableView({
                 ))}
             {canEdit && !grouped ? (
               <NewDatabaseRow
+                label={newRowLabel}
                 properties={properties}
                 columnWidths={columnWidths}
                 rowDensity={rowDensity}
@@ -12761,6 +12769,7 @@ function NewBoardCard({
 }
 
 function NewDatabaseRow({
+  label,
   properties,
   columnWidths,
   rowDensity,
@@ -12769,6 +12778,7 @@ function NewDatabaseRow({
   onCreate,
   actionColumnWidth = ACTION_COLUMN_WIDTH,
 }: {
+  label: string;
   properties: DocumentProperty[];
   columnWidths: Record<string, number>;
   rowDensity: DatabaseRowDensity;
@@ -12785,7 +12795,7 @@ function NewDatabaseRow({
   return (
     <button
       type="button"
-      aria-label={dbText("newDatabaseRow")}
+      aria-label={label}
       disabled={disabled}
       className={cn(
         "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -12812,9 +12822,7 @@ function NewDatabaseRow({
         ) : (
           <IconPlus className="size-4 shrink-0" />
         )}
-        <span className="h-7 min-w-0 flex-1 truncate leading-7">
-          {dbText("newPage")}
-        </span>
+        <span className="h-7 min-w-0 flex-1 truncate leading-7">{label}</span>
       </span>
       {properties.map((property) => (
         <span
@@ -17783,6 +17791,7 @@ function DatabaseGroupedTableSection({
   wrapCells,
   rowDensity,
   isCreating,
+  newRowLabel,
   focusedTitleDocumentId,
   collapsed,
   onCreateRow,
@@ -17803,6 +17812,7 @@ function DatabaseGroupedTableSection({
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
+  newRowLabel: string;
   focusedTitleDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
@@ -17862,6 +17872,7 @@ function DatabaseGroupedTableSection({
           ))}
           {canEdit ? (
             <NewDatabaseRow
+              label={newRowLabel}
               properties={properties}
               columnWidths={columnWidths}
               rowDensity={rowDensity}
