@@ -980,7 +980,12 @@ export function MultiFrontierModeControl({
           className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"
         >
-          <SelectValue />
+          <SelectValue>
+            {
+              MULTI_FRONTIER_RUN_MODES.find((mode) => mode.value === value)
+                ?.label
+            }
+          </SelectValue>
         </SelectTrigger>
         <SelectContent className="code-agents-select-content code-agents-mode-menu code-agents-multi-frontier-mode-menu">
           {MULTI_FRONTIER_RUN_MODES.map((mode) => (

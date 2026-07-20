@@ -155,6 +155,14 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(document.body.textContent).toContain(
       "Codex + Claude plan, cross-review, then one builds",
     );
+    expect(
+      document.querySelector<HTMLElement>("[aria-label='Run mode']")
+        ?.textContent,
+    ).toContain("Auto");
+    expect(
+      document.querySelector<HTMLElement>("[aria-label='Run mode']")
+        ?.textContent,
+    ).not.toContain("One agent plans and builds");
 
     const multiFrontierOption = options.find((option) =>
       option.textContent?.startsWith("Multi-Frontier"),
