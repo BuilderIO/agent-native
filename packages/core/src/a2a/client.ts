@@ -5,7 +5,7 @@ import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
   A2AApprovedAction,
   A2ACorrelationMetadata,
-  A2ASourceContext,
+  A2ASourceContextReference,
   A2AReadOnlyActionResult,
   AgentCard,
   JsonRpcRequest,
@@ -633,8 +633,8 @@ export async function callAgent(
     requestOrigin?: string;
     /** Exact downstream actions explicitly authorized in the caller's chat. */
     approvedActions?: A2AApprovedAction[];
-    /** Structured provenance trusted only after receiver-side A2A auth. */
-    sourceContext?: A2ASourceContext;
+    /** Opaque provenance reference resolved by the receiver through Dispatch. */
+    sourceContext?: A2ASourceContextReference;
     /** Bounded telemetry-only lineage forwarded to the receiving app. */
     correlation?: A2ACorrelationMetadata;
     /** Stable caller-generated key for one message submission. */

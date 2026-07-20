@@ -138,6 +138,12 @@ export interface A2ASourceContext {
   sourceUrl: string;
 }
 
+/** Opaque reference that a receiver must resolve through its trusted Dispatch app. */
+export interface A2ASourceContextReference {
+  platform: "slack";
+  integrationTaskId: string;
+}
+
 /**
  * Telemetry-only cross-app correlation. Receivers must never use these
  * caller-supplied values for identity, ownership, org scoping, access, or

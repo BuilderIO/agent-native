@@ -14,6 +14,9 @@ import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
+const callActionMock = vi.hoisted(() => vi.fn());
+const findWorkspaceDispatchAgentMock = vi.hoisted(() => vi.fn());
 
 // Mock h3's setResponseStatus and setResponseHeader
 vi.mock("h3", () => ({
@@ -226,8 +229,17 @@ vi.mock("../shared/agent-chat.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  getA2ASecretByDomain: getA2ASecretByDomainMock,
   resolveOrgByDomain: resolveOrgByDomainMock,
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+}));
+
+vi.mock("./client.js", () => ({
+  callAction: callActionMock,
+}));
+
+vi.mock("../server/agent-discovery.js", () => ({
+  findWorkspaceDispatchAgent: findWorkspaceDispatchAgentMock,
 }));
 
 /** Create a mock H3 event for testing handleJsonRpcH3 */
@@ -254,6 +266,24 @@ describe("handleJsonRpc", () => {
   beforeEach(() => {
     resolveOrgByDomainMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
+    getA2ASecretByDomainMock.mockReset();
+    callActionMock.mockReset();
+    findWorkspaceDispatchAgentMock.mockReset();
+    findWorkspaceDispatchAgentMock.mockReturnValue({
+      id: "dispatch",
+      name: "Dispatch",
+      description: "Workspace control plane",
+      url: "https://dispatch.agent-native.test",
+      color: "#000000",
+    });
+    callActionMock.mockResolvedValue({
+      action: "resolve-integration-source-context",
+      status: "completed",
+      output: JSON.stringify({
+        platform: "slack",
+        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+      }),
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok")),
@@ -1870,10 +1900,17 @@ describe("handleJsonRpc", () => {
       }),
     };
     const event = mockEvent();
-    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
     const sourceContext = {
       platform: "slack",
       sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+    };
+    const sourceReference = {
+      platform: "slack",
+      integrationTaskId: "integration-task-1",
     };
 
     const result = await handleJsonRpc(
@@ -1883,7 +1920,7 @@ describe("handleJsonRpc", () => {
         method: "message/send",
         params: {
           async: true,
-          metadata: { sourceContext },
+          metadata: { sourceContext: sourceReference },
           message: {
             role: "user",
             parts: [{ type: "text", text: "capture" }],
@@ -2248,7 +2285,10 @@ describe("default handler (no custom handler)", () => {
   it("provides verified Slack source metadata as hidden agent context", async () => {
     const { agentChat } = await import("../shared/agent-chat.js");
     const event = mockEvent();
-    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
 
     await handleJsonRpc(
       {
@@ -2259,8 +2299,7 @@ describe("default handler (no custom handler)", () => {
           metadata: {
             sourceContext: {
               platform: "slack",
-              sourceUrl:
-                "https://example-workspace.slack.com/archives/C123/p123456",
+              integrationTaskId: "integration-task-1",
             },
           },
           message: {
@@ -2278,6 +2317,48 @@ describe("default handler (no custom handler)", () => {
         '"sourceUrl":"https://example-workspace.slack.com/archives/C123/p123456"',
       ),
     });
+    expect(callActionMock).toHaveBeenCalledWith(
+      "https://dispatch.agent-native.test",
+      "resolve-integration-source-context",
+      { integrationTaskId: "integration-task-1" },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        requestTimeoutMs: 5_000,
+      }),
+    );
+  });
+
+  it("rejects an opaque source reference from a verified but audience-unbound token", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    callActionMock.mockClear();
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            sourceContext: {
+              platform: "slack",
+              integrationTaskId: "integration-task-1",
+            },
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture this" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(callActionMock).not.toHaveBeenCalled();
+    expect(agentChat.call).toHaveBeenCalledWith("capture this");
   });
 
   it.each([
@@ -2286,15 +2367,15 @@ describe("default handler (no custom handler)", () => {
       verified: false,
       sourceContext: {
         platform: "slack",
-        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+        integrationTaskId: "integration-task-1",
       },
     },
     {
-      label: "a forged non-Slack URL",
+      label: "legacy caller-supplied Slack URL metadata",
       verified: true,
       sourceContext: {
         platform: "slack",
-        sourceUrl: "https://attacker.example.test/archives/C123/p123456",
+        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
       },
     },
     {
@@ -2302,7 +2383,7 @@ describe("default handler (no custom handler)", () => {
       verified: true,
       sourceContext: {
         platform: "email",
-        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+        integrationTaskId: "integration-task-1",
       },
     },
   ])(
@@ -2312,7 +2393,10 @@ describe("default handler (no custom handler)", () => {
       vi.mocked(agentChat.call).mockClear();
       const event = mockEvent();
       if (verified) {
-        event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+        event.context = {
+          __a2aVerifiedEmail: "alice+qa@agent-native.test",
+          __a2aAudienceVerified: true,
+        };
       }
 
       await handleJsonRpc(
@@ -2335,6 +2419,46 @@ describe("default handler (no custom handler)", () => {
       expect(agentChat.call).toHaveBeenCalledWith("capture this");
     },
   );
+
+  it("fails closed when Dispatch cannot verify the referenced integration task", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    callActionMock.mockResolvedValueOnce({
+      action: "resolve-integration-source-context",
+      status: "completed",
+      output: "null",
+    });
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            sourceContext: {
+              platform: "slack",
+              integrationTaskId: "forged-task-id",
+            },
+            callerApp: "dispatch",
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture this" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).toHaveBeenCalledWith("capture this");
+  });
 
   it("handles empty text message gracefully", async () => {
     const event = mockEvent();

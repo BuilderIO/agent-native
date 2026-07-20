@@ -167,8 +167,7 @@ describe("call-agent action", () => {
       expect.objectContaining({
         sourceContext: {
           platform: "slack",
-          sourceUrl:
-            "https://example-workspace.slack.com/archives/C123/p123456",
+          integrationTaskId: "integration-task-1",
         },
       }),
     );

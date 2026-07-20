@@ -255,7 +255,7 @@ describe("A2AClient", () => {
       const body = JSON.parse(String(init?.body));
       expect(body.params.metadata.sourceContext).toEqual({
         platform: "slack",
-        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+        integrationTaskId: "integration-task-1",
       });
       return completedResponse(body, "sent");
     });
@@ -265,7 +265,7 @@ describe("A2AClient", () => {
       async: false,
       sourceContext: {
         platform: "slack",
-        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+        integrationTaskId: "integration-task-1",
       },
     });
   });
