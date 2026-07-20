@@ -37,7 +37,7 @@ Keep definitions in a shared TypeScript module so server and client code use the
 same stable key. Flags are boolean and default-off.
 
 ```ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",

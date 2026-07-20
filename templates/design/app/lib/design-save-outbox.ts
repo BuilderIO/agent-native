@@ -29,6 +29,33 @@ export interface DesignSaveOutboxStorage {
 export interface DrainDesignSaveOutboxResult {
   saved: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
+  /**
+   * Entries dropped because retrying can never succeed — the target file no
+   * longer exists (deleted or never created). Retained-and-retried forever they
+   * turn one orphaned screen into a 500 storm that jams every save; dropping
+   * them self-heals stale outbox residue. Separate from `failed`, which is for
+   * transient/conflict errors that SHOULD be retried.
+   */
+  dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
+}
+
+/**
+ * A save failure that can never succeed on retry: the server reports the target
+ * file is gone (HTTP 404, or a "File not found" message from update-file's
+ * missing-row guard). Distinct from 409 conflicts and network errors, which are
+ * transient and must stay queued.
+ */
+export function isTerminalSaveError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; message?: unknown };
+  // Terminal only when an explicit 404 ALSO names a missing file. A bare 404 can
+  // be a transient route-not-found (e.g. a cold-start action route), so both
+  // signals are required — dropping an edit is unrecoverable, a retry is not.
+  return (
+    candidate.status === 404 &&
+    typeof candidate.message === "string" &&
+    /file not found/i.test(candidate.message)
+  );
 }
 
 const DATABASE_NAME = "agent-native-design-save-outbox";
@@ -293,7 +320,11 @@ async function drainEntries(
   ) => Promise<unknown>,
   storage: DesignSaveOutboxStorage,
 ): Promise<DrainDesignSaveOutboxResult> {
-  const result: DrainDesignSaveOutboxResult = { saved: [], failed: [] };
+  const result: DrainDesignSaveOutboxResult = {
+    saved: [],
+    failed: [],
+    dropped: [],
+  };
   for (const entry of await storage.list(designId, actorScope)) {
     try {
       if (
@@ -332,7 +363,20 @@ async function drainEntries(
       await storage.deleteIfRevision(entry);
       result.saved.push(entry);
     } catch (error) {
-      result.failed.push({ entry, error });
+      if (isTerminalSaveError(error)) {
+        // The target file is gone (deleted/never created) — retrying can never
+        // succeed. Drop the entry so one orphaned screen can't loop update-file
+        // 500s forever and jam every save. Logged, never silently swallowed.
+        await storage.deleteIfRevision(entry);
+        result.dropped.push({ entry, error });
+        if (typeof console !== "undefined") {
+          console.warn(
+            `[design-save-outbox] dropped unrecoverable save for ${entry.actionName} ${entry.resourceId} (file no longer exists)`,
+          );
+        }
+      } else {
+        result.failed.push({ entry, error });
+      }
     }
   }
   return result;

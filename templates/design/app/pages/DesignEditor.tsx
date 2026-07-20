@@ -243,6 +243,7 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
+import { dndHostLog } from "@/components/design/dnd-debug";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
   EditPanel,
@@ -3192,7 +3193,10 @@ function DesignEditor() {
         return;
       }
       undoManagerRef.current?.clear(true, false);
-      recordLocalContentHistoryChangeFallback(change);
+      recordLocalContentHistoryChangeFallback({
+        ...change,
+        isCheckpoint: true,
+      });
       clearRedoStacks();
       syncUndoRedoState();
     },
@@ -3990,6 +3994,12 @@ function DesignEditor() {
     });
   }, [t]);
 
+  const warnChangesDiscarded = useCallback(() => {
+    toast.error(t("visualEditor.changesDiscarded"), {
+      id: "design-save-outbox-discarded",
+    });
+  }, [t]);
+
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
       try {
@@ -4033,12 +4043,21 @@ function DesignEditor() {
       if (result.failed.length > 0 && navigator.onLine === false) {
         warnChangesWillRetry();
       }
+      if (result.dropped.length > 0) {
+        warnChangesDiscarded();
+      }
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
       }
     }
-  }, [designSaveActorScope, id, queryClient, warnChangesWillRetry]);
+  }, [
+    designSaveActorScope,
+    id,
+    queryClient,
+    warnChangesWillRetry,
+    warnChangesDiscarded,
+  ]);
 
   useEffect(() => {
     const handleRetryOpportunity = () => void retryDesignSaveOutbox();
@@ -14112,6 +14131,13 @@ function DesignEditor() {
         anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
+      dndHostLog("persist:begin", {
+        selector,
+        anchorSelector,
+        placement,
+        dropMode: details?.dropMode,
+        source: activeCanvasSourceType,
+      });
       if (!canEditDesign) return false;
       if (!activeFile) return false;
       if (activeCanvasSourceType === "localhost") {
@@ -14150,6 +14176,10 @@ function DesignEditor() {
           ? { nodeId: anchorNode.id }
           : { selector: anchorSelector },
         placement,
+      });
+      dndHostLog("persist:rewrite", {
+        status: patch.result.status,
+        message: patch.result.message,
       });
       if (patch.result.status !== "applied") {
         toast.error(
@@ -14655,6 +14685,10 @@ function DesignEditor() {
           ? { nodeId: anchorNode.id }
           : { selector: anchorSelector },
         placement,
+      });
+      dndHostLog("persist:rewrite", {
+        status: patch.result.status,
+        message: patch.result.message,
       });
       if (patch.result.status !== "applied") {
         toast.error(
@@ -18397,6 +18431,12 @@ function DesignEditor() {
       sourcePointerOffset?: { x: number; y: number };
       styleSnapshot?: PortableStyleSnapshot;
     }) => {
+      dndHostLog("persist:cross-screen", {
+        sourceScreenId,
+        targetScreenId,
+        targetAnchorPlacement,
+        targetDropMode,
+      });
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
 
@@ -27308,7 +27348,10 @@ function DesignEditor() {
             details,
           ) => {
             activateResponsiveScope();
-            handleScreenVisualStructureChange(
+            // Return the result so the bridge gets a real applied/false/pending
+            // ack; without it a rejected drop could never roll back (undefined
+            // !== false read as applied).
+            return handleScreenVisualStructureChange(
               screen.id,
               selector,
               anchorSelector,

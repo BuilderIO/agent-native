@@ -34,6 +34,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 declare var __DESIGN_CANVAS_CONTENT_OFFSET_X__: number;
 declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
+declare var __LIVE_REFLOW_ENABLED__: boolean;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -62,7 +63,57 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   var designCanvasContentOffsetY =
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
+  // Figma-parity live-reflow drag (Phase 0 + 1: hysteresis-stabilized target
+  // resolution, size guard, transform lift/follow, live sibling reflow,
+  // exact absolute commit). Gated so it can be flipped off without a revert.
+  // The placeholder is referenced EXACTLY ONCE so the host's single
+  // String.replace fully substitutes it; the try/catch keeps it crash-safe if
+  // an injection site forgets to replace it (an un-replaced identifier read
+  // throws ReferenceError, which we treat as "off") — the behavior is additive
+  // and rolling out incrementally.
+  var liveReflowEnabled = (function () {
+    try {
+      return !!__LIVE_REFLOW_ENABLED__;
+    } catch (_e) {
+      return false;
+    }
+  })();
   var scaleToolEnabled = false;
+
+  // ── Drag-and-drop debug logging ────────────────────────────────────
+  // Every DnD seam logs under the "[dnd]" prefix with a phase tag, so the
+  // console reads as a narrated timeline of ONE gesture:
+  //   start:* → target → lift/reflow → commit:* → post:* → ack:*
+  // The iframe posts these to its own console; the host mirrors its side
+  // under the same prefix. Defaults OFF; opt in at runtime from the iframe
+  // console with `window.__DND_DEBUG = true` — no rebuild needed.
+  function dndLog(phase: string, data?: unknown): void {
+    if (!(window as any).__DND_DEBUG) return;
+    try {
+      var tag = "%c[dnd:" + phase + "]";
+      var style = "color:#8b5cf6;font-weight:bold";
+      if (data === undefined) console.log(tag, style);
+      else console.log(tag, style, data);
+    } catch (_e) {}
+  }
+  // Describe a resolved drop target compactly for the log timeline. Reads
+  // getSelector/dropContainerForTarget (declared later, hoisted) at call time.
+  function dndTarget(t): unknown {
+    if (!t) return null;
+    try {
+      var container = dropContainerForTarget(t);
+      return {
+        anchor: t.anchor ? getSelector(t.anchor) : null,
+        placement: t.placement,
+        dropMode: t.dropMode,
+        axis: t.axis,
+        container: container ? getSelector(container) : null,
+        needsConversion: !!t.needsAutoLayoutConversion,
+      };
+    } catch (_e) {
+      return { placement: t.placement, dropMode: t.dropMode };
+    }
+  }
 
   // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
   // "Forced-preview mechanism" doc comment). Keep the actual element rather
@@ -1961,18 +2012,30 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
   var transformBadge = document.createElement("div");
   transformBadge.setAttribute("data-agent-native-transform-badge", "");
+  // Classify as edit-overlay so the content-stamp pass (isEditorChrome) does
+  // not strip it and replaceRuntimeDocument preserves it — otherwise the badge
+  // is detached from the DOM and its styling targets a dead node (invisible).
+  transformBadge.setAttribute(
+    "data-agent-native-edit-overlay",
+    "transform-badge",
+  );
   transformBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid rgba(255,255,255,0.16);border-radius:4px;background:rgba(24,24,27,0.96);color:rgba(255,255,255,0.96);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.28);";
   document.body.appendChild(transformBadge);
 
   var spacingBadge = document.createElement("div");
   spacingBadge.setAttribute("data-agent-native-spacing-badge", "");
+  spacingBadge.setAttribute("data-agent-native-edit-overlay", "spacing-badge");
   spacingBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
   document.body.appendChild(spacingBadge);
 
   var insertionGuide = document.createElement("div");
   insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
+  insertionGuide.setAttribute(
+    "data-agent-native-edit-overlay",
+    "insertion-guide",
+  );
   insertionGuide.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
   document.body.appendChild(insertionGuide);
@@ -6786,6 +6849,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     el?: Element | null,
     ev?: { clientX?: number; clientY?: number } | null,
   ): void {
+    dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
       activeCrossScreenStyleSnapshot = undefined;
       (window.parent as Window).postMessage(
@@ -6919,6 +6983,17 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       if (child.children.length && !hasOnlyLeafContent(child)) return false;
     }
     return true;
+  }
+
+  // Figma R11: an element whose entire content is text / inline leaves is a
+  // text node, not a frame — it must never swallow a flow-reordered sibling as
+  // a child. Used to keep the flow-reorder resolver on before/after for text
+  // cards (§1.1/§1.2 nest-into-text + silent flex-conversion bug). A truly
+  // empty element (no text, no children) is NOT a text leaf — it stays a valid
+  // empty frame you can drop into, and the absolute-drag nest path is
+  // unaffected (it targets frames, not reordered flow siblings).
+  function isTextBearingLeaf(el: Element): boolean {
+    return hasOnlyLeafContent(el) && (el.textContent || "").trim().length > 0;
   }
 
   function isContainerDropTarget(el: Element | null): boolean {
@@ -7113,7 +7188,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       !isOverlayElement(hit) &&
       !isTemplateCloneElement(hit)
     ) {
-      if (isContainerDropTarget(hit)) {
+      if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
         var containerRect = hit.getBoundingClientRect();
         var edgeAxis = hit.parentElement
           ? parentFlowAxis(hit.parentElement)
@@ -7294,8 +7369,9 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       };
     }
 
-    // Flow child dropped into a plain container: match the absolute-drag path
-    // by converting that container to auto layout before the structural move.
+    // Flow child (a real flow-reorder gesture) dropped into a plain container:
+    // convert it to auto layout before the structural move. This is the flow
+    // path only; the absolute/free drag keeps shapes free (no conversion).
     if (
       target &&
       target.dropMode === "flow-insert" &&
@@ -7471,11 +7547,21 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         isContainerDropTarget(cursor) &&
         !(parent && parent !== document.body && isAutoLayoutElement(parent))
       ) {
-        // B5-4 (absolute path): pointer over the container's own
-        // background — its padding or a gap between children. Prefer the
-        // nearest child slot (insertion line at the pointer index) over
-        // plain "inside" (which appends after the last child); fall back
-        // to "inside" only for containers with no visible children.
+        // Free (absolute) element into a non-auto-layout container stays free:
+        // nest as an absolute child at the drop point, never convert to flex.
+        // Same-parent drop is a pure reposition (null → onUp writes left/top).
+        if (!isAutoLayoutElement(cursor)) {
+          if (cursor === el.parentElement) return null;
+          return {
+            anchor: cursor,
+            placement: "inside",
+            axis: "y",
+            dropMode: "absolute-container",
+          };
+        }
+        // B5-4: pointer over an auto-layout container's background (padding or a
+        // gap). Prefer the nearest child slot over plain "inside" (append last);
+        // fall back to "inside" for an empty container.
         var betweenContainerChildren = nearestChildInsertionTarget(
           cursor,
           clientX,
@@ -7488,8 +7574,6 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
             placement: betweenContainerChildren.placement,
             axis: betweenContainerChildren.axis,
             dropMode: "flow-insert",
-            needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
-            conversionTarget: cursor,
           };
         }
         return {
@@ -7497,11 +7581,21 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
           placement: "inside",
           axis: parentFlowAxis(cursor),
           dropMode: "flow-insert",
-          needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
-          conversionTarget: cursor,
         };
       }
       if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+        // Free element over a sibling in a non-auto-layout parent stays free:
+        // absolute child at the drop point (same-parent → null reposition).
+        if (!isAutoLayoutElement(parent)) {
+          if (parent === el.parentElement) return null;
+          return {
+            anchor: parent,
+            placement: "inside",
+            axis: "y",
+            dropMode: "absolute-container",
+          };
+        }
+        // parent is an established auto-layout list: reorder within its flow.
         // Anchor-candidate gate: cursor is a plain sibling under `parent`
         // being used as a before/after anchor — but if it's a template
         // clone (no counterpart in source HTML), fall back to the nearest
@@ -7521,8 +7615,6 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
               placement: cloneFallback.placement,
               axis: cloneFallback.axis,
               dropMode: "flow-insert",
-              needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-              conversionTarget: parent,
             };
           }
           return {
@@ -7530,8 +7622,6 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
             placement: "inside",
             axis: parentFlowAxis(parent),
             dropMode: "flow-insert",
-            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-            conversionTarget: parent,
           };
         }
         var parentAxis = parentFlowAxis(parent);
@@ -7546,8 +7636,6 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
           placement: childPointer < childCenter ? "before" : "after",
           axis: parentAxis,
           dropMode: "flow-insert",
-          needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-          conversionTarget: parent,
         };
       }
       cursor = parent;
@@ -7986,6 +8074,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
   function postVisualStructureChange(el, target, origin) {
     if (!el || !target || !target.anchor) return;
+    dndLog("post:structure-change", {
+      el: getSelector(el),
+      anchor: getSelector(target.anchor),
+      placement: target.placement,
+      dropMode: target.dropMode || "flow-insert",
+    });
     var requestId =
       "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     pendingStructureMoves[requestId] = {
@@ -8411,6 +8505,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         };
       });
       var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+      var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
       var currentTarget = flowMoveTargetForPoint(
         reorderEl,
@@ -8421,6 +8516,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         Boolean(e.ctrlKey),
       );
       showInsertionGuideFor(currentTarget);
+      dndLog("start:reorder", {
+        el: getSelector(reorderEl),
+        isGroup: isGroupDrag,
+        ctrl: Boolean(e.ctrlKey),
+        target: dndTarget(currentTarget),
+      });
       // Cross-screen drag state: true when the pointer is outside this iframe's
       // viewport bounds.  The host frame renders the ghost + highlight and owns
       // the drop when this is true; the bridge suppresses its in-iframe reorder.
@@ -8434,11 +8535,355 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         x: reorderPointerStart.clientX - reorderRect.left,
         y: reorderPointerStart.clientY - reorderRect.top,
       };
+      // Transform-only follow: must be cleared before any pointer-up commit
+      // reads getBoundingClientRect, or the drag delta corrupts the result.
+      function authoredTransformOf(el: HTMLElement): string {
+        // The element's own transform to compose the drag translate WITH: inline
+        // if set, else the class/stylesheet value so a drag never wipes an
+        // authored rotate/scale. "none" → "" so we don't emit an identity.
+        if (el.style.transform) return el.style.transform;
+        var computed = window.getComputedStyle(el).transform;
+        return computed && computed !== "none" ? computed : "";
+      }
+      var reorderLiftedMembers: {
+        el: HTMLElement;
+        prevTransform: string;
+        authoredTransform: string;
+        prevTransition: string;
+        prevZIndex: string;
+        prevBoxShadow: string;
+        prevWillChange: string;
+        prevPointerEvents: string;
+      }[] = [];
+      function applyReorderLift(dx: number, dy: number): void {
+        if (!liveReflowEnabled) return;
+        groupEls.forEach(function (member) {
+          var el = member as HTMLElement;
+          var snap = reorderLiftedMembers.filter(function (s) {
+            return s.el === el;
+          })[0];
+          if (!snap) {
+            snap = {
+              el: el,
+              prevTransform: el.style.transform,
+              authoredTransform: authoredTransformOf(el),
+              prevTransition: el.style.transition,
+              prevZIndex: el.style.zIndex,
+              prevBoxShadow: el.style.boxShadow,
+              prevWillChange: el.style.willChange,
+              prevPointerEvents: el.style.pointerEvents,
+            };
+            reorderLiftedMembers.push(snap);
+            el.style.transition = "none";
+            el.style.willChange = "transform";
+            el.style.zIndex = "2147483646";
+            el.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
+            // Hit-test through the lifted element so it never resolves as its
+            // own drop target while following the cursor.
+            el.style.pointerEvents = "none";
+          }
+          // Translate FIRST so movement is in screen space (an authored rotate
+          // would otherwise send the drag off-axis), composed with the element's
+          // own transform (inline OR class/stylesheet) so the drag never wipes
+          // it.
+          el.style.transform =
+            "translate(" +
+            dx +
+            "px, " +
+            dy +
+            "px)" +
+            (snap.authoredTransform ? " " + snap.authoredTransform : "");
+        });
+      }
+      function clearReorderLift(): void {
+        reorderLiftedMembers.forEach(function (snap) {
+          var el = snap.el;
+          el.style.transform = snap.prevTransform;
+          el.style.transition = snap.prevTransition;
+          el.style.zIndex = snap.prevZIndex;
+          el.style.boxShadow = snap.prevBoxShadow;
+          el.style.willChange = snap.prevWillChange;
+          el.style.pointerEvents = snap.prevPointerEvents;
+        });
+        reorderLiftedMembers = [];
+      }
+      // Live sibling reflow, restricted to same-container simple-packed flex so
+      // a constant per-sibling shift always matches the real drop; ported from
+      // shared/drag-reflow.ts.
+      var reorderCommittedTarget: any = null;
+      var reorderCommittedSlot: number | null = null;
+      var reorderCommittedAt = 0;
+      var reorderCommittedPointer = { x: 0, y: 0 };
+      var reorderPendingSlot: number | null = null;
+      var reorderPendingAt = 0;
+      var reflowSiblings: {
+        el: HTMLElement;
+        prevTransform: string;
+        authoredTransform: string;
+        prevTransition: string;
+      }[] = [];
+      var reflowKey: string | null = null;
+      var packedCacheContainer: Element | null = null;
+      var packedCacheResult = false;
+      function reorderMainAxis(target): "x" | "y" {
+        return target && target.axis === "y" ? "y" : "x";
+      }
+      function reorderRealChildren(container: Element): Element[] {
+        var out: Element[] = [];
+        var kids = container.children;
+        for (var i = 0; i < kids.length; i += 1) {
+          var k = kids[i];
+          if (k.nodeType === 1 && !isOverlayElement(k)) out.push(k);
+        }
+        return out;
+      }
+      function reorderSlotForTarget(target, real: Element[]) {
+        if (target.placement === "inside") return { slot: real.length };
+        var ai = real.indexOf(target.anchor);
+        if (ai < 0) return null;
+        return { slot: target.placement === "before" ? ai : ai + 1 };
+      }
+      function containerIsSimplePacked(container: Element): boolean {
+        if (packedCacheContainer === container) return packedCacheResult;
+        packedCacheContainer = container;
+        packedCacheResult = false;
+        var cs = window.getComputedStyle(container);
+        if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
+        if (cs.flexDirection !== "row" && cs.flexDirection !== "column") {
+          return false;
+        }
+        if (cs.flexWrap !== "nowrap") return false;
+        var jc = cs.justifyContent;
+        if (
+          jc !== "flex-start" &&
+          jc !== "start" &&
+          jc !== "normal" &&
+          jc !== "left" &&
+          jc !== ""
+        ) {
+          return false;
+        }
+        var kids = container.children;
+        for (var i = 0; i < kids.length; i += 1) {
+          if (kids[i].nodeType !== 1) continue;
+          if (parseFloat(window.getComputedStyle(kids[i]).flexGrow) > 0) {
+            return false;
+          }
+        }
+        packedCacheResult = true;
+        return true;
+      }
+      function reorderMainGap(container: Element, axis: "x" | "y"): number {
+        var cs = window.getComputedStyle(container);
+        var raw = axis === "x" ? cs.columnGap || cs.gap : cs.rowGap || cs.gap;
+        var n = readPx(raw);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      }
+      function clearReorderReflow(): void {
+        reflowSiblings.forEach(function (s) {
+          s.el.style.transform = s.prevTransform;
+          s.el.style.transition = s.prevTransition;
+        });
+        reflowSiblings = [];
+        reflowKey = null;
+      }
+      // Auto-layout children reorder into a slot on plain drag — they have no
+      // free x/y without leaving the layout, which would collapse it. Ctrl
+      // "ignore auto layout" is the explicit free-place escape.
+      function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+        return flowMoveTargetForPoint(
+          reorderEl,
+          cx,
+          cy,
+          groupOthers,
+          keepCurrentFlowParent,
+          ctrlKey,
+        );
+      }
+      // Figma's "don't nest into a smaller container" guard (⌘/Ctrl overrides).
+      // Instead of nesting into a too-small container, fall back to placing
+      // beside it in its parent so the drop is never silently discarded.
+      function applyReorderSizeGuard(target, ev) {
+        if (!liveReflowEnabled || !target || target.placement !== "inside") {
+          return target;
+        }
+        if (ev && (ev.metaKey || ev.ctrlKey)) return target;
+        var container = dropContainerForTarget(target);
+        // Never treat the screen root (body/html) as a too-small container: the
+        // before/after fallback would reparent to documentElement and insert a
+        // full-size layer as a sibling of <body>. Guard nested frames only.
+        if (
+          !container ||
+          container === reorderEl ||
+          container === document.body ||
+          container === document.documentElement
+        ) {
+          return target;
+        }
+        var crect = container.getBoundingClientRect();
+        var drect = (reorderEl as HTMLElement).getBoundingClientRect();
+        if (crect.width >= drect.width && crect.height >= drect.height) {
+          return target;
+        }
+        var parent = container.parentElement;
+        if (!parent) return null;
+        var pcs = window.getComputedStyle(parent);
+        var pAxis =
+          pcs.flexDirection === "column" ||
+          pcs.flexDirection === "column-reverse"
+            ? "y"
+            : "x";
+        var center =
+          pAxis === "x"
+            ? crect.left + crect.width / 2
+            : crect.top + crect.height / 2;
+        var ptr =
+          pAxis === "x" ? (ev ? ev.clientX : center) : ev ? ev.clientY : center;
+        return {
+          anchor: container,
+          placement: ptr < center ? "before" : "after",
+          axis: pAxis,
+          dropMode: "flow-insert",
+        };
+      }
+      // Stabilize a freshly-resolved target against the committed one so the
+      // preview only moves on a deliberate ≥8px pointer move from the last
+      // commit or after the NEW candidate persists ≥60ms. Mirrors
+      // shared/drag-reflow.ts resolveTargetHysteresis; same-container only.
+      function stabilizeReorderTarget(rawTarget, cx, cy, now) {
+        var reset = function () {
+          reorderCommittedTarget = null;
+          reorderCommittedSlot = null;
+          reorderPendingSlot = null;
+        };
+        if (
+          !liveReflowEnabled ||
+          !rawTarget ||
+          rawTarget.dropMode !== "flow-insert"
+        ) {
+          reset();
+          return rawTarget;
+        }
+        var container = dropContainerForTarget(rawTarget);
+        if (
+          !container ||
+          (reorderEl as HTMLElement).parentElement !== container
+        ) {
+          reset();
+          return rawTarget;
+        }
+        var slotInfo = reorderSlotForTarget(
+          rawTarget,
+          reorderRealChildren(container),
+        );
+        if (!slotInfo) {
+          reset();
+          return rawTarget;
+        }
+        var slot = slotInfo.slot;
+        var commit = function () {
+          reorderCommittedSlot = slot;
+          reorderCommittedTarget = rawTarget;
+          reorderCommittedPointer = { x: cx, y: cy };
+          reorderCommittedAt = now;
+          reorderPendingSlot = null;
+          return rawTarget;
+        };
+        if (reorderCommittedSlot === null) return commit();
+        if (slot === reorderCommittedSlot) {
+          reorderCommittedTarget = rawTarget;
+          reorderPendingSlot = null;
+          return rawTarget;
+        }
+        if (reorderPendingSlot !== slot) {
+          reorderPendingSlot = slot;
+          reorderPendingAt = now;
+        }
+        var movedPx = Math.hypot(
+          cx - reorderCommittedPointer.x,
+          cy - reorderCommittedPointer.y,
+        );
+        if (movedPx >= 8 || now - reorderPendingAt >= 60) return commit();
+        return reorderCommittedTarget || rawTarget;
+      }
+      function applyReorderReflow(target, cx, cy): void {
+        if (!liveReflowEnabled) return;
+        // Group members are each lifted and follow the cursor; also reflowing
+        // them would double-transform and strand a residual on teardown, so
+        // group drags stay indicator-only.
+        if (isGroupDrag || !target || target.dropMode !== "flow-insert") {
+          clearReorderReflow();
+          return;
+        }
+        var container = dropContainerForTarget(target);
+        if (
+          !container ||
+          (reorderEl as HTMLElement).parentElement !== container ||
+          !containerIsSimplePacked(container)
+        ) {
+          clearReorderReflow();
+          return;
+        }
+        var real = reorderRealChildren(container);
+        var originIndex = real.indexOf(reorderEl);
+        var slotInfo = reorderSlotForTarget(target, real);
+        if (originIndex < 0 || !slotInfo) {
+          clearReorderReflow();
+          return;
+        }
+        var axis = reorderMainAxis(target);
+        var key = axis + ":" + slotInfo.slot;
+        if (key === reflowKey) return;
+        clearReorderReflow();
+        reflowKey = key;
+        var drect = (reorderEl as HTMLElement).getBoundingClientRect();
+        var slotMain =
+          (axis === "x" ? drect.width : drect.height) +
+          reorderMainGap(container, axis);
+        // Only siblings between origin and target shift, by ±slotMain — exact
+        // for a packed container regardless of each sibling's own size.
+        var offsets: number[] = new Array(real.length).fill(0);
+        if (slotInfo.slot > originIndex + 1) {
+          for (var a = originIndex + 1; a <= slotInfo.slot - 1; a += 1) {
+            offsets[a] = -slotMain;
+          }
+        } else if (slotInfo.slot < originIndex) {
+          for (var b = slotInfo.slot; b <= originIndex - 1; b += 1) {
+            offsets[b] = slotMain;
+          }
+        }
+        for (var i = 0; i < real.length; i += 1) {
+          if (i === originIndex) continue;
+          var el = real[i] as HTMLElement;
+          var prevTransform = el.style.transform;
+          var authoredTransform = authoredTransformOf(el);
+          reflowSiblings.push({
+            el: el,
+            prevTransform: prevTransform,
+            authoredTransform: authoredTransform,
+            prevTransition: el.style.transition,
+          });
+          el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+          var tx = axis === "x" ? offsets[i] : 0;
+          var ty = axis === "y" ? offsets[i] : 0;
+          // Translate FIRST (screen space) composed with the sibling's own
+          // transform so an authored rotate/scale survives the reflow shift.
+          el.style.transform =
+            "translate(" +
+            tx +
+            "px, " +
+            ty +
+            "px)" +
+            (authoredTransform ? " " + authoredTransform : "");
+        }
+      }
       function onReorderMove(ev) {
         var vw = window.innerWidth;
         var vh = window.innerHeight;
         var cx = ev.clientX;
         var cy = ev.clientY;
+        var dx = cx - reorderPointerStart.clientX;
+        var dy = cy - reorderPointerStart.clientY;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
         pointerOutsideIframe = outside;
         // Always notify the host frame so it can track the cursor position,
@@ -8465,28 +8910,58 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         if (outside && !isGroupDrag) {
           // Cursor left this iframe — hide the in-iframe insertion guide so
           // it does not render while the host shows a cross-screen drop target.
+          // Drop the lift so the host-rendered ghost is the only moving visual
+          // (re-applied automatically if the cursor comes back inside).
           hideInsertionGuide();
+          clearReorderLift();
+          clearReorderReflow();
           showTransformBadge("Move layer", cx, cy);
         } else {
-          // Cursor is inside this iframe — use existing in-iframe behavior.
-          currentTarget = flowMoveTargetForPoint(
-            reorderEl,
+          // Cursor is inside this iframe — use existing in-iframe behavior,
+          // stabilized (hysteresis) and previewed with live sibling reflow when
+          // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
+          // no-ops (pass-through) when the flag is off.
+          var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
-            groupOthers,
-            keepCurrentFlowParent,
             Boolean(ev.ctrlKey),
           );
+          rawTarget = applyReorderSizeGuard(rawTarget, ev);
+          currentTarget = stabilizeReorderTarget(
+            rawTarget,
+            cx,
+            cy,
+            ev.timeStamp,
+          );
           showInsertionGuideFor(currentTarget);
+          var _dndKey = currentTarget
+            ? getSelector(currentTarget.anchor) +
+              "|" +
+              currentTarget.placement +
+              "|" +
+              currentTarget.dropMode
+            : "none";
+          if (_dndKey !== reorderLastTargetKey) {
+            reorderLastTargetKey = _dndKey;
+            dndLog("target", dndTarget(currentTarget));
+          }
+          applyReorderLift(dx, dy);
+          applyReorderReflow(currentTarget, cx, cy);
           showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
         }
       }
       function cleanupReorderDrag() {
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
+        document.removeEventListener("pointercancel", onReorderEscape, true);
         document.removeEventListener("keydown", onReorderKeyDown, true);
         document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
+        // onReorderUp calls this before resolving/reordering, so the commit
+        // reads un-transformed rects and — one synchronous task — paints once
+        // in the final slot with no back-to-origin flicker.
+        clearReorderLift();
+        clearReorderReflow();
       }
       function onReorderEscape() {
         cleanupReorderDrag();
@@ -8566,14 +9041,26 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         // already clears cross-screen state on re-entry so checking the
         // momentary excursion flag here would wrongly drop the element nowhere.
         if (outsideOnDrop) return;
-        currentTarget = flowMoveTargetForPoint(
-          reorderEl,
-          cx,
-          cy,
-          groupOthers,
-          keepCurrentFlowParent,
-          Boolean(ev?.ctrlKey),
-        );
+        // Resolve from the RELEASE point + release-time modifiers so a Ctrl or
+        // Space held only at release still takes effect; live reflow then runs
+        // one final stabilize tick so the drop still lands on the previewed
+        // slot rather than jumping.
+        var finalRaw = resolveReorderOrFreeTarget(cx, cy, Boolean(ev?.ctrlKey));
+        currentTarget = liveReflowEnabled
+          ? stabilizeReorderTarget(
+              applyReorderSizeGuard(finalRaw, ev),
+              cx,
+              cy,
+              ev && typeof ev.timeStamp === "number"
+                ? ev.timeStamp
+                : reorderCommittedAt,
+            )
+          : finalRaw;
+        dndLog("commit:resolve", {
+          raw: dndTarget(finalRaw),
+          final: dndTarget(currentTarget),
+          ctrl: Boolean(ev && ev.ctrlKey),
+        });
         if (!currentTarget) {
           // No valid drop target — clean up the clone if one was inserted so
           // no ghost element is left in the DOM.
@@ -8657,6 +9144,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
           // visual feedback; the visual-structure-ack handler will confirm
           // or revert once the parent processes the change.
           applyRuntimeReorder(reorderEl, currentTarget);
+          dndLog("commit:done", {
+            el: getSelector(reorderEl),
+            parent: reorderEl.parentElement
+              ? getSelector(reorderEl.parentElement)
+              : null,
+          });
           postVisualStructureChange(reorderEl, currentTarget, {
             prevParent: prevParent,
             prevNextSibling: prevNextSibling,
@@ -8666,6 +9159,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       }
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
+      document.addEventListener("pointercancel", onReorderEscape, true);
       document.addEventListener("keydown", onReorderKeyDown, true);
       document.addEventListener("keyup", onReorderKeyUp, true);
       setActiveDragCancel(onReorderEscape);
@@ -8711,6 +9205,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     var dragEl = gestureEl;
     var moved = false;
     var DRAG_THRESHOLD = 3;
+    dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
     var currentAutoLayoutTarget: {
       anchor: Element;
       placement: string;
@@ -8973,25 +9468,10 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         postVisualDuplicateChange(originalSelectedEl, dragEl);
       } else if (currentAutoLayoutTarget) {
         setMembersOpacity(null);
-        // Figma-parity nest-on-drop: the target container may be a plain
-        // rect/div that isn't auto-layout yet (see
-        // autoLayoutInsertionTargetForPoint's needsAutoLayoutConversion).
-        // Convert it to flex BEFORE reparenting/posting the move so the
-        // host applies the two edits in the right order against its
-        // synchronous same-tick content refs (container becomes flex, then
-        // the child moves into it and loses absolute positioning via the
-        // existing "flow-insert" dropMode handling). For group drags the
-        // conversion fires ONCE for the container; every member then nests
-        // consecutively via applyGroupStructureDrop.
-        if (
-          currentAutoLayoutTarget.needsAutoLayoutConversion &&
-          currentAutoLayoutTarget.conversionTarget
-        ) {
-          applyAutoLayoutConversionForDrop(
-            currentAutoLayoutTarget.conversionTarget,
-            groupEls,
-          );
-        }
+        // Nest-on-drop: a free element nests as an absolute child of a plain
+        // container ("absolute-container", keeps left/top) or flow-inserts into
+        // an existing auto-layout frame. The resolver never requests an implicit
+        // flex conversion, so there is none to apply here.
         if (isGroupDrag) {
           applyGroupStructureDrop(
             groupEls,
@@ -9023,6 +9503,10 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
             dropContainerForTarget(currentAutoLayoutTarget),
           );
           applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
+          dndLog("commit:free-nest", {
+            el: getSelector(dragEl),
+            target: dndTarget(currentAutoLayoutTarget),
+          });
           postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
             prevParent: prevParent,
             prevNextSibling: prevNextSibling,
@@ -9031,6 +9515,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         }
       } else {
         setMembersOpacity(null);
+        dndLog("commit:free-absolute", { count: memberStates.length });
         // Free absolute placement: one style-change message per member, in
         // order — the host composes them against its synchronous same-tick
         // content refs exactly like multi-property style commits.
@@ -9505,6 +9990,14 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       var previousSelectedEl = selectedEl;
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
+      // A plain (non-shift) select on a fresh target collapses any prior
+      // multi-selection, so a following drag can never inherit stale passive
+      // members from an earlier gesture (phantom-passenger fix, §3.5). Shift
+      // keeps + extends the set via the helper below. Only reached for
+      // single-element drags — an intentional group drag returns earlier.
+      if (!ev?.shiftKey && passiveSelectionEls.length) {
+        setPassiveSelectionElements([]);
+      }
       preservePreviousSelectedElementForShiftClick(
         previousSelectedEl,
         selectedEl,
@@ -11248,6 +11741,10 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       return;
     }
     if (e.data.type === "visual-structure-ack") {
+      dndLog("ack", {
+        requestId: e.data.requestId,
+        applied: Boolean(e.data.applied),
+      });
       var move = pendingStructureMoves[e.data.requestId];
       if (!move) return;
       delete pendingStructureMoves[e.data.requestId];

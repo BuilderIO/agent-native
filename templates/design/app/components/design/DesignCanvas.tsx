@@ -110,6 +110,7 @@ import {
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
 import { DeviceFrame } from "./DeviceFrame";
+import { dndHostLog } from "./dnd-debug";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import type {
   ElementInfo,
@@ -304,6 +305,15 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 ${editorChromeBridgeScript}
 </script>
 `;
+
+/**
+ * Master switch for the Figma-parity live-reflow drag (hysteresis-stabilized
+ * targeting + size guard in Phase 0; transform lift/follow, live sibling
+ * reflow, and exact absolute commit in Phase 1). Flip to `true` to try the new
+ * drag feel; flip back to `false` for the previous behavior without a revert.
+ * Baked into the injected bridge as `__LIVE_REFLOW_ENABLED__`.
+ */
+const LIVE_REFLOW_ENABLED = true;
 
 interface DesignCanvasProps {
   content: string;
@@ -932,6 +942,10 @@ function buildEditorChromeBridgeScript(args: {
       .replace(
         "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
         args.runtimeLayerSnapshotEnabled ? "true" : "false",
+      )
+      .replace(
+        "__LIVE_REFLOW_ENABLED__",
+        LIVE_REFLOW_ENABLED ? "true" : "false",
       )
   );
 }
@@ -2109,7 +2123,11 @@ export function DesignCanvas({
             "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
             String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
           )
-          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
+          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+          .replace(
+            "__LIVE_REFLOW_ENABLED__",
+            LIVE_REFLOW_ENABLED ? "true" : "false",
+          );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
     // (agent-native:hit-test / agent-native:hit-test-result) resolves an
@@ -2482,6 +2500,12 @@ export function DesignCanvas({
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
+        dndHostLog("recv:structure-change", {
+          selector,
+          anchorSelector,
+          placement,
+          dropMode: e.data.dropMode,
+        });
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
         const sourceId =
@@ -2549,6 +2573,11 @@ export function DesignCanvas({
                 : undefined,
             },
           );
+          dndHostLog("persist:result", {
+            applied,
+            requestId,
+            willAck: Boolean(requestId) && applied !== "pending",
+          });
           if (requestId && applied !== "pending") {
             iframeRef.current?.contentWindow?.postMessage(
               {
