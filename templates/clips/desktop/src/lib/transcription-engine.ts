@@ -224,6 +224,11 @@ function browserLocale(): string {
   return navigator.language || "en-US";
 }
 
+function isUnavailableSelectedMicrophoneError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /selected microphone .+ is not available/i.test(message);
+}
+
 export function recordingTranscriptionLanguage(): string | null {
   return null;
 }
@@ -298,11 +303,34 @@ export async function startTranscriptionEngine(opts: {
     );
     return "whisper";
   } catch (err) {
+    let fallbackMic = opts.mic;
     console.warn(
       "[transcription] whisper mic+system failed, falling back to mic-only:",
       err,
     );
-    await restartTranscriptionEngine("macos-native", opts.mic);
+    if (opts.mic && isUnavailableSelectedMicrophoneError(err)) {
+      console.warn(
+        "[transcription] selected microphone is unavailable; retrying with the macOS default input:",
+        err,
+      );
+      try {
+        await restartTranscriptionEngine(
+          "whisper",
+          undefined,
+          captureSystem,
+          voiceProcessing,
+          emitPartials,
+        );
+        return "whisper";
+      } catch (defaultMicErr) {
+        console.warn(
+          "[transcription] default mic+system capture failed, falling back to default mic-only:",
+          defaultMicErr,
+        );
+        fallbackMic = undefined;
+      }
+    }
+    await restartTranscriptionEngine("macos-native", fallbackMic);
     return "macos-native";
   }
 }
