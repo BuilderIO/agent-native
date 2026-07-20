@@ -5,11 +5,6 @@ function isZoomMeetingHost(hostname: string): boolean {
   return hostname === "zoom.us" || hostname.endsWith(".zoom.us");
 }
 
-/**
- * Prefer Zoom's native URI when an HTTPS calendar link carries a meeting id.
- * Other providers and URL shapes retain their original URL as the safe
- * fallback.
- */
 export function resolveNativeMeetingJoinUrl(joinUrl: string): string {
   try {
     const url = new URL(joinUrl);

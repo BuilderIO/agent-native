@@ -207,6 +207,23 @@ export function usageSummary(status?: SubscriptionStatus): string {
     : "Plan connected";
 }
 
+function emptyUsageMessage(status: SubscriptionStatus): string {
+  const telemetry = status.telemetry;
+  if (telemetry.state === "error") {
+    return telemetry.error?.message ?? "Usage data could not be read.";
+  }
+  if (telemetry.state === "stale") {
+    return "Usage data may be out of date.";
+  }
+  if (telemetry.state === "unsupported") {
+    return "Live usage is not supported by this provider.";
+  }
+  if (telemetry.state === "unavailable") {
+    return "Live usage is not reported by this provider.";
+  }
+  return "No usage meter is available for this connection.";
+}
+
 export function MultiFrontierWorkspace({
   state,
   subscriptions,
@@ -272,9 +289,7 @@ export function MultiFrontierWorkspace({
         </section>
       ) : null}
 
-      {isEmpty ? (
-        <SetupPanel allConnected={allConnected} />
-      ) : (
+      {isEmpty ? null : (
         <CollaborationPanel
           state={state}
           controls={controls}
@@ -511,8 +526,9 @@ function RunPreferences({
   onAutoContinueAfterAgreementChange?: (value: boolean) => void;
   onDefaultAutoContinueAfterAgreementChange?: (value: boolean) => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Collapsible>
+    <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
         <Button
           type="button"
@@ -521,7 +537,10 @@ function RunPreferences({
           className="w-full justify-between px-2 text-xs text-muted-foreground"
         >
           Run preferences
-          <IconChevronDown className="size-3.5" aria-hidden="true" />
+          <IconChevronDown
+            className={`size-3.5 transition-transform duration-200 ease-[var(--ease-collapse)] ${open ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="px-2 pb-1 pt-1">
@@ -608,7 +627,7 @@ function UsagePopover({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No usage meter is available for this connection.
+            {emptyUsageMessage(status)}
           </p>
         )}
         {telemetry.contextWindow?.state === "available" ? (
@@ -646,7 +665,7 @@ export function UsageMeter({ meter }: { meter: SubscriptionRateLimitMeter }) {
           <span className="min-w-0 truncate font-medium text-foreground">
             {label}
           </span>
-          <span className="shrink-0 text-muted-foreground">
+          <span className="min-w-0 max-w-[55%] truncate text-right text-muted-foreground">
             {meter.message ?? "Not reported"}
           </span>
         </div>
@@ -662,6 +681,7 @@ export function UsageMeter({ meter }: { meter: SubscriptionRateLimitMeter }) {
       </div>
     );
   }
+  const boundedUsedPercent = Math.min(100, Math.max(0, usedPercent));
 
   return (
     <div className="space-y-1.5">
@@ -670,12 +690,12 @@ export function UsageMeter({ meter }: { meter: SubscriptionRateLimitMeter }) {
           {label}
         </span>
         <span className="shrink-0 text-muted-foreground">
-          {`${Math.round(usedPercent)}% used`}
+          {`${Math.round(boundedUsedPercent)}% used`}
         </span>
       </div>
       <Progress
-        value={usedPercent}
-        aria-label={`${label}: ${Math.round(usedPercent)} percent used`}
+        value={boundedUsedPercent}
+        aria-label={`${label}: ${Math.round(boundedUsedPercent)} percent used`}
         className="h-1.5"
       />
       {meter.resetsAt ? (
@@ -700,18 +720,10 @@ function Credits({
   return (
     <div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-xs">
       <span className="text-muted-foreground">Usage credits</span>
-      <span className="font-medium">{value}</span>
+      <span className="min-w-0 max-w-[60%] truncate text-right font-medium">
+        {value}
+      </span>
     </div>
-  );
-}
-
-function SetupPanel({ allConnected }: { allConnected: boolean }) {
-  return (
-    <p className="text-sm text-muted-foreground">
-      {allConnected
-        ? "Describe the change in the composer to begin."
-        : "Connect both subscriptions to begin."}
-    </p>
   );
 }
 
@@ -799,7 +811,10 @@ function CollaborationPanel({
                 <IconDots aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              data-agent-native-multi-frontier-overlay="true"
+            >
               {controls.canPause ? (
                 <DropdownMenuItem
                   onSelect={() => invokeSecondaryAction("pause")}
@@ -856,8 +871,7 @@ function CollaborationPanel({
       </div>
       {state.phase === "failed" ? (
         <p role="alert" className="text-xs text-destructive">
-          This collaboration stopped with a failure. Review its evidence before
-          recovering or starting another run.
+          Collaboration stopped. Review its evidence before recovering.
         </p>
       ) : null}
       {state.phase === "paused" ? (
@@ -867,8 +881,9 @@ function CollaborationPanel({
               Re-enter the original request to resume planning. It was not kept
               on disk.
             </p>
-            <div className="flex gap-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Input
+                className="min-w-0"
                 value={recoveryPrompt}
                 maxLength={12_000}
                 onChange={(event) => setRecoveryPrompt(event.target.value)}
@@ -925,7 +940,7 @@ function CollaborationPanel({
         </CollapsibleContent>
       </Collapsible>
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent data-agent-native-multi-frontier-overlay="true">
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel this collaboration?</AlertDialogTitle>
             <AlertDialogDescription>

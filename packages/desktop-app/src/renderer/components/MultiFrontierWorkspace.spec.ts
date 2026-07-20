@@ -123,6 +123,22 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
     expect(markup).not.toContain('aria-valuenow="0"');
   });
 
+  it("bounds provider usage before rendering progress", () => {
+    const markup = renderToStaticMarkup(
+      createElement(UsageMeter, {
+        meter: {
+          id: "weekly",
+          kind: "weekly",
+          state: "available",
+          usedPercent: 140,
+        },
+      }),
+    );
+
+    expect(markup).toContain("100% used");
+    expect(markup).toContain('aria-valuenow="100"');
+  });
+
   it("renders live notices and an accessible cancellation confirmation", () => {
     const markup = renderToStaticMarkup(
       createElement(MultiFrontierWorkspace, {
@@ -196,6 +212,12 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
     );
     expect(participantPopover).toBeInstanceOf(HTMLElement);
     expect(participantPopover?.classList.contains("border-0")).toBe(false);
+    expect(participantPopover?.classList.contains("border")).toBe(true);
+    expect(participantPopover?.classList.contains("bg-popover")).toBe(true);
+    expect(
+      participantPopover?.classList.contains("text-popover-foreground"),
+    ).toBe(true);
+    expect(participantPopover?.classList.contains("shadow-md")).toBe(true);
 
     const details = document.body.querySelector<HTMLButtonElement>(
       '[aria-label="Show Codex subscription details"]',
@@ -239,6 +261,100 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
     expect(
       popovers.every((popover) => !popover.classList.contains("border-0")),
     ).toBe(true);
+    expect(
+      popovers.every(
+        (popover) =>
+          popover.classList.contains("border") &&
+          popover.classList.contains("bg-popover") &&
+          popover.classList.contains("text-popover-foreground") &&
+          popover.classList.contains("shadow-md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps run preferences collapsed and shows persisted run policy as read-only", async () => {
+    act(() => {
+      root.render(
+        createElement(MultiFrontierParticipantSettings, {
+          statuses: {},
+          busy: false,
+          autoContinueAfterAgreement: false,
+          defaultAutoContinueAfterAgreement: false,
+        }),
+      );
+    });
+
+    const connect = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Connect",
+    );
+    await act(async () => {
+      connect?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      connect?.click();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).not.toContain("Continue automatically");
+    const preferences = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Run preferences"));
+    expect(preferences?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      preferences?.click();
+      await Promise.resolve();
+    });
+
+    expect(preferences?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.textContent).toContain("Continue automatically");
+    expect(document.body.textContent).toContain("Explicit GO");
+    expect(document.body.textContent).toContain("Use for new runs");
+  });
+
+  it("scopes collaboration menus and dialogs to the opaque overlay surface", async () => {
+    act(() => {
+      root.render(
+        createElement(MultiFrontierWorkspace, {
+          state: rendererState("awaiting_go"),
+          onSecondaryAction: vi.fn(),
+        }),
+      );
+    });
+
+    const more = container.querySelector<HTMLButtonElement>(
+      '[aria-label="More collaboration actions"]',
+    );
+    await act(async () => {
+      more?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      more?.click();
+      await Promise.resolve();
+    });
+
+    const menu = document.body.querySelector<HTMLElement>(
+      '[data-agent-native-multi-frontier-overlay="true"]',
+    );
+    expect(menu).toBeInstanceOf(HTMLElement);
+    expect(menu?.classList.contains("border")).toBe(true);
+    expect(menu?.classList.contains("bg-popover")).toBe(true);
+    expect(menu?.classList.contains("text-popover-foreground")).toBe(true);
+    expect(menu?.classList.contains("shadow-md")).toBe(true);
+
+    const cancel = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Cancel collaboration"));
+    await act(async () => {
+      cancel?.click();
+      await Promise.resolve();
+    });
+
+    const dialog = document.body.querySelector<HTMLElement>(
+      '[role="alertdialog"][data-agent-native-multi-frontier-overlay="true"]',
+    );
+    expect(dialog).toBeInstanceOf(HTMLElement);
+    expect(dialog?.textContent).toContain("Cancel this collaboration?");
   });
 
   it("uses an existing run's persisted agreement policy rather than the new-run draft", () => {
