@@ -193,20 +193,16 @@ describe("meeting microphone capture", () => {
     });
 
     expect(engine).toBe("whisper");
-    expect(invokeMock).toHaveBeenNthCalledWith(
-      2,
-      "audio_transcription_start",
-      {
-        meetingId: null,
-        locale: null,
-        micDeviceId: null,
-        micDeviceLabel: null,
-        captureSystem: true,
-        voiceProcessing: false,
-        emitPartials: true,
-        owner: "meeting",
-      },
-    );
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "audio_transcription_start", {
+      meetingId: null,
+      locale: null,
+      micDeviceId: null,
+      micDeviceLabel: null,
+      captureSystem: true,
+      voiceProcessing: false,
+      emitPartials: true,
+      owner: "meeting",
+    });
   });
 
   it("surfaces the native fallback error when both local engines fail", async () => {
