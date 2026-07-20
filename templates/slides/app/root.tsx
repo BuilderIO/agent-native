@@ -34,7 +34,7 @@ import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { DeckProvider } from "@/context/DeckContext";
+import { OrganizationScopedDeckProvider } from "@/context/OrganizationScopedDeckProvider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -198,9 +198,9 @@ function AppContent() {
 
   if (isBare) {
     return (
-      <DeckProvider key={DECK_KEY}>
+      <OrganizationScopedDeckProvider version={DECK_KEY}>
         <Outlet />
-      </DeckProvider>
+      </OrganizationScopedDeckProvider>
     );
   }
 
@@ -234,11 +234,11 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <DeckProvider key={DECK_KEY}>
+      <OrganizationScopedDeckProvider version={DECK_KEY}>
         <AppLayout>
           <Outlet />
         </AppLayout>
-      </DeckProvider>
+      </OrganizationScopedDeckProvider>
     </>
   );
 }
