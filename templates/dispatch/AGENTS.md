@@ -6,6 +6,11 @@ vault secrets, messaging routes, MCP/app setup, and agent operations.
 Detailed framework rules live in root skills; this file only keeps Dispatch
 specific essentials.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

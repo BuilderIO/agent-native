@@ -2,6 +2,11 @@
 
 Tasks is a task-list-first agent-native app. The task list at `/tasks` is the default home; chat stays available for capture and agent operations. Actions are the contract shared by UI, chat, HTTP, MCP, A2A, and CLI.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.

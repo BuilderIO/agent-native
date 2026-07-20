@@ -138,12 +138,14 @@ const requiredTemplateSharedSkills: Record<string, string[]> = {
 
 /** Copied into every first-party template that uses shared skills. */
 const requiredAllTemplateSharedSkills = [
+  "agent-native-toolkit",
   "customizing-agent-native",
   "feature-flags",
   "upgrade-agent-native",
 ];
 
 const requiredDefaultTemplateSharedSkills = [
+  "agent-native-toolkit",
   "customizing-agent-native",
   "feature-flags",
   "integration-webhooks",
@@ -156,6 +158,7 @@ const requiredDefaultTemplateSharedSkills = [
 const requiredHeadlessTemplateSharedSkills = [
   "actions",
   "agent-native-docs",
+  "agent-native-toolkit",
   "customizing-agent-native",
   "feature-flags",
   "integration-webhooks",
@@ -216,6 +219,20 @@ const requiredActionGuidance = [
     rel: "registry/agent-native-app/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
   },
+];
+
+const requiredToolkitDiscoveryGuidance = [
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/headless/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+  "templates/chat/AGENTS.md",
+];
+
+const requiredRegistryConventionSkills = [
+  "agent-native-toolkit",
+  "customizing-agent-native",
 ];
 
 // Repo-maintenance workflows are useful in this repository, but generated
@@ -391,7 +408,7 @@ function listInstructionFiles() {
   return files.sort();
 }
 
-function checkActionFirstInstructionPhrases() {
+function checkGeneratedInstructionPhrases() {
   const findings = [];
   for (const file of listInstructionFiles()) {
     const content = readFileSync(file, "utf-8");
@@ -414,11 +431,61 @@ function checkActionFirstInstructionPhrases() {
     }
   }
 
+  for (const rel of requiredToolkitDiscoveryGuidance) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required Toolkit discovery guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (
+      !content.includes(
+        "Before building common workspace or agent UI, read `agent-native-toolkit`",
+      )
+    ) {
+      findings.push(`${rel}: missing canonical Toolkit discovery guidance`);
+    }
+    if (!content.includes("`customizing-agent-native`")) {
+      findings.push(`${rel}: missing customization ladder guidance`);
+    }
+  }
+
+  for (const template of listTemplateDirs()) {
+    const rel = `templates/${template}/AGENTS.md`;
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing template agent instructions`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (
+      !content.includes(
+        "Before building common workspace or agent UI, read `agent-native-toolkit`",
+      ) ||
+      !content.includes("`customizing-agent-native`")
+    ) {
+      findings.push(`${rel}: missing Toolkit discovery/customization guidance`);
+    }
+  }
+
+  const registry = JSON.parse(
+    readFileSync(join(rootDir, "registry.json"), "utf-8"),
+  );
+  const conventionPaths = new Set(
+    registry.items
+      ?.find((item) => item.name === "conventions")
+      ?.files?.map((file) => file.path) ?? [],
+  );
+  for (const skill of requiredRegistryConventionSkills) {
+    const expected = `.agents/skills/${skill}/SKILL.md`;
+    if (!conventionPaths.has(expected)) {
+      findings.push(`registry.json: conventions must install ${expected}`);
+    }
+  }
+
   if (findings.length > 0) {
     throw new Error(
-      `Action-first generated guidance is out of sync.\n\n${findings.join(
-        "\n",
-      )}`,
+      `Generated guidance is out of sync.\n\n${findings.join("\n")}`,
     );
   }
 }
@@ -509,7 +576,7 @@ try {
   if (check) {
     checkInSync();
     checkTemplateSharedSkillsInSync();
-    checkActionFirstInstructionPhrases();
+    checkGeneratedInstructionPhrases();
     console.log(
       "Workspace-core, default-template, and template shared skills are in sync.",
     );
@@ -518,7 +585,7 @@ try {
     syncTemplateSharedSkills();
     checkInSync();
     checkTemplateSharedSkillsInSync();
-    checkActionFirstInstructionPhrases();
+    checkGeneratedInstructionPhrases();
     console.log(
       "Synced workspace-core, default-template, and template shared skills from .agents/skills.",
     );

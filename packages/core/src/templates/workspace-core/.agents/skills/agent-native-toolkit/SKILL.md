@@ -1,3 +1,14 @@
+---
+name: agent-native-toolkit
+description: >-
+  Inventory and ownership rules for shared Agent Native workspace UI. Use
+  before building app chrome, settings, navigation, sharing, collaboration,
+  setup, history, comments, chat rails, agent UX, or repeated workspace behavior.
+scope: dev
+metadata:
+  internal: true
+---
+
 # Agent-Native Toolkit
 
 Use this skill when deciding whether app chrome, settings, collaboration,
@@ -20,6 +31,21 @@ Move behavior into shared toolkit primitives when it is:
 
 Keep behavior app-local when the abstraction would hide important domain
 language or make a simple app-specific workflow harder to understand.
+
+## Discover Before Building
+
+Before creating an app-local version of repeated workspace or agent UI:
+
+1. Check the reusable kits below and the installed package documentation.
+2. Search installed public components and source with `docs-search` and
+   `source-search`.
+3. Run `agent-native eject --list` to see the version-matched units published
+   by the packages installed in this app.
+4. Read `customizing-agent-native` and configure, compose, or eject the
+   smallest unit instead of recreating shared behavior from memory.
+
+Use public package exports at runtime. Published source and ejection manifests
+are discovery and ownership-transfer mechanisms, not private runtime APIs.
 
 ## Settings Direction
 

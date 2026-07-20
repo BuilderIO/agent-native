@@ -27,7 +27,9 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and `packages/shared/AGENTS.md` plus
 `packages/shared/.agents/skills/` for workspace-specific conventions.
-Read `customizing-agent-native` before adapting shared UI. Use the supported
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Read
+`customizing-agent-native` before adapting shared UI. Use the supported
 ladder: configure → compose → eject the smallest unit → propose a shared seam.
 Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
 `node_modules` or eject protected runtime contracts.
