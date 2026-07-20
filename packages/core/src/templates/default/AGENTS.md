@@ -34,7 +34,9 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
   `node_modules/@agent-native/core/corpus/` for source examples.
 
-When intentionally customizing shared UI, read `customizing-agent-native`.
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. When intentionally
+customizing shared UI, read `customizing-agent-native`.
 Use the supported ladder: configure → compose → eject the smallest unit →
 propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
 commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
@@ -164,6 +166,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | Skill                      | When to read                                                                      |
 | -------------------------- | --------------------------------------------------------------------------------- |
 | `agent-native-docs`        | Before using advanced Agent Native framework APIs or generated-app features       |
+| `agent-native-toolkit`     | Before building common workspace, chat, settings, navigation, or collaboration UI |
 | `customizing-agent-native` | Before configuring, composing, or ejecting shared Agent Native features           |
 | `adding-a-feature`         | **Read first when adding ANY new feature** — the four-area parity checklist       |
 | `feature-flags`            | Before shipping a staged production rollout or replacing a compile-time switch    |

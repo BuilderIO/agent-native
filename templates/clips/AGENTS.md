@@ -7,6 +7,11 @@ comments, folders/spaces, meetings, dictation, and sharing through actions.
 Detailed media, meeting, dictation, editing, and sharing rules live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
