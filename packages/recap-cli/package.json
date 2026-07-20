@@ -30,7 +30,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node dist/copy-recap-workflow.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run --passWithNoTests",
     "prepublishOnly": "npm run build"

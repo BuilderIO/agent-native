@@ -27,6 +27,7 @@ function costUsdFromCenticents(value: number): number {
 }
 
 const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
+const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 
 type GenerationToolCall = {
   name: string;
@@ -34,7 +35,14 @@ type GenerationToolCall = {
   duration_ms: number;
   status: "success" | "error";
   error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_message?: string;
 };
+
+function truncateToolErrorMessage(value: string): string {
+  return value.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
+    : value;
+}
 
 function emitLlmGenerationTrackingEvent(args: {
   runId: string;
@@ -439,6 +447,10 @@ export async function instrumentAgentLoop(opts: {
               : explicitError
                 ? "tool_error"
                 : "legacy_inferred_error",
+            error_message:
+              isError && config.captureToolResults
+                ? truncateToolErrorMessage(event.result)
+                : undefined,
           });
         }
 
@@ -532,6 +544,7 @@ export async function instrumentAgentLoop(opts: {
       for (const [counter, pending] of pendingTools) {
         toolCallCount += 1;
         failedTools += 1;
+        const interruptedMessage = "Tool call interrupted before completion";
         if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
           generationToolCalls.set(counter, {
             name: pending.toolName,
@@ -539,9 +552,11 @@ export async function instrumentAgentLoop(opts: {
             duration_ms: Math.max(0, runEnd - pending.startMs),
             status: "error",
             error_class: "interrupted",
+            error_message: config.captureToolResults
+              ? interruptedMessage
+              : undefined,
           });
         }
-        const interruptedMessage = "Tool call interrupted before completion";
         if (pending.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
           endAgentSpan(pending.otelSpan, {

@@ -381,16 +381,52 @@ export default defineAction({
   run: async (args) => {
     const trimmedQuery = args.query.trim();
     const gaps: string[] = [];
-    const [dealResult, pipelines, owners] = await Promise.all([
-      searchHubSpotObjects({
-        objectType: "deals",
-        query: trimmedQuery,
-        properties: DEAL_DEEP_DIVE_PROPERTIES,
-        limit: args.dealLimit,
-      }),
-      getDealPipelines(),
-      getDealOwners(),
-    ]);
+
+    const [dealSettled, pipelinesSettled, ownersSettled] =
+      await Promise.allSettled([
+        searchHubSpotObjects({
+          objectType: "deals",
+          query: trimmedQuery,
+          properties: DEAL_DEEP_DIVE_PROPERTIES,
+          limit: args.dealLimit,
+        }),
+        getDealPipelines(),
+        getDealOwners(),
+      ]);
+
+    if (dealSettled.status === "rejected") {
+      const err = dealSettled.reason;
+      throw new Error(
+        `HubSpot deal search failed for "${trimmedQuery}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    const dealResult = dealSettled.value;
+
+    let pipelines: Pipeline[] = [];
+    if (pipelinesSettled.status === "fulfilled") {
+      pipelines = pipelinesSettled.value;
+    } else {
+      const err = pipelinesSettled.reason;
+      gaps.push(
+        `HubSpot deal pipelines: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    let owners: Record<string, string> = {};
+    if (ownersSettled.status === "fulfilled") {
+      owners = ownersSettled.value;
+    } else {
+      const err = ownersSettled.reason;
+      gaps.push(
+        `HubSpot deal owners: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     const lookups = stageLookups(getVisiblePipelines(pipelines));
     const deals = dealResult.records.map((deal) =>

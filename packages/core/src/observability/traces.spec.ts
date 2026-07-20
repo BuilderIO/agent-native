@@ -682,6 +682,75 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
   });
 
+  it("omits tool error text by default and includes it truncated when captureToolResults is opted in", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+    const longError = `HubSpot 500: ${"x".repeat(600)}`;
+
+    const runOnce = async (captureToolResults: boolean) => {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "tool_start", tool: "account-deep-dive", input: {} });
+          send({
+            type: "tool_done",
+            tool: "account-deep-dive",
+            result: longError,
+            isError: true,
+          });
+          return {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "gpt-test",
+          };
+        },
+        loopOpts,
+        runId: `run-${captureToolResults}`,
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolResults,
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    await runOnce(false);
+    const tools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(tools[0]?.error_message).toBeUndefined();
+
+    events.length = 0;
+    await runOnce(true);
+    const toolsWithCapture = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(toolsWithCapture[0]?.error_message).toBe(
+      `${longError.slice(0, 500)}…`,
+    );
+    expect((toolsWithCapture[0]?.error_message as string).length).toBe(501);
+  });
+
   it("no-ops (emits no spans) when no provider is registered", async () => {
     __setAgentTracerForTests(null);
 
