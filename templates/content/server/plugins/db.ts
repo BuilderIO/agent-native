@@ -866,23 +866,46 @@ const runContentMigrations = runMigrations(
     {
       version: 77,
       name: "backfill-database-trash-roots",
-      // guard:allow-unscoped — boot migration claims only backing documents whose own database is already archived.
-      sql: `UPDATE documents
-        SET trashed_at = (
-          SELECT content_databases.deleted_at
-          FROM content_databases
-          WHERE content_databases.document_id = documents.id
+      // guard:allow-unscoped — boot migration claims only archived database trees that predate document Trash metadata.
+      sql: `WITH RECURSIVE legacy_database_trash(document_id, root_id, deleted_at) AS (
+          SELECT documents.id, documents.id, MIN(content_databases.deleted_at)
+          FROM documents
+          INNER JOIN content_databases
+            ON content_databases.document_id = documents.id
+          WHERE documents.trashed_at IS NULL
             AND content_databases.deleted_at IS NOT NULL
-          ORDER BY content_databases.deleted_at ASC
+          GROUP BY documents.id
+          UNION
+          SELECT child.id, legacy_database_trash.root_id, legacy_database_trash.deleted_at
+          FROM documents child
+          INNER JOIN legacy_database_trash
+            ON child.parent_id = legacy_database_trash.document_id
+          WHERE child.trashed_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM content_databases child_database
+              WHERE child_database.document_id = child.id
+                AND child_database.deleted_at IS NOT NULL
+            )
+        )
+        UPDATE documents
+        SET trashed_at = (
+          SELECT legacy_database_trash.deleted_at
+          FROM legacy_database_trash
+          WHERE legacy_database_trash.document_id = documents.id
           LIMIT 1
         ),
-        trash_root_id = documents.id
+        trash_root_id = (
+          SELECT legacy_database_trash.root_id
+          FROM legacy_database_trash
+          WHERE legacy_database_trash.document_id = documents.id
+          LIMIT 1
+        )
         WHERE documents.trashed_at IS NULL
           AND EXISTS (
             SELECT 1
-            FROM content_databases
-            WHERE content_databases.document_id = documents.id
-              AND content_databases.deleted_at IS NOT NULL
+            FROM legacy_database_trash
+            WHERE legacy_database_trash.document_id = documents.id
           )`,
     },
   ],

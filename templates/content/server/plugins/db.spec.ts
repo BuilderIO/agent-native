@@ -193,10 +193,13 @@ describe("content db.ts wires ensureAdditiveColumns after runMigrations", () => 
     );
   });
 
-  it("backfills legacy deleted databases into explicit document Trash roots", () => {
+  it("backfills legacy deleted database trees into explicit document Trash roots", () => {
     expect(dbTsSource).toContain('name: "backfill-database-trash-roots"');
     expect(dbTsSource).toMatch(
-      /UPDATE documents[\s\S]*?trash_root_id = documents\.id[\s\S]*?content_databases\.deleted_at IS NOT NULL/,
+      /WITH RECURSIVE legacy_database_trash[\s\S]*?child\.parent_id = legacy_database_trash\.document_id[\s\S]*?trash_root_id = \([\s\S]*?legacy_database_trash\.root_id/,
+    );
+    expect(dbTsSource).toMatch(
+      /child_database\.document_id = child\.id[\s\S]*?child_database\.deleted_at IS NOT NULL/,
     );
   });
 });
