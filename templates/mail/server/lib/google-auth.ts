@@ -8,6 +8,8 @@ import {
 import {
   isOAuthConnected,
   getOAuthAccounts,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -58,25 +60,20 @@ export async function getOAuth2Credentials(owner?: string): Promise<{
   clientId: string;
   clientSecret: string;
 }> {
-  const resolve = async () => {
-    const [clientId, clientSecret] = await Promise.all([
-      resolveSecret("GOOGLE_CLIENT_ID"),
-      resolveSecret("GOOGLE_CLIENT_SECRET"),
-    ]);
-    if (!clientId || !clientSecret) return null;
-    return { clientId, clientSecret };
-  };
-  const credentials = owner
+  const resolve = () =>
+    resolveGoogleProviderCredentialCandidatesWithReader({
+      readCredential: resolveSecret,
+      credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+    });
+  const [credentials] = owner
     ? await runWithRequestContext({ userEmail: owner }, resolve)
     : await resolve();
-  const clientId = credentials?.clientId;
-  const clientSecret = credentials?.clientSecret;
-  if (!clientId || !clientSecret) {
+  if (!credentials) {
     throw new Error(
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
     );
   }
-  return { clientId, clientSecret };
+  return credentials;
 }
 
 /**

@@ -608,10 +608,10 @@ const messages = {
     pageTitle: "Join team · Clips",
   },
   settings: {
-    openAgentSettings: "Open agent workspace",
+    openAgentSettings: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    agentTitle: "Manage agent",
     title: "Settings",
     pageTitle: "Settings · Clips",
     intro: "Preferences and connected services for this Clips workspace.",

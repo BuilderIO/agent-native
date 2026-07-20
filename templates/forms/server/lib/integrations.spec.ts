@@ -6,12 +6,20 @@ const fetchMock = vi.hoisted(() => ({
   requests: [] as Array<{ url: string; payload: any }>,
 }));
 
-vi.mock("@agent-native/core/tools/url-safety", () => ({
-  isBlockedToolUrl: () => false,
-  ssrfSafeToolFetch: async (url: string, init: { body?: unknown }) => {
+vi.mock("@agent-native/core/integrations", () => ({
+  escapeSlackMrkdwn: (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+  isWebhookUrlAllowed: () => true,
+  deliverJsonWebhook: async ({
+    url,
+    payload,
+  }: {
+    url: string;
+    payload: unknown;
+  }) => {
     fetchMock.requests.push({
       url,
-      payload: JSON.parse(String(init.body ?? "{}")),
+      payload,
     });
     return { ok: true, status: 200 };
   },

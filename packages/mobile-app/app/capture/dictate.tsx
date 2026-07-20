@@ -14,16 +14,15 @@ import {
   Platform,
   Pressable,
   Share,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 import AudioCaptureView, {
   type CapturedAudioMedia,
 } from "@/components/AudioCaptureView";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import {
   bindCaptureJobOwner,
   enqueueCaptureJob,
@@ -241,7 +240,10 @@ export default function DictationCaptureScreen() {
 
   if (phase === "capture") {
     return (
-      <SafeAreaView edges={["top", "bottom"]} style={{ flex: 1 }}>
+      <SafeAreaView
+        edges={["top", "bottom"]}
+        className="flex-1 bg-background-dark"
+      >
         <AudioCaptureView
           kind="dictation"
           onCancel={() => router.back()}
@@ -252,59 +254,71 @@ export default function DictationCaptureScreen() {
   }
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
+    <SafeAreaView
+      edges={["top", "bottom"]}
+      className="bg-background-dark flex-1"
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.container}
+        className="flex-1 px-5"
       >
-        <View style={styles.header}>
+        <View className="items-center flex-row justify-between pt-3.5">
           <Pressable
             accessibilityLabel="Close dictation"
             accessibilityRole="button"
             hitSlop={10}
             onPress={() => router.replace("/" as never)}
-            style={styles.headerButton}
+            className="items-center h-11 justify-center w-11 active:opacity-75"
           >
             <IconChevronLeft color="#f4f4f5" size={24} />
           </Pressable>
-          <Text style={styles.eyebrow}>VOICE DICTATION</Text>
-          <View style={styles.headerButton} />
+          <Text className="text-status-gray text-xs font-bold tracking-[1.2px]">
+            VOICE DICTATION
+          </Text>
+          <View className="items-center h-11 justify-center w-11" />
         </View>
 
         {phase === "transcribing" ? (
-          <View style={styles.processing}>
-            <View style={styles.processingOrb}>
+          <View className="items-center flex-1 justify-center">
+            <View className="items-center bg-primary rounded-full h-21 w-21 justify-center">
               <ActivityIndicator color="#0b0b0c" size="large" />
             </View>
-            <Text style={styles.processingTitle}>Cleaning up your words</Text>
-            <Text style={styles.processingDescription}>
+            <Text className="text-text-bright text-2xl font-bold mt-6">
+              Cleaning up your words
+            </Text>
+            <Text className="text-status-gray text-sm leading-5 mt-2 max-w-xs text-center">
               Your recording is already saved on this phone. You can safely
               leave if the network drops.
             </Text>
           </View>
         ) : (
-          <View style={styles.review}>
-            <View style={styles.reviewHeader}>
+          <View className="flex-1 pb-3 pt-5.5">
+            <View className="items-center flex-row justify-between">
               <View>
-                <Text style={styles.reviewTitle}>Ready to paste</Text>
-                <Text style={styles.reviewDescription}>
+                <Text className="text-text-bright text-3xl font-bold">
+                  Ready to paste
+                </Text>
+                <Text className="text-status-gray text-xs mt-0.5">
                   Edit anything you want before copying.
                 </Text>
               </View>
               {text ? (
-                <View style={styles.copiedBadge}>
+                <View className="items-center bg-primary rounded-xl flex-row gap-1 px-2.25 py-1.5">
                   <IconCheck color="#0b0b0c" size={14} strokeWidth={2.5} />
-                  <Text style={styles.copiedText}>Copied</Text>
+                  <Text className="text-background-dark text-xs font-bold">
+                    Copied
+                  </Text>
                 </View>
               ) : null}
             </View>
 
             {message ? (
               <Text
-                style={[
-                  styles.message,
-                  (!text || needsHistoryRetry) && styles.messageError,
-                ]}
+                className={`text-primary text-xs mt-4 ${
+                  !text || needsHistoryRetry
+                    ? "bg-error-bg rounded-xl text-error-text leading-5 p-2.5"
+                    : ""
+                }`}
               >
                 {message}
               </Text>
@@ -318,14 +332,16 @@ export default function DictationCaptureScreen() {
                 placeholder="Your transcript"
                 placeholderTextColor="#52525b"
                 selectionColor="#c7f36b"
-                style={styles.editor}
+                className="bg-card-dark border border-border-dark rounded-2xl text-text-light flex-1 text-lg leading-6 mt-3.5 p-4"
                 textAlignVertical="top"
                 value={text}
               />
             ) : (
-              <View style={styles.recoveryCard}>
-                <Text style={styles.recoveryTitle}>Your audio is safe</Text>
-                <Text style={styles.recoveryDescription}>
+              <View className="items-center bg-card-dark border border-border-dark rounded-2xl mt-4.5 p-5.5">
+                <Text className="text-text-bright text-lg font-bold">
+                  Your audio is safe
+                </Text>
+                <Text className="text-status-gray text-xs leading-5 mt-1.5 text-center">
                   Retry transcription now, or return Home and upload it later.
                 </Text>
                 <Pressable
@@ -334,31 +350,35 @@ export default function DictationCaptureScreen() {
                   onPress={() => {
                     if (job && media) void transcribe(job, media);
                   }}
-                  style={styles.retryButton}
+                  className="items-center bg-primary rounded-3xl flex-row gap-2 mt-4.5 h-11 px-4.5 active:opacity-75"
                 >
                   <IconRefresh color="#0b0b0c" size={19} />
-                  <Text style={styles.retryText}>Retry</Text>
+                  <Text className="text-background-dark text-sm font-bold">
+                    Retry
+                  </Text>
                 </Pressable>
               </View>
             )}
 
             {text ? (
-              <View style={styles.actions}>
+              <View className="flex-row gap-2.5 mt-3">
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
                     void Share.share({ message: text, title: "Dictation" })
                   }
-                  style={styles.shareButton}
+                  className="items-center bg-gray-charcoal rounded-xl flex-row gap-2 justify-center h-13 px-4.5 active:opacity-75"
                 >
                   <IconShare color="#f4f4f5" size={20} />
-                  <Text style={styles.shareText}>Share</Text>
+                  <Text className="text-text-light text-base font-semibold">
+                    Share
+                  </Text>
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   disabled={saving}
                   onPress={() => void saveEdit()}
-                  style={styles.copyButton}
+                  className="items-center bg-primary rounded-xl flex-1 flex-row gap-2 justify-center h-13 active:opacity-75"
                 >
                   {saving ? (
                     <ActivityIndicator color="#0b0b0c" size="small" />
@@ -367,7 +387,7 @@ export default function DictationCaptureScreen() {
                   ) : (
                     <IconClipboard color="#0b0b0c" size={20} />
                   )}
-                  <Text style={styles.copyText}>
+                  <Text className="text-background-dark text-base font-bold">
                     {needsHistoryRetry ? "Copy & Retry" : "Copy"}
                   </Text>
                 </Pressable>
@@ -379,138 +399,3 @@ export default function DictationCaptureScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: { backgroundColor: "#0b0b0c", flex: 1 },
-  container: { flex: 1, paddingHorizontal: 20 },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingTop: 14,
-  },
-  headerButton: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  eyebrow: {
-    color: "#71717a",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-  },
-  processing: { alignItems: "center", flex: 1, justifyContent: "center" },
-  processingOrb: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 42,
-    height: 84,
-    justifyContent: "center",
-    width: 84,
-  },
-  processingTitle: {
-    color: "#fafafa",
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 24,
-  },
-  processingDescription: {
-    color: "#71717a",
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 8,
-    maxWidth: 310,
-    textAlign: "center",
-  },
-  review: { flex: 1, paddingBottom: 12, paddingTop: 22 },
-  reviewHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  reviewTitle: { color: "#fafafa", fontSize: 25, fontWeight: "700" },
-  reviewDescription: { color: "#71717a", fontSize: 13, marginTop: 3 },
-  copiedBadge: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 14,
-    flexDirection: "row",
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  copiedText: { color: "#0b0b0c", fontSize: 11, fontWeight: "700" },
-  message: { color: "#a3e635", fontSize: 12, marginTop: 16 },
-  messageError: {
-    backgroundColor: "#2b1115",
-    borderRadius: 10,
-    color: "#fda4af",
-    lineHeight: 18,
-    padding: 10,
-  },
-  editor: {
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 18,
-    borderWidth: 1,
-    color: "#f4f4f5",
-    flex: 1,
-    fontSize: 17,
-    lineHeight: 26,
-    marginTop: 14,
-    padding: 16,
-  },
-  recoveryCard: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 18,
-    borderWidth: 1,
-    marginTop: 18,
-    padding: 22,
-  },
-  recoveryTitle: { color: "#fafafa", fontSize: 17, fontWeight: "700" },
-  recoveryDescription: {
-    color: "#71717a",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6,
-    textAlign: "center",
-  },
-  retryButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 22,
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 18,
-    minHeight: 44,
-    paddingHorizontal: 18,
-  },
-  retryText: { color: "#0b0b0c", fontSize: 14, fontWeight: "700" },
-  actions: { flexDirection: "row", gap: 10, marginTop: 12 },
-  shareButton: {
-    alignItems: "center",
-    backgroundColor: "#27272a",
-    borderRadius: 14,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 52,
-    paddingHorizontal: 18,
-  },
-  shareText: { color: "#f4f4f5", fontSize: 15, fontWeight: "600" },
-  copyButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 14,
-    flex: 1,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 52,
-  },
-  copyText: { color: "#0b0b0c", fontSize: 15, fontWeight: "700" },
-});

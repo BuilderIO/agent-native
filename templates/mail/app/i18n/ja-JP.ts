@@ -441,10 +441,10 @@ const messages = {
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
   },
   settings: {
-    openAgentSettings: "エージェント設定を開く",
+    openAgentSettings: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    agentTitle: "エージェント設定",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェントを管理",
     aliasName: "エイリアス名",
     aliasNamePlaceholder: "例: デザインチーム",
     recipientsOnePerLine: "宛先（1 行に 1 件のメール）",

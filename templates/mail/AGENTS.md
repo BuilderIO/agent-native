@@ -7,6 +7,11 @@ updates mail state through actions and application state.
 Detailed draft, queue, and contact-resolution patterns live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Coverage-aware inventory reads
 
 `list-emails` remains the compatibility list action for the UI and internal

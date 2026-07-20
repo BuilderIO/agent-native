@@ -625,10 +625,10 @@ const messages = {
     pageTitle: "Unirse al equipo · Clips",
   },
   settings: {
-    openAgentSettings: "Abrir ajustes del agente",
+    openAgentSettings: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    agentTitle: "Ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",

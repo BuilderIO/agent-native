@@ -7,6 +7,11 @@ comments, folders/spaces, meetings, dictation, and sharing through actions.
 Detailed media, meeting, dictation, editing, and sharing rules live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -47,6 +52,17 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   transcript. Pass `--regenerate=true` to replace an existing ready transcript
   from the stored recording media; if regeneration fails, keep the prior ready
   transcript available.
+- Use `export-to-brain --recordingId=<id>` for one ready transcript. For a
+  bounded historical import, omit `recordingId` and pass `lookbackDays`,
+  `limit`, and `concurrency`; when `nextCursor` is non-null, pass it as
+  `cursor` on the next call until `nextCursor` is null. The cursor keeps the
+  original lookback snapshot and advances by recording creation time plus id,
+  so pages cannot reselect the same recordings or expand forever as new clips
+  arrive. The action only selects
+  current-user recordings with ready transcripts in the active organization
+  and reports exported, quarantined, skipped, and failed counts. Both
+  `BRAIN_INGEST_URL` and `BRAIN_INGEST_TOKEN` must be available as scoped Clips
+  secrets.
 - The transcript embedded by `view-screen` is a bounded preview. If
   `previewTruncated` is true, it may end mid-sentence and does not show where
   transcription ended. Call `get-recording-player-data` before judging

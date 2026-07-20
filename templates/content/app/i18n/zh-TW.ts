@@ -52,10 +52,9 @@ const messages = {
     workspaceTitle: "工作區",
     workspaceDescription: "管理協作者和共用檔案存取權限。",
     openTeamSettings: "開啟工作區存取設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",

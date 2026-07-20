@@ -1580,6 +1580,27 @@ function hasAgentNativeCoreDependency(
   return false;
 }
 
+function markedScaffoldGuidanceTemplate(
+  pkg: Record<string, unknown> | undefined,
+): "headless" | "default" | undefined {
+  const agentNative = pkg?.["agent-native"];
+  if (
+    !agentNative ||
+    typeof agentNative !== "object" ||
+    Array.isArray(agentNative)
+  ) {
+    return undefined;
+  }
+  const scaffold = (agentNative as Record<string, unknown>).scaffold;
+  if (!scaffold || typeof scaffold !== "object" || Array.isArray(scaffold)) {
+    return undefined;
+  }
+  const frameworkSkills = (scaffold as Record<string, unknown>).frameworkSkills;
+  return frameworkSkills === "headless" || frameworkSkills === "default"
+    ? frameworkSkills
+    : undefined;
+}
+
 function findWorkspaceCorePackageDir(
   workspaceRoot: string,
   workspaceCoreName: string,
@@ -1633,6 +1654,9 @@ function detectStandaloneScaffoldTemplate(
   if (!fs.existsSync(path.join(projectRoot, ".agents", "skills"))) {
     return undefined;
   }
+
+  const markedTemplate = markedScaffoldGuidanceTemplate(pkg);
+  if (markedTemplate) return markedTemplate;
 
   const hasAppDir = fs.existsSync(path.join(projectRoot, "app"));
   const hasHeadlessHello = fs.existsSync(

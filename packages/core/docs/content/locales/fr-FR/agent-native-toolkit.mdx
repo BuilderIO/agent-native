@@ -140,3 +140,9 @@ visuel propres au domaine.
 - [**Créer des templates**](/docs/creating-templates) — créez un template de bout en bout et voyez où les kits s’intègrent.
 - [**API des composants**](/docs/components) — la référence de tous les exports React publics.
 - [**Cycle de vie des paquets**](/docs/package-lifecycle) — inspectez, ajoutez et éjectez les modules de capacité Toolkit pilotés par manifest en sécurité.
+
+## Personnaliser ou éjecter un kit {#customize-or-eject}
+
+Suivez cet ordre : configurer l'API publique → composer les primitives publiques → éjecter la plus petite unité → proposer un point d'extension partagé. Explorez avec `agent-native eject --list` et `agent-native eject inspect <unit>`, puis simulez `agent-native eject <unit> --app <app>` avant d'ajouter `--apply`.
+
+Les manifestes Toolkit couvrent chaque point d'entrée public. L'app consigne la source et les réécritures d'imports dans `agent-native.ejections.json`. `agent-native eject diff <unit> --app <app>` montre la dérive ; `restore` ne fonctionne que si hachages et imports sont intacts. Les unités first-party couvrent aussi les catalogues MCP distants, connexions workspace, définitions provider API, adaptateurs de messagerie, UI de configuration/préparation et paquets de domaine. Une recette first-party manquante fait échouer le garde de publication ; les paquets tiers reçoivent un blueprint add ; les contrats Core protégés restent derrière les points d'extension publics.

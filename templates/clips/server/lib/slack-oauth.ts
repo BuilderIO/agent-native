@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import { writeAppState } from "@agent-native/core/application-state";
 import {
+  buildSlackAuthorizeUrl as buildCoreSlackAuthorizeUrl,
+  exchangeSlackOAuthCode as exchangeCoreSlackOAuthCode,
+  SLACK_AUTHORIZE_URL,
+  SLACK_TOKEN_URL,
+  type SlackOAuthAccessResponse,
+} from "@agent-native/core/integrations";
+import {
   deleteAppSecret,
   readAppSecret,
   writeAppSecret,
@@ -33,25 +40,12 @@ import type { SlackLinkSharedPayload } from "./slack-unfurls.js";
 export const CLIPS_SLACK_OAUTH_APP_ID = `${
   process.env.APP_NAME || "clips"
 }:slack`;
-export const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
-export const SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access";
+export { SLACK_AUTHORIZE_URL, SLACK_TOKEN_URL };
 export const SLACK_UNFURL_SCOPES = [
   "links:read",
   "links:write",
   "links.embed:write",
 ] as const;
-
-type SlackOAuthAccessResponse = {
-  ok?: boolean;
-  error?: string;
-  access_token?: string;
-  scope?: string;
-  bot_user_id?: string;
-  app_id?: string;
-  authed_user?: { id?: string };
-  team?: { id?: string; name?: string };
-  enterprise?: { id?: string; name?: string };
-};
 
 export type SlackInstallationListItem = {
   id: string;
@@ -87,14 +81,10 @@ export function buildSlackAuthorizeUrl(options: {
   state: string;
   scopes?: readonly string[];
 }): string {
-  const params = new URLSearchParams({
-    client_id: options.clientId,
-    redirect_uri: options.redirectUri,
-    response_type: "code",
-    scope: (options.scopes ?? SLACK_UNFURL_SCOPES).join(","),
-    state: options.state,
+  return buildCoreSlackAuthorizeUrl({
+    ...options,
+    scopes: options.scopes ?? SLACK_UNFURL_SCOPES,
   });
-  return `${SLACK_AUTHORIZE_URL}?${params.toString()}`;
 }
 
 export async function buildSlackOAuthInstallUrl(
@@ -149,32 +139,7 @@ export async function exchangeSlackOAuthCode(options: {
   redirectUri: string;
   fetchImpl?: typeof fetch;
 }): Promise<SlackOAuthAccessResponse> {
-  const {
-    code,
-    clientId,
-    clientSecret,
-    redirectUri,
-    fetchImpl = fetch,
-  } = options;
-  const res = await fetchImpl(SLACK_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: redirectUri,
-    }),
-  });
-  const data = (await res
-    .json()
-    .catch(() => null)) as SlackOAuthAccessResponse | null;
-  if (!res.ok || !data?.ok) {
-    throw new Error(
-      data?.error || `Slack OAuth exchange failed (${res.status})`,
-    );
-  }
-  return data;
+  return exchangeCoreSlackOAuthCode(options);
 }
 
 function asSecretScope(value: string): SecretScope | null {

@@ -3,8 +3,10 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useBuilderStatus } from "@agent-native/core/client/settings";
 import { useEffect } from "react";
 
+import { shouldEnableBrainProviderStatusChecks } from "@/lib/brain-chat-readiness";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE =
@@ -26,6 +28,8 @@ export function meta() {
 
 export default function AskRoute() {
   const t = useT();
+  const { status: builderStatus, stale: builderStatusStale } =
+    useBuilderStatus();
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -56,6 +60,10 @@ export default function AskRoute() {
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
         composerPlaceholder={t("ask.composerPlaceholder")}
+        providerStatusChecksEnabled={shouldEnableBrainProviderStatusChecks(
+          builderStatus?.configured === true,
+          builderStatusStale,
+        )}
         composerSlot={
           <div className="brain-chat-intro">
             <h1>{t("ask.heroTitle")}</h1>

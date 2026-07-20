@@ -1,21 +1,21 @@
 ---
-title: "工作區"
+title: "代理資源"
 description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、指令、自訂代理、計畫作業、MCP 伺服器 - 由 SQL 支援，而不是檔案系統。"
 ---
 
-# 工作區
+# 代理資源
 
 <Callout tone="info">
 
-**哪個工作區檔案？** 此頁面涵蓋 **自訂層** — 工作區*是什麼*。對於部署形狀（一個單一儲存庫，許多應用程式），請參閱 [Multi-App Workspaces](/docs/multi-app-workspace)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
+**哪個工作區檔案？** 此頁面涵蓋 **代理資源** — 代理自訂層。對於部署形狀（一個單一儲存庫，許多應用程式），請參閱 [Multi-App Workspaces](/docs/multi-app-workspace)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
 
 </Callout>
 
-每個 Agent-Native 應用程式都附帶一個**工作區**：使代理成為您的自訂層。它包含團隊指令 (`AGENTS.md`)、共用學習內容 (`LEARNINGS.md`)、個人結構化記憶 (`memory/MEMORY.md`)、代理按需拉入的 skills、自訂子代理、計畫作業和連線的 MCP 伺服器 — 您期望從 Claude 程式碼 / Codex 設定獲得的一切。
+每個 Agent-Native 應用程式都附帶**代理資源**：使代理成為您的自訂層。它包含團隊指令 (`AGENTS.md`)、共用學習內容 (`LEARNINGS.md`)、個人結構化記憶 (`memory/MEMORY.md`)、代理按需拉入的 skills、自訂子代理、計畫作業和連線的 MCP 伺服器 — 您期望從 Claude 程式碼 / Codex 設定獲得的一切。
 
-變化：**它是 SQL 行，而不是檔案系統檔案。**每個使用者都將自己的工作區儲存在資料庫中。沒有要啟動的開發盒，沒有每個使用者的容器，沒有要安裝的檔案。多租戶 SaaS 可以為每個使用者提供基本上免費的完全可自訂的代理，因為所有這些都是行——個人記憶、個人 MCP 伺服器、個人 skills、個人子代理——並且共用程式碼庫同時託管所有這些。
+變化：**它是 SQL 行，而不是檔案系統檔案。**每個使用者都將自己的一組代理資源儲存在資料庫中。沒有要啟動的開發盒，沒有每個使用者的容器，沒有要安裝的檔案。多租戶 SaaS 可以為每個使用者提供基本上免費的完全可自訂的代理，因為所有這些都是行——個人記憶、個人 MCP 伺服器、個人 skills、個人子代理——並且共用程式碼庫同時託管所有這些。
 
-<Diagram id="doc-block-13hq8ax" title={"Claude-Code 工作區，但儲存在 SQL 中"} summary={"相同的定制層——指令、技能、記憶、代理、作業、MCP——除了每個檔案都是共用多租戶資料庫中的一行。"}>
+<Diagram id="doc-block-13hq8ax" title={"Claude-Code 設定，但作為代理資源儲存在 SQL 中"} summary={"相同的定制層——指令、技能、記憶、代理、作業、MCP——除了每個檔案都是共用多租戶資料庫中的一行。"}>
 
 ```html
 <div class="ws-map">
@@ -32,7 +32,7 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
-    <span class="diagram-pill accent">Agent-Native 工作區</span
+    <span class="diagram-pill accent">Agent-Native 資源</span
     ><small class="diagram-muted">rows in one SQL 資料庫</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
@@ -77,13 +77,13 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 
 </Diagram>
 
-| Claude 程式碼/Codex           | Agent-Native 工作區                     |
+| Claude 程式碼/Codex           | Agent-Native 資源                       |
 | ----------------------------- | --------------------------------------- |
 | 本機磁盤上的檔案              | 共用 SQL 資料庫中的行                   |
 | 每個開發人員一個程式碼庫      | 一個程式碼庫，多個使用者                |
 | 需要開發盒或容器              | 在任何無伺服器/邊緣主機上執行           |
 | `~/.claude/` 定制             | 按使用者自訂，範圍為 `u:<email>:…`      |
-| 每個專案 `CLAUDE.md` / skills | 每個應用 `AGENTS.md` + 工作區記憶資源   |
+| 每個專案 `CLAUDE.md` / skills | 每個應用 `AGENTS.md` + 記憶資源         |
 | JSON 檔案中的 MCP 設定        | JSON 中的 MCP 設定*或*設定 UI，每個範圍 |
 
 相同的功能。不同的經濟。請參閱 [應用程式](/docs/cloneable-saas) 了解為什麼這對 SaaS 很重要。
@@ -96,7 +96,7 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 - **共用/組織** — 對應用程式或組織中的所有使用者可見。適合應用/團隊說明、skills 和共用設定。
 - **工作空間** — 繼承了從調度資源管理的全域預設值。適合公司事實、定位、品牌指南、全球護欄、工作區範圍的 skills 和共用 MCP 伺服器。應用程式在執行時讀取這些；它們不會複製到每個應用程式中。
 
-應用內工作區面板顯示所有三個範圍。個人和共用/組織資源可以在那裡編輯。工作區範圍的資源在應用面板中是唯讀的，並透過 Dispatch 進行集中編輯，因此每個應用都可以看到相同的規範檔案，而無需同步步驟。
+應用內資源分頁顯示所有三個範圍。個人和共用/組織資源可以在那裡編輯。工作區範圍的資源在應用面板中是唯讀的，並透過 Dispatch 進行集中編輯，因此每個應用都可以看到相同的規範檔案，而無需同步步驟。
 
 控制代理如何使用每個資源的規範路徑：
 
@@ -169,7 +169,7 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 
 在 60 秒內更改代理的行為方式。
 
-1. 開啟 **工作空間** 分頁 → **共用** → `AGENTS.md`（使用 `+` 建立它 → **檔案** 如果缺少）。
+1. 開啟 **資源** 分頁 → **共用** → `AGENTS.md`（使用 `+` 建立它 → **檔案** 如果缺少）。
 2. 新增一條規則，例如：
 
    ```降價
@@ -233,15 +233,15 @@ workspace context/brand.md
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## 工作區面板 {#workspace-panel}
+## 資源分頁 {#workspace-panel}
 
-代理面板包括一個 **工作區** 分頁以及聊天和 CLI。它顯示了所有資源的資料夾組織樹、任何文字檔案的行內編輯器（Markdown、JSON、YAML、純文字）以及 `+` 選單的型別化建立流程（檔案、Skills、代理、計畫工作）。使用者可以瀏覽繼承的工作區預設設定並建立/編輯/刪除個人或組織資源。
+代理面板包括一個 **資源** 分頁以及聊天和 CLI。它顯示了所有資源的資料夾組織樹、任何文字檔案的行內編輯器（Markdown、JSON、YAML、純文字）以及 `+` 選單的型別化建立流程（檔案、Skills、代理、計畫工作）。使用者可以瀏覽繼承的工作區預設設定並建立/編輯/刪除個人或組織資源。
 
 當您開啟資源時，編輯器會顯示帶有 `workspace default -> organization/app override -> personal override` 堆堆疊的 **有效脈絡** 條帶，以便您可以檢視繼承的內容以及覆蓋為何處於活動狀態。 Dispatch 從控制平面端顯示相同的模型：在 **Resources** 頁面上使用 **Effective in app**，或在應用程式卡的 **Context** 對話框中的資源行上展開 **Stack**。
 
 啟用 Dispatch 核准策略後，建立、更新或刪除 **所有應用** 資源會將核准請求排隊，而不是立即應用。建立/編輯/刪除對話框在儲存之前顯示影響預覽。
 
-點選工作區工具列中的 `?` 圖示可隨時跳回這些檔案。
+點選資源工具列中的 `?` 圖示可隨時跳回這些檔案。
 
 ## 代理如何使用資源 {#how-the-agent-uses-resources}
 
@@ -265,7 +265,7 @@ instructions/legal-review-policy.md
 
 ### 記憶 {#memory}
 
-工作區有兩個目前記憶表面：
+代理資源有兩個目前記憶表面：
 
 - `LEARNINGS.md` 在**共用**範圍內，用於專案範圍的約定、更正和持久的團隊知識。
 - `memory/MEMORY.md` 位於有關目前使用者的結構化記憶的**個人**範圍內。
@@ -276,31 +276,31 @@ instructions/legal-review-policy.md
 
 **適合的地方。**
 
-| 表面               | 範圍        | 作者                               | 閱讀時間                     |
-| ------------------ | ----------- | ---------------------------------- | ---------------------------- |
-| `AGENTS.md`        | 共用        | 根據要求提供人類/代理              | 每個回合                     |
-| `LEARNINGS.md`     | 共用        | 根據要求提供人類/代理              | 每回合（僅限共用副本）       |
-| `memory/MEMORY.md` | 個人        | 代理/人類                          | 每個回合                     |
-| `instructions/…`   | 共用        | 根據要求提供人類/代理              | 每個回合                     |
-| `skills/…`         | 共用        | 根據要求提供人類/代理              | 按需（`/slash` 指令）        |
-| `context/…`        | 共用        | 根據要求提供人類/代理              | 每回合都編入索引，相關時閱讀 |
-| `mcp-servers/…`    | 工作區/共用 | 人類透過 Dispatch 或應用程式工作區 | MCP 設定重新整理             |
+| 表面               | 範圍        | 作者                             | 閱讀時間                     |
+| ------------------ | ----------- | -------------------------------- | ---------------------------- |
+| `AGENTS.md`        | 共用        | 根據要求提供人類/代理            | 每個回合                     |
+| `LEARNINGS.md`     | 共用        | 根據要求提供人類/代理            | 每回合（僅限共用副本）       |
+| `memory/MEMORY.md` | 個人        | 代理/人類                        | 每個回合                     |
+| `instructions/…`   | 共用        | 根據要求提供人類/代理            | 每個回合                     |
+| `skills/…`         | 共用        | 根據要求提供人類/代理            | 按需（`/slash` 指令）        |
+| `context/…`        | 共用        | 根據要求提供人類/代理            | 每回合都編入索引，相關時閱讀 |
+| `mcp-servers/…`    | 工作區/共用 | 人類透過 Dispatch 或應用程式資源 | MCP 設定重新整理             |
 
-使用者可以直接在“工作空間”分頁中編輯這些記憶檔案 - 它們是一般資源。刪除代理出錯的行，將個人偏好保留在 `memory/MEMORY.md` 中，或將團隊範圍的規則推廣到 `AGENTS.md` 中。
+使用者可以直接在“資源”分頁中編輯這些記憶檔案 - 它們是一般資源。刪除代理出錯的行，將個人偏好保留在 `memory/MEMORY.md` 中，或將團隊範圍的規則推廣到 `AGENTS.md` 中。
 
 這些表面中的每一個 - `AGENTS.md`、skills、記憶、自訂代理、MCP 伺服器 - 都是相同的底層資源形狀：`path` + `scope` + `content`，以相同的方式尋址和解析。
 
 <DataModel
   id="doc-block-nilj9i"
-  title={"工作區資源模型"}
+  title={"代理資源模型"}
   summary={
-    "一種資源形狀支援每個工作區檔案。執行時按路徑和範圍對其進行鍵控，並解析讀取時的有效值。"
+    "一種資源形狀支援每個代理資源檔案。執行時按路徑和範圍對其進行鍵控，並解析讀取時的有效值。"
   }
   entities={[
     {
       id: "resource",
-      name: "workspace resource",
-      note: "使用者工作區中的單一檔案 - 說明、技能、記憶、代理、MCP 設定或作業。",
+      name: "agent resource",
+      note: "使用者代理資源中的單一檔案 - 說明、技能、記憶、代理、MCP 設定或作業。",
       fields: [
         {
           name: "path",
@@ -330,7 +330,7 @@ instructions/legal-review-policy.md
 
 ## Skills {#skills}
 
-Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdown 資源檔案，為代理提供按需領域知識，在與 `/skill-name` 聊天時呼叫。從“工作空間”分頁新增它們，或者在“程式碼”模式下從 `.agents/skills/` 新增它們。
+Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdown 資源檔案，為代理提供按需領域知識，在與 `/skill-name` 聊天時呼叫。從“資源”分頁新增它們，或者在“程式碼”模式下從 `.agents/skills/` 新增它們。
 
 請參閱 [Skills Guide](/docs/skills-guide) — 技能格式、範圍、發現和創作的單一來源。
 
@@ -383,7 +383,7 @@ Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 ### 遠端代理與自訂代理 {#remote-vs-custom-agents}
 
-工作區中有兩種代理型別：
+代理資源包含兩種代理型別：
 
 - **自訂代理** — `agents/*.md` 中的本機設定檔案，在目前應用/執行時內執行
 - **連線的代理** — 由 `remote-agents/*.json` 中的清單描述的遠端 A2A 對等點（仍可識別舊版 `agents/*.json` 清單）
@@ -398,13 +398,13 @@ Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 資源系統在兩種模式下的工作方式相同。不同之處在於可用於 `@` 標記和 `/` 指令的其他來源：
 
-| 功能           | 程式碼模式                                      | 應用模式                         |
-| -------------- | ----------------------------------------------- | -------------------------------- |
-| @標記          | 程式碼庫檔案 + 工作區資源 + 自訂代理 + 連線代理 | 工作區資源 + 自訂代理 + 連線代理 |
-| /斜線指令      | .agents/skills/ + 資源 skills                   | 僅資源skills                     |
-| 代理檔案存取   | 檔案系統+資源                                   | 僅限資源                         |
-| 工作區面板     | 完全存取權限                                    | 完全存取權限                     |
-| AGENTS.md/記憶 | 可用                                            | 可用                             |
+| 功能           | 程式碼模式                                    | 應用模式                       |
+| -------------- | --------------------------------------------- | ------------------------------ |
+| @標記          | 程式碼庫檔案 + 代理資源 + 自訂代理 + 連線代理 | 代理資源 + 自訂代理 + 連線代理 |
+| /斜線指令      | .agents/skills/ + 資源 skills                 | 僅資源skills                   |
+| 代理檔案存取   | 檔案系統+資源                                 | 僅限資源                       |
+| 資源分頁       | 完全存取權限                                  | 完全存取權限                   |
+| AGENTS.md/記憶 | 可用                                          | 可用                           |
 
 ## 工作區連線 {#workspace-connections}
 

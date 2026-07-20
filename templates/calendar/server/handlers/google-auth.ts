@@ -4,8 +4,9 @@ import {
   getSession,
   isElectron,
   getAppUrl,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
   resolveGoogleSignInCredentials,
-  resolveGoogleProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
@@ -68,15 +69,16 @@ function getCalendarOAuthStateOrgId(
 
 async function resolveCalendarOAuthCredentials(event: H3Event) {
   const session = await getSession(event).catch(() => null);
-  const { clientId, clientSecret } = await runWithRequestContext(
+  const [credentials] = await runWithRequestContext(
     { userEmail: session?.email, orgId: session?.orgId },
-    async () => ({
-      clientId: await resolveSecret("GOOGLE_CLIENT_ID"),
-      clientSecret: await resolveSecret("GOOGLE_CLIENT_SECRET"),
-    }),
+    () =>
+      resolveGoogleProviderCredentialCandidatesWithReader({
+        readCredential: resolveSecret,
+        fallbackReadCredential: (key) => process.env[key],
+        credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+      }),
   );
-  if (clientId && clientSecret) return { clientId, clientSecret };
-  return resolveGoogleProviderCredentials();
+  return credentials ?? null;
 }
 
 function isCalendarConnectRequest(

@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,14 +16,28 @@ import {
 } from "../code-agents/index.js";
 import {
   appendCodeAgentTranscriptEvent,
+  addCodeAgentCommandToAllowlist,
   codeAgentRunArtifactsDir,
   codeAgentRunTranscriptPath,
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
+  readCodeAgentCommandAllowlist,
+  updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
+import {
+  activateStoredMultiFrontierDriver,
+  createMultiFrontierRun,
+  listMultiFrontierParticipantEvents,
+} from "./multi-frontier-runs.js";
 
 const tmpRoots: string[] = [];
+const cliDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(cliDirectory, "../../../..");
+const concurrencyWorker = path.join(
+  cliDirectory,
+  "code-agent-runs.concurrent-worker.ts",
+);
 
 afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
@@ -361,9 +377,162 @@ describe("local code background agent controller", () => {
   });
 });
 
+describe("Code Agent run store durability", () => {
+  it("keeps the previous run record when atomic replacement fails", () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Original title",
+      cwd: "/repo",
+    });
+    const original = getCodeAgentRunRecord(run.id);
+    const rename = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+      throw new Error("rename failed");
+    });
+
+    expect(() =>
+      updateCodeAgentRunRecord(run.id, { title: "Replacement title" }),
+    ).toThrow("rename failed");
+
+    expect(getCodeAgentRunRecord(run.id)).toEqual(original);
+    expect(
+      fs
+        .readdirSync(
+          path.join(process.env.AGENT_NATIVE_CODE_AGENTS_HOME!, "runs"),
+        )
+        .filter((file) => file.includes(".tmp-")),
+    ).toEqual([]);
+    rename.mockRestore();
+  });
+
+  it("returns the original event when a stable event id is retried", () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Idempotent transcript",
+      cwd: "/repo",
+    });
+    const first = appendCodeAgentTranscriptEvent({
+      id: "participant-a-event-1",
+      runId: run.id,
+      kind: "status",
+      message: "First delivery",
+      createdAt: "2026-07-19T12:00:00.000Z",
+    });
+    const retried = appendCodeAgentTranscriptEvent({
+      id: "participant-a-event-1",
+      runId: run.id,
+      kind: "status",
+      message: "Conflicting retry payload is ignored",
+      createdAt: "2026-07-19T12:01:00.000Z",
+    });
+
+    expect(retried).toEqual(first);
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual([first]);
+  });
+  it("arbitrates concurrent processes for run updates and transcript journals", async () => {
+    const root = useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Cross-process run",
+      cwd: "/repo",
+    });
+    const frontier = createMultiFrontierRun({
+      collaborationId: "cross-process-frontier",
+      phase: "implementing",
+      participants: [
+        {
+          participantId: "codex",
+          provider: "openai",
+          runtime: "codex",
+          role: "driver",
+          permission: "workspace_write",
+          status: "running",
+        },
+      ],
+    });
+    activateStoredMultiFrontierDriver(frontier.collaborationId, "codex");
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        runConcurrencyWorker(root, "code-update", run.id, `worker-${index}`),
+      ),
+    );
+    expect(getCodeAgentRunRecord(run.id)?.metadata).toMatchObject(
+      Object.fromEntries(
+        Array.from({ length: 8 }, (_, index) => [`worker-${index}`, true]),
+      ),
+    );
+
+    await Promise.all([
+      runConcurrencyWorker(root, "code-event", run.id, "same-code-event"),
+      runConcurrencyWorker(root, "code-event", run.id, "same-code-event"),
+      runConcurrencyWorker(
+        root,
+        "multi-event",
+        frontier.collaborationId,
+        "same-frontier-event",
+      ),
+      runConcurrencyWorker(
+        root,
+        "multi-event",
+        frontier.collaborationId,
+        "same-frontier-event",
+      ),
+    ]);
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toHaveLength(1);
+    expect(
+      listMultiFrontierParticipantEvents(frontier.collaborationId),
+    ).toHaveLength(1);
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        runConcurrencyWorker(root, "allowlist", run.id, `command-${index}`),
+      ),
+    );
+    addCodeAgentCommandToAllowlist("command-0");
+    expect(readCodeAgentCommandAllowlist().sort()).toEqual(
+      Array.from({ length: 8 }, (_, index) => `command-${index}`).sort(),
+    );
+  });
+});
+
 function useTempCodeAgentsHome(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "code-agent-runs-"));
   tmpRoots.push(root);
   process.env.AGENT_NATIVE_CODE_AGENTS_HOME = root;
   return root;
+}
+
+function runConcurrencyWorker(
+  root: string,
+  operation: string,
+  runId: string,
+  value: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", concurrencyWorker, operation, runId, value],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          AGENT_NATIVE_CODE_AGENTS_HOME: root,
+        },
+        stdio: "pipe",
+      },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else
+        reject(new Error(stderr || `Concurrency worker exited with ${code}.`));
+    });
+  });
 }

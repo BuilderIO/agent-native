@@ -33,10 +33,10 @@ const enUS = {
     collapseSidebar: "Collapse sidebar",
   },
   settings: {
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
@@ -14768,10 +14768,10 @@ export const messagesByLocale = {
           collapseSidebar: "收起侧边栏",
         },
         settings: {
-          agentTitle: "代理设置",
+          agentTitle: "管理代理",
           agentDescription:
-            "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-          openAgentSettings: "打开代理设置",
+            "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+          openAgentSettings: "管理代理",
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
@@ -14844,10 +14844,10 @@ export const messagesByLocale = {
           collapseSidebar: "Contraer barra lateral",
         },
         settings: {
-          agentTitle: "Ajustes del agente",
+          agentTitle: "Gestionar agente",
           agentDescription:
-            "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-          openAgentSettings: "Abrir ajustes del agente",
+            "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+          openAgentSettings: "Gestionar agente",
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
@@ -14923,10 +14923,10 @@ export const messagesByLocale = {
           collapseSidebar: "Réduire la barre latérale",
         },
         settings: {
-          agentTitle: "Paramètres de l’agent",
+          agentTitle: "Gérer l’agent",
           agentDescription:
-            "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-          openAgentSettings: "Ouvrir les paramètres de l’agent",
+            "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+          openAgentSettings: "Gérer l’agent",
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
@@ -15002,10 +15002,10 @@ export const messagesByLocale = {
           collapseSidebar: "Seitenleiste einklappen",
         },
         settings: {
-          agentTitle: "Agent-Einstellungen",
+          agentTitle: "Agent verwalten",
           agentDescription:
-            "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-          openAgentSettings: "Agent-Einstellungen öffnen",
+            "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+          openAgentSettings: "Agent verwalten",
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
@@ -15081,10 +15081,10 @@ export const messagesByLocale = {
           collapseSidebar: "サイドバーを折りたたむ",
         },
         settings: {
-          agentTitle: "エージェント設定",
+          agentTitle: "エージェントを管理",
           agentDescription:
-            "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-          openAgentSettings: "エージェント設定を開く",
+            "エージェントのモデル、API キー、自動化、音声などを管理します。",
+          openAgentSettings: "エージェントを管理",
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
@@ -15161,10 +15161,10 @@ export const messagesByLocale = {
           collapseSidebar: "사이드바 접기",
         },
         settings: {
-          agentTitle: "에이전트 설정",
+          agentTitle: "에이전트 관리",
           agentDescription:
-            "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-          openAgentSettings: "에이전트 설정 열기",
+            "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+          openAgentSettings: "에이전트 관리",
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
@@ -15239,10 +15239,10 @@ export const messagesByLocale = {
           collapseSidebar: "Recolher barra lateral",
         },
         settings: {
-          agentTitle: "Configurações do agente",
+          agentTitle: "Gerenciar agente",
           agentDescription:
-            "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-          openAgentSettings: "Abrir configurações do agente",
+            "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+          openAgentSettings: "Gerenciar agente",
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
@@ -15318,10 +15318,10 @@ export const messagesByLocale = {
           collapseSidebar: "साइडबार समेटें",
         },
         settings: {
-          agentTitle: "एजेंट सेटिंग्स",
+          agentTitle: "एजेंट प्रबंधित करें",
           agentDescription:
-            "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-          openAgentSettings: "एजेंट सेटिंग्स खोलें",
+            "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+          openAgentSettings: "एजेंट प्रबंधित करें",
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
@@ -15397,10 +15397,10 @@ export const messagesByLocale = {
           collapseSidebar: "طي الشريط الجانبي",
         },
         settings: {
-          agentTitle: "إعدادات الوكيل",
+          agentTitle: "إدارة الوكيل",
           agentDescription:
-            "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-          openAgentSettings: "فتح إعدادات الوكيل",
+            "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+          openAgentSettings: "إدارة الوكيل",
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",

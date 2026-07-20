@@ -117,3 +117,9 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
 - [**创建模板**](/docs/creating-templates) — 端到端构建模板，并了解套件如何融入其中。
 - [**组件 API**](/docs/components) — 所有公开 React 导出的参考。
 - [**包生命周期**](/docs/package-lifecycle) — 安全地检查、添加和弹出由清单驱动的 Toolkit 能力模块。
+
+## 自定义或弹出套件 {#customize-or-eject}
+
+请按以下顺序操作：配置公共 API → 组合公共组件 → 弹出最小单元 → 提出共享扩展点。先用 `agent-native eject --list` 和 `agent-native eject inspect <unit>` 查找；添加 `--apply` 前，先预览 `agent-native eject <unit> --app <app>`。
+
+Toolkit 清单覆盖所有公共入口。应用会把来源和 import 重写记录到 `agent-native.ejections.json`。`agent-native eject diff <unit> --app <app>` 会显示偏差；只有哈希和 import 保持不变时，`restore` 才会执行。第一方单元还覆盖远程 MCP 目录、工作区连接、provider API 定义、消息适配器、设置/就绪 UI 和领域软件包。缺少第一方配方会使发布检查失败；外部软件包会收到 add 蓝图；受保护的 Core 契约仍位于公共扩展接口之后。
