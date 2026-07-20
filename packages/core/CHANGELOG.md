@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.114.2
+
+### Patch Changes
+
+- 3253e1d: Teach generated agents to discover Toolkit capabilities before composing or ejecting shared features.
+
 ## 0.114.1
 
 ### Patch Changes
