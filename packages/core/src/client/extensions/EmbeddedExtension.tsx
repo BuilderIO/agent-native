@@ -366,7 +366,8 @@ export function EmbeddedExtension({
         const detailedTrace = errorDetails
           .filter((e) => e && typeof e === "object")
           .map((e) => {
-            const msg = typeof e.message === "string" ? e.message : String(e.message);
+            const msg =
+              typeof e.message === "string" ? e.message : String(e.message);
             return typeof e.stack === "string" ? `${msg}\n${e.stack}` : msg;
           })
           .join("\n\n");
