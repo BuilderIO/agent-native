@@ -574,20 +574,24 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       // Don't poll while streaming
       if (stateRef.current.isStreaming) return;
 
-      const command = await fetchNavigateCommand();
+      // Poll and acknowledge against the active thread's app — a command
+      // written by a Dispatch/Content/etc. thread lives on that origin, not
+      // the default Chat one.
+      const origin = baseUrlRef.current;
+      const command = await fetchNavigateCommand(origin);
       if (!command) return;
 
       const dedupKey = navigateCommandDedupKey(command);
       if (lastProcessedWriteIdRef.current === dedupKey) {
-        void deleteNavigateCommand();
+        void deleteNavigateCommand(origin);
         return;
       }
       lastProcessedWriteIdRef.current = dedupKey;
-      void deleteNavigateCommand();
+      void deleteNavigateCommand(origin);
 
       const targetThreadId = extractThreadId(command);
       if (targetThreadId && targetThreadId !== threadId) {
-        openThread(targetThreadId);
+        openThread(targetThreadId, origin);
       }
     }, 2000);
 

@@ -197,6 +197,15 @@ describe("applyWireEvent", () => {
     expect(state.isStreaming).toBe(false);
     expect(state.error).toBeNull();
   });
+
+  it("settles the stream on loop_limit and auto_continue", () => {
+    for (const type of ["loop_limit", "auto_continue"] as const) {
+      const state = run([{ type: "text", text: "hi" }, { type }]);
+      expect(state.isStreaming).toBe(false);
+      expect(state.activity).toBeNull();
+      expect(state.error).toBeNull();
+    }
+  });
 });
 
 describe("extractThreadId", () => {

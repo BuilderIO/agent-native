@@ -15,6 +15,8 @@ export type WireEventType =
   | "approval_required"
   | "error"
   | "missing_api_key"
+  | "loop_limit"
+  | "auto_continue"
   | "done";
 
 export interface WireEvent {

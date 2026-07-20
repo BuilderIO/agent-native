@@ -5,7 +5,7 @@ import {
   IconChevronRight,
   IconX,
 } from "@tabler/icons-react-native";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -234,11 +234,14 @@ function ProviderKeyRow({
 export function ChatSettingsSheet({
   visible,
   settings,
+  baseUrl,
   onChange,
   onClose,
 }: {
   visible: boolean;
   settings: AgentChatSettings;
+  /** Active thread's app — models and keys are read/written against it. */
+  baseUrl?: string;
   onChange: (settings: AgentChatSettings) => void;
   onClose: () => void;
 }) {
@@ -248,14 +251,19 @@ export function ChatSettingsSheet({
     {},
   );
 
-  useEffect(() => {
-    if (!visible || catalog) return;
+  const loadCatalog = useCallback(() => {
     setCatalogLoading(true);
-    fetchModelCatalog()
+    fetchModelCatalog(baseUrl)
       .then(setCatalog)
       .catch(() => setCatalog({ groups: [] }))
       .finally(() => setCatalogLoading(false));
-  }, [visible, catalog]);
+  }, [baseUrl]);
+
+  // Reload whenever opened or the active app changes, so the catalog and
+  // configurable providers reflect the app being configured.
+  useEffect(() => {
+    if (visible) loadCatalog();
+  }, [visible, loadCatalog]);
 
   useEffect(() => {
     if (catalog) {
@@ -422,8 +430,10 @@ export function ChatSettingsSheet({
                           label={option.label}
                           placeholder={option.placeholder}
                           onSave={async (apiKey) => {
-                            await saveProviderApiKey(option.provider, apiKey);
-                            setCatalog(null);
+                            await saveProviderApiKey(option.provider, apiKey, {
+                              baseUrl,
+                            });
+                            loadCatalog();
                           }}
                         />
                       </View>

@@ -294,6 +294,7 @@ export default function ChatTab() {
       <ChatSettingsSheet
         visible={settingsOpen}
         settings={settings}
+        baseUrl={chat.baseUrl}
         onChange={setSettings}
         onClose={() => setSettingsOpen(false)}
       />

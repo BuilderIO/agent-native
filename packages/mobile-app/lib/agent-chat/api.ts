@@ -500,8 +500,10 @@ export async function fetchModelCatalog(
     // selected but never runs — "set" fails with "requires optional packages".
     // Hide it, matching the web picker's `packageInstalled !== false` filter.
     if (engine.packageInstalled === false) continue;
-    for (const key of engine.requiredEnvVars ?? []) installableEnvVars.add(key);
+    // A hidden engine is never offered in the picker, so its key can't yield a
+    // selectable model — don't let it mark a provider key configurable either.
     if (HIDDEN_ENGINES.has(name)) continue;
+    for (const key of engine.requiredEnvVars ?? []) installableEnvVars.add(key);
     const models = engine.supportedModels ?? [];
     if (models.length === 0) continue;
     const required = engine.requiredEnvVars ?? [];

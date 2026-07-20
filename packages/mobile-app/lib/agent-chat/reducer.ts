@@ -229,6 +229,10 @@ export function applyWireEvent(
       };
     }
     case "done":
+    case "loop_limit":
+    case "auto_continue":
+      // All three end the run server-side. Mobile does not auto-continue, so
+      // settle the stream rather than leaving the stop control spinning.
       return { ...state, isStreaming: false, activity: null };
     default:
       return state;
