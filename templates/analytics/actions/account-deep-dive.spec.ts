@@ -300,6 +300,8 @@ describe("account-deep-dive action", () => {
 
   it("surfaces a contextual error when the primary deal search fails", async () => {
     searchHubSpotObjects.mockRejectedValue(new Error("HubSpot 500"));
+    getDealPipelines.mockReturnValue(new Promise(() => {}));
+    getDealOwners.mockReturnValue(new Promise(() => {}));
 
     await expect(
       accountDeepDive.run({

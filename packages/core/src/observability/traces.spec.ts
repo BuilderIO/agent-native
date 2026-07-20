@@ -781,6 +781,18 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(stripeKeyTools[0]?.error_message).toBe(
       "Stripe rejected key [REDACTED]",
     );
+
+    events.length = 0;
+    await runOnce(
+      true,
+      'Provider failed: {"cookie":"session-secret","authorization":"Bearer session-token","api_key":"key-value"}',
+    );
+    const jsonCredentialTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(jsonCredentialTools[0]?.error_message).toBe(
+      'Provider failed: {"cookie":"[REDACTED]","authorization":"[REDACTED]","api_key":"[REDACTED]"}',
+    );
   });
 
   it("no-ops (emits no spans) when no provider is registered", async () => {

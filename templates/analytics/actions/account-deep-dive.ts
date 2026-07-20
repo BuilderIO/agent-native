@@ -382,27 +382,26 @@ export default defineAction({
     const trimmedQuery = args.query.trim();
     const gaps: string[] = [];
 
-    const [dealSettled, pipelinesSettled, ownersSettled] =
-      await Promise.allSettled([
-        searchHubSpotObjects({
-          objectType: "deals",
-          query: trimmedQuery,
-          properties: DEAL_DEEP_DIVE_PROPERTIES,
-          limit: args.dealLimit,
-        }),
-        getDealPipelines(),
-        getDealOwners(),
-      ]);
-
-    if (dealSettled.status === "rejected") {
-      const err = dealSettled.reason;
+    const enrichmentLookups = Promise.allSettled([
+      getDealPipelines(),
+      getDealOwners(),
+    ]);
+    let dealResult;
+    try {
+      dealResult = await searchHubSpotObjects({
+        objectType: "deals",
+        query: trimmedQuery,
+        properties: DEAL_DEEP_DIVE_PROPERTIES,
+        limit: args.dealLimit,
+      });
+    } catch (err) {
       throw new Error(
         `HubSpot deal search failed for "${trimmedQuery}": ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
     }
-    const dealResult = dealSettled.value;
+    const [pipelinesSettled, ownersSettled] = await enrichmentLookups;
 
     let pipelines: Pipeline[] = [];
     if (pipelinesSettled.status === "fulfilled") {

@@ -49,19 +49,17 @@ function truncateToolErrorMessage(value: string): string {
 function redactToolErrorMessage(value: string): string {
   const credentialName =
     "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
+  const labeledCredential = `(["']?\\b(?:${credentialName})\\b["']?\\s*[:=]\\s*["']?)`;
   return value
     .replace(
       new RegExp(
-        `(\\b(?:${credentialName})\\b\\s*[:=]\\s*)(?:Bearer|Basic)\\s+[^\\s,;)}\\]]+`,
+        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
         "gi",
       ),
       "$1[REDACTED]",
     )
     .replace(
-      new RegExp(
-        `(\\b(?:${credentialName})\\b\\s*[:=]\\s*["']?)[^"'\\s,;)}\\[\\]]+`,
-        "gi",
-      ),
+      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
       "$1[REDACTED]",
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
