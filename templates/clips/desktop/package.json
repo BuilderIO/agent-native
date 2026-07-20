@@ -10,6 +10,7 @@
     "dev": "pnpm run check:prereqs && pnpm run kill:installed && tauri dev",
     "build": "vite build",
     "build:tauri": "CLIPS_DESKTOP_LOCAL_BUILD=1 pnpm run check:prereqs && CLIPS_DESKTOP_LOCAL_BUILD=1 tauri build --config '{\"bundle\":{\"createUpdaterArtifacts\":false},\"plugins\":{\"updater\":{\"active\":false}}}' && node ./scripts/sign-macos-local.ts",
+    "build:alpha": "CLIPS_DESKTOP_LOCAL_BUILD=1 RUSTUP_TOOLCHAIN=1.88.0 pnpm run check:prereqs && CLIPS_DESKTOP_LOCAL_BUILD=1 RUSTUP_TOOLCHAIN=1.88.0 tauri build --debug --config src-tauri/tauri.alpha.conf.json && CLIPS_MACOS_APP_NAME='Clips Alpha' CLIPS_MACOS_BUILD_PROFILE=debug CLIPS_MACOS_BUNDLE_ID='com.clips.tray.alpha' node ./scripts/sign-macos-local.ts",
     "tauri": "tauri",
     "vite:dev": "vite",
     "vite:build": "vite build",

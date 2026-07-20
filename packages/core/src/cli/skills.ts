@@ -33,6 +33,10 @@ import {
   installLocalContextXray,
 } from "./context-xray-local.js";
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
+import {
+  installScreenMemoryForClient,
+  resolveScreenMemoryStoreDir,
+} from "./mcp.js";
 import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
@@ -46,6 +50,7 @@ import {
   EXEMPLAR_REFERENCE_MD,
   HELP,
   LOCAL_FILES_REFERENCE_MD,
+  REWIND_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
@@ -160,6 +165,40 @@ export const BUILT_IN_APP_SKILLS = {
       ],
     }),
     skillMarkdown: CONTENT_SKILL_MD,
+  },
+  rewind: {
+    skillName: "rewind",
+    screenMemoryMcp: true,
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "rewind",
+      displayName: "Rewind",
+      description:
+        "Retrieve recent local Clips screen memory, chapters, transcripts, and exact frames through a privacy-preserving agent workflow.",
+      hosted: {
+        url: "https://clips.agent-native.com",
+        mcpUrl: "https://clips.agent-native.com/mcp",
+      },
+      mcp: { serverName: "clips-screen-memory" },
+      auth: { mode: "none" },
+      surfaces: [
+        {
+          id: "rewind-memory",
+          path: "/",
+          description:
+            "Search and inspect the user's local Clips Rewind memory through a bounded local MCP broker.",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/rewind",
+          visibility: "exported",
+          exportAs: "rewind",
+        },
+      ],
+      hostAdapters: ["plain-skill", "claude-skill", "generic-mcp"],
+    }),
+    skillMarkdown: REWIND_SKILL_MD,
   },
   design: {
     skillName: "design-exploration",
@@ -356,6 +395,7 @@ export const BUILT_IN_APP_SKILLS = {
      */
     extraFiles?: Record<string, Record<string, string>>;
     localOnly?: boolean;
+    screenMemoryMcp?: boolean;
   }
 >;
 
@@ -379,6 +419,10 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "local-content": "content",
   "content-local-files": "content",
   "agent-native-content": "content",
+  rewind: "rewind",
+  "screen-memory": "rewind",
+  "clips-rewind": "rewind",
+  "agent-native-rewind": "rewind",
   design: "design",
   "ui-design": "design",
   "ux-design": "design",
@@ -421,6 +465,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "content-local-files",
     "agent-native-content",
   ],
+  rewind: ["screen-memory", "clips-rewind", "agent-native-rewind"],
   design: [
     "design-exploration",
     "visual-edit",
@@ -811,6 +856,12 @@ function isLocalOnlyBuiltInSkill(
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
 }
 
+function isScreenMemoryMcpBuiltInSkill(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
+): boolean {
+  return Boolean(entry && "screenMemoryMcp" in entry && entry.screenMemoryMcp);
+}
+
 function targetSupportsInstallMode(
   targetId: string | undefined,
 ): targetId is ModeAwareAppSkillId {
@@ -1019,6 +1070,7 @@ function skillFilesForBuiltIn(
       skillName,
       mcpUrl:
         isLocalOnlyBuiltInSkill(entry) ||
+        isScreenMemoryMcpBuiltInSkill(entry) ||
         localFilesModeSkipsMcp(appSkillId, options.planMode)
           ? ""
           : (options.mcpUrl ?? entry.manifest.hosted.mcpUrl),
@@ -1238,9 +1290,10 @@ function builtInSkillsRootForAgent(
 ): string {
   const home = homeDir() ?? baseDir;
   if (scope === "project") {
-    if (agent === "codex") return path.join(baseDir, ".agents", "skills");
-    if (agent === "pi") return path.join(baseDir, ".agents", "skills");
-    return path.join(baseDir, ".claude", "skills");
+    if (agent === "claude-code" || agent === "claude-code-cli") {
+      return path.join(baseDir, ".claude", "skills");
+    }
+    return path.join(baseDir, ".agents", "skills");
   }
   if (agent === "codex") {
     return process.env.CODEX_HOME
@@ -1248,6 +1301,13 @@ function builtInSkillsRootForAgent(
       : path.join(home, ".codex", "skills");
   }
   if (agent === "pi") {
+    return path.join(home, ".agents", "skills");
+  }
+  if (
+    agent === "cursor" ||
+    agent === "opencode" ||
+    agent === "github-copilot"
+  ) {
     return path.join(home, ".agents", "skills");
   }
   return path.join(home, ".claude", "skills");
@@ -2127,6 +2187,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "content",
     label: "content",
     hint: BUILT_IN_APP_SKILLS.content.manifest.description,
+  },
+  {
+    value: "rewind",
+    label: "rewind",
+    hint: BUILT_IN_APP_SKILLS.rewind.manifest.description,
   },
   {
     value: "design-exploration",
@@ -3309,7 +3374,13 @@ export async function addAgentNativeSkill(
     );
   }
   const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
+  const installsScreenMemoryMcp = isScreenMemoryMcpBuiltInSkill(knownBuiltIn);
   const baseDir = options.baseDir ?? process.cwd();
+  if (installsScreenMemoryMcp && parsed.mcpUrl) {
+    throw new Error(
+      "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",
+    );
+  }
   if (isLocalOnlyBuiltInSkill(knownBuiltIn)) {
     if (parsed.planMode) {
       throw new Error(
@@ -3415,7 +3486,9 @@ export async function addAgentNativeSkill(
     );
   }
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
-  const skillsAgents = skillsAgentsForClients(clients);
+  const skillsAgents = installsScreenMemoryMcp
+    ? clients
+    : skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
       const localManifestPath = shouldWriteContentLocalFilesManifest(
@@ -3443,9 +3516,11 @@ export async function addAgentNativeSkill(
         displayName: installTarget.displayName,
         skillNames: installTarget.skillNames,
         skillsAgents,
-        mcpUrl: localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+        mcpUrl: installsScreenMemoryMcp
           ? ""
-          : installTarget.loaded.manifest.hosted.mcpUrl,
+          : localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+            ? ""
+            : installTarget.loaded.manifest.hosted.mcpUrl,
         mcpClients: shouldRegisterMcp ? mcpClients : [],
         dryRun: true,
         commands: [
@@ -3545,7 +3620,29 @@ export async function addAgentNativeSkill(
       dryRun: Boolean(parsed.dryRun),
     });
 
-    if (shouldRegisterMcp) {
+    if (shouldRegisterMcp && installsScreenMemoryMcp) {
+      const screenMemoryDir = resolveScreenMemoryStoreDir();
+      if (!screenMemoryDir) {
+        throw new Error(
+          "No local Clips Screen Memory store was found. Turn Rewind on in Clips, then run the setup again.",
+        );
+      }
+      registeredMcpClients = mcpClients.map((client) => {
+        commands.push(
+          `npx @agent-native/core@latest mcp install-screen-memory --client ${client} --scope ${parsed.scope}`,
+        );
+        installScreenMemoryForClient(
+          client,
+          screenMemoryDir,
+          baseDir,
+          parsed.scope,
+        );
+        return client;
+      });
+      options.telemetry?.track("skills_cli mcp registered", {
+        skills: installTarget.skillNames.join(","),
+      });
+    } else if (shouldRegisterMcp) {
       commands.push(
         `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
       );
@@ -3655,9 +3752,11 @@ export async function addAgentNativeSkill(
       instructionSource,
       skillNames: installTarget.skillNames,
       skillsAgents,
-      mcpUrl: localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+      mcpUrl: installsScreenMemoryMcp
         ? ""
-        : installTarget.loaded.manifest.hosted.mcpUrl,
+        : localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+          ? ""
+          : installTarget.loaded.manifest.hosted.mcpUrl,
       mcpClients: registeredMcpClients,
       dryRun: parsed.dryRun,
       commands,
@@ -3689,10 +3788,13 @@ function listSkills(options: RunSkillsOptions = {}) {
           ] ?? [],
         name: entry.manifest.displayName,
         description: entry.manifest.description,
-        mcpUrl: isLocalOnlyBuiltInSkill(entry)
-          ? ""
-          : entry.manifest.hosted.mcpUrl,
-        local: isLocalOnlyBuiltInSkill(entry),
+        mcpUrl:
+          isLocalOnlyBuiltInSkill(entry) || isScreenMemoryMcpBuiltInSkill(entry)
+            ? ""
+            : entry.manifest.hosted.mcpUrl,
+        local:
+          isLocalOnlyBuiltInSkill(entry) ||
+          isScreenMemoryMcpBuiltInSkill(entry),
         source: "agent-native",
       })),
     ...publicSkillEntries(options).map((entry) => ({

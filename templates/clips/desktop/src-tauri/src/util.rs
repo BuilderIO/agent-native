@@ -15,10 +15,10 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 //
 // Clips-owned recording chrome (toolbar / countdown / finalizing /
 // recording-pill) gets `NSWindow.sharingType = NSWindowSharingNone` so it does
-// not leak into the recorded video. The main popover is different: users expect
-// to screenshot it for feedback, so it stays shareable during normal idle /
-// settings use and is flipped to NSWindowSharingNone only while it is parked as
-// the hidden recording controller.
+// not leak into the recorded video. The main popover follows the same user
+// preference: private by default, shareable only when "Show Clips in screen
+// captures" is enabled. Reopening it during a recording must not silently
+// override that choice.
 // Recording-time exclusion has two effects on macOS: screen pickers don't list
 // excluded windows, and full-screen captures omit them from the compositor
 // output. This is the same mechanism Loom, 1Password, and CleanShot use to keep
@@ -183,12 +183,9 @@ pub fn set_capture_included(_window: &WebviewWindow) {
 /// immediately on anything currently on screen. Called from
 /// `set_feature_config` when the toggle flips.
 ///
-/// The popover is intentionally skipped — its sharing-type is dynamic
-/// (`set_capture_included` while shown, `set_capture_excluded` while
-/// parked at 2x2 px during recording). Both of those helpers now consult
-/// the toggle, so the next `show_popover` / `park_popover_offscreen` call
-/// picks up the new setting. Rewriting it here would clobber the parked
-/// state mid-recording.
+/// The popover follows the same preference as ordinary Clips chrome. Applying
+/// it here makes the toggle take effect immediately whether the popover is
+/// visible or parked as the 2x2 recording controller.
 ///
 /// Region-guide overlays are private recorder aids, not Clips chrome demos, so
 /// they stay excluded even when the debug toggle makes the rest visible.
@@ -198,9 +195,6 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
         let visible = crate::config::show_in_screen_capture(app);
         let windows = app.webview_windows();
         for (label, window) in &windows {
-            if label.as_str() == "popover" {
-                continue;
-            }
             // The meeting reminder is a notification, not Clips recording
             // chrome — keep it visible in captures regardless of the debug
             // toggle so it never gets re-excluded on a config change.

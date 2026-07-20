@@ -1,7 +1,8 @@
 /**
- * Hosted native start sequencing: overlap Whisper start, create-recording, and
- * deferred SCK warm so Skip no longer waits serially on Whisper then warm.
- * Begin/attach must still wait for this promise (transcription settled).
+ * Hosted native start sequencing: create the recording, warm its one physical
+ * SCK capture (which registers the shared audio producer), then attach Whisper
+ * as a PCM subscriber. The countdown still hides this work, while the ordering
+ * prevents a second microphone capture from muting both consumers.
  */
 export function planNativeFullscreenWarmOverlap<
   TRecording extends { id: string },
@@ -10,12 +11,10 @@ export function planNativeFullscreenWarmOverlap<
   startTranscription: () => Promise<unknown>;
   warmMic: (recordingId: string) => Promise<unknown>;
 }): Promise<TRecording> {
-  const transcriptionPromise = input.startTranscription();
   return (async () => {
     const created = await input.createRecording();
-    // Deferred-output warm may overlap remaining Whisper startup; frames are
-    // not written until begin attaches the recording output.
-    await Promise.all([transcriptionPromise, input.warmMic(created.id)]);
+    await input.warmMic(created.id);
+    await input.startTranscription();
     return created;
   })();
 }

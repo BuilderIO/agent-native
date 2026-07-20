@@ -119,7 +119,8 @@ pub async fn audio_transcription_start(
     owner: Option<String>,
 ) -> Result<(), String> {
     let _ = meeting_id;
-    crate::whisper_speech::whisper_transcription_start(
+    crate::logfile::diagnostic("[meeting-audio] transcription engine start requested");
+    let result = crate::whisper_speech::whisper_transcription_start(
         app,
         locale,
         mic_device_id,
@@ -134,7 +135,16 @@ pub async fn audio_transcription_start(
         emit_partials.unwrap_or(true),
         owner,
     )
-    .await
+    .await;
+    if let Err(error) = &result {
+        crate::logfile::diagnostic(&format!(
+            "[meeting-audio] transcription engine start failed: {error}"
+        ));
+        eprintln!("[clips-tray] meeting transcription engine start failed: {error}");
+    } else {
+        crate::logfile::diagnostic("[meeting-audio] transcription engine started");
+    }
+    result
 }
 
 #[tauri::command]
@@ -221,7 +231,7 @@ pub(crate) mod macos {
     /// open System Settings manually).
     pub fn open_screen_recording_settings() -> Result<(), String> {
         use std::process::Command;
-        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+        let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture";
         Command::new("open")
             .arg(url)
             .status()

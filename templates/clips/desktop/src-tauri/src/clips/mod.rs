@@ -1,3 +1,4 @@
+use serde::Serialize;
 #[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
@@ -40,6 +41,7 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 // countdown overlay so only the button zones are interactive.
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
@@ -50,6 +52,7 @@ const OVERLAY_LABELS: &[&str] = &[
     COUNTDOWN_LABEL,
     TOOLBAR_LABEL,
     BUBBLE_LABEL,
+    PREPARING_LABEL,
     FINALIZING_LABEL,
     FLOW_BAR_LABEL,
     REGION_GUIDES_LABEL,
@@ -355,12 +358,11 @@ fn load_bubble_position(app: &AppHandle) -> Option<(i32, i32)> {
 /// cursor events so the user can still click into whatever they're about to
 /// record, and closes itself when the countdown finishes.
 #[tauri::command]
-pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
+pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
     dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         stop_countdown_control_tracking();
-        let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
@@ -379,11 +381,10 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .shadow(false)
         .visible(false)
-        // Don't steal focus from the popover when the overlay opens —
-        // otherwise macOS fires Focused(false) on the popover, which
-        // kicks off a cascade of blur-related React re-renders and
-        // eventually (past the 1500ms guard) auto-hides the popover.
-        .focused(false)
+        // The countdown is intentionally modal for three seconds so its
+        // advertised Return/Escape controls work without system-wide key
+        // monitoring. The recorder has already parked the popover.
+        .focused(true)
         .build()
         .map_err(|e| {
             eprintln!("[clips-tray] countdown build failed: {}", e);
@@ -394,11 +395,26 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
-    let _ = win.show();
-    let _ = app.emit("clips:countdown-shortcuts-active", true);
+    let generation = match crate::shortcuts::prepare_countdown_shortcuts(app.clone()).await {
+        Ok(generation) => generation,
+        Err(error) => {
+            let _ = win.close();
+            return Err(error);
+        }
+    };
+    // This is a short, explicit modal moment. Making the overlay the actual
+    // key window lets its ordinary DOM handler receive Return/Escape without
+    // broad, system-wide Input Monitoring. Closing it restores the user's
+    // prior application before capture begins.
+    present_interactive_window(&win);
     start_countdown_control_tracking(&app);
     dlog!("[clips-tray] countdown shown");
-    Ok(())
+    Ok(generation)
+}
+
+#[tauri::command]
+pub async fn finish_countdown_shortcuts(app: AppHandle, generation: u64) -> Result<(), String> {
+    crate::shortcuts::finish_countdown_shortcuts(app, generation).await
 }
 
 /// True when the global cursor sits inside either circular cancel/skip button
@@ -456,6 +472,65 @@ fn start_countdown_control_tracking(app: &AppHandle) {
 
 fn stop_countdown_control_tracking() {
     COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
+}
+
+/// Compact visible readiness state for the slow work that intentionally runs
+/// before the numeric countdown. This capture-excluded card briefly takes
+/// focus as the first stage of the explicit modal start flow, so the user sees
+/// that Start was accepted without changing the exact countdown-zero boundary.
+#[tauri::command]
+pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(PREPARING_LABEL) {
+        let _ = existing.close();
+    }
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
+    let content_w: u32 = (260.0 * scale).round() as u32;
+    let content_h: u32 = (58.0 * scale).round() as u32;
+    let margin: i32 = (14.0 * scale).round() as i32;
+    let gutter = overlay_shadow_gutter_physical(&app);
+    let w = content_w + gutter * 2;
+    let h = content_h + gutter * 2;
+    let x = (mx + (mw.saturating_sub(w) / 2) as i32).max(mx);
+    let y = (my + mh as i32 - h as i32 - margin).max(my);
+    let win = WebviewWindowBuilder::new(&app, PREPARING_LABEL, build_overlay_url("preparing"))
+        .title("Preparing recording")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .focused(true)
+        .build()
+        .map_err(|error| format!("preparing window build failed: {error}"))?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
+    // Preparation and countdown are one explicit modal start flow. Making the
+    // compact readiness card key ensures it gets a real first paint and is
+    // announced before the full-screen countdown replaces it.
+    present_interactive_window(&win);
+    let _ = app.emit("clips:toolbar-preparing", true);
+    // A newly-created webview needs one paint before the async preparation can
+    // race ahead and replace it with the countdown. Without this brief yield,
+    // fast machines can show only a disabled toolbar and never render the
+    // promised textual readiness state.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    dlog!("[clips-tray] preparing recording shown");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_preparing(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:toolbar-preparing", false);
+    if let Some(window) = app.get_webview_window(PREPARING_LABEL) {
+        let _ = window.close();
+    }
+    Ok(())
 }
 
 /// Compact bottom-left status window shown while the recorder flushes its
@@ -988,7 +1063,6 @@ pub async fn hide_overlays(
     preserve_finalizing: Option<bool>,
 ) -> Result<(), String> {
     stop_countdown_control_tracking();
-    let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in overlay_labels_to_hide(preserve_finalizing.unwrap_or(false)) {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -1011,7 +1085,6 @@ pub async fn hide_overlays(
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
     stop_countdown_control_tracking();
-    let _ = app.emit("clips:countdown-shortcuts-active", false);
     // The countdown + toolbar always tear down on recording stop. The region
     // guides only tear down when they aren't pinned on-screen via the always-on
     // toggle — otherwise we'd flicker close→reopen right after stop.
@@ -1128,21 +1201,21 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let url = match pane.as_str() {
-            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "camera" => "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Camera",
             "microphone" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone"
             }
             "screen" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"
             }
             "speech" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_SpeechRecognition"
             }
             "accessibility" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
             }
             "input-monitoring" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ListenEvent"
             }
             _ => return Err(format!("Unknown macOS privacy pane: {pane}")),
         };
@@ -1151,6 +1224,157 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
             .status()
             .map_err(|e| format!("failed to open System Settings: {e}"))?;
         Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewindExcludedApplication {
+    bundle_id: String,
+    name: String,
+    path: Option<String>,
+    installed: bool,
+}
+
+#[cfg(target_os = "macos")]
+fn app_bundle_id(path: &str) -> Option<String> {
+    let output = Command::new("/usr/bin/mdls")
+        .args(["-name", "kMDItemCFBundleIdentifier", "-raw", path])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let bundle_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!bundle_id.is_empty() && bundle_id != "(null)").then_some(bundle_id)
+}
+
+#[cfg(target_os = "macos")]
+fn app_name_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Application")
+        .to_string()
+}
+
+fn fallback_app_name(bundle_id: &str) -> String {
+    match bundle_id {
+        "com.1password.1password" | "com.agilebits.onepassword7" => "1Password".to_string(),
+        "com.bitwarden.desktop" => "Bitwarden".to_string(),
+        "com.dashlane.dashlane" => "Dashlane".to_string(),
+        "com.lastpass.lastpass" => "LastPass".to_string(),
+        _ => bundle_id
+            .rsplit('.')
+            .next()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("Application")
+            .to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn find_installed_app(bundle_id: &str) -> Option<String> {
+    let query = format!("kMDItemCFBundleIdentifier == '{bundle_id}'");
+    let output = Command::new("/usr/bin/mdfind").arg(query).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find(|path| path.ends_with(".app"))
+        .map(str::to_string)
+}
+
+#[tauri::command]
+pub fn resolve_rewind_excluded_apps(
+    bundle_ids: Vec<String>,
+) -> Result<Vec<RewindExcludedApplication>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(bundle_ids
+            .into_iter()
+            .map(|bundle_id| {
+                let path = find_installed_app(&bundle_id);
+                let name = path
+                    .as_deref()
+                    .map(app_name_from_path)
+                    .unwrap_or_else(|| fallback_app_name(&bundle_id));
+                RewindExcludedApplication {
+                    bundle_id,
+                    name,
+                    installed: path.is_some(),
+                    path,
+                }
+            })
+            .collect());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(bundle_ids
+            .into_iter()
+            .map(|bundle_id| RewindExcludedApplication {
+                name: fallback_app_name(&bundle_id),
+                bundle_id,
+                path: None,
+                installed: false,
+            })
+            .collect())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn choose_rewind_excluded_apps_blocking() -> Result<Vec<RewindExcludedApplication>, String> {
+    let script = r#"
+set chosenApps to choose application with prompt "Choose apps Rewind should never remember" with multiple selections allowed
+set chosenPaths to {}
+repeat with chosenApp in chosenApps
+    set end of chosenPaths to POSIX path of (chosenApp as alias)
+end repeat
+set AppleScript's text item delimiters to linefeed
+return chosenPaths as text
+"#;
+    let output = Command::new("/usr/bin/osascript")
+        .args(["-e", script])
+        .output()
+        .map_err(|error| format!("Could not open the application picker: {error}"))?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        if error.contains("-128") || error.to_ascii_lowercase().contains("canceled") {
+            return Ok(Vec::new());
+        }
+        return Err(format!("Could not choose applications: {}", error.trim()));
+    }
+    let mut apps = Vec::new();
+    for path in String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        let Some(bundle_id) = app_bundle_id(path) else {
+            continue;
+        };
+        apps.push(RewindExcludedApplication {
+            bundle_id,
+            name: app_name_from_path(path),
+            path: Some(path.to_string()),
+            installed: true,
+        });
+    }
+    Ok(apps)
+}
+
+#[tauri::command]
+pub async fn choose_rewind_excluded_apps() -> Result<Vec<RewindExcludedApplication>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return tauri::async_runtime::spawn_blocking(choose_rewind_excluded_apps_blocking)
+            .await
+            .map_err(|error| format!("The application picker stopped unexpectedly: {error}"))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Choosing excluded applications is currently available on macOS only.".to_string())
     }
 }
 
@@ -1902,9 +2126,9 @@ fn type_text_unicode(text: &str, target_bundle_id: Option<String>) {
 #[cfg(not(target_os = "macos"))]
 fn type_text_unicode(_text: &str) {}
 
-/// Record the popover's current recording state. When active, clicking the
-/// tray icon emits a stop event instead of toggling the popover — so the
-/// user can stop a recording from anywhere with one click.
+/// Record the popover's current recording state. While active, ordinary app
+/// and tray opens restore the parked popover; stopping remains an explicit
+/// action in the popover, toolbar, or tray menu.
 #[tauri::command]
 pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
     dlog!("[clips-tray] set_recording_state active={}", active);
@@ -2254,7 +2478,10 @@ fn is_pinhole_popover(window: &WebviewWindow) -> bool {
 
 fn present_popover(app: &AppHandle, window: &WebviewWindow) {
     clear_voice_wake_state(app);
-    set_capture_included(window);
+    // Reopening Clips must not silently override the user's capture-visibility
+    // preference. `set_capture_excluded` keeps the window private by default
+    // and includes it only when "Show Clips in screen captures" is enabled.
+    set_capture_excluded(window);
     // Re-apply Space behavior — `orderOut:` resets it, so without this the
     // popover sticks to whichever Space it was first shown on.
     configure_overlay_behavior(window);
