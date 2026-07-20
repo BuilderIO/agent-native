@@ -110,6 +110,13 @@ ladder.
 - Use `list-recordings --view=shared` for the current user's "Shared with me"
   collection. It returns recordings admitted by sharing access that are owned
   by someone else; public-link-only clips remain out of this list.
+- Public recordings are unlisted-by-link for agent purposes: an agent may
+  discover only recordings the current user owns or has already viewed. Do not
+  use `list-recordings` or `search-recordings` to discover another user's
+  public clips, answer a time/date question about the clip already in context,
+  or recover from a failed direct lookup. If the user supplies another clip's
+  share URL or id, use that explicit reference; otherwise stop and report the
+  lookup failure.
 - Public recordings expose AI-readable URLs for external agents:
   `/api/agent-context.json?id=<recordingId>` for metadata, transcript, and frame
   API discovery; `/api/agent-transcript.json?id=<recordingId>` for transcript

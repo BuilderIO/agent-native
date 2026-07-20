@@ -46,6 +46,7 @@ import {
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
+import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
 
 function safeJsonObject(raw: string | null | undefined) {
   if (!raw) return {};
@@ -91,7 +92,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -106,7 +107,7 @@ export default defineAction({
     }),
   },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {
       throw new ForbiddenError(`No access to recording ${args.recordingId}`);
@@ -289,6 +290,13 @@ export default defineAction({
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    const agentTranscript =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a"
+        ? boundTranscriptForAgent({
+            fullText: transcript?.fullText,
+            segments: transcriptSegments,
+          })
+        : null;
 
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
@@ -362,11 +370,19 @@ export default defineAction({
               ? "failed"
               : transcriptPresentation.status,
             language: transcript.language,
-            fullText: transcript.fullText,
+            fullText: agentTranscript?.fullText ?? transcript.fullText,
+            ...(agentTranscript
+              ? {
+                  fullTextLength: agentTranscript.fullTextLength,
+                  segmentCount: agentTranscript.segmentCount,
+                  previewTruncated: agentTranscript.previewTruncated,
+                  note: agentTranscript.note,
+                }
+              : {}),
             failureReason: transcriptReadyButEmpty
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
-            segments: transcriptSegments,
+            segments: agentTranscript?.segments ?? transcriptSegments,
             cleanup: cleanupState
               ? {
                   status:
