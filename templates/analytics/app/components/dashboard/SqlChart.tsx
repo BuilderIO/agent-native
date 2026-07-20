@@ -898,6 +898,7 @@ export function ChartTooltip({
   active,
   payload,
   label,
+  coordinate,
   labelFormatter,
   seriesNameFormatter,
   valueFormatter,
@@ -910,6 +911,7 @@ export function ChartTooltip({
     value?: unknown;
   }>;
   label?: unknown;
+  coordinate?: { x?: number; y?: number };
   labelFormatter?: (value: string) => string;
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
@@ -923,7 +925,10 @@ export function ChartTooltip({
     [payload],
   );
   const isVisible = Boolean(active) && items.length > 0;
-  const { anchorRef, boxRef } = useChartTooltipPortalPosition(isVisible);
+  const { anchorRef, boxRef } = useChartTooltipPortalPosition(
+    isVisible,
+    coordinate,
+  );
 
   const labelText =
     label == null

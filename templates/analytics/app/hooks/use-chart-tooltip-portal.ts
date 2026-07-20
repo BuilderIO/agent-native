@@ -1,70 +1,60 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
-const VIEWPORT_GUTTER_PADDING = 12;
+const CHART_EDGE_PADDING = 8;
+const CURSOR_OFFSET = 14;
+
+type TooltipCoordinate = { x?: number; y?: number } | undefined;
 
 /**
  * Ancestors of a dashboard chart (the scrollable app shell, the dashboard
  * grid's inline-size container) clip any content that overflows their box,
- * including a Recharts tooltip positioned near a chart's edge or corner —
- * raising its z-index does not help because clipping is independent of
- * stacking order. Read the Recharts wrapper's live (transform-based) screen
- * position off an invisible marker rendered in its place, then let the
- * caller render the real tooltip through a portal to `document.body` at
- * that position, clamped to the viewport, so it always escapes overflow
- * ancestors entirely instead of being clipped at a container edge.
+ * so the tooltip content is rendered through a portal to `document.body`.
+ * Recharts positions its own tooltip wrapper by measuring that wrapper's
+ * child content size — with the real content portaled away the wrapper has
+ * no size to measure and never gets a transform, so we can't read a live
+ * position off it. Instead, position the portaled box ourselves from the
+ * `coordinate` Recharts already passes to custom tooltip content (the exact
+ * pixel the cursor is over, relative to the chart) plus the chart's own
+ * `.recharts-wrapper` rect, and clamp against that same rect so the tooltip
+ * tracks the cursor but never crosses the chart's own edges.
  */
-export function useChartTooltipPortalPosition(active: boolean) {
+export function useChartTooltipPortalPosition(
+  isVisible: boolean,
+  coordinate: TooltipCoordinate,
+) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (!active) return;
+  useLayoutEffect(() => {
+    if (!isVisible) return;
     const anchor = anchorRef.current;
-    const wrapper = anchor?.parentElement;
-    if (!anchor || !wrapper) return;
+    const box = boxRef.current;
+    if (!anchor || !box) return;
+    const chartEl = anchor.closest(".recharts-wrapper");
+    if (!chartEl) return;
 
-    const apply = () => {
-      const box = boxRef.current;
-      if (!box) return;
-      const anchorRect = anchor.getBoundingClientRect();
+    const chartRect = chartEl.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
 
-      box.style.left = `${anchorRect.left}px`;
-      box.style.top = `${anchorRect.top}px`;
+    const pointX = chartRect.left + (coordinate?.x ?? 0);
+    const pointY = chartRect.top + (coordinate?.y ?? 0);
 
-      const rect = box.getBoundingClientRect();
-      if (rect.width === 0) return;
+    const minLeft = chartRect.left + CHART_EDGE_PADDING;
+    const maxLeft = chartRect.right - CHART_EDGE_PADDING - boxRect.width;
+    let left = pointX + CURSOR_OFFSET;
+    if (left > maxLeft) left = pointX - CURSOR_OFFSET - boxRect.width;
+    left = Math.min(Math.max(left, minLeft), Math.max(minLeft, maxLeft));
 
-      const sidebar = document.querySelector(".agent-sidebar-panel");
-      const sidebarRect = sidebar?.getBoundingClientRect();
-      const rightEdge =
-        sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
-          ? sidebarRect.left
-          : window.innerWidth;
+    const minTop = chartRect.top + CHART_EDGE_PADDING;
+    const maxTop = chartRect.bottom - CHART_EDGE_PADDING - boxRect.height;
+    const top = Math.min(
+      Math.max(pointY - boxRect.height / 2, minTop),
+      Math.max(minTop, maxTop),
+    );
 
-      let left = anchorRect.left;
-      if (left + rect.width > rightEdge - VIEWPORT_GUTTER_PADDING) {
-        left = rightEdge - VIEWPORT_GUTTER_PADDING - rect.width;
-      }
-      if (left < VIEWPORT_GUTTER_PADDING) left = VIEWPORT_GUTTER_PADDING;
-
-      let top = anchorRect.top;
-      if (top + rect.height > window.innerHeight - VIEWPORT_GUTTER_PADDING) {
-        top = window.innerHeight - VIEWPORT_GUTTER_PADDING - rect.height;
-      }
-      if (top < VIEWPORT_GUTTER_PADDING) top = VIEWPORT_GUTTER_PADDING;
-
-      box.style.left = `${left}px`;
-      box.style.top = `${top}px`;
-    };
-
-    apply();
-    const observer = new MutationObserver(apply);
-    observer.observe(wrapper, {
-      attributes: true,
-      attributeFilter: ["style"],
-    });
-    return () => observer.disconnect();
-  }, [active]);
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+  }, [isVisible, coordinate?.x, coordinate?.y]);
 
   return { anchorRef, boxRef };
 }
