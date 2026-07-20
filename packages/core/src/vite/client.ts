@@ -805,6 +805,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/components/RemoteSelectionRings",
   "@agent-native/core/client/visual-style-controls",
   "@agent-native/core/client/feature-flags",
+  "@agent-native/core/feature-flags/registry",
   "@agent-native/core/client/hooks",
   "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
@@ -1157,6 +1158,10 @@ function getCoreSourceAliases(
     "@agent-native/core/client/feature-flags": path.join(
       coreSrc,
       "client/feature-flags/index.ts",
+    ),
+    "@agent-native/core/feature-flags/registry": path.join(
+      coreSrc,
+      "feature-flags/registry.ts",
     ),
     "@agent-native/core/client/hooks": path.join(
       coreSrc,

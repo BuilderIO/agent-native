@@ -1,9 +1,10 @@
-import { EventEmitter } from "events";
+import type { EventEmitter } from "node:events";
 
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestContext } from "../server/request-context.js";
+import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -29,10 +30,18 @@ function requestSettingsCache(): Map<string, string | null> | null {
   return cache;
 }
 
-const _emitter = new EventEmitter();
+// Created lazily so this module can be evaluated in the browser dev graph
+// without a top-level `new EventEmitter()` tripping Vite's externalized
+// `node:events` stub. The emitter drives server-side SSE fan-out only.
+let _emitter: EventEmitter | undefined;
+
+function settingsEmitter(): EventEmitter {
+  if (!_emitter) _emitter = createEventEmitter();
+  return _emitter;
+}
 
 export function getSettingsEmitter(): EventEmitter {
-  return _emitter;
+  return settingsEmitter();
 }
 
 function settingsTable(): string {
@@ -174,7 +183,7 @@ export async function mutateSetting(
           });
     if (result.rowsAffected === 0) continue;
     requestSettingsCache()?.set(key, nextRaw);
-    _emitter.emit("settings", {
+    settingsEmitter().emit("settings", {
       source: "settings",
       type: "change",
       key,
@@ -200,7 +209,7 @@ export async function putSetting(
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));
-  _emitter.emit("settings", {
+  settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",
     key,
@@ -221,7 +230,7 @@ export async function deleteSetting(
   });
   requestSettingsCache()?.set(key, null);
   if (result.rowsAffected > 0) {
-    _emitter.emit("settings", {
+    settingsEmitter().emit("settings", {
       source: "settings",
       type: "delete",
       key,
