@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockAccessFilter = vi.hoisted(() => vi.fn(() => ({ kind: "normal" })));
+const mockAccessFilter = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => ({ kind: "normal" })),
+);
 const mockGetRequestUserEmail = vi.hoisted(() =>
-  vi.fn(() => " Viewer@Example.com "),
+  vi.fn((): string | undefined => " Viewer@Example.com "),
 );
 
 vi.mock("@agent-native/core/server/request-context", () => ({
