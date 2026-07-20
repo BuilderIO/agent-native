@@ -7,6 +7,7 @@ import {
   contentSpaceForStoredSelection,
   contentSpaceForCatalogItem,
   contentSpaceIdForCreate,
+  createContentSidebarStateWriteQueue,
   createContentSpaceSelectionQueue,
   ensureWorkspaceExpanded,
   selectContentSpace,
@@ -275,6 +276,29 @@ describe("workspace expansion", () => {
     ]);
     const expanded = ["personal", "organization"];
     expect(ensureWorkspaceExpanded(expanded, "organization")).toBe(expanded);
+  });
+
+  it("serializes persisted expansion snapshots in interaction order", async () => {
+    const writes: string[][] = [];
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const enqueue = createContentSidebarStateWriteQueue(
+      async (workspaceIds: string[]) => {
+        if (writes.length === 0) await firstPending;
+        writes.push(workspaceIds);
+      },
+    );
+
+    const first = enqueue(["personal", "organization"]);
+    const second = enqueue(["personal"]);
+    await Promise.resolve();
+    expect(writes).toEqual([]);
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(writes).toEqual([["personal", "organization"], ["personal"]]);
   });
 });
 

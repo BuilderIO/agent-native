@@ -224,6 +224,35 @@ function browserLocale(): string {
   return navigator.language || "en-US";
 }
 
+function isUnavailableSelectedMicrophoneError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /selected microphone .+ is not available/i.test(message);
+}
+
+function transcriptionStartError(
+  error: unknown,
+  selectedMicrophoneUnavailable: boolean,
+): Error {
+  if (selectedMicrophoneUnavailable) {
+    return new Error(
+      "Your selected microphone is no longer available. Clips tried your Mac's default microphone, but notes still could not start. Choose an available microphone in Clips settings, then try again.",
+    );
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    /screencapturekit|voiceprocessingi|microphone|audio capture|local .*capture/i.test(
+      message,
+    )
+  ) {
+    return new Error(
+      "Clips could not start local audio capture. Check that Clips has Microphone and Screen Recording access in System Settings, then try again.",
+    );
+  }
+
+  return new Error("Clips could not start local transcription. Try again.");
+}
+
 export function recordingTranscriptionLanguage(): string | null {
   return null;
 }
@@ -298,12 +327,46 @@ export async function startTranscriptionEngine(opts: {
     );
     return "whisper";
   } catch (err) {
+    let fallbackMic = opts.mic;
+    const selectedMicrophoneUnavailable =
+      Boolean(opts.mic) && isUnavailableSelectedMicrophoneError(err);
     console.warn(
       "[transcription] whisper mic+system failed, falling back to mic-only:",
       err,
     );
-    await restartTranscriptionEngine("macos-native", opts.mic);
-    return "macos-native";
+    if (selectedMicrophoneUnavailable) {
+      console.warn(
+        "[transcription] selected microphone is unavailable; retrying with the macOS default input:",
+        err,
+      );
+      try {
+        await restartTranscriptionEngine(
+          "whisper",
+          undefined,
+          captureSystem,
+          voiceProcessing,
+          emitPartials,
+        );
+        return "whisper";
+      } catch (defaultMicErr) {
+        console.warn(
+          "[transcription] default mic+system capture failed, falling back to default mic-only:",
+          defaultMicErr,
+        );
+        fallbackMic = undefined;
+      }
+    }
+    try {
+      await restartTranscriptionEngine("macos-native", fallbackMic);
+      return "macos-native";
+    } catch (fallbackErr) {
+      throw transcriptionStartError(
+        fallbackErr,
+        selectedMicrophoneUnavailable ||
+          (Boolean(opts.mic) &&
+            isUnavailableSelectedMicrophoneError(fallbackErr)),
+      );
+    }
   }
 }
 

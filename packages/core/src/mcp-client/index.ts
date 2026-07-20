@@ -113,12 +113,21 @@ export {
 } from "./tool-policy.js";
 export {
   configureScreenMemory,
+  queryScreenMemoryForAgent,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
   type ScreenMemoryConfig,
+  type ScreenMemoryAgentQueryResult,
   type ScreenMemoryContextItem,
+  type ScreenMemoryCoverageGap,
+  type ScreenMemoryEvidenceItem,
+  type ScreenMemoryEvidenceSourceType,
   type ScreenMemoryQueryResult,
+  type ScreenMemoryRetrievalCoverage,
+  type ScreenMemorySegmentReference,
   type ScreenMemoryStatus,
+  type ScreenMemoryTimeRange,
+  type ScreenMemoryTruncation,
 } from "./screen-memory-local.js";
 export {
   MCP_ACTION_RESULT_MARKER,
