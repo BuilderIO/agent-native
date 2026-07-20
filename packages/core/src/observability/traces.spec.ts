@@ -760,6 +760,18 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(redactedTools[0]?.error_message).toBe(
       "Provider failed: Authorization: [REDACTED]; api_key=[REDACTED]",
     );
+
+    events.length = 0;
+    await runOnce(
+      true,
+      "Provider rejected key sk-proj-example-redaction-value",
+    );
+    const standaloneKeyTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(standaloneKeyTools[0]?.error_message).toBe(
+      "Provider rejected key [REDACTED]",
+    );
   });
 
   it("no-ops (emits no spans) when no provider is registered", async () => {
