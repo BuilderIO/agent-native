@@ -172,6 +172,26 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     });
 
     expect(onModeChange).toHaveBeenCalledWith("multi-frontier");
+
+    act(() => {
+      root.render(
+        React.createElement(MultiFrontierModeControl, {
+          active: true,
+          permissionMode: "full-auto",
+          subscriptions: {},
+          busy: false,
+          modeLocked: false,
+          autoContinueAfterAgreement: false,
+          defaultAutoContinueAfterAgreement: false,
+          onModeChange,
+          onConnectSubscription: vi.fn(),
+          onRefreshSubscription: vi.fn(),
+          onAutoContinueAfterAgreementChange: vi.fn(),
+          onDefaultAutoContinueAfterAgreementChange: vi.fn(),
+        }),
+      );
+    });
+    expect(container.textContent).toContain("Connect");
   });
 
   it("registers toolkit overlay styles in the desktop Tailwind build", () => {
