@@ -121,6 +121,9 @@ export default defineAction({
     if (!property) {
       throw new Error("Target column does not belong to this database.");
     }
+    if (property.systemRole) {
+      throw new Error("System properties cannot be bound to source fields.");
+    }
     // The auto-created "Source" tag is internal row-tagging, never a writable
     // bind target.
     if (

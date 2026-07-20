@@ -234,7 +234,6 @@ function localFileDocumentsCacheScope() {
   return JSON.stringify({
     manifest: process.env.AGENT_NATIVE_MANIFEST,
     manifestPath: process.env.AGENT_NATIVE_MANIFEST_PATH,
-    dataMode: process.env.AGENT_NATIVE_DATA_MODE,
   });
 }
 

@@ -13,6 +13,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
   organizationContentSpaceId,
@@ -136,6 +137,13 @@ export default defineAction({
         .where(eq(schema.documents.id, existing.id));
 
       await ensureDocumentFilesMembership(db, existing.id, now);
+      await setFavoriteMembership({
+        db,
+        userEmail,
+        documentId: existing.id,
+        favorite: localDocument.isFavorite,
+        now,
+      });
 
       const [row] = await db
         .select()
@@ -182,6 +190,13 @@ export default defineAction({
           updatedAt: now,
         });
         await ensureDocumentFilesMembership(db, documentId, now);
+        await setFavoriteMembership({
+          db,
+          userEmail,
+          documentId,
+          favorite: localDocument.isFavorite,
+          now,
+        });
       },
     );
 

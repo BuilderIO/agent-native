@@ -2519,6 +2519,52 @@ describe("database saved views", () => {
     });
   });
 
+  it("lets a personal view clear a shared filter without changing the shared view", () => {
+    const shared = normalizeClientDatabaseViewConfig({
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          name: "Files",
+          type: "sidebar",
+          sorts: [],
+          filters: [
+            {
+              key: "files-kind",
+              label: "Kind",
+              operator: "does_not_equal",
+              value: "database_row",
+            },
+          ],
+          filterMode: "and",
+          columnWidths: {},
+        },
+      ],
+    });
+    const effective = applyPersonalDatabaseViewOverrides(shared, {
+      version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+        },
+      ],
+    });
+
+    expect(effective.views[0].filters).toEqual([]);
+    expect(shared.views[0].filters).toHaveLength(1);
+    expect(
+      activeDatabaseConstraintCount(
+        "",
+        effective.views[0].sorts,
+        effective.views[0].filters,
+      ),
+    ).toBe(0);
+  });
+
   it("applies personal query overrides without replacing saved view settings", () => {
     const savedViewConfig = normalizeClientDatabaseViewConfig({
       activeViewId: "default",

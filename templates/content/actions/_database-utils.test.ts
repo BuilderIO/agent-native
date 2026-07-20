@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentDatabaseListDocumentSelection,
+  filterContentDatabaseSourceForVisibleDocuments,
   filterContentDatabaseSourceRowsForPage,
   filterDatabaseContainedDocuments,
 } from "./_database-utils";
@@ -13,6 +14,35 @@ describe("content database list projections", () => {
       id: expect.anything(),
       title: expect.anything(),
       updatedAt: expect.anything(),
+    });
+  });
+});
+
+describe("filterContentDatabaseSourceForVisibleDocuments", () => {
+  it("removes private source rows and their related change sets", () => {
+    const visibleRow = { documentId: "visible", sourceValues: { safe: true } };
+    const privateRow = {
+      documentId: "private",
+      sourceValues: { secret: "must not cross the organization boundary" },
+    };
+    const source = {
+      id: "source",
+      rows: [visibleRow, privateRow],
+      changeSets: [
+        { documentId: "visible", summary: "Visible change" },
+        { documentId: "private", summary: "Private change" },
+      ],
+    };
+
+    expect(
+      filterContentDatabaseSourceForVisibleDocuments(
+        source,
+        new Set(["visible"]),
+      ),
+    ).toEqual({
+      id: "source",
+      rows: [visibleRow],
+      changeSets: [source.changeSets[0]],
     });
   });
 });

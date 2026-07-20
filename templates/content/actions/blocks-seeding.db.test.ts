@@ -211,7 +211,6 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
       expect(databases).toEqual([]);
     });
   });
-
   it("round-trips owned descriptions and returns one live root-to-database row context path", async () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const rootId = `root_${suffix}`;

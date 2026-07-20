@@ -6,6 +6,7 @@ import { and, eq, gte, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
@@ -33,6 +34,11 @@ export default defineAction({
     }
 
     const sourceDocumentIds = rows.map((row) => row.document.id);
+    await assertNotWorkspaceCatalogDocuments(
+      db,
+      sourceDocumentIds,
+      "duplicated",
+    );
     const sourceItemIds = rows.map((row) => row.item.id);
     const now = new Date().toISOString();
     const insertionPosition =
