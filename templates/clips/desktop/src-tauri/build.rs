@@ -23,11 +23,26 @@ fn compile_screen_memory_ocr_helper() {
     let object = out_dir.join("screen_memory_ocr_helper.o");
     let archive = out_dir.join("libscreen_memory_ocr_helper.a");
 
+    // `tauri build --target universal-apple-darwin` invokes Cargo once per
+    // architecture. swiftc otherwise emits an object for the runner's host
+    // architecture, which makes the x86_64 link fail on arm64 CI runners.
+    let swift_arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "arm64",
+        Ok("x86_64") => "x86_64",
+        Ok(arch) => panic!("unsupported macOS OCR helper architecture: {arch}"),
+        Err(error) => panic!("Cargo target architecture is required: {error}"),
+    };
+    let deployment_target =
+        std::env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "13.0".to_string());
+    let swift_target = format!("{swift_arch}-apple-macosx{deployment_target}");
+
     let swift_status = Command::new("xcrun")
         .args([
             "swiftc",
             "-parse-as-library",
             "-emit-object",
+            "-target",
+            &swift_target,
             source.to_str().expect("UTF-8 source path"),
             "-o",
             object.to_str().expect("UTF-8 output path"),
