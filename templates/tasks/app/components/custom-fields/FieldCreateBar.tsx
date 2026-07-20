@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconPlus } from "@tabler/icons-react";
 import { useState, type FormEvent } from "react";
 
@@ -17,17 +18,7 @@ import type { FieldConfig, FieldType } from "@/hooks/use-custom-fields";
 import { FieldConfigControl } from "./editor/config/FieldConfigControl";
 import { normalizedInitialConfig } from "./editor/config/utils";
 import type { FieldDraft } from "./editor/types";
-
-const FIELD_TYPE_OPTIONS: Array<{ value: FieldType; label: string }> = [
-  { value: "text", label: "Text" },
-  { value: "rich_text", label: "Rich text" },
-  { value: "number", label: "Number" },
-  { value: "percent", label: "Percent" },
-  { value: "currency", label: "Currency" },
-  { value: "single_select", label: "Single-select" },
-  { value: "multi_select", label: "Multi-select" },
-  { value: "date", label: "Date" },
-];
+import { FIELD_TYPE_LABEL_KEYS, FIELD_TYPE_VALUES } from "./field-types";
 
 const FIELD_TYPES_WITH_CONFIG = new Set<FieldType>([
   "currency",
@@ -44,6 +35,7 @@ export function FieldCreateBar({
   busy: boolean;
   onCreate: (draft: FieldDraft) => Promise<void>;
 }) {
+  const t = useT();
   const [title, setTitle] = useState("");
   const [type, setType] = useState<FieldType>("text");
   const [config, setConfig] = useState<FieldConfig>(
@@ -71,16 +63,18 @@ export function FieldCreateBar({
       onSubmit={(event) => void handleSubmit(event)}
       className="grid shrink-0 gap-3 rounded-lg border border-border bg-card p-3 md:grid-cols-[minmax(180px,1fr)_180px_auto] md:items-start"
     >
-      <h2 className="text-sm font-medium md:col-span-3">Create new field</h2>
+      <h2 className="text-sm font-medium md:col-span-3">
+        {t("fields.createNewFieldHeading")}
+      </h2>
       <div className="grid gap-2">
         <Label htmlFor="new-field-title" className="sr-only">
-          Field title
+          {t("fields.fieldTitleLabel")}
         </Label>
         <Input
           id="new-field-title"
           value={title}
           disabled={busy}
-          placeholder="New field title"
+          placeholder={t("fields.newFieldTitlePlaceholder")}
           onChange={(event) => setTitle(event.currentTarget.value)}
         />
       </div>
@@ -89,14 +83,14 @@ export function FieldCreateBar({
         disabled={busy}
         onValueChange={(value) => handleTypeChange(value as FieldType)}
       >
-        <SelectTrigger aria-label="Field type">
+        <SelectTrigger aria-label={t("fields.fieldTypeAriaLabel")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {FIELD_TYPE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
+            {FIELD_TYPE_VALUES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {t(FIELD_TYPE_LABEL_KEYS[value])}
               </SelectItem>
             ))}
           </SelectGroup>
@@ -104,7 +98,7 @@ export function FieldCreateBar({
       </Select>
       <Button type="submit" disabled={busy || title.trim().length === 0}>
         <IconPlus className="size-4" />
-        Create
+        {t("fields.createButton")}
       </Button>
       {FIELD_TYPES_WITH_CONFIG.has(type) ? (
         <div className="md:col-span-3">

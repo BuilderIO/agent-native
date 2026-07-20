@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { type ReactNode } from "react";
 
 import {
@@ -20,19 +21,18 @@ export function DeleteItemDialog({
   pending,
   onConfirm,
 }: DeleteItemDialogProps) {
+  const t = useT();
   return (
     <AlertDialog
       open={open}
       onOpenChange={onOpenChange}
       pending={pending}
-      title={`Delete ${entityLabel}?`}
+      title={t("dialogs.deleteEntityTitle", { entity: entityLabel })}
       description={
         description ??
-        (itemTitle ? (
-          <>This removes &quot;{itemTitle}&quot; permanently.</>
-        ) : (
-          `This removes the ${entityLabel} permanently.`
-        ))
+        (itemTitle
+          ? t("dialogs.deleteItemDescriptionWithTitle", { title: itemTitle })
+          : t("dialogs.deleteItemDescription", { entity: entityLabel }))
       }
       onConfirm={onConfirm}
     />

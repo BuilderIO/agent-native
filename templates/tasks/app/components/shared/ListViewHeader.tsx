@@ -1,4 +1,4 @@
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ListSelectionHeaderToggle } from "@/components/shared/selection/ListSelectionHeaderToggle";
@@ -29,6 +29,7 @@ export function ListViewHeader<T extends { id: string }>({
   onIncludeDoneChange,
   showAgentToggle = false,
 }: ListViewHeaderProps<T>) {
+  const t = useT();
   const showIncludeDone =
     includeDone !== undefined && onIncludeDoneChange !== undefined;
   const hasActions =
@@ -62,7 +63,7 @@ export function ListViewHeader<T extends { id: string }>({
                   htmlFor="include-done"
                   className="text-sm whitespace-nowrap"
                 >
-                  Show all
+                  {t("common.showAll")}
                 </Label>
               </div>
             ) : null}

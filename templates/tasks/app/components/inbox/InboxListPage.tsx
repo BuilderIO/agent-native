@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { useSearchParams } from "react-router";
 
 import { InboxList } from "@/components/inbox/InboxList";
@@ -6,6 +7,7 @@ import { ListViewHeader } from "@/components/shared/ListViewHeader";
 import { useInboxItems } from "@/hooks/use-inbox-items";
 
 export function InboxListPage() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const selectedInboxItemId = searchParams.get("inboxItem");
   const { items: serverItems, isPending, isError, error } = useInboxItems();
@@ -15,8 +17,8 @@ export function InboxListPage() {
       {isError ? (
         <>
           <ListViewHeader
-            title="Inbox"
-            description="Capture rough ideas here, then mark ready when they become tasks."
+            title={t("inbox.pageTitle")}
+            description={t("inbox.pageDescription")}
             isPending={false}
             showSelectToggle={false}
             selection={null}
@@ -24,7 +26,7 @@ export function InboxListPage() {
           />
           <ListErrorMessage
             error={error}
-            fallbackMessage="Failed to load inbox items."
+            fallbackMessage={t("inbox.loadError")}
           />
         </>
       ) : (

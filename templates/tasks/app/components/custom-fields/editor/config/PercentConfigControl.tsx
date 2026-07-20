@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -8,9 +10,10 @@ export function PercentConfigControl({
   onChange,
   disabled = false,
 }: FieldConfigControlProps) {
+  const t = useT();
   return (
     <div className="grid gap-2">
-      <Label>Precision</Label>
+      <Label>{t("fieldEditor.precisionLabel")}</Label>
       <Input
         type="number"
         min={0}

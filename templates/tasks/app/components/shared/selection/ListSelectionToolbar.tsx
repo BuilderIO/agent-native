@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconTrash, IconX } from "@tabler/icons-react";
 import { type ReactNode } from "react";
 
@@ -27,12 +28,13 @@ export function ListSelectionToolbar({
   onOpenBulkDelete,
   children,
 }: ListSelectionToolbarProps) {
+  const t = useT();
   const statusText =
     selectedCount === 0
       ? emptySelectionHint
       : selectedCount > 1
-        ? `${selectedCount} selected · drag to reorder`
-        : `${selectedCount} selected`;
+        ? t("selection.selectedCountReorder", { count: selectedCount })
+        : t("selection.selectedCount", { count: selectedCount });
 
   return (
     <div
@@ -51,7 +53,9 @@ export function ListSelectionToolbar({
           disabled={toolbarDisabled || visibleCount === 0}
           onClick={selectionActions.selectAll}
         >
-          {allVisibleSelected ? "Clear all" : "Select all"}
+          {allVisibleSelected
+            ? t("selection.clearAll")
+            : t("selection.selectAll")}
         </Button>
         {children}
         <Button
@@ -59,11 +63,11 @@ export function ListSelectionToolbar({
           size="sm"
           className="h-8 shrink-0 gap-1 px-2 text-xs text-destructive hover:text-destructive"
           disabled={selectedCount === 0 || toolbarDisabled}
-          aria-label="Delete"
+          aria-label={t("common.delete")}
           onClick={onOpenBulkDelete}
         >
           <IconTrash className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Delete</span>
+          <span className="hidden sm:inline">{t("common.delete")}</span>
         </Button>
         <Button
           variant="ghost"
@@ -71,7 +75,7 @@ export function ListSelectionToolbar({
           className="h-8 w-8 shrink-0"
           disabled={toolbarDisabled}
           onClick={selectionActions.clearSelection}
-          aria-label="Exit selection mode"
+          aria-label={t("selection.exitSelectionMode")}
         >
           <IconX className="h-3.5 w-3.5" />
         </Button>

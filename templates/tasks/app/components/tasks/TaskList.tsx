@@ -1,4 +1,4 @@
-import { focusAgentChat } from "@agent-native/core/client";
+import { focusAgentChat, useT } from "@agent-native/core/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -41,19 +41,20 @@ function NoTasksMessage({
 }: {
   hasHiddenCompletedTasks: boolean;
 }) {
+  const t = useT();
   if (hasHiddenCompletedTasks) {
     return (
       <ListEmptyState
-        heading="All tasks complete"
-        description="Toggle Show all to review completed tasks."
+        heading={t("tasks.allCompleteHeading")}
+        description={t("tasks.allCompleteDescription")}
       />
     );
   }
 
   return (
     <ListEmptyState
-      heading="No tasks yet"
-      description="Add one above or ask chat to create a task for you."
+      heading={t("tasks.emptyHeading")}
+      description={t("tasks.emptyDescription")}
     />
   );
 }
@@ -67,6 +68,7 @@ export function TaskList({
   activeTaskId,
   setActiveTaskId,
 }: TaskListProps) {
+  const t = useT();
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
@@ -162,12 +164,18 @@ export function TaskList({
     try {
       await handleBulkDelete(ids);
       toast.success(
-        `Deleted ${ids.length} ${ids.length === 1 ? "task" : "tasks"}`,
+        t("dialogs.deletedCount", {
+          count: ids.length,
+          entity:
+            ids.length === 1
+              ? t("tasks.entitySingular")
+              : t("tasks.entityPlural"),
+        }),
       );
       selection.actions.clearSelection();
       setBulkDeleteOpen(false);
     } catch {
-      toast.error("Could not delete selected tasks.");
+      toast.error(t("tasks.bulkDeleteError"));
     }
   }
 
@@ -176,8 +184,8 @@ export function TaskList({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-col gap-6 overflow-hidden">
           <ListViewHeader
-            title="Tasks"
-            description="Manage your task list, drag to reorder, or ask chat to add reminders."
+            title={t("tasks.pageTitle")}
+            description={t("tasks.pageDescription")}
             isPending={isPending}
             showSelectToggle={hasTasks}
             selection={selection}
@@ -215,7 +223,9 @@ export function TaskList({
 
             <div
               aria-label={
-                isPending || tasks.length === 0 ? "Tasks list" : undefined
+                isPending || tasks.length === 0
+                  ? t("tasks.listAriaLabel")
+                  : undefined
               }
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 outline-none"
             >
@@ -229,7 +239,7 @@ export function TaskList({
                 <List
                   items={orderedTasks}
                   selection={selection}
-                  ariaLabel="Tasks list"
+                  ariaLabel={t("tasks.listAriaLabel")}
                   onReorder={handleReorder}
                   renderItem={({ item, sortable }) => (
                     <TaskListRow
@@ -300,7 +310,7 @@ export function TaskList({
                 onOpenChange={(open) => {
                   if (!open) setPendingDeleteId(null);
                 }}
-                entityLabel="task"
+                entityLabel={t("tasks.entitySingular")}
                 itemTitle={pendingDeleteTask?.title ?? null}
                 pending={deleteTask.isPending}
                 onConfirm={async () => {
@@ -315,8 +325,8 @@ export function TaskList({
               open={bulkDeleteOpen}
               onOpenChange={setBulkDeleteOpen}
               selectedItems={selection.state.selectedItems}
-              entitySingular="task"
-              entityPlural="tasks"
+              entitySingular={t("tasks.entitySingular")}
+              entityPlural={t("tasks.entityPlural")}
               pending={bulkDeleteTasks.isPending}
               onConfirm={() => void confirmBulkDelete()}
             />

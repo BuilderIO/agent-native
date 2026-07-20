@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +35,7 @@ export function InboxList({
   isPending,
   selectedInboxItemId,
 }: InboxListProps) {
+  const t = useT();
   const createInboxItem = useCreateInboxItem();
   const updateInboxItem = useUpdateInboxItem();
   const deleteInboxItem = useDeleteInboxItem();
@@ -78,20 +80,26 @@ export function InboxList({
     try {
       await handleBulkDelete(ids);
       toast.success(
-        `Deleted ${ids.length} ${ids.length === 1 ? "inbox item" : "inbox items"}`,
+        t("dialogs.deletedCount", {
+          count: ids.length,
+          entity:
+            ids.length === 1
+              ? t("inbox.entitySingular")
+              : t("inbox.entityPlural"),
+        }),
       );
       selection.actions.clearSelection();
       setBulkDeleteOpen(false);
     } catch {
-      toast.error("Could not delete selected inbox items.");
+      toast.error(t("inbox.bulkDeleteError"));
     }
   }
 
   return (
     <>
       <ListViewHeader
-        title="Inbox"
-        description="Capture rough ideas here, then mark ready when they become tasks."
+        title={t("inbox.pageTitle")}
+        description={t("inbox.pageDescription")}
         isPending={isPending}
         showSelectToggle={items.length > 0}
         selection={selection}
@@ -112,29 +120,29 @@ export function InboxList({
             <AddListItemInput
               disabled={createInboxItem.isPending}
               onCreate={(title) => createInboxItem.mutateAsync({ title })}
-              placeholder="Add to inbox..."
-              buttonLabel="Add item"
-              inputAriaLabel="New inbox item title"
-              errorMessage="Failed to add inbox item. Please try again."
+              placeholder={t("inbox.addPlaceholder")}
+              buttonLabel={t("inbox.addButtonLabel")}
+              inputAriaLabel={t("inbox.addInputAriaLabel")}
+              errorMessage={t("inbox.addErrorMessage")}
             />
           )}
         </div>
 
         {isPending ? (
           <div
-            aria-label="Inbox list"
+            aria-label={t("inbox.listAriaLabel")}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 outline-none"
           >
             <ListSkeletonRows />
           </div>
         ) : items.length === 0 ? (
           <div
-            aria-label="Inbox list"
+            aria-label={t("inbox.listAriaLabel")}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 outline-none"
           >
             <ListEmptyState
-              heading="Inbox is empty"
-              description="Add an item above or ask chat to capture something for triage."
+              heading={t("inbox.emptyHeading")}
+              description={t("inbox.emptyDescription")}
             />
           </div>
         ) : (
@@ -142,7 +150,7 @@ export function InboxList({
             <List
               items={items}
               selection={selection}
-              ariaLabel="Inbox list"
+              ariaLabel={t("inbox.listAriaLabel")}
               listClassName="flex flex-col gap-3 pb-6"
               onReorder={handleReorder}
               renderItem={({ item, sortable }) => (
@@ -194,7 +202,7 @@ export function InboxList({
             onOpenChange={(open) => {
               if (!open) setPendingDeleteId(null);
             }}
-            entityLabel="inbox item"
+            entityLabel={t("inbox.entitySingular")}
             itemTitle={pendingDeleteItem?.title ?? null}
             pending={deleteInboxItem.isPending}
             onConfirm={async () => {
@@ -211,8 +219,8 @@ export function InboxList({
           open={bulkDeleteOpen}
           onOpenChange={setBulkDeleteOpen}
           selectedItems={selection.state.selectedItems}
-          entitySingular="inbox item"
-          entityPlural="inbox items"
+          entitySingular={t("inbox.entitySingular")}
+          entityPlural={t("inbox.entityPlural")}
           pending={bulkDeleteInboxItems.isPending}
           onConfirm={() => void confirmBulkDelete()}
         />
