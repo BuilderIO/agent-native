@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import type { TaskFieldValue } from "@/hooks/use-custom-fields";
 import type { TaskWithFields } from "@/hooks/use-tasks";

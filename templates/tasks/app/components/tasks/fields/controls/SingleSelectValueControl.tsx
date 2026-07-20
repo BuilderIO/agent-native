@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
 import { optionsFromConfig } from "@/components/custom-fields/editor/config/utils";

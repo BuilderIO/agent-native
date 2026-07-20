@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconTrash, IconX } from "@tabler/icons-react";
 import { type ReactNode } from "react";
 

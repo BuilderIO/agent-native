@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconTrash } from "@tabler/icons-react";
 
 import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";

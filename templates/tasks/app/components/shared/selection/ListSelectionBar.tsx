@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCircleCheck, IconCircle } from "@tabler/icons-react";
 import { toast } from "sonner";
 

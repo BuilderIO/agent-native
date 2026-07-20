@@ -40,7 +40,8 @@ const messages = {
   },
   tasks: {
     pageTitle: "任務",
-    pageDescription: "管理你的任務清單，拖曳可重新排序，或請聊天助理幫你新增提醒。",
+    pageDescription:
+      "管理你的任務清單，拖曳可重新排序，或請聊天助理幫你新增提醒。",
     loadError: "載入任務失敗。",
     allCompleteHeading: "所有任務皆已完成",
     allCompleteDescription: "開啟「顯示全部」即可檢視已完成的任務。",

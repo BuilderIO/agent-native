@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useSearchParams } from "react-router";
 
 import { InboxList } from "@/components/inbox/InboxList";

@@ -40,7 +40,8 @@ const messages = {
   },
   tasks: {
     pageTitle: "任务",
-    pageDescription: "管理你的任务列表，拖动可重新排序，或让聊天助手帮你添加提醒。",
+    pageDescription:
+      "管理你的任务列表，拖动可重新排序，或让聊天助手帮你添加提醒。",
     loadError: "加载任务失败。",
     allCompleteHeading: "所有任务已完成",
     allCompleteDescription: "开启“显示全部”即可查看已完成的任务。",

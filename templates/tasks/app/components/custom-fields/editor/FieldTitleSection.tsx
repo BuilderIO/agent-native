@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
