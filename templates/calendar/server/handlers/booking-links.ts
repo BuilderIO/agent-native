@@ -21,10 +21,13 @@ import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
 import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
+import { getEligibleHostAvailability } from "../lib/booking-host-availability.js";
 import {
+  getBookingLinkRequiredHostEmails,
   rowToBookingLink,
   serializeBookingHosts,
 } from "../lib/booking-link-utils.js";
+import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { ensureBookingUsername } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
@@ -235,7 +238,28 @@ export const getPublicBookingLink = defineEventHandler(
         };
       }
 
-      return rowToBookingLink(rows[0]);
+      const bookingLink = rowToBookingLink(rows[0]);
+      const [ownerTimezone, eligibleHosts] = await Promise.all([
+        getOwnerBookingTimeZone(rows[0].ownerEmail),
+        getEligibleHostAvailability(
+          rows[0].ownerEmail,
+          getBookingLinkRequiredHostEmails(rows[0]),
+        ),
+      ]);
+      const hostTimezoneByEmail = new Map(
+        eligibleHosts
+          .filter((host) => host.timezone)
+          .map((host) => [host.email, host.timezone as string]),
+      );
+
+      return {
+        ...bookingLink,
+        ownerTimezone,
+        hosts: bookingLink.hosts?.map((host) => {
+          const timezone = hostTimezoneByEmail.get(host.email.toLowerCase());
+          return timezone ? { ...host, timezone } : host;
+        }),
+      };
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: error.message };

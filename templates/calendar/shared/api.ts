@@ -264,6 +264,12 @@ export interface ConferencingConfig {
 export interface BookingHost {
   email: string;
   displayName?: string;
+  /**
+   * IANA time zone for this host. Only populated on the public booking-link
+   * read response, and only for hosts the owner has overlaid (subscribed to)
+   * with a resolvable saved time zone. Never sent on create/update.
+   */
+  timezone?: string;
 }
 
 export interface Booking {
@@ -305,6 +311,11 @@ export interface BookingLink {
   isActive: boolean;
   /** Sharing visibility: private (default), org, or public */
   visibility?: "private" | "org" | "public";
+  /**
+   * The owner's booking time zone. Only populated on the public booking-link
+   * read response, for display in a multi-time-zone grid.
+   */
+  ownerTimezone?: string;
   createdAt: string;
   updatedAt: string;
 }

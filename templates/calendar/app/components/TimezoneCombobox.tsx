@@ -48,7 +48,7 @@ function getSupportedTimezones(currentTimezone: string) {
   return Array.from(new Set([currentTimezone, ...supported].filter(Boolean)));
 }
 
-function getTimezoneCity(timezone: string) {
+export function getTimezoneCity(timezone: string) {
   const city = timezone.split("/").pop() || timezone;
   return city.replace(/_/g, " ");
 }
