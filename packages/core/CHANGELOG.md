@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.114.6
+
+### Patch Changes
+
+- 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+- Updated dependencies [6d96437]
+  - @agent-native/toolkit@0.8.1
+
 ## 0.114.5
 
 ### Patch Changes
