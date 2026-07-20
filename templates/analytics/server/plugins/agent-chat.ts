@@ -34,6 +34,11 @@ import {
 } from "../lib/real-data-actions";
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+// A background job may legitimately spend minutes inside a provider/tool call,
+// which the shared watchdog already excludes. Outside a tool call, however,
+// silence means the model transport or worker has wedged; recover the chunk
+// promptly instead of holding the dashboard composer for the 12-minute default.
+export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
 
 const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   app: "analytics",
@@ -684,6 +689,7 @@ export default createAgentChatPlugin({
   // standard serverless request budget without orphaning the task.
   durableBackgroundRuns: true,
   runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+  runNoProgressTimeoutMs: ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   externalAgents: {
     // Keep the direct MCP surface deliberately curated. External agents
