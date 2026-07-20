@@ -275,9 +275,14 @@ describe("document sidebar layout", () => {
       "const handlePermanentDeleteDatabase = useCallback",
     );
     expect(sidebar).toContain("const renderTrashSection = () =>");
-    expect(sidebar).toContain(
-      'renderSectionHeader("trash", t("sidebar.trash"))',
-    );
+    expect(sidebar).toContain("trash: true");
+    expect(sidebar).toContain("value?.trash ?? true");
+    expect(sidebar).toContain("TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY");
+    expect(sidebar).toContain('toggleSection("trash")');
+    expect(sidebar).toContain("<IconTrash");
+    expect(sidebar).toContain("group-hover/trash:opacity-0");
+    expect(sidebar).toContain("group-hover/trash:opacity-100");
+    expect(sidebar).toContain('className="px-2"');
     expect(sidebar).toContain("handleRestoreDatabase(database.databaseId)");
     expect(sidebar).toContain("handlePermanentDeleteDatabase");
     expect(sidebar).toContain("handleRestoreDocument(document.documentId)");

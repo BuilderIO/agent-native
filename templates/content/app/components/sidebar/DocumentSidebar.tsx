@@ -217,6 +217,8 @@ type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
 
 const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
+const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
+  "content-sidebar-trash-collapsed-default-v2";
 const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   favorites: false,
@@ -224,7 +226,7 @@ const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   "shared-copies": false,
   private: false,
   organization: false,
-  trash: false,
+  trash: true,
 };
 
 function normalizeCollapsedSections(
@@ -236,7 +238,7 @@ function normalizeCollapsedSections(
     "shared-copies": value?.["shared-copies"] ?? false,
     private: value?.private ?? false,
     organization: value?.organization ?? false,
-    trash: value?.trash ?? false,
+    trash: value?.trash ?? true,
   };
 }
 
@@ -642,6 +644,21 @@ export function DocumentSidebar({
     () => normalizeCollapsedSections(storedCollapsedSections),
     [storedCollapsedSections],
   );
+  useEffect(() => {
+    try {
+      if (
+        window.localStorage.getItem(TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY) ===
+        "1"
+      ) {
+        return;
+      }
+      setStoredCollapsedSections((current) => ({
+        ...normalizeCollapsedSections(current),
+        trash: true,
+      }));
+      window.localStorage.setItem(TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY, "1");
+    } catch {}
+  }, [setStoredCollapsedSections]);
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
   const agentActive = location.pathname.startsWith("/agent");
@@ -1648,7 +1665,34 @@ export function DocumentSidebar({
 
     return (
       <div className="mt-3 border-t border-border/60 pt-2">
-        {renderSectionHeader("trash", t("sidebar.trash"))}
+        <div className="px-2">
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.trash")}`}
+            className="group/trash flex h-7 w-full min-w-0 items-center rounded-md px-1 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            onClick={() => toggleSection("trash")}
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center">
+              <span className="relative size-3.5">
+                <IconTrash
+                  aria-hidden="true"
+                  className="absolute inset-0 size-3.5 transition-opacity group-hover/trash:opacity-0 group-focus-visible/trash:opacity-0"
+                />
+                <IconChevronRight
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/trash:opacity-100 group-focus-visible/trash:opacity-100 rtl:-scale-x-100",
+                    !collapsed && "rotate-90",
+                  )}
+                />
+              </span>
+            </span>
+            <span className="min-w-0 flex-1 truncate">
+              {t("sidebar.trash")}
+            </span>
+          </button>
+        </div>
         {!collapsed && (
           <div className="px-1 py-1">
             {trashedPageItems.map((document) => {
