@@ -622,6 +622,9 @@ export function useDeleteContentDatabase() {
   >("delete-content-database", {
     onSuccess: (data) => {
       clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
     },
   });
 }
@@ -649,6 +652,9 @@ export function useRestoreContentDatabase() {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-content-databases"],

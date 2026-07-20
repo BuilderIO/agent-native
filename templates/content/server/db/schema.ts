@@ -27,6 +27,8 @@ export const documents = table("documents", {
   sourcePath: text("source_path"),
   sourceRootPath: text("source_root_path"),
   sourceUpdatedAt: text("source_updated_at"),
+  trashedAt: text("trashed_at"),
+  trashRootId: text("trash_root_id"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),

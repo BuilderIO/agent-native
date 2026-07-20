@@ -82,10 +82,18 @@ pnpm action update-document --id abc123 --description "Stable guidance for what 
 
 ### delete-document
 
-Delete a document and all its children recursively.
+Move a document and all its children to Trash. IDs, bodies, hierarchy, and
+database membership remain intact so the subtree can be restored.
 
 ```bash
 pnpm action delete-document --id abc123
+```
+
+Restore the root subtree, or permanently delete it only after it is in Trash:
+
+```bash
+pnpm action restore-document --id abc123
+pnpm action permanently-delete-document --id abc123
 ```
 
 ## Comments

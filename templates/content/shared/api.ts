@@ -911,6 +911,16 @@ export interface ListTrashedContentDatabasesResponse {
   databases: TrashedContentDatabaseSummary[];
 }
 
+export interface TrashedDocumentSummary {
+  documentId: string;
+  title: string;
+  trashedAt: string;
+}
+
+export interface ListTrashedDocumentsResponse {
+  documents: TrashedDocumentSummary[];
+}
+
 export interface SuggestSourceJoinKeyRequest {
   databaseId?: string;
   documentId?: string;
