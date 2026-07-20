@@ -3044,6 +3044,9 @@ describe("bundled PR visual recap workflow", () => {
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "    defaults:\n      run:\n        shell: bash",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
@@ -3617,6 +3620,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain(
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );
+    expect(content).toContain("    defaults:\n      run:\n        shell: bash");
     expect(content).toContain(
       "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
     );

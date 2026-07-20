@@ -233,6 +233,9 @@ jobs:
     if: needs.gate.outputs.run == 'true'
     runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     permissions:
       actions: write
       checks: write
