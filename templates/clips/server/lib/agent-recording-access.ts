@@ -43,10 +43,7 @@ export function agentRecordingAccessFilter(
   return (
     or(
       owner,
-      and(
-        eq(resourceTable.visibility, "public"),
-        viewed,
-      ),
+      and(eq(resourceTable.visibility, "public"), viewed),
       and(normalAccess, viewed),
     ) ?? normalAccess
   );

@@ -48,12 +48,9 @@ describe("agentRecordingAccessFilter", () => {
   });
 
   it("keeps agent reads scoped to owned or previously viewed recordings", () => {
-    const filter = agentRecordingAccessFilter(
-      recordings,
-      shares,
-      viewers,
-      { agentOnly: true },
-    );
+    const filter = agentRecordingAccessFilter(recordings, shares, viewers, {
+      agentOnly: true,
+    });
 
     expect(filter).toEqual({
       kind: "or",
@@ -93,24 +90,19 @@ describe("agentRecordingAccessFilter", () => {
   });
 
   it("preserves normal sharing for non-agent callers", () => {
-    const filter = agentRecordingAccessFilter(
-      recordings,
-      shares,
-      viewers,
-      { agentOnly: false },
-    );
+    const filter = agentRecordingAccessFilter(recordings, shares, viewers, {
+      agentOnly: false,
+    });
 
     expect(filter).toEqual({ kind: "normal" });
   });
 
   it("fails closed when an agent has no identity", () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
-    const filter = agentRecordingAccessFilter(
-      recordings,
-      shares,
-      viewers,
-      { agentOnly: true, userEmail: undefined },
-    );
+    const filter = agentRecordingAccessFilter(recordings, shares, viewers, {
+      agentOnly: true,
+      userEmail: undefined,
+    });
 
     expect(filter).toEqual({ kind: "sql", text: "1 = 0" });
   });

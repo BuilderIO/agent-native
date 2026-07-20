@@ -84,4 +84,22 @@ describe("boundTranscriptForAgent", () => {
       note: "The complete transcript fits in this agent payload.",
     });
   });
+
+  it("does not include an oversized first segment", () => {
+    const segments = [
+      {
+        startMs: 0,
+        endMs: 1_000,
+        text: "s".repeat(AGENT_TRANSCRIPT_SEGMENT_MAX_CHARS),
+      },
+    ];
+
+    const bounded = boundTranscriptForAgent({
+      fullText: "Short clip.",
+      segments,
+    });
+
+    expect(bounded.segments).toEqual([]);
+    expect(bounded.previewTruncated).toBe(true);
+  });
 });

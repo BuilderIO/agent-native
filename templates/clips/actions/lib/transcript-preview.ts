@@ -71,10 +71,7 @@ export function boundTranscriptForAgent<T>({
 
   for (const segment of segments) {
     const nextChars = JSON.stringify(segment)?.length ?? 0;
-    if (
-      boundedSegments.length > 0 &&
-      segmentChars + nextChars > AGENT_TRANSCRIPT_SEGMENT_MAX_CHARS
-    ) {
+    if (segmentChars + nextChars > AGENT_TRANSCRIPT_SEGMENT_MAX_CHARS) {
       break;
     }
     boundedSegments.push(segment);
