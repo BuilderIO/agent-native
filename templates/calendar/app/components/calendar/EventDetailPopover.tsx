@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
@@ -10,7 +9,6 @@ import {
   IconX,
   IconClock,
   IconMapPin,
-  IconUser,
   IconVideo,
   IconRefresh,
   IconBell,
@@ -20,8 +18,6 @@ import {
   IconAlignLeft,
   IconPlus,
   IconBrandZoom,
-  IconMessage,
-  IconPalette,
   IconPaperclip,
   IconCalendarTime,
 } from "@tabler/icons-react";
@@ -41,7 +37,6 @@ import {
 } from "@/components/calendar/EventDescription";
 import {
   AttachmentControls,
-  EventColorSwatches,
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
@@ -82,7 +77,6 @@ import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { defaultColorForAccount } from "@/lib/calendar-view-preferences";
 import { shouldShowEventAccountSelector } from "@/lib/event-account-selection";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   attachmentsToDrafts,
   buildRecurrenceRules,
@@ -814,39 +808,6 @@ export function EventDetailPopover({
     return saved;
   }, [editAttachments, saveField]);
 
-  const handleColorChange = useCallback(
-    (nextColorId: string | undefined) => {
-      if (!nextColorId) return;
-      saveField({
-        colorId: nextColorId,
-        color: getGoogleEventColorHex(nextColorId),
-      });
-    },
-    [saveField],
-  );
-
-  const handleDraftDescription = useCallback(() => {
-    sendToAgentChat({
-      message: t("eventForm.ai.descriptionMessage", {
-        title: event.title,
-      }),
-      context: t("eventForm.ai.existingDescriptionContext", {
-        id: event.id,
-        title: event.title,
-        start: event.start,
-        end: event.end,
-        timezone: event.startTimeZone || getLocalTimezone(),
-        location: event.location || t("eventForm.ai.none"),
-        attendees:
-          (event.attendees ?? [])
-            .map((attendee) => attendee.email)
-            .join(", ") || t("eventForm.ai.none"),
-        description: event.description || t("eventForm.ai.empty"),
-      }),
-      submit: true,
-    });
-  }, [event, t]);
-
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
     if (isDraft) {
@@ -1531,9 +1492,7 @@ export function EventDetailPopover({
                   ? t("eventForm.workingLocation")
                   : isOutOfOffice
                     ? t("eventForm.outOfOffice")
-                    : isDraft
-                      ? t("eventForm.draftEvent")
-                      : t("eventForm.event")}
+                    : t("eventForm.event")}
               </span>
             </div>
             <div className="flex items-center gap-0.5">
@@ -1808,15 +1767,6 @@ export function EventDetailPopover({
                     canEditOptional={!isOverlay}
                     onToggleOptional={handleToggleAttendeeOptional}
                   />
-                ) : !isOverlay ? (
-                  <div className="px-4 py-1">
-                    <div className="flex items-start gap-3">
-                      <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground/60">
-                        {t("eventForm.noGuests")}
-                      </span>
-                    </div>
-                  </div>
                 ) : null}
 
                 {/* Add guest input */}
@@ -1829,7 +1779,7 @@ export function EventDetailPopover({
                           (attendee) => attendee.email,
                         )}
                         onAdd={handleAddAttendee}
-                        placeholder={t("eventForm.addGuests")}
+                        placeholder={t("eventForm.addGuest")}
                         variant="inline"
                         showChips={false}
                         showAddButton
@@ -1854,7 +1804,6 @@ export function EventDetailPopover({
                   <ExtensionSlot
                     id="calendar.event-detail.bottom"
                     context={buildEventDetailSlotContext(event)}
-                    showEmptyAffordance
                   />
                 </div>
               </>
@@ -2226,18 +2175,6 @@ export function EventDetailPopover({
                   <div className="flex items-start gap-3">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
-                      {!isOverlay && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="mb-1 h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-                          onClick={handleDraftDescription}
-                        >
-                          <IconMessage className="h-3 w-3" />
-                          {t("eventForm.askAi")}
-                        </Button>
-                      )}
                       {isOverlay ? (
                         event.description ? (
                           <RenderedDescription
@@ -2421,13 +2358,6 @@ export function EventDetailPopover({
                           </SelectContent>
                         </Select>
                       </div>
-                    </div>
-                    <div className="mt-2 flex items-center gap-3">
-                      <IconPalette className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <EventColorSwatches
-                        value={event.colorId}
-                        onChange={handleColorChange}
-                      />
                     </div>
                   </div>
                 </>
