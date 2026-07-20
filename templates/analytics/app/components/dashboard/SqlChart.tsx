@@ -86,7 +86,7 @@ const DEFAULT_COLORS = [
 ];
 
 const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
-  zIndex: 60,
+  zIndex: 9999,
   pointerEvents: "none",
 };
 
