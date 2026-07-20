@@ -22,6 +22,8 @@ let resolveContentSpaceAccess: typeof import("./_content-space-access.js").resol
 let listContentSpacesAction: typeof import("./list-content-spaces.js").default;
 let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").default;
 let createContentSpaceAction: typeof import("./create-content-space.js").default;
+let deleteContentSpaceAction: typeof import("./delete-content-space.js").default;
+let createDocumentAction: typeof import("./create-document.js").default;
 let listDocumentsAction: typeof import("./list-documents.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
@@ -54,6 +56,9 @@ beforeAll(async () => {
     .default;
   createContentSpaceAction = (await import("./create-content-space.js"))
     .default;
+  deleteContentSpaceAction = (await import("./delete-content-space.js"))
+    .default;
+  createDocumentAction = (await import("./create-document.js")).default;
   listDocumentsAction = (await import("./list-documents.js")).default;
   getDocumentAction = (await import("./get-document.js")).default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
@@ -227,6 +232,14 @@ describe("Content space provisioning", () => {
     expect(outsiderSpaces.spaces).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: first.spaceId })]),
     );
+    const workspacePage = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () =>
+        createDocumentAction.run({
+          title: "Workspace draft",
+          spaceId: first.spaceId,
+        }),
+    );
     await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, async () => {
       await expect(
         deleteDocumentAction.run({ id: first.catalogDocumentId }),
@@ -246,7 +259,66 @@ describe("Content space provisioning", () => {
           itemIds: [first.catalogItemId],
         }),
       ).rejects.toThrow("Workspace references cannot be duplicated as pages");
+      await deleteDocumentAction.run({
+        id: first.catalogDocumentId,
+        databaseDocumentId: ownerSpaces.catalogDocumentId,
+      });
     });
+    const deletedWorkspaceRows = await Promise.all([
+      getDb()
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, first.spaceId)),
+      getDb()
+        .select()
+        .from(schema.contentSpaceCatalogItems)
+        .where(eq(schema.contentSpaceCatalogItems.spaceId, first.spaceId)),
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, workspacePage.id)),
+      getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, first.filesDatabaseId)),
+    ]);
+    expect(deletedWorkspaceRows.every((rows) => rows.length === 0)).toBe(true);
+  });
+
+  it("only lets owners delete user-created workspaces", async () => {
+    const provisioned = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () => provisionContentSpaces(getDb(), WORKSPACE_OWNER),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+        deleteContentSpaceAction.run({
+          spaceId: provisioned.personalSpaceId,
+        }),
+      ),
+    ).rejects.toThrow("Only user-created workspaces can be deleted");
+
+    const workspace = await runWithRequestContext(
+      { userEmail: WORKSPACE_OWNER },
+      () =>
+        createContentSpaceAction.run({
+          name: "Private planning",
+          requestId: "delete-owner-only",
+        }),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: OUTSIDER }, () =>
+        deleteContentSpaceAction.run({ spaceId: workspace.spaceId }),
+      ),
+    ).rejects.toThrow("Not authorized");
+    await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+      deleteContentSpaceAction.run({ spaceId: workspace.spaceId }),
+    );
+    const [remaining] = await getDb()
+      .select({ id: schema.contentSpaces.id })
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, workspace.spaceId));
+    expect(remaining).toBeUndefined();
   });
 
   it("binds concurrent workspace requests to one canonical name", async () => {

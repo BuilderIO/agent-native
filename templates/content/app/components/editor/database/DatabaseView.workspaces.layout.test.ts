@@ -18,6 +18,10 @@ describe("Workspaces database lifecycle", () => {
     expect(source).toContain("label={newRowLabel}");
     expect(source).toContain("propertyValues:");
     expect(source).toContain("propertyValueOverrides");
+    expect(source).toContain('fallback={workspaceCatalog ? "folder" : "page"}');
+    expect(source).toContain('workspaceSpace?.kind === "user"');
+    expect(source).toContain('"Delete workspace?"');
+    expect(source).toContain("every page and database inside it");
     expect(source).toContain("const isCreatingDatabaseItem =");
     expect(source.match(/isCreating=\{isCreatingDatabaseItem/g)).toHaveLength(
       6,

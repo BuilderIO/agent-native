@@ -640,10 +640,12 @@ export function DatabaseItemPageIcon({
   document,
   className,
   fallbackClassName,
+  fallback = "page",
 }: {
   document: Pick<Document, "icon">;
   className?: string;
   fallbackClassName?: string;
+  fallback?: "page" | "folder";
 }) {
   const icon = databaseItemPageIconText(document);
   if (icon) {
@@ -660,8 +662,9 @@ export function DatabaseItemPageIcon({
     );
   }
 
+  const FallbackIcon = fallback === "folder" ? IconFolder : IconFileText;
   return (
-    <IconFileText
+    <FallbackIcon
       className={cn("shrink-0 text-muted-foreground", fallbackClassName)}
     />
   );
@@ -4076,6 +4079,13 @@ function DatabaseItemPreview({
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const workspaceSpace = contentSpaces.data?.spaces.find(
+    (space) => space.catalogDocumentId === item.document.id,
+  );
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const canDeleteWorkspace =
+    isWorkspaceCatalog && workspaceSpace?.kind === "user";
 
   // The peek's primary title+body save runs through a flush-on-release controller
   // so a pending debounced edit is PERSISTED — not dropped — when the row
@@ -4789,7 +4799,7 @@ function DatabaseItemPreview({
                   className="w-44"
                   data-database-preview-portal=""
                 >
-                  {canEdit ? (
+                  {canEdit && !isWorkspaceCatalog ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending}
                       onSelect={(event) => {
@@ -4801,7 +4811,9 @@ function DatabaseItemPreview({
                       {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
-                  {canEdit && (canManage || removesFavoriteMembership) ? (
+                  {canEdit &&
+                  !isWorkspaceCatalog &&
+                  (canManage || removesFavoriteMembership) ? (
                     <DropdownMenuSeparator />
                   ) : null}
                   {removesFavoriteMembership ? (
@@ -4815,7 +4827,8 @@ function DatabaseItemPreview({
                       <IconStarOff className="mr-2 size-4 text-muted-foreground" />
                       {sidebarText("removeFromFavorites")}
                     </DropdownMenuItem>
-                  ) : canManage ? (
+                  ) : canManage &&
+                    (!isWorkspaceCatalog || canDeleteWorkspace) ? (
                     <DropdownMenuItem
                       className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                       onSelect={(event) => {
@@ -4825,7 +4838,9 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconTrash className="mr-2 size-4" />
-                      {dbText("deleteRow")}
+                      {canDeleteWorkspace
+                        ? "Delete workspace"
+                        : dbText("deleteRow")}
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -4969,15 +4984,30 @@ function DatabaseItemPreview({
         </div>
       )}
       <AlertDialog
-        open={!removesFavoriteMembership && confirmDeleteOpen}
+        open={
+          !removesFavoriteMembership &&
+          (!isWorkspaceCatalog || canDeleteWorkspace) &&
+          confirmDeleteOpen
+        }
         onOpenChange={setConfirmDeleteOpen}
       >
         <AlertDialogContent data-database-preview-portal="">
           <AlertDialogHeader>
-            <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {canDeleteWorkspace ? "Delete workspace?" : dbText("deleteRow2")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{previewTitle}&rdquo; and any sub-pages will be permanently
-              deleted. This cannot be undone.
+              {canDeleteWorkspace ? (
+                <>
+                  &ldquo;{previewTitle}&rdquo; and every page and database
+                  inside it will be permanently deleted. This cannot be undone.
+                </>
+              ) : (
+                <>
+                  &ldquo;{previewTitle}&rdquo; and any sub-pages will be
+                  permanently deleted. This cannot be undone.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -5125,6 +5155,8 @@ function DatabaseTableView({
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
@@ -5589,6 +5621,7 @@ function DatabaseTableView({
                     properties={properties}
                     columnWidths={columnWidths}
                     databaseDocumentId={databaseDocumentId}
+                    workspaceCatalog={isWorkspaceCatalog}
                     canEdit={canEdit}
                     selectedIdSet={selectedIdSet}
                     wrapCells={wrapCells}
@@ -5617,6 +5650,7 @@ function DatabaseTableView({
                     key={item.id}
                     item={item}
                     databaseDocumentId={databaseDocumentId}
+                    workspaceCatalog={isWorkspaceCatalog}
                     properties={properties}
                     columnWidths={columnWidths}
                     canEdit={canEdit}
@@ -17786,6 +17820,7 @@ function DatabaseGroupedTableSection({
   properties,
   columnWidths,
   databaseDocumentId,
+  workspaceCatalog,
   canEdit,
   selectedIdSet,
   wrapCells,
@@ -17807,6 +17842,7 @@ function DatabaseGroupedTableSection({
   properties: DocumentProperty[];
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
+  workspaceCatalog: boolean;
   canEdit: boolean;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
@@ -17844,6 +17880,7 @@ function DatabaseGroupedTableSection({
               key={`${group.id}-${item.id}`}
               item={item}
               databaseDocumentId={databaseDocumentId}
+              workspaceCatalog={workspaceCatalog}
               properties={properties}
               columnWidths={columnWidths}
               canEdit={canEdit}
@@ -17910,6 +17947,7 @@ function DatabaseTableRow({
   properties,
   columnWidths,
   databaseDocumentId,
+  workspaceCatalog,
   canEdit,
   rowIndex,
   canReorder,
@@ -17935,6 +17973,7 @@ function DatabaseTableRow({
   properties: ContentDatabaseItem["properties"];
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
+  workspaceCatalog: boolean;
   canEdit: boolean;
   rowIndex: number;
   canReorder: boolean;
@@ -17977,6 +18016,7 @@ function DatabaseTableRow({
       <RowNameCell
         item={item}
         databaseDocumentId={databaseDocumentId}
+        workspaceCatalog={workspaceCatalog}
         canEdit={canEdit}
         canDragRow={canDragRow}
         selected={selected}
@@ -18096,6 +18136,13 @@ export function RowActionsCell({
   const title = item.document.title || "Untitled";
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const workspaceSpace = contentSpaces.data?.spaces.find(
+    (space) => space.catalogDocumentId === item.document.id,
+  );
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const canDeleteWorkspace =
+    isWorkspaceCatalog && workspaceSpace?.kind === "user";
 
   async function duplicateRow() {
     setMenuOpen(false);
@@ -18160,17 +18207,21 @@ export function RowActionsCell({
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             {dbText("openPage")}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={duplicateItem.isPending}
-            onSelect={(event) => {
-              event.preventDefault();
-              void duplicateRow();
-            }}
-          >
-            <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            {dbText("duplicateRow")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {!isWorkspaceCatalog ? (
+            <DropdownMenuItem
+              disabled={duplicateItem.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                void duplicateRow();
+              }}
+            >
+              <IconCopy className="mr-2 size-4 text-muted-foreground" />
+              {dbText("duplicateRow")}
+            </DropdownMenuItem>
+          ) : null}
+          {!isWorkspaceCatalog || canDeleteWorkspace ? (
+            <DropdownMenuSeparator />
+          ) : null}
           {removesFavoriteMembership ? (
             <DropdownMenuItem
               onSelect={(event) => {
@@ -18182,7 +18233,7 @@ export function RowActionsCell({
               <IconStarOff className="mr-2 size-4 text-muted-foreground" />
               {sidebarText("removeFromFavorites")}
             </DropdownMenuItem>
-          ) : (
+          ) : !isWorkspaceCatalog || canDeleteWorkspace ? (
             <DropdownMenuItem
               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
               onSelect={(event) => {
@@ -18192,22 +18243,37 @@ export function RowActionsCell({
               }}
             >
               <IconTrash className="mr-2 size-4" />
-              {dbText("deleteRow")}
+              {canDeleteWorkspace ? "Delete workspace" : dbText("deleteRow")}
             </DropdownMenuItem>
-          )}
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <AlertDialog
-        open={!removesFavoriteMembership && confirmDeleteOpen}
+        open={
+          !removesFavoriteMembership &&
+          (!isWorkspaceCatalog || canDeleteWorkspace) &&
+          confirmDeleteOpen
+        }
         onOpenChange={setConfirmDeleteOpen}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {canDeleteWorkspace ? "Delete workspace?" : dbText("deleteRow2")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{title}&rdquo; and any sub-pages will be permanently
-              deleted. This cannot be undone.
+              {canDeleteWorkspace ? (
+                <>
+                  &ldquo;{title}&rdquo; and every page and database inside it
+                  will be permanently deleted. This cannot be undone.
+                </>
+              ) : (
+                <>
+                  &ldquo;{title}&rdquo; and any sub-pages will be permanently
+                  deleted. This cannot be undone.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -18229,6 +18295,7 @@ export function RowActionsCell({
 function RowNameCell({
   item,
   databaseDocumentId,
+  workspaceCatalog,
   canEdit,
   canDragRow,
   selected,
@@ -18242,6 +18309,7 @@ function RowNameCell({
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
+  workspaceCatalog: boolean;
   canEdit: boolean;
   canDragRow: boolean;
   selected: boolean;
@@ -18334,6 +18402,7 @@ function RowNameCell({
         document={item.document}
         className="size-4 text-sm"
         fallbackClassName="size-4"
+        fallback={workspaceCatalog ? "folder" : "page"}
       />
       {canEdit && editingTitle ? (
         <input

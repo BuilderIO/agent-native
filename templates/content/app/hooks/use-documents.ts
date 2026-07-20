@@ -529,6 +529,9 @@ export function useDeleteDocument() {
         queryKey: ["action", "get-content-database"],
       });
       queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-spaces"],
+      });
+      queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
       });
     },

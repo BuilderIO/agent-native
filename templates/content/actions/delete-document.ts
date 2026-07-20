@@ -374,9 +374,33 @@ export default defineAction({
         .where(
           and(
             eq(schema.contentDatabases.documentId, args.databaseDocumentId),
-            eq(schema.contentDatabases.systemRole, "favorites"),
+            inArray(schema.contentDatabases.systemRole, [
+              "favorites",
+              "workspaces",
+            ]),
           ),
         );
+      if (contextDatabase?.systemRole === "workspaces") {
+        await assertAccess("document", contextDatabase.documentId, "editor");
+        const [mapping] = await db
+          .select({ spaceId: schema.contentSpaceCatalogItems.spaceId })
+          .from(schema.contentSpaceCatalogItems)
+          .where(
+            and(
+              eq(
+                schema.contentSpaceCatalogItems.catalogDatabaseId,
+                contextDatabase.id,
+              ),
+              eq(schema.contentSpaceCatalogItems.documentId, id),
+            ),
+          );
+        if (!mapping) throw new Error("Workspace catalog entry not found");
+        const { deleteUserContentSpace } =
+          await import("./_delete-content-space.js");
+        const result = await deleteUserContentSpace(db, mapping.spaceId);
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        return { success: true, deleted: result.deletedDocuments };
+      }
       if (contextDatabase) {
         await assertAccess("document", contextDatabase.documentId, "editor");
         const [membership] = await db
