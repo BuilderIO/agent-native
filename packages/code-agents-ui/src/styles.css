@@ -1129,13 +1129,14 @@
   background: hsl(var(--muted) / 0.55);
 }
 
-/* These are rendered via React portals (Radix Popover/Tooltip mount to
+/* These are rendered via React portals (Radix overlays mount to
    `document.body`), so they can't inherit the `.code-agents-surface` token
    scope through the DOM and need their own light/dark copy of the same
    tokens. */
 [data-agent-native-tooltip="true"],
 [data-agent-native-composer-popover="true"],
-[data-agent-native-multi-frontier-popover="true"] {
+[data-agent-native-multi-frontier-popover="true"],
+[data-agent-native-multi-frontier-overlay="true"] {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
   --popover: 0 0% 100%;
@@ -1152,7 +1153,8 @@
 
 .dark [data-agent-native-tooltip="true"],
 .dark [data-agent-native-composer-popover="true"],
-.dark [data-agent-native-multi-frontier-popover="true"] {
+.dark [data-agent-native-multi-frontier-popover="true"],
+.dark [data-agent-native-multi-frontier-overlay="true"] {
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --popover: 0 0% 15%;
@@ -1169,7 +1171,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.light) [data-agent-native-tooltip="true"],
   :root:not(.light) [data-agent-native-composer-popover="true"],
-  :root:not(.light) [data-agent-native-multi-frontier-popover="true"] {
+  :root:not(.light) [data-agent-native-multi-frontier-popover="true"],
+  :root:not(.light) [data-agent-native-multi-frontier-overlay="true"] {
     --background: 0 0% 13%;
     --foreground: 0 0% 90%;
     --popover: 0 0% 15%;
@@ -1184,7 +1187,8 @@
   }
 }
 
-[data-agent-native-multi-frontier-popover="true"] {
+[data-agent-native-multi-frontier-popover="true"],
+[data-agent-native-multi-frontier-overlay="true"] {
   z-index: 300;
   max-height: min(520px, calc(100vh - 24px));
   overflow-y: auto;
@@ -1206,14 +1210,16 @@
     inset 0 1px 0 hsl(var(--foreground) / 0.04);
 }
 
-.dark [data-agent-native-multi-frontier-popover="true"] {
+.dark [data-agent-native-multi-frontier-popover="true"],
+.dark [data-agent-native-multi-frontier-overlay="true"] {
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.48),
     inset 0 1px 0 hsl(var(--foreground) / 0.05);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not(.light) [data-agent-native-multi-frontier-popover="true"] {
+  :root:not(.light) [data-agent-native-multi-frontier-popover="true"],
+  :root:not(.light) [data-agent-native-multi-frontier-overlay="true"] {
     box-shadow:
       0 18px 44px rgba(0, 0, 0, 0.48),
       inset 0 1px 0 hsl(var(--foreground) / 0.05);

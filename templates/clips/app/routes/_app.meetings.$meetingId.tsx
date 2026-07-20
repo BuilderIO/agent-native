@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { resolveNativeMeetingJoinUrl } from "@shared/meeting-join-url";
 import {
   IconArrowLeft,
   IconCheck,
@@ -617,6 +618,10 @@ export default function MeetingDetailRoute() {
   const segments = meeting.segmentsJson ?? [];
   const hasSummary =
     !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
+  const joinUrl = meeting.joinUrl
+    ? resolveNativeMeetingJoinUrl(meeting.joinUrl)
+    : null;
+  const opensNativeApp = joinUrl?.startsWith("zoommtg:") ?? false;
 
   const handleCopyTranscript = async () => {
     if (!segments.length) return;
@@ -841,11 +846,11 @@ export default function MeetingDetailRoute() {
             </span>
           </span>
         )}
-        {meeting.joinUrl && !meeting.actualEnd && (
+        {joinUrl && !meeting.actualEnd && (
           <a
-            href={meeting.joinUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={joinUrl}
+            target={opensNativeApp ? undefined : "_blank"}
+            rel={opensNativeApp ? undefined : "noopener noreferrer"}
             className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
           >
             <IconExternalLink className="h-3.5 w-3.5" />

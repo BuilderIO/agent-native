@@ -120,6 +120,8 @@ export interface ResourceTreeProps {
   headingHint?: React.ReactNode;
   /** Scope-specific action shown beside the section heading. */
   sectionAction?: React.ReactNode;
+  /** Scope-specific action shown beneath an empty collection message. */
+  emptyStateAction?: React.ReactNode;
 }
 
 interface CreatingState {
@@ -638,6 +640,7 @@ export function ResourceTree({
   readOnly = false,
   headingHint,
   sectionAction,
+  emptyStateAction,
 }: ResourceTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState<CreatingState | null>(null);
@@ -848,11 +851,14 @@ export function ResourceTree({
       {isEmpty && !creating && !isLoading && (
         <div className="flex items-start gap-2 border-y border-border/60 px-2 py-4">
           <IconFile className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">
-            {variant === "collection"
-              ? "No resources in this collection yet"
-              : "No files yet"}
-          </p>
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-xs text-muted-foreground">
+              {variant === "collection"
+                ? "No resources in this collection yet"
+                : "No files yet"}
+            </p>
+            {emptyStateAction}
+          </div>
         </div>
       )}
     </div>

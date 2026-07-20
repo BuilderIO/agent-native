@@ -225,6 +225,10 @@ export function UpcomingMeetingCard({
     t,
   );
   const joinable = soon || isLive;
+  const joinUrl = meeting.joinUrl
+    ? resolveNativeMeetingJoinUrl(meeting.joinUrl)
+    : null;
+  const opensNativeApp = joinUrl?.startsWith("zoommtg:") ?? false;
 
   return (
     <Card
@@ -283,11 +287,11 @@ export function UpcomingMeetingCard({
         <div className="flex items-center justify-between gap-2 pt-1">
           <AttendeeStack participants={meeting.participants ?? []} size="xs" />
           <div className="flex items-center gap-1.5">
-            {meeting.joinUrl && (
+            {joinUrl && (
               <a
-                href={resolveNativeMeetingJoinUrl(meeting.joinUrl)}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={joinUrl}
+                target={opensNativeApp ? undefined : "_blank"}
+                rel={opensNativeApp ? undefined : "noopener noreferrer"}
                 onClick={(e) => e.stopPropagation()}
               >
                 <Button
