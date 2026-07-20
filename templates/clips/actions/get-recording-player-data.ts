@@ -125,6 +125,7 @@ export default defineAction({
     if (
       rec.visibility === "public" &&
       access.role !== "owner" &&
+      !rec.password &&
       isAgentRecordingCaller(ctx?.caller)
     ) {
       hasExplicitShare = true;
