@@ -3674,13 +3674,13 @@ export function App() {
                 onClick={() => void copyRewindAgentPrompt()}
                 aria-label={
                   rewindAgentPromptCopied
-                    ? "Rewind prompt copied"
-                    : "Copy a prompt for your agent"
+                    ? "Setup prompt copied — paste it into your agent once"
+                    : "Set up your agent"
                 }
                 title={
                   rewindAgentPromptCopied
-                    ? "Copied"
-                    : "Copy a prompt for your agent"
+                    ? "Setup prompt copied — paste it into your agent once"
+                    : "Set up your agent"
                 }
               >
                 {rewindAgentPromptCopied ? (
@@ -6123,11 +6123,11 @@ function Setup({
                 <IconHistory size={17} stroke={1.8} />
               </div>
               <div>
-                <strong>Ask any local agent</strong>
+                <strong>Set up your agent once</strong>
                 <p>
-                  Copy the Rewind prompt into any MCP-compatible agent. It
-                  explains how to find the right chapter, inspect exact local
-                  frames, and repair its connection if needed.
+                  Copy the setup prompt into any compatible agent. It installs
+                  Rewind's reusable instructions and repairs the local
+                  connection, so later you can simply say “Look at Rewind.”
                 </p>
               </div>
             </div>
@@ -6137,7 +6137,7 @@ function Setup({
               </summary>
               <div className="setup-advanced-body">
                 <p className="setup-hint">
-                  Usually your agent can set this up from the copied prompt.
+                  Usually your agent can install Rewind from the copied prompt.
                   These buttons are a manual repair for known clients.
                 </p>
                 <div className="rewind-memory-actions">
