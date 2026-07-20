@@ -14,7 +14,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -980,12 +979,12 @@ export function MultiFrontierModeControl({
           className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"
         >
-          <SelectValue>
+          <span>
             {
               MULTI_FRONTIER_RUN_MODES.find((mode) => mode.value === value)
                 ?.label
             }
-          </SelectValue>
+          </span>
         </SelectTrigger>
         <SelectContent className="code-agents-select-content code-agents-mode-menu code-agents-multi-frontier-mode-menu">
           {MULTI_FRONTIER_RUN_MODES.map((mode) => (

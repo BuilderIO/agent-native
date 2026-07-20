@@ -623,7 +623,11 @@ jobs:
             *) AGENT_LABEL="Recap agent" ;;
           esac
           if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit' codex-events.jsonl codex-stderr.log claude-result.json claude-stderr.log openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
-            REASON="$AGENT_LABEL could not author recap-source.json because its provider quota was exceeded."
+            case "$RECAP_AGENT" in
+              codex) REASON="Codex could not author recap-source.json because the OpenAI API project's quota/budget is exhausted. Add API credits or raise that project's monthly budget, then rerun the workflow." ;;
+              claude) REASON="Claude could not author recap-source.json because the Anthropic provider quota is exhausted. Restore its quota or billing, then rerun the workflow." ;;
+              *) REASON="$AGENT_LABEL could not author recap-source.json because its provider quota was exceeded." ;;
+            esac
           elif grep -Eiq -- 'invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' codex-events.jsonl codex-stderr.log claude-result.json claude-stderr.log openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
             REASON="$AGENT_LABEL could not author recap-source.json because provider authentication failed."
           else
