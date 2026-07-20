@@ -3237,7 +3237,9 @@ const AssistantChatInner = forwardRef<
           const reconnectErrorCode =
             reconnectTerminalReason === "run_timeout"
               ? "run_timeout"
-              : "reconnect_no_progress";
+              : reconnectTerminalReason === "stream_ended"
+                ? "reconnect_stream_ended"
+                : "reconnect_no_progress";
           captureError(new Error(`agent-chat:${reconnectErrorCode}`), {
             tags: {
               context: "agent-native-chat",
@@ -3309,9 +3311,11 @@ const AssistantChatInner = forwardRef<
           }
           setRunErrorInfo({
             message:
-              reconnectTerminalReason === "run_timeout"
+              reconnectErrorCode === "run_timeout"
                 ? "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here."
-                : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+                : reconnectErrorCode === "reconnect_stream_ended"
+                  ? "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run."
+                  : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
             errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
