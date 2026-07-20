@@ -1,7 +1,7 @@
 import {
   defineFeatureFlag,
   defineFeatureFlags,
-} from "@agent-native/core/feature-flags";
+} from "@agent-native/core/feature-flags/registry";
 
 /**
  * Desktop app: use the custom ScreenCaptureKit (SCK) capture pipeline

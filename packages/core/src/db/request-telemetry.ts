@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 
 export type DatabaseOperationKind = "connect" | "query";
 
@@ -30,15 +30,39 @@ interface StartupDatabaseTelemetryState {
   claimed: boolean;
   telemetry: DatabaseRequestTelemetry;
 }
+interface TelemetryStorage {
+  getStore(): DatabaseRequestTelemetry | undefined;
+  run<T>(store: DatabaseRequestTelemetry, fn: () => T): T;
+  enterWith(store: DatabaseRequestTelemetry): void;
+}
+
 type GlobalWithDatabaseTelemetry = typeof globalThis & {
-  [STORAGE_KEY]?: AsyncLocalStorage<DatabaseRequestTelemetry>;
+  [STORAGE_KEY]?: TelemetryStorage;
   [STARTUP_STATE_KEY]?: StartupDatabaseTelemetryState;
 };
 
 const globalRef = globalThis as GlobalWithDatabaseTelemetry;
-const storage =
-  globalRef[STORAGE_KEY] ??
-  (globalRef[STORAGE_KEY] = new AsyncLocalStorage<DatabaseRequestTelemetry>());
+
+// AsyncLocalStorage is resolved lazily, never at module load: this module can
+// land in the browser dev graph, where a top-level `new AsyncLocalStorage()`
+// would throw against Vite's externalized `node:async_hooks` stub. On non-Node
+// runtimes telemetry no-ops.
+const NOOP_STORAGE: TelemetryStorage = {
+  getStore: () => undefined,
+  run: (_store, fn) => fn(),
+  enterWith: () => {},
+};
+
+function getStorage(): TelemetryStorage {
+  const existing = globalRef[STORAGE_KEY];
+  if (existing) return existing;
+  const Ctor = getAsyncLocalStorageCtor();
+  const created: TelemetryStorage = Ctor
+    ? new Ctor<DatabaseRequestTelemetry>()
+    : NOOP_STORAGE;
+  globalRef[STORAGE_KEY] = created;
+  return created;
+}
 
 export function createDatabaseRequestTelemetry(): DatabaseRequestTelemetry {
   return {
@@ -66,7 +90,7 @@ const startupState =
   });
 
 function currentDatabaseTelemetry(): DatabaseRequestTelemetry | undefined {
-  const requestTelemetry = storage.getStore();
+  const requestTelemetry = getStorage().getStore();
   if (requestTelemetry) return requestTelemetry;
   if (!startupState.claimed && Date.now() <= startupState.captureUntil) {
     return startupState.telemetry;
@@ -86,13 +110,13 @@ export function runWithDatabaseRequestTelemetry<T>(
   telemetry: DatabaseRequestTelemetry,
   fn: () => T,
 ): T {
-  return storage.run(telemetry, fn);
+  return getStorage().run(telemetry, fn);
 }
 
 export function enterDatabaseRequestTelemetry(
   telemetry: DatabaseRequestTelemetry,
 ): void {
-  storage.enterWith(telemetry);
+  getStorage().enterWith(telemetry);
 }
 
 export function beginDatabaseOperation(

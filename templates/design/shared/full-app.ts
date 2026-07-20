@@ -13,7 +13,7 @@
  * a design as app-backed.
  */
 
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 /**
  * Runtime rollout for full app building in the Design app. Builder

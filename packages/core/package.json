@@ -159,6 +159,7 @@
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
     "./feature-flags": "./dist/feature-flags/index.js",
+    "./feature-flags/registry": "./dist/feature-flags/registry.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
     "./feature-flags/actions/list-feature-flags": "./dist/feature-flags/actions/list-feature-flags.js",
     "./feature-flags/actions/set-feature-flag": "./dist/feature-flags/actions/set-feature-flag.js",
