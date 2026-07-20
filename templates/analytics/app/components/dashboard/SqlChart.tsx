@@ -26,6 +26,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
   Area,
@@ -60,7 +61,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
+import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
@@ -913,7 +914,6 @@ export function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
-  const tooltipRef = useChartTooltipFlip<HTMLDivElement>(active);
   const items = useMemo(
     () =>
       sortTooltipPayloadItems(
@@ -922,6 +922,8 @@ export function ChartTooltip({
       ),
     [payload],
   );
+  const isVisible = Boolean(active) && items.length > 0;
+  const { anchorRef, boxRef } = useChartTooltipPortalPosition(isVisible);
 
   const labelText =
     label == null
@@ -930,13 +932,13 @@ export function ChartTooltip({
         ? labelFormatter(String(label))
         : String(label);
 
-  if (!active || items.length === 0) return null;
+  if (!isVisible) return null;
 
   const tooltip = (
     <div
-      ref={tooltipRef}
+      ref={boxRef}
       role="tooltip"
-      className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
+      className="fixed z-[9999] min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
     >
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
@@ -971,7 +973,12 @@ export function ChartTooltip({
     </div>
   );
 
-  return tooltip;
+  return (
+    <>
+      <span ref={anchorRef} aria-hidden="true" />
+      {createPortal(tooltip, document.body)}
+    </>
+  );
 }
 
 function detectKeys(
