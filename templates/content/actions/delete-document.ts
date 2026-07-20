@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -153,6 +153,128 @@ async function collectDocumentSubtreeForDelete(
     documentIds: [...documentIds],
     ownedDatabaseIds: [...ownedDatabaseIds],
   };
+}
+
+export async function trashDocumentSubtree(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+  trashedAt = new Date().toISOString(),
+): Promise<string[]> {
+  const { documentIds } = await collectDocumentSubtreeForDelete(
+    db,
+    id,
+    ownerEmail,
+  );
+  await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
+
+  const independentlyTrashedDatabaseDocumentIds = new Set<string>();
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    for (const database of await db
+      .select({ documentId: schema.contentDatabases.documentId })
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          inArray(schema.contentDatabases.documentId, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          isNotNull(schema.contentDatabases.deletedAt),
+        ),
+      )) {
+      independentlyTrashedDatabaseDocumentIds.add(database.documentId);
+    }
+  }
+
+  const activeDocumentIds: string[] = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    activeDocumentIds.push(
+      ...(
+        await db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(schema.documents.id, batch),
+              eq(schema.documents.ownerEmail, ownerEmail),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+      )
+        .map((document) => document.id)
+        .filter(
+          (documentId) =>
+            !independentlyTrashedDatabaseDocumentIds.has(documentId),
+        ),
+    );
+  }
+
+  for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
+    await db
+      .update(schema.documents)
+      .set({ trashedAt, trashRootId: id, updatedAt: trashedAt })
+      .where(
+        and(
+          inArray(schema.documents.id, batch),
+          eq(schema.documents.ownerEmail, ownerEmail),
+          isNull(schema.documents.trashedAt),
+        ),
+      );
+    await db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: trashedAt, updatedAt: trashedAt })
+      .where(
+        and(
+          inArray(schema.contentDatabases.documentId, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
+  }
+
+  return activeDocumentIds;
+}
+
+export async function restoreDocumentSubtree(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+): Promise<string[]> {
+  const documentIds = (
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.trashRootId, rootId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+  ).map((document) => document.id);
+  if (documentIds.length === 0) return [];
+
+  const now = new Date().toISOString();
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    await db
+      .update(schema.documents)
+      .set({ trashedAt: null, trashRootId: null, updatedAt: now })
+      .where(
+        and(
+          inArray(schema.documents.id, batch),
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.trashRootId, rootId),
+        ),
+      );
+    await db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: null, updatedAt: now })
+      .where(
+        and(
+          inArray(schema.contentDatabases.documentId, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+        ),
+      );
+  }
+
+  return documentIds;
 }
 
 async function deleteWhereIn<T>(
@@ -354,7 +476,8 @@ export async function deleteDocumentRecursive(
 }
 
 export default defineAction({
-  description: "Delete a document and all its children recursively.",
+  description:
+    "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     databaseDocumentId: z
@@ -408,10 +531,12 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
-    const deleted = await deleteDocumentRecursive(
-      db,
-      id,
-      existing.ownerEmail as string,
+    const deleted = await db.transaction((tx) =>
+      trashDocumentSubtree(
+        tx as unknown as ReturnType<typeof getDb>,
+        id,
+        existing.ownerEmail as string,
+      ),
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });

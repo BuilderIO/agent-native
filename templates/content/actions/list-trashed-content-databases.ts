@@ -48,6 +48,10 @@ export default defineAction({
         and(
           isNotNull(schema.contentDatabases.deletedAt),
           or(
+            isNull(schema.documents.trashRootId),
+            eq(schema.documents.trashRootId, schema.documents.id),
+          ),
+          or(
             and(
               isBlockOwned,
               accessFilter(

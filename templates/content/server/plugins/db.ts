@@ -856,6 +856,13 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS document_property_definitions_database_system_role_unique
           ON document_property_definitions (database_id, system_role)`,
     },
+    {
+      version: 76,
+      name: "document-trash-lifecycle",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

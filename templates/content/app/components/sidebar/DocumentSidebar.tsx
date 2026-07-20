@@ -11,6 +11,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   closestCenter,
@@ -42,6 +43,7 @@ import {
   IconRestore,
   IconSearch,
   IconSettings,
+  IconStar,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -120,7 +122,10 @@ import {
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
+  usePermanentlyDeleteDocument,
   useMoveDocument,
+  useRestoreDocument,
+  useTrashedDocuments,
   useUpdateDocument,
   buildDocumentTree,
   filterDocumentTreeDocuments,
@@ -351,7 +356,10 @@ export function DocumentSidebar({
   const createDatabase = useCreateContentDatabase(null);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
+  const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
   const moveDocument = useMoveDocument();
+  const restoreDocument = useRestoreDocument();
+  const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
   const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
@@ -700,6 +708,7 @@ export function DocumentSidebar({
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
   const trashItems = trashedDatabases?.databases ?? [];
+  const trashedPageItems = trashedDocuments?.documents ?? [];
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -1124,7 +1133,7 @@ export function DocumentSidebar({
   const handlePermanentDeleteDatabase = useCallback(
     async (documentId: string) => {
       try {
-        await deleteDocument.mutateAsync({ id: documentId });
+        await permanentlyDeleteDocument.mutateAsync({ id: documentId });
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1139,7 +1148,37 @@ export function DocumentSidebar({
         });
       }
     },
-    [deleteDocument, queryClient, t],
+    [permanentlyDeleteDocument, queryClient, t],
+  );
+
+  const handleRestoreDocument = useCallback(
+    async (documentId: string) => {
+      try {
+        await restoreDocument.mutateAsync({ id: documentId });
+        toast.success(t("sidebar.pageRestored"));
+      } catch (err) {
+        toast.error(t("sidebar.failedRestorePage"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [restoreDocument, t],
+  );
+
+  const handlePermanentDeleteDocument = useCallback(
+    async (documentId: string) => {
+      try {
+        await permanentlyDeleteDocument.mutateAsync({ id: documentId });
+        toast.success(t("sidebar.pagePermanentlyDeleted"));
+      } catch (err) {
+        toast.error(t("sidebar.failedPermanentDeletePage"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [permanentlyDeleteDocument, t],
   );
 
   const handleRemoveLocalFiles = useCallback(async () => {
@@ -1423,21 +1462,21 @@ export function DocumentSidebar({
             type="button"
             aria-expanded={expanded}
             aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
-            className="relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+            className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
             onClick={() =>
               updateExpandedWorkspaceIds((current) =>
                 toggleExpandedWorkspaceIds(current, space.id),
               )
             }
           >
-            <span className="group-hover/workspace-header:opacity-0 group-focus-within/workspace-header:opacity-0">
+            <span className="group-hover/workspace-header:opacity-0 group-focus-visible/workspace-toggle:opacity-0">
               {expanded ? (
                 <IconFolderOpen size={14} />
               ) : (
                 <IconFolder size={14} />
               )}
             </span>
-            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100">
+            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-visible/workspace-toggle:opacity-100">
               {expanded ? (
                 <IconChevronDown size={14} />
               ) : (
@@ -1605,7 +1644,6 @@ export function DocumentSidebar({
   );
 
   const renderTrashSection = () => {
-    if (trashItems.length === 0) return null;
     const collapsed = collapsedSections.trash;
 
     return (
@@ -1613,6 +1651,89 @@ export function DocumentSidebar({
         {renderSectionHeader("trash", t("sidebar.trash"))}
         {!collapsed && (
           <div className="px-1 py-1">
+            {trashedPageItems.map((document) => {
+              const title = document.title || t("sidebar.untitled");
+              return (
+                <div
+                  key={document.documentId}
+                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("sidebar.restorePageNamed", { title })}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                        disabled={restoreDocument.isPending}
+                        onClick={() =>
+                          void handleRestoreDocument(document.documentId)
+                        }
+                      >
+                        <IconRestore size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("sidebar.restorePage")}</TooltipContent>
+                  </Tooltip>
+                  <AlertDialog>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={t(
+                              "sidebar.deletePageNamedPermanently",
+                              {
+                                title,
+                              },
+                            )}
+                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                            disabled={permanentlyDeleteDocument.isPending}
+                          >
+                            <IconTrashX size={14} />
+                          </button>
+                        </AlertDialogTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("sidebar.deletePermanently")}
+                      </TooltipContent>
+                    </Tooltip>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {t("sidebar.deletePagePermanentlyQuestion")}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {t("sidebar.deletePagePermanentlyDescription", {
+                            title,
+                          })}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>
+                          {t("comments.cancel")}
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() =>
+                            void handlePermanentDeleteDocument(
+                              document.documentId,
+                            )
+                          }
+                        >
+                          {t("sidebar.deletePermanently")}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              );
+            })}
+            {trashedPageItems.length === 0 && trashItems.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                {t("sidebar.trashEmpty")}
+              </div>
+            ) : null}
             {trashItems.map((database) => {
               const title = database.title || t("editor.untitledDatabase");
               return (
@@ -1653,7 +1774,7 @@ export function DocumentSidebar({
                                 { title },
                               )}
                               className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                              disabled={deleteDocument.isPending}
+                              disabled={permanentlyDeleteDocument.isPending}
                             >
                               <IconTrashX size={14} />
                             </button>
@@ -1873,19 +1994,27 @@ export function DocumentSidebar({
               {/* Favorites */}
               {showFavorites && (
                 <div className="mb-2 min-w-0 px-2">
-                  <div className="flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
+                  <div className="group/favorites flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
                     <button
                       type="button"
                       aria-expanded={!collapsedSections.favorites}
                       aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.favorites")}`}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                      className="group/favorites-toggle flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
                       onClick={() => toggleSection("favorites")}
                     >
-                      {collapsedSections.favorites ? (
-                        <IconChevronRight size={14} />
-                      ) : (
-                        <IconChevronDown size={14} />
-                      )}
+                      <span className="relative size-3.5">
+                        <IconStar
+                          aria-hidden="true"
+                          className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
+                        />
+                        <IconChevronRight
+                          aria-hidden="true"
+                          className={cn(
+                            "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/favorites:opacity-100 group-focus-visible/favorites-toggle:opacity-100 rtl:-scale-x-100",
+                            !collapsedSections.favorites && "rotate-90",
+                          )}
+                        />
+                      </span>
                     </button>
                     <Link
                       to={
@@ -1954,6 +2083,10 @@ export function DocumentSidebar({
           toolClassName="overflow-hidden rounded-md"
         />
         <ExtensionsSidebarSection />
+      </div>
+
+      <div className="shrink-0 px-3 py-2">
+        <OrgSwitcher reserveSpace />
       </div>
 
       {/* Footer */}

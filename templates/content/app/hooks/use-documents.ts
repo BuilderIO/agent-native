@@ -11,6 +11,7 @@ import type {
   DocumentUpdateRequest,
   DocumentUpdateResponse,
   DocumentMoveRequest,
+  ListTrashedDocumentsResponse,
   DocumentTreeNode,
 } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
@@ -530,6 +531,62 @@ export function useDeleteDocument() {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-content-spaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
+    },
+  });
+}
+
+export function useTrashedDocuments() {
+  return useActionQuery<ListTrashedDocumentsResponse>(
+    "list-trashed-documents",
+    {},
+  );
+}
+
+export function useRestoreDocument() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; restored: number; documentId: string },
+    { id: string }
+  >("restore-document", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+    },
+  });
+}
+
+export function usePermanentlyDeleteDocument() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; deleted: number },
+    { id: string }
+  >("permanently-delete-document", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],

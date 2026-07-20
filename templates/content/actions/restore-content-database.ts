@@ -9,6 +9,7 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
+import { restoreDocumentSubtree } from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
@@ -47,16 +48,23 @@ export default defineAction({
       ownerBlockId: ownership.database.ownerBlockId,
     });
 
-    await db
-      .update(schema.contentDatabases)
-      .set({
-        deletedAt: null,
-        updatedAt: now,
-        ...(clearInlineOwnership
-          ? { ownerDocumentId: null, ownerBlockId: null }
-          : {}),
-      })
-      .where(eq(schema.contentDatabases.id, databaseId));
+    await db.transaction(async (tx) => {
+      await restoreDocumentSubtree(
+        tx as unknown as ReturnType<typeof getDb>,
+        ownership.database.documentId,
+        ownership.database.ownerEmail,
+      );
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          deletedAt: null,
+          updatedAt: now,
+          ...(clearInlineOwnership
+            ? { ownerDocumentId: null, ownerBlockId: null }
+            : {}),
+        })
+        .where(eq(schema.contentDatabases.id, databaseId));
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

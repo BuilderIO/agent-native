@@ -70,7 +70,7 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    if (await isSoftDeletedDatabaseDocument(args.id)) {
+    if (access.resource.trashedAt || (await isSoftDeletedDatabaseDocument(args.id))) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
       });

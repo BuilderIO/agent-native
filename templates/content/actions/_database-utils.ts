@@ -81,6 +81,8 @@ export const contentDatabaseListDocumentSelection = {
   sourcePath: schema.documents.sourcePath,
   sourceRootPath: schema.documents.sourceRootPath,
   sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+  trashedAt: schema.documents.trashedAt,
+  trashRootId: schema.documents.trashRootId,
   visibility: schema.documents.visibility,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
@@ -331,6 +333,7 @@ export async function getContentDatabaseResponse(
                     }),
                   ),
                 ),
+                isNull(schema.documents.trashedAt),
                 documentDiscoveryFilter({
                   userEmail,
                   orgIds: authorizedOrgIds,
@@ -351,6 +354,11 @@ export async function getContentDatabaseResponse(
       : undefined;
   const visibleItemFilter = and(
     eq(schema.contentDatabaseItems.databaseId, databaseId),
+    sql`exists (
+      select 1 from ${schema.documents}
+      where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
+        and ${schema.documents.trashedAt} is null
+    )`,
     organizationFilesItemFilter,
     favoritesVisibleDocumentIds
       ? favoritesVisibleDocumentIds.length > 0
@@ -388,6 +396,7 @@ export async function getContentDatabaseResponse(
                 schema.documents.id,
                 items.map((item) => item.documentId),
               ),
+              isNull(schema.documents.trashedAt),
               database.systemRole === "favorites"
                 ? favoritesVisibleDocumentIds?.length
                   ? inArray(schema.documents.id, favoritesVisibleDocumentIds)

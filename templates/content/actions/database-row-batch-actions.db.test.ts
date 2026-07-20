@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -157,7 +157,12 @@ async function orderedRows(databaseId: string) {
       schema.documents,
       eq(schema.documents.id, schema.contentDatabaseItems.documentId),
     )
-    .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, databaseId),
+        isNull(schema.documents.trashedAt),
+      ),
+    )
     .orderBy(asc(schema.contentDatabaseItems.position));
 }
 
@@ -355,7 +360,10 @@ describe("database row batch actions", () => {
     expect(remainingRows.map((row) => row.itemPosition)).toEqual([0, 1]);
 
     const deletedDocs = await db
-      .select({ id: schema.documents.id })
+      .select({
+        id: schema.documents.id,
+        trashedAt: schema.documents.trashedAt,
+      })
       .from(schema.documents)
       .where(
         inArray(schema.documents.id, [
@@ -364,12 +372,13 @@ describe("database row batch actions", () => {
           childDocumentId,
         ]),
       );
-    expect(deletedDocs).toEqual([]);
-    const deletedValues = await db
+    expect(deletedDocs).toHaveLength(3);
+    expect(deletedDocs.every((document) => document.trashedAt)).toBe(true);
+    const preservedValues = await db
       .select()
       .from(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.documentId, rows[1].documentId));
-    expect(deletedValues).toEqual([]);
+    expect(preservedValues).toHaveLength(1);
   });
 
   it("rejects unauthorized delete batches before writing", async () => {

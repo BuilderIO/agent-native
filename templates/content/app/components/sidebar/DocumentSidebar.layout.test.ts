@@ -194,6 +194,12 @@ describe("document sidebar layout", () => {
       '"group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md"',
     );
     expect(sidebar).toContain("group-hover/workspace-header:opacity-100");
+    expect(sidebar).toContain(
+      "group-focus-visible/workspace-toggle:opacity-100",
+    );
+    expect(sidebar).not.toContain(
+      "group-focus-within/workspace-header:opacity-100",
+    );
     expect(sidebar).not.toContain('className="group/workspace min-w-0"');
     expect(sidebar).toContain("{expanded && (");
     expect(sidebar).toContain("<WorkspaceFilesSection");
@@ -228,7 +234,16 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain(
       '<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">',
     );
-    expect(sidebar).not.toContain("<OrgSwitcher />");
+    expect(sidebar).toContain(
+      'import { OrgSwitcher } from "@agent-native/core/client/org";',
+    );
+    expect(sidebar).toContain("<OrgSwitcher reserveSpace />");
+    expect(sidebar.indexOf("<ExtensionsSidebarSection />")).toBeLessThan(
+      sidebar.indexOf("<OrgSwitcher reserveSpace />"),
+    );
+    expect(sidebar.indexOf("<OrgSwitcher reserveSpace />")).toBeLessThan(
+      sidebar.indexOf("{/* Footer */}"),
+    );
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
     expect(sidebar).toContain('t("sidebar.newWorkspace")');
     expect(sidebar).toContain("useCreateContentSpace");
@@ -241,14 +256,20 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('<Link to="/local-files">');
   });
 
-  it("keeps the trashed inline database lifecycle visible in the sidebar", () => {
+  it("keeps a unified page and database Trash lifecycle visible in the sidebar", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const messages = readSidebarSource("../../i18n-data.ts");
 
     expect(sidebar).toContain("useTrashedContentDatabases");
+    expect(sidebar).toContain("useTrashedDocuments");
     expect(sidebar).toContain("useDeleteContentDatabase");
     expect(sidebar).toContain("useRestoreContentDatabase");
     expect(sidebar).toContain("const trashItems =");
+    expect(sidebar).toContain("const trashedPageItems =");
+    expect(sidebar).toContain("const handleRestoreDocument = useCallback");
+    expect(sidebar).toContain(
+      "const handlePermanentDeleteDocument = useCallback",
+    );
     expect(sidebar).toContain("const handleRestoreDatabase = useCallback");
     expect(sidebar).toContain(
       "const handlePermanentDeleteDatabase = useCallback",
@@ -259,6 +280,8 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("handleRestoreDatabase(database.databaseId)");
     expect(sidebar).toContain("handlePermanentDeleteDatabase");
+    expect(sidebar).toContain("handleRestoreDocument(document.documentId)");
+    expect(sidebar).toContain("handlePermanentDeleteDocument");
     expect(sidebar).toContain("database.documentId");
     expect(sidebar).toContain("database.canPermanentlyDelete");
     expect(sidebar).toContain("deletedDocument?.database");
@@ -270,6 +293,8 @@ describe("document sidebar layout", () => {
 
     expect(messages).toContain('trash: "Trash"');
     expect(messages).toContain('restoreDatabase: "Restore"');
+    expect(messages).toContain('restorePage: "Restore"');
+    expect(messages).toContain('trashEmpty: "Trash is empty"');
     expect(messages).toContain(
       'deleteDatabasePermanentlyQuestion: "Delete database permanently?"',
     );
@@ -325,6 +350,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('toggleSection("favorites")');
     expect(sidebar).toContain("!collapsedSections.favorites &&");
     expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
+    expect(sidebar).toContain("<IconStar");
+    expect(sidebar).toContain("group-hover/favorites:opacity-0");
+    expect(sidebar).toContain("group-hover/favorites:opacity-100");
+    expect(sidebar).toContain('!collapsedSections.favorites && "rotate-90"');
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
     expect(sidebar).toContain("favoritesDocumentId");
     expect(sidebar).toContain("`/page/${favoritesDocumentId}`");

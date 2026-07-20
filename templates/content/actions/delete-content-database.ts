@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { getDb } from "../server/db/index.js";
 import { assertContentDatabaseLifecycleAccess } from "./_content-database-lifecycle.js";
+import { trashDocumentSubtree } from "./delete-document.js";
 
 export default defineAction({
   description:
@@ -19,13 +19,14 @@ export default defineAction({
     }
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
-
-    if (!database.deletedAt) {
-      await db
-        .update(schema.contentDatabases)
-        .set({ deletedAt, updatedAt: deletedAt })
-        .where(eq(schema.contentDatabases.id, databaseId));
-    }
+    await db.transaction((tx) =>
+      trashDocumentSubtree(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.documentId,
+        database.ownerEmail,
+        deletedAt,
+      ),
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
