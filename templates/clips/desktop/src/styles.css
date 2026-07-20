@@ -5642,29 +5642,6 @@ body[data-clips-route="recording-pill"] #root {
   overflow: hidden;
 }
 
-/* Meeting mode: transcript + notes side by side. */
-.pill-split {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.pill-split-pane {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 50%;
-  min-width: 0;
-  min-height: 0;
-}
-
-.pill-split-divider {
-  width: 1px;
-  flex-shrink: 0;
-  margin: 8px 0;
-  background: rgba(255, 255, 255, 0.1);
-}
-
 .pill-pane-label {
   flex-shrink: 0;
   padding: 8px 12px 2px;
@@ -5705,36 +5682,6 @@ body[data-clips-route="recording-pill"] #root {
 .pill-copy-btn:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-/* In the split, the transcript area should fill its pane below the label. */
-.pill-split-pane .pill-transcript-area {
-  flex: 1;
-  min-height: 0;
-}
-
-.pill-notes-area {
-  min-height: 0;
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  padding: 4px 12px 8px;
-}
-
-.pill-notes-textarea {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  color: #f5f5f5;
-  font-size: 12px;
-  line-height: 1.5;
-  font-family: inherit;
-}
-
-.pill-notes-textarea::placeholder {
-  color: #71717a;
 }
 
 .pill-saved-bar {
