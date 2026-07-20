@@ -1,9 +1,8 @@
 import {
   AgentSidebar,
   focusAgentChat,
-  useAgentChatHomeHandoff,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
@@ -41,12 +40,6 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const chatHomeHandoffActive = useAgentChatHomeHandoff({
-    storageKey: "chat",
-    activePath: location.pathname,
-    enabled: true,
-  });
-
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
@@ -118,9 +111,8 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           chatViewTransition
-          storageKey="chat"
+          storageKey="tasks"
           browserTabId={TAB_ID}
-          openOnChatRunning={chatHomeHandoffActive}
           onFullscreenRequest={() => focusAgentChat()}
           emptyStateText={t("agent.emptyState")}
           dynamicSuggestions={false}

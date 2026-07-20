@@ -18,5 +18,37 @@ agent-native package eject @agent-native/scheduling --apply
 Hinzufügen und Auswerfen sind standardmäßig Vorschauen. Erst `--apply` schreibt
 Dateien und startet den erkannten Paketmanager. Kollisionen und unbekannte
 Layouts werden abgelehnt; bei einem Installationsfehler werden Dateien und
-Lockdateien zurückgesetzt. Zunächst unterstützt nur Scheduling das Auswerfen;
-Pinpoint bleibt bis nach dem Pilotprojekt zurückgestellt.
+Lockdateien zurückgesetzt.
+
+## Eine Funktion auswerfen
+
+Nutzen Sie die Anpassungsleiter in dieser Reihenfolge: öffentliche API
+konfigurieren, öffentliche Bausteine zusammensetzen, die kleinste Einheit
+auswerfen und bei wiederkehrendem Bedarf eine gemeinsame Naht vorschlagen.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+Die Befehle sind standardmäßig Vorschauen. Eine Anwendung schreibt den
+committeten Nachweis in `agent-native.ejections.json` mit Paketversion,
+Manifest-Digest, Dateihashes und Import-Umschreibungen. Restore funktioniert nur,
+wenn Dateien und Importe unverändert sind; andernfalls zeigt es den Diff und
+verweigert das Löschen lokaler Änderungen.
+
+First-Party-Manifeste decken alle öffentlichen Toolkit-Einstiegspunkte und
+Integrationskataloge ab. Ein fehlendes First-Party-Rezept ist ein
+Framework-Abdeckungsfehler; unbekannte Drittanbieter erhalten stattdessen einen
+Add-Blueprint. Geschützte Core-Verträge werden nicht kopiert: Die CLI verweist
+auf die öffentliche Konfigurations-, Adapter- oder Erweiterungsnaht.
+
+## Migrationen
+
+Veröffentlichte Pakete enthalten `migration-manifest.json` für verschobene Pfade und Symbole. `npx @agent-native/core@latest upgrade --codemods` zeigt den Diff; `--yes` wendet ihn nach Prüfung an. In CI: `agent-native doctor --only migration-manifest`, ohne Opt-out.
+
+Einträge mit `planned` können vor ihrem Ziel veröffentlicht werden; sie erscheinen als nicht blockierende Warnungen und werden nicht umgeschrieben. Ein aktiver Move wird nur umgeschrieben, wenn der Ziel-Export installiert ist.

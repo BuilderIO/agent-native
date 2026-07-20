@@ -171,7 +171,7 @@ const messages = {
       "데스크톱 레코더가 완료되고 로컬 복사본을 저장했지만 Clips가 이를 업로드할 수 없습니다. 다시 녹음하지 않고 Clips 메뉴에서 다시 시도할 수 있습니다.",
     retryLibrary: "라이브러리에서 다시 시도할 수 있습니다.",
     processingStuck:
-      "30초 후에도 처리가 완료되지 않았습니다(상태={{status}}). 클립 업로드가 완료되지 않았을 수 있습니다. 서버 로그에서 청크/완결 메시지를 확인하세요.",
+      "저장하는 데 예상보다 오래 걸리고 있습니다(상태={{status}}). 데스크톱 앱에서 녹화했다면 메뉴 막대에서 Clips를 열어 업로드를 다시 시도하거나 저장된 로컬 사본을 다운로드한 다음 다시 확인하세요.",
     uploadingAssembling:
       "비디오 업로드 및 취합 – 일반적으로 몇 초 밖에 걸리지 않습니다.",
     connectStorageImportLoom: "이 Loom를 가져오려면 저장소를 연결하세요.",
@@ -218,6 +218,9 @@ const messages = {
     autoChapters: "자동 챕터",
     removeFillerWords: "필러 단어 제거",
     removeSilences: "무음 제거(>1.2초)",
+    silenceWorking: "무음 구간을 제거하는 중…",
+    silenceCompleted: "무음 구간 제거 완료",
+    silenceFailed: "무음 구간 제거 실패",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:
@@ -539,6 +542,9 @@ const messages = {
     brandingUpdated: "브랜딩이 업데이트됨",
     saveFailed: "저장 실패",
     organizationName: "조직 이름",
+    defaultVisibility: "새 녹화의 기본 공개 범위",
+    defaultVisibilityDescription:
+      "다른 공개 범위를 선택하지 않으면 새 녹화에 적용됩니다.",
     brandColor: "브랜드 색상",
     brandColorPicker: "브랜드 색상 선택기",
     useColor: "{{color}} 사용",
@@ -606,10 +612,10 @@ const messages = {
     pageTitle: "팀 참여 · Clips",
   },
   settings: {
-    openAgentSettings: "에이전트 설정 열기",
+    openAgentSettings: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    agentTitle: "에이전트 설정",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 관리",
     title: "설정",
     pageTitle: "설정 · Clips",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
@@ -617,6 +623,16 @@ const messages = {
     languageDescription:
       "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",
     languageLabel: "인터페이스 언어",
+    uploadWorkspaceTitle: "활성 워크스페이스",
+    uploadWorkspaceDescription:
+      "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",
+    uploadWorkspaceLabel: "현재 워크스페이스",
+    uploadWorkspacePlaceholder: "워크스페이스 선택",
+    uploadWorkspaceHint:
+      "변경하면 워크스페이스와 관련된 Clips 화면도 업데이트됩니다.",
+    uploadWorkspaceSaving: "워크스페이스 저장 중…",
+    uploadWorkspaceSaved: "활성 워크스페이스가 업데이트됨",
+    uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
     viewAllUpdates: "모든 업데이트 보기",
@@ -912,6 +928,17 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     summary: "요약",
     keyPoints: "핵심 포인트",
     actionItems: "작업 항목",
+    sharedContent: "공유 콘텐츠",
+    summaryIncluded: "요약, 핵심 포인트 및 작업 항목",
+    includeTranscript: "전체 스크립트 포함",
+    includeTranscriptDescription:
+      "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
+    transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    transcript: "스크립트",
+    copyTranscript: "스크립트 복사",
+    transcriptCopied: "스크립트가 복사되었습니다",
+    copyTranscriptFailed: "스크립트를 복사하지 못했습니다",
+    updateTranscriptSharingFailed: "스크립트 공유를 업데이트하지 못했습니다",
   },
   deleteRecordingMenu: {
     movedToTrash: "클립이 휴지통으로 이동됨",
@@ -1097,6 +1124,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     desktopTitle: "Desktop app (현지화됨)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (현지화됨)",
+    openDesktopApp: "Open desktop app (현지화됨)",
   },
   editableTitle: {
     untitled: "Untitled Clip (현지화됨)",
@@ -1359,7 +1387,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     uploadFailed: "업로드 실패",
     connectStorageToFinish: "열어서 저장소를 연결하고 저장을 완료하세요.",
     retryFromClipsMenu:
-      "Clips 메뉴에서 다시 시도하세요. 다시 녹화할 필요는 없습니다.",
+      "메뉴 막대에서 Clips를 열어 저장된 업로드를 다시 시도하세요. 다시 녹화할 필요가 없습니다.",
     removeFailedClip: "실패한 클립 제거.",
     remove: "제거",
     viewsCount: "조회수 {{count}}회",

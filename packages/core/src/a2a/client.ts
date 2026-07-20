@@ -1,8 +1,12 @@
 import * as jose from "jose";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
   A2AApprovedAction,
+  A2ACorrelationMetadata,
+  A2ASourceContextReference,
+  A2AReadOnlyActionResult,
   AgentCard,
   JsonRpcRequest,
   JsonRpcResponse,
@@ -188,9 +192,19 @@ export class A2AClient {
         );
 
         if (res.ok) {
+          const text = await res.text();
+          if (
+            i < this.apiKeyAttempts.length - 1 &&
+            isA2AAuthRejectionResponse(res.status, text)
+          ) {
+            lastError = new Error(
+              `A2A request failed (${res.status}): ${text}`,
+            );
+            continue;
+          }
           this.endpointCandidates = [url];
           this.markApiKeySucceeded(this.apiKeyAttempts[i]);
-          return res.json() as Promise<JsonRpcResponse>;
+          return JSON.parse(text) as JsonRpcResponse;
         }
 
         const text = await res.text();
@@ -228,6 +242,7 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
       /**
        * If true, ask the server to return the task immediately in `working`
@@ -244,6 +259,7 @@ export class A2AClient {
       message,
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      ...(opts?.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
       ...(opts?.approvedActions?.length
         ? { approvedActions: opts.approvedActions }
         : {}),
@@ -273,6 +289,30 @@ export class A2AClient {
   }
 
   /**
+   * Execute one receiver-approved read-only action without starting the
+   * receiver's agent loop. The receiver still owns validation, credentials,
+   * request scoping, and the explicit action exposure decision.
+   */
+  async invokeAction(
+    action: string,
+    input: Record<string, unknown> = {},
+    opts?: { metadata?: A2ACorrelationMetadata },
+  ): Promise<A2AReadOnlyActionResult> {
+    const metadata = sanitizeA2ACorrelationMetadata(opts?.metadata);
+    const response = await this.rpc("actions/invoke", {
+      action,
+      input,
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    });
+    if (response.error) {
+      throw new Error(
+        `A2A error (${response.error.code}): ${response.error.message}`,
+      );
+    }
+    return response.result as A2AReadOnlyActionResult;
+  }
+
+  /**
    * Send a message in async mode and poll until the task reaches a terminal
    * state. This is the recommended path on serverless hosts with short
    * function timeouts (Netlify, Vercel) where a synchronous LLM-driven A2A
@@ -286,6 +326,7 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
       /** Total time to wait for completion. Default 5 min. */
       timeoutMs?: number;
@@ -298,12 +339,45 @@ export class A2AClient {
     const submitted = await this.send(message, {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      idempotencyKey: opts?.idempotencyKey,
       ...(opts?.approvedActions?.length
         ? { approvedActions: opts.approvedActions }
         : {}),
       async: true,
     });
 
+    return this.pollTask(submitted, opts);
+  }
+
+  /**
+   * Continue waiting for an existing async task without submitting a second
+   * message. Use this after a bounded caller-side wait expires but the remote
+   * task is still working.
+   */
+  async waitForTask(
+    taskId: string,
+    opts?: {
+      /** Total time to wait for completion. Default 5 min. */
+      timeoutMs?: number;
+      /** Poll interval. Default 2s. */
+      pollIntervalMs?: number;
+      /** Called with each successfully polled task. */
+      onUpdate?: (task: Task) => void;
+    },
+  ): Promise<Task> {
+    const current = await this.getTask(taskId);
+    opts?.onUpdate?.(current);
+    return this.pollTask(current, opts);
+  }
+
+  private async pollTask(
+    submitted: Task,
+    opts?: {
+      timeoutMs?: number;
+      pollIntervalMs?: number;
+      onUpdate?: (task: Task) => void;
+    },
+  ): Promise<Task> {
     const terminalStates = new Set([
       "completed",
       "failed",
@@ -532,6 +606,7 @@ function uniqueAuthTokens(
 function isA2AAuthRejectionResponse(status: number, text: string): boolean {
   return (
     status === 401 ||
+    /verified, audience-bound user identity/i.test(text) ||
     /A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
       text,
     )
@@ -558,6 +633,12 @@ export async function callAgent(
     requestOrigin?: string;
     /** Exact downstream actions explicitly authorized in the caller's chat. */
     approvedActions?: A2AApprovedAction[];
+    /** Opaque provenance reference resolved by the receiver through Dispatch. */
+    sourceContext?: A2ASourceContextReference;
+    /** Bounded telemetry-only lineage forwarded to the receiving app. */
+    correlation?: A2ACorrelationMetadata;
+    /** Stable caller-generated key for one message submission. */
+    idempotencyKey?: string;
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
      * cross-app calls that may exceed a synchronous serverless request budget.
@@ -566,6 +647,11 @@ export async function callAgent(
     async?: boolean;
     /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
+    /**
+     * Existing async task to keep polling. When set, no new message is sent.
+     * This prevents a caller-side timeout from duplicating downstream work.
+     */
+    taskId?: string;
     /** Poll interval for async calls. Primarily useful for tests/retries. */
     pollIntervalMs?: number;
     /**
@@ -590,6 +676,8 @@ export async function callAgent(
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
+  if (opts?.sourceContext) metadata.sourceContext = opts.sourceContext;
+  Object.assign(metadata, sanitizeA2ACorrelationMetadata(opts?.correlation));
 
   // Default to async + poll. The receiving A2A server's `_process-task` route
   // runs the handler in a fresh function execution (cross-platform queue
@@ -615,20 +703,31 @@ export async function callAgent(
       });
       let task: Task;
       if (useAsync) {
-        task = await client.sendAndWait(message, {
-          contextId: opts?.contextId,
-          metadata,
-          ...(opts?.approvedActions?.length
-            ? { approvedActions: opts.approvedActions }
-            : {}),
-          timeoutMs: opts?.timeoutMs,
-          pollIntervalMs: opts?.pollIntervalMs,
-          onUpdate: opts?.onUpdate,
-        });
+        task = opts?.taskId
+          ? await client.waitForTask(opts.taskId, {
+              timeoutMs: opts.timeoutMs,
+              pollIntervalMs: opts.pollIntervalMs,
+              onUpdate: opts.onUpdate,
+            })
+          : await client.sendAndWait(message, {
+              contextId: opts?.contextId,
+              metadata,
+              idempotencyKey: opts?.idempotencyKey,
+              ...(opts?.approvedActions?.length
+                ? { approvedActions: opts.approvedActions }
+                : {}),
+              timeoutMs: opts?.timeoutMs,
+              pollIntervalMs: opts?.pollIntervalMs,
+              onUpdate: opts?.onUpdate,
+            });
       } else {
+        if (opts?.taskId) {
+          throw new Error("Polling an existing A2A task requires async mode");
+        }
         task = await client.send(message, {
           contextId: opts?.contextId,
           metadata,
+          idempotencyKey: opts?.idempotencyKey,
           ...(opts?.approvedActions?.length
             ? { approvedActions: opts.approvedActions }
             : {}),
@@ -665,12 +764,55 @@ export async function callAgent(
   return "";
 }
 
-async function buildA2AApiKeyAttempts(opts?: {
-  apiKey?: string;
-  userEmail?: string;
-  orgDomain?: string;
-  orgSecret?: string;
-}): Promise<Array<string | undefined>> {
+/**
+ * Invoke one receiver-approved read-only action with an audience-bound user
+ * token. Unlike conversational delegation, this never starts the receiver's
+ * model loop.
+ */
+export async function callAction(
+  url: string,
+  action: string,
+  input: Record<string, unknown> = {},
+  opts?: {
+    apiKey?: string;
+    userEmail?: string;
+    orgDomain?: string;
+    orgSecret?: string;
+    requestTimeoutMs?: number;
+    correlation?: A2ACorrelationMetadata;
+  },
+): Promise<A2AReadOnlyActionResult> {
+  const actionName = action.trim();
+  if (!actionName) throw new Error("A2A action name is required");
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("A2A action input must be an object");
+  }
+
+  const apiKeyAttempts = await buildA2AApiKeyAttempts(
+    opts,
+    normalizeA2AAudience(url),
+  );
+  const fallbackApiKeys = apiKeyAttempts
+    .slice(1)
+    .filter((token): token is string => token !== undefined);
+  const client = new A2AClient(url, apiKeyAttempts[0], {
+    fallbackApiKeys,
+    requestTimeoutMs: opts?.requestTimeoutMs,
+  });
+  return client.invokeAction(actionName, input, {
+    metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
+  });
+}
+
+async function buildA2AApiKeyAttempts(
+  opts?: {
+    apiKey?: string;
+    userEmail?: string;
+    orgDomain?: string;
+    orgSecret?: string;
+  },
+  audience?: string,
+): Promise<Array<string | undefined>> {
   const attempts: Array<string | undefined> = [];
   const add = (token: string | undefined) => {
     if (token === undefined || attempts.includes(token)) return;
@@ -685,6 +827,7 @@ async function buildA2AApiKeyAttempts(opts?: {
         add(
           await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
             preferGlobalSecret: true,
+            audience,
           }),
         );
       } catch {
@@ -697,6 +840,7 @@ async function buildA2AApiKeyAttempts(opts?: {
         add(
           await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
             preferGlobalSecret: false,
+            audience,
           }),
         );
       } catch {
@@ -707,6 +851,11 @@ async function buildA2AApiKeyAttempts(opts?: {
 
   if (attempts.length === 0) attempts.push(undefined);
   return attempts;
+}
+
+function normalizeA2AAudience(url: string): string {
+  const explicit = splitExplicitA2AEndpoint(url.replace(/\/$/, ""));
+  return (explicit?.baseUrl ?? url).replace(/\/$/, "");
 }
 
 function isA2AAuthRejection(err: unknown): boolean {

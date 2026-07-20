@@ -16,7 +16,40 @@ export const editorChromeBridgeScript: string = `"use strict";
     var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
     var designCanvasContentOffsetY = Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
     var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
+    var liveReflowEnabled = (function() {
+      try {
+        return !!__LIVE_REFLOW_ENABLED__;
+      } catch (_e) {
+        return false;
+      }
+    })();
     var scaleToolEnabled = false;
+    function dndLog(phase, data) {
+      if (!window.__DND_DEBUG) return;
+      try {
+        var tag = "%c[dnd:" + phase + "]";
+        var style = "color:#8b5cf6;font-weight:bold";
+        if (data === void 0) console.log(tag, style);
+        else console.log(tag, style, data);
+      } catch (_e) {
+      }
+    }
+    function dndTarget(t) {
+      if (!t) return null;
+      try {
+        var container = dropContainerForTarget(t);
+        return {
+          anchor: t.anchor ? getSelector(t.anchor) : null,
+          placement: t.placement,
+          dropMode: t.dropMode,
+          axis: t.axis,
+          container: container ? getSelector(container) : null,
+          needsConversion: !!t.needsAutoLayoutConversion
+        };
+      } catch (_e) {
+        return { placement: t.placement, dropMode: t.dropMode };
+      }
+    }
     var statePreviewElement = null;
     var runtimeInteractionStatePreviews = [];
     var runtimeInteractionStatePreviewSequence = 0;
@@ -1394,14 +1427,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.body.appendChild(gradientOverlay);
     var transformBadge = document.createElement("div");
     transformBadge.setAttribute("data-agent-native-transform-badge", "");
+    transformBadge.setAttribute(
+      "data-agent-native-edit-overlay",
+      "transform-badge"
+    );
     transformBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid rgba(255,255,255,0.16);border-radius:4px;background:rgba(24,24,27,0.96);color:rgba(255,255,255,0.96);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.28);";
     document.body.appendChild(transformBadge);
     var spacingBadge = document.createElement("div");
     spacingBadge.setAttribute("data-agent-native-spacing-badge", "");
+    spacingBadge.setAttribute("data-agent-native-edit-overlay", "spacing-badge");
     spacingBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
     document.body.appendChild(spacingBadge);
     var insertionGuide = document.createElement("div");
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
+    insertionGuide.setAttribute(
+      "data-agent-native-edit-overlay",
+      "insertion-guide"
+    );
     insertionGuide.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
     document.body.appendChild(insertionGuide);
     var snapGuideV = document.createElement("div");
@@ -1541,6 +1583,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var selectedEl = null;
     var hoveredEl = null;
+    var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
     function clearHoverGate() {
       hoveredEl = null;
@@ -3528,6 +3571,154 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
+    function parseNodeHtmlPreviewElement(html) {
+      var trimmed = html.trim();
+      if (/^<body(?:\\s|>)/i.test(trimmed)) {
+        var parsedDocument = new DOMParser().parseFromString(
+          "<!doctype html><html><head></head>" + trimmed + "</html>",
+          // i18n-ignore parser scaffold
+          "text/html"
+        );
+        return parsedDocument.body;
+      }
+      var template = document.createElement("template");
+      template.innerHTML = html;
+      var element = template.content.firstElementChild;
+      if (!element || template.content.childElementCount !== 1) return null;
+      for (var child = template.content.firstChild; child; child = child.nextSibling) {
+        if (child === element) continue;
+        if (child.nodeType !== 3 || String(child.textContent || "").trim()) {
+          return null;
+        }
+      }
+      return element;
+    }
+    function resolveNodeHtmlPreviewTarget(target) {
+      if (!target || typeof target !== "object") return null;
+      var nodeId = target.nodeId;
+      if (typeof nodeId === "string" && nodeId) {
+        try {
+          var nodeMatch = document.querySelector(
+            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
+          );
+          if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
+            return nodeMatch;
+          }
+        } catch (_err) {
+        }
+      }
+      var selector = target.selector;
+      if (typeof selector !== "string" || !selector) return null;
+      try {
+        var selectorMatch = document.querySelector(selector);
+        return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+      } catch (_err) {
+        return null;
+      }
+    }
+    function postNodeHtmlPreviewApplied(proposalId) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:node-html-preview-applied",
+          proposalId
+        },
+        "*"
+      );
+    }
+    function replaceNodeHtmlPreviewElement(session, nextElement) {
+      var parent = session.startMarker.parentNode;
+      if (!parent || session.endMarker.parentNode !== parent) return false;
+      var cursor = session.startMarker.nextSibling;
+      while (cursor && cursor !== session.endMarker) {
+        var next = cursor.nextSibling;
+        parent.removeChild(cursor);
+        cursor = next;
+      }
+      if (cursor !== session.endMarker) return false;
+      nextElement.setAttribute(
+        "data-agent-native-node-rewrite-proposal",
+        session.proposalId
+      );
+      parent.insertBefore(nextElement, session.endMarker);
+      session.currentElement = nextElement;
+      if (session.selectedWasInside) selectedEl = nextElement;
+      if (session.hoveredWasInside) hoveredEl = nextElement;
+      refreshOverlays();
+      return true;
+    }
+    function restoreActiveNodeHtmlPreview(proposalId) {
+      var session = activeNodeHtmlPreview;
+      if (!session || proposalId && session.proposalId !== proposalId) {
+        return false;
+      }
+      activeNodeHtmlPreview = null;
+      var parent = session.startMarker.parentNode;
+      if (!parent || session.endMarker.parentNode !== parent) return false;
+      var cursor = session.startMarker.nextSibling;
+      while (cursor && cursor !== session.endMarker) {
+        var next = cursor.nextSibling;
+        parent.removeChild(cursor);
+        cursor = next;
+      }
+      if (cursor !== session.endMarker) return false;
+      parent.insertBefore(session.originalElement, session.endMarker);
+      parent.removeChild(session.startMarker);
+      parent.removeChild(session.endMarker);
+      if (session.selectedWasInside) selectedEl = session.originalElement;
+      if (session.hoveredWasInside) hoveredEl = session.originalElement;
+      refreshOverlays();
+      return session.originalElement.outerHTML === session.originalOuterHTML;
+    }
+    function applyNodeHtmlPreview(data) {
+      var proposalId = data.proposalId;
+      if (typeof proposalId !== "string" || !proposalId || typeof data.html !== "string") {
+        return;
+      }
+      var nextElement = parseNodeHtmlPreviewElement(data.html);
+      if (!nextElement) return;
+      if (activeNodeHtmlPreview && activeNodeHtmlPreview.proposalId === proposalId) {
+        if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
+          postNodeHtmlPreviewApplied(proposalId);
+        }
+        return;
+      }
+      if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
+      var target = resolveNodeHtmlPreviewTarget(data.target);
+      if (!target || !target.parentNode || target === document.documentElement) {
+        return;
+      }
+      var originalOuterHTML = target.outerHTML;
+      nextElement.setAttribute(
+        "data-agent-native-node-rewrite-proposal",
+        proposalId
+      );
+      var startMarker = document.createComment(
+        "agent-native:node-html-preview:start"
+      );
+      var endMarker = document.createComment(
+        "agent-native:node-html-preview:end"
+      );
+      var parent = target.parentNode;
+      var selectedWasInside = !!selectedEl && target.contains(selectedEl);
+      var hoveredWasInside = !!hoveredEl && target.contains(hoveredEl);
+      parent.insertBefore(startMarker, target);
+      parent.insertBefore(endMarker, target.nextSibling);
+      parent.replaceChild(nextElement, target);
+      activeNodeHtmlPreview = {
+        proposalId,
+        originalElement: target,
+        originalOuterHTML,
+        startMarker,
+        endMarker,
+        currentElement: nextElement,
+        selectedWasInside,
+        hoveredWasInside
+      };
+      if (selectedWasInside) selectedEl = nextElement;
+      if (hoveredWasInside) hoveredEl = nextElement;
+      refreshOverlays();
+      postNodeHtmlPreviewApplied(proposalId);
+    }
     function findUniqueRuntimeStructureTarget(selector, sourceId) {
       var matches = /* @__PURE__ */ new Set();
       if (typeof sourceId === "string" && sourceId) {
@@ -4493,6 +4684,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
     function postCrossScreenDrag(phase, el, ev) {
+      dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
         window.parent.postMessage(
@@ -4602,6 +4794,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
+    function isTextBearingLeaf(el) {
+      return hasOnlyLeafContent(el) && (el.textContent || "").trim().length > 0;
+    }
     function isContainerDropTarget(el) {
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
@@ -4698,7 +4893,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var hit = elementFromEditorPoint(clientX, clientY);
       if (hit && hit !== document.documentElement && !isDraggedOrInsideDragged(hit) && !isOverlayElement(hit) && !isTemplateCloneElement(hit)) {
-        if (isContainerDropTarget(hit)) {
+        if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
           var containerRect = hit.getBoundingClientRect();
           var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
           var edgePlacement = edgePlacementForRect(
@@ -4880,6 +5075,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
         if (cursor !== document.body && isContainerDropTarget(cursor) && !(parent && parent !== document.body && isAutoLayoutElement(parent))) {
+          if (!isAutoLayoutElement(cursor)) {
+            if (cursor === el.parentElement) return null;
+            return {
+              anchor: cursor,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container"
+            };
+          }
           var betweenContainerChildren = nearestChildInsertionTarget(
             cursor,
             clientX,
@@ -4891,21 +5095,26 @@ export const editorChromeBridgeScript: string = `"use strict";
               anchor: betweenContainerChildren.anchor,
               placement: betweenContainerChildren.placement,
               axis: betweenContainerChildren.axis,
-              dropMode: "flow-insert",
-              needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
-              conversionTarget: cursor
+              dropMode: "flow-insert"
             };
           }
           return {
             anchor: cursor,
             placement: "inside",
             axis: parentFlowAxis(cursor),
-            dropMode: "flow-insert",
-            needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
-            conversionTarget: cursor
+            dropMode: "flow-insert"
           };
         }
         if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+          if (!isAutoLayoutElement(parent)) {
+            if (parent === el.parentElement) return null;
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container"
+            };
+          }
           if (isTemplateCloneElement(cursor)) {
             var cloneFallback = nearestChildInsertionTarget(
               parent,
@@ -4918,18 +5127,14 @@ export const editorChromeBridgeScript: string = `"use strict";
                 anchor: cloneFallback.anchor,
                 placement: cloneFallback.placement,
                 axis: cloneFallback.axis,
-                dropMode: "flow-insert",
-                needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-                conversionTarget: parent
+                dropMode: "flow-insert"
               };
             }
             return {
               anchor: parent,
               placement: "inside",
               axis: parentFlowAxis(parent),
-              dropMode: "flow-insert",
-              needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-              conversionTarget: parent
+              dropMode: "flow-insert"
             };
           }
           var parentAxis = parentFlowAxis(parent);
@@ -4940,9 +5145,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             anchor: cursor,
             placement: childPointer < childCenter ? "before" : "after",
             axis: parentAxis,
-            dropMode: "flow-insert",
-            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-            conversionTarget: parent
+            dropMode: "flow-insert"
           };
         }
         cursor = parent;
@@ -5177,6 +5380,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function postVisualStructureChange(el, target, origin) {
       if (!el || !target || !target.anchor) return;
+      dndLog("post:structure-change", {
+        el: getSelector(el),
+        anchor: getSelector(target.anchor),
+        placement: target.placement,
+        dropMode: target.dropMode || "flow-insert"
+      });
       var requestId = "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
       pendingStructureMoves[requestId] = {
         requestId,
@@ -5441,11 +5650,239 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (isFlowReorderCandidate(gestureEl)) {
-        let onReorderMove2 = function(ev) {
+        let authoredTransformOf2 = function(el) {
+          if (el.style.transform) return el.style.transform;
+          var computed = window.getComputedStyle(el).transform;
+          return computed && computed !== "none" ? computed : "";
+        }, applyReorderLift2 = function(dx, dy) {
+          if (!liveReflowEnabled) return;
+          groupEls.forEach(function(member) {
+            var el = member;
+            var snap = reorderLiftedMembers.filter(function(s) {
+              return s.el === el;
+            })[0];
+            if (!snap) {
+              snap = {
+                el,
+                prevTransform: el.style.transform,
+                authoredTransform: authoredTransformOf2(el),
+                prevTransition: el.style.transition,
+                prevZIndex: el.style.zIndex,
+                prevBoxShadow: el.style.boxShadow,
+                prevWillChange: el.style.willChange,
+                prevPointerEvents: el.style.pointerEvents
+              };
+              reorderLiftedMembers.push(snap);
+              el.style.transition = "none";
+              el.style.willChange = "transform";
+              el.style.zIndex = "2147483646";
+              el.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
+              el.style.pointerEvents = "none";
+            }
+            el.style.transform = "translate(" + dx + "px, " + dy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
+          });
+        }, clearReorderLift2 = function() {
+          reorderLiftedMembers.forEach(function(snap) {
+            var el = snap.el;
+            el.style.transform = snap.prevTransform;
+            el.style.transition = snap.prevTransition;
+            el.style.zIndex = snap.prevZIndex;
+            el.style.boxShadow = snap.prevBoxShadow;
+            el.style.willChange = snap.prevWillChange;
+            el.style.pointerEvents = snap.prevPointerEvents;
+          });
+          reorderLiftedMembers = [];
+        }, reorderMainAxis2 = function(target) {
+          return target && target.axis === "y" ? "y" : "x";
+        }, reorderRealChildren2 = function(container) {
+          var out = [];
+          var kids = container.children;
+          for (var i = 0; i < kids.length; i += 1) {
+            var k = kids[i];
+            if (k.nodeType === 1 && !isOverlayElement(k)) out.push(k);
+          }
+          return out;
+        }, reorderSlotForTarget2 = function(target, real) {
+          if (target.placement === "inside") return { slot: real.length };
+          var ai = real.indexOf(target.anchor);
+          if (ai < 0) return null;
+          return { slot: target.placement === "before" ? ai : ai + 1 };
+        }, containerIsSimplePacked2 = function(container) {
+          if (packedCacheContainer === container) return packedCacheResult;
+          packedCacheContainer = container;
+          packedCacheResult = false;
+          var cs = window.getComputedStyle(container);
+          if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
+          if (cs.flexDirection !== "row" && cs.flexDirection !== "column") {
+            return false;
+          }
+          if (cs.flexWrap !== "nowrap") return false;
+          var jc = cs.justifyContent;
+          if (jc !== "flex-start" && jc !== "start" && jc !== "normal" && jc !== "left" && jc !== "") {
+            return false;
+          }
+          var kids = container.children;
+          for (var i = 0; i < kids.length; i += 1) {
+            if (kids[i].nodeType !== 1) continue;
+            if (parseFloat(window.getComputedStyle(kids[i]).flexGrow) > 0) {
+              return false;
+            }
+          }
+          packedCacheResult = true;
+          return true;
+        }, reorderMainGap2 = function(container, axis) {
+          var cs = window.getComputedStyle(container);
+          var raw = axis === "x" ? cs.columnGap || cs.gap : cs.rowGap || cs.gap;
+          var n = readPx(raw);
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        }, clearReorderReflow2 = function() {
+          reflowSiblings.forEach(function(s) {
+            s.el.style.transform = s.prevTransform;
+            s.el.style.transition = s.prevTransition;
+          });
+          reflowSiblings = [];
+          reflowKey = null;
+        }, resolveReorderOrFreeTarget2 = function(cx, cy, ctrlKey) {
+          return flowMoveTargetForPoint(
+            reorderEl,
+            cx,
+            cy,
+            groupOthers,
+            keepCurrentFlowParent,
+            ctrlKey
+          );
+        }, applyReorderSizeGuard2 = function(target, ev) {
+          if (!liveReflowEnabled || !target || target.placement !== "inside") {
+            return target;
+          }
+          if (ev && (ev.metaKey || ev.ctrlKey)) return target;
+          var container = dropContainerForTarget(target);
+          if (!container || container === reorderEl || container === document.body || container === document.documentElement) {
+            return target;
+          }
+          var crect = container.getBoundingClientRect();
+          var drect = reorderEl.getBoundingClientRect();
+          if (crect.width >= drect.width && crect.height >= drect.height) {
+            return target;
+          }
+          var parent = container.parentElement;
+          if (!parent) return null;
+          var pcs = window.getComputedStyle(parent);
+          var pAxis = pcs.flexDirection === "column" || pcs.flexDirection === "column-reverse" ? "y" : "x";
+          var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
+          var ptr = pAxis === "x" ? ev ? ev.clientX : center : ev ? ev.clientY : center;
+          return {
+            anchor: container,
+            placement: ptr < center ? "before" : "after",
+            axis: pAxis,
+            dropMode: "flow-insert"
+          };
+        }, stabilizeReorderTarget2 = function(rawTarget, cx, cy, now) {
+          var reset = function() {
+            reorderCommittedTarget = null;
+            reorderCommittedSlot = null;
+            reorderPendingSlot = null;
+          };
+          if (!liveReflowEnabled || !rawTarget || rawTarget.dropMode !== "flow-insert") {
+            reset();
+            return rawTarget;
+          }
+          var container = dropContainerForTarget(rawTarget);
+          if (!container || reorderEl.parentElement !== container) {
+            reset();
+            return rawTarget;
+          }
+          var slotInfo = reorderSlotForTarget2(
+            rawTarget,
+            reorderRealChildren2(container)
+          );
+          if (!slotInfo) {
+            reset();
+            return rawTarget;
+          }
+          var slot = slotInfo.slot;
+          var commit = function() {
+            reorderCommittedSlot = slot;
+            reorderCommittedTarget = rawTarget;
+            reorderCommittedPointer = { x: cx, y: cy };
+            reorderCommittedAt = now;
+            reorderPendingSlot = null;
+            return rawTarget;
+          };
+          if (reorderCommittedSlot === null) return commit();
+          if (slot === reorderCommittedSlot) {
+            reorderCommittedTarget = rawTarget;
+            reorderPendingSlot = null;
+            return rawTarget;
+          }
+          if (reorderPendingSlot !== slot) {
+            reorderPendingSlot = slot;
+            reorderPendingAt = now;
+          }
+          var movedPx = Math.hypot(
+            cx - reorderCommittedPointer.x,
+            cy - reorderCommittedPointer.y
+          );
+          if (movedPx >= 8 || now - reorderPendingAt >= 60) return commit();
+          return reorderCommittedTarget || rawTarget;
+        }, applyReorderReflow2 = function(target, cx, cy) {
+          if (!liveReflowEnabled) return;
+          if (isGroupDrag || !target || target.dropMode !== "flow-insert") {
+            clearReorderReflow2();
+            return;
+          }
+          var container = dropContainerForTarget(target);
+          if (!container || reorderEl.parentElement !== container || !containerIsSimplePacked2(container)) {
+            clearReorderReflow2();
+            return;
+          }
+          var real = reorderRealChildren2(container);
+          var originIndex = real.indexOf(reorderEl);
+          var slotInfo = reorderSlotForTarget2(target, real);
+          if (originIndex < 0 || !slotInfo) {
+            clearReorderReflow2();
+            return;
+          }
+          var axis = reorderMainAxis2(target);
+          var key = axis + ":" + slotInfo.slot;
+          if (key === reflowKey) return;
+          clearReorderReflow2();
+          reflowKey = key;
+          var drect = reorderEl.getBoundingClientRect();
+          var slotMain = (axis === "x" ? drect.width : drect.height) + reorderMainGap2(container, axis);
+          var offsets = new Array(real.length).fill(0);
+          if (slotInfo.slot > originIndex + 1) {
+            for (var a = originIndex + 1; a <= slotInfo.slot - 1; a += 1) {
+              offsets[a] = -slotMain;
+            }
+          } else if (slotInfo.slot < originIndex) {
+            for (var b = slotInfo.slot; b <= originIndex - 1; b += 1) {
+              offsets[b] = slotMain;
+            }
+          }
+          for (var i = 0; i < real.length; i += 1) {
+            if (i === originIndex) continue;
+            var el = real[i];
+            var prevTransform = el.style.transform;
+            var authoredTransform = authoredTransformOf2(el);
+            reflowSiblings.push({
+              el,
+              prevTransform,
+              authoredTransform,
+              prevTransition: el.style.transition
+            });
+            el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+            var tx = axis === "x" ? offsets[i] : 0;
+            var ty = axis === "y" ? offsets[i] : 0;
+            el.style.transform = "translate(" + tx + "px, " + ty + "px)" + (authoredTransform ? " " + authoredTransform : "");
+          }
+        }, onReorderMove2 = function(ev) {
           var vw = window.innerWidth;
           var vh = window.innerHeight;
           var cx = ev.clientX;
           var cy = ev.clientY;
+          var dx = cx - reorderPointerStart.clientX;
+          var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
           pointerOutsideIframe = outside;
           if (!isGroupDrag) {
@@ -5467,25 +5904,41 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (outside && !isGroupDrag) {
             hideInsertionGuide();
+            clearReorderLift2();
+            clearReorderReflow2();
             showTransformBadge("Move layer", cx, cy);
           } else {
-            currentTarget = flowMoveTargetForPoint(
-              reorderEl,
+            var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
-              groupOthers,
-              keepCurrentFlowParent,
               Boolean(ev.ctrlKey)
             );
+            rawTarget = applyReorderSizeGuard2(rawTarget, ev);
+            currentTarget = stabilizeReorderTarget2(
+              rawTarget,
+              cx,
+              cy,
+              ev.timeStamp
+            );
             showInsertionGuideFor(currentTarget);
+            var _dndKey = currentTarget ? getSelector(currentTarget.anchor) + "|" + currentTarget.placement + "|" + currentTarget.dropMode : "none";
+            if (_dndKey !== reorderLastTargetKey) {
+              reorderLastTargetKey = _dndKey;
+              dndLog("target", dndTarget(currentTarget));
+            }
+            applyReorderLift2(dx, dy);
+            applyReorderReflow2(currentTarget, cx, cy);
             showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
           }
         }, cleanupReorderDrag2 = function() {
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
+          document.removeEventListener("pointercancel", onReorderEscape2, true);
           document.removeEventListener("keydown", onReorderKeyDown2, true);
           document.removeEventListener("keyup", onReorderKeyUp2, true);
           clearActiveDragCancel(onReorderEscape2);
+          clearReorderLift2();
+          clearReorderReflow2();
         }, onReorderEscape2 = function() {
           cleanupReorderDrag2();
           hideTransformBadge();
@@ -5544,14 +5997,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             );
           }
           if (outsideOnDrop) return;
-          currentTarget = flowMoveTargetForPoint(
-            reorderEl,
+          var finalRaw = resolveReorderOrFreeTarget2(cx, cy, Boolean(ev?.ctrlKey));
+          currentTarget = liveReflowEnabled ? stabilizeReorderTarget2(
+            applyReorderSizeGuard2(finalRaw, ev),
             cx,
             cy,
-            groupOthers,
-            keepCurrentFlowParent,
-            Boolean(ev?.ctrlKey)
-          );
+            ev && typeof ev.timeStamp === "number" ? ev.timeStamp : reorderCommittedAt
+          ) : finalRaw;
+          dndLog("commit:resolve", {
+            raw: dndTarget(finalRaw),
+            final: dndTarget(currentTarget),
+            ctrl: Boolean(ev && ev.ctrlKey)
+          });
           if (!currentTarget) {
             if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
               if (reorderEl.parentElement)
@@ -5608,6 +6065,10 @@ export const editorChromeBridgeScript: string = `"use strict";
               dropContainerForTarget(currentTarget)
             );
             applyRuntimeReorder(reorderEl, currentTarget);
+            dndLog("commit:done", {
+              el: getSelector(reorderEl),
+              parent: reorderEl.parentElement ? getSelector(reorderEl.parentElement) : null
+            });
             postVisualStructureChange(reorderEl, currentTarget, {
               prevParent,
               prevNextSibling,
@@ -5615,7 +6076,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         };
-        var onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return member.getBoundingClientRect();
@@ -5629,6 +6090,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         });
         var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+        var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
         var currentTarget = flowMoveTargetForPoint(
           reorderEl,
@@ -5639,6 +6101,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           Boolean(e.ctrlKey)
         );
         showInsertionGuideFor(currentTarget);
+        dndLog("start:reorder", {
+          el: getSelector(reorderEl),
+          isGroup: isGroupDrag,
+          ctrl: Boolean(e.ctrlKey),
+          target: dndTarget(currentTarget)
+        });
         var pointerOutsideIframe = false;
         var reorderSelector = getSelector(reorderEl);
         var reorderSourceId = getSourceId(reorderEl);
@@ -5649,8 +6117,20 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: reorderPointerStart.clientX - reorderRect.left,
           y: reorderPointerStart.clientY - reorderRect.top
         };
+        var reorderLiftedMembers = [];
+        var reorderCommittedTarget = null;
+        var reorderCommittedSlot = null;
+        var reorderCommittedAt = 0;
+        var reorderCommittedPointer = { x: 0, y: 0 };
+        var reorderPendingSlot = null;
+        var reorderPendingAt = 0;
+        var reflowSiblings = [];
+        var reflowKey = null;
+        var packedCacheContainer = null;
+        var packedCacheResult = false;
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
+        document.addEventListener("pointercancel", onReorderEscape2, true);
         document.addEventListener("keydown", onReorderKeyDown2, true);
         document.addEventListener("keyup", onReorderKeyUp2, true);
         setActiveDragCancel(onReorderEscape2);
@@ -5687,6 +6167,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragEl = gestureEl;
       var moved = false;
       var DRAG_THRESHOLD = 3;
+      dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
       var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
       var dragElStartRect = dragEl.getBoundingClientRect();
@@ -5872,12 +6353,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           postVisualDuplicateChange(originalSelectedEl, dragEl);
         } else if (currentAutoLayoutTarget) {
           setMembersOpacity(null);
-          if (currentAutoLayoutTarget.needsAutoLayoutConversion && currentAutoLayoutTarget.conversionTarget) {
-            applyAutoLayoutConversionForDrop(
-              currentAutoLayoutTarget.conversionTarget,
-              groupEls
-            );
-          }
           if (isGroupDrag) {
             applyGroupStructureDrop(
               groupEls,
@@ -5899,6 +6374,10 @@ export const editorChromeBridgeScript: string = `"use strict";
               dropContainerForTarget(currentAutoLayoutTarget)
             );
             applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
+            dndLog("commit:free-nest", {
+              el: getSelector(dragEl),
+              target: dndTarget(currentAutoLayoutTarget)
+            });
             postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
               prevParent,
               prevNextSibling,
@@ -5907,6 +6386,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         } else {
           setMembersOpacity(null);
+          dndLog("commit:free-absolute", { count: memberStates.length });
           memberStates.forEach(function(state) {
             var styles = {
               position: state.el.style.position,
@@ -6255,6 +6735,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         var previousSelectedEl = selectedEl;
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
+        if (!ev?.shiftKey && passiveSelectionEls.length) {
+          setPassiveSelectionElements([]);
+        }
         preservePreviousSelectedElementForShiftClick(
           previousSelectedEl,
           selectedEl,
@@ -7451,6 +7934,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "visual-structure-ack") {
+        dndLog("ack", {
+          requestId: e.data.requestId,
+          applied: Boolean(e.data.applied)
+        });
         var move = pendingStructureMoves[e.data.requestId];
         if (!move) return;
         delete pendingStructureMoves[e.data.requestId];
@@ -7479,6 +7966,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "replace-document-content") {
+        activeNodeHtmlPreview = null;
         replaceRuntimeDocument(
           e.data.content,
           e.data.forceFullDocument ? "" : e.data.selectedSelector,
@@ -7486,6 +7974,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           Boolean(e.data.forceFullDocument),
           Boolean(e.data.preserveTextEditingSession)
         );
+        return;
+      }
+      if (e.data.type === "node-html-preview") {
+        if (e.data.operation === "restore") {
+          if (typeof e.data.proposalId === "string") {
+            restoreActiveNodeHtmlPreview(e.data.proposalId);
+          }
+        } else if (e.data.operation === "preview") {
+          applyNodeHtmlPreview(e.data);
+        }
         return;
       }
       if (e.data.type === "delete-element") {

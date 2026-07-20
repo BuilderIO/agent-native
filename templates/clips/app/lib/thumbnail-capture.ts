@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
 
 const PROBE_WIDTH = 40;
 const MIN_VISIBLE_MEAN_LUMA = 8;

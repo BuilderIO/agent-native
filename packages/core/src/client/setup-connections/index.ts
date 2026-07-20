@@ -2,6 +2,7 @@ export {
   BuilderConnectCard,
   type BuilderConnectCardProps,
 } from "./BuilderConnectCard.js";
+export { BUILT_IN_SETUP_READINESS_UI_IDS } from "./catalog.js";
 export {
   ProviderReadinessBadge,
   type ProviderReadinessBadgeProps,

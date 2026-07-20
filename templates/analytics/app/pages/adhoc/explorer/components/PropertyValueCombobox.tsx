@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { useState } from "react";
 

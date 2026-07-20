@@ -13,17 +13,13 @@ const clientState = vi.hoisted(() => ({
   threads: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => children,
-  FeedbackButton: () => <div>Feedback</div>,
-  appBasePath: () => "",
-  appPath: (path: string) => path,
   focusAgentChat: vi.fn(),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
-  useActionQuery: () => ({ data: undefined }),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
   useChatThreads: () => ({
@@ -35,9 +31,18 @@ vi.mock("@agent-native/core/client", () => ({
     renameThread: vi.fn(),
     refreshThreads: vi.fn(),
   }),
-  useFormatters: () => ({
-    formatDate: () => "Jan 1",
-  }),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+  appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => ({ data: undefined }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -55,6 +60,10 @@ vi.mock("@agent-native/core/client", () => ({
     };
     return messages[key] ?? String(values?.defaultValue ?? key);
   },
+}));
+
+vi.mock("@agent-native/core/client/ui", () => ({
+  FeedbackButton: () => <div>Feedback</div>,
 }));
 
 vi.mock("@agent-native/core/client/extensions", () => ({
@@ -159,7 +168,7 @@ describe("Dispatch NavContent", () => {
     expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
   });
 
-  it("uses the quieter Analytics-style chat history and retains thread actions", async () => {
+  it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat/active-thread"]}>
@@ -175,18 +184,14 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
     expect(container.textContent).toContain("5m");
-    const age = [...container.querySelectorAll("time")].find(
+    const age = [...container.querySelectorAll("span")].find(
       (element) => element.textContent === "5m",
     );
-    expect(age?.className).toContain("w-8");
-    expect(age?.className).toContain("shrink-0");
-    expect(age?.className).toContain("whitespace-nowrap");
-    expect(age?.className).toContain("tabular-nums");
-    expect(
-      [...container.querySelectorAll("div")].some((element) =>
-        element.className.includes("group/item"),
-      ),
-    ).toBe(true);
+    expect(age?.className).toContain("an-chat-history-row__timestamp");
+    const historyList = container.querySelector(
+      '[data-agent-native="chat-history-list"]',
+    );
+    expect(historyList?.className).toContain("an-chat-history--rail");
     expect(
       container.querySelector('img[src="/agent-native-icon-light.svg"]')
         ?.parentElement?.className,

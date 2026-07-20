@@ -1,4 +1,5 @@
-import { callAction, useT } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -61,7 +62,7 @@ export default function ImageSearchPanel({
     setLoading(true);
     setError(null);
     try {
-      const data = await callAction<SearchResult[]>(
+      const data = await callAction(
         "search-images",
         { q: query.trim() },
         { method: "GET" },

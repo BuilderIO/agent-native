@@ -29,6 +29,7 @@ describe("Slack managed-install OAuth helpers", () => {
     expect(url.searchParams.get("scope")).toContain("chat:write");
     expect(url.searchParams.get("scope")).toContain("assistant:write");
     expect(url.searchParams.get("scope")).toContain("files:read");
+    expect(url.searchParams.get("scope")).toContain("channels:join");
     expect(url.searchParams.get("scope")).toContain("channels:read");
     expect(url.searchParams.get("scope")).toContain("groups:read");
     expect(url.searchParams.get("scope")).toContain("mpim:read");

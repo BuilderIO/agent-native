@@ -36,8 +36,12 @@ pub(super) struct LiveUploadCtrl {
 
 pub(super) struct LiveUpload {
     pub(super) ctrl: Arc<LiveUploadCtrl>,
-    /// Resolves with the total bytes uploaded, or an error string.
-    pub(super) result_rx: tokio::sync::oneshot::Receiver<Result<u64, String>>,
+    pub(super) result_rx: tokio::sync::oneshot::Receiver<Result<LiveUploadResult, String>>,
+}
+
+pub(super) struct LiveUploadResult {
+    pub(super) bytes: u64,
+    pub(super) verification_pending: bool,
 }
 
 struct LiveUploadParams {
@@ -161,8 +165,9 @@ async fn send_live_upload_post_with_retry(
     total: usize,
     is_final: bool,
     duration_ms: Option<u128>,
+    expected_source_bytes: Option<u64>,
     bytes: &[u8],
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let rec = &params.recording_id;
     let mut attempt: u32 = 0;
     loop {
@@ -192,11 +197,12 @@ async fn send_live_upload_post_with_retry(
             params.has_camera,
             NativeUploadMode::Buffered,
             false,
+            expected_source_bytes,
             bytes.to_vec(),
         )
         .await;
         let err = match result {
-            Ok(()) => return Ok(()),
+            Ok(verification_pending) => return Ok(verification_pending),
             Err(err) => err,
         };
         if attempt >= LIVE_UPLOAD_CHUNK_ATTEMPTS {
@@ -217,7 +223,7 @@ async fn live_upload_loop(
     app: AppHandle,
     ctrl: Arc<LiveUploadCtrl>,
     params: LiveUploadParams,
-) -> Result<u64, String> {
+) -> Result<LiveUploadResult, String> {
     let rec = params.recording_id.clone();
     eprintln!(
         "[live-upload] loop started for {rec}: file={} chunk={} bytes",
@@ -258,7 +264,7 @@ async fn live_upload_loop(
                 bytes.len()
             );
             if let Err(e) = send_live_upload_post_with_retry(
-                &client, &ctrl, &params, index, 0, false, None, &bytes,
+                &client, &ctrl, &params, index, 0, false, None, None, &bytes,
             )
             .await
             {
@@ -288,6 +294,7 @@ async fn live_upload_loop(
             // sentinel makes GCS silently commit only the aligned prefix, and
             // the session close then fails forever with 308 (incomplete).
             let mut final_sent = false;
+            let mut verification_pending = false;
             while final_len > offset {
                 let take = chunk.min(final_len - offset);
                 let is_last = offset + take >= final_len;
@@ -300,13 +307,27 @@ async fn live_upload_loop(
                 eprintln!(
                     "[live-upload] {rec}: sending tail chunk #{index} offset={offset} size={take} final={is_last}"
                 );
-                if let Err(e) = send_live_upload_post_with_retry(
-                    &client, &ctrl, &params, index, total, is_last, duration, &bytes,
+                let receipt = send_live_upload_post_with_retry(
+                    &client,
+                    &ctrl,
+                    &params,
+                    index,
+                    total,
+                    is_last,
+                    duration,
+                    is_last.then_some(final_len),
+                    &bytes,
                 )
-                .await
-                {
-                    eprintln!("[live-upload] {rec}: tail chunk #{index} failed: {e}");
-                    return Err(e);
+                .await;
+                let pending = match receipt {
+                    Ok(pending) => pending,
+                    Err(e) => {
+                        eprintln!("[live-upload] {rec}: tail chunk #{index} failed: {e}");
+                        return Err(e);
+                    }
+                };
+                if is_last {
+                    verification_pending = pending;
                 }
                 offset += take;
                 index += 1;
@@ -321,7 +342,7 @@ async fn live_upload_loop(
                     "[live-upload] {rec}: sending final post #{index} (total={}, duration_ms={duration_ms})",
                     index + 1
                 );
-                if let Err(e) = send_live_upload_post_with_retry(
+                verification_pending = match send_live_upload_post_with_retry(
                     &client,
                     &ctrl,
                     &params,
@@ -329,17 +350,24 @@ async fn live_upload_loop(
                     index + 1,
                     true,
                     Some(duration_ms),
+                    Some(final_len),
                     &[],
                 )
                 .await
                 {
-                    eprintln!("[live-upload] {rec}: final post failed: {e}");
-                    return Err(e);
-                }
+                    Ok(pending) => pending,
+                    Err(e) => {
+                        eprintln!("[live-upload] {rec}: final post failed: {e}");
+                        return Err(e);
+                    }
+                };
             }
             emit_native_upload_progress(&app, "opening", "Uploading clip", None, Some(1.0));
             eprintln!("[live-upload] {rec}: done — {index} post(s), {final_len} bytes total");
-            return Ok(final_len);
+            return Ok(LiveUploadResult {
+                bytes: final_len,
+                verification_pending,
+            });
         }
 
         if !wait_logged {

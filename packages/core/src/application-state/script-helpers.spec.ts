@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockAppStateGet = vi.fn();
 const mockAppStatePut = vi.fn();
 const mockAppStateDelete = vi.fn();
+const mockAppStateCompareAndSet = vi.fn();
 const mockAppStateList = vi.fn();
 const mockAppStateDeleteByPrefix = vi.fn();
 
@@ -11,6 +12,7 @@ vi.mock("./store.js", () => ({
   appStateGet: (...args: any[]) => mockAppStateGet(...args),
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
   appStateDelete: (...args: any[]) => mockAppStateDelete(...args),
+  appStateCompareAndSet: (...args: any[]) => mockAppStateCompareAndSet(...args),
   appStateList: (...args: any[]) => mockAppStateList(...args),
   appStateDeleteByPrefix: (...args: any[]) =>
     mockAppStateDeleteByPrefix(...args),
@@ -116,6 +118,29 @@ describe("application-state script-helpers", () => {
       expect(mockAppStateDelete).toHaveBeenCalledWith("alice@test.com", "key", {
         requestSource: "agent",
       });
+    });
+  });
+
+  describe("compareAndSetAppState", () => {
+    it("delegates with the resolved session ID", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { compareAndSetAppState } = await import("./script-helpers.js");
+      mockAppStateCompareAndSet.mockResolvedValue(true);
+
+      await expect(
+        compareAndSetAppState(
+          "rewrite",
+          { repromptId: "r1" },
+          { repromptId: "r2" },
+        ),
+      ).resolves.toBe(true);
+      expect(mockAppStateCompareAndSet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "rewrite",
+        { repromptId: "r1" },
+        { repromptId: "r2" },
+        { requestSource: "agent" },
+      );
     });
   });
 

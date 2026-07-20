@@ -211,6 +211,8 @@ templates/*/         Template apps
 Read the relevant skill before making changes in that area:
 
 - `adding-a-feature` for the four-area checklist.
+- `feature-flags` for default-off production rollouts, shared evaluation,
+  operator targeting, and removing stale flags after rollout.
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `data-programs` for stored, cached data-source scripts bound to app panels.
@@ -231,11 +233,15 @@ Read the relevant skill before making changes in that area:
 - `agent-native-toolkit` for deciding whether settings, app chrome,
   collaboration, sharing, navigation, organization, comments, or history belong
   in reusable framework/toolkit primitives.
+- `customizing-agent-native` before configuring, composing, or ejecting an
+  installed Toolkit/Core feature into app-owned source.
 - `composable-mini-apps` for many one-job headless apps that discover siblings
   and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.
 - `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
   Cursor, or Mastra.
+- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
+  collaboration workflow, subscription metering, checkpoints, and recovery.
 - `self-modifying-code` for source edits by the agent.
 - `upgrade-agent-native` for bringing an older app/workspace to current
   `@agent-native/*` packages without patching core/dispatch.

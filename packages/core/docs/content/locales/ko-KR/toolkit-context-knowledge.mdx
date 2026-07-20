@@ -1,0 +1,12 @@
+---
+title: "컨텍스트와 지식"
+description: "엔진, 데이터 접근, 재사용 가능한 표현 계층을 지키며 에이전트 인식 컨텍스트 표면을 만듭니다."
+---
+
+# 컨텍스트와 지식
+
+Core는 애플리케이션 상태, 범위가 지정된 접근 및 Context X-Ray 엔진을 소유합니다. Toolkit은 재사용 가능한 표현을 제공하고 앱은 도메인 레코드, 분류 및 선택 규칙을 소유합니다.
+
+Context X-Ray 엔진은 Core 소유입니다. 일관된 표현에는 Toolkit을 사용하되 상태와 접근 결정은 Core와 actions에 둡니다. [Context awareness](/docs/context-awareness)는 탐색, 선택 및 포커스된 객체를 에이전트에 알리고 [Resources](/docs/toolkit-resources)는 파일과 첨부를 다룹니다.
+
+컨텍스트는 접근 제어를 대체하지 않습니다. 공급자 지식을 검색하기 전에 리소스와 자격 증명 확인을 유지하세요.

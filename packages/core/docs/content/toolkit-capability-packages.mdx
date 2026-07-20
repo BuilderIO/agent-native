@@ -1,0 +1,52 @@
+---
+title: "Toolkit Capability Modules"
+description: "Install Toolkit domain capabilities on demand while preserving their package-level dependency and lifecycle boundaries."
+---
+
+# Toolkit capability modules
+
+Toolkit capability modules add reusable domain behavior on demand. They share
+one Toolkit discovery shelf while staying in separate npm packages, so an app
+only installs the bounded domain model, actions, skills, dependencies, and
+lifecycle metadata it needs.
+
+## Current package boundary
+
+| Package                          | Toolkit module                                      | Lifecycle                                                                                               |
+| -------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `@agent-native/scheduling`       | Scheduling and booking, installed on demand         | Supports the generic manifest lifecycle pilot; package-local docs live under `docs/`.                   |
+| `@agent-native/creative-context` | Governed creative context, installed on demand      | Publishes its own `agent-native.package.json` and package-local `docs/llms.txt` / `docs/llms-full.txt`. |
+| `@agent-native/pinpoint`         | Visual feedback and annotation, installed on demand | Package-local setup and agent integration live in its README and packaged assets.                       |
+
+These modules belong to the Toolkit brand without being folded into the
+`@agent-native/toolkit` npm package. Use each published package's README and,
+where present, `docs/` bundle and `agent-native.package.json` lifecycle manifest
+as the source of truth for setup, contribution points, and ownership.
+
+Dispatch is the workspace control plane and remains a separate product.
+
+- [Scheduling package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+- [Pinpoint package README](https://github.com/BuilderIO/agent-native/tree/main/packages/pinpoint)
+
+## Lifecycle manifests
+
+Each manifest describes static contributions such as actions, schema entry
+points, skills, required secret names, and peer providers. Inspect before
+writing, then use the explicit apply step:
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+See [Package Lifecycle](/docs/package-lifecycle) for the safety, dry-run, and
+eject rules. See [Scheduling](/docs/template-calendar) for a product-level
+example; it is not a substitute for the package-local contract.
+
+## Related docs
+
+- [Toolkit overview](/docs/agent-native-toolkit) — the unified discovery shelf.
+- [Package Lifecycle](/docs/package-lifecycle) — manifest inspection, add, and eject.
+- [Recurring jobs](/docs/recurring-jobs) — runtime scheduling is different from the Scheduling package.

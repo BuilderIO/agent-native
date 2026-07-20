@@ -1,33 +1,32 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  PromptComposer,
   BuilderSetupCard,
-  ErrorReportActions,
-  ShareButton,
-  appPath,
-  agentNativePath,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
-  useActionQuery,
-  useT,
-  useSession,
-  track,
-  emailToColor,
-  emailToName,
   type AgentSidebarStateChangeDetail,
-  type ErrorReportDebugItem,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { track } from "@agent-native/core/client/analytics";
+import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { emailToColor, emailToName } from "@agent-native/core/client/collab";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
 } from "@agent-native/core/client/org";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  ErrorReportActions,
+  type ErrorReportDebugItem,
+} from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -4050,6 +4049,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     await updatePlan.mutateAsync({
       planId: bundle.plan.id,
+      expectedUpdatedAt: bundle.plan.updatedAt,
       content,
       note: "Updated structured visual plan content.",
     });
@@ -4081,6 +4081,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       await updatePlan.mutateAsync(
         {
           planId: bundle.plan.id,
+          ...(patch.op === "replace-blocks"
+            ? { expectedUpdatedAt: bundle.plan.updatedAt }
+            : {}),
           contentPatches: [patch],
           note:
             patch.op === "update-rich-text"
@@ -6800,6 +6803,7 @@ function PlanLoadError({
 }) {
   const t = useT();
   const [emailOpen, setEmailOpen] = useState(false);
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const [emailMode, setEmailMode] = useState<"sign-in" | "create">("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -6934,11 +6938,9 @@ function PlanLoadError({
             : t("plansPage.loadError.maybeOtherOrgBody")
           : t("plansPage.loadError.privateBody")
       : message;
-  const reportMessage = `${body}${message && message !== body ? `\n${message}` : ""}`;
-
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
-      <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-start shadow-sm">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-background p-6 text-start shadow-sm">
         <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
           {!showAccessHelp && !planMissing && (
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
@@ -6946,14 +6948,14 @@ function PlanLoadError({
             </div>
           )}
           <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {body}
             </p>
             {showAccessHelp && signedInEmail ? (
-              <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
-                <IconAt className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate text-muted-foreground">
+              <div className="mt-3 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+                <IconAt className="size-4 shrink-0" />
+                <span className="min-w-0 truncate">
                   {t("plansPage.loadError.signedInAs")}{" "}
                   <span className="font-medium text-foreground">
                     {signedInEmail}
@@ -6975,7 +6977,7 @@ function PlanLoadError({
         </div>
 
         {showAccessHelp || !planMissing ? (
-          <div className="mt-5 flex flex-col gap-2">
+          <div className="mt-6 flex flex-col gap-3">
             {showAccessHelp ? (
               <>
                 {signedIn ? (
@@ -7002,24 +7004,57 @@ function PlanLoadError({
                   </Button>
                 )}
                 {signedIn ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void startGoogle()}
-                      disabled={googlePending}
-                    >
-                      <IconLogin2 className="size-4" />
-                      {t("plansPage.loadError.switchAccount")}
-                    </Button>
-                  </div>
+                  <Collapsible
+                    open={switchAccountOpen}
+                    onOpenChange={setSwitchAccountOpen}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-full justify-between px-1.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <IconLogin2 className="size-4" />
+                          {t("plansPage.loadError.switchAccount")}
+                        </span>
+                        <IconChevronDown
+                          className={cn(
+                            "size-4 transition-transform",
+                            switchAccountOpen ? "rotate-180" : "",
+                          )}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="pt-1">
+                      <Button
+                        type="button"
+                        onClick={() => void startGoogle()}
+                        disabled={googlePending}
+                        className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
+                      >
+                        {googlePending ? (
+                          <IconLoader2 className="size-[18px] animate-spin" />
+                        ) : (
+                          <GoogleLogoIcon className="size-[18px]" />
+                        )}
+                        {t("plansPage.loadError.continueWithGoogle")}
+                      </Button>
+                    </CollapsibleContent>
+                  </Collapsible>
                 ) : null}
-                <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
+                <Collapsible
+                  open={emailOpen}
+                  onOpenChange={setEmailOpen}
+                  className={cn(signedIn && !switchAccountOpen && "hidden")}
+                >
                   <CollapsibleTrigger asChild>
                     <Button
                       type="button"
                       variant="ghost"
-                      className="w-full justify-between px-2 text-muted-foreground"
+                      size="sm"
+                      className="w-full justify-between px-1.5 text-muted-foreground"
                     >
                       <span className="inline-flex items-center gap-2">
                         <IconMail className="size-4" />
@@ -7035,7 +7070,7 @@ function PlanLoadError({
                   </CollapsibleTrigger>
                   <CollapsibleContent className="pt-2">
                     <form
-                      className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
+                      className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
                       onSubmit={submitEmailAuth}
                     >
                       <div className="space-y-1.5">
@@ -7120,45 +7155,7 @@ function PlanLoadError({
             )}
           </div>
         ) : null}
-        <div className="mt-4 border-t border-border/70 pt-3">
-          <PlanErrorFeedbackActions
-            title={title}
-            message={reportMessage}
-            status={status}
-            extraDebug={[
-              { label: "Plan id", value: planId }, // i18n-ignore debug label
-              accessStatus?.visibility
-                ? {
-                    label: "Plan visibility", // i18n-ignore debug label
-                    value: accessStatus.visibility,
-                  }
-                : {
-                    label: "Plan visibility", // i18n-ignore debug label
-                    value: null,
-                  },
-              accessStatus?.hasAccess !== undefined
-                ? {
-                    label: "Has access", // i18n-ignore debug label
-                    value: accessStatus.hasAccess,
-                  }
-                : {
-                    label: "Has access", // i18n-ignore debug label
-                    value: null,
-                  },
-            ]}
-          />
-        </div>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onRetry}
-        className="mt-3 gap-1.5 text-muted-foreground hover:text-foreground"
-      >
-        <IconRefresh className="size-3.5" />
-        {t("plansPage.loadError.retry")}
-      </Button>
     </div>
   );
 }
@@ -7243,7 +7240,12 @@ function SignedInPlanAccessActions({
                 })}
         </div>
       ) : null}
-      <Button type="button" onClick={handleOrgAccess} disabled={disabled}>
+      <Button
+        type="button"
+        className="w-full"
+        onClick={handleOrgAccess}
+        disabled={disabled}
+      >
         {pending ? (
           <IconLoader2 className="size-4 animate-spin" />
         ) : orgAccessPrompt?.kind === "domain" ? (

@@ -1,16 +1,17 @@
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useActionMutation,
-  useCodeMode,
-  useT,
-} from "@agent-native/core/client";
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  setClientAppState,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   closestCenter,
   DndContext,
@@ -26,29 +27,42 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { Document, DocumentTreeNode } from "@shared/api";
+import type {
+  ContentDatabaseItem,
+  ContentDatabaseResponse,
+  Document,
+  DocumentTreeNode,
+} from "@shared/api";
+import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
-  IconDatabase,
   IconBrain,
-  IconFileText,
+  IconFolder,
+  IconFolderOpen,
   IconPlus,
   IconRestore,
   IconSearch,
-  IconStar,
   IconSettings,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconFolderOpen,
+  IconChevronDown,
   IconChevronRight,
   IconDots,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { ContentFilesSidebarView } from "@/components/editor/database/sidebar";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -63,12 +77,21 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
@@ -76,11 +99,23 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  applyOptimisticItemToContentDatabase,
+  contentDatabaseByIdQueryKey,
+  removeOptimisticItemFromContentDatabase,
+  useContentDatabaseById,
+  useContentDatabasePersonalView,
+  useUpdateContentDatabasePersonalView,
   useCreateContentDatabase,
   useDeleteContentDatabase,
   useRestoreContentDatabase,
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
+import {
+  useCreateContentSpace,
+  useContentSpaces,
+  useEnsureContentSpaces,
+  type ContentSpaceSummary,
+} from "@/hooks/use-content-spaces";
 import {
   useDocuments,
   useCreateDocument,
@@ -97,8 +132,21 @@ import {
   getDocumentSidebarSections,
   isDirectLocalDocument,
 } from "./document-sidebar-sections";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import {
+  DocumentSidebarIcon,
+  DocumentTreeItem,
+  FavoriteDocumentItem,
+} from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
+import {
+  contentSpaceAvailability,
+  contentSpaceForStoredSelection,
+  createContentSpaceSelectionQueue,
+  ensureWorkspaceExpanded,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+  selectContentSpace,
+  toggleExpandedWorkspaceIds,
+} from "./select-content-space";
 
 function nanoid(size = 12): string {
   const chars =
@@ -153,6 +201,7 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
 }
 
 type SidebarSectionId =
+  | "favorites"
   | "local-files"
   | "shared-copies"
   | "private"
@@ -163,8 +212,9 @@ type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
 
 const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
-
+const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
+  favorites: false,
   "local-files": false,
   "shared-copies": false,
   private: false,
@@ -176,6 +226,7 @@ function normalizeCollapsedSections(
   value: Partial<Record<SidebarSectionId, boolean>> | null | undefined,
 ): CollapsedSectionsState {
   return {
+    favorites: value?.favorites ?? false,
     "local-files": value?.["local-files"] ?? false,
     "shared-copies": value?.["shared-copies"] ?? false,
     private: value?.private ?? false,
@@ -187,6 +238,99 @@ function normalizeCollapsedSections(
 interface RemoveLocalFileSourceResult {
   success: boolean;
   deleted: number;
+}
+
+function WorkspaceFilesSection({
+  space,
+  selected,
+  activeDocumentId,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
+  onActivate,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
+}: {
+  space: ContentSpaceSummary;
+  selected: boolean;
+  activeDocumentId: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
+  onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
+  onCreateChildPage: (
+    space: ContentSpaceSummary,
+    item: ContentDatabaseItem,
+  ) => void;
+  onCreateChildDatabase: (
+    space: ContentSpaceSummary,
+    item: ContentDatabaseItem,
+  ) => void;
+  onDeleteItem: (item: ContentDatabaseItem) => void;
+  onToggleFavorite: (item: ContentDatabaseItem) => void;
+}) {
+  const t = useT();
+  const filesDatabase = useContentDatabaseById(space.filesDatabaseId);
+  const filesPersonalView = useContentDatabasePersonalView(
+    space.filesDatabaseId,
+  );
+  const updateFilesPersonalView = useUpdateContentDatabasePersonalView(
+    space.filesDatabaseId,
+  );
+  const failed = filesDatabase.isError || filesPersonalView.isError;
+
+  return (
+    <div className="ms-3 border-s border-border/70 pb-1 ps-1">
+      {failed ? (
+        <QueryErrorState
+          compact
+          onRetry={() => {
+            void filesDatabase.refetch();
+            void filesPersonalView.refetch();
+          }}
+          retrying={filesDatabase.isFetching || filesPersonalView.isFetching}
+        />
+      ) : (
+        <ContentFilesSidebarView
+          data={filesDatabase.data}
+          overrides={filesPersonalView.data?.overrides}
+          isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+          activeDocumentId={activeDocumentId}
+          expandedDocumentIds={expandedDocumentIds}
+          onDocumentExpandedChange={onDocumentExpandedChange}
+          onSelectView={(viewId) => {
+            const current = filesPersonalView.data?.overrides;
+            updateFilesPersonalView.mutate({
+              databaseId: space.filesDatabaseId,
+              overrides: {
+                version:
+                  current?.version ??
+                  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                activeViewId: viewId,
+                views: current?.views ?? [],
+              },
+            });
+          }}
+          onOpenItem={(item: ContentDatabaseItem) => {
+            if (selected) return false;
+            onActivate(space, item.document.id);
+            return true;
+          }}
+          onCreateChildPage={(item) => onCreateChildPage(space, item)}
+          onCreateChildDatabase={(item) => onCreateChildDatabase(space, item)}
+          onDeleteItem={onDeleteItem}
+          onToggleFavorite={onToggleFavorite}
+          labels={{
+            loadingLabel: t("sidebar.loadingFiles"),
+            noMatchesLabel: t("database.noRowsMatchThisView"),
+            clearLabel: t("database.clearSearchAndFilters"),
+            navigationLabel: `${space.name} ${t("sidebar.files")}`,
+            untitledLabel: t("sidebar.untitled"),
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 export function DocumentSidebar({
@@ -212,6 +356,266 @@ export function DocumentSidebar({
   const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
+  const contentSpacesQuery = useContentSpaces();
+  const createContentSpace = useCreateContentSpace();
+  const ensureContentSpaces = useEnsureContentSpaces();
+  const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
+  const workspaceCatalogDatabaseId =
+    contentSpacesQuery.data?.catalogDatabaseId ?? null;
+  const favoritesDocumentId =
+    contentSpacesQuery.data?.favoritesDocumentId ?? null;
+  const workspaceCatalogDatabase = useContentDatabaseById(
+    workspaceCatalogDatabaseId,
+  );
+  const workspaceCatalogPersonalView = useContentDatabasePersonalView(
+    workspaceCatalogDatabaseId,
+  );
+  const updateWorkspaceCatalogPersonalView =
+    useUpdateContentDatabasePersonalView(workspaceCatalogDatabaseId);
+  const spaceProvisionAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (
+      contentSpacesQuery.isSuccess &&
+      !spaceProvisionAttemptedRef.current &&
+      !ensureContentSpaces.isPending
+    ) {
+      spaceProvisionAttemptedRef.current = true;
+      ensureContentSpaces.mutate({});
+    }
+  }, [
+    contentSpacesQuery.isSuccess,
+    ensureContentSpaces,
+    ensureContentSpaces.isPending,
+  ]);
+  const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
+  const selectedSpace = contentSpaceForStoredSelection({
+    spaces: contentSpaces,
+    storedSpaceId,
+  });
+  const sidebarStateQuery = useActionQuery("get-content-sidebar-state", {});
+  const updateSidebarState = useActionMutation("update-content-sidebar-state", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        ["action", "get-content-sidebar-state", {}],
+        data,
+      );
+    },
+  });
+  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<string[]>(
+    [],
+  );
+  const [expandedDocumentIds, setExpandedDocumentIds] = useState<string[]>([]);
+  const expandedDocumentIdSet = useMemo(
+    () => new Set(expandedDocumentIds),
+    [expandedDocumentIds],
+  );
+  const sidebarStateHydratedRef = useRef(false);
+  const expandedWorkspaceIdsRef = useRef<string[]>([]);
+  const expandedDocumentIdsRef = useRef<string[]>([]);
+  const sidebarStateWriteTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] =
+    useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const createWorkspaceRequestIdRef = useRef<string | null>(null);
+  const contentSpaceState = contentSpaceAvailability({
+    hasSelectedSpace: Boolean(selectedSpace),
+    contentSpacesLoading: contentSpacesQuery.isLoading,
+    contentSpacesFetching: contentSpacesQuery.isFetching,
+    contentSpacesError: contentSpacesQuery.isError,
+    provisioningAttempted: spaceProvisionAttemptedRef.current,
+    provisioningPending: ensureContentSpaces.isPending,
+    provisioningError: ensureContentSpaces.isError,
+  });
+  const handleRetryContentSpaces = useCallback(() => {
+    if (contentSpacesQuery.isError) {
+      spaceProvisionAttemptedRef.current = false;
+      void contentSpacesQuery.refetch();
+      return;
+    }
+    spaceProvisionAttemptedRef.current = true;
+    ensureContentSpaces.mutate({});
+  }, [contentSpacesQuery, ensureContentSpaces]);
+  useEffect(() => {
+    if (selectedSpace && selectedSpace.id !== storedSpaceId) {
+      setStoredSpaceId(selectedSpace.id);
+    }
+  }, [selectedSpace, setStoredSpaceId, storedSpaceId]);
+  useEffect(() => {
+    if (
+      sidebarStateHydratedRef.current ||
+      !contentSpacesQuery.isSuccess ||
+      sidebarStateQuery.isLoading
+    ) {
+      return;
+    }
+    const stored = sidebarStateQuery.data?.state;
+    const workspaceIds =
+      stored?.expandedWorkspaceIds ?? contentSpaces.map((space) => space.id);
+    const documentIds = stored?.expandedDocumentIds ?? [];
+    expandedWorkspaceIdsRef.current = workspaceIds;
+    expandedDocumentIdsRef.current = documentIds;
+    setExpandedWorkspaceIds(workspaceIds);
+    setExpandedDocumentIds(documentIds);
+    sidebarStateHydratedRef.current = true;
+  }, [
+    contentSpaces,
+    contentSpacesQuery.isSuccess,
+    sidebarStateQuery.data?.state,
+    sidebarStateQuery.isLoading,
+  ]);
+
+  const queueSidebarStateWrite = useCallback(
+    (workspaceIds: string[], documentIds: string[]) => {
+      if (!sidebarStateHydratedRef.current) return;
+      if (sidebarStateWriteTimerRef.current) {
+        clearTimeout(sidebarStateWriteTimerRef.current);
+      }
+      sidebarStateWriteTimerRef.current = setTimeout(() => {
+        sidebarStateWriteTimerRef.current = null;
+        updateSidebarState.mutate({
+          version: CONTENT_SIDEBAR_STATE_VERSION,
+          expandedWorkspaceIds: workspaceIds,
+          expandedDocumentIds: documentIds,
+        });
+      }, 150);
+    },
+    [updateSidebarState],
+  );
+
+  const updateExpandedWorkspaceIds = useCallback(
+    (update: (current: string[]) => string[]) => {
+      setExpandedWorkspaceIds((current) => {
+        const next = update(current);
+        if (next === current) return current;
+        expandedWorkspaceIdsRef.current = next;
+        queueSidebarStateWrite(next, expandedDocumentIdsRef.current);
+        return next;
+      });
+    },
+    [queueSidebarStateWrite],
+  );
+
+  const handleDocumentExpandedChange = useCallback(
+    (documentId: string, expanded: boolean) => {
+      setExpandedDocumentIds((current) => {
+        const nextSet = new Set(current);
+        if (expanded) nextSet.add(documentId);
+        else nextSet.delete(documentId);
+        const next = [...nextSet];
+        expandedDocumentIdsRef.current = next;
+        queueSidebarStateWrite(expandedWorkspaceIdsRef.current, next);
+        return next;
+      });
+    },
+    [queueSidebarStateWrite],
+  );
+
+  useEffect(
+    () => () => {
+      if (sidebarStateWriteTimerRef.current) {
+        clearTimeout(sidebarStateWriteTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!selectedSpace || !sidebarStateHydratedRef.current) return;
+    updateExpandedWorkspaceIds((current) =>
+      ensureWorkspaceExpanded(current, selectedSpace.id),
+    );
+  }, [selectedSpace, updateExpandedWorkspaceIds]);
+  const handleSelectContentSpace = useCallback(
+    async (
+      space: (typeof contentSpaces)[number],
+      targetDocumentId?: string | null,
+    ) => {
+      updateExpandedWorkspaceIds((current) =>
+        ensureWorkspaceExpanded(current, space.id),
+      );
+      try {
+        await workspaceSelectionQueueRef.current(() =>
+          selectContentSpace({
+            space,
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-sidebar" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openFiles: (documentId) => {
+              if (targetDocumentId === null) return;
+              navigate(`/page/${targetDocumentId ?? documentId}`, {
+                flushSync: true,
+              });
+            },
+          }),
+        );
+        return true;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+        return false;
+      }
+    },
+    [navigate, setStoredSpaceId, updateExpandedWorkspaceIds],
+  );
+  const handleCreateWorkspace = useCallback(async () => {
+    const name = newWorkspaceName.trim();
+    if (!name) return;
+    const requestId = createWorkspaceRequestIdRef.current ?? nanoid();
+    createWorkspaceRequestIdRef.current = requestId;
+    try {
+      const created = await createContentSpace.mutateAsync({ name, requestId });
+      const space: ContentSpaceSummary = {
+        id: created.spaceId,
+        name: created.name,
+        kind: created.kind,
+        filesDatabaseId: created.filesDatabaseId,
+        filesDocumentId: created.filesDocumentId,
+        orgId: null,
+        role: "owner",
+        catalogItemId: created.catalogItemId,
+        catalogDocumentId: created.catalogDocumentId,
+      };
+      const selected = await handleSelectContentSpace(space);
+      if (!selected) return;
+      setCreateWorkspaceDialogOpen(false);
+      setNewWorkspaceName("");
+      createWorkspaceRequestIdRef.current = null;
+    } catch (error) {
+      toast.error(t("sidebar.failedCreateWorkspace"), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [createContentSpace, handleSelectContentSpace, newWorkspaceName, t]);
+  useEffect(() => {
+    if (!selectedSpace) return;
+    void setClientAppState(
+      "content-space",
+      {
+        spaceId: selectedSpace.id,
+        name: selectedSpace.name,
+        kind: selectedSpace.kind,
+        filesDatabaseId: selectedSpace.filesDatabaseId,
+      },
+      { requestSource: "content-sidebar" },
+    ).catch(() => {
+      // Space selection remains usable when best-effort agent context sync fails.
+    });
+  }, [selectedSpace]);
   const removeLocalFileSource = useActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
@@ -232,7 +636,6 @@ export function DocumentSidebar({
   );
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
-  const localFilesActive = location.pathname.startsWith("/local-files");
   const agentActive = location.pathname.startsWith("/agent");
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
@@ -283,10 +686,6 @@ export function DocumentSidebar({
   } = getDocumentSidebarSections(documents, treeDocuments);
   const localFileTree = buildDocumentTree(localSourceDocuments);
   const databaseTree = buildDocumentTree(databaseDocuments);
-  const privateTree = databaseTree.filter((node) => node.visibility !== "org");
-  const organizationTree = databaseTree.filter(
-    (node) => node.visibility === "org",
-  );
   const importedLocalFileCount = localFileMode
     ? 0
     : localSourceDocuments.filter(
@@ -296,7 +695,7 @@ export function DocumentSidebar({
   // Match the tree rows' right-side inset so favorite titles clip inside the
   // visible sidebar instead of widening the scroll surface.
   const favoriteRowWidth =
-    width === undefined ? undefined : Math.max(224, width - 8);
+    width === undefined ? undefined : Math.max(208, width - 24);
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
@@ -342,12 +741,18 @@ export function DocumentSidebar({
   );
 
   const handleCreatePage = useCallback(
-    async (parentId?: string) => {
+    async (
+      parentId?: string,
+      rootSpaceId = selectedSpace?.id,
+      optimisticId?: string,
+      rootFilesDatabaseId?: string,
+    ) => {
       if (localFileMode) {
         try {
           const created = await createDocument.mutateAsync({
             title: "",
             parentId: parentId ?? undefined,
+            spaceId: parentId ? undefined : rootSpaceId,
           });
           queryClient.setQueryData(
             ["action", "get-document", { id: created.id }],
@@ -367,7 +772,7 @@ export function DocumentSidebar({
         return;
       }
 
-      const id = nanoid();
+      const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
       const tempDoc: Document = {
         id,
@@ -393,6 +798,20 @@ export function DocumentSidebar({
         return { documents: [...docs, tempDoc] };
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      if (rootFilesDatabaseId) {
+        const optimisticItem: ContentDatabaseItem = {
+          id: `optimistic-${id}`,
+          databaseId: rootFilesDatabaseId,
+          document: tempDoc,
+          position: tempDoc.position,
+          properties: [],
+        };
+        queryClient.setQueryData<ContentDatabaseResponse>(
+          contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+          (current) =>
+            applyOptimisticItemToContentDatabase(current, optimisticItem),
+        );
+      }
 
       navigateToDocument(id);
       onNavigate?.();
@@ -402,6 +821,7 @@ export function DocumentSidebar({
           id,
           title: "",
           parentId: parentId ?? undefined,
+          spaceId: parentId ? undefined : rootSpaceId,
         });
         const nextId = created?.id || id;
         if (nextId !== id) {
@@ -422,6 +842,11 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
+        if (rootFilesDatabaseId) {
+          queryClient.invalidateQueries({
+            queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+          });
+        }
       } catch (err) {
         // Revert optimistic updates
         queryClient.invalidateQueries({
@@ -430,6 +855,12 @@ export function DocumentSidebar({
         queryClient.removeQueries({
           queryKey: ["action", "get-document", { id }],
         });
+        if (rootFilesDatabaseId) {
+          queryClient.setQueryData<ContentDatabaseResponse>(
+            contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+            (current) => removeOptimisticItemFromContentDatabase(current, id),
+          );
+        }
         navigate("/");
         toast.error(t("sidebar.failedCreatePage"), {
           description:
@@ -444,14 +875,16 @@ export function DocumentSidebar({
       navigateToDocument,
       onNavigate,
       queryClient,
+      selectedSpace?.id,
     ],
   );
 
   const handleCreateDatabase = useCallback(
-    async (parentId?: string | null) => {
+    async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
       try {
         const result = await createDatabase.mutateAsync({
           parentId: parentId ?? null,
+          spaceId: parentId ? undefined : rootSpaceId,
           title: t("editor.untitledDatabase"),
         });
         navigateToDocument(result.database.documentId);
@@ -463,7 +896,34 @@ export function DocumentSidebar({
         });
       }
     },
-    [createDatabase, navigateToDocument, onNavigate, t],
+    [createDatabase, navigateToDocument, onNavigate, selectedSpace?.id, t],
+  );
+
+  const handleCreatePageInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      const id = nanoid();
+      if (selectedSpace?.id !== space.id) {
+        void handleSelectContentSpace(space, null);
+      }
+      await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
+    },
+    [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
+  );
+
+  const handleOpenFavorite = useCallback(
+    (document: Document) => {
+      const space = contentSpaces.find(
+        (candidate) =>
+          candidate.filesDocumentId ===
+          document.databaseMembership?.databaseDocumentId,
+      );
+      if (space) {
+        void handleSelectContentSpace(space, document.id);
+        return;
+      }
+      navigateToDocument(document.id);
+    },
+    [contentSpaces, handleSelectContentSpace, navigateToDocument],
   );
 
   const handleDelete = useCallback(
@@ -629,9 +1089,21 @@ export function DocumentSidebar({
 
   const handleToggleFavorite = useCallback(
     (id: string, isFavorite: boolean) => {
-      updateDocument.mutate({ id, isFavorite });
+      updateDocument.mutate(
+        { id, isFavorite },
+        {
+          onError: (error) => {
+            toast.error(t("sidebar.failedUpdateFavorite"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
     },
-    [updateDocument],
+    [t, updateDocument],
   );
 
   const handleRestoreDatabase = useCallback(
@@ -723,88 +1195,35 @@ export function DocumentSidebar({
     </SortableContext>
   );
 
-  const renderNewButton = () => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          disabled={createDocument.isPending || createDatabase.isPending}
-        >
-          <IconPlus size={14} className="shrink-0" />
-          <span>{t("sidebar.new")}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        <DropdownMenuItem
-          disabled={createDocument.isPending}
-          onClick={() => void handleCreatePage()}
-        >
-          <IconFileText className="me-2 size-4" />
-          {t("sidebar.page")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={createDatabase.isPending}
-          onClick={() => void handleCreateDatabase(null)}
-        >
-          <IconDatabase className="me-2 size-4" />
-          {t("sidebar.database")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  const renderNewButton = (space = selectedSpace) =>
+    space ? (
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        disabled={createDocument.isPending}
+        onClick={() => void handleCreatePageInSpace(space)}
+      >
+        <IconPlus size={14} className="shrink-0" />
+        <span>{t("sidebar.newPage")}</span>
+      </button>
+    ) : null;
 
-  const renderCollapsedNewButton = () => (
-    <DropdownMenu>
+  const renderCollapsedNewButton = () =>
+    selectedSpace ? (
       <Tooltip>
         <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              disabled={createDocument.isPending || createDatabase.isPending}
-            >
-              <IconPlus size={16} />
-            </button>
-          </DropdownMenuTrigger>
+          <button
+            type="button"
+            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+            disabled={createDocument.isPending}
+            onClick={() => void handleCreatePageInSpace(selectedSpace)}
+          >
+            <IconPlus size={16} />
+          </button>
         </TooltipTrigger>
-        <TooltipContent>{t("sidebar.new")}</TooltipContent>
+        <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="start" className="w-44">
-        <DropdownMenuItem
-          disabled={createDocument.isPending}
-          onClick={() => void handleCreatePage()}
-        >
-          <IconFileText className="me-2 size-4" />
-          {t("sidebar.page")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={createDatabase.isPending}
-          onClick={() => void handleCreateDatabase(null)}
-        >
-          <IconDatabase className="me-2 size-4" />
-          {t("sidebar.database")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
-  const renderLocalFilesNavButton = () => (
-    <Link
-      to="/local-files"
-      className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-        localFilesActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-      )}
-    >
-      <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
-        {t("sidebar.localFiles")}
-      </span>
-    </Link>
-  );
+    ) : null;
 
   const renderSettingsNavButton = () => (
     <Link
@@ -987,6 +1406,204 @@ export function DocumentSidebar({
     );
   };
 
+  const renderWorkspaceRoot = (space: ContentSpaceSummary) => {
+    const selected = selectedSpace?.id === space.id;
+    const expanded = expandedWorkspaceIds.includes(space.id);
+    return (
+      <div className="min-w-0">
+        <div
+          className={cn(
+            "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
+            selected
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+          )}
+        >
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
+            className="relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+            onClick={() =>
+              updateExpandedWorkspaceIds((current) =>
+                toggleExpandedWorkspaceIds(current, space.id),
+              )
+            }
+          >
+            <span className="group-hover/workspace-header:opacity-0 group-focus-within/workspace-header:opacity-0">
+              {expanded ? (
+                <IconFolderOpen size={14} />
+              ) : (
+                <IconFolder size={14} />
+              )}
+            </span>
+            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100">
+              {expanded ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
+            onClick={() => void handleSelectContentSpace(space)}
+          >
+            {space.name}
+          </button>
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+            disabled={createDocument.isPending}
+            aria-label={`${t("sidebar.newPage")} — ${space.name}`}
+            onClick={() => void handleCreatePageInSpace(space)}
+          >
+            <IconPlus size={14} />
+          </button>
+        </div>
+        {expanded && (
+          <WorkspaceFilesSection
+            space={space}
+            selected={selected}
+            activeDocumentId={activeDocumentId}
+            expandedDocumentIds={expandedDocumentIdSet}
+            onDocumentExpandedChange={handleDocumentExpandedChange}
+            onActivate={(nextSpace, documentId) =>
+              void handleSelectContentSpace(nextSpace, documentId)
+            }
+            onCreateChildPage={(nextSpace, item) =>
+              void handleCreatePage(
+                item.document.id,
+                nextSpace.id,
+                undefined,
+                nextSpace.filesDatabaseId,
+              )
+            }
+            onCreateChildDatabase={(nextSpace, item) =>
+              void handleCreateDatabase(item.document.id, nextSpace.id)
+            }
+            onDeleteItem={(item) => void handleDelete(item.document.id)}
+            onToggleFavorite={(item) =>
+              handleToggleFavorite(item.document.id, !item.document.isFavorite)
+            }
+          />
+        )}
+      </div>
+    );
+  };
+
+  const renderWorkspaceNavigation = () => (
+    <div className="mb-2 min-w-0 overflow-x-hidden px-2">
+      {contentSpaceState === "ready" && selectedSpace ? (
+        <div className="grid gap-1">
+          {workspaceCatalogDatabase.isError ||
+          workspaceCatalogPersonalView.isError ? (
+            <QueryErrorState
+              compact
+              onRetry={() => {
+                void workspaceCatalogDatabase.refetch();
+                void workspaceCatalogPersonalView.refetch();
+              }}
+              retrying={
+                workspaceCatalogDatabase.isFetching ||
+                workspaceCatalogPersonalView.isFetching
+              }
+            />
+          ) : (
+            <ContentFilesSidebarView
+              data={workspaceCatalogDatabase.data}
+              overrides={workspaceCatalogPersonalView.data?.overrides}
+              isLoading={
+                workspaceCatalogDatabase.isLoading ||
+                workspaceCatalogPersonalView.isLoading
+              }
+              onSelectView={(viewId) => {
+                if (!workspaceCatalogDatabaseId) return;
+                const current = workspaceCatalogPersonalView.data?.overrides;
+                updateWorkspaceCatalogPersonalView.mutate({
+                  databaseId: workspaceCatalogDatabaseId,
+                  overrides: {
+                    version:
+                      current?.version ??
+                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                    activeViewId: viewId,
+                    views: current?.views ?? [],
+                  },
+                });
+              }}
+              renderItem={(item) => {
+                const space = contentSpaces.find(
+                  (candidate) =>
+                    candidate.catalogDocumentId === item.document.id,
+                );
+                return space
+                  ? renderWorkspaceRoot({
+                      ...space,
+                      name: item.document.title || space.name,
+                    })
+                  : null;
+              }}
+              scroll={false}
+              labels={{
+                loadingLabel: t("sidebar.loadingFiles"),
+                noMatchesLabel: t("database.noRowsMatchThisView"),
+                clearLabel: t("database.clearSearchAndFilters"),
+                navigationLabel: "Content navigation",
+                untitledLabel: t("sidebar.untitled"),
+              }}
+            />
+          )}
+          <div className="px-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-full min-w-0 items-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                  aria-label={t("sidebar.addWorkspace")}
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center">
+                    <IconPlus size={14} />
+                  </span>
+                  <span className="truncate text-start text-[10px] font-semibold uppercase tracking-wider">
+                    {t("sidebar.addWorkspace")}
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                <DropdownMenuItem
+                  onSelect={() => setCreateWorkspaceDialogOpen(true)}
+                >
+                  <IconPlus className="me-2 size-4" />
+                  {t("sidebar.newWorkspace")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/local-files">
+                    <IconFolder className="me-2 size-4" />
+                    {t("sidebar.localFolder")}
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      ) : contentSpaceState === "loading" ? (
+        <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+          {t("sidebar.loadingFiles")}
+        </div>
+      ) : (
+        <QueryErrorState
+          compact
+          onRetry={handleRetryContentSpaces}
+          retrying={
+            contentSpacesQuery.isFetching || ensureContentSpaces.isPending
+          }
+        />
+      )}
+    </div>
+  );
+
   const renderTrashSection = () => {
     if (trashItems.length === 0) return null;
     const collapsed = collapsedSections.trash;
@@ -1099,22 +1716,6 @@ export function DocumentSidebar({
           <TooltipContent>{t("sidebar.expand")}</TooltipContent>
         </Tooltip>
         {renderCollapsedNewButton()}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/local-files"
-              className={cn(
-                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
-                localFilesActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <IconFolderOpen size={16} />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
-        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Link
@@ -1271,96 +1872,63 @@ export function DocumentSidebar({
             <>
               {/* Favorites */}
               {showFavorites && (
-                <div className="mb-2 min-w-0">
-                  <div className="flex min-w-0 items-center gap-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    <IconStar size={10} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {t("sidebar.favorites")}
-                    </span>
-                  </div>
-                  {favorites.map((doc) => (
+                <div className="mb-2 min-w-0 px-2">
+                  <div className="flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
                     <button
-                      key={doc.id}
-                      className={cn(
-                        "flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
-                        doc.id === activeDocumentId
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      style={{
-                        width:
-                          favoriteRowWidth === undefined
-                            ? undefined
-                            : `${favoriteRowWidth}px`,
-                      }}
-                      onClick={() => {
-                        navigateToDocument(doc.id);
-                        onNavigate?.();
-                      }}
+                      type="button"
+                      aria-expanded={!collapsedSections.favorites}
+                      aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.favorites")}`}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                      onClick={() => toggleSection("favorites")}
                     >
-                      <span className="flex-shrink-0 w-5 text-center">
-                        <DocumentSidebarIcon document={doc} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {doc.title || t("sidebar.untitled")}
-                      </span>
+                      {collapsedSections.favorites ? (
+                        <IconChevronRight size={14} />
+                      ) : (
+                        <IconChevronDown size={14} />
+                      )}
                     </button>
-                  ))}
+                    <Link
+                      to={
+                        favoritesDocumentId
+                          ? `/page/${favoritesDocumentId}`
+                          : "/favorites"
+                      }
+                      className={cn(
+                        "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
+                        (location.pathname === "/favorites" ||
+                          activeDocumentId === favoritesDocumentId) &&
+                          "text-foreground",
+                      )}
+                    >
+                      {t("sidebar.favorites")}
+                    </Link>
+                  </div>
+                  {!collapsedSections.favorites &&
+                    favorites.map((doc) => (
+                      <FavoriteDocumentItem
+                        key={doc.id}
+                        document={doc}
+                        active={doc.id === activeDocumentId}
+                        sidebarWidth={favoriteRowWidth}
+                        onSelect={() => {
+                          handleOpenFavorite(doc);
+                          onNavigate?.();
+                        }}
+                        onCreateChildPage={() => void handleCreatePage(doc.id)}
+                        onCreateChildDatabase={() =>
+                          void handleCreateDatabase(doc.id)
+                        }
+                        onRemoveFavorite={() =>
+                          handleToggleFavorite(doc.id, false)
+                        }
+                        onDelete={() => void handleDelete(doc.id)}
+                      />
+                    ))}
                 </div>
               )}
 
-              {localFileMode ? (
-                <>
-                  {renderTreeSection({
-                    id: "local-files",
-                    label: t("sidebar.localFiles"),
-                    nodes: localFileTree,
-                    emptyLabel: t("sidebar.noFilesYet"),
-                    headerActions: renderLocalFilesSectionActions(),
-                    footer: renderNewButton(),
-                  })}
-                  {databaseTree.length > 0
-                    ? renderTreeSection({
-                        id: "shared-copies",
-                        label: t("sidebar.sharedCopies"),
-                        nodes: databaseTree,
-                        emptyLabel: t("sidebar.noSharedCopiesYet"),
-                        className: "mt-3",
-                      })
-                    : null}
-                  {renderTrashSection()}
-                </>
-              ) : (
-                <>
-                  {localFileTree.length > 0 &&
-                    renderTreeSection({
-                      id: "local-files",
-                      label: t("sidebar.localFiles"),
-                      nodes: localFileTree,
-                      emptyLabel: t("sidebar.noLocalFilesYet"),
-                      className: "mb-2",
-                      headerActions: renderLocalFilesSectionActions(),
-                    })}
-
-                  {renderTreeSection({
-                    id: "private",
-                    label: t("sidebar.private"),
-                    nodes: privateTree,
-                    emptyLabel: t("sidebar.noPrivatePagesYet"),
-                    footer: renderNewButton(),
-                  })}
-
-                  {!isLoading &&
-                    renderTreeSection({
-                      id: "organization",
-                      label: t("sidebar.organization"),
-                      nodes: organizationTree,
-                      emptyLabel: t("sidebar.noOrganizationPagesYet"),
-                      className: "mt-3",
-                    })}
-                  {renderTrashSection()}
-                </>
-              )}
+              {renderWorkspaceNavigation()}
+              {renderTrashSection()}
             </>
           )}
         </div>
@@ -1368,7 +1936,6 @@ export function DocumentSidebar({
 
       <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
-          {renderLocalFilesNavButton()}
           {renderAgentNavButton()}
           {renderSettingsNavButton()}
         </div>
@@ -1391,7 +1958,6 @@ export function DocumentSidebar({
 
       {/* Footer */}
       <div className="shrink-0 space-y-2 px-3 py-2">
-        <OrgSwitcher />
         {isCodeMode ? <DevDatabaseLink /> : null}
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
@@ -1412,6 +1978,60 @@ export function DocumentSidebar({
           onMouseDown={handleMouseDown}
         />
       )}
+      <Dialog
+        open={createWorkspaceDialogOpen}
+        onOpenChange={(open) => {
+          setCreateWorkspaceDialogOpen(open);
+          if (!open && !createContentSpace.isPending) {
+            setNewWorkspaceName("");
+            createWorkspaceRequestIdRef.current = null;
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleCreateWorkspace();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("sidebar.newWorkspace")}</DialogTitle>
+              <DialogDescription>
+                {t("sidebar.newWorkspaceDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              autoFocus
+              aria-label={t("sidebar.workspaceName")}
+              placeholder={t("sidebar.workspaceName")}
+              value={newWorkspaceName}
+              maxLength={200}
+              onChange={(event) => setNewWorkspaceName(event.target.value)}
+            />
+            <DialogFooter>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium hover:bg-accent"
+                disabled={createContentSpace.isPending}
+                onClick={() => setCreateWorkspaceDialogOpen(false)}
+              >
+                {t("comments.cancel")}
+              </button>
+              <button
+                type="submit"
+                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                disabled={
+                  createContentSpace.isPending || !newWorkspaceName.trim()
+                }
+              >
+                {t("sidebar.createWorkspace")}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={removeLocalFilesDialogOpen}
         onOpenChange={setRemoveLocalFilesDialogOpen}

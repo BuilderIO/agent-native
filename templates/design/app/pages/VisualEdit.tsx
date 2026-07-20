@@ -1,4 +1,6 @@
-import { agentNativePath, useSession, useT } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowUpRight,
   IconBrush,

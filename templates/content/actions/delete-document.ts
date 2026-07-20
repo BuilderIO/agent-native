@@ -6,11 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
-import {
-  deleteLocalFileDocument,
-  isLocalDocumentId,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -175,6 +171,7 @@ export async function deleteDocumentRecursive(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
   const propertyDefinitionIds: string[] = [];
   await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
@@ -360,21 +357,57 @@ export default defineAction({
   description: "Delete a document and all its children recursively.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
+    databaseDocumentId: z
+      .string()
+      .optional()
+      .describe("Database page the deletion was initiated from"),
   }),
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const result = await deleteLocalFileDocument(id);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return result;
+    const db = getDb();
+    if (args.databaseDocumentId) {
+      const [contextDatabase] = await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.documentId, args.databaseDocumentId),
+            eq(schema.contentDatabases.systemRole, "favorites"),
+          ),
+        );
+      if (contextDatabase) {
+        await assertAccess("document", contextDatabase.documentId, "editor");
+        const [membership] = await db
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.databaseId, contextDatabase.id),
+              eq(schema.contentDatabaseItems.documentId, id),
+            ),
+          );
+        if (!membership) {
+          throw new Error("Document is not part of Favorites");
+        }
+        await db
+          .delete(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.id, membership.id));
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        return { success: true, deleted: 0, removed: 1 };
+      }
     }
 
     const access = await assertAccess("document", id, "admin");
     const existing = access.resource;
-
-    const db = getDb();
+    const [systemDatabase] = await db
+      .select({ systemRole: schema.contentDatabases.systemRole })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.documentId, id));
+    if (systemDatabase?.systemRole) {
+      throw new Error("System Content database documents cannot be deleted");
+    }
     const deleted = await deleteDocumentRecursive(
       db,
       id,

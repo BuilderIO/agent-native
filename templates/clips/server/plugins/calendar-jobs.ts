@@ -6,6 +6,7 @@
  */
 
 import registerBuilderMediaCompressionJob from "../jobs/builder-media-compression.js";
+import registerMediaVerificationJob from "../jobs/media-verification.js";
 import registerMeetingRemindersJob from "../jobs/meeting-reminders.js";
 import registerPollCalendarsJob from "../jobs/poll-calendars.js";
 import registerStaleMeetingSweeperJob from "../jobs/stale-meeting-sweeper.js";
@@ -16,6 +17,7 @@ export default () => {
   // background loop is off.
   registerMeetingRemindersJob();
   registerBuilderMediaCompressionJob();
+  registerMediaVerificationJob();
   registerPollCalendarsJob();
   registerStaleMeetingSweeperJob();
 };

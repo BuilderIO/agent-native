@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";

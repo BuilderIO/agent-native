@@ -268,8 +268,10 @@ Utilisez `http: { method: "GET" }` ou `readOnly: true` pour actions en lecture s
 Les itinéraires résident dans `app/routes/` et utilisent le routage de fichiers React Router v8. Interrogez les données via les gestionnaires actions ou API et rendez les mutations optimistes par défaut.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -285,7 +287,7 @@ export default function ProjectsPage() {
 Câblez la synchronisation en direct une fois à proximité du shell de l'application afin que les caches de requête React s'actualisent lorsque l'agent, un autre onglet ou une action modifie les données :
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -298,7 +300,7 @@ export function AppSync() {
 **La promesse native de l'agent : les écritures de l'agent s'affichent dans le UI sans actualisation manuelle.** `useActionQuery` est la voie la plus simple : chaque hook est récupéré lorsqu'une action de mutation émet `source: "action"`. Si vous accédez au `useQuery` brut avec une clé personnalisée (par exemple, un assistant client de bas niveau qui lit l'état d'intégration), insérez le compteur par source dans la clé de requête pour des actualisations ciblées :
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -321,7 +323,7 @@ L'état de l'application indique comment l'agent sait ce que l'utilisateur voit.
 Utilisez `useAgentRouteState` pour le hook UI afin que les écritures dans l'état de l'application, les lectures de commandes par tabulation, la suppression après lecture et la protection contre les commandes en double restent cohérentes :
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

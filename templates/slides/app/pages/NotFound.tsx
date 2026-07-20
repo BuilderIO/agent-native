@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "react-router";

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/desktop-app",
-  "version": "0.1.7",
+  "version": "0.1.150",
   "private": true,
   "description": "Agent Native desktop app",
   "homepage": "https://agent-native.com",
@@ -19,11 +19,14 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && vite build --config electron.vite.code-agent-runner.config.ts && AGENT_NATIVE_PACKAGED_MULTI_FRONTIER_SMOKE=1 vite build --config electron.vite.code-agent-runner.config.ts",
     "build:native:mac": "bash native/build-macos-helper.sh",
     "build:chrome-extension": "pnpm --dir ../agent-chrome-extension build",
-    "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
+    "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && pnpm build && electron-builder --mac --config",
     "preview": "electron-vite preview",
+    "smoke:packaged-code-runner": "tsx scripts/smoke-packaged-code-runner.ts",
+    "smoke:packaged-multi-frontier": "tsx scripts/smoke-packaged-multi-frontier.ts",
+    "test": "vitest run src/main src/renderer shared --exclude \"**/*.test.ts\"",
     "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -31,6 +34,7 @@
     "@agent-native/code-agents-ui": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",

@@ -158,6 +158,7 @@ describe("RequireSession", () => {
       </RequireSession>,
     );
     expect(container.querySelector('[data-testid="protected"]')).not.toBeNull();
+    expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
   });
 });

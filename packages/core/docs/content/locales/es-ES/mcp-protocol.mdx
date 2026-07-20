@@ -240,6 +240,15 @@ estado terminal. El `ask_app` propio de cada aplicación en Dispatch usa el
 mismo contrato de tarea y estado duraderos, con la concesión de la aplicación
 seleccionada verificada tanto en el envío como en el sondeo.
 
+Si no está disponible una lectura de estado transitoria y acotada,
+`ask_app_status` puede devolver `status: "unknown"`,
+`statusRead: "unavailable"`, `retryable: true`, el `app` y `taskId` originales,
+y `pollAfterMs` / `poll`. Esto significa que la lectura de estado no está
+disponible, no que la tarea duradera haya fallado. Vuelva a intentar
+`ask_app_status` con exactamente el mismo `app` y `taskId`; nunca reenvíe
+`ask_app` para recuperarse, porque el envío puede duplicar el trabajo. Los errores
+permanentes de autenticación, de no encontrado y de protocolo siguen siendo errores.
+
 ## Autenticación {#authentication}
 
 El punto final MCP admite MCP OAuth remoto estándar más el respaldo de token de portador existente:

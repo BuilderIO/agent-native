@@ -116,8 +116,7 @@ export default createAgentNativeEmbeddedPlugin({
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -295,8 +294,10 @@ for await (const chunk of sendMessage(
 स्टैंडअलोन साइडकार ऐप्स या क्रॉस-ओरिजिन आईफ्रेम के लिए, निचले स्तर के `<AgentNative />` का उपयोग करें। यह आईफ्रेम साइडकार और वायर पेज संदर्भ, लाइव क्लाइंट actions और होस्ट रिफ्रेश/नेविगेशन कमांड को एक ही स्थान पर प्रस्तुत करता है:
 
 ```tsx
-import { AgentNative, defineClientAction } from "@agent-native/core/client";
-
+import {
+  AgentNative,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -383,8 +384,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -459,8 +459,7 @@ CLAW-शैली के सहकर्मी के लिए, iframe अप�
 
 ```tsx
 import { useEffect } from "react";
-import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
-
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -512,8 +511,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

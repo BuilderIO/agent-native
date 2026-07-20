@@ -1,4 +1,4 @@
-import { useSemanticNavigationState } from "@agent-native/core/client";
+import { useSemanticNavigationState } from "@agent-native/core/client/navigation";
 import { useCallback, useState } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";

@@ -6,14 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }

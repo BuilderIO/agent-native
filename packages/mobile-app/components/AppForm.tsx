@@ -6,13 +6,13 @@ import {
   Alert,
   Modal,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+
+import { SafeAreaView } from "@/components/uniwind-interop";
 
 const ICON_PRESETS: { name: string; icon: keyof typeof Feather.glyphMap }[] = [
   { name: "Globe", icon: "globe" },
@@ -95,30 +95,36 @@ export default function AppForm({
         onClose();
       }}
     >
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={styles.cancelText}>Cancel</Text>
+      <SafeAreaView className="flex-1 bg-background-pure">
+        <View className="flex-row justify-between items-center px-4 pt-4 pb-3 border-b border-border-dark">
+          <TouchableOpacity onPress={onClose} className="active:opacity-75">
+            <Text className="text-status-gray text-base">Cancel</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>{isEditing ? "Edit App" : "Add App"}</Text>
-          <TouchableOpacity onPress={handleSave}>
-            <Text style={styles.saveText}>Save</Text>
+          <Text className="text-white text-lg font-bold">
+            {isEditing ? "Edit App" : "Add App"}
+          </Text>
+          <TouchableOpacity onPress={handleSave} className="active:opacity-75">
+            <Text className="text-white text-base font-bold">Save</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.form} keyboardShouldPersistTaps="handled">
-          <Text style={styles.label}>Name *</Text>
+        <ScrollView className="flex-1 p-4" keyboardShouldPersistTaps="handled">
+          <Text className="text-text-muted text-xs font-semibold mt-4 mb-1.5 uppercase tracking-wider">
+            Name *
+          </Text>
           <TextInput
-            style={styles.input}
+            className="bg-card-dark rounded-lg p-3.5 text-white text-base border border-border-dark"
             value={name}
             onChangeText={setName}
             placeholder="My App"
             placeholderTextColor="#555555"
           />
 
-          <Text style={styles.label}>URL *</Text>
+          <Text className="text-text-muted text-xs font-semibold mt-4 mb-1.5 uppercase tracking-wider">
+            URL *
+          </Text>
           <TextInput
-            style={styles.input}
+            className="bg-card-dark rounded-lg p-3.5 text-white text-base border border-border-dark"
             value={url}
             onChangeText={setUrl}
             placeholder="https://myapp.example.com"
@@ -128,24 +134,27 @@ export default function AppForm({
             autoCorrect={false}
           />
 
-          <Text style={styles.label}>Description</Text>
+          <Text className="text-text-muted text-xs font-semibold mt-4 mb-1.5 uppercase tracking-wider">
+            Description
+          </Text>
           <TextInput
-            style={styles.input}
+            className="bg-card-dark rounded-lg p-3.5 text-white text-base border border-border-dark"
             value={description}
             onChangeText={setDescription}
             placeholder="What does this app do?"
             placeholderTextColor="#555555"
           />
 
-          <Text style={styles.label}>Icon</Text>
-          <View style={styles.iconGrid}>
+          <Text className="text-text-muted text-xs font-semibold mt-4 mb-1.5 uppercase tracking-wider">
+            Icon
+          </Text>
+          <View className="flex-row flex-wrap gap-2.5">
             {ICON_PRESETS.map(({ name: iconName, icon: featherIcon }) => (
               <TouchableOpacity
                 key={iconName}
-                style={[
-                  styles.iconChoice,
-                  icon === iconName && styles.iconChoiceSelected,
-                ]}
+                className={`w-11 h-11 rounded-lg bg-card-dark items-center justify-center border border-gray-border-light active:opacity-75 ${
+                  icon === iconName ? "border-white border-2" : ""
+                }`}
                 onPress={() => setIcon(iconName)}
               >
                 <Feather name={featherIcon} size={22} color="#ffffff" />
@@ -153,81 +162,9 @@ export default function AppForm({
             ))}
           </View>
 
-          <View style={{ height: 40 }} />
+          <View className="h-10" />
         </ScrollView>
       </SafeAreaView>
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#222222",
-  },
-  title: {
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  cancelText: {
-    color: "#888888",
-    fontSize: 16,
-  },
-  saveText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  form: {
-    flex: 1,
-    padding: 16,
-  },
-  label: {
-    color: "#999999",
-    fontSize: 13,
-    fontWeight: "500",
-    marginTop: 16,
-    marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  input: {
-    backgroundColor: "#1A1A1A",
-    borderRadius: 10,
-    padding: 14,
-    color: "#ffffff",
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#222222",
-  },
-  iconGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  iconChoice: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: "#1A1A1A",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#333333",
-  },
-  iconChoiceSelected: {
-    borderColor: "#ffffff",
-    borderWidth: 2,
-  },
-});

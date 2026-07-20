@@ -32,13 +32,8 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children?: unknown }) => children as never,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (...args: unknown[]) => mockUseActionMutation(...args),
-  // `@/lib/utils`'s `cn` re-exports from this module — ShaderFillsPanel's
-  // browse view (rendered when no `descriptor` prop is passed) uses it for
-  // every button's className, so it must stay a real class-joining function
-  // rather than disappearing along with the rest of this mocked module.
-  cn: (...classes: unknown[]) => classes.filter(Boolean).join(" "),
 }));
 
 // Stub out ShaderControls entirely — it renders heavy shader canvases we

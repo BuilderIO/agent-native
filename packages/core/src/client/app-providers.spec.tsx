@@ -97,6 +97,7 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
+    expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
   });
 });

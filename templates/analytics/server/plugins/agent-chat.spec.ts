@@ -145,6 +145,7 @@ describe("Analytics agent Plan mode policy", () => {
       "bigquery",
       "github-repo-files",
       "gong-calls",
+      "gong-native-insights",
       "hubspot-deals",
       "hubspot-pipelines",
       "hubspot-records",
@@ -158,7 +159,7 @@ describe("Analytics agent Plan mode policy", () => {
     ]);
   });
 
-  it("keeps corpus and provider reduction tools in the initial tool surface", () => {
+  it("keeps the generic corpus path and only conceptual provider recipes in the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
@@ -169,10 +170,20 @@ describe("Analytics agent Plan mode policy", () => {
         "query-staged-dataset",
         "run-code",
         "get-code-execution",
+        "account-deep-dive",
+        "gong-calls",
+        "gong-native-insights",
+        "github-repo-files",
+      ]),
+    );
+    expect(INITIAL_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining([
         "hubspot-deals",
         "hubspot-records",
         "hubspot-pipelines",
-        "github-repo-files",
+        "jira-search",
+        "slack-messages",
+        "sentry",
       ]),
     );
   });

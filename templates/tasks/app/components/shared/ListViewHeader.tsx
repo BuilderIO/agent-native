@@ -1,4 +1,5 @@
-import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ListSelectionHeaderToggle } from "@/components/shared/selection/ListSelectionHeaderToggle";

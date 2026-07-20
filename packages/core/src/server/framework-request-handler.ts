@@ -19,6 +19,10 @@ import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
+import {
+  installHttpResponseTelemetryHooks,
+  recordFrameworkReadyWait,
+} from "./http-response-telemetry.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -114,6 +118,7 @@ export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
 export function getH3App(nitroApp: any): H3AppShim {
   if (!nitroApp) throw new Error("getH3App: nitroApp is required");
   ensureGlobalMiddlewareDispatch(nitroApp);
+  installHttpResponseTelemetryHooks(nitroApp);
 
   // Reuse the cached shim if we've wrapped this nitroApp before
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
@@ -204,7 +209,12 @@ export function getH3App(nitroApp: any): H3AppShim {
         resolveMountMatch(reqPath, WELL_KNOWN_PREFIX) ||
         resolveMountMatch(reqPath, MCP_PUBLIC_ROUTE_PREFIX)
       ) {
-        await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        const startedAt = Date.now();
+        try {
+          await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        } finally {
+          recordFrameworkReadyWait(event, Date.now() - startedAt);
+        }
       }
     });
   }

@@ -1,24 +1,9 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
-/**
- * Tokens inspector panel — §6.2 of DESIGN-STUDIO-PLAN.md.
- *
- * Friendly token names + colour swatches, CSS-var name on the right, type-scale
- * section, radius input, a source chip, and a New token action. Grouped by
- * type: color → typography → spacing → radius → shadow → other.
- *
- * Alpine (Tier-A): edits go through `apply-design-token-edit` which routes
- * through the Tweaks loop (live tweak-values preview + persist in
- * designs.data.tweakSelections). No source file write-back yet.
- *
- * Real app (Tier-B): the write-back advisory from the action surfaces inline
- * as a migration CTA; no additional UI logic is needed here.
- */
-
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrush,
   IconChevronDown,

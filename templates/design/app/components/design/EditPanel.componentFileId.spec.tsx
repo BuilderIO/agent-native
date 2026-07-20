@@ -34,7 +34,7 @@ const detailsData = {
   },
 };
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string, params: unknown) => {
     queryCalls.push({ name, params });
     return { data: detailsData, isLoading: false, error: null };
@@ -44,6 +44,9 @@ vi.mock("@agent-native/core/client", () => ({
       mutateCalls.push(args);
     },
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

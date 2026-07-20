@@ -1,12 +1,13 @@
 import {
   getBrowserTabId,
   setClientAppState,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { cn } from "@/lib/utils";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { EmptyState } from "./empty-state";
@@ -57,6 +59,10 @@ interface FolderTargetRow {
   parentId: string | null;
   name: string;
 }
+
+type CreateFolderTarget =
+  | { kind: "single"; recording: RecordingSummary }
+  | { kind: "bulk"; recordingIds: string[] };
 
 function buildMoveTargets(
   folders: FolderTargetRow[],
@@ -101,6 +107,8 @@ export function LibraryGrid({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
+  const [createFolderTarget, setCreateFolderTarget] =
+    useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
 
@@ -194,15 +202,18 @@ export function LibraryGrid({
     setSelected(new Set());
   };
 
-  const moveSelected = async (targetFolderId: string | null) => {
-    if (selectedIds.length === 0) return;
+  const moveRecordings = async (
+    ids: string[],
+    targetFolderId: string | null,
+  ) => {
+    if (ids.length === 0) return;
     setIsBulkPending(true);
     try {
       await moveRecording.mutateAsync({
-        ids: selectedIds,
+        ids,
         folderId: targetFolderId,
       });
-      toast.success(t("libraryGrid.clipsMoved", { count: selectedIds.length }));
+      toast.success(t("libraryGrid.clipsMoved", { count: ids.length }));
       clearSelection();
     } catch (err: any) {
       toast.error(err?.message ?? t("libraryGrid.moveFailed"));
@@ -210,6 +221,9 @@ export function LibraryGrid({
       setIsBulkPending(false);
     }
   };
+
+  const moveSelected = (targetFolderId: string | null) =>
+    moveRecordings(selectedIds, targetFolderId);
 
   const moveSingle = async (
     rec: RecordingSummary,
@@ -264,6 +278,22 @@ export function LibraryGrid({
           }}
         />
       )}
+      <CreateFolderDialog
+        open={Boolean(createFolderTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCreateFolderTarget(null);
+        }}
+        spaceId={view === "space" ? spaceId : null}
+        parentId={folderId}
+        onCreated={(folder) => {
+          if (!createFolderTarget) return;
+          if (createFolderTarget.kind === "single") {
+            void moveSingle(createFolderTarget.recording, folder.id);
+          } else {
+            void moveRecordings(createFolderTarget.recordingIds, folder.id);
+          }
+        }}
+      />
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
@@ -291,109 +321,119 @@ export function LibraryGrid({
       )}
 
       {/* Grid body */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-5">
-          {isLoading ? (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} />
-              ))}
-            </div>
-          ) : isError && recordings.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-              <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
-                <IconAlertTriangle className="h-10 w-10 text-destructive" />
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            selected.size > 0 && "pb-20",
+          )}
+        >
+          <div className="p-5">
+            {isLoading ? (
+              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} />
+                ))}
               </div>
-              <h2 className="text-base font-semibold text-foreground mb-1">
-                {t("libraryGrid.loadFailedTitle")}
-              </h2>
-              <p className="text-sm text-muted-foreground max-w-sm mb-5">
-                {t("libraryGrid.loadFailedBody")}
-              </p>
-              <Button
-                onClick={() => refetch()}
-                disabled={isRefetching}
-                size="sm"
-              >
-                {t("libraryGrid.retry")}
-              </Button>
-            </div>
-          ) : recordings.length === 0 ? (
-            <EmptyState
-              kind={resolvedEmptyKind}
-              spaceId={spaceId}
-              folderId={folderId}
-            />
-          ) : (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-              {recordings.map((r: RecordingSummary) => (
-                <RecordingCard
-                  key={r.id}
-                  recording={r}
-                  selected={
-                    canManageRecordings ? selected.has(r.id) : undefined
-                  }
-                  selectionMode={canManageRecordings && selectionMode}
-                  onToggleSelect={
-                    canManageRecordings ? toggleSelect : undefined
-                  }
-                  onShare={
-                    canManageRecordings
-                      ? (rec) => setSharingRec(rec)
-                      : undefined
-                  }
-                  moveTargets={moveTargets}
-                  onMove={canMoveSelection ? moveSingle : undefined}
-                  isMovePending={moveRecording.isPending}
-                  onTrash={
-                    canManageRecordings
-                      ? (rec) => {
-                          trashRecording.mutate(
-                            { id: rec.id },
-                            {
-                              onSuccess: () =>
-                                toast.success(t("libraryGrid.movedToTrash")),
-                            },
-                          );
-                        }
-                      : undefined
-                  }
-                  onArchive={
-                    canManageRecordings
-                      ? (rec) => {
-                          if (rec.archivedAt) {
-                            restoreRecording.mutate(
+            ) : isError && recordings.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+                <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
+                  <IconAlertTriangle className="h-10 w-10 text-destructive" />
+                </div>
+                <h2 className="text-base font-semibold text-foreground mb-1">
+                  {t("libraryGrid.loadFailedTitle")}
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-sm mb-5">
+                  {t("libraryGrid.loadFailedBody")}
+                </p>
+                <Button
+                  onClick={() => refetch()}
+                  disabled={isRefetching}
+                  size="sm"
+                >
+                  {t("libraryGrid.retry")}
+                </Button>
+              </div>
+            ) : recordings.length === 0 ? (
+              <EmptyState
+                kind={resolvedEmptyKind}
+                spaceId={spaceId}
+                folderId={folderId}
+              />
+            ) : (
+              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                {recordings.map((r: RecordingSummary) => (
+                  <RecordingCard
+                    key={r.id}
+                    recording={r}
+                    selected={
+                      canManageRecordings ? selected.has(r.id) : undefined
+                    }
+                    selectionMode={canManageRecordings && selectionMode}
+                    onToggleSelect={
+                      canManageRecordings ? toggleSelect : undefined
+                    }
+                    onShare={
+                      canManageRecordings
+                        ? (rec) => setSharingRec(rec)
+                        : undefined
+                    }
+                    moveTargets={moveTargets}
+                    onMove={canMoveSelection ? moveSingle : undefined}
+                    isMovePending={moveRecording.isPending}
+                    onCreateFolder={() => {
+                      setCreateFolderTarget({ kind: "single", recording: r });
+                    }}
+                    onTrash={
+                      canManageRecordings
+                        ? (rec) => {
+                            trashRecording.mutate(
                               { id: rec.id },
                               {
                                 onSuccess: () =>
-                                  toast.success(
-                                    t("libraryGrid.restoredFromArchive"),
-                                  ),
-                              },
-                            );
-                          } else {
-                            archiveRecording.mutate(
-                              { id: rec.id },
-                              {
-                                onSuccess: () =>
-                                  toast.success(t("libraryGrid.archived")),
+                                  toast.success(t("libraryGrid.movedToTrash")),
                               },
                             );
                           }
-                        }
-                      : undefined
-                  }
-                  readOnly={!canManageRecordings}
-                />
-              ))}
-            </div>
-          )}
+                        : undefined
+                    }
+                    onArchive={
+                      canManageRecordings
+                        ? (rec) => {
+                            if (rec.archivedAt) {
+                              restoreRecording.mutate(
+                                { id: rec.id },
+                                {
+                                  onSuccess: () =>
+                                    toast.success(
+                                      t("libraryGrid.restoredFromArchive"),
+                                    ),
+                                },
+                              );
+                            } else {
+                              archiveRecording.mutate(
+                                { id: rec.id },
+                                {
+                                  onSuccess: () =>
+                                    toast.success(t("libraryGrid.archived")),
+                                },
+                              );
+                            }
+                          }
+                        : undefined
+                    }
+                    readOnly={!canManageRecordings}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Sticky bulk-action toolbar */}
+        {/* Keep selected-library actions visible while the recording list scrolls. */}
         {canManageRecordings && selected.size > 0 && (
-          <div className="pointer-events-none sticky bottom-0 flex justify-center pb-4">
-            <div className="pointer-events-auto">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4">
+            <div className="pointer-events-auto max-w-full overflow-x-auto">
               <BulkActionToolbar
                 count={selected.size}
                 moveTargets={moveTargets}
@@ -462,6 +502,12 @@ export function LibraryGrid({
                   }
                 }}
                 onMove={canMoveSelection ? moveSelected : undefined}
+                onCreateFolder={() => {
+                  setCreateFolderTarget({
+                    kind: "bulk",
+                    recordingIds: selectedIds,
+                  });
+                }}
                 onClear={clearSelection}
                 isPending={isBulkPending || moveRecording.isPending}
               />

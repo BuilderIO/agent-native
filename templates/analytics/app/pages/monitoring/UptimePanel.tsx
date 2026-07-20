@@ -1,22 +1,9 @@
-/**
- * Uptime monitoring panel — OWNED BY THE UPTIME MONITORING FEATURE.
- *
- * Swaps between three query-param-driven views (all under the Monitoring tab):
- *   - list:   ?view=uptime
- *   - detail: ?view=uptime&monitor=<id>
- *   - create: ?view=uptime&monitor=new
- *   - edit:   ?view=uptime&monitor=<id>&edit=1
- * Everything is deep-linkable + back-button friendly and mirrored into
- * `application_state` so the agent knows what the user views. Data flows through
- * the monitor actions; `useChangeVersions(["monitors"])` keeps the UI fresh as
- * background sweeps and agent edits land.
- */
 import {
   setClientAppState,
   useActionMutation,
   useActionQuery,
   useChangeVersions,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import {
   IconLink,
   IconPlus,

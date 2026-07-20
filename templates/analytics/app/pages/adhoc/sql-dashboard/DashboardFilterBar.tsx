@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
   IconDeviceFloppy,
@@ -427,7 +427,7 @@ function FilterControl({
           onValueChange={(v) => setValue({ [filter.id]: v })}
         >
           <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue />
+            <SelectValue className="flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
             {filter.options?.map((opt) => (

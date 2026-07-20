@@ -25,6 +25,7 @@ pnpm action docs-search --slug actions
 pnpm action source-search --list
 pnpm action source-search --query "defineAction useActionQuery"
 pnpm action source-search --path templates/plan/AGENTS.md
+pnpm action source-search --path toolkit/src/index.ts
 ```
 
 The built-in app agent also has read-only `docs-search` and `source-search`
@@ -41,6 +42,12 @@ Then read the matching files under `node_modules/@agent-native/core/docs/content
 For source examples, read matching files under
 `node_modules/@agent-native/core/corpus/core/` or
 `node_modules/@agent-native/core/corpus/templates/`.
+
+Readable Toolkit TypeScript is available under
+`node_modules/@agent-native/toolkit/src/`. Before adapting it, read the
+generated app's `customizing-agent-native` skill. Treat installed source as a
+read-only reference, copy only the smallest UI piece into app-owned source, and
+preserve public action, state, auth, and agent-chat runtime contracts.
 
 ## What To Read First
 

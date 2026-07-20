@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
@@ -36,6 +37,7 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
 const MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@typescript/*"',
   '"@sentry/*"',
+  "fast-xml-parser",
   "typescript",
   "typescript-7",
 ];
@@ -43,6 +45,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+const localPackageTarballs = new Map<string, string>();
 
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
@@ -199,18 +202,28 @@ export async function createApp(
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
 ): Promise<"template" | "chat" | "headless"> {
-  const choice = await clack.select({
+  const choice = await clack.select(startShapePromptOptions());
+  if (clack.isCancel(choice)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return choice as "template" | "chat" | "headless";
+}
+
+function startShapePromptOptions() {
+  return {
     message: "How do you want to start?",
+    initialValue: "chat",
     options: [
-      {
-        value: "template",
-        label: "Full template(s)",
-        hint: "Clone complete apps (Mail, Calendar, Slides, ...) into a workspace",
-      },
       {
         value: "chat",
         label: "Chat",
         hint: "A single app with a minimal chat UI and the browser shell wired up",
+      },
+      {
+        value: "template",
+        label: "Full template(s)",
+        hint: "Clone complete apps (Mail, Calendar, Slides, ...) into a workspace",
       },
       {
         value: "headless",
@@ -218,12 +231,7 @@ async function promptStartShape(
         hint: "A single action-first app with one primitive and no UI shell",
       },
     ],
-  });
-  if (clack.isCancel(choice)) {
-    clack.cancel("Cancelled.");
-    process.exit(0);
-  }
-  return choice as "template" | "chat" | "headless";
+  };
 }
 
 /**
@@ -898,6 +906,40 @@ function findLocalPackage(name: string): string | undefined {
 }
 
 /**
+ * Pack a local framework package before linking it into a generated app.
+ * Raw file: dependencies retain workspace-only catalog references, while a
+ * packed artifact has the publish-ready manifest that consumers receive.
+ */
+function localPackageTarball(packageDir: string): string {
+  const cached = localPackageTarballs.get(packageDir);
+  if (cached) return cached;
+
+  const packDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-"),
+  );
+  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  execFileSync(pnpm, ["pack", "--pack-destination", packDir], {
+    cwd: packageDir,
+    encoding: "utf-8",
+    env: { ...process.env, npm_config_ignore_scripts: "true" },
+    stdio: "pipe",
+  });
+
+  const tarballs = fs
+    .readdirSync(packDir)
+    .filter((entry) => entry.endsWith(".tgz"));
+  if (tarballs.length !== 1) {
+    throw new Error(
+      `Expected one packed local package artifact in ${packDir}, found ${tarballs.length}.`,
+    );
+  }
+
+  const tarball = pathToFileURL(path.join(packDir, tarballs[0]!)).href;
+  localPackageTarballs.set(packageDir, tarball);
+  return tarball;
+}
+
+/**
  * Scaffold internal workspace packages required by the selected templates.
  * Deduplicates so each package is only copied once even if multiple
  * templates need it.
@@ -1347,6 +1389,7 @@ export {
   githubTarballUrl as _githubTarballUrl,
   findLocalTemplateFrom as _findLocalTemplateFrom,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
+  startShapePromptOptions as _startShapePromptOptions,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
 };
@@ -1654,8 +1697,31 @@ function fixPackageJsonName(
     ) {
       pkg.description = defaultPackageDescriptionForScaffold(name);
     }
+    const scaffoldGuidance = scaffoldGuidanceForTemplate(templateName);
+    if (scaffoldGuidance) {
+      const agentNative =
+        pkg["agent-native"] &&
+        typeof pkg["agent-native"] === "object" &&
+        !Array.isArray(pkg["agent-native"])
+          ? pkg["agent-native"]
+          : {};
+      agentNative.scaffold = {
+        template: trackingTemplateName(templateName),
+        frameworkSkills: scaffoldGuidance,
+      };
+      pkg["agent-native"] = agentNative;
+    }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
+}
+
+function scaffoldGuidanceForTemplate(
+  templateName: string | undefined,
+): "default" | "headless" | undefined {
+  if (!templateName || templateName.startsWith("github:")) return undefined;
+  const normalized = normalizeTemplateName(templateName);
+  if (normalized === "headless") return "headless";
+  return getTemplate(normalized) ? "default" : undefined;
 }
 
 function fixWebManifestName(
@@ -1684,7 +1750,7 @@ function fixWebManifestName(
 function getCoreDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localCore = findLocalPackage("core");
-    if (localCore) return pathToFileURL(localCore).href;
+    if (localCore) return localPackageTarball(localCore);
   }
 
   // Generated apps must install before the current package version is
@@ -1706,7 +1772,7 @@ function getDispatchDependencyVersion(): string {
 function getToolkitDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localToolkit = findLocalPackage("toolkit");
-    if (localToolkit) return pathToFileURL(localToolkit).href;
+    if (localToolkit) return localPackageTarball(localToolkit);
   }
 
   return "latest";
@@ -1715,7 +1781,7 @@ function getToolkitDependencyVersion(): string {
 function localToolkitOverride(): string | null {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
   const localToolkit = findLocalPackage("toolkit");
-  return localToolkit ? pathToFileURL(localToolkit).href : null;
+  return localToolkit ? localPackageTarball(localToolkit) : null;
 }
 
 function localRecapCliOverride(): string | null {

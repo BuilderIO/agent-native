@@ -1,15 +1,15 @@
+import { captureClientException } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
-  callAction,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {
   isStoredButUnservableFinalizeError,
-  waitForReadyRecordingAfterFinalizeError,
+  waitForAcceptedRecordingAfterFinalizeError,
 } from "@shared/finalize-recovery";
 import {
   chunkUploadParallelism,
@@ -670,6 +670,7 @@ function DesktopRecorderCallout() {
       <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        downloadedChildren={t("captureInstall.openDesktopApp")}
       >
         {t("recordRoute.downloadDesktopApp")}
       </CaptureInstallButton>
@@ -1238,7 +1239,7 @@ export default function RecordRoute() {
               sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
-              visibility: reportContext ? "org" : "public",
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: pickMimeType() || undefined,
@@ -1561,7 +1562,7 @@ export default function RecordRoute() {
               hasAudio: true,
               width: meta.width,
               height: meta.height,
-              visibility: reportContext ? "org" : "public",
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: uploadMimeType,
@@ -1732,7 +1733,7 @@ export default function RecordRoute() {
             createdId &&
             (err as { name?: string } | null)?.name !== "AbortError"
           ) {
-            const recovered = await waitForReadyRecordingAfterFinalizeError({
+            const recovered = await waitForAcceptedRecordingAfterFinalizeError({
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
@@ -1763,7 +1764,7 @@ export default function RecordRoute() {
             chunkRes.status !== 413 &&
             !isUploadSizeError(error.message)
           ) {
-            const recovered = await waitForReadyRecordingAfterFinalizeError({
+            const recovered = await waitForAcceptedRecordingAfterFinalizeError({
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
@@ -2117,6 +2118,27 @@ export default function RecordRoute() {
             transcriptRes.status,
           );
         }
+      } else {
+        await fetch(
+          agentNativePath("/_agent-native/actions/save-browser-transcript"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: pending.id,
+              fullText: "",
+              source: "web-speech",
+              failureReason: liveTranscription.supported
+                ? "Browser native transcription returned no speech before recording stopped."
+                : "Browser Web Speech recognition is unavailable in this browser.",
+            }),
+          },
+        ).catch((err) => {
+          console.warn(
+            "[recorder] native transcript failure save failed:",
+            err,
+          );
+        });
       }
 
       const stopResult = await engine.stop();

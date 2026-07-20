@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelAgentChatSubmit,
+  listAgentChatContext,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
+  setAgentChatContextItem,
   sendToAgentChat,
+  _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
 import {
@@ -231,6 +234,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     act(() => {
       root.unmount();
     });
+    _resetAgentChatContextForTests();
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -579,7 +583,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toHaveLength(1);
   });
 
-  it("renders scoped context as a composer tab", async () => {
+  it("renders resource context as a normal composer context item", async () => {
     threadMocks.threads = [
       {
         ...threadMocks.threads[0],
@@ -601,21 +605,27 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    const badges = container.querySelectorAll(".agent-scope-badge-wrapper");
     const hostSlot = container.querySelector(
       "[data-testid='host-composer-slot']",
     );
     const composerChildren = Array.from(
       container.querySelector("[data-testid='assistant-chat']")?.children ?? [],
     );
-    const badgeButton = badges[0]?.querySelector("button");
-    expect(badges).toHaveLength(1);
-    expect(badges[0]?.textContent).toContain("Using this form");
-    expect(badgeButton?.className).not.toContain("shadow");
-    expect(composerChildren).toEqual([hostSlot, badges[0]]);
+    expect(
+      container.querySelectorAll(".agent-scope-badge-wrapper"),
+    ).toHaveLength(0);
+    expect(container.textContent).not.toContain("Using this form");
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "agent-current-resource-context",
+        title: "Form",
+        context: expect.stringContaining("Resource context: form:form-1"),
+      }),
+    ]);
+    expect(composerChildren).toEqual([hostSlot]);
   });
 
-  it("can hide the scoped context composer tab", async () => {
+  it("keeps resource context in the composer when the legacy badge flag is false", async () => {
     threadMocks.threads = [
       {
         ...threadMocks.threads[0],
@@ -641,12 +651,49 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       container.querySelectorAll(".agent-scope-badge-wrapper"),
     ).toHaveLength(0);
-    expect(
-      container.querySelector("[data-testid='host-composer-slot']"),
-    ).not.toBeNull();
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "agent-current-resource-context",
+        title: "Design",
+      }),
+    ]);
   });
 
-  it("keeps previous scoped chats out of the empty chat state", async () => {
+  it("does not remove richer app-owned context when resource context unmounts", async () => {
+    setAgentChatContextItem({
+      key: "analytics-selected-dashboard",
+      title: "Dashboard",
+      context: "Dashboard context from the analytics app",
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "dashboard",
+            id: "dashboard-1",
+            contextKey: "analytics-selected-dashboard",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "analytics-selected-dashboard",
+        context: "Dashboard context from the analytics app",
+      }),
+    ]);
+  });
+
+  it("keeps resource history out of the empty chat state", async () => {
     const now = Date.now();
     threadMocks.threads = [
       {
@@ -679,8 +726,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Using this form");
-    expect(container.textContent).toContain("Older form chat");
+    expect(container.textContent).not.toContain("Using this form");
     expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
@@ -760,6 +806,52 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "bridge-test",
       null,
       expect.objectContaining({ routeThreadId: null }),
+    );
+  });
+
+  it("opens a shared thread link even when URL syncing is not enabled", async () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
+    );
+  });
+
+  it("accepts a shared query thread on a route-owned chat home", async () => {
+    window.history.replaceState(null, "", "/?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/",
+            navigate: vi.fn(),
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
     );
   });
 

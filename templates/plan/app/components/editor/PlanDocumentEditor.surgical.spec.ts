@@ -4,7 +4,7 @@ import {
   applyDocSurgically,
   createSharedEditorExtensions,
   RunId,
-} from "@agent-native/core/client/editor";
+} from "@agent-native/toolkit/editor";
 import type { PlanBlock } from "@shared/plan-content";
 import { blocksToProseJSON } from "@shared/plan-doc";
 import { Editor } from "@tiptap/core";

@@ -39,8 +39,11 @@ const mocks = vi.hoisted(() => ({
   ],
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/sharing", () => ({
   ShareButton: () => null,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({
     data: {
       count: 2,
@@ -53,6 +56,9 @@ vi.mock("@agent-native/core/client", () => ({
   useActionMutation: () => ({
     mutateAsync: vi.fn(),
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

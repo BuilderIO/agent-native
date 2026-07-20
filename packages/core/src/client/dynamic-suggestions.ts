@@ -5,7 +5,7 @@ import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
-const DEFAULT_MAX_SUGGESTIONS = 4;
+const DEFAULT_MAX_SUGGESTIONS = 3;
 
 export interface AgentDynamicSuggestionContext {
   navigation: unknown;
@@ -322,7 +322,7 @@ export function mergeAgentSuggestions(options: {
 }): string[] {
   if (options.dynamicSuggestions.length === 0) {
     return options.includeStatic
-      ? dedupeSuggestions(options.staticSuggestions ?? [])
+      ? dedupeSuggestions(options.staticSuggestions ?? []).slice(0, options.max)
       : [];
   }
 
@@ -424,7 +424,7 @@ export function useAgentDynamicSuggestionsResult(
   const suggestions = useMemo(() => {
     if (!enabled) {
       return options.staticSuggestions
-        ? dedupeSuggestions(options.staticSuggestions)
+        ? dedupeSuggestions(options.staticSuggestions).slice(0, config.max)
         : undefined;
     }
     if (context === null) return undefined;

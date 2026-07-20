@@ -5,6 +5,11 @@ agents. Its job is to turn agent plans into editable rich blocks, diagrams,
 wireframes, prototype options, annotations, and comments that a person can
 review before code changes happen.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -40,6 +45,17 @@ review before code changes happen.
 - Surface material assumptions only when they change behavior, data, security,
   tests, deployment, or definition of done.
 - Before edits, read pending feedback with `get-plan-feedback`.
+- Before any destructive hosted-plan write (`replace-blocks`, a top-level
+  `content` replacement, or a source `replace-file`), call `get-visual-plan`
+  immediately before the write and pass its `plan.updatedAt` as
+  `expectedUpdatedAt`. Never reuse a revision from an earlier read. Prefer
+  targeted content or source patches whenever they can express the edit.
+- After every hosted-plan write, call `get-visual-plan` again and verify the
+  persisted text, blocks, canvas, and prototype before claiming success. If the
+  write addressed agent-targeted feedback, call `resolve-plan-comment` and
+  `consume-plan-feedback` only after this verification; addressed feedback must
+  be both resolved and consumed so it neither remains visibly open nor returns
+  as pending work.
 
 ## Application State
 
@@ -185,6 +201,11 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
   persists the runtime model. Prefer this over regenerating a whole plan when the
   requested change is a few lines, one annotation, one artboard, or one
   wireframe node.
+- `replace-file` is a destructive source operation. Use it only when targeted
+  source patches cannot express the edit, after a fresh `get-visual-plan`, and
+  pass that read's `plan.updatedAt` as `expectedUpdatedAt`. Re-read the plan
+  after the patch and verify that unrelated MDX files and visual surfaces were
+  preserved.
 - In Agent Native Desktop, the Plan menu can link a user-chosen local folder for
   the current plan, write the exported MDX files to it, import local edits back
   through `import-visual-plan-source`, and optionally auto-export whenever the
@@ -263,7 +284,11 @@ elementId, styles }]`. Elements must have `data-design-id` or
   reconcile, never drop. Act on `resolutionTarget=agent`; treat `human` as
   context only; `@mentions` are notification signals, not routing. Mark ingested
   comments consumed (`consumedCommentIds`); set `status=resolved` only on
-  agent-targeted comments you actually addressed.
+  agent-targeted comments you actually addressed. When a plan write addresses
+  feedback, do not resolve or consume it until a post-write `get-visual-plan`
+  confirms the requested change persisted. Then do both: call
+  `resolve-plan-comment` for the addressed thread and `consume-plan-feedback`
+  for its comments.
 - New human comments send best-effort transactional email when email is
   configured: root comments and replies notify the plan owner, @mentioned
   members, and replies also notify prior human participants in that thread.

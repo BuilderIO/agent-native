@@ -1,4 +1,5 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { resolveNativeMeetingJoinUrl } from "@shared/meeting-join-url";
 import {
   IconCheck,
   IconClock,
@@ -284,7 +285,7 @@ export function UpcomingMeetingCard({
           <div className="flex items-center gap-1.5">
             {meeting.joinUrl && (
               <a
-                href={meeting.joinUrl}
+                href={resolveNativeMeetingJoinUrl(meeting.joinUrl)}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}

@@ -1,10 +1,7 @@
-import {
-  agentNativePath,
-  askUserQuestion,
-  callAction,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,

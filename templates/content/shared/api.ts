@@ -96,6 +96,7 @@ export interface ResolveDocumentSyncConflictRequest {
 
 export interface DocumentCreateRequest {
   id?: string;
+  spaceId?: string;
   title?: string;
   parentId?: string | null;
   content?: string;
@@ -167,6 +168,7 @@ export type {
 export interface DocumentPropertyDefinition {
   id: string;
   databaseId: string | null;
+  systemRole?: DocumentPropertySystemRole | null;
   name: string;
   type: DocumentPropertyType;
   description?: string;
@@ -176,6 +178,11 @@ export interface DocumentPropertyDefinition {
   createdAt: string;
   updatedAt: string;
 }
+
+export type DocumentPropertySystemRole =
+  | "files_kind"
+  | "files_parent"
+  | "files_source";
 
 export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
@@ -226,6 +233,7 @@ export interface ContentDatabase {
   id: string;
   documentId: string;
   title: string;
+  systemRole?: string | null;
   description?: string;
   viewConfig: ContentDatabaseViewConfig;
   createdAt: string;
@@ -289,7 +297,8 @@ export type ContentDatabaseViewType =
   | "gallery"
   | "calendar"
   | "timeline"
-  | "form";
+  | "form"
+  | "sidebar";
 
 export type ContentDatabaseRowDensity = "compact" | "default" | "comfortable";
 export type ContentDatabaseFilterMode = "and" | "or";
@@ -331,6 +340,8 @@ export interface ContentDatabaseViewConfig {
   filters: ContentDatabaseFilter[];
   columnWidths: Record<string, number>;
 }
+
+export const CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION = 2;
 
 export interface ContentDatabasePersonalViewOverrides {
   version: number;
@@ -414,7 +425,12 @@ export type ContentDatabaseSourceType =
   | "mock-local"
   | "builder-cms"
   | "local-table"
-  | "notion-database";
+  | "notion-database"
+  | "local-folder";
+export type ContentDatabaseSourceTruthPolicy =
+  | "database_primary"
+  | "source_primary"
+  | "reviewed_bidirectional";
 export type ContentDatabaseSourceSyncState =
   | "idle"
   | "linked"
@@ -433,7 +449,7 @@ export type ContentDatabaseSourceWriteMode =
   | "publish_updates";
 export type BuilderCmsPublicationTransitionIntent = "publish" | "unpublish";
 export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
-export type ContentDatabaseSourceChangeDirection = "outbound";
+export type ContentDatabaseSourceChangeDirection = "incoming" | "outbound";
 export type ContentDatabaseSourceChangeState =
   | "proposed"
   | "pending_push"
@@ -471,6 +487,9 @@ export interface ContentDatabaseSourceCapabilities {
   canStageLocalRevision: boolean;
   liveWritesEnabled: boolean;
   readOnlyRefresh: boolean;
+  canRename?: boolean;
+  canReveal?: boolean;
+  canUseLocalComponents?: boolean;
 }
 
 export interface ContentDatabaseSourceFieldMapping {
@@ -640,6 +659,9 @@ export interface ContentDatabaseSource {
     allowPublicationTransitions?: boolean;
     notes?: string | null;
     readMode?: "fixture" | "builder-api" | string | null;
+    connectionId?: string | null;
+    connectionLabel?: string | null;
+    truthPolicy?: ContentDatabaseSourceTruthPolicy;
     liveReadConfigured?: boolean;
     lastReadEntryCount?: number;
     lastReadMatchedRowCount?: number;
@@ -764,6 +786,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 
 export interface CreateDatabaseRequest {
   documentId?: string;
+  spaceId?: string;
   parentId?: string | null;
   title?: string;
   description?: string;

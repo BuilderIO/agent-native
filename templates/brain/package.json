@@ -14,6 +14,7 @@
     "demo:seed": "agent-native action seed-demo-data",
     "demo:eval": "agent-native action run-demo-eval",
     "retrieval:eval": "agent-native action run-retrieval-eval",
+    "privacy:eval": "vitest --run evals/privacy-leakage.test.ts --config vitest.config.ts",
     "eval:ci": "sh -c 'set -e; db=\"./data/brain-evals-ci-$$.db\"; cleanup() { rm -f \"$db\" \"$db-shm\" \"$db-wal\"; }; trap cleanup EXIT; cleanup; DATABASE_URL=\"file:$db\" AGENT_USER_EMAIL=\"brain-evals@agent-native.test\" agent-native action run-demo-eval; DATABASE_URL=\"file:$db\" AGENT_USER_EMAIL=\"brain-evals@agent-native.test\" agent-native action run-retrieval-eval'",
     "script": "agent-native script"
   },

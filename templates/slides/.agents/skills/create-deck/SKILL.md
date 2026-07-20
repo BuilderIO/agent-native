@@ -9,10 +9,27 @@ description: How to create a new deck with slides from scratch. Read this before
 
 ## Workflow
 
-1. Plan the slides (title, section dividers, content slides)
-2. Call `create-deck --title "..." --slides '[]'` to create an empty deck
-3. Navigate to the new deck
-4. Call `add-slide` once per slide in slide order, waiting for each result
+1. Read the `creative-context` skill and retrieve factual evidence separately
+   from presentation structure. Respect `contextMode: "off"`.
+2. Plan the slides (title, section dividers, content slides).
+3. Call `create-deck --title "..." --slides '[]'` to create an empty deck.
+4. Navigate to the new deck.
+5. Call `add-slide` once per slide in slide order, waiting for each result.
+
+Follow the creative-context reuse ladder before inventing a slide language:
+reuse an approved native template unchanged, compose approved pieces, lightly
+adapt a real approved example, generate from narrowly retrieved references,
+then go net-new only when the relevant corpus is empty. Retrieval is a separate
+step from generation. Persist the immutable `contextPackId` and concise reuse
+labels with the deck's generation provenance; never infer provenance later from
+rendered slide HTML.
+
+When creative context is available, pass the pre-generation search result's
+`contextPackId` to `create-deck`, pass deck-wide `reuseLabels`, and add
+`creativeContextReuseLabels` to each slide that reused a specific item/version.
+Do not omit these fields and let the final write action search after the HTML
+has already been authored; that would fabricate influence. With an empty
+library, omit them. With Library mode Off, omit them and create normally.
    before adding the next slide
 
 Do not create multiple slides in parallel for the same deck. Do not spawn

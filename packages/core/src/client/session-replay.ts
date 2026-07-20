@@ -69,6 +69,7 @@ interface SessionReplayState {
   startGeneration: number;
   replayId: string | null;
   startedAtMs: number | null;
+  replayLinkBaseUrl: string | null;
   sequence: number;
   /** Pre-serialized + scrubbed event JSON strings, ready to splice at flush. */
   queue: QueuedReplayEvent[];
@@ -117,6 +118,7 @@ interface StoredReplaySession {
   replayId?: string;
   startedAtMs?: number;
   sequence?: number;
+  linkBaseUrl?: string;
 }
 
 /** Broadcast on `SESSION_REPLAY_BROADCAST_CHANNEL_NAME` by a tab resuming a
@@ -183,6 +185,8 @@ export interface SessionReplayOptions {
   shouldStart?: () => boolean;
   publicKey?: string;
   endpoint?: string;
+  /** Analytics app origin used to build timestamped replay links. */
+  linkBaseUrl?: string;
   requireSignedInUser?: boolean;
   sampleRate?: number;
   samplingSalt?: string;
@@ -234,6 +238,22 @@ export interface SessionReplayOptions {
     | (() => Record<string, unknown> | undefined);
 }
 
+export interface SessionReplayContext {
+  replayId: string;
+  sessionId: string;
+  startedAtMs: number;
+  startedAt: string;
+  linkBaseUrl: string | null;
+  active: boolean;
+}
+
+export interface SessionReplayLinkOptions {
+  /** Event time to seek to when the replay link opens. */
+  at?: Date | number | string;
+  /** Overrides the configured Analytics app origin for this link. */
+  linkBaseUrl?: string;
+}
+
 export interface SessionReplayStartResult {
   started: boolean;
   reason?:
@@ -255,6 +275,7 @@ export interface SessionReplayStartResult {
 interface NormalizedSessionReplayOptions {
   publicKey: string;
   endpoint: string;
+  linkBaseUrl: string | null;
   requireSignedInUser: boolean;
   sampleRate: number;
   samplingSalt: string;
@@ -369,6 +390,8 @@ const SESSION_REPLAY_CLAIM_TIMEOUT_MS = 150;
 export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 /** rrweb custom-event tag for captured fetch/XHR request summaries. */
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
+/** Content-free agent-chat lifecycle markers for replay incident forensics. */
+export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
@@ -439,6 +462,7 @@ function getState(): SessionReplayState {
       startGeneration: 0,
       replayId: null,
       startedAtMs: null,
+      replayLinkBaseUrl: null,
       sequence: 0,
       queue: [],
       queuedBytes: 0,
@@ -472,6 +496,7 @@ function getState(): SessionReplayState {
   state.pendingFlushWaiters ??= [];
   state.awaitingFullSnapshot ??= false;
   state.startGeneration ??= 0;
+  state.replayLinkBaseUrl ??= null;
   return state;
 }
 
@@ -579,10 +604,14 @@ function removeStoredReplaySession(replayId: string): void {
  * `sessionStorage` snapshot, which is what the `BroadcastChannel` claim
  * check in `startSessionReplayRecorder` guards against.
  */
-function getOrCreateReplaySession(sessionId: string): {
+function getOrCreateReplaySession(
+  sessionId: string,
+  linkBaseUrl?: string | null,
+): {
   replayId: string;
   startedAtMs: number;
   sequence: number;
+  linkBaseUrl?: string;
   /** True when resuming a session found in this tab's `sessionStorage`
    * (e.g. a reload), as opposed to minting a brand-new id. Only the resumed
    * case needs the duplicated-tab claim check -- a fresh id can never
@@ -604,12 +633,34 @@ function getOrCreateReplaySession(sessionId: string): {
       parsed.sequence >= 0
         ? Math.floor(parsed.sequence)
         : 0;
-    return { replayId: parsed.replayId, startedAtMs, sequence, resumed: true };
+    const resolvedLinkBaseUrl = linkBaseUrl ?? parsed.linkBaseUrl;
+    if (linkBaseUrl && parsed.linkBaseUrl !== linkBaseUrl) {
+      writeStoredReplaySession({ ...parsed, linkBaseUrl });
+    }
+    return {
+      replayId: parsed.replayId,
+      startedAtMs,
+      sequence,
+      ...(resolvedLinkBaseUrl ? { linkBaseUrl: resolvedLinkBaseUrl } : {}),
+      resumed: true,
+    };
   }
   const replayId = generateReplayId();
   const startedAtMs = Date.now();
-  writeStoredReplaySession({ sessionId, replayId, startedAtMs, sequence: 0 });
-  return { replayId, startedAtMs, sequence: 0, resumed: false };
+  writeStoredReplaySession({
+    sessionId,
+    replayId,
+    startedAtMs,
+    sequence: 0,
+    ...(linkBaseUrl ? { linkBaseUrl } : {}),
+  });
+  return {
+    replayId,
+    startedAtMs,
+    sequence: 0,
+    ...(linkBaseUrl ? { linkBaseUrl } : {}),
+    resumed: false,
+  };
 }
 
 /**
@@ -732,12 +783,17 @@ function persistReplaySequence(
   replayId: string,
   startedAtMs: number | null,
   sequence: number,
+  linkBaseUrl?: string | null,
 ): void {
+  const existing = readStoredReplaySession();
   writeStoredReplaySession({
     sessionId,
     replayId,
     startedAtMs: startedAtMs ?? Date.now(),
     sequence,
+    ...(linkBaseUrl || existing?.linkBaseUrl
+      ? { linkBaseUrl: linkBaseUrl ?? existing?.linkBaseUrl }
+      : {}),
   });
 }
 
@@ -820,6 +876,22 @@ function defaultReplayEndpoint(): string {
     : DEFAULT_REPLAY_PATH;
 }
 
+function normalizeReplayLinkBaseUrl(value?: string): string | null {
+  const raw =
+    value?.trim() ||
+    readEnvString("VITE_AGENT_NATIVE_ANALYTICS_APP_URL") ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+  if (!raw) return null;
+  try {
+    return new URL(
+      raw,
+      typeof window !== "undefined" ? window.location.href : undefined,
+    ).origin;
+  } catch {
+    return null;
+  }
+}
+
 export function getSessionReplaySamplingScore(
   sessionId: string,
   salt = DEFAULT_SAMPLING_SALT,
@@ -886,6 +958,7 @@ function normalizeOptions(
   return {
     publicKey,
     endpoint,
+    linkBaseUrl: normalizeReplayLinkBaseUrl(options.linkBaseUrl),
     requireSignedInUser:
       options.requireSignedInUser ??
       readEnvBoolean("VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH") ??
@@ -1694,6 +1767,7 @@ function advanceReplaySequence(
     payload.replayId,
     state.startedAtMs,
     state.sequence,
+    state.replayLinkBaseUrl,
   );
 }
 
@@ -1709,6 +1783,7 @@ function rollbackReplaySequenceReservation(
     payload.replayId,
     state.startedAtMs,
     state.sequence,
+    state.replayLinkBaseUrl,
   );
 }
 
@@ -2988,7 +3063,10 @@ async function startSessionReplayRecorder(
     return { started: false, reason: "disabled", sessionId, sampled };
   }
 
-  let replaySession = getOrCreateReplaySession(sessionId);
+  let replaySession = getOrCreateReplaySession(
+    sessionId,
+    normalized.linkBaseUrl,
+  );
   const instanceNonce = generateReplayId();
   const { channel: replayChannel, probeClaim } = createReplayClaimChannel(
     state,
@@ -3007,11 +3085,17 @@ async function startSessionReplayRecorder(
         replayId: freshReplayId,
         startedAtMs: freshStartedAtMs,
         sequence: 0,
+        ...(normalized.linkBaseUrl
+          ? { linkBaseUrl: normalized.linkBaseUrl }
+          : {}),
       });
       replaySession = {
         replayId: freshReplayId,
         startedAtMs: freshStartedAtMs,
         sequence: 0,
+        ...(normalized.linkBaseUrl
+          ? { linkBaseUrl: normalized.linkBaseUrl }
+          : {}),
         resumed: false,
       };
     }
@@ -3033,6 +3117,8 @@ async function startSessionReplayRecorder(
   state.options = normalized;
   state.replayId = replaySession.replayId;
   state.startedAtMs = replaySession.startedAtMs;
+  state.replayLinkBaseUrl =
+    replaySession.linkBaseUrl ?? normalized.linkBaseUrl ?? null;
   state.sequence = replaySession.sequence;
   state.queue = [];
   state.queuedBytes = 0;
@@ -3196,6 +3282,75 @@ export function getSessionReplayId(): string | null {
 }
 
 /**
+ * Return the replay identity associated with this browser tab. The context is
+ * intentionally small so it can be attached to analytics events without
+ * exposing replay content or credentials.
+ */
+export function getSessionReplayContext(): SessionReplayContext | null {
+  const state = getState();
+  if (state.active && state.replayId && state.startedAtMs) {
+    const sessionId = getOrCreateAnalyticsSessionId();
+    if (!sessionId) return null;
+    return {
+      replayId: state.replayId,
+      sessionId,
+      startedAtMs: state.startedAtMs,
+      startedAt: new Date(state.startedAtMs).toISOString(),
+      linkBaseUrl: state.replayLinkBaseUrl,
+      active: true,
+    };
+  }
+
+  const stored = readStoredReplaySession();
+  if (!stored?.replayId || !stored.sessionId || !stored.startedAtMs) {
+    return null;
+  }
+  return {
+    replayId: stored.replayId,
+    sessionId: stored.sessionId,
+    startedAtMs: stored.startedAtMs,
+    startedAt: new Date(stored.startedAtMs).toISOString(),
+    linkBaseUrl: stored.linkBaseUrl ?? null,
+    active: false,
+  };
+}
+
+/**
+ * Build a scoped Analytics replay lookup link. The Analytics server resolves
+ * the client replay id to its server recording id and converts the event time
+ * into the replay player's offset before redirecting to the detail page.
+ */
+export function getSessionReplayUrl(
+  options: SessionReplayLinkOptions = {},
+): string | null {
+  const context = getSessionReplayContext();
+  if (!context) return null;
+  const base = normalizeReplayLinkBaseUrl(
+    options.linkBaseUrl ?? context.linkBaseUrl ?? undefined,
+  );
+  if (!base) return null;
+
+  try {
+    const url = new URL("/sessions/lookup", base);
+    url.searchParams.set("sessionId", context.sessionId);
+    url.searchParams.set("replayId", context.replayId);
+    const at = options.at === undefined ? Date.now() : options.at;
+    const timestamp =
+      typeof at === "number"
+        ? new Date(at)
+        : typeof at === "string"
+          ? new Date(at)
+          : at;
+    if (!Number.isNaN(timestamp.getTime())) {
+      url.searchParams.set("at", timestamp.toISOString());
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Surface a manually captured exception on the active session replay timeline
  * as an `agent-native.console` custom event, reusing the diagnostics contract
  * (`level`, `source: "console"`, `message`, `stack`, `url`). No-op when no
@@ -3229,5 +3384,34 @@ export function emitSessionReplayException(input: {
       ? { stack: input.stack.slice(0, MAX_CONSOLE_STACK_LENGTH) }
       : {}),
     ...(input.url ? { url: input.url } : {}),
+  });
+}
+
+export type SessionReplayAgentChatEvent = {
+  phase: "surface-mounted" | "run-observed" | "run-stopped";
+  surface: string;
+  threadId?: string;
+  runId?: string;
+  tabId?: string;
+};
+
+/**
+ * Add a content-free chat lifecycle marker to the active replay. The payload
+ * deliberately accepts only ids and low-cardinality state; prompt/response
+ * content must never enter replay diagnostics through this path.
+ */
+export function emitSessionReplayAgentChatEvent(
+  input: SessionReplayAgentChatEvent,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  const bounded = (value: string | undefined, max = 160) =>
+    value?.trim().slice(0, max) || undefined;
+  emitReplayCustomEvent(state, SESSION_REPLAY_AGENT_CHAT_EVENT_TAG, {
+    phase: input.phase,
+    surface: bounded(input.surface, 80) ?? "app",
+    ...(bounded(input.threadId) ? { threadId: bounded(input.threadId) } : {}),
+    ...(bounded(input.runId) ? { runId: bounded(input.runId) } : {}),
+    ...(bounded(input.tabId) ? { tabId: bounded(input.tabId) } : {}),
   });
 }

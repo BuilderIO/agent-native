@@ -1,4 +1,5 @@
-import { appApiPath, useT } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -2544,6 +2545,29 @@ function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
   };
 }
 
+function measureEmailDocumentHeight(doc: Document): number {
+  const body = doc.body;
+  const root = doc.documentElement;
+  if (!body || !root) return 0;
+
+  const bodyTop = body.getBoundingClientRect().top;
+  let contentBottom = body.getBoundingClientRect().bottom - bodyTop;
+  for (const element of body.querySelectorAll<HTMLElement>("*")) {
+    const rect = element.getBoundingClientRect();
+    contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+  }
+
+  return Math.ceil(
+    Math.max(
+      body.scrollHeight,
+      body.offsetHeight,
+      root.scrollHeight,
+      root.offsetHeight,
+      contentBottom,
+    ),
+  );
+}
+
 function HtmlEmailBody({
   html,
   senderEmail,
@@ -2709,10 +2733,8 @@ function HtmlEmailBody({
     doc.head.appendChild(themeStyle);
 
     const resize = () => {
-      if (doc.body) {
-        const h = doc.body.scrollHeight;
-        if (h > 0) setHeight(h);
-      }
+      const h = measureEmailDocumentHeight(doc);
+      if (h > 0) setHeight((current) => (current === h ? current : h));
     };
 
     const normalizeText = (value: string | null | undefined) =>
@@ -3187,6 +3209,12 @@ function HtmlEmailBody({
     const images = doc.querySelectorAll("img");
     images.forEach((img) => img.addEventListener("load", resize));
 
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
+    resizeObserver?.observe(doc.documentElement);
+    if (doc.body) resizeObserver?.observe(doc.body);
+    window.addEventListener("resize", resize);
+
     resize();
     const timer = setTimeout(resize, 100);
     const timer2 = setTimeout(resize, 500);
@@ -3198,6 +3226,8 @@ function HtmlEmailBody({
       clearTimeout(timer);
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", resize);
       themeStyle.remove();
     };
   }, [
@@ -3266,7 +3296,7 @@ function HtmlEmailBody({
       }
 
       // Recalculate height after injecting marks
-      const h = doc.body.scrollHeight;
+      const h = measureEmailDocumentHeight(doc);
       if (h > 0) setHeight(h);
     };
 
@@ -3338,6 +3368,7 @@ function HtmlEmailBody({
         data-agent-native-session-replay=""
         srcDoc={iframeDocument}
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        scrolling="no"
         style={{
           width: "100%",
           height: `${height}px`,

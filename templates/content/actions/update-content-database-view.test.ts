@@ -68,6 +68,28 @@ describe("update content database view", () => {
     });
   });
 
+  it("normalizes retired sidebar saved views to tables", () => {
+    const parsed = action.schema.parse({
+      databaseId: "database",
+      viewConfig: {
+        activeViewId: "sidebar",
+        views: [
+          {
+            id: "sidebar",
+            name: "Navigation",
+            type: "sidebar",
+            sorts: [],
+            filters: [],
+            columnWidths: {},
+            groupByPropertyId: "status",
+          },
+        ],
+      },
+    });
+
+    expect(parsed.viewConfig.views[0]?.type).toBe("table");
+  });
+
   it("keeps legacy JSON compatible and normalizes form questions on startup reads", () => {
     const legacy = parseDatabaseViewConfig(
       JSON.stringify({

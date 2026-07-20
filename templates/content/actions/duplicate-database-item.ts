@@ -6,6 +6,8 @@ import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -48,9 +50,20 @@ export default defineAction({
       );
 
     if (!row) throw new Error("Database row not found.");
+    if (!row.database.spaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
+    if (row.document.spaceId !== row.database.spaceId) {
+      throw new Error("Cannot duplicate a database row across Content spaces.");
+    }
 
     await assertAccess("document", row.database.documentId, "editor");
     await assertAccess("document", row.document.id, "viewer");
+    await assertNotWorkspaceCatalogDocuments(
+      db,
+      [row.document.id],
+      "duplicated",
+    );
 
     const now = new Date().toISOString();
     const nextDocumentId = nanoid();
@@ -103,6 +116,7 @@ export default defineAction({
 
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
+        spaceId: row.database.spaceId,
         ownerEmail: row.document.ownerEmail,
         orgId: row.document.orgId,
         parentId: row.database.documentId,
@@ -155,6 +169,8 @@ export default defineAction({
           })),
         );
       }
+
+      await ensureDocumentFilesMembership(tx, nextDocumentId, now);
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });

@@ -15,6 +15,10 @@ import {
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import {
+  isAuthenticatedReadAction,
+  isAutoReadExcludedActionName,
+} from "../../mcp/build-server.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
@@ -56,6 +60,42 @@ export function filterPublicAgentActions(
         config.readOnly === true &&
         config.requiresAuth !== true &&
         config.isConsequential !== true
+      );
+    }),
+  );
+}
+
+/**
+ * Direct A2A action calls share the authenticated external-agent policy with
+ * MCP, but remain stricter: only explicitly exposed, authenticated read-only
+ * actions can skip the receiver's model loop.
+ */
+export function filterDirectA2AActions(
+  actions: Record<string, ActionEntry>,
+  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
+): Record<string, ActionEntry> {
+  const catalog = new Set(options.connectorCatalog ?? []);
+  const denied = new Set(options.externalAgents?.denyActions ?? []);
+  const autoReads = options.externalAgents?.authenticatedReads === "auto";
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name, entry]) => {
+      const exposure = entry.publicAgent;
+      const selected =
+        catalog.has(name) ||
+        (autoReads &&
+          isAuthenticatedReadAction(entry) &&
+          !isAutoReadExcludedActionName(name));
+      return (
+        selected &&
+        !denied.has(name) &&
+        entry.agentTool !== false &&
+        entry.readOnly === true &&
+        exposure?.expose === true &&
+        exposure.readOnly === true &&
+        exposure.requiresAuth === true &&
+        (entry.needsApproval === undefined || entry.needsApproval === false) &&
+        exposure.isConsequential !== true
       );
     }),
   );
@@ -151,34 +191,81 @@ function formatA2ATerminalError(
 
 type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
 
-function runDelegatedAgentLoop(
+export interface DelegatedAgentLoopTelemetry {
+  runId: string;
+  threadId: string | null;
+  userId: string | null;
+  delegation: {
+    protocol: "a2a" | "mcp";
+    callerApp?: string;
+    taskId?: string;
+    parentRunId?: string;
+    parentTurnId?: string;
+  };
+}
+
+interface DelegatedAgentLoopOptions {
+  runner?: A2AAgentLoopRunner;
+  telemetry?: DelegatedAgentLoopTelemetry;
+}
+
+async function runDelegatedAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
     "finalResponseGuard" | "runSoftTimeoutMs"
   >,
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
-  runner: A2AAgentLoopRunner,
+  options: DelegatedAgentLoopOptions,
 ) {
-  return runner(
-    {
-      ...runOptions,
-      // Delegated runs resolve their own model and do not pass through the
-      // interactive request handler's output-token setup. Use the same
-      // model-aware headroom here so reasoning models (notably GPT-5.x) do
-      // not spend the small internal default entirely on reasoning before
-      // emitting a tool call or answer. Preserve explicit test/caller values.
-      maxOutputTokens:
-        runOptions.maxOutputTokens ??
-        resolveMainChatMaxOutputTokens(runOptions.model),
-      reasoningEffort:
-        runOptions.reasoningEffort ??
-        resolveAgentRequestReasoningEffort({ model: runOptions.model }),
-      finalResponseGuard: pluginOptions.finalResponseGuard,
-    },
-    pluginOptions.runSoftTimeoutMs,
-    timeoutOptions,
-  );
+  const runner = options.runner ?? runAgentLoopDirectWithSoftTimeout;
+  const resolvedRunOptions = {
+    ...runOptions,
+    // Delegated runs resolve their own model and do not pass through the
+    // interactive request handler's output-token setup. Use the same
+    // model-aware headroom here so reasoning models (notably GPT-5.x) do
+    // not spend the small internal default entirely on reasoning before
+    // emitting a tool call or answer. Preserve explicit test/caller values.
+    maxOutputTokens:
+      runOptions.maxOutputTokens ??
+      resolveMainChatMaxOutputTokens(runOptions.model),
+    reasoningEffort:
+      runOptions.reasoningEffort ??
+      resolveAgentRequestReasoningEffort({ model: runOptions.model }),
+    finalResponseGuard: pluginOptions.finalResponseGuard,
+  };
+  const execute = (loopOptions = resolvedRunOptions) =>
+    runner(loopOptions, pluginOptions.runSoftTimeoutMs, timeoutOptions);
+
+  if (!options.telemetry) return execute();
+
+  let instrumented = false;
+  try {
+    const { getObservabilityConfig, instrumentAgentLoop } =
+      await import("../../observability/traces.js");
+    const config = await getObservabilityConfig();
+    if (config.enabled) {
+      instrumented = true;
+      return await instrumentAgentLoop({
+        runAgentLoop: (loopOptions) =>
+          execute(
+            loopOptions as Parameters<A2AAgentLoopRunner>[0] &
+              typeof resolvedRunOptions,
+          ),
+        loopOpts: resolvedRunOptions,
+        runId: options.telemetry.runId,
+        threadId: options.telemetry.threadId,
+        userId: options.telemetry.userId,
+        config,
+        delegation: options.telemetry.delegation,
+      });
+    }
+  } catch (error) {
+    // Match interactive chat: setup failures fall through, but a failure from
+    // inside an instrumented agent loop is the real run failure and rethrows.
+    if (instrumented) throw error;
+  }
+  return execute();
 }
 
 /**
@@ -196,13 +283,13 @@ export function runA2AAgentLoop(
     "finalResponseGuard" | "runSoftTimeoutMs"
   >,
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
-  runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
+  options: DelegatedAgentLoopOptions = {},
 ) {
   return runDelegatedAgentLoop(
     runOptions,
     pluginOptions,
     timeoutOptions,
-    runner,
+    options,
   );
 }
 
@@ -218,13 +305,13 @@ export function runMCPAgentLoop(
     "finalResponseGuard" | "runSoftTimeoutMs"
   >,
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
-  runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
+  options: DelegatedAgentLoopOptions = {},
 ) {
   return runDelegatedAgentLoop(
     runOptions,
     pluginOptions,
     timeoutOptions,
-    runner,
+    options,
   );
 }
 

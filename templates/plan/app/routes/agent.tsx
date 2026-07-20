@@ -1,4 +1,5 @@
-import { AgentTabsPage, useT } from "@agent-native/core/client";
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 
 import messages from "@/i18n/en-US";

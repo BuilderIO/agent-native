@@ -1,4 +1,5 @@
-import { setClientAppState, useT } from "@agent-native/core/client";
+import { setClientAppState } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
   IconCircleCheck,

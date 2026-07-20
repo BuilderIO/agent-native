@@ -174,7 +174,7 @@ const messages = {
       "Der Desktop-Recorder hat den Vorgang abgeschlossen und eine lokale Kopie gespeichert, aber Clips konnte sie nicht hochladen. Sie können es über das Clips-Menü erneut versuchen, ohne erneut aufzunehmen.",
     retryLibrary: "Sie können es in der Bibliothek erneut versuchen.",
     processingStuck:
-      "Die Verarbeitung ist nach 30 Sekunden noch nicht abgeschlossen (Status={{status}}). Der Clip wurde möglicherweise noch nicht vollständig hochgeladen. Überprüfen Sie die Serverprotokolle auf Chunk-/Finalisierungsmeldungen.",
+      "Das Speichern dauert länger als erwartet (Status={{status}}). Wenn du mit der Desktop-App aufgenommen hast, öffne Clips über die Menüleiste, um den Upload erneut zu versuchen oder eine gespeicherte lokale Kopie herunterzuladen. Prüfe danach erneut.",
     uploadingAssembling:
       "Das Hochladen und Zusammenstellen Ihres Videos dauert normalerweise nur wenige Sekunden.",
     connectStorageImportLoom:
@@ -225,6 +225,9 @@ const messages = {
     autoChapters: "Automatische Kapitel",
     removeFillerWords: "Entfernen Sie Füllwörter",
     removeSilences: "Stille entfernen (>1,2 s)",
+    silenceWorking: "Stille wird entfernt…",
+    silenceCompleted: "Entfernen der Stille abgeschlossen",
+    silenceFailed: "Entfernen der Stille fehlgeschlagen",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:
@@ -555,6 +558,9 @@ const messages = {
     brandingUpdated: "Branding aktualisiert",
     saveFailed: "Speichern fehlgeschlagen",
     organizationName: "Name der Organisation",
+    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
+    defaultVisibilityDescription:
+      "Wird auf neue Aufnahmen angewendet, sofern du keine andere Sichtbarkeit auswählst.",
     brandColor: "Markenfarbe",
     brandColorPicker: "Markenfarbauswahl",
     useColor: "Verwenden Sie {{color}}",
@@ -623,10 +629,10 @@ const messages = {
     pageTitle: "Team beitreten · Clips",
   },
   settings: {
-    openAgentSettings: "Agent-Einstellungen öffnen",
+    openAgentSettings: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    agentTitle: "Agent-Einstellungen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
     intro:
@@ -635,6 +641,17 @@ const messages = {
     languageDescription:
       "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
     languageLabel: "Oberflächensprache",
+    uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
+    uploadWorkspaceDescription:
+      "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",
+    uploadWorkspaceLabel: "Aktueller Arbeitsbereich",
+    uploadWorkspacePlaceholder: "Arbeitsbereich auswählen",
+    uploadWorkspaceHint:
+      "Dadurch werden auch die arbeitsbereichsbezogenen Clips-Ansichten aktualisiert.",
+    uploadWorkspaceSaving: "Arbeitsbereich wird gespeichert…",
+    uploadWorkspaceSaved: "Aktiver Arbeitsbereich aktualisiert",
+    uploadWorkspaceSaveFailed:
+      "Aktiver Arbeitsbereich konnte nicht aktualisiert werden",
     whatsNew: "Neuigkeiten",
     changelogEmpty: "Noch keine Updates.",
     viewAllUpdates: "Alle Updates anzeigen",
@@ -940,6 +957,18 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     summary: "Zusammenfassung",
     keyPoints: "Kernpunkte",
     actionItems: "Aufgaben",
+    sharedContent: "Geteilte Inhalte",
+    summaryIncluded: "Zusammenfassung, Kernpunkte und Aufgaben",
+    includeTranscript: "Vollständiges Transkript einschließen",
+    includeTranscriptDescription:
+      "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
+    transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    transcript: "Transkript",
+    copyTranscript: "Transkript kopieren",
+    transcriptCopied: "Transkript kopiert",
+    copyTranscriptFailed: "Transkript konnte nicht kopiert werden",
+    updateTranscriptSharingFailed:
+      "Die Transkriptfreigabe konnte nicht aktualisiert werden",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip in den Papierkorb verschoben",
@@ -1126,6 +1155,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     desktopTitle: "Desktop app (Lokalisiert)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Lokalisiert)",
+    openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Lokalisiert)",
@@ -1390,7 +1420,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     connectStorageToFinish:
       "Öffnen, um Speicher zu verbinden und das Speichern abzuschließen.",
     retryFromClipsMenu:
-      "Über das Clips-Menü erneut versuchen; keine neue Aufnahme nötig.",
+      "Öffne Clips über die Menüleiste, um diesen gespeicherten Upload erneut zu versuchen; keine neue Aufnahme nötig.",
     removeFailedClip: "Diesen fehlgeschlagenen Clip entfernen.",
     remove: "Entfernen",
     viewsCount: "{{count}} Aufrufe",

@@ -30,10 +30,10 @@ const messages = {
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
     openTeamSettings: "Teameinstellungen öffnen",
     openResourceSettings: "Ressourceneinstellungen öffnen",
-    agentTitle: "Agent-Einstellungen",
+    agentTitle: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    openAgentSettings: "Agent-Einstellungen öffnen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    openAgentSettings: "Agent verwalten",
     editorTitle: "VS-Code-Erweiterung",
     editorDescription:
       "Öffne und prüfe Pläne in einem Seitenbereich in VS Code statt in einem separaten Browser-Tab.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "Was wurde in der letzten Woche ausgeliefert?",
     suggestionUi: "Wie sieht diese Oberfläche aus?",
     suggestionApi: "Welche Struktur hat diese API?",
+  },
+  contextXray: {
+    panelTitle: "Kontext-Röntgen",
+    snapshotsTitle: "Momentaufnahmen",
   },
   sidebar: {
     openNavigation: "Navigation öffnen",

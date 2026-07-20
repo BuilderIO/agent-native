@@ -4,9 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...inputs: Array<string | false | null | undefined>) =>
-    inputs.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

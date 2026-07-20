@@ -246,6 +246,95 @@ export async function getPendingTask(id: string): Promise<PendingTask | null> {
   return rowToTask(rows[0] as Record<string, unknown>);
 }
 
+export interface ResolvedIntegrationSourceContext {
+  platform: "slack";
+  sourceUrl: string;
+}
+
+type PendingTaskSourceRow = Pick<
+  PendingTask,
+  "platform" | "payload" | "ownerEmail" | "orgId"
+>;
+
+export function sourceContextFromPendingTask(
+  task: PendingTaskSourceRow | null,
+  ownerEmail: string,
+  orgId: string | null,
+): ResolvedIntegrationSourceContext | null {
+  if (
+    !task ||
+    task.ownerEmail !== ownerEmail ||
+    task.orgId !== orgId ||
+    task.platform !== "slack"
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(task.payload) as Record<string, unknown>;
+    const incoming = payload.incoming;
+    if (!incoming || typeof incoming !== "object") return null;
+    const incomingRecord = incoming as Record<string, unknown>;
+    if (incomingRecord.platform !== "slack") return null;
+    const sourceUrl = incomingRecord.sourceUrl;
+    if (
+      typeof sourceUrl !== "string" ||
+      !sourceUrl ||
+      sourceUrl !== sourceUrl.trim()
+    ) {
+      return null;
+    }
+
+    const parsed = new URL(sourceUrl);
+    const isSlackHost =
+      parsed.hostname === "slack.com" || parsed.hostname.endsWith(".slack.com");
+    if (
+      parsed.protocol !== "https:" ||
+      !isSlackHost ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port
+    ) {
+      return null;
+    }
+    return { platform: "slack", sourceUrl };
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve trusted Slack provenance without exposing the stored task payload. */
+export async function resolveIntegrationSourceContext(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null,
+): Promise<ResolvedIntegrationSourceContext | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT platform, payload, owner_email, org_id
+          FROM integration_pending_tasks
+          WHERE id = ?
+            AND owner_email = ?
+            AND (org_id = ? OR (org_id IS NULL AND ? IS NULL))
+            AND platform = 'slack'
+          LIMIT 1`,
+    args: [id, ownerEmail, orgId, orgId],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0] as Record<string, unknown>;
+  return sourceContextFromPendingTask(
+    {
+      platform: row.platform as string,
+      payload: row.payload as string,
+      ownerEmail: row.owner_email as string,
+      orgId: (row.org_id as string | null) ?? null,
+    },
+    ownerEmail,
+    orgId,
+  );
+}
+
 /**
  * Atomically claim a task: transition pending → processing and increment
  * attempts. Returns the updated task if the transition succeeded, otherwise
@@ -272,6 +361,19 @@ export async function claimPendingTask(
                AND active.status = 'processing'
                AND active.id <> integration_pending_tasks.id
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks earlier
+             WHERE earlier.platform = integration_pending_tasks.platform
+               AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
+               AND earlier.status = 'pending'
+               AND (
+                 earlier.created_at < integration_pending_tasks.created_at
+                 OR (
+                   earlier.created_at = integration_pending_tasks.created_at
+                   AND earlier.id < integration_pending_tasks.id
+                 )
+               )
+           )
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
@@ -282,6 +384,19 @@ export async function claimPendingTask(
                AND active.external_thread_id = integration_pending_tasks.external_thread_id
                AND active.status = 'processing'
                AND active.id <> integration_pending_tasks.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks earlier
+             WHERE earlier.platform = integration_pending_tasks.platform
+               AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
+               AND earlier.status = 'pending'
+               AND (
+                 earlier.created_at < integration_pending_tasks.created_at
+                 OR (
+                   earlier.created_at = integration_pending_tasks.created_at
+                   AND earlier.id < integration_pending_tasks.id
+                 )
+               )
            )`,
     args: ["processing", now, id],
   });
@@ -312,7 +427,7 @@ export async function getNextPendingTaskIdForThread(
   const { rows } = await getDbExec().execute({
     sql: `SELECT id FROM integration_pending_tasks
       WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
-      ORDER BY created_at ASC LIMIT 1`,
+      ORDER BY created_at ASC, id ASC LIMIT 1`,
     args: [platform, externalThreadId],
   });
   return rows[0]?.id ? String(rows[0].id) : null;
@@ -352,6 +467,77 @@ export async function markTaskRetryable(
           WHERE id = ? AND status = 'processing'`,
     args: ["pending", now, errorMessage.slice(0, 2000), id],
   });
+}
+
+export async function stageTaskDeliveryPayload(
+  id: string,
+  payload: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const result = await client.execute({
+    sql: `UPDATE integration_pending_tasks
+          SET payload = ?, updated_at = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: [payload, now, id],
+  });
+  const affected = Number(
+    (result as { rowsAffected?: number }).rowsAffected ??
+      (result as { rowCount?: number }).rowCount ??
+      0,
+  );
+  if (affected === 0) {
+    throw new Error("Integration task is no longer claimable for delivery");
+  }
+}
+
+export async function markTaskDeliveryRetryable(
+  id: string,
+  payload: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, payload = ?, updated_at = ?, error_message = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: ["pending", payload, Date.now(), errorMessage.slice(0, 2000), id],
+  });
+  const affected = Number(
+    (result as { rowsAffected?: number }).rowsAffected ??
+      (result as { rowCount?: number }).rowCount ??
+      0,
+  );
+  if (affected === 0) {
+    throw new Error(
+      "Integration task is no longer claimable for delivery retry",
+    );
+  }
+}
+
+export async function failTaskDeliveryTransition(
+  id: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, updated_at = ?, error_message = ?, payload = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: ["failed", Date.now(), errorMessage.slice(0, 2000), "{}", id],
+  });
+  const affected = Number(
+    (result as { rowsAffected?: number }).rowsAffected ??
+      (result as { rowCount?: number }).rowCount ??
+      0,
+  );
+  if (affected === 0) {
+    throw new Error(
+      "Integration task delivery failure transition lost its race",
+    );
+  }
 }
 
 /** Mark a task as failed and stash an error message. */

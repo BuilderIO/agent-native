@@ -1,11 +1,11 @@
 import { CodeSurface } from "@agent-native/core/blocks";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  agentNativePath,
-  useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   IconCheck,
   IconChevronDown,
@@ -881,7 +881,7 @@ function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
 }
 
 const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
-import { configureTracking } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/observability";
 
 configureTracking({
   key: "anpk_...",

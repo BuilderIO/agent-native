@@ -70,6 +70,7 @@ import {
   exportBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
+  scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
   startRecording,
   type LocalExportedFile,
@@ -730,6 +731,7 @@ export function App() {
   // when the recorder fully stops/cancels. We use this to suppress the
   // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
+  const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
   const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
@@ -1799,27 +1801,56 @@ export function App() {
   });
 
   const loadPendingUploads = useCallback(async () => {
-    try {
-      const nativeList = await invoke<Omit<PendingNativeUpload, "kind">[]>(
+    const [nativeResult, browserResult] = await Promise.allSettled([
+      invoke<Omit<PendingNativeUpload, "kind">[]>(
         "native_fullscreen_pending_uploads",
+      ),
+      listBrowserRecordingBackups(),
+    ]);
+    if (nativeResult.status === "rejected") {
+      console.warn(
+        "[clips-tray] native pending upload lookup failed:",
+        nativeResult.reason,
       );
-      const browserList = await listBrowserRecordingBackups();
-      const nativeUploads = Array.isArray(nativeList)
-        ? nativeList.map((upload) => ({
+    }
+    if (browserResult.status === "rejected") {
+      console.warn(
+        "[clips-tray] browser pending upload lookup failed:",
+        browserResult.reason,
+      );
+    }
+    const nativeUploads =
+      nativeResult.status === "fulfilled" && Array.isArray(nativeResult.value)
+        ? nativeResult.value.map((upload) => ({
             ...upload,
             kind: "native" as const,
           }))
         : [];
-      setPendingUploads(
-        [...nativeUploads, ...browserList].sort((a, b) =>
-          b.savedAt.localeCompare(a.savedAt),
-        ),
-      );
-    } catch (err) {
-      console.warn("[clips-tray] pending upload lookup failed:", err);
-      setPendingUploads([]);
-    }
+    const browserUploads =
+      browserResult.status === "fulfilled" ? browserResult.value : [];
+    setPendingUploads(
+      [...nativeUploads, ...browserUploads].sort((a, b) =>
+        b.savedAt.localeCompare(a.savedAt),
+      ),
+    );
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("clips:pending-uploads-changed", () => {
+      void loadPendingUploads();
+    })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [loadPendingUploads]);
 
   useEffect(() => {
     if (popoverView === "meetings" && popoverVisible) {
@@ -1881,12 +1912,23 @@ export function App() {
     try {
       const authToken = loadDesktopAuthToken(targetServerUrl);
       if (upload.kind === "native") {
-        await invoke("native_fullscreen_recording_retry_upload", {
-          serverUrl: targetServerUrl,
-          recordingId: upload.recordingId,
-          authToken,
-          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-        });
+        const result = await invoke<{ verificationPending?: boolean }>(
+          "native_fullscreen_recording_retry_upload",
+          {
+            serverUrl: targetServerUrl,
+            recordingId: upload.recordingId,
+            authToken,
+            cookie:
+              typeof document !== "undefined" ? document.cookie || "" : "",
+          },
+        );
+        if (result.verificationPending) {
+          scheduleNativeBackupCleanupAfterProcessing({
+            serverUrl: targetServerUrl,
+            recordingId: upload.recordingId,
+            authToken,
+          });
+        }
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,
@@ -2373,6 +2415,7 @@ export function App() {
         // Start a silent no-op.
         const handle = recorder;
         recordingStopFinalizingRef.current = true;
+        setRecordingStopFinalizing(true);
         bubbleStreamTransferredToRecorder.current = false;
         bubbleStreamRef.current = null;
         recordingFlowGateRef.current = false;
@@ -2404,6 +2447,7 @@ export function App() {
           await loadPendingUploads();
         } finally {
           recordingStopFinalizingRef.current = false;
+          setRecordingStopFinalizing(false);
           invoke("set_recording_state", { active: false }).catch(() => {});
           if (stopFailed || stopResult?.localOnly) {
             invoke("show_popover").catch(() => {});
@@ -2490,9 +2534,26 @@ export function App() {
   // we just render the normal pre-record panel so the user at least knows
   // where they are. No recording-only UI lives here.
 
+  const pendingUploadBanner = recordingStopFinalizing ? (
+    <FinalizingUploadBanner />
+  ) : pendingUploads.length > 0 ? (
+    <PendingUploadBanner
+      uploads={pendingUploads}
+      retryingUploadId={retryingUploadId}
+      exportingUploadId={exportingUploadId}
+      dismissingUploadId={dismissingUploadId}
+      onExport={exportPendingUpload}
+      onRetry={retryPendingUpload}
+      onDismiss={dismissPendingUpload}
+      onOpenFolder={openPendingUploadFolder}
+      onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+    />
+  ) : null;
+
   if (popoverView === "settings") {
     return (
       <div className="app app-settings" ref={appRef}>
+        {pendingUploadBanner}
         <Setup
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -2527,6 +2588,7 @@ export function App() {
   if (popoverView === "meetings") {
     return (
       <div className="app app-popover-view" ref={appRef}>
+        {pendingUploadBanner}
         <MeetingsPopoverView
           meetings={meetings}
           loading={meetingsLoading}
@@ -2552,6 +2614,7 @@ export function App() {
   if (popoverView === "dictation") {
     return (
       <div className="app app-popover-view" ref={appRef}>
+        {pendingUploadBanner}
         <DictationPopoverView
           voiceEnabled={voiceDictationEnabled}
           voiceShortcut={voiceShortcut}
@@ -2581,6 +2644,7 @@ export function App() {
           submitterEmail={signedInAs}
         />
         <UpdateBanner />
+        {pendingUploadBanner}
         {signInPending ? (
           <div className="signin-pending">
             <div className="signin-pending-spinner" />
@@ -2629,20 +2693,7 @@ export function App() {
     <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} submitterEmail={signedInAs} />
       <UpdateBanner />
-
-      {pendingUploads.length > 0 ? (
-        <PendingUploadBanner
-          uploads={pendingUploads}
-          retryingUploadId={retryingUploadId}
-          exportingUploadId={exportingUploadId}
-          dismissingUploadId={dismissingUploadId}
-          onExport={exportPendingUpload}
-          onRetry={retryPendingUpload}
-          onDismiss={dismissPendingUpload}
-          onOpenFolder={openPendingUploadFolder}
-          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-        />
-      ) : null}
+      {pendingUploadBanner}
 
       {localRecordingMode !== "off" ? (
         <LocalRecordingModeBanner mode={localRecordingMode} />
@@ -3085,6 +3136,22 @@ function PendingUploadBanner({
             Dismiss warning and keep the clip in Clip Drafts
           </TooltipContent>
         </Tooltip>
+      </div>
+    </div>
+  );
+}
+
+function FinalizingUploadBanner() {
+  return (
+    <div className="pending-upload-banner">
+      <div className="pending-upload-icon" aria-hidden>
+        <IconUpload size={17} stroke={1.8} />
+      </div>
+      <div className="pending-upload-copy">
+        <div className="pending-upload-title">Still finishing your Clip</div>
+        <div className="pending-upload-sub">
+          Recovery options will appear here if saving does not finish.
+        </div>
       </div>
     </div>
   );
@@ -4531,7 +4598,7 @@ function Setup({
       <div className="setup-section">
         <SettingLabel
           label="Clip Drafts"
-          hint="Clips dismissed after an upload problem stay in Movies/Clips/Drafts until you remove them in Finder."
+          hint="Only clips you dismiss from the saved-upload card appear in Movies/Clips/Drafts. To retry a failed upload, return to the Clips popover and use Retry."
         />
         <button
           type="button"

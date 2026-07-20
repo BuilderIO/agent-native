@@ -426,7 +426,33 @@ export function buildExtensionHtml(
 	      return res.body;
 	    }
 
-	    async function appFetch(path, options) {
+    var mcp = {
+      listTools: function(serverId) {
+        var params = serverId ? { serverId: String(serverId) } : {};
+        return appAction('list-mcp-tools', params);
+      },
+      callTool: function(serverId, toolName, args) {
+        if (!serverId || !toolName) {
+          return Promise.reject(new Error('MCP serverId and toolName are required'));
+        }
+        return appAction('call-mcp-tool', {
+          serverId: String(serverId),
+          toolName: String(toolName),
+          arguments: args || {},
+        });
+      },
+    };
+
+    var providerApi = {
+      catalog: function(params) {
+        return appAction('provider-api-catalog', params || {});
+      },
+      docs: function(params) {
+        return appAction('provider-api-docs', params || {});
+      },
+    };
+
+    async function appFetch(path, options) {
 	      options = options || {};
 	      var res = await hostRequest(path, {
 	        ...options,
@@ -593,6 +619,12 @@ export function buildExtensionHtml(
 	      extensionFetch: extensionFetch,
 	      extensionData: extensionData,
 	      data: extensionData,
+	      mcp: mcp,
+	      providerApi: providerApi,
+	      connectors: Object.assign({}, (window.agentNative && window.agentNative.connectors) || {}, {
+	        mcp: mcp,
+	        providerApi: providerApi,
+	      }),
 	      sendToChat: sendToChat,
 	      chat: Object.assign({}, (window.agentNative && window.agentNative.chat) || {}, {
 	        send: sendToChat,

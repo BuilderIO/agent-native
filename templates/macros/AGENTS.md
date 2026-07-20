@@ -4,6 +4,11 @@ Macros is an agent-native voice and nutrition tracking app. The agent works with
 foods, meals, calories/macros, voice corrections, stats, and navigation through
 actions and SQL state.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

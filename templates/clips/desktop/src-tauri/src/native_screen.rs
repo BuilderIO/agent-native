@@ -692,6 +692,7 @@ pub struct NativeFullscreenUploadResult {
     width: Option<u32>,
     height: Option<u32>,
     bytes: u64,
+    verification_pending: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -1318,13 +1319,68 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     // final post instead of re-uploading the whole file.
     #[cfg(target_os = "macos")]
     if let Some(live) = session.live_upload.take() {
+        let verified_duration_ms = match probe_local_media_duration_ms(&saved.file_path) {
+            Ok(media_duration_ms)
+                if media_durations_materially_match(duration_ms, media_duration_ms) =>
+            {
+                media_duration_ms
+            }
+            Ok(media_duration_ms) => {
+                let error = format!(
+                    "Clip may be incomplete. The local media duration ({media_duration_ms} ms) did not match the recorded duration ({duration_ms} ms)."
+                );
+                live.ctrl.cancelled.store(true, Ordering::SeqCst);
+                let _ = live.result_rx.await;
+                saved.last_attempt_at = Some(now_iso());
+                saved.last_error = Some(error.clone());
+                saved.retry_count = saved.retry_count.saturating_add(1);
+                let _ = write_saved_recording_metadata(&app, &saved);
+                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                let error = format!(
+                    "{error} The clip was saved locally and can be retried from the Clips menu."
+                );
+                emit_native_upload_finished(
+                    &app,
+                    &server_url,
+                    &recording_id,
+                    false,
+                    Some(error.clone()),
+                    Some(&saved.file_path),
+                );
+                return Err(error);
+            }
+            Err(probe_error) => {
+                let error = format!(
+                    "Clip may be incomplete. The local media duration could not be verified ({probe_error})."
+                );
+                live.ctrl.cancelled.store(true, Ordering::SeqCst);
+                let _ = live.result_rx.await;
+                saved.last_attempt_at = Some(now_iso());
+                saved.last_error = Some(error.clone());
+                saved.retry_count = saved.retry_count.saturating_add(1);
+                let _ = write_saved_recording_metadata(&app, &saved);
+                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                let error = format!(
+                    "{error} The clip was saved locally and can be retried from the Clips menu."
+                );
+                emit_native_upload_finished(
+                    &app,
+                    &server_url,
+                    &recording_id,
+                    false,
+                    Some(error.clone()),
+                    Some(&saved.file_path),
+                );
+                return Err(error);
+            }
+        };
         eprintln!(
-            "[live-upload] stop: signalling finalize for {recording_id} (duration_ms={duration_ms})"
+            "[live-upload] stop: signalling finalize for {recording_id} (measured_duration_ms={verified_duration_ms})"
         );
         emit_native_upload_progress(&app, "uploading", "Uploading clip", None, None);
         live.ctrl
             .duration_ms
-            .store(duration_ms as u64, Ordering::SeqCst);
+            .store(verified_duration_ms as u64, Ordering::SeqCst);
         live.ctrl.finalize.store(true, Ordering::SeqCst);
         let result = match live.result_rx.await {
             Ok(inner) => inner,
@@ -1333,20 +1389,23 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         eprintln!(
             "[live-upload] stop: finalize result for {recording_id}: {}",
             match &result {
-                Ok(bytes) => format!("ok ({bytes} bytes)"),
+                Ok(upload) => format!("ok ({} bytes)", upload.bytes),
                 Err(e) => format!("error: {e}"),
             }
         );
         return match result {
-            Ok(bytes) => {
-                clear_saved_recording_after_success(&app, &saved);
+            Ok(upload) => {
+                if !upload.verification_pending {
+                    clear_saved_recording_after_success(&app, &saved);
+                }
                 emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
                 Ok(NativeFullscreenUploadResult {
                     recording_id,
-                    duration_ms,
+                    duration_ms: verified_duration_ms,
                     width: session.width,
                     height: session.height,
-                    bytes,
+                    bytes: upload.bytes,
+                    verification_pending: upload.verification_pending,
                 })
             }
             Err(err) => {
@@ -1426,7 +1485,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording_after_success(&app, &saved);
+            if !result.verification_pending {
+                clear_saved_recording_after_success(&app, &saved);
+            }
             emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
             Ok(result)
         }
@@ -2544,7 +2605,9 @@ pub async fn native_fullscreen_recording_retry_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording_after_success(&app, &saved);
+            if !result.verification_pending {
+                clear_saved_recording_after_success(&app, &saved);
+            }
             Ok(result)
         }
         Err(err) => {
@@ -2561,6 +2624,20 @@ pub async fn native_fullscreen_recording_retry_upload(
             Err(format!("{err}. {suffix}"))
         }
     }
+}
+
+#[tauri::command]
+pub async fn native_fullscreen_recording_mark_upload_error(
+    app: AppHandle,
+    recording_id: String,
+    error: String,
+) -> Result<(), String> {
+    let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
+    saved.last_attempt_at = Some(now_iso());
+    saved.last_error = Some(error);
+    write_saved_recording_metadata(&app, &saved)?;
+    let _ = app.emit("clips:pending-uploads-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -3830,6 +3907,75 @@ fn concat_saved_recording_segments(_segments: &[PathBuf], _output: &Path) -> Res
     Err("Segment concat is only available on macOS.".into())
 }
 
+#[cfg(target_os = "macos")]
+fn probe_local_media_duration_ms(path: &Path) -> Result<u128, String> {
+    use std::ffi::CString;
+
+    use objc2::encode::{Encode, Encoding, RefEncode};
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{class, msg_send};
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CMTime {
+        value: i64,
+        timescale: i32,
+        flags: u32,
+        epoch: i64,
+    }
+
+    unsafe impl RefEncode for CMTime {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
+    }
+    unsafe impl Encode for CMTime {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CMTime",
+            &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
+        );
+    }
+
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| format!("recording path is not valid UTF-8: {}", path.display()))?;
+    let path_cstr = CString::new(path_str)
+        .map_err(|_| format!("recording path contains a null byte: {}", path.display()))?;
+    let asset_class_name = CString::new("AVURLAsset").expect("static class name");
+    let asset_class =
+        AnyClass::get(&asset_class_name).ok_or_else(|| "AVURLAsset is unavailable".to_string())?;
+
+    unsafe {
+        let string_allocated: *mut AnyObject = msg_send![class!(NSString), alloc];
+        let string_raw: *mut AnyObject =
+            msg_send![string_allocated, initWithUTF8String: path_cstr.as_ptr()];
+        let path_string = Retained::<AnyObject>::from_raw(string_raw)
+            .ok_or_else(|| format!("could not represent recording path: {}", path.display()))?;
+        let url_raw: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: &*path_string];
+        let url = Retained::<AnyObject>::retain(url_raw)
+            .ok_or_else(|| format!("could not open recording path: {}", path.display()))?;
+        let asset_raw: *mut AnyObject =
+            msg_send![asset_class, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
+        let asset = Retained::<AnyObject>::retain(asset_raw)
+            .ok_or_else(|| format!("could not inspect local recording: {}", path.display()))?;
+        let duration: CMTime = msg_send![&*asset, duration];
+        if duration.flags & 1 == 0 || duration.timescale <= 0 || duration.value <= 0 {
+            return Err(format!(
+                "Clip may be incomplete. The local media duration could not be verified; the local backup was kept ({})",
+                path.display()
+            ));
+        }
+        let duration_ms = (i128::from(duration.value) * 1_000)
+            .checked_div(i128::from(duration.timescale))
+            .and_then(|value| u128::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                "Clip may be incomplete. The local media duration was invalid; the local backup was kept."
+                    .to_string()
+            })?;
+        Ok(duration_ms)
+    }
+}
+
 async fn upload_prepared_recording_file(
     app: &AppHandle,
     prepared: &PreparedRecordingFile,
@@ -3844,6 +3990,19 @@ async fn upload_prepared_recording_file(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    #[cfg(target_os = "macos")]
+    let verified_local_duration_ms = {
+        let media_duration_ms = probe_local_media_duration_ms(&prepared.path)?;
+        if !media_durations_materially_match(duration_ms, media_duration_ms) {
+            return Err(format!(
+                "Clip may be incomplete. The local media duration ({media_duration_ms} ms) did not match the recorded duration ({duration_ms} ms); the local backup was kept."
+            ));
+        }
+        media_duration_ms
+    };
+    #[cfg(not(target_os = "macos"))]
+    let verified_local_duration_ms = duration_ms;
+
     let total_bytes = prepared.bytes;
     let total_bytes_usize = usize::try_from(total_bytes)
         .map_err(|_| "Native recording is too large to upload on this system.".to_string())?;
@@ -3866,6 +4025,7 @@ async fn upload_prepared_recording_file(
         .map_err(|e| format!("upload client failed: {e}"))?;
     let mut file =
         File::open(&prepared.path).map_err(|e| format!("native recording open failed: {e}"))?;
+    let verification_pending;
 
     if upload_mode == NativeUploadMode::Streaming {
         // Resumable providers require every non-final body to be aligned. The
@@ -3892,6 +4052,7 @@ async fn upload_prepared_recording_file(
                 has_camera,
                 upload_mode,
                 false,
+                None,
                 buffer,
             )
             .await?;
@@ -3917,7 +4078,7 @@ async fn upload_prepared_recording_file(
             None,
             Some(streaming_full_chunks as f32 / total_posts as f32),
         );
-        send_upload_post(
+        verification_pending = send_upload_post(
             &client,
             &server_url,
             &recording_id,
@@ -3926,7 +4087,7 @@ async fn upload_prepared_recording_file(
             streaming_full_chunks,
             total_posts,
             true,
-            Some(duration_ms),
+            Some(verified_local_duration_ms),
             &prepared.mime_type,
             width,
             height,
@@ -3934,6 +4095,7 @@ async fn upload_prepared_recording_file(
             has_camera,
             upload_mode,
             prepared.locally_transcoded,
+            Some(total_bytes),
             final_body,
         )
         .await?;
@@ -3964,6 +4126,7 @@ async fn upload_prepared_recording_file(
                 has_camera,
                 upload_mode,
                 false,
+                None,
                 buffer,
             )
             .await?;
@@ -3983,7 +4146,7 @@ async fn upload_prepared_recording_file(
             None,
             Some(total_chunks as f32 / total_posts as f32),
         );
-        send_upload_post(
+        verification_pending = send_upload_post(
             &client,
             &server_url,
             &recording_id,
@@ -3992,7 +4155,7 @@ async fn upload_prepared_recording_file(
             total_chunks,
             total_posts,
             true,
-            Some(duration_ms),
+            Some(verified_local_duration_ms),
             &prepared.mime_type,
             width,
             height,
@@ -4000,6 +4163,7 @@ async fn upload_prepared_recording_file(
             has_camera,
             upload_mode,
             prepared.locally_transcoded,
+            Some(total_bytes),
             Vec::new(),
         )
         .await?;
@@ -4008,10 +4172,11 @@ async fn upload_prepared_recording_file(
     emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
     Ok(NativeFullscreenUploadResult {
         recording_id,
-        duration_ms,
+        duration_ms: verified_local_duration_ms,
         width,
         height,
         bytes: total_bytes,
+        verification_pending,
     })
 }
 
@@ -4127,8 +4292,9 @@ async fn send_upload_post(
     has_camera: bool,
     upload_mode: NativeUploadMode,
     locally_transcoded: bool,
+    expected_source_bytes: Option<u64>,
     body: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let body_len = body.len();
     let url = upload_url(
         server_url,
@@ -4177,11 +4343,121 @@ async fn send_upload_post(
             body.chars().take(400).collect::<String>()
         ));
     }
+    let verification_pending = if is_final {
+        verify_native_finalize_receipt(
+            &body,
+            expected_source_bytes.ok_or_else(|| {
+                "Clip may be incomplete: final upload had no local byte count".to_string()
+            })?,
+            duration_ms.ok_or_else(|| {
+                "Clip may be incomplete: final upload had no local duration".to_string()
+            })?,
+        )?
+    } else {
+        false
+    };
     eprintln!(
         "[clips-tray] native upload post ok recording={recording_id} mode={} index={index}/{total} final={is_final}",
         upload_mode.label()
     );
-    Ok(())
+    Ok(verification_pending)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeFinalizeReceipt {
+    ok: bool,
+    finalized: bool,
+    status: Option<String>,
+    verification_pending: Option<bool>,
+    source_size_bytes: Option<u64>,
+    duration_ms: Option<u128>,
+}
+
+fn verify_native_finalize_receipt(
+    body: &str,
+    expected_source_bytes: u64,
+    expected_duration_ms: u128,
+) -> Result<bool, String> {
+    let receipt: NativeFinalizeReceipt = serde_json::from_str(body).map_err(|_| {
+        "Clip may be incomplete. The final upload receipt was unreadable; the local backup was kept."
+            .to_string()
+    })?;
+    let ready = receipt.ok && receipt.finalized && receipt.status.as_deref() == Some("ready");
+    let processing = receipt.ok
+        && !receipt.finalized
+        && receipt.status.as_deref() == Some("processing")
+        && receipt.verification_pending == Some(true);
+    if !ready && !processing {
+        return Err(
+            "Clip may be incomplete. Finalization was not confirmed; the local backup was kept."
+                .to_string(),
+        );
+    }
+    if receipt.source_size_bytes != Some(expected_source_bytes) {
+        return Err(format!(
+            "Clip may be incomplete. The server did not confirm all {expected_source_bytes} source bytes; the local backup was kept."
+        ));
+    }
+    let actual_duration_ms = receipt.duration_ms.unwrap_or(0);
+    if !media_durations_materially_match(expected_duration_ms, actual_duration_ms) {
+        return Err(
+            "Clip may be incomplete. The uploaded duration did not match the local recording; the local backup was kept."
+                .to_string(),
+        );
+    }
+    Ok(processing)
+}
+
+fn media_durations_materially_match(expected_ms: u128, actual_ms: u128) -> bool {
+    if expected_ms == 0 || actual_ms == 0 {
+        return false;
+    }
+    let tolerance_ms = 5_000_u128.max(expected_ms / 50);
+    actual_ms.abs_diff(expected_ms) <= tolerance_ms
+}
+
+#[cfg(test)]
+mod native_finalize_receipt_tests {
+    use super::{media_durations_materially_match, verify_native_finalize_receipt};
+
+    #[test]
+    fn compares_measured_media_duration_with_a_bounded_tolerance() {
+        assert!(media_durations_materially_match(1_592_773, 1_593_259));
+        assert!(media_durations_materially_match(10_000, 15_000));
+        assert!(!media_durations_materially_match(10_000, 15_001));
+        assert!(!media_durations_materially_match(0, 10_000));
+        assert!(!media_durations_materially_match(10_000, 0));
+    }
+
+    #[test]
+    fn accepts_matching_ready_and_pending_verification_receipts() {
+        let ready = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":581614005,"durationMs":1593259}"#;
+        assert_eq!(
+            verify_native_finalize_receipt(ready, 581_614_005, 1_592_773),
+            Ok(false)
+        );
+
+        let processing = r#"{"ok":true,"finalized":false,"status":"processing","verificationPending":true,"sourceSizeBytes":581614005,"durationMs":1593259}"#;
+        assert_eq!(
+            verify_native_finalize_receipt(processing, 581_614_005, 1_592_773),
+            Ok(true)
+        );
+
+        let short = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":581614005,"durationMs":483000}"#;
+        assert!(
+            verify_native_finalize_receipt(short, 581_614_005, 1_592_773)
+                .unwrap_err()
+                .contains("duration")
+        );
+
+        let partial = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":183000000,"durationMs":1592773}"#;
+        assert!(
+            verify_native_finalize_receipt(partial, 581_614_005, 1_592_773)
+                .unwrap_err()
+                .contains("581614005")
+        );
+    }
 }
 
 fn upload_url(

@@ -439,8 +439,7 @@ export default defineAction({
 상태를 변경하는 actions의 경우:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -458,8 +457,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 읽기 전용 GET actions의 경우:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -613,6 +611,44 @@ export default defineAction({
   },
 });
 ```
+
++## 단계적 기능 보호하기 {#feature-flags}
+
+배포 자체는 안전하지만 프로덕션에 점진적으로 도입해야 하는 action에는 Core feature flag를 사용하세요. 기본적으로 꺼진 flag를 한 번 선언하고 Nitro 플러그인에서 등록한 뒤 모든 보호된 action 안에서 평가하세요. 해당 버튼을 숨기는 것은 표현일 뿐이며, action 검사가 실제 적용입니다.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+클라이언트 화면을 숨기거나 표시하려면 `@agent-native/core/client`의 `useFeatureFlag(FULL_APP_BUILDING.key)`를 사용하세요. Core는 `get-feature-flags`, `list-feature-flags`, `set-feature-flag`를 제공합니다. 관리는 권한 검사와 감사를 거치며, fleet UI는 엄격히 제한된 A2A 위임으로 같은 앱 로컬 actions를 호출합니다. flag 쓰기를 일반 설정 endpoint나 원시 SQL로 처리하지 말고, 인증, 권한 부여, 감사, secret 또는 SSR 캐시를 runtime flag 뒤에 두지 마세요.
 
 ## 레거시 CLI 스타일 actions {#legacy-cli-actions}
 

@@ -19,6 +19,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let submitForm: typeof import("./submit-content-database-form.js").default;
+let spaceId: string;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -28,6 +29,30 @@ beforeAll(async () => {
   submitForm = (await import("./submit-content-database-form.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  const { systemIdsForContentSpace } = await import("./_content-spaces.js");
+  spaceId = `form_space_${Date.now()}`;
+  const filesIds = systemIdsForContentSpace(spaceId, "files");
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: filesIds.documentId,
+    spaceId,
+    ownerEmail: OWNER,
+    title: "Files",
+    content: "",
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: filesIds.databaseId,
+    spaceId,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesIds.documentId,
+    title: "Files",
+    createdAt: now,
+    updatedAt: now,
+  });
 }, 60_000);
 
 afterAll(() => {
@@ -49,6 +74,7 @@ async function seedFormDatabase() {
   const requesterId = `requester_${suffix}`;
   await db.insert(schema.documents).values({
     id: databaseDocumentId,
+    spaceId,
     ownerEmail: OWNER,
     title: "Design asks",
     content: "",
@@ -58,6 +84,7 @@ async function seedFormDatabase() {
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId,
     ownerEmail: OWNER,
     documentId: databaseDocumentId,
     title: "Design asks",
@@ -179,6 +206,12 @@ describe("submit-content-database-form", () => {
       verified: true,
       urlPath: `/page/${result.createdDocumentId}`,
     });
+    await expect(
+      getDb()
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, result.createdDocumentId)),
+    ).resolves.toEqual([{ spaceId }]);
     expect(result.deepLink).toContain(result.createdDocumentId);
 
     const db = getDb();
@@ -268,6 +301,79 @@ describe("submit-content-database-form", () => {
         }),
       ),
     ).rejects.toThrow('Unknown option "Extremely urgent"');
+  });
+
+  it("excludes system properties from form questions and rejects supplied values", async () => {
+    const seeded = await seedFormDatabase();
+    const systemPropertyId = `system_kind_${Date.now()}`;
+    const db = getDb();
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const viewConfig = JSON.parse(database.viewConfigJson);
+    viewConfig.views[0].formQuestions.push({
+      key: systemPropertyId,
+      enabled: true,
+      required: true,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: JSON.stringify(viewConfig) })
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: systemPropertyId,
+      ownerEmail: OWNER,
+      databaseId: seeded.databaseId,
+      systemRole: "files_kind",
+      name: "Kind",
+      type: "select",
+      optionsJson: serializePropertyOptions({
+        options: [{ id: "page", name: "Page", color: "gray" }],
+      }),
+      position: 5,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "System fields stay derived",
+          propertyValues: {
+            Description: "The configured required system question is ignored.",
+            Priority: "P1 — High",
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({ verified: true });
+    const beforeRejectedSubmission = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Cannot override Kind",
+          propertyValues: {
+            Description: "This row must not be created.",
+            Priority: "P1 — High",
+            [systemPropertyId]: "page",
+          },
+        }),
+      ),
+    ).rejects.toThrow('System property "Kind" cannot be submitted');
+    const afterRejectedSubmission = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(afterRejectedSubmission).toHaveLength(
+      beforeRejectedSubmission.length,
+    );
   });
 
   it("rolls back the document and item when an in-transaction property write fails", async () => {

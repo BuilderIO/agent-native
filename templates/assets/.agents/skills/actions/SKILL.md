@@ -121,18 +121,38 @@ action trio instead:
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
 
-Use `@agent-native/core/provider-api` as the shared substrate. A template should
-only add a thin credential adapter when it has app-specific credential lookup
-rules. If the app stores a built-in provider's OAuth grant under a narrower
-local provider id, use the runtime's `oauthProviderOverrides` instead of
-duplicating the provider config. If credentials are stored on shareable/resource
-rows rather than in the shared credential or OAuth-token stores, build a resolver
-that enforces those access checks before exposing raw provider requests. Keep
-`provider-api-request` `http: false` unless you have a separate UI permission
-model for arbitrary provider writes. Specific actions such as `search-records`,
-`search-emails`, or `sync-source` are convenience shortcuts, not capability
-limits; agents should fall back to the provider API trio when a question
-requires an endpoint or filter that the shortcut does not model.
+Use `@agent-native/core/provider-api` as the shared substrate, and build these
+actions as thin factory imports rather than copying `defineAction` schemas and
+handlers into each template:
+
+```ts
+import {
+  createProviderApiCatalogAction,
+  createProviderApiDocsAction,
+  createProviderApiRequestAction,
+} from "@agent-native/core/provider-api/actions/provider-api";
+import {
+  createDeleteStagedDatasetAction,
+  createListStagedDatasetsAction,
+  createQueryStagedDatasetAction,
+} from "@agent-native/core/provider-api/actions/staged-datasets";
+```
+
+Pass the app's existing provider runtime to the provider factories, and pass
+its app id to the staged-dataset factories. Keep app-specific descriptions,
+provider allow-lists, HTTP/tool-callability settings, and credential adapters
+as factory options. Only add a thin credential adapter when the app has
+app-specific credential lookup rules. If the app stores a built-in provider's
+OAuth grant under a narrower local provider id, use the runtime's
+`oauthProviderOverrides` instead of duplicating provider config. If credentials
+are stored on shareable/resource rows rather than in the shared credential or
+OAuth-token stores, build a resolver that enforces those access checks before
+exposing raw provider requests. Keep `provider-api-request` `http: false`
+unless a separate UI permission model authorizes arbitrary provider writes.
+Specific actions such as `search-records`, `search-emails`, or `sync-source`
+are convenience shortcuts, not capability limits; agents should fall back to
+the provider API trio when a question requires an endpoint or filter that the
+shortcut does not model.
 
 This is a framework tenet. The safety boundary should be provider host
 allow-listing, credential scoping, auth injection, private-network blocking,
@@ -309,7 +329,7 @@ The frontend calls actions using React Query hooks from `@agent-native/core/clie
 ### `useActionQuery` — for GET actions
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 function MealList() {
   // Types are auto-inferred from the action's schema + return type — no manual generic needed
@@ -323,7 +343,7 @@ function MealList() {
 ### `useActionMutation` — for POST/PUT/DELETE actions
 
 ```ts
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 
 function AddMealButton() {
   // Types are auto-inferred — no manual generic needed
@@ -343,7 +363,7 @@ Mutations automatically invalidate all `["action"]` query keys on success, so GE
 ### `callAction` — for imperative client code
 
 ```ts
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 const people = await callAction("search-people", { query }, { method: "GET" });
 ```

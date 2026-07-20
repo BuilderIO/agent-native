@@ -29,10 +29,10 @@ const messages = {
     deliveryTitle: "投遞",
     deliveryDescription: "管理訊息目的地並查看出站投遞佇列。",
     openDelivery: "開啟投遞",
-    agentTitle: "代理設定",
+    agentTitle: "管理代理",
     agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、語音和其他代理控制項。排程與事件觸發的工作請使用自動化頁面。",
-    openAgentSettings: "開啟代理設定",
+      "管理代理的模型、API 金鑰、語音和其他控制項。排程與事件觸發的工作請使用自動化頁面。",
+    openAgentSettings: "管理代理",
   },
   integrations: {
     title: "整合",

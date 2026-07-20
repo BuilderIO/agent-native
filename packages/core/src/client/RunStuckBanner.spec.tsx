@@ -15,10 +15,10 @@ vi.mock("./api-path.js", () => ({
   agentNativePath: (path: string) => path,
 }));
 
-function jsonResponse(body: unknown, ok = true) {
+function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500) {
   return {
     ok,
-    status: ok ? 200 : 500,
+    status,
     json: async () => body,
   } as Response;
 }
@@ -55,6 +55,82 @@ describe("RunStuckBanner", () => {
     vi.unstubAllGlobals();
     window.localStorage.clear();
     vi.useRealTimers();
+  });
+
+  it("backs off active-run polling after transient failures", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({ error: "database unavailable" }, false),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(19_999);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("clears stale run state and slows polling after a permanent client error", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          active: true,
+          runId: "run-stale",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 400_000,
+        }),
+      )
+      .mockResolvedValue(jsonResponse({ error: "unauthorized" }, false, 401));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(container.textContent).toBe("stuck");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(container.textContent).toBe("healthy");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   it("automatically aborts and retries a stuck active run once", async () => {

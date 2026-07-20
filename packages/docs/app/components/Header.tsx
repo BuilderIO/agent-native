@@ -1,4 +1,5 @@
-import { FeedbackButton, useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconMessage } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Link, NavLink, useLocation } from "react-router";

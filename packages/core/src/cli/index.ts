@@ -1002,6 +1002,19 @@ switch (command) {
     break;
   }
 
+  case "eject": {
+    import("./eject.js")
+      .then(async (m) => {
+        const code = await m.runEject(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "audit-agent-web": {
     import("./audit-agent-web.js")
       .then((m) => m.runAuditAgentWeb(args))
@@ -1098,8 +1111,8 @@ Usage:
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
   agent-native content local-files <file-or-folder>
-                                Launch Content in local-file mode for a local
-                                docs/content folder. Use --no-open, --port N,
+                                Connect a local docs/content folder to normal
+                                database-backed Content. Use --no-open, --port N,
                                 or --profile docs/no-bookkeeping as needed.
   agent-native design connect  Start a localhost Design bridge for a running
                                 dev server. Use --url, --port, --root, or
@@ -1135,6 +1148,9 @@ Usage:
                                 Manifest package lifecycle: inspect | add | eject.
                                 add/eject are dry-run unless --apply; --json emits
                                 a machine-readable compatibility/change report.
+  agent-native eject <unit>    Copy a supported feature into app-owned source.
+                                --list discovers units; inspect/diff are read-only;
+                                eject/restore are dry-run unless --apply.
   agent-native changelog <cmd>  Author the app's user-facing changelog.
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in
