@@ -44,6 +44,27 @@ function truncateToolErrorMessage(value: string): string {
     : value;
 }
 
+function redactToolErrorMessage(value: string): string {
+  const credentialName =
+    "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
+  return value
+    .replace(
+      new RegExp(
+        `(\\b(?:${credentialName})\\b\\s*[:=]\\s*)(?:Bearer|Basic)\\s+[^\\s,;)}\\]]+`,
+        "gi",
+      ),
+      "$1[REDACTED]",
+    )
+    .replace(
+      new RegExp(
+        `(\\b(?:${credentialName})\\b\\s*[:=]\\s*["']?)[^"'\\s,;)}\\[\\]]+`,
+        "gi",
+      ),
+      "$1[REDACTED]",
+    )
+    .replace(/\\bBearer\\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]");
+}
+
 function emitLlmGenerationTrackingEvent(args: {
   runId: string;
   threadId: string | null;
@@ -449,7 +470,7 @@ export async function instrumentAgentLoop(opts: {
                 : "legacy_inferred_error",
             error_message:
               isError && config.captureToolResults
-                ? truncateToolErrorMessage(event.result)
+                ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
                 : undefined,
           });
         }

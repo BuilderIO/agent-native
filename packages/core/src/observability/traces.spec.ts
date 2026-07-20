@@ -703,14 +703,14 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     const longError = `HubSpot 500: ${"x".repeat(600)}`;
 
-    const runOnce = async (captureToolResults: boolean) => {
+    const runOnce = async (captureToolResults: boolean, result = longError) => {
       await instrumentAgentLoop({
         runAgentLoop: async ({ send }) => {
           send({ type: "tool_start", tool: "account-deep-dive", input: {} });
           send({
             type: "tool_done",
             tool: "account-deep-dive",
-            result: longError,
+            result,
             isError: true,
           });
           return {
@@ -749,6 +749,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       `${longError.slice(0, 500)}…`,
     );
     expect((toolsWithCapture[0]?.error_message as string).length).toBe(501);
+
+    events.length = 0;
+    const credentialError =
+      "Provider failed: Authorization: Bearer <EXAMPLE_BEARER_TOKEN>; api_key=<EXAMPLE_API_KEY>";
+    await runOnce(true, credentialError);
+    const redactedTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(redactedTools[0]?.error_message).toBe(
+      "Provider failed: Authorization: [REDACTED]; api_key=[REDACTED]",
+    );
   });
 
   it("no-ops (emits no spans) when no provider is registered", async () => {
