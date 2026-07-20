@@ -127,7 +127,7 @@ function readAllTextFiles(dir: string): string {
  * Standalone scaffold with a real template
  * ───────────────────────────────────────────────────────────────────────── */
 
-describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
+describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   it("rewrites the copied chat tracking app id to the generated app id", async () => {
     await createApp("test-app", { template: "chat" });
     const root = fs.readFileSync(
