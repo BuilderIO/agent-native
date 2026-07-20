@@ -28,18 +28,20 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 ## How
 
-1. **Doctor first (optional but recommended)**
+1. **Preview migration codemods first**
 
    ```bash
-   npx @agent-native/core@latest upgrade check
+   npx @agent-native/core@latest upgrade --codemods
    ```
 
-   This reports framework overrides/patches and pending `@agent-native/*`
-   bumps. If overrides/patches are present, remove them before continuing.
+   Codemods are preview-by-default: read the diff before applying it. Do not
+   manually edit imports before running this command; the migration manifest is
+   the source of truth for renamed specifiers and symbols.
 
-2. **Run the upgrade**
+2. **Apply the reviewed codemods, then run the upgrade**
 
    ```bash
+   npx @agent-native/core@latest upgrade --codemods --yes
    npx @agent-native/core@latest upgrade
    ```
 
@@ -61,13 +63,23 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    - Re-run `agent-native upgrade` or `pnpm typecheck`
    - Stop and ask the user if you cannot fix the app-level error
 
+   Intentional app-level UI customization is a separate workflow. Read
+   `customizing-agent-native` when the product needs to own a selectively
+   copied component; do not use that path to reproduce framework runtime
+   behavior or hide version skew.
+
 4. **Dry-run / partial runs**
 
    ```bash
    agent-native upgrade --dry-run
    agent-native upgrade --skip-verify
    agent-native upgrade --skip-install   # package.json bumps only
+   agent-native doctor --only migration-manifest
    ```
+
+   `migration-manifest` has no opt-out. Run it in CI before upgrading to find
+   imports that will break, then use `npx @agent-native/core@latest upgrade --codemods`
+   to preview the supported rewrite.
 
 ## Don't
 
@@ -84,4 +96,5 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 - **self-modifying-code** — Tier 4: framework packages are off limits
 - **agent-native-docs** — version-matched docs after the bump
+- **customizing-agent-native** — intentional app-owned UI copies, not upgrade patches
 - **portability** — keep app code provider-agnostic across upgrades

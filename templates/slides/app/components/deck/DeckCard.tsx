@@ -1,5 +1,6 @@
-import { VisibilityBadge, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconDots,
   IconTrash,

@@ -619,10 +619,10 @@ const messages = {
     pageTitle: "チームに参加 · Clips",
   },
   settings: {
-    openAgentSettings: "エージェント設定を開く",
+    openAgentSettings: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    agentTitle: "エージェント設定",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",

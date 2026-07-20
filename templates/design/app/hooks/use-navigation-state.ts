@@ -1,8 +1,8 @@
 import {
-  useAgentRouteState,
   getBrowserTabId,
   setClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useEffect } from "react";
 import { useLocation, useParams } from "react-router";
 

@@ -35,6 +35,7 @@ export type {
   Artifact,
   JsonRpcRequest,
   JsonRpcResponse,
+  A2ACorrelationMetadata,
   A2AReadOnlyActionInvocation,
   A2AReadOnlyActionResult,
 } from "./types.js";

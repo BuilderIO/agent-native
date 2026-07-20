@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { setResponseHeader, setResponseStatus } from "h3";
 
 import {
@@ -7,18 +9,22 @@ import {
   isAgentChatDurableBackgroundEnabled,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
+import { track } from "../tracking/registry.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import {
   createTask,
+  createOrReuseTask,
   getTask,
-  getTaskOwner,
+  getTaskOwnership,
   updateTask,
   claimA2ATaskForProcessing,
   getA2ATaskDispatchState,
@@ -28,6 +34,8 @@ import {
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
   pauseProcessingA2ATask,
+  MAX_A2A_IDEMPOTENCY_KEY_CHARS,
+  A2A_PERSONAL_OWNER_SCOPE,
 } from "./task-store.js";
 import type {
   A2AApprovedAction,
@@ -52,6 +60,7 @@ const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 const MAX_A2A_APPROVED_ACTIONS = 10;
 const MAX_A2A_DIRECT_ACTION_NAME_CHARS = 200;
 const MAX_A2A_DIRECT_ACTION_INPUT_BYTES = 64 * 1024;
+const A2A_READ_INVOKE_EVENT = "$a2a_read_invoke";
 
 function trustedApprovedActions(
   value: unknown,
@@ -634,6 +643,22 @@ async function runHandlerAndPersist(
   }
 }
 
+function verifiedTaskOwner(event?: any): {
+  ownerEmail: string | null;
+  ownerScope: string | null;
+} {
+  const ownerEmail =
+    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  return {
+    ownerEmail,
+    ownerScope: ownerEmail
+      ? ((event?.context?.__a2aOrgDomain as string | undefined)
+          ?.trim()
+          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE)
+      : null,
+  };
+}
+
 async function handleSend(
   params: Record<string, unknown>,
   config: A2AConfig,
@@ -661,8 +686,31 @@ async function handleSend(
   // on every subsequent tasks/get and tasks/cancel call. Caller-supplied
   // metadata.userEmail is NEVER used for ownership; that would re-introduce
   // the IDOR class fixed here.
-  const ownerEmailForTask =
-    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
+    verifiedTaskOwner(event);
+  let idempotencyKey: string | undefined;
+  if (ownerEmailForTask && params.idempotencyKey !== undefined) {
+    if (typeof params.idempotencyKey !== "string") {
+      return {
+        ...jsonRpcError(
+          0,
+          -32602,
+          "Invalid params: idempotencyKey must be a string",
+        ),
+        _id: 0,
+      };
+    }
+    idempotencyKey = params.idempotencyKey.trim();
+    if (
+      !idempotencyKey ||
+      idempotencyKey.length > MAX_A2A_IDEMPOTENCY_KEY_CHARS
+    ) {
+      return {
+        ...jsonRpcError(0, -32602, "Invalid params: idempotencyKey is invalid"),
+        _id: 0,
+      };
+    }
+  }
 
   // Async mode: return the task immediately in `working` state, run the
   // handler in the background, and let the caller poll `tasks/get`. This is
@@ -675,6 +723,7 @@ async function handleSend(
   // production — see the additional gate below.
   const asyncMode =
     params.async === true || (event && event.context?.__a2aForceAsync === true);
+  if (!asyncMode) idempotencyKey = undefined;
 
   if (asyncMode) {
     // Refuse async mode entirely when no auth is configured in production.
@@ -723,12 +772,20 @@ async function handleSend(
         sourceContext: sourceContext ?? null,
       },
     };
-    const task = await createTask(
+    const { task, reused } = await createOrReuseTask(
       message,
       contextId,
       taskMetadata,
       ownerEmailForTask,
+      ownerScopeForTask,
+      idempotencyKey,
     );
+    if (reused) {
+      return {
+        ...jsonRpcResult(0, sanitizeTaskForResponse(task)),
+        _id: 0,
+      };
+    }
     const working = await updateTask(task.id, { state: "working" });
 
     // Awaited, not fire-and-forget: this handler is about to return, and a
@@ -751,12 +808,20 @@ async function handleSend(
   }
 
   return withA2ARequestContext(metadata, event, async () => {
-    const task = await createTask(
+    const { task, reused } = await createOrReuseTask(
       message,
       contextId,
       undefined,
       ownerEmailForTask,
+      ownerScopeForTask,
+      idempotencyKey,
     );
+    if (reused) {
+      return {
+        ...jsonRpcResult(0, sanitizeTaskForResponse(task)),
+        _id: 0,
+      };
+    }
     await updateTask(task.id, { state: "working" });
 
     const ctx = makeHandlerContext(
@@ -848,8 +913,8 @@ async function handleStream(
   const metadata = params.metadata as Record<string, unknown> | undefined;
   const approvedActions = trustedApprovedActions(params.approvedActions, event);
   const sourceContext = trustedSourceContext(metadata?.sourceContext, event);
-  const ownerEmailForTask =
-    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
+    verifiedTaskOwner(event);
 
   await withA2ARequestContext(metadata, event, async () => {
     const task = await createTask(
@@ -857,6 +922,7 @@ async function handleStream(
       contextId,
       undefined,
       ownerEmailForTask,
+      ownerScopeForTask,
     );
 
     await updateTask(task.id, { state: "working" });
@@ -938,16 +1004,23 @@ const SENSITIVE_METADATA_KEYS = new Set([
 
 function sanitizeTaskForResponse(task: any): any {
   if (!task || typeof task !== "object") return task;
-  if (!task.metadata || typeof task.metadata !== "object") return task;
+  const {
+    ownerEmail: _ownerEmail,
+    ownerScope: _ownerScope,
+    ...publicTask
+  } = task;
+  if (!publicTask.metadata || typeof publicTask.metadata !== "object") {
+    return publicTask;
+  }
 
-  const meta = task.metadata as Record<string, unknown>;
+  const meta = publicTask.metadata as Record<string, unknown>;
   const publicMeta: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
     if (k === "__a2a_processor") continue;
     if (SENSITIVE_METADATA_KEYS.has(k)) continue;
     publicMeta[k] = v;
   }
-  return { ...task, metadata: publicMeta };
+  return { ...publicTask, metadata: publicMeta };
 }
 
 /**
@@ -966,6 +1039,7 @@ function sanitizeTaskForResponse(task: any): any {
  */
 function authorizeTaskAccess(
   taskOwnerEmail: string | null,
+  taskOwnerScope: string | null,
   event: any,
   config: A2AConfig,
 ): JsonRpcResponse | null {
@@ -987,6 +1061,15 @@ function authorizeTaskAccess(
     if (verifiedEmail.toLowerCase() !== taskOwnerEmail.toLowerCase()) {
       return jsonRpcError(0, -32001, "Task not found");
     }
+    if (taskOwnerScope) {
+      const verifiedScope =
+        (event?.context?.__a2aOrgDomain as string | undefined)
+          ?.trim()
+          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE;
+      if (verifiedScope !== taskOwnerScope.toLowerCase()) {
+        return jsonRpcError(0, -32001, "Task not found");
+      }
+    }
   }
   // Legacy row (no owner_email recorded). The route-level auth gate is the
   // only thing protecting it — fall through and serve.
@@ -1002,8 +1085,13 @@ async function handleGet(
   if (!id) {
     return jsonRpcError(0, -32602, "Invalid params: id required");
   }
-  const ownerEmail = await getTaskOwner(id);
-  const denied = authorizeTaskAccess(ownerEmail, event, config);
+  const ownership = await getTaskOwnership(id);
+  const denied = authorizeTaskAccess(
+    ownership.ownerEmail,
+    ownership.ownerScope,
+    event,
+    config,
+  );
   if (denied) return denied;
 
   const task = await getTask(id);
@@ -1097,8 +1185,13 @@ async function handleCancel(
   if (!id) {
     return jsonRpcError(0, -32602, "Invalid params: id required");
   }
-  const ownerEmail = await getTaskOwner(id);
-  const denied = authorizeTaskAccess(ownerEmail, event, config);
+  const ownership = await getTaskOwnership(id);
+  const denied = authorizeTaskAccess(
+    ownership.ownerEmail,
+    ownership.ownerScope,
+    event,
+    config,
+  );
   if (denied) return denied;
 
   const task = await updateTask(id, { state: "canceled" });
@@ -1148,15 +1241,48 @@ async function handleInvokeReadOnlyAction(
     return jsonRpcError(0, -32601, "Direct action invocation not supported");
   }
 
+  const startedAt = Date.now();
+  const correlation = sanitizeA2ACorrelationMetadata(params.metadata);
+  const invocationId = crypto.randomUUID();
+  const verifiedEmail = event.context.__a2aVerifiedEmail as string;
+  const emitTracking = (status: "completed" | "failed") => {
+    const identity = trackingIdentityProperties();
+    track(
+      A2A_READ_INVOKE_EVENT,
+      {
+        ...identity,
+        action,
+        receiver_app: config.appId ?? identity.app ?? config.name,
+        caller_app: correlation.callerApp ?? "unknown",
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        status,
+        invocation_id: invocationId,
+        ...(correlation.parentRunId
+          ? { parent_run_id: correlation.parentRunId }
+          : {}),
+        ...(correlation.parentTurnId
+          ? { parent_turn_id: correlation.parentTurnId }
+          : {}),
+        ...(correlation.invocationId
+          ? { caller_invocation_id: correlation.invocationId }
+          : {}),
+      },
+      { userId: verifiedEmail },
+    );
+  };
+
   try {
     const result = await withA2ARequestContext(undefined, event, () =>
       config.executeReadOnlyAction!({
         action,
         input: input as Record<string, unknown>,
+        invocationId,
       }),
     );
+    emitTracking(result.status);
     return jsonRpcResult(0, { action, ...result });
   } catch (error) {
+    emitTracking("failed");
     console.error(`[a2a] Direct action ${action} failed:`, error);
     return jsonRpcError(0, -32000, "Direct action invocation failed");
   }

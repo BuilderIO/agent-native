@@ -7,6 +7,11 @@ application state shared with the UI.
 Detailed document editing, Notion, storage, and UI rules live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -134,6 +139,8 @@ cd templates/content && pnpm action <name> [args]
 | `ensure-content-spaces`                     |                                                                                                                                                                                                    | Idempotently provision the signed-in user's personal and current organization Content spaces, system databases, and catalog references                                            |
 | `backfill-content-files`                    |                                                                                                                                                                                                    | Assign legacy pages to Content spaces and reconcile exactly one canonical Files database membership per non-system page                                                           |
 | `list-content-spaces`                       |                                                                                                                                                                                                    | List already-provisioned Content spaces authorized by the signed-in user's current ownership or organization memberships                                                          |
+| `create-content-space`                      | `--name <name> --requestId <opaque-id>`                                                                                                                                                            | Idempotently create a private named Content workspace with its own canonical Files database                                                                                       |
+| `delete-content-space`                      | `--spaceId <id>`                                                                                                                                                                                   | Permanently delete a user-created Content workspace and all of its content; Personal and organization workspaces are protected                                                    |
 | `create-content-database`                   | `[--documentId <id>] [--spaceId <id>] [--parentId <id>] [--title <text>] [--description <text>]`                                                                                                   | Create a described database page in a Content space or convert an existing page into a database                                                                                   |
 | `create-inline-content-database`            | `--hostDocumentId <id> [--title <text>] [--description <text>]`                                                                                                                                    | Create a described database owned by an inline database block in the host document                                                                                                |
 | `get-content-database`                      | `--databaseId <id>` or `--documentId <id>`                                                                                                                                                         | Get a database with its description, property/option schema guidance, item pages, and computed ancestry context                                                                   |

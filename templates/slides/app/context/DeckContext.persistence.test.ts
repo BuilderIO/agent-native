@@ -908,7 +908,8 @@ describe("DeckContext deck creation persistence", () => {
           await vi.advanceTimersByTimeAsync(1);
         });
         expect(MockEventSource.instances.length).toBe(countBeforeCap + 1);
-        current = MockEventSource.instances.at(-1)!;
+        current =
+          MockEventSource.instances[MockEventSource.instances.length - 1]!;
       }
     });
 
@@ -996,7 +997,8 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      const reconnected = MockEventSource.instances.at(-1)!;
+      const reconnected =
+        MockEventSource.instances[MockEventSource.instances.length - 1]!;
       expect(reconnected).not.toBe(source);
 
       // Switch back to real timers before using testing-library's `waitFor`,
@@ -1086,7 +1088,8 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      const reconnected = MockEventSource.instances.at(-1)!;
+      const reconnected =
+        MockEventSource.instances[MockEventSource.instances.length - 1]!;
       vi.useRealTimers();
 
       act(() => {
@@ -1196,7 +1199,8 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      const reconnected = MockEventSource.instances.at(-1)!;
+      const reconnected =
+        MockEventSource.instances[MockEventSource.instances.length - 1]!;
       vi.useRealTimers();
 
       act(() => {

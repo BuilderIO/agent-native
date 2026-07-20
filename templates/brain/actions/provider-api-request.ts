@@ -1,12 +1,9 @@
-import { defineAction } from "@agent-native/core";
-import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
 import {
   BRAIN_APP_ID,
   BRAIN_PROVIDER_API_IDS,
-  executeProviderApiRequest,
   getBrainProviderApiRuntime,
 } from "../server/lib/provider-api.js";
 
@@ -68,7 +65,7 @@ const PaginationSchema = z
   })
   .optional();
 
-export default defineAction({
+export default createProviderApiRequestAction(getBrainProviderApiRuntime(), {
   description:
     "Make an arbitrary authenticated HTTP request to a configured or shared provider API for Brain analysis. Use this as the flexible escape hatch when Brain source readers cannot express the needed endpoint, filters, pagination, payload, or API version. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
   schema: z.object({
@@ -198,36 +195,5 @@ export default defineAction({
   }),
   http: false,
   toolCallable: false,
-  run: async (args) => {
-    if (args.stageAs) {
-      const ctx = getCredentialContext();
-      if (!ctx) {
-        throw new Error("No authenticated context for provider API staging.");
-      }
-      const providerRuntime = getBrainProviderApiRuntime();
-      return stagingExecuteRequest(
-        {
-          provider: args.provider,
-          method: args.method,
-          path: args.path,
-          query: args.query,
-          headers: args.headers,
-          body: args.body,
-          auth: args.auth,
-          connectionId: args.connectionId,
-          accountId: args.accountId,
-          timeoutMs: args.timeoutMs,
-          maxBytes: args.maxBytes,
-          stageAs: args.stageAs,
-          itemsPath: args.itemsPath,
-          pagination: args.pagination,
-        },
-        (reqArgs) => providerRuntime.executeRequest(reqArgs),
-        { appId: BRAIN_APP_ID, ownerEmail: ctx.userEmail },
-      );
-    }
-    return executeProviderApiRequest(
-      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
-    );
-  },
+  appId: BRAIN_APP_ID,
 });

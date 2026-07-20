@@ -5,7 +5,7 @@ description: "Hospede muitos aplicativos nativos do agente em um monorepo com au
 
 # Espaços de trabalho com vários aplicativos
 
-> **Qual documento do espaço de trabalho?** Esta página aborda o **formato de implantação** — um monorepo, muitos aplicativos, autenticação compartilhada e uma implantação unificada. Para saber o que _é_ um espaço de trabalho (a camada de customização: `AGENTS.md`, `LEARNINGS.md`, memória pessoal, skills, agentes customizados) consulte [Workspace](/docs/workspace); para governança (quem analisa, aprova e possui o quê), consulte [Workspace Governance](/docs/workspace-management).
+> **Qual documento do espaço de trabalho?** Esta página aborda o **formato de implantação** — um monorepo, muitos aplicativos, autenticação compartilhada e uma implantação unificada. Para a camada de personalização do agente (Recursos do Agente: `AGENTS.md`, memória, skills, agentes personalizados) consulte [Recursos do Agente](/docs/workspace); para governança (quem analisa, aprova e possui o quê), consulte [Workspace Governance](/docs/workspace-management).
 
 Quando a codificação de vibração de uma ferramenta interna leva uma tarde, você não para em uma só. Uma equipe acaba com um CRM, uma caixa de entrada de suporte, um painel, um console de operações – dez pequenos aplicativos, cada um estruturado de forma independente. Isso é ótimo até que você precise mudar alguma coisa em todos eles.
 
@@ -218,7 +218,7 @@ Como o pacote compartilhado é uma dependência de `workspace:*`, pnpm o vincula
 
 Use `packages/shared` para padrões de nível de código que devem ser fornecidos com o repositório: plug-ins, actions compartilhado, código React compartilhado, sistema de arquivos `AGENTS.md` e sistema de arquivos skills. Use os recursos do espaço de trabalho do Dispatch para contexto global editável em tempo de execução que os administradores desejam gerenciar sem alterar o código.
 
-Os recursos de despacho têm como escopo **Todos os aplicativos** (cada aplicativo os herda em tempo de execução, sem etapa de cópia ou sincronização) ou **Aplicativos selecionados** (concedido por aplicativo para contexto específico do aplicativo). Consulte [Workspace](/docs/workspace#global-resources) para obter a tabela completa de modelos de recursos, convenções de caminho e o pacote inicial recomendado.
+Os recursos de despacho têm como escopo **Todos os aplicativos** (cada aplicativo os herda em tempo de execução, sem etapa de cópia ou sincronização) ou **Aplicativos selecionados** (concedido por aplicativo para contexto específico do aplicativo). Consulte [Recursos do Agente](/docs/workspace#global-resources) para obter a tabela completa de modelos de recursos, convenções de caminho e o pacote inicial recomendado.
 
 ## Autenticação e RBAC {#auth-and-rbac}
 
@@ -415,7 +415,7 @@ O padrão do espaço de trabalho é intencionalmente estreito. Algumas coisas qu
 
 ## Veja também {#see-also}
 
-- [Workspace](/docs/workspace) — a camada de personalização (`AGENTS.md`, `LEARNINGS.md`, memória pessoal, skills, agentes personalizados) compartilhada por todos os aplicativos no espaço de trabalho.
+- [Recursos do Agente](/docs/workspace) — a camada de personalização (`AGENTS.md`, `LEARNINGS.md`, memória pessoal, skills, agentes personalizados) compartilhada por todos os aplicativos no espaço de trabalho.
 - [Workspace Governance](/docs/workspace-management) — ramificação, CODEOWNERS, revisão de PR em vários aplicativos em um repositório.
 - [Multi-Tenancy](/docs/multi-tenancy) — organizações, funções e isolamento de dados por organização.
 - [Cross-App SSO](/docs/cross-app-sso) — federação de identidades para implantações em domínios separados.

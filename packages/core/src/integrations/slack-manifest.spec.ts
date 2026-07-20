@@ -26,6 +26,7 @@ describe("Slack Agent Native app manifest", () => {
     expect(manifest.oauth_config.scopes.bot).toEqual(
       expect.arrayContaining([
         "assistant:write",
+        "channels:join",
         "channels:read",
         "chat:write",
         "groups:read",

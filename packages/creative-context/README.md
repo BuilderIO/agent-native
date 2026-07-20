@@ -4,6 +4,10 @@ Shared creative-library ingestion, governed reusable contexts, immutable
 evidence, hybrid retrieval, brand context, and generation provenance for Agent
 Native creative apps.
 
+Creative Context is a Toolkit capability module installed on demand. It lives
+in its own npm package so apps only take the governed corpus, retrieval, UI, and
+lifecycle metadata they need.
+
 The package turns Google Slides, Figma, Notion, websites, and uploaded
 PPTX/DOCX/PDF/PNG/JPEG/WebP/GIF/safe-SVG files into a versioned SQL corpus. Binary originals, localized visual
 fallbacks, and bounded UI thumbnails live in private blob storage; full-slide

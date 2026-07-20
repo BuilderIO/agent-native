@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 import type {
   PlanAuthor,

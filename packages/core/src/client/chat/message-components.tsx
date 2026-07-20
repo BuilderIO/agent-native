@@ -2,6 +2,8 @@
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
 // RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
 
+import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
+import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
   useThread,
   useMessageRuntime,
@@ -59,8 +61,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
-import { PastedTextChip } from "../composer/PastedTextChip.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";

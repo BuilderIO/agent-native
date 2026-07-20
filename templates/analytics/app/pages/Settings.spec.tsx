@@ -14,27 +14,27 @@ const mocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
-  agentNativePath: (path: string) => path,
+vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogSettingsCard: () => null,
-  cn: (...values: Array<string | false | null | undefined>) =>
-    values.filter(Boolean).join(" "),
-  LanguagePicker: () => null,
-  SettingsTabsPage: ({ general }: { general: React.ReactNode }) => (
-    <main>{general}</main>
-  ),
-  useAgentSettingsTabs: () => [],
-  useBuilderConnectFlow: () => ({
-    configured: false,
-    hasFetchedStatus: true,
-    statusResolved: true,
-  }),
-  useBuilderStatus: () => ({ loading: false, status: null }),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
   useSession: () => ({
     session: { email: "settings-user@example.com" },
     isLoading: false,
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  LanguagePicker: () => null,
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/settings", () => ({
+  SettingsTabsPage: ({ general }: { general: React.ReactNode }) => (
+    <main>{general}</main>
+  ),
+  useAgentSettingsTabs: () => [],
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({ TeamPage: () => null }));

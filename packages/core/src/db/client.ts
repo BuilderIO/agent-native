@@ -10,6 +10,11 @@
  */
 import path from "path";
 
+import {
+  beginDatabaseOperation,
+  recordDatabaseRetry,
+} from "./request-telemetry.js";
+
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
@@ -669,6 +674,61 @@ export function isConnectionError(err: any): boolean {
   );
 }
 
+/**
+ * Classify database failures that should temporarily shed request load.
+ * Statement timeouts are not included in isConnectionError() because retrying
+ * every timed-out mutation would not be safe, but request handlers can still
+ * return a retryable service-unavailable response for them.
+ */
+export function isTransientDatabaseError(err: unknown): boolean {
+  const error = err as {
+    code?: unknown;
+    name?: unknown;
+    message?: unknown;
+    stack?: unknown;
+    cause?: {
+      code?: unknown;
+      name?: unknown;
+      message?: unknown;
+      stack?: unknown;
+    };
+  };
+  const code = String(error?.code ?? error?.cause?.code ?? "");
+  if (
+    code === "ECHECKOUTTIMEOUT" ||
+    code === "53300" ||
+    code === "57014" ||
+    /^08/.test(code) ||
+    /^57P0[123]$/.test(code)
+  ) {
+    return true;
+  }
+
+  const message = [error?.message, error?.cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  if (
+    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
+  ) {
+    return true;
+  }
+
+  const databaseSurface = [
+    error?.name,
+    error?.cause?.name,
+    error?.stack,
+    error?.cause?.stack,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return (
+    isConnectionError(error) &&
+    /@neondatabase|@libsql|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+      databaseSurface,
+    )
+  );
+}
+
 export async function retryOnConnectionError<T>(
   fn: () => Promise<T>,
   maxAttempts = 3,
@@ -680,6 +740,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
   }
@@ -735,6 +796,9 @@ export async function withDbTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
+  const finishTelemetry = beginDatabaseOperation(
+    op === "connect" ? "connect" : "query",
+  );
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -756,12 +820,14 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("success");
       complete(value);
     };
     const fail = (err: unknown) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("error");
       reject(err);
     };
 
@@ -770,6 +836,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -1116,13 +1183,7 @@ async function createDbExecInternal(
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() =>
-              withDbTimeout(
-                "http-query",
-                () => queryNeonClient(pool, sql),
-                dbOpTimeoutMs(),
-              ),
-            );
+            }>(() => queryNeonClient(pool, sql));
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];

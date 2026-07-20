@@ -16,6 +16,7 @@ const mockGetDb = vi.hoisted(() => vi.fn());
 const mockVerifySharePassword = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
 const mockBuildAgentApiUrls = vi.hoisted(() => vi.fn());
+const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -75,6 +76,11 @@ vi.mock("../../lib/recordings.js", () => ({
 vi.mock("../../lib/player-video-url.js", () => ({
   resolvePlayerVideoUrl: (...args: unknown[]) =>
     mockResolvePlayerVideoUrl(...args),
+}));
+
+vi.mock("../../lib/media-verification-state.js", () => ({
+  isMediaVerificationPending: (...args: unknown[]) =>
+    mockIsMediaVerificationPending(...args),
 }));
 
 vi.mock("../../lib/share-password.js", () => ({
@@ -176,6 +182,7 @@ describe("/api/public-recording route", () => {
     mockBuildAgentApiUrls.mockReturnValue({
       contextUrl: "https://clips.example/api/agent-context.json?id=rec-1",
     });
+    mockIsMediaVerificationPending.mockResolvedValue(false);
   });
 
   it("sets a protected media cookie and long fallback token after password unlock", async () => {
@@ -210,6 +217,31 @@ describe("/api/public-recording route", () => {
       expect.objectContaining({ id: "rec-1" }),
       expect.objectContaining({ addPasswordToken: false }),
     );
+  });
+
+  it("exposes durable media verification to processing players", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockIsMediaVerificationPending.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ status: "processing", videoUrl: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { status: "processing", verificationPending: true },
+    });
+    expect(mockIsMediaVerificationPending).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      recordingId: "rec-1",
+      recordingStatus: "processing",
+    });
   });
 
   it("allows a scoped agent access token to load private clips without changing visibility", async () => {

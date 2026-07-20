@@ -35,7 +35,7 @@ import {
 } from "@shared/recording-core";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
-import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
+import { waitForAcceptedRecordingAfterFinalizeError } from "./finalize-recovery";
 import {
   createNativeTranscriptionCapture,
   type NativeTranscriptionCapture,
@@ -875,7 +875,7 @@ async function uploadChunk(
       if (extra.isFinal && res.status === 504) {
         triedFinalUploadRecovery = true;
         await res.text().catch(() => "");
-        const recovered = await waitForReadyRecordingAfterFinalizeError({
+        const recovered = await waitForAcceptedRecordingAfterFinalizeError({
           uploadUrl: recording.uploadUrl,
           recordingId: recording.recordingId,
           authToken: recording.authToken,
@@ -1619,7 +1619,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     const error = err instanceof Error ? err : new Error(String(err));
 
     if (isFinalUploadRecoveryCandidate(error)) {
-      const recovered = await waitForReadyRecordingAfterFinalizeError({
+      const recovered = await waitForAcceptedRecordingAfterFinalizeError({
         uploadUrl: recording.uploadUrl,
         recordingId: recording.recordingId,
         authToken: recording.authToken,

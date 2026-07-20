@@ -1,4 +1,7 @@
-import { AgentSidebar, focusAgentChat } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  focusAgentChat,
+} from "@agent-native/core/client/agent-chat";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";

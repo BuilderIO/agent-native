@@ -1,0 +1,46 @@
+---
+title: "Context & Knowledge"
+description: "Build agent-aware context and knowledge surfaces while keeping engines, data access, and reusable presentation in their proper layers."
+---
+
+# Context & knowledge
+
+Context and knowledge are shared responsibilities: the runtime makes state and
+access durable, Toolkit presents reusable surfaces, and each app owns the
+domain records that make context useful.
+
+## Ownership boundary
+
+| Layer   | Owns                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------ |
+| Core    | Application state, scoped data access, Context X-Ray engine, resource and block contracts. |
+| Toolkit | Reusable Context X-Ray presentation and agent-facing context UI.                           |
+| App     | Domain knowledge, selection rules, resource taxonomy, and product-specific context.        |
+
+The Context X-Ray engine remains Core-owned. Use Toolkit presentation to show
+that context consistently, but keep the actual app-state and access decisions
+on the Core/action surface.
+
+Import the controlled presentation views from `@agent-native/toolkit/context-ui`.
+Core's existing Context X-Ray components remain adapters that connect those
+views to runtime state and mutations. Both are documented in this Toolkit
+section because together they form one reusable product surface.
+
+## Build a useful context surface
+
+Use [context awareness](/docs/context-awareness) to make navigation,
+selection, and focused objects visible to the agent. Use [Resources](/docs/toolkit-resources)
+for browsable files and attachments, and use scoped actions for every read or
+write. Context should describe what the user is working on without bypassing
+the app's access model.
+
+For knowledge that comes from a provider, preserve provider credentials and
+resource access checks before exposing retrieval to the agent. Do not treat a
+presentation component as an authorization boundary.
+
+## Related docs
+
+- [Agent UX](/docs/toolkit-agent-ux) — composer context chips, approvals, and runs.
+- [Resources](/docs/toolkit-resources) — resource trees, search, and attachments.
+- [Context awareness](/docs/context-awareness) — application state shared with the agent.
+- [Security](/docs/security) — scoped access and credential handling.

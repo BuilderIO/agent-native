@@ -2,13 +2,7 @@
  * Thin analytics re-export of the core query-staged-dataset action,
  * pre-bound to appId="analytics".
  */
-import { defineAction } from "@agent-native/core";
-import { runAggregateQuery } from "@agent-native/core/provider-api/staged-datasets-aggregate";
-import {
-  getStagedDatasetRows,
-  getStagedDatasetMeta,
-} from "@agent-native/core/provider-api/staged-datasets-store";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { createQueryStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
@@ -41,7 +35,7 @@ const AggregateFieldSchema = z.object({
     .describe("Output column name. Default: {op}_{column}."),
 });
 
-export default defineAction({
+export default createQueryStagedDatasetAction({
   description:
     "Run a filter/aggregate/project query over a staged dataset previously written by provider-api-request (stageAs). " +
     "All aggregation runs in-process — no SQL dialect differences. " +
@@ -90,43 +84,5 @@ export default defineAction({
       .describe("Maximum rows to return (default all, max 10000)."),
   }),
   http: false,
-  readOnly: true,
-  run: async (args) => {
-    const ctx = getCredentialContext();
-    if (!ctx)
-      throw new Error("No authenticated context for query-staged-dataset.");
-
-    const meta = await getStagedDatasetMeta({
-      id: args.datasetId,
-      appId: ANALYTICS_APP_ID,
-      ownerEmail: ctx.userEmail,
-    });
-    if (!meta) {
-      throw new Error(
-        `Dataset ${args.datasetId} not found (or belongs to a different owner/app).`,
-      );
-    }
-
-    const rows = await getStagedDatasetRows({
-      id: args.datasetId,
-      appId: ANALYTICS_APP_ID,
-      ownerEmail: ctx.userEmail,
-    });
-
-    const result = runAggregateQuery(rows, {
-      where: args.where,
-      groupBy: args.groupBy,
-      aggregate: args.aggregate,
-      select: args.select,
-      orderBy: args.orderBy,
-      orderDir: args.orderDir,
-      limit: args.limit,
-    });
-
-    return {
-      dataset: { id: meta.id, name: meta.name, totalRows: meta.rowCount },
-      rowCount: result.length,
-      rows: result,
-    };
-  },
+  appId: ANALYTICS_APP_ID,
 });

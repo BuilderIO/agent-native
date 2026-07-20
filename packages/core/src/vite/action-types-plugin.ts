@@ -358,6 +358,10 @@ declare module "@agent-native/core/client" {
   interface ActionRegistry extends AgentNativeActionRegistry {}
 }
 
+declare module "@agent-native/core/client/hooks" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
+}
+
 export {};
 `;
 

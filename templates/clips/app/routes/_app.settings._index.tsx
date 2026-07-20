@@ -1,18 +1,18 @@
 import {
-  useSession,
   agentNativePath,
   appApiPath,
-  LanguagePicker,
-  useActionQuery,
+} from "@agent-native/core/client/api-path";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useSession, useActionQuery } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage, useOrg, useSwitchOrg } from "@agent-native/core/client/org";
+import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  ChangelogSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
   type SettingsSearchEntry,
-} from "@agent-native/core/client";
-import { TeamPage, useOrg, useSwitchOrg } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,

@@ -169,7 +169,16 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      throw new Error(`File not found: ${id}`);
+      // Terminal (not transient): the row is gone or out of access scope, so a
+      // retry can never succeed. Mark it 404 so the client save-outbox drops the
+      // entry instead of retrying forever (which turns one orphaned/deleted
+      // screen into an update-file 500 storm — see design-save-outbox
+      // isTerminalSaveError).
+      const notFound = new Error(`File not found: ${id}`) as Error & {
+        status?: number;
+      };
+      notFound.status = 404;
+      throw notFound;
     }
 
     await assertAccess("design", file.designId, "editor");

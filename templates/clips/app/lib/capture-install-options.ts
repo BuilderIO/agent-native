@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 
 const DESKTOP_PROMO_DISMISSED_STORAGE_KEY = "clips.desktop-promo.dismissed";
 const DESKTOP_DOWNLOADED_STORAGE_KEY = "clips.desktop-app.downloaded";

@@ -29,7 +29,7 @@ describe("pgvector creative-context lane", () => {
     expect(String(db.execute.mock.calls[1]?.[0])).toContain(
       "creative_context_vectors_1024",
     );
-    expect(String(db.execute.mock.calls[2]?.[0])).toContain("USING hnsw");
+    expect(String(db.execute.mock.calls[3]?.[0])).toContain("USING hnsw");
   });
 
   it("binds vector values and validates the selected dimensions", async () => {
@@ -44,7 +44,7 @@ describe("pgvector creative-context lane", () => {
       },
       true,
     );
-    const write = db.execute.mock.calls[3]?.[0] as {
+    const write = db.execute.mock.calls[5]?.[0] as {
       sql: string;
       args: unknown[];
     };
@@ -66,6 +66,23 @@ describe("pgvector creative-context lane", () => {
         true,
       ),
     ).rejects.toThrow("expected 2");
+  });
+
+  it("can write a batch after its namespace and dimensions are provisioned", async () => {
+    const db = mockDb();
+    await ensurePgVectorIndex(db, 3, true);
+    await upsertPgVector(
+      db,
+      {
+        vectorKey: "chunk:1",
+        embeddingSetId: "set:1",
+        dimensions: 3,
+        vector: [0.25, 0.5, 0.75],
+      },
+      { postgres: true, indexInitialized: true },
+    );
+    expect(db.execute).toHaveBeenCalledTimes(6);
+    expect(String(db.execute.mock.calls[5]?.[0].sql)).toContain("INSERT INTO");
   });
 
   it("limits vector results to access-filtered vector keys", async () => {

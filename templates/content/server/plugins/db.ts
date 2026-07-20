@@ -4,6 +4,7 @@ import {
   runMigrations,
 } from "@agent-native/core/db";
 
+import { repairFilesSystemPropertyDefinitions } from "../../actions/_files-system-properties.js";
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 import * as schema from "../db/schema.js";
 
@@ -847,6 +848,14 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique
           ON content_database_items (database_id, document_id)`,
     },
+    {
+      version: 75,
+      name: "content-files-system-properties",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS system_role TEXT;
+        ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS files_system_properties_seeded INTEGER NOT NULL DEFAULT 0;
+        CREATE UNIQUE INDEX IF NOT EXISTS document_property_definitions_database_system_role_unique
+          ON document_property_definitions (database_id, system_role)`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -921,5 +930,13 @@ export default async function contentDatabasePlugin(
     // Retry in-process so a transient boot-time repair failure does not leave
     // legacy databases without their primary Blocks field until a full reboot.
     scheduleBlocksRepairRetry();
+  }
+  try {
+    await repairFilesSystemPropertyDefinitions();
+  } catch (err) {
+    console.warn(
+      "[db] Files system-property repair failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
   }
 }

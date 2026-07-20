@@ -22,6 +22,7 @@ describe("Content split-mode retirement", () => {
     for (const file of canonicalDocumentActions) {
       const source = await fs.readFile(new URL(file, import.meta.url), "utf8");
       expect(source, file).not.toContain("AGENT_NATIVE_MODE");
+      expect(source, file).not.toContain("AGENT_NATIVE_DATA_MODE");
       expect(source, file).not.toContain("isContentLocalFileMode");
       expect(source, file).not.toContain("LocalFileDocument");
     }
@@ -33,6 +34,7 @@ describe("Content split-mode retirement", () => {
       "utf8",
     );
     expect(source).not.toContain("AGENT_NATIVE_MODE");
+    expect(source).not.toContain("AGENT_NATIVE_DATA_MODE");
     expect(source).not.toContain("isAgentNativeLocalFileMode");
   });
 });

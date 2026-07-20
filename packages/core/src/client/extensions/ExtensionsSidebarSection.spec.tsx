@@ -11,7 +11,7 @@ vi.mock("../agent-chat.js", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("../composer/PromptComposer.js", () => ({
+vi.mock("../composer/index.js", () => ({
   PromptComposer: ({ placeholder }: { placeholder: string }) => (
     <textarea aria-label={placeholder} placeholder={placeholder} />
   ),

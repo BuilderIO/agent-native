@@ -9,7 +9,7 @@ import {
   resolveBuilderPrivateKey,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { MediaWorkerCallback } from "../../shared/media-worker-contract.js";
 import { getDb, schema } from "../db/index.js";
@@ -648,6 +648,21 @@ async function processCompressionState(
   try {
     const compressed = await triggerBuilderCompression(state);
     if (compressed) {
+      if (!compressed.durationMs) {
+        if (attempts >= MAX_TRIGGER_ATTEMPTS) {
+          return markCompressionFailed(
+            { ...state, attempts },
+            `Builder media compression did not provide a verified duration after ${attempts} attempts`,
+          );
+        }
+        return writeCompressionState(state, {
+          status: "triggered",
+          attempts,
+          lastTriggeredAt: new Date().toISOString(),
+          nextAttemptAt: isoAfter(TRIGGERED_POLL_DELAY_MS),
+          detail: "Compressed media is not ready with a verified duration yet",
+        });
+      }
       return swapRecordingToCompressed(
         state,
         compressed.url,
@@ -943,7 +958,12 @@ export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
     key?: unknown;
     value?: unknown;
   }>) {
-    const sessionId = typeof row.session_id === "string" ? row.session_id : "";
+    const sessionId =
+      typeof row.session_id === "string" ? row.session_id.trim() : "";
+    const key = typeof row.key === "string" ? row.key : "";
+    const recordingId = key.startsWith(BUILDER_MEDIA_COMPRESSION_STATE_PREFIX)
+      ? key.slice(BUILDER_MEDIA_COMPRESSION_STATE_PREFIX.length)
+      : "";
     const rawValue = typeof row.value === "string" ? row.value : "";
     let value: Record<string, unknown> | null = null;
     try {
@@ -952,14 +972,61 @@ export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
       continue;
     }
     const state = parseState(value);
-    if (!state || isFinalStatus(state.status) || !isDue(state)) continue;
-    const ownerEmail = state.ownerEmail || sessionId;
-    if (!ownerEmail) continue;
+    if (
+      !sessionId ||
+      !recordingId ||
+      !state ||
+      state.recordingId !== recordingId ||
+      isFinalStatus(state.status) ||
+      !isDue(state)
+    ) {
+      continue;
+    }
     try {
+      const [recording] = await getDb()
+        .select({
+          ownerEmail: schema.recordings.ownerEmail,
+          orgId: schema.recordings.orgId,
+          videoUrl: schema.recordings.videoUrl,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, sessionId),
+            eq(schema.recordings.status, "ready"),
+            isNull(schema.recordings.trashedAt),
+          ),
+        )
+        .limit(1);
+      const expectedTarget = extractBuilderMediaTarget(
+        recording?.videoUrl ?? "",
+      );
+      if (
+        !recording ||
+        !expectedTarget ||
+        state.sourceUrl !== expectedTarget.sourceUrl ||
+        (state.mediaWorker &&
+          (state.mediaWorker.jobId !==
+            mediaWorkerCompressionJobId(recordingId) ||
+            state.mediaWorker.outputUrl !== expectedTarget.compressedUrl))
+      ) {
+        continue;
+      }
+
+      const trustedState: BuilderMediaCompressionState = {
+        ...state,
+        ...expectedTarget,
+        ownerEmail: recording.ownerEmail,
+        orgId: recording.orgId,
+      };
       await runWithRequestContext(
-        { userEmail: ownerEmail, orgId: state.orgId ?? undefined },
+        {
+          userEmail: recording.ownerEmail,
+          orgId: recording.orgId ?? undefined,
+        },
         async () => {
-          await processCompressionState({ ...state, ownerEmail });
+          await processCompressionState(trustedState);
         },
       );
     } catch (err) {

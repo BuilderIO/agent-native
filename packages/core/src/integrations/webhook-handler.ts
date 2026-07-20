@@ -1093,10 +1093,16 @@ async function processIncomingMessage(
             toolResults,
             { baseUrl: appBaseUrl || undefined },
           );
-          responseText = guardedResponse.text;
-          suppressPlatformReply ||=
+          const queuedArtifactRejection =
             queuedA2AContinuation &&
             guardedResponse.rejectedUnverifiedArtifactReferences;
+          if (queuedArtifactRejection && verifiedMutationReceipt) {
+            responseText = verifiedMutationReceipt;
+            suppressPlatformReply = false;
+          } else {
+            responseText = guardedResponse.text;
+            suppressPlatformReply ||= queuedArtifactRejection;
+          }
           const threadDeepLinkUrl =
             appBaseUrl && threadId
               ? `${appBaseUrl}/chat/${encodeURIComponent(threadId)}`

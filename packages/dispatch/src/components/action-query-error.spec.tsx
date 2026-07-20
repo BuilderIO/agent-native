@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActionQueryError } from "./action-query-error";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "dispatch.pages.dataLoadFailed": "Couldn't load data",

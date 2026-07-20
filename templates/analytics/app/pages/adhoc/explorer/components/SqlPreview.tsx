@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronRight, IconCopy, IconCheck } from "@tabler/icons-react";
 import { useId, useState } from "react";
 

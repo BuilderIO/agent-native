@@ -147,6 +147,23 @@ function shouldSkipRelativePath(relativePath) {
   return shouldSkipFile(name);
 }
 
+export function shouldIncludeCorpusSourceFile(rootRel, sourcePath) {
+  const normalizedPath = sourcePath.split("\\").join("/");
+  if (
+    rootRel === "packages/core" &&
+    normalizedPath.startsWith("packages/core/docs/content/locales/")
+  ) {
+    return false;
+  }
+  if (rootRel !== "templates") return true;
+
+  const localeCatalog =
+    /^templates\/[^/]+\/app\/i18n\/([a-z]{2,3}-[A-Z]{2,4})\.[cm]?[jt]sx?$/.exec(
+      normalizedPath,
+    );
+  return !localeCatalog || localeCatalog[1] === "en-US";
+}
+
 function hasTextLikeName(relativePath) {
   const name = basename(relativePath);
   if (textFileNames.has(name)) return true;
@@ -227,7 +244,10 @@ function sourceFilesFor(rootRel) {
     tracked ?? listFilesystemFiles(join(repoRoot, rootRel), rootRel);
   return files
     .filter(
-      (file) => !shouldSkipRelativePath(file) && shouldIncludeSourceFile(file),
+      (file) =>
+        shouldIncludeCorpusSourceFile(rootRel, file) &&
+        !shouldSkipRelativePath(file) &&
+        shouldIncludeSourceFile(file),
     )
     .sort();
 }
@@ -261,6 +281,7 @@ function writeCorpusReadme(stats, baseDir) {
     "## Contents",
     "",
     "- `core/` -- source and package files for `@agent-native/core`.",
+    "- `toolkit/` -- source and package files for `@agent-native/toolkit`.",
     "- `templates/` -- source-only copies of first-party Agent Native templates.",
     "",
     "Runtime data, local env files, dependency folders, caches, tests, and build",
@@ -282,6 +303,7 @@ function writeCorpusReadme(stats, baseDir) {
     "## Generated Counts",
     "",
     `- core files: ${stats.coreFiles}`,
+    `- toolkit files: ${stats.toolkitFiles}`,
     `- template files: ${stats.templateFiles}`,
     "",
   ];
@@ -352,10 +374,15 @@ export function materializeSourceCorpus() {
   mkdirSync(tempDir, { recursive: true });
 
   const coreStats = copySourceFiles("packages/core", "core", tempDir);
+  const toolkitStats = copySourceFiles("packages/toolkit", "toolkit", tempDir);
   const templateStats = copySourceFiles("templates", "templates", tempDir);
 
   writeCorpusReadme(
-    { coreFiles: coreStats.files, templateFiles: templateStats.files },
+    {
+      coreFiles: coreStats.files,
+      toolkitFiles: toolkitStats.files,
+      templateFiles: templateStats.files,
+    },
     tempDir,
   );
 
@@ -366,7 +393,7 @@ export function materializeSourceCorpus() {
     ? ""
     : " (accepted a concurrent run's equivalent corpus)";
   console.log(
-    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${templateStats.files} template files).${note}`,
+    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${toolkitStats.files} toolkit files, ${templateStats.files} template files).${note}`,
   );
 }
 

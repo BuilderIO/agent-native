@@ -1,14 +1,14 @@
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
-  useFeatureFlag,
-  useT,
-} from "@agent-native/core/client";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   useSetHeaderActions,

@@ -30,8 +30,26 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS: {
+    clientIdKey: "GOOGLE_CLIENT_ID",
+    clientSecretKey: "GOOGLE_CLIENT_SECRET",
+  },
   getOAuthAccounts: vi.fn(),
   isOAuthConnected: vi.fn(),
+  resolveGoogleProviderCredentialCandidatesWithReader: vi.fn(
+    async ({ readCredential, credentialKeyPairs }) => {
+      const candidates = [];
+      for (const keys of credentialKeyPairs) {
+        const [clientId, clientSecret] = await Promise.all([
+          readCredential(keys.clientIdKey),
+          readCredential(keys.clientSecretKey),
+        ]);
+        if (clientId && clientSecret)
+          candidates.push({ clientId, clientSecret });
+      }
+      return candidates;
+    },
+  ),
   resolveSecret: vi.fn(async (key: string) =>
     key === "GOOGLE_CLIENT_ID" ? "client-id" : "client-secret",
   ),

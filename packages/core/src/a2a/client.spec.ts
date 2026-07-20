@@ -270,6 +270,40 @@ describe("A2AClient", () => {
     });
   });
 
+  it("sends bounded correlation metadata and idempotency at the protocol top level", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params).toMatchObject({
+        contextId: "thread-qa",
+        idempotencyKey: "v1:stable-key",
+        metadata: {
+          callerApp: "mail",
+          callerThreadId: "thread-qa",
+          parentRunId: "run-qa",
+          parentTurnId: "turn-qa",
+        },
+      });
+      expect(body.params.metadata.invocationId).toBeUndefined();
+      return completedResponse(body, "correlated");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        contextId: "thread-qa",
+        idempotencyKey: "v1:stable-key",
+        correlation: {
+          callerApp: "mail",
+          callerThreadId: "thread-qa",
+          parentRunId: "run-qa",
+          parentTurnId: "turn-qa",
+          invocationId: "x".repeat(201),
+        },
+      }),
+    ).resolves.toBe("correlated");
+  });
+
   it("invokes an exposed read-only action without sending a message", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -277,6 +311,12 @@ describe("A2AClient", () => {
       expect(body.params).toEqual({
         action: "gong-calls",
         input: { company: "Acme", days: 30 },
+        metadata: {
+          callerApp: "mail",
+          invocationId: "invoke-qa",
+          parentRunId: "run-qa",
+          parentTurnId: "turn-qa",
+        },
       });
       return new Response(
         JSON.stringify({
@@ -295,7 +335,18 @@ describe("A2AClient", () => {
 
     const client = new A2AClient("https://analytics.test", "signed-token");
     await expect(
-      client.invokeAction("gong-calls", { company: "Acme", days: 30 }),
+      client.invokeAction(
+        "gong-calls",
+        { company: "Acme", days: 30 },
+        {
+          metadata: {
+            callerApp: "mail",
+            invocationId: "invoke-qa",
+            parentRunId: "run-qa",
+            parentTurnId: "turn-qa",
+          },
+        },
+      ),
     ).resolves.toEqual({
       action: "gong-calls",
       status: "completed",

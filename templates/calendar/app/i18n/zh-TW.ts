@@ -211,10 +211,9 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取 Calendar 的介面語言。",
     languageLabel: "介面語言",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     googleCalendar: "Google 行事曆",
     googleDescription: "連線 Google 行事曆以同步事件。",
     googleFailed: "Google 登入失敗",

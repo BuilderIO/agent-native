@@ -141,6 +141,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_rotate_segment,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
+            native_screen::native_fullscreen_recording_mark_upload_error,
             native_screen::native_fullscreen_recording_dismiss_upload,
             native_screen::native_fullscreen_open_drafts_folder,
             // local-only always-on screen memory compatibility helpers
@@ -249,8 +250,7 @@ pub fn run() {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let dl_handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
-                    let urls: Vec<String> =
-                        event.urls().iter().map(|u| u.to_string()).collect();
+                    let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link opened: {:?}", urls);
                     present_popover(&dl_handle);
                     let _ = dl_handle.emit("clips:deep-link", urls);
@@ -263,8 +263,7 @@ pub fn run() {
                 // arguments rather than an on_open_url event. Consume it here so
                 // the popover appears and the browser does not hit its fallback.
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
-                    let url_strings: Vec<String> =
-                        urls.iter().map(|u| u.to_string()).collect();
+                    let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
                     present_popover(app.handle());
                     let _ = app.handle().emit("clips:deep-link", url_strings);

@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 /**
  * AvailabilityEditor — weekly schedule grid with per-day toggles and time
  * pickers. Matches the calendar template's visual baseline.

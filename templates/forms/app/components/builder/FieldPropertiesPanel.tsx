@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { FormField, FormFieldType } from "@shared/types";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";

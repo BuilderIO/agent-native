@@ -1,22 +1,24 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  ShareButton,
-  PresenceBar,
   useCollaborativeDoc,
-  generateTabId,
   emailToColor,
   emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
   useSession,
-  agentNativePath,
   callAction,
   useChangeVersions,
   useActionMutation,
-  useT,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
 } from "@agent-native/creative-context/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   useDroppable,
   DndContext,

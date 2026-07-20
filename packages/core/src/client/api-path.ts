@@ -1,4 +1,4 @@
-import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { initializeAgentNativeClient } from "./client-bootstrap.js";
 
 const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 
@@ -86,7 +86,7 @@ function externalEmbedTargetBasePath(): string {
 }
 
 export function appBasePath(): string {
-  ensureEmbedAuthFetchInterceptor();
+  initializeAgentNativeClient();
   const externalEmbed = externalEmbedTargetBasePath();
   if (externalEmbed) return externalEmbed;
   const configured = configuredBasePath();

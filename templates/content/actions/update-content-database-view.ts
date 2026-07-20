@@ -76,6 +76,7 @@ const viewSchema = z.object({
       "form",
       "sidebar",
     ])
+    .transform((type) => (type === "sidebar" ? "table" : type))
     .default("table"),
   sorts: z.array(sortSchema).default([]),
   filters: z.array(filterSchema).default([]),

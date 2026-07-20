@@ -519,6 +519,86 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 
+  it("returns 202 when final media verification is durably queued", async () => {
+    mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 10 });
+    mockFinalizeRun.mockResolvedValue({
+      id: "rec-1",
+      status: "processing",
+      verificationPending: true,
+      videoUrl: "https://cdn.example/rec-1.webm",
+      videoSizeBytes: 10,
+      sourceSizeBytes: 10,
+      durationMs: 1_234,
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        finalized: false,
+        status: "processing",
+        verificationPending: true,
+        retryAfterMs: 3_000,
+        sourceSizeBytes: 10,
+      }),
+    );
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 202);
+  });
+
+  it("acks a duplicate final during verification without touching the provider", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "processing",
+        failureReason: null,
+        ownerEmail: "owner@example.com",
+        videoUrl: "https://cdn.example/rec-1.webm",
+      },
+    ];
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "processing",
+      pendingMediaVerification: true,
+      videoUrl: "https://cdn.example/rec-1.webm",
+      videoSizeBytes: 10,
+      sourceSizeBytes: 10,
+      durationMs: 1_234,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "stale-session",
+      meta: {},
+      bytesUploaded: 10,
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        finalized: false,
+        status: "processing",
+        verificationPending: true,
+      }),
+    );
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 202);
+    expect(mockRelayChunk).not.toHaveBeenCalled();
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
   it("returns 409 aborted when finalize reports the recording was cancelled", async () => {
     mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 5 });
     mockFinalizeRun.mockResolvedValue({ status: "failed" });

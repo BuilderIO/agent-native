@@ -256,7 +256,7 @@ export default createCollabPlugin({
 ### 4. استخدم ربط العميل
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -429,8 +429,7 @@ import {
 إرجاع قائمة تفاعلية للمشاركين عن بعد ومحدد لحمولة التواجد المحلي:
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -492,8 +491,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 قم باستدعاء رد الاتصال عندما يتغير إطار عرض المشارك المتابع:
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -527,8 +525,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### مساعدي التنسيق الطبيعي {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,

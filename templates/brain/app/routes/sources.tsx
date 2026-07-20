@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconArchive,
@@ -112,6 +112,7 @@ interface SourceFormState {
   sourceKey: string;
   autoSync: boolean;
   reviewRequired: boolean;
+  includePublicChannels: boolean;
 }
 
 const providers: Array<{
@@ -200,6 +201,7 @@ function defaultForm(
     autoSync:
       provider === "slack" || provider === "granola" || provider === "github",
     reviewRequired: true,
+    includePublicChannels: false,
   };
 }
 
@@ -251,6 +253,7 @@ function formFromSource(source: BrainSource): SourceFormState {
     sourceKey: "",
     autoSync: sourceAutoSync(source),
     reviewRequired: sourceReviewRequired(source),
+    includePublicChannels: config.includePublicChannels === true,
   };
 }
 
@@ -281,6 +284,7 @@ function buildConfig(form: SourceFormState) {
   if (form.provider === "slack") {
     config.channelIds = splitLines(form.channelRefs);
     config.historyLimit = numberValue(form.historyLimit, 15, 1, 15);
+    config.includePublicChannels = form.includePublicChannels;
   }
   if (form.provider === "granola") {
     config.pageSize = numberValue(form.granolaPageSize, 10, 1, 30);
@@ -2393,6 +2397,17 @@ export default function SourcesRoute() {
 
             {form.provider === "slack" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
+                <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                  <p>
+                    <span className="font-medium text-foreground">
+                      {t("sources.slackDiscoveryMode")}
+                    </span>{" "}
+                    — {t("sources.slackDiscoveryModeDescription")}
+                  </p>
+                  <p>{t("sources.slackExclusions")}</p>
+                  <p>{t("sources.slackManualInvite")}</p>
+                  <p>{t("sources.sensitivityPreviewDescription")}</p>
+                </div>
                 <div className="rounded-md border border-border bg-muted/25 p-3">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <IconShieldCheck className="size-4 text-muted-foreground" />
@@ -2419,6 +2434,22 @@ export default function SourcesRoute() {
                     {t("sources.allowedChannelsDescription")}
                   </p>
                 </div>
+                <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+                  <span>
+                    <span className="block text-sm font-medium">
+                      {t("sources.includePublicChannels")}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                      {t("sources.includePublicChannelsDescription")}
+                    </span>
+                  </span>
+                  <Switch
+                    checked={form.includePublicChannels}
+                    onCheckedChange={(includePublicChannels) =>
+                      updateForm({ includePublicChannels })
+                    }
+                  />
+                </label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="history-limit">

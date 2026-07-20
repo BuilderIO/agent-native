@@ -24,8 +24,11 @@ const mocks = vi.hoisted(() => ({
   clearPendingGeneration: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => {
     if (name === "list-designs") {
       return { data: { count: 0, designs: [] }, isLoading: false };
@@ -62,6 +65,9 @@ vi.mock("@agent-native/core/client", () => ({
             : vi.fn().mockResolvedValue(undefined),
     mutate: vi.fn(),
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
     if (key === "home.skipToEditor") return "Skip to editor";

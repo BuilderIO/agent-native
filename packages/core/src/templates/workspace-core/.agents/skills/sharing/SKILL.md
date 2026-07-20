@@ -167,7 +167,7 @@ await db.insert(schema.decks).values({
 ## Drop in the share UI
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client/sharing";
 
 // In the resource's header/toolbar:
 <ShareButton

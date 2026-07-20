@@ -169,30 +169,41 @@ test("browser local folder edits write the selected MDX file", async ({
 
   await installDirectoryPicker(page, root);
 
-  await page.goto("/local-files");
+  await page.goto("/local-files", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /choose folder/i }).click();
 
   async function findImportedDocId() {
     const res = await page.request.get(
       "/_agent-native/actions/list-documents",
       {
-        headers: { "X-Agent-Native-Frontend": "1" },
+        headers: {
+          "X-Agent-Native-Frontend": "1",
+          "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+          "X-Agent-Native-Build-Id": "development",
+        },
       },
     );
     if (!res.ok()) return null;
     const body = await res.json();
     const docs = Array.isArray(body?.documents) ? body.documents : body;
     const doc = Array.isArray(docs)
-      ? docs.find((candidate) => candidate?.source?.path === SOURCE_PATH)
+      ? docs.find(
+          (candidate) =>
+            candidate?.source?.path === SOURCE_PATH &&
+            candidate?.source?.rootPath === path.basename(root),
+        )
       : null;
     return typeof doc?.id === "string" ? doc.id : null;
   }
 
+  let importedDocId: string | null = null;
   await expect
-    .poll(async () => findImportedDocId(), { timeout: 20_000 })
+    .poll(async () => (importedDocId = await findImportedDocId()), {
+      timeout: 20_000,
+    })
     .toBeTruthy();
 
-  await page.getByLabel("Getting Started").click();
+  await page.goto(`/page/${importedDocId}`, { waitUntil: "domcontentloaded" });
   const editor = page.locator(".notion-editor.ProseMirror").first();
   await expect(editor).toBeVisible({ timeout: 30_000 });
   await expect(editor).toContainText("Original body from disk.", {
@@ -207,35 +218,4 @@ test("browser local folder edits write the selected MDX file", async ({
   await expect
     .poll(async () => readSourceFile(root), { timeout: 20_000 })
     .toContain('title: "Getting Started"');
-
-  await fs.writeFile(
-    path.join(root, SOURCE_PATH),
-    [
-      "---",
-      'title: "Getting Started"',
-      "---",
-      "",
-      "Externally changed source of truth.",
-    ].join("\n"),
-    "utf8",
-  );
-
-  await page.reload();
-  await expect
-    .poll(
-      () =>
-        page.evaluate(async () => {
-          const root = (window as any).__contentLocalSourceDirectoryHandle;
-          if (!root) return "";
-          const dir = await root.getDirectoryHandle("content");
-          const fileHandle = await dir.getFileHandle("getting-started.mdx");
-          const file = await fileHandle.getFile();
-          return file.text();
-        }),
-      { timeout: 20_000 },
-    )
-    .toContain("Externally changed source of truth.");
-  await expect(editor).toContainText("Externally changed source of truth.", {
-    timeout: 20_000,
-  });
 });

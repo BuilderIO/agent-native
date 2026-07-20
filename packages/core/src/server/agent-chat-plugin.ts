@@ -23,6 +23,10 @@ import {
   isLoopbackAddress,
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
+import {
+  sanitizeA2ACorrelationId,
+  sanitizeA2ACorrelationMetadata,
+} from "../a2a/correlation.js";
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import {
   createA2AApproval,
@@ -115,6 +119,7 @@ import {
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import { isTransientDatabaseError } from "../db/client.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -184,6 +189,55 @@ import {
 
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
+
+function withTransientDatabaseFallback(
+  route: string,
+  handler: (event: H3Event) => unknown,
+) {
+  return defineEventHandler(async (event) => {
+    try {
+      return await handler(event);
+    } catch (error) {
+      if (!isTransientDatabaseError(error)) throw error;
+
+      const method = getMethod(event);
+      const retrySafe = method === "GET" || method === "HEAD";
+
+      const databaseError = error as {
+        code?: unknown;
+        cause?: { code?: unknown };
+      };
+      captureError(new Error("Transient database failure in agent chat"), {
+        route,
+        method,
+        tags: {
+          source: "agent-chat",
+          failureClass: "transient-database",
+        },
+        extra: {
+          databaseErrorName: error instanceof Error ? error.name : typeof error,
+          databaseErrorCode:
+            typeof databaseError.code === "string"
+              ? databaseError.code
+              : undefined,
+          databaseCauseCode:
+            typeof databaseError.cause?.code === "string"
+              ? databaseError.cause.code
+              : undefined,
+        },
+      });
+      setResponseStatus(event, 503);
+      if (retrySafe) setResponseHeader(event, "Retry-After", "2");
+      return {
+        error: retrySafe
+          ? "The database is temporarily unavailable. Please retry."
+          : "The database became unavailable while processing this request. Refresh before deciding whether to retry.",
+        code: "database_unavailable",
+        retryable: retrySafe,
+      };
+    }
+  });
+}
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -1209,6 +1263,7 @@ export function createAgentChatPlugin(
 
       const { mountA2A } = await import("../a2a/server.js");
       mountA2A(nitroApp, {
+        appId: options?.appId,
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
@@ -1217,7 +1272,7 @@ export function createAgentChatPlugin(
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
-        executeReadOnlyAction: async ({ action, input }) => {
+        executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
             mcpFullActions ?? allScripts,
             options ?? {},
@@ -1234,10 +1289,12 @@ export function createAgentChatPlugin(
             actions: { [action]: entry },
             name: action,
             input,
-            callId: `a2a-action-${crypto.randomUUID()}`,
+            callId: `a2a-action-${invocationId}`,
             ownerEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
             caller: "a2a",
+            networkProtocol: "a2a",
+            networkId: invocationId,
           });
           if (result.status === "approval_required") {
             return {
@@ -1574,6 +1631,11 @@ export function createAgentChatPlugin(
           const recoverableArtifactStatusWriter =
             createSerializedA2ATaskStatusWriter(context.taskId);
           const controller = new AbortController();
+          const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
+          const telemetryThreadId =
+            sanitizeA2ACorrelationId(context.contextId) ??
+            correlation.callerThreadId ??
+            context.taskId;
 
           console.log(
             `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
@@ -1598,6 +1660,11 @@ export function createAgentChatPlugin(
                 toolCallCacheKey(approved.tool, approved.input),
               ),
               executionMode: "act",
+              runId: context.taskId,
+              networkProtocol: "a2a",
+              networkId: context.taskId,
+              threadId: context.taskId,
+              turnId: context.taskId,
               send: (event) => {
                 a2aEvents.push(event);
                 if (event.type === "tool_start") {
@@ -1657,6 +1724,26 @@ export function createAgentChatPlugin(
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
+            },
+            {
+              telemetry: {
+                runId: context.taskId,
+                threadId: telemetryThreadId,
+                userId: userEmail,
+                delegation: {
+                  protocol: "a2a",
+                  taskId: context.taskId,
+                  ...(correlation.callerApp
+                    ? { callerApp: correlation.callerApp }
+                    : {}),
+                  ...(correlation.parentRunId
+                    ? { parentRunId: correlation.parentRunId }
+                    : {}),
+                  ...(correlation.parentTurnId
+                    ? { parentTurnId: correlation.parentTurnId }
+                    : {}),
+                },
+              },
             },
           );
 
@@ -1814,6 +1901,7 @@ export function createAgentChatPlugin(
             : {}),
           askAgent: async (message: string) => {
             const ownerEmail = getRequestUserEmail();
+            const mcpRunId = crypto.randomUUID();
             const { getOwnerActiveApiKey } =
               await import("../agent/production-agent.js");
             const ownerApiKey = ownerEmail
@@ -1942,9 +2030,14 @@ export function createAgentChatPlugin(
                   },
                 ],
                 actions: mcpActions,
-                ownerEmail: getRequestUserEmail(),
+                ownerEmail,
                 orgId: getRequestOrgId() ?? null,
                 executionMode: "act",
+                runId: mcpRunId,
+                networkProtocol: "mcp",
+                networkId: mcpRunId,
+                threadId: mcpRunId,
+                turnId: mcpRunId,
                 send: (event) => {
                   accumulatedText = applyAgentTextEventToBuffer(
                     accumulatedText,
@@ -1961,6 +2054,14 @@ export function createAgentChatPlugin(
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
+              },
+              {
+                telemetry: {
+                  runId: mcpRunId,
+                  threadId: mcpRunId,
+                  userId: ownerEmail ?? null,
+                  delegation: { protocol: "mcp" },
+                },
               },
             );
 
@@ -4234,7 +4335,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // GET /runs/active?threadId=X — check if there's an active run for a thread
       getH3App(nitroApp).use(
         `${routePath}/runs`,
-        defineEventHandler(async (event) => {
+        withTransientDatabaseFallback(`${routePath}/runs`, async (event) => {
           // Auth check — ensure the user is authenticated
           const owner = await getOwnerFromEvent(event);
 
@@ -4753,7 +4854,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
       getH3App(nitroApp).use(
         `${routePath}/threads`,
-        defineEventHandler(async (event) => {
+        withTransientDatabaseFallback(`${routePath}/threads`, async (event) => {
           const owner = await getOwnerFromEvent(event);
           const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
@@ -5383,7 +5484,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
       getH3App(nitroApp).use(
         routePath,
-        defineEventHandler(async (event) => {
+        withTransientDatabaseFallback(routePath, async (event) => {
           // Skip sub-path requests — they're handled by earlier-mounted handlers
           const url = event.node?.req?.url || event.path || "";
           const afterBase = url.slice(

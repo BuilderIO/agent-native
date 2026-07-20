@@ -1,4 +1,4 @@
-import type { AgentChatMessage } from "@agent-native/core/client";
+import { type AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";

@@ -1,14 +1,16 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  ShareButton,
   appBasePath,
   agentNativePath,
+} from "@agent-native/core/client/api-path";
+import {
   getBrowserTabId,
   readClientAppState,
-  sendToAgentChat,
-  useT,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconCheck,
@@ -2948,7 +2950,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                     aria-label={t("library.selectAsset", {
                       title: item.title,
                     })}
-                    className="border-background bg-background/90 shadow-sm"
+                    className="border-2 border-foreground/40 bg-background/90 shadow-sm"
                   />
                 ) : null}
               </div>
@@ -3501,7 +3503,7 @@ function AssetLaneTile({
           onCheckedChange={(checked) => onToggle(checked === true)}
           aria-label={t("library.selectAsset", { title: displayTitle })}
           className={[
-            "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+            "border-2 border-foreground/40 bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
             selected ? "sm:opacity-100" : "",
           ].join(" ")}
         />

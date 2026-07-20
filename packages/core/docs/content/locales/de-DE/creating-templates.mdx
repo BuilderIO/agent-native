@@ -270,8 +270,10 @@ Verwenden Sie `http: { method: "GET" }` oder `readOnly: true` für schreibgesch�
 Routen leben in `app/routes/` und verwenden das Dateirouting von React Router v8. Fragen Sie Daten über actions- oder API-Handler ab und machen Sie Mutationen standardmäßig optimistisch.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +289,7 @@ export default function ProjectsPage() {
 Verdrahten Sie die Live-Synchronisierung einmal in der Nähe der App-Shell, damit React Abfrage-Caches aktualisiert werden, wenn der Agent, eine andere Registerkarte oder eine Aktion Daten ändert:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +302,7 @@ export function AppSync() {
 **Das agentennative Versprechen: Agentenschreibvorgänge werden im UI ohne manuelle Aktualisierung angezeigt.** `useActionQuery` ist der einfache Weg – jeder Hook wird erneut abgerufen, wenn eine mutierende Aktion `source: "action"` ausgibt. Wenn Sie mit einem benutzerdefinierten Schlüssel nach dem rohen `useQuery` greifen (z. B. einem Low-Level-Client-Helper, der den Integrationsstatus liest), falten Sie den Zähler pro Quelle in den queryKey für gezielte Aktualisierungen:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +325,7 @@ Durch den Anwendungsstatus weiß der Agent, was der Benutzer sieht. Fügen Sie m
 Verwenden Sie `useAgentRouteState` für den UI-Hook, damit Anwendungsstatus-Schreibvorgänge, tabulatorbezogene Befehlslesevorgänge, Löschung nach dem Lesen und Schutz vor doppelten Befehlen konsistent bleiben:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

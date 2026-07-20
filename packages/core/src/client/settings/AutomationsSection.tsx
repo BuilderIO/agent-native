@@ -34,7 +34,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { useFormatters, useT } from "../i18n.js";
 
 export interface AutomationsListProps {

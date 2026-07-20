@@ -28,6 +28,7 @@ export default defineAction({
     proposalId: z.string().optional(),
     extensionId: z.string().optional(),
     query: z.string().optional(),
+    projectId: z.string().optional(),
     type: z.enum(["knowledge", "capture", "source", "all"]).optional(),
     provider: z.string().optional(),
     status: z.string().optional(),

@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+
 import {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
@@ -19,13 +21,28 @@ import {
   normalizeDataWidgetResult,
   type DataWidgetResult,
 } from "./data-widget-types.js";
-import { DataChartWidget } from "./DataChartWidget.js";
-import { DataInsightsWidget } from "./DataInsightsWidget.js";
-import { DataTableWidget } from "./DataTableWidget.js";
-import {
-  InlineExtensionWidget,
-  normalizeInlineExtensionToolResult,
-} from "./InlineExtensionWidget.js";
+import { normalizeInlineExtensionToolResult } from "./inline-extension-result.js";
+
+const LazyDataChartWidget = lazy(() =>
+  import("./DataChartWidget.js").then((module) => ({
+    default: module.DataChartWidget,
+  })),
+);
+const LazyDataInsightsWidget = lazy(() =>
+  import("./DataInsightsWidget.js").then((module) => ({
+    default: module.DataInsightsWidget,
+  })),
+);
+const LazyDataTableWidget = lazy(() =>
+  import("./DataTableWidget.js").then((module) => ({
+    default: module.DataTableWidget,
+  })),
+);
+const LazyInlineExtensionWidget = lazy(() =>
+  import("./InlineExtensionWidget.js").then((module) => ({
+    default: module.InlineExtensionWidget,
+  })),
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -84,19 +101,38 @@ function renderDataWidget(context: ToolRendererContext) {
   const widget = normalizeDataWidgetKind(result.widget);
   if (widget === DATA_TABLE_WIDGET && result.table) {
     return (
-      <DataTableWidget
-        table={result.table}
-        action={result.display?.primaryAction}
-      />
+      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+        <LazyDataTableWidget
+          table={result.table}
+          action={result.display?.primaryAction}
+        />
+      </Suspense>
     );
   }
   if (widget === DATA_CHART_WIDGET && result.chartSeries) {
-    return <DataChartWidget chart={result.chartSeries} />;
+    return (
+      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+        <LazyDataChartWidget chart={result.chartSeries} />
+      </Suspense>
+    );
   }
   if (widget === DATA_INSIGHTS_WIDGET) {
-    return <DataInsightsWidget result={result} />;
+    return (
+      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+        <LazyDataInsightsWidget result={result} />
+      </Suspense>
+    );
   }
   return null;
+}
+
+function BuiltinToolRendererSkeleton() {
+  return (
+    <div
+      aria-label="Loading tool result"
+      className="my-1.5 h-24 animate-pulse rounded-lg border border-border bg-muted/30"
+    />
+  );
 }
 
 const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
@@ -104,7 +140,9 @@ const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
 
 const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
   normalizeInlineExtensionToolResult(context) ? (
-    <InlineExtensionWidget context={context} />
+    <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+      <LazyInlineExtensionWidget context={context} />
+    </Suspense>
   ) : null;
 
 export function isBuiltinDataWidgetActionRenderer(

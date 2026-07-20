@@ -12,6 +12,7 @@ import {
   isMcpIntegrationCatalogAvailable,
   isMcpConnectionFailureText,
   mcpIntegrationAuthLabel,
+  mergeDefaultMcpIntegrations,
   resolveMcpIntegrationScope,
 } from "./mcp-integration-catalog.js";
 
@@ -28,6 +29,19 @@ describe("MCP integration catalog", () => {
     expect(context7?.authMode).toBe("none");
     expect(semgrep?.url).toBe("https://mcp.semgrep.ai/mcp");
     expect(semgrep?.authMode).toBe("none");
+  });
+
+  it("replaces one remote MCP preset without dropping the rest", () => {
+    const slack = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "slack",
+    )!;
+    const merged = mergeDefaultMcpIntegrations([
+      { ...slack, name: "Acme Slack" },
+    ]);
+
+    expect(merged).toHaveLength(DEFAULT_MCP_INTEGRATIONS.length);
+    expect(merged.find(({ id }) => id === "slack")?.name).toBe("Acme Slack");
+    expect(merged.find(({ id }) => id === "stripe")?.name).toBe("Stripe");
   });
 
   it("searches names, providers, use cases, urls, and keywords", () => {

@@ -38,6 +38,27 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
    `processing` to `ready`. Do not wait for the upload/finalize response before
    opening the page.
 
+## Mobile companion lifecycle
+
+The Agent Native mobile app uses the same recording rows and binary upload
+routes with native capture primitives:
+
+1. Camera video/import uses `expo-camera` / the system photo picker; meeting
+   audio uses `expo-audio` with background recording enabled.
+2. The native file is copied into the documents directory and a typed
+   AsyncStorage capture job is written before upload starts.
+3. `create-recording` receives a stable client-generated id,
+   `sourceAppName: "Agent Native Mobile"`, and the container MIME type.
+4. Upload reads at most 3 MiB through an Expo FileHandle and persists the next
+   chunk index after every acknowledged POST. The 4 MiB server cap still
+   applies.
+5. Foreground/resume reconciliation polls `/api/uploads/:id/status`; retryable
+   failures back off and never discard the local file. Completion can post a
+   local notification and the recording appears in Clips everywhere.
+
+Mobile audio M4A is an MP4 container and uses the recording route's MP4 MIME
+alias. The bytes are not converted or loaded whole into JavaScript memory.
+
 ## Seekable playback (don't ship raw MediaRecorder output)
 
 Raw `MediaRecorder` files are not friendly to progressive HTTP playback, which
@@ -191,6 +212,8 @@ export function useRecorder() {
 - **Never** start a `MediaRecorder` without a user gesture (or a user-initiated `record-intent`).
 - **Never** re-prompt for permissions on pause/resume — reuse the stream.
 - **Never** fire the upload from the main thread if the chunks are large — prefer a web worker for anything longer than ~60s.
+- **Never** read a complete mobile recording into JavaScript memory. Use bounded
+  FileHandle reads and checkpoint every acknowledged chunk.
 - The `recordings` row must exist **before** the first chunk is sent.
 - On every lifecycle change, write `navigation` → `{ view: "record" }` → `{ view: "recording", recordingId }` so the agent can see what's happening.
 - All AI generated during/after recording goes through the agent chat — see `ai-video-tools`.

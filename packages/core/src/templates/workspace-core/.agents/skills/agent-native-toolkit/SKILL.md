@@ -1,3 +1,14 @@
+---
+name: agent-native-toolkit
+description: >-
+  Inventory and ownership rules for shared Agent Native workspace UI. Use
+  before building app chrome, settings, navigation, sharing, collaboration,
+  setup, history, comments, chat rails, agent UX, or repeated workspace behavior.
+scope: dev
+metadata:
+  internal: true
+---
+
 # Agent-Native Toolkit
 
 Use this skill when deciding whether app chrome, settings, collaboration,
@@ -20,6 +31,21 @@ Move behavior into shared toolkit primitives when it is:
 
 Keep behavior app-local when the abstraction would hide important domain
 language or make a simple app-specific workflow harder to understand.
+
+## Discover Before Building
+
+Before creating an app-local version of repeated workspace or agent UI:
+
+1. Check the reusable kits below and the installed package documentation.
+2. Search installed public components and source with `docs-search` and
+   `source-search`.
+3. Run `agent-native eject --list` to see the version-matched units published
+   by the packages installed in this app.
+4. Read `customizing-agent-native` and configure, compose, or eject the
+   smallest unit instead of recreating shared behavior from memory.
+
+Use public package exports at runtime. Published source and ejection manifests
+are discovery and ownership-transfer mechanisms, not private runtime APIs.
 
 ## Settings Direction
 
@@ -57,6 +83,9 @@ in the moment of agent use.
   missing-secret states, OAuth grants, and provider connection health.
 - **Agent UX kit**: sidebar, composer, staged context, mentions, voice, human
   approval, generative UI, progress, and screen-state exposure.
+- **Chat history kit**: presentational chat lists and recent-chat rails belong
+  in Toolkit; Core keeps thread persistence, agent execution, transport, and
+  page-to-sidebar handoff. Apps inject routing, labels, and domain actions.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home
@@ -83,6 +112,10 @@ When adding or refactoring one of these areas:
 5. Register app-specific labels, routes, resource adapters, and settings panels
    instead of hardcoding app names in core UI.
 6. Update docs and relevant skills so future apps discover the shared path.
+7. Keep the component easy to adopt piecemeal: expose props/slots first and
+   ship readable source plus a complete ejection unit so apps can take ownership
+   of the smallest feature when needed. See `customizing-agent-native` for the
+   configure → compose → eject → propose seam ladder.
 
 ## Related Skills
 

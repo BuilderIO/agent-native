@@ -42,7 +42,9 @@ describe("document database layout", () => {
     expect(source).toContain("setPreviewTitleFocusDocumentId");
     expect(source).toContain("titleInputRef.current?.focus()");
     expect(source).toContain("titleInputRef.current?.select()");
-    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
+    expect(source).toContain("const newDatabaseRowLabel =");
+    expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
+    expect(source).toContain("label={newRowLabel}");
   });
 
   it("selects the current view name when renaming a database view", () => {
@@ -232,7 +234,8 @@ describe("document database layout", () => {
     expect(source).toContain(
       "if (totalCount === 0 && !constrained) return null",
     );
-    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
+    expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
+    expect(source).toContain("label={newRowLabel}");
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 

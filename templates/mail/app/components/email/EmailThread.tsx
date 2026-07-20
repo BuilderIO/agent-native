@@ -1,4 +1,5 @@
-import { appApiPath, useT } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,

@@ -40,12 +40,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import { useUploadResource } from "../uploads/use-upload-resource.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
-import { isMcpIntegrationCatalogAvailable } from "./mcp-integration-catalog.js";
+import {
+  isMcpIntegrationCatalogAvailable,
+  type DefaultMcpIntegration,
+} from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { ResourceEditor } from "./ResourceEditor.js";
@@ -67,7 +71,6 @@ import {
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
-  useUploadResource,
   withMcpServersFolder,
   withAgentScratchFolder,
   type ResourceScope,
@@ -224,6 +227,7 @@ function CreateMenu({
   hasOrg,
   onCreated,
   showToast,
+  mcpIntegrations,
 }: {
   scope: ResourceScope;
   resourceFilter?: ResourceView;
@@ -247,6 +251,7 @@ function CreateMenu({
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
   onCreated?: () => void;
+  mcpIntegrations?: DefaultMcpIntegration[];
   showToast?: (
     kind: "ok" | "err",
     message: string,
@@ -258,8 +263,11 @@ function CreateMenu({
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
   const showMcpIntegrations = useMemo(
-    () => isMcpIntegrationCatalogAvailable(),
-    [],
+    () =>
+      mcpIntegrations
+        ? mcpIntegrations.length > 0
+        : isMcpIntegrationCatalogAvailable(),
+    [mcpIntegrations],
   );
   const [value, setValue] = useState("");
   const [agentName, setAgentName] = useState("");
@@ -1030,6 +1038,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         hasOrg={hasOrg}
         onCreateMcpServer={onCreateMcpServer}
         onCreated={onCreated}
+        integrations={mcpIntegrations}
       />
     </>
   );
@@ -1098,6 +1107,8 @@ export interface ResourcesPanelProps {
   resourceFilter?: ResourceView;
   /** Render special collections as cards instead of a nested file tree. */
   resourceTreeVariant?: ResourceTreeVariant;
+  /** Optional app-owned remote MCP catalog. */
+  mcpIntegrations?: DefaultMcpIntegration[];
 }
 
 export function resolveInitialResourceScope(
@@ -1115,6 +1126,7 @@ export function ResourcesPanel({
   showOnlyRequestedScope = false,
   resourceFilter,
   resourceTreeVariant = "tree",
+  mcpIntegrations,
 }: ResourcesPanelProps = {}) {
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.
@@ -1505,6 +1517,7 @@ export function ResourcesPanel({
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrgForMcp}
         showToast={showToast}
+        mcpIntegrations={mcpIntegrations}
       />
     );
   };
@@ -1664,6 +1677,7 @@ export function ResourcesPanel({
               canCreateOrgMcp={canCreateOrgMcp}
               hasOrg={hasOrgForMcp}
               showToast={showToast}
+              mcpIntegrations={mcpIntegrations}
             />
           )}
           {(!resourceFilter || resourceFilter === "files") && (
@@ -1715,14 +1729,14 @@ export function ResourcesPanel({
                       href={WORKSPACE_DOCS_URL}
                       target="_blank"
                       rel="noopener noreferrer"
-                      aria-label="Open Workspace docs"
+                      aria-label="Open Resources docs"
                       className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                     >
                       <IconHelp className="h-3.5 w-3.5" />
                     </a>
                   </TooltipTrigger>
                   <TooltipContent side="left" sideOffset={8}>
-                    Open Workspace docs
+                    Open Resources docs
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

@@ -1,12 +1,12 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  appBasePath,
-  PromptComposer,
-  RecentEditHighlights,
   type AttributedRecentEdit,
   type CollabUser,
-  useAvatarUrl,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import {
   useSortable,
   SortableContext,

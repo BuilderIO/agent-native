@@ -138,6 +138,14 @@ export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
     "export default { Resvg };",
     "",
   ].join("\n"),
+  playwright: [
+    "const unavailable = async () => { throw new Error('playwright unavailable in Cloudflare Pages worker'); };",
+    "export const chromium = { launch: unavailable, connect: unavailable, connectOverCDP: unavailable };",
+    "export const firefox = { launch: unavailable, connect: unavailable };",
+    "export const webkit = { launch: unavailable, connect: unavailable };",
+    "export default { chromium, firefox, webkit };",
+    "",
+  ].join("\n"),
   "playwright-core": [
     "const unavailable = async () => { throw new Error('playwright-core unavailable in Cloudflare Pages worker'); };",
     "export const chromium = { launch: unavailable };",
@@ -186,6 +194,50 @@ export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
   "@excalidraw/mermaid-to-excalidraw":
     "export default async () => ({ elements: [], files: {} });\n",
 };
+
+export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
+  "pdf-parse/worker": [
+    "const unavailable = async () => { throw new Error('pdf-parse/worker unavailable in Cloudflare Pages worker'); };",
+    "export class CanvasFactory {}",
+    "export const getData = unavailable;",
+    "export default { CanvasFactory, getData };",
+    "",
+  ].join("\n"),
+};
+
+export function cloudflareWorkerStubAliasArgs(stubDir: string): string[] {
+  const subpathAliases = Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES)
+    .sort((a, b) => b.length - a.length)
+    .map(
+      (mod) =>
+        `--alias:${mod}=${path.join(stubDir, `${mod.replace(/\//g, "__")}.js`)}`,
+    );
+  const packageAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES)
+    .sort((a, b) => b.length - a.length)
+    .map((mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`);
+  return [...subpathAliases, ...packageAliases];
+}
+
+export function assertNoCloudflareWorkerStubDynamicImports(
+  code: string,
+  sourceName: string,
+): void {
+  const stubbedModules = [
+    ...Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES),
+    ...Object.keys(CLOUDFLARE_WORKER_STUB_MODULES),
+  ];
+  const pattern = stubbedModules
+    .sort((a, b) => b.length - a.length)
+    .map((moduleName) => moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const unresolvedImport = code.match(
+    new RegExp(`\\bimport\\s*\\(\\s*(["'])(${pattern})\\1\\s*\\)`),
+  );
+  if (!unresolvedImport) return;
+  throw new Error(
+    `Cloudflare worker output ${sourceName} retained a dynamic import for stubbed module "${unresolvedImport[2]}". Use a literal import so the worker bundler can apply its fail-closed stub.`,
+  );
+}
 
 function cloudflareNodeBuiltinStubSource(
   moduleName: string,
@@ -1188,7 +1240,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -1666,9 +1718,15 @@ async function buildCloudflarePages() {
       JSON.stringify({ name: mod, main: "index.js", type: "module" }),
     );
   }
-  const stubAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES).map(
-    (mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`,
-  );
+  for (const [mod, source] of Object.entries(
+    CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
+  )) {
+    fs.writeFileSync(
+      path.join(stubDir, `${mod.replace(/\//g, "__")}.js`),
+      source,
+    );
+  }
+  const stubAliases = cloudflareWorkerStubAliasArgs(stubDir);
   const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
   fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
   const nodeBuiltinStubAliases: string[] = [];
@@ -1849,6 +1907,8 @@ async function buildCloudflarePages() {
         (match) => match + timerRestore,
       );
     }
+
+    assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
 
     fs.writeFileSync(jsFile, code);
   }
@@ -3418,6 +3478,9 @@ export default bundle;
     replace: {
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
+        process.env.CONTEXT?.trim() || "",
       ),
     },
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in

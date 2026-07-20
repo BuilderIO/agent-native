@@ -303,11 +303,17 @@ export {
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export {
   hasGoogleSignInCredentials,
+  GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PROVIDER_CREDENTIAL_KEY_PAIRS,
   resolveGoogleLegacyProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveGoogleProviderCredentialCandidates,
   resolveGoogleProviderCredentials,
   resolveGoogleSignInCredentials,
+  type GoogleOAuthCredentialKeyPair,
   type GoogleOAuthCredentials,
+  type ReadGoogleOAuthCredential,
 } from "./google-oauth-credentials.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {

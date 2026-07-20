@@ -1,21 +1,21 @@
 ---
-title: "Arbeitsbereich"
+title: "Agent-Ressourcen"
 description: "Claude-Anpassung auf Codeebene pro Benutzer – skills, Speicher, Anweisungen, benutzerdefinierte Agenten, geplante Jobs, MCP-Server – unterstützt durch SQL, kein Dateisystem."
 ---
 
-# Arbeitsbereich
+# Agent-Ressourcen
 
 <Callout tone="info">
 
-**Welches Arbeitsbereichsdokument?** Diese Seite behandelt die **Anpassungsebene** – was ein Arbeitsbereich _ist_. Informationen zur Bereitstellungsform (ein Monorepo, viele Apps) finden Sie unter [Multi-App Workspaces](/docs/multi-app-workspace); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
+**Welches Arbeitsbereichsdokument?** Diese Seite behandelt **Agent-Ressourcen** – die Anpassungsebene des Agenten. Informationen zur Bereitstellungsform (ein Monorepo, viele Apps) finden Sie unter [Multi-App Workspaces](/docs/multi-app-workspace); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
 
 </Callout>
 
-Jede agentennative App wird mit einem **Arbeitsbereich** ausgeliefert: der Anpassungsebene, die den Agenten zu Ihrem macht. Es enthält Teamanweisungen (`AGENTS.md`), gemeinsame Erkenntnisse (`LEARNINGS.md`), persönliches strukturiertes Gedächtnis (`memory/MEMORY.md`), skills, das der Agent bei Bedarf einholt, benutzerdefinierte Subagenten, geplante Jobs und verbundene MCP-Server – alles, was Sie von einem Claude-Code-/Codex-Setup erwarten.
+Jede agentennative App wird mit **Agent-Ressourcen** ausgeliefert: der Anpassungsebene, die den Agenten zu Ihrem macht. Es enthält Teamanweisungen (`AGENTS.md`), gemeinsame Erkenntnisse (`LEARNINGS.md`), persönliches strukturiertes Gedächtnis (`memory/MEMORY.md`), skills, das der Agent bei Bedarf einholt, benutzerdefinierte Subagenten, geplante Jobs und verbundene MCP-Server – alles, was Sie von einem Claude-Code-/Codex-Setup erwarten.
 
-Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhält seinen eigenen Arbeitsbereich, der in der Datenbank gespeichert wird. Es muss keine Entwicklungsbox gestartet werden, kein Container pro Benutzer, keine Dateien müssen gemountet werden. Ein mandantenfähiges SaaS kann jedem Benutzer praktisch kostenlos einen vollständig anpassbaren Agenten zur Verfügung stellen, da alles aus Zeilen besteht – persönlicher Speicher, persönliche MCP-Server, persönliche skills, persönliche Subagenten – und die gemeinsame Codebasis sie alle gleichzeitig hostet.
+Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhält seine eigenen Agent-Ressourcen, die in der Datenbank gespeichert werden. Es muss keine Entwicklungsbox gestartet werden, kein Container pro Benutzer, keine Dateien müssen gemountet werden. Ein mandantenfähiges SaaS kann jedem Benutzer praktisch kostenlos einen vollständig anpassbaren Agenten zur Verfügung stellen, da alles aus Zeilen besteht – persönlicher Speicher, persönliche MCP-Server, persönliche skills, persönliche Subagenten – und die gemeinsame Codebasis sie alle gleichzeitig hostet.
 
-<Diagram id="doc-block-7j8xqp" title="Ein Claude-Code-Arbeitsbereich, aber gespeichert in SQL" summary={"Dieselbe Anpassungsebene – Anweisungen, Fähigkeiten, Speicher, Agenten, Jobs, MCP – außer dass jede Datei eine Zeile in einer gemeinsam genutzten, mandantenfähigen Datenbank ist."}>
+<Diagram id="doc-block-7j8xqp" title="Ein Claude-Code-Setup, aber als Agent-Ressourcen in SQL gespeichert" summary={"Dieselbe Anpassungsebene – Anweisungen, Fähigkeiten, Speicher, Agenten, Jobs, MCP – außer dass jede Datei eine Zeile in einer gemeinsam genutzten, mandantenfähigen Datenbank ist."}>
 
 ```html
 <div class="ws-map">
@@ -32,7 +32,7 @@ Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhä
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
-    <span class="diagram-pill accent">Agent-native-Arbeitsbereich</span
+    <span class="diagram-pill accent">Agent-native-Ressourcen</span
     ><small class="diagram-muted">rows in one SQL-Datenbank</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
@@ -77,13 +77,13 @@ Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhä
 
 </Diagram>
 
-| Claude-Code / Codex                                | Agent-nativer Arbeitsbereich                                       |
+| Claude-Code / Codex                                | Agent-native Ressourcen                                            |
 | -------------------------------------------------- | ------------------------------------------------------------------ |
 | Dateien auf Ihrer lokalen Festplatte               | Zeilen in einer gemeinsam genutzten SQL-Datenbank                  |
 | Eine Codebasis pro Entwickler                      | Eine Codebasis, viele Benutzer                                     |
 | Benötigt eine Entwicklungsbox oder einen Container | Läuft auf jedem serverlosen/Edge-Host                              |
 | Anpassung bei `~/.claude/`                         | Anpassung pro Benutzer, mit Gültigkeitsbereich `u:<email>:…`       |
-| Pro Projekt `CLAUDE.md` / skills                   | `AGENTS.md` pro App + Arbeitsspeicherressourcen                    |
+| Pro Projekt `CLAUDE.md` / skills                   | `AGENTS.md` pro App + Speicherressourcen                           |
 | MCP-Konfiguration in einer JSON-Datei              | MCP-Konfiguration in JSON _oder_ die Einstellungen UI, pro Bereich |
 
 Gleiche Funktionen. Andere Wirtschaftswissenschaften. Warum dies für SaaS wichtig ist, erfahren Sie unter [Apps](/docs/cloneable-saas).
@@ -96,7 +96,7 @@ Ressourcen haben drei Laufzeitbereiche:
 - **Freigegeben / Organisation** – sichtbar für alle Benutzer in der App oder Organisation. Gut für App-/Teamanweisungen, skills und gemeinsame Konfiguration.
 - **Workspace** – geerbte globale Standardeinstellungen, verwaltet von Dispatch Resources. Gut für Unternehmensfakten, Positionierung, Markenrichtlinien, globale Leitplanken, arbeitsbereichsweites skills und gemeinsam genutzte MCP-Server. Apps lesen diese zur Laufzeit; Sie werden nicht in jede App kopiert.
 
-Das In-App-Arbeitsbereich-Bedienfeld zeigt alle drei Bereiche. Persönliche und freigegebene/Organisationsressourcen können dort bearbeitet werden. Arbeitsbereichsbezogene Ressourcen sind in App-Panels schreibgeschützt und werden zentral von Dispatch aus bearbeitet, sodass jede App ohne einen Synchronisierungsschritt dieselben kanonischen Dateien sieht.
+Die In-App-Registerkarte Ressourcen zeigt alle drei Bereiche. Persönliche und freigegebene/Organisationsressourcen können dort bearbeitet werden. Arbeitsbereichsbezogene Ressourcen sind in App-Panels schreibgeschützt und werden zentral von Dispatch aus bearbeitet, sodass jede App ohne einen Synchronisierungsschritt dieselben kanonischen Dateien sieht.
 
 Die kanonischen Pfade, die steuern, wie der Agent jede Ressource nutzt:
 
@@ -169,7 +169,7 @@ Diese Pfade gelten für alle drei Bereiche – Arbeitsbereich, Organisation/App 
 
 Ändern Sie das Verhalten des Agenten in 60 Sekunden.
 
-1. Öffnen Sie die Registerkarte **Arbeitsbereich** → **Freigegeben** → `AGENTS.md` (erstellen Sie sie mit `+` → **Datei**, falls fehlend).
+1. Öffnen Sie die Registerkarte **Ressourcen** → **Freigegeben** → `AGENTS.md` (erstellen Sie sie mit `+` → **Datei**, falls fehlend).
 2. Fügen Sie eine Regel hinzu, z. B.:
 
    ```Markdown
@@ -233,15 +233,15 @@ Zum Beispiel:
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Arbeitsbereichsbereich {#workspace-panel}
+## Registerkarte Ressourcen {#workspace-panel}
 
-Das Agentenfenster enthält neben Chat und CLI auch die Registerkarte **Arbeitsbereich**. Es zeigt eine in Ordnern organisierte Baumstruktur aller Ressourcen, einen Inline-Editor für jede Textdatei (Markdown, JSON, YAML, einfacher Text) und die typisierten Erstellungsabläufe des `+`-Menüs (Dateien, Skills, Agenten, geplante Aufgaben). Benutzer können übernommene Standardeinstellungen für Arbeitsbereiche durchsuchen und persönliche oder Organisationsressourcen erstellen/bearbeiten/löschen.
+Das Agentenfenster enthält neben Chat und CLI auch die Registerkarte **Ressourcen**. Es zeigt eine in Ordnern organisierte Baumstruktur aller Ressourcen, einen Inline-Editor für jede Textdatei (Markdown, JSON, YAML, einfacher Text) und die typisierten Erstellungsabläufe des `+`-Menüs (Dateien, Skills, Agenten, geplante Aufgaben). Benutzer können übernommene Standardeinstellungen für Arbeitsbereiche durchsuchen und persönliche oder Organisationsressourcen erstellen/bearbeiten/löschen.
 
 Wenn Sie eine Ressource öffnen, zeigt der Editor einen **Effektiven Kontext**-Streifen mit dem `workspace default -> organization/app override -> personal override`-Stack an, sodass Sie sehen können, was geerbt wurde und warum eine Überschreibung aktiv ist. Dispatch zeigt das gleiche Modell von der Seite der Steuerungsebene: Verwenden Sie auf der Seite **Ressourcen** **Gültig in der App** oder erweitern Sie **Stack** in einer Ressourcenzeile im **Kontext**-Dialogfeld einer App-Karte.
 
 Wenn die Dispatch-Genehmigungsrichtlinie aktiviert ist, wird beim Erstellen, Aktualisieren oder Löschen einer **Alle Apps**-Ressource eine Genehmigungsanforderung in die Warteschlange gestellt, anstatt sie sofort anzuwenden. Die Dialogfelder zum Erstellen/Bearbeiten/Löschen zeigen vor dem Speichern eine Vorschau der Auswirkungen an.
 
-Klicken Sie auf das `?`-Symbol in der Arbeitsbereichssymbolleiste, um jederzeit zu diesen Dokumenten zurückzukehren.
+Klicken Sie auf das `?`-Symbol in der Ressourcen-Symbolleiste, um jederzeit zu diesen Dokumenten zurückzukehren.
 
 ## Wie der Agent Ressourcen nutzt {#how-the-agent-uses-resources}
 
@@ -265,7 +265,7 @@ Wiederverwendbarer Unternehmenskontext steht unter `context/` (Personas, Positio
 
 ### Speicher {#memory}
 
-Der Arbeitsbereich verfügt über zwei aktuelle Speicheroberflächen:
+Agent-Ressourcen verfügen über zwei aktuelle Speicheroberflächen:
 
 - `LEARNINGS.md` im **gemeinsamen** Bereich für projektweite Konventionen, Korrekturen und dauerhaftes Teamwissen.
 - `memory/MEMORY.md` im **Persönlichen** Bereich für strukturierten Speicher über den aktuellen Benutzer.
@@ -276,31 +276,31 @@ Das Ressourcensystem setzt auch einen persönlichen `LEARNINGS.md` für die Komp
 
 **Wo es passt.**
 
-| Oberfläche         | Geltungsbereich              | Geschrieben von                                | Wann lesen                                      |
-| ------------------ | ---------------------------- | ---------------------------------------------- | ----------------------------------------------- |
-| `AGENTS.md`        | Geteilt                      | Menschen / Agent auf Anfrage                   | Jede Runde                                      |
-| `LEARNINGS.md`     | Geteilt                      | Menschen / Agent auf Anfrage                   | Jede Runde (nur geteilte Kopie)                 |
-| `memory/MEMORY.md` | Persönlich                   | Agent / Menschen                               | Jede Runde                                      |
-| `instructions/…`   | Geteilt                      | Menschen / Agent auf Anfrage                   | Jede Runde                                      |
-| `skills/…`         | Geteilt                      | Menschen / Agent auf Anfrage                   | Auf Anfrage (`/slash`-Befehl)                   |
-| `context/…`        | Geteilt                      | Menschen / Agent auf Anfrage                   | Bei jedem Schritt indiziert, bei Bedarf gelesen |
-| `mcp-servers/…`    | Arbeitsbereich / freigegeben | Menschen über Dispatch oder App-Arbeitsbereich | MCP-Konfigurationsaktualisierung                |
+| Oberfläche         | Geltungsbereich              | Geschrieben von                            | Wann lesen                                      |
+| ------------------ | ---------------------------- | ------------------------------------------ | ----------------------------------------------- |
+| `AGENTS.md`        | Geteilt                      | Menschen / Agent auf Anfrage               | Jede Runde                                      |
+| `LEARNINGS.md`     | Geteilt                      | Menschen / Agent auf Anfrage               | Jede Runde (nur geteilte Kopie)                 |
+| `memory/MEMORY.md` | Persönlich                   | Agent / Menschen                           | Jede Runde                                      |
+| `instructions/…`   | Geteilt                      | Menschen / Agent auf Anfrage               | Jede Runde                                      |
+| `skills/…`         | Geteilt                      | Menschen / Agent auf Anfrage               | Auf Anfrage (`/slash`-Befehl)                   |
+| `context/…`        | Geteilt                      | Menschen / Agent auf Anfrage               | Bei jedem Schritt indiziert, bei Bedarf gelesen |
+| `mcp-servers/…`    | Arbeitsbereich / freigegeben | Menschen über Dispatch oder App-Ressourcen | MCP-Konfigurationsaktualisierung                |
 
-Benutzer können diese Speicherdateien direkt auf der Registerkarte „Arbeitsbereich“ bearbeiten – es handelt sich um reguläre Ressourcen. Löschen Sie Zeilen, die der Agent falsch verstanden hat, behalten Sie persönliche Präferenzen in `memory/MEMORY.md` bei oder übertragen Sie teamweite Regeln in `AGENTS.md`.
+Benutzer können diese Speicherdateien direkt auf der Registerkarte „Ressourcen“ bearbeiten – es handelt sich um reguläre Ressourcen. Löschen Sie Zeilen, die der Agent falsch verstanden hat, behalten Sie persönliche Präferenzen in `memory/MEMORY.md` bei oder übertragen Sie teamweite Regeln in `AGENTS.md`.
 
 Jede dieser Oberflächen – `AGENTS.md`, skills, Speicher, benutzerdefinierte Agenten, MCP-Server – hat die gleiche zugrunde liegende Ressourcenform: ein `path` + `scope` + `content`, die auf die gleiche Weise angesprochen und aufgelöst wird.
 
 <DataModel
   id="doc-block-1le43sm"
-  title="Das Workspace-Ressourcenmodell"
+  title="Das Agent-Ressourcenmodell"
   summary={
-    "Eine Ressourcenform unterstützt jede Arbeitsbereichsdatei. Die Laufzeit verschlüsselt es nach Pfad und Umfang und löst den effektiven Wert beim Lesen auf."
+    "Eine Ressourcenform unterstützt jede Agent-Ressourcendatei. Die Laufzeit verschlüsselt es nach Pfad und Umfang und löst den effektiven Wert beim Lesen auf."
   }
   entities={[
     {
       id: "resource",
-      name: "workspace resource",
-      note: "Eine einzelne Datei im Arbeitsbereich eines Benutzers – Anweisungen, Skill, Speicher, Agent, MCP Konfiguration oder Job.",
+      name: "Agent-Ressource",
+      note: "Eine einzelne Datei in den Agent-Ressourcen eines Benutzers – Anweisungen, Skill, Speicher, Agent, MCP Konfiguration oder Job.",
       fields: [
         {
           name: "path",
@@ -330,7 +330,7 @@ Jede dieser Oberflächen – `AGENTS.md`, skills, Speicher, benutzerdefinierte A
 
 ## Skills {#skills}
 
-Skills sind Markdown-Ressourcendateien unter dem `skills/`-Pfad (vorzugsweise `skills/<name>/SKILL.md`), die dem Agenten On-Demand-Domänenwissen vermitteln, das im Chat mit `/skill-name` aufgerufen wird. Fügen Sie sie über die Registerkarte „Arbeitsbereich“ oder im Codemodus über `.agents/skills/` hinzu.
+Skills sind Markdown-Ressourcendateien unter dem `skills/`-Pfad (vorzugsweise `skills/<name>/SKILL.md`), die dem Agenten On-Demand-Domänenwissen vermitteln, das im Chat mit `/skill-name` aufgerufen wird. Fügen Sie sie über die Registerkarte „Ressourcen“ oder im Codemodus über `.agents/skills/` hinzu.
 
 Sehen Sie sich [Skills Guide](/docs/skills-guide) an – die einzige Quelle für Kompetenzformat, -umfang, -erkennung und -erstellung.
 
@@ -383,7 +383,7 @@ Empfohlene Konventionen:
 
 ### Remote-Agenten im Vergleich zu benutzerdefinierten Agenten {#remote-vs-custom-agents}
 
-Es gibt zwei Agententypen in Workspace:
+Agent-Ressourcen umfassen zwei Agententypen:
 
 - **Benutzerdefinierte Agenten** – lokale Profile in `agents/*.md`, ausgeführt innerhalb der aktuellen App/Laufzeit
 - **Verbundene Agenten** – entfernte A2A-Peers, die durch Manifeste in `remote-agents/*.json` beschrieben werden (ältere `agents/*.json`-Manifeste werden weiterhin erkannt)
@@ -398,13 +398,13 @@ Geben Sie `@` in die Chat-Eingabe ein, um auf einen Agenten, eine Datei oder ein
 
 Das Ressourcensystem funktioniert in beiden Modi identisch. Der Unterschied besteht in den zusätzlichen Quellen, die für `@`-Tagging und `/`-Befehle verfügbar sind:
 
-| Funktion               | Codemodus                                                                                      | App-Modus                                                                   |
-| ---------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| @-Tagging              | Codebasisdateien + Arbeitsbereichsressourcen + benutzerdefinierte Agenten + verbundene Agenten | Arbeitsbereichsressourcen + benutzerdefinierte Agenten + verbundene Agenten |
-| / Slash-Befehle        | .agents/skills/ + Ressource skills                                                             | Nur Ressource skills                                                        |
-| Agent-Dateizugriff     | Dateisystem + Ressourcen                                                                       | Nur Ressourcen                                                              |
-| Arbeitsbereichsbereich | Vollzugriff                                                                                    | Vollzugriff                                                                 |
-| AGENTS.md / Speicher   | Verfügbar                                                                                      | Verfügbar                                                                   |
+| Funktion                 | Codemodus                                                                             | App-Modus                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| @-Tagging                | Codebasisdateien + Agent-Ressourcen + benutzerdefinierte Agenten + verbundene Agenten | Agent-Ressourcen + benutzerdefinierte Agenten + verbundene Agenten |
+| / Slash-Befehle          | .agents/skills/ + Ressource skills                                                    | Nur Ressource skills                                               |
+| Agent-Dateizugriff       | Dateisystem + Ressourcen                                                              | Nur Ressourcen                                                     |
+| Registerkarte Ressourcen | Vollzugriff                                                                           | Vollzugriff                                                        |
+| AGENTS.md / Speicher     | Verfügbar                                                                             | Verfügbar                                                          |
 
 ## Workspace-Verbindungen {#workspace-connections}
 

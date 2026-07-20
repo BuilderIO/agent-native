@@ -1,4 +1,4 @@
-import { useLocale } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
 import {
   IconActivity,
   IconAppWindow,

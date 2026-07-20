@@ -30,10 +30,10 @@ const messages = {
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
     openTeamSettings: "Ouvrir les paramètres d’équipe",
     openResourceSettings: "Ouvrir les paramètres des ressources",
-    agentTitle: "Paramètres de l’agent",
+    agentTitle: "Gérer l’agent",
     agentDescription:
-      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-    openAgentSettings: "Ouvrir les paramètres de l’agent",
+      "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+    openAgentSettings: "Gérer l’agent",
     editorTitle: "Extension VS Code",
     editorDescription:
       "Ouvrez et examinez les plans dans un panneau latéral de VS Code plutôt que dans un onglet de navigateur séparé.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "Qu’est-ce qui a été livré la semaine dernière ?",
     suggestionUi: "À quoi ressemble cette interface ?",
     suggestionApi: "Quelle est la structure de cette API ?",
+  },
+  contextXray: {
+    panelTitle: "Radiographie du contexte",
+    snapshotsTitle: "Instantanés",
   },
   sidebar: {
     openNavigation: "Ouvrir la navigation",

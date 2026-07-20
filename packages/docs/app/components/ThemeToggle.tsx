@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 

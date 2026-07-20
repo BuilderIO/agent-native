@@ -16,5 +16,35 @@ agent-native package eject @agent-native/scheduling --apply
 
 जोड़ना और बाहर निकालना डिफ़ॉल्ट रूप से केवल पूर्वावलोकन है। `--apply` लिखने और पैकेज
 मैनेजर चलाने की अनुमति देता है। टकराव या अनजान लेआउट अस्वीकार होते हैं और इंस्टॉल विफल
-होने पर फ़ाइलें व लॉकफ़ाइल वापस रखी जाती हैं। अभी केवल Scheduling समर्थित है; Pinpoint
-बाद के लिए स्थगित है।
+होने पर फ़ाइलें व लॉकफ़ाइल वापस रखी जाती हैं।
+
+## एक फ़ीचर बाहर निकालना
+
+कस्टमाइज़ेशन क्रम अपनाएँ: सार्वजनिक API कॉन्फ़िगर करें, सार्वजनिक primitives को
+compose करें, सबसे छोटी unit eject करें, और वही बदलाव कई apps में चाहिए तो साझा seam
+का प्रस्ताव दें।
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+ये commands डिफ़ॉल्ट रूप से preview हैं। Apply करने पर package version, manifest
+digest, file hashes और import rewrites सहित commit होने वाला provenance
+`agent-native.ejections.json` में रहता है। Restore तभी चलता है जब files और imports
+न बदले हों; अन्यथा वह diff दिखाकर local edits हटाने से मना करता है।
+
+First-party manifests हर public Toolkit entrypoint और integration catalog को
+cover करते हैं। कोई first-party recipe गायब हो तो यह framework coverage failure है;
+अनजान third-party package को add-style blueprint मिलता है। Protected Core contracts
+copy नहीं होते; CLI public configuration, adapter या extension seam बताता है।
+
+## माइग्रेशन
+
+प्रकाशित पैकेज में स्थानांतरित paths और symbols के लिए `migration-manifest.json` होता है। `npx @agent-native/core@latest upgrade --codemods` diff दिखाता है, फिर समीक्षा के बाद `--yes` लगाएँ। CI में `agent-native doctor --only migration-manifest` चलाएँ; opt-out नहीं है।
+
+`planned` entries को destination उपलब्ध होने से पहले प्रकाशित किया जा सकता है; वे non-blocking warnings के रूप में दिखती हैं और codemod उन्हें rewrite नहीं करता। Active move तभी rewrite होता है जब destination export installed हो।
