@@ -894,6 +894,7 @@ export function App() {
   const [homeScreenMemoryStatus, setHomeScreenMemoryStatus] =
     useState<ScreenMemoryStatus | null>(null);
   const [homeScreenMemoryBusy, setHomeScreenMemoryBusy] = useState(false);
+  const homeScreenMemoryRefreshVersionRef = useRef(0);
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
@@ -952,18 +953,25 @@ export function App() {
     config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
     clipRecordingActive: isRecording || recordingFlowActive,
   });
+  const refreshHomeScreenMemoryStatus = useCallback(() => {
+    const version = ++homeScreenMemoryRefreshVersionRef.current;
+    invoke<ScreenMemoryStatus>("screen_memory_status")
+      .then((status) => {
+        if (version === homeScreenMemoryRefreshVersionRef.current) {
+          setHomeScreenMemoryStatus(status);
+        }
+      })
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (featureConfig?.screenMemory?.enabled !== true) {
+      homeScreenMemoryRefreshVersionRef.current += 1;
       setHomeScreenMemoryStatus(null);
       return;
     }
     let cancelled = false;
     const refresh = () => {
-      invoke<ScreenMemoryStatus>("screen_memory_status")
-        .then((status) => {
-          if (!cancelled) setHomeScreenMemoryStatus(status);
-        })
-        .catch(() => {});
+      if (!cancelled) refreshHomeScreenMemoryStatus();
     };
     refresh();
     const timer = window.setInterval(refresh, popoverVisible ? 5_000 : 30_000);
@@ -979,10 +987,15 @@ export function App() {
       .catch(() => {});
     return () => {
       cancelled = true;
+      homeScreenMemoryRefreshVersionRef.current += 1;
       window.clearInterval(timer);
       unlisten?.();
     };
-  }, [featureConfig?.screenMemory?.enabled, popoverVisible]);
+  }, [
+    featureConfig?.screenMemory?.enabled,
+    popoverVisible,
+    refreshHomeScreenMemoryStatus,
+  ]);
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
   // Mirrors `bubbleActive` (assigned below once it is computed) so device
   // probes can synchronously tell whether the camera bubble owns the grant.
@@ -3175,9 +3188,7 @@ export function App() {
       // the Home switch locked while that status request waits; the existing
       // change event and bounded poll will reconcile it, and this best-effort
       // refresh can do the same without blocking the next resume action.
-      void invoke<ScreenMemoryStatus>("screen_memory_status")
-        .then(setHomeScreenMemoryStatus)
-        .catch(() => {});
+      refreshHomeScreenMemoryStatus();
     } catch (err) {
       console.error(
         "[clips-tray] update Rewind remembering state failed:",
@@ -3659,7 +3670,8 @@ export function App() {
             />
             <div>
               <strong>{homeRewindPresentation.title}</strong>
-              {!homeRewindPresentation.isLive ? (
+              {!homeRewindPresentation.isLive ||
+              homeRewindPresentation.hasError ? (
                 <p>{homeRewindPresentation.detail}</p>
               ) : null}
             </div>
@@ -4941,6 +4953,7 @@ function Setup({
   );
   const [screenMemoryStatus, setScreenMemoryStatus] =
     useState<ScreenMemoryStatus | null>(null);
+  const screenMemoryStatusRefreshVersionRef = useRef(0);
   const [screenMemoryMessage, setScreenMemoryMessage] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -5176,11 +5189,16 @@ function Setup({
     }
   }
 
-  function refreshScreenMemoryStatus() {
+  const refreshScreenMemoryStatus = useCallback(() => {
+    const version = ++screenMemoryStatusRefreshVersionRef.current;
     invoke<ScreenMemoryStatus>("screen_memory_status")
-      .then(setScreenMemoryStatus)
+      .then((status) => {
+        if (version === screenMemoryStatusRefreshVersionRef.current) {
+          setScreenMemoryStatus(status);
+        }
+      })
       .catch(() => {});
-  }
+  }, []);
 
   function refreshRewindEgressLog() {
     invoke<RewindEgressEvent[]>("rewind_list_evidence_egress", { limit: 20 })
@@ -5261,6 +5279,7 @@ function Setup({
       const status = await invoke<ScreenMemoryStatus>(
         "screen_memory_delete_all",
       );
+      screenMemoryStatusRefreshVersionRef.current += 1;
       setScreenMemoryStatus(status);
       setScreenMemoryMessage({ kind: "ok", text: "Rewind cleared." });
     } catch (err) {
@@ -5428,11 +5447,7 @@ function Setup({
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      invoke<ScreenMemoryStatus>("screen_memory_status")
-        .then((status) => {
-          if (!cancelled) setScreenMemoryStatus(status);
-        })
-        .catch(() => {});
+      if (!cancelled) refreshScreenMemoryStatus();
     };
     refresh();
     const timer = window.setInterval(refresh, 5_000);
@@ -5453,6 +5468,7 @@ function Setup({
     track(listen("clips:screen-memory-changed", refresh));
     return () => {
       cancelled = true;
+      screenMemoryStatusRefreshVersionRef.current += 1;
       window.clearInterval(timer);
       unlistens.forEach((u) => {
         try {
@@ -5462,7 +5478,7 @@ function Setup({
         }
       });
     };
-  }, []);
+  }, [refreshScreenMemoryStatus]);
 
   // Load model status on mount and keep it current via events.
   useEffect(() => {
