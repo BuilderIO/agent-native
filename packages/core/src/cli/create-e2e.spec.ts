@@ -191,6 +191,37 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg.description).toBe("Workspace app for Test App.");
   });
 
+  it("teaches generated chat apps to discover and customize Toolkit features", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "agent-native-toolkit",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "customizing-agent-native",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("resolves all workspace:* deps for standalone install", async () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
@@ -304,6 +335,30 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     expect(agents).toContain("This app is not stateless");
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "agent-native-toolkit",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "customizing-agent-native",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
 
     const workspaceYaml = fs.readFileSync(
       path.join(root, "pnpm-workspace.yaml"),
@@ -1013,6 +1068,8 @@ describe("workspace scaffold defaults", () => {
 
     expect(agents).toContain("My Ws Workspace Instructions");
     expect(agents).toContain("WORKSPACE_ORG_NAME");
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
     expect(fs.existsSync(claudePath)).toBe(true);
 
     const claudeStat = fs.lstatSync(claudePath);
@@ -1048,6 +1105,16 @@ describe("workspace scaffold defaults", () => {
       fs.existsSync(path.join(sharedSkillsDir, "sharing", "SKILL.md")),
     ).toBe(true);
     expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "agent-native-toolkit", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "customizing-agent-native", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
       fs.existsSync(path.join(sharedSkillsDir, "shadcn-ui", "SKILL.md")),
     ).toBe(true);
     expect(
@@ -1055,6 +1122,11 @@ describe("workspace scaffold defaults", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(rootSkillsDir, "shadcn-ui", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(rootSkillsDir, "agent-native-toolkit", "SKILL.md"),
+      ),
     ).toBe(true);
     expect(fs.existsSync(path.join(wsDir, ".claude", "skills"))).toBe(true);
     expect(
