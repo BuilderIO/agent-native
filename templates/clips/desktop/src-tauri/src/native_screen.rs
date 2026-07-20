@@ -6266,6 +6266,15 @@ pub(crate) fn materialize_mp4_slices_exact(
     result
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn materialize_mp4_slices_exact(
+    _slices: &[NativeMediaSlice],
+    _output: &Path,
+    _audio: NativeAudioSelection,
+) -> Result<(), String> {
+    Err("exact bounded Rewind materialization is available only on macOS".into())
+}
+
 #[cfg(target_os = "macos")]
 fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
     let slices = segments
