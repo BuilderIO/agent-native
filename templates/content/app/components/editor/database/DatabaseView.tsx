@@ -157,6 +157,7 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
+import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
 import {
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
@@ -188,7 +189,6 @@ import {
 } from "@/hooks/use-content-database";
 import {
   useContentSpaces,
-  useCreateContentSpace,
   useDeleteContentSpace,
 } from "@/hooks/use-content-spaces";
 import {
@@ -729,8 +729,6 @@ function DatabaseTable({
   );
   const database = useContentDatabase(document.id, databaseRequestItemLimit);
   const addItem = useAddDatabaseItem(document.id);
-  const createContentSpace = useCreateContentSpace();
-  const workspaceCreateRequestIdRef = useRef<string | null>(null);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
@@ -750,10 +748,8 @@ function DatabaseTable({
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
-  const isCreatingDatabaseItem =
-    data?.database.systemRole === "workspaces"
-      ? createContentSpace.isPending
-      : addItem.isPending;
+  const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
+  const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -764,10 +760,9 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
-  const newDatabaseRowLabel =
-    data?.database.systemRole === "workspaces"
-      ? t("sidebar.newWorkspace")
-      : dbText("newPage");
+  const newDatabaseRowLabel = isWorkspaceCatalog
+    ? t("sidebar.addWorkspace")
+    : dbText("newPage");
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
@@ -1427,29 +1422,7 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
-    if (data?.database.systemRole === "workspaces") {
-      const name = title.trim() || t("sidebar.newWorkspace");
-      const requestId =
-        workspaceCreateRequestIdRef.current ?? crypto.randomUUID();
-      workspaceCreateRequestIdRef.current = requestId;
-      try {
-        await createContentSpace.mutateAsync({
-          name,
-          requestId,
-          propertyValues:
-            Object.keys(propertyValueOverrides).length > 0
-              ? propertyValueOverrides
-              : undefined,
-        });
-        workspaceCreateRequestIdRef.current = null;
-      } catch (err) {
-        toast.error(dbText("failedToCreateRow"), {
-          description:
-            err instanceof Error ? err.message : dbText("somethingWentWrong"),
-        });
-      }
-      return null;
-    }
+    if (isWorkspaceCatalog) return null;
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -2417,7 +2390,18 @@ function DatabaseTable({
               </span>
             ) : null}
           </Button>
-          {canEdit ? (
+          {canEdit && isWorkspaceCatalog ? (
+            <WorkspaceSourceMenu align="end">
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                disabled={!databaseId}
+              >
+                New
+              </Button>
+            </WorkspaceSourceMenu>
+          ) : canEdit ? (
             <Button
               type="button"
               size="sm"
@@ -5698,16 +5682,26 @@ function DatabaseTableView({
                   />
                 ))}
             {canEdit && !grouped ? (
-              <NewDatabaseRow
-                label={newRowLabel}
-                properties={properties}
-                columnWidths={columnWidths}
-                rowDensity={rowDensity}
-                disabled={isCreating}
-                isPending={isCreating}
-                onCreate={onCreateRow}
-                actionColumnWidth={actionColumnWidth}
-              />
+              isWorkspaceCatalog ? (
+                <WorkspaceSourceMenuRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              ) : (
+                <NewDatabaseRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  disabled={isCreating}
+                  isPending={isCreating}
+                  onCreate={onCreateRow}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              )
             ) : null}
             {cleanDefaultTable ? (
               <DatabaseBlankDefaultRows
@@ -12812,6 +12806,58 @@ function NewBoardCard({
   );
 }
 
+function WorkspaceSourceMenuRow({
+  label,
+  properties,
+  columnWidths,
+  rowDensity,
+  actionColumnWidth = ACTION_COLUMN_WIDTH,
+}: {
+  label: string;
+  properties: DocumentProperty[];
+  columnWidths: Record<string, number>;
+  rowDensity: DatabaseRowDensity;
+  actionColumnWidth?: number;
+}) {
+  return (
+    <WorkspaceSourceMenu>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          databaseTableRowDensityClass(rowDensity),
+        )}
+        style={{
+          gridTemplateColumns: databaseGridColumns(
+            properties,
+            true,
+            columnWidths,
+            actionColumnWidth,
+          ),
+        }}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-2 border-r border-border/35",
+            databaseTableCellDensityClass(rowDensity),
+          )}
+        >
+          <IconPlus className="size-4 shrink-0" />
+          <span className="h-7 min-w-0 flex-1 truncate leading-7">{label}</span>
+        </span>
+        {properties.map((property) => (
+          <span
+            key={property.definition.id}
+            className="border-r border-border/35 last:border-r-0"
+          />
+        ))}
+        <span />
+      </button>
+    </WorkspaceSourceMenu>
+  );
+}
+
 function NewDatabaseRow({
   label,
   properties,
@@ -17918,15 +17964,24 @@ function DatabaseGroupedTableSection({
             />
           ))}
           {canEdit ? (
-            <NewDatabaseRow
-              label={newRowLabel}
-              properties={properties}
-              columnWidths={columnWidths}
-              rowDensity={rowDensity}
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={(title) => onCreateRow(group, title)}
-            />
+            workspaceCatalog ? (
+              <WorkspaceSourceMenuRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+              />
+            ) : (
+              <NewDatabaseRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                disabled={isCreating}
+                isPending={isCreating}
+                onCreate={(title) => onCreateRow(group, title)}
+              />
+            )
           ) : null}
         </>
       ) : null}

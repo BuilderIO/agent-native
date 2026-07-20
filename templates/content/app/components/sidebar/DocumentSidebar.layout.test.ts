@@ -245,15 +245,15 @@ describe("document sidebar layout", () => {
       sidebar.indexOf("{/* Footer */}"),
     );
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
-    expect(sidebar).toContain('t("sidebar.newWorkspace")');
-    expect(sidebar).toContain("useCreateContentSpace");
-    expect(sidebar).toContain("handleCreateWorkspace");
+    expect(sidebar).toContain("<WorkspaceSourceMenu");
+    expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");
+    expect(sidebar).not.toContain("useCreateContentSpace");
+    expect(sidebar).not.toContain("handleCreateWorkspace");
     expect(sidebar).toContain("workspaceCatalogDatabaseId");
     expect(sidebar).toContain("workspaceCatalogPersonalView.data?.overrides");
     expect(sidebar).toContain("renderItem={(item) =>");
     expect(sidebar).toContain("name: item.document.title || space.name");
     expect(sidebar).toContain("scroll={false}");
-    expect(sidebar).toContain('<Link to="/local-files">');
   });
 
   it("keeps a unified page and database Trash lifecycle visible in the sidebar", () => {
