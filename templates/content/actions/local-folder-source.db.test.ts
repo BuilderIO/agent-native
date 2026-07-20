@@ -21,6 +21,7 @@ let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
 let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").default;
 let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let syncManifestLocalFolder: typeof import("./sync-manifest-local-folder-source.js").default;
+let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -46,6 +47,8 @@ beforeAll(async () => {
   syncManifestLocalFolder = (
     await import("./sync-manifest-local-folder-source.js")
   ).default;
+  provisionContentSpaces = (await import("./_content-spaces.js"))
+    .provisionContentSpaces;
 }, 60000);
 
 afterAll(() => {
@@ -78,11 +81,29 @@ describe("local-folder Content source", () => {
   });
 
   it("creates an opaque source-backed space and materializes files in canonical Files", async () => {
+    const provisioned = await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: "source-workspace-focus-property",
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId: provisioned.catalogDatabaseId,
+      name: "Focus",
+      type: "text",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
         connectionId: "desktop-folder-1",
         label: "Product docs",
         createSourceBackedSpace: true,
+        propertyValues: {
+          "source-workspace-focus-property": "Imported",
+        },
         truthPolicy: "source_primary",
       }),
     );
@@ -97,6 +118,26 @@ describe("local-folder Content source", () => {
       .where(eq(schema.contentDatabaseSources.id, connection.sourceId));
     expect(storedSource.sourceTable).toBe("desktop-folder-1");
     expect(storedSource.metadataJson).not.toContain("/Users/");
+    const [catalogMapping] = await getDb()
+      .select({ documentId: schema.contentSpaceCatalogItems.documentId })
+      .from(schema.contentSpaceCatalogItems)
+      .where(eq(schema.contentSpaceCatalogItems.spaceId, connection.spaceId));
+    const [workspacePropertyValue] = await getDb()
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.documentId,
+            catalogMapping.documentId,
+          ),
+          eq(
+            schema.documentPropertyValues.propertyId,
+            "source-workspace-focus-property",
+          ),
+        ),
+      );
+    expect(JSON.parse(workspacePropertyValue.valueJson)).toBe("Imported");
 
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({

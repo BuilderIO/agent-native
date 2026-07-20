@@ -806,7 +806,11 @@ async function provisionOwnedContentSpace(
 export async function provisionSourceBackedContentSpace(
   db: Db,
   userEmail: string,
-  input: { connectionId: string; name: string },
+  input: {
+    connectionId: string;
+    name: string;
+    propertyValues?: Record<string, unknown>;
+  },
 ) {
   const connectionId = input.connectionId.trim();
   if (!connectionId) throw new Error("Local folder connection ID is required");
@@ -814,6 +818,7 @@ export async function provisionSourceBackedContentSpace(
     spaceId: sourceBackedContentSpaceId(userEmail, connectionId),
     name: input.name.trim() || "Local folder",
     kind: "source_backed",
+    propertyValues: input.propertyValues,
   });
 }
 

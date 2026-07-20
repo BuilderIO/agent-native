@@ -41,6 +41,9 @@ export default defineAction({
         ),
       );
     if (!database) throw new Error(`Database "${databaseId}" not found`);
+    if (database.systemRole === "workspaces") {
+      throw new Error("Use create-content-space to add a workspace");
+    }
 
     const access = await assertAccess(
       "document",

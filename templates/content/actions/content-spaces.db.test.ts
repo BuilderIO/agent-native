@@ -32,6 +32,7 @@ let setDocumentPropertyAction: typeof import("./set-document-property.js").defau
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
 
@@ -71,6 +72,7 @@ beforeAll(async () => {
   deleteDocumentAction = (await import("./delete-document.js")).default;
   deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
     .default;
+  addDatabaseItemAction = (await import("./add-database-item.js")).default;
   duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
     .default;
   duplicateDatabaseItemsAction = (await import("./duplicate-database-items.js"))
@@ -423,6 +425,12 @@ describe("Content space provisioning", () => {
       await expect(
         deleteDocumentAction.run({ id: files.documentId }),
       ).rejects.toThrow("System Content database documents cannot be deleted");
+      await expect(
+        addDatabaseItemAction.run({
+          databaseId: workspaces.id,
+          title: "Not a workspace",
+        }),
+      ).rejects.toThrow("Use create-content-space to add a workspace");
     });
   });
 
@@ -740,6 +748,21 @@ describe("Content space provisioning", () => {
           expect.objectContaining({ id: spaceId }),
         ]),
       });
+      const [workspacesDatabase] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.ownerEmail, MEMBER),
+            eq(schema.contentDatabases.systemRole, "workspaces"),
+          ),
+        );
+      const catalog = await getContentDatabaseAction.run({
+        databaseId: workspacesDatabase!.id,
+      });
+      expect(catalog.items.map((item) => item.document.title)).not.toContain(
+        "Shared",
+      );
     });
   });
 
