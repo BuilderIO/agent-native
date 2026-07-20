@@ -11,6 +11,11 @@ describe("Workspaces database lifecycle", () => {
 
     expect(source).toContain('data?.database.systemRole === "workspaces"');
     expect(source).toContain("createContentSpace.mutateAsync");
+    expect(source).not.toContain(
+      "navigate(`/page/${created.filesDocumentId}`)",
+    );
+    expect(source).toContain('t("sidebar.newWorkspace")');
+    expect(source).toContain("label={newRowLabel}");
     expect(source).toContain("propertyValues:");
     expect(source).toContain("propertyValueOverrides");
     expect(source).toContain("const isCreatingDatabaseItem =");

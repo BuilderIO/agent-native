@@ -12,6 +12,7 @@ import {
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
   patchDocumentCaches,
+  patchContentSpaceNameCaches,
   patchDocumentInDatabaseCache,
   patchDocumentInListDocumentsCache,
   restoreQuerySnapshots,
@@ -268,6 +269,50 @@ describe("optimistic document favorites", () => {
 });
 
 describe("optimistic document titles", () => {
+  it("renames the workspace sidebar and catalog row with its Files title", () => {
+    const queryClient = new QueryClient();
+    const spacesKey = ["action", "list-content-spaces", undefined] as const;
+    const workspacesKey = [
+      "action",
+      "get-content-database",
+      { documentId: "workspaces-document" },
+    ] as const;
+    queryClient.setQueryData(spacesKey, {
+      spaces: [
+        {
+          name: "Old workspace",
+          filesDocumentId: "files-document",
+          catalogDocumentId: "catalog-document",
+        },
+      ],
+    });
+    queryClient.setQueryData(workspacesKey, {
+      items: [
+        {
+          id: "catalog-item",
+          databaseId: "workspaces",
+          position: 0,
+          document: doc("catalog-document", null),
+          properties: [],
+        },
+      ],
+    });
+
+    expect(
+      patchContentSpaceNameCaches(
+        queryClient,
+        "files-document",
+        "Renamed workspace",
+      ),
+    ).toBe(true);
+    expect(queryClient.getQueryData<any>(spacesKey)?.spaces[0].name).toBe(
+      "Renamed workspace",
+    );
+    expect(
+      queryClient.getQueryData<any>(workspacesKey)?.items[0].document.title,
+    ).toBe("Renamed workspace");
+  });
+
   it("renames matching sidebar documents and Files rows immediately", () => {
     const list = [doc("a", null), doc("b", null)];
     const database = {

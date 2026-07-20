@@ -171,6 +171,46 @@ export function patchDocumentCaches(
   );
 }
 
+type ContentSpaceNameCache = {
+  spaces?: Array<{
+    name: string;
+    filesDocumentId: string;
+    catalogDocumentId: string;
+  }>;
+};
+
+export function patchContentSpaceNameCaches(
+  queryClient: Pick<QueryClient, "setQueriesData"> &
+    Parameters<typeof patchDocumentCaches>[0],
+  filesDocumentId: string,
+  name: string,
+) {
+  const catalogDocumentIds = new Set<string>();
+  let matched = false;
+
+  queryClient.setQueriesData<ContentSpaceNameCache>(
+    { queryKey: ["action", "list-content-spaces"] },
+    (current) => {
+      if (!current?.spaces) return current;
+      let cacheMatched = false;
+      const spaces = current.spaces.map((space) => {
+        if (space.filesDocumentId !== filesDocumentId) return space;
+        matched = true;
+        cacheMatched = true;
+        catalogDocumentIds.add(space.catalogDocumentId);
+        return { ...space, name };
+      });
+      return cacheMatched ? { ...current, spaces } : current;
+    },
+  );
+
+  for (const catalogDocumentId of catalogDocumentIds) {
+    patchDocumentCaches(queryClient, catalogDocumentId, { title: name });
+  }
+
+  return matched;
+}
+
 export function documentUpdateSuccessPatch(
   data: DocumentUpdateResponse,
   variables: DocumentUpdateRequestWithCas,
@@ -329,10 +369,14 @@ export function useUpdateDocument() {
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
+        const contentSpacesFilter = {
+          queryKey: ["action", "list-content-spaces"],
+        } as const;
         await Promise.all([
           queryClient.cancelQueries({ queryKey: documentKey }),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
+          queryClient.cancelQueries(contentSpacesFilter),
         ]);
 
         const previous: Array<[readonly unknown[], unknown]> = [
@@ -344,11 +388,20 @@ export function useUpdateDocument() {
           ...queryClient.getQueriesData<ContentDatabaseResponse>(
             databaseFilter,
           ),
+          ...queryClient.getQueriesData(contentSpacesFilter),
         ];
 
         patchDocumentCaches(queryClient, variables.id, optimisticPatch);
+        const renamedContentSpace =
+          variables.title !== undefined
+            ? patchContentSpaceNameCaches(
+                queryClient,
+                variables.id,
+                variables.title,
+              )
+            : false;
 
-        return { previous };
+        return { previous, renamedContentSpace };
       },
       onError: (_error, variables, context) => {
         const rollback = context as
@@ -356,7 +409,10 @@ export function useUpdateDocument() {
           | undefined;
         restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
       },
-      onSuccess: (data, variables) => {
+      onSuccess: (data, variables, context) => {
+        const renamedContentSpace = (
+          context as { renamedContentSpace?: boolean } | undefined
+        )?.renamedContentSpace;
         // A CAS conflict is a normal (non-thrown) result, not a successful
         // save — converge the caches to the returned server document (so the
         // UI immediately reflects the write that actually won) but skip the
@@ -381,6 +437,19 @@ export function useUpdateDocument() {
                 serverDocument,
               ),
           );
+          if (renamedContentSpace) {
+            patchContentSpaceNameCaches(
+              queryClient,
+              variables.id,
+              serverDocument.title,
+            );
+            queryClient.invalidateQueries({
+              queryKey: ["action", "list-content-spaces"],
+            });
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-content-database"],
+            });
+          }
           queryClient.invalidateQueries({
             queryKey: ["action", "get-document", { id: variables.id }],
           });
@@ -395,6 +464,15 @@ export function useUpdateDocument() {
           variables.id,
           documentUpdateSuccessPatch(data, variables),
         );
+        if (renamedContentSpace) {
+          patchContentSpaceNameCaches(queryClient, variables.id, data.title);
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-content-spaces"],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          });
+        }
         if (variables.isFavorite !== undefined) {
           queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
