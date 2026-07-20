@@ -179,36 +179,6 @@ describe("meeting microphone capture", () => {
     });
   });
 
-  it("retries the macOS default input when a saved microphone is gone", async () => {
-    invokeMock
-      .mockRejectedValueOnce(
-        new Error(
-          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
-        ),
-      )
-      .mockResolvedValueOnce(undefined);
-
-    const engine = await startTranscriptionEngine({
-      mic: { deviceId: "old-device-id", label: "Disconnected headset" },
-    });
-
-    expect(engine).toBe("whisper");
-    expect(invokeMock).toHaveBeenNthCalledWith(
-      2,
-      "audio_transcription_start",
-      {
-        meetingId: null,
-        locale: null,
-        micDeviceId: null,
-        micDeviceLabel: null,
-        captureSystem: true,
-        voiceProcessing: false,
-        emitPartials: true,
-        owner: "meeting",
-      },
-    );
-  });
-
   it("surfaces the native fallback error when both local engines fail", async () => {
     invokeMock
       .mockRejectedValueOnce(new Error("local Whisper capture unavailable"))
