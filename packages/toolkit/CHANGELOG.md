@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.8.0
+
+### Minor Changes
+
+- 8453025: Publish ejection units for every Toolkit entry point so apps can take ownership of individual presentation features while preserving protected runtime contracts.
+
 ## 0.7.0
 
 ### Minor Changes
