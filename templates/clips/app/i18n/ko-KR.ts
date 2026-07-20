@@ -612,10 +612,10 @@ const messages = {
     pageTitle: "팀 참여 · Clips",
   },
   settings: {
-    openAgentSettings: "에이전트 설정 열기",
+    openAgentSettings: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    agentTitle: "에이전트 설정",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 관리",
     title: "설정",
     pageTitle: "설정 · Clips",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",

@@ -1,4 +1,5 @@
-import { trackEvent, useLocale, useT } from "@agent-native/core/client";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import { BuildOnlinePopover } from "./BuilderWaitlistPopover";

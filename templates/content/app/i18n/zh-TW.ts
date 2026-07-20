@@ -52,10 +52,9 @@ const messages = {
     workspaceTitle: "工作區",
     workspaceDescription: "管理協作者和共用檔案存取權限。",
     openTeamSettings: "開啟工作區存取設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",
@@ -455,6 +454,8 @@ const messages = {
       videoDescription: "上傳或嵌入影片",
     },
     toolbar: {
+      info: "資訊",
+      closeUtilityPanel: "關閉面板",
       absolutePathUnavailable: "絕對路徑在此瀏覽器中不可用",
       absolutePathUnavailableDescription:
         "Chrome 不會公開瀏覽器選取的資料夾的絕對路徑。",
@@ -549,6 +550,8 @@ const messages = {
   },
   comments: {
     add: "新增評論...",
+    title: "評論",
+    empty: "尚無評論。",
     cancel: "取消",
     submit: "評論",
     askAi: "詢問 AI",
@@ -1006,9 +1009,12 @@ const messages = {
       "新增狀態、選取、多選或核取方塊屬性來分組。",
   },
   localFiles: {
+    interruptedPicker:
+      "上次資料夾選擇器未能完成，因此已在此瀏覽器設定檔中停用。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     unsupportedElectron:
-      "此 Electron 瀏覽器不支援本機資料夾同步。請使用 Agent Native Desktop 或支援資料夾存取的瀏覽器。",
-    unsupportedBrowser: "此瀏覽器不支援資料夾存取。",
+      "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
+    unsupportedBrowser:
+      "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已建立 {{count}} 個",
     summaryUpdated: "已更新 {{count}} 個",
@@ -1080,6 +1086,7 @@ const messages = {
   },
   sidebar: {
     cannotReorderPages: "無法重新排序頁面",
+    addWorkspace: "新增工作區",
     addChild: "新增子項目",
     addChildTo: "新增子項目至 {{title}}",
     addSubPage: "新增子頁面",
@@ -1101,6 +1108,9 @@ const messages = {
     deleteDatabasePermanentlyQuestion: "永久刪除資料庫？",
     deletePermanently: "永久刪除",
     failedCreateDatabase: "建立資料庫失敗",
+    failedCreateWorkspace: "無法建立工作區",
+    failedUpdateFavorite: "無法更新收藏",
+    removeFromFavorites: "從收藏中移除",
     failedRemoveLocalFiles: "移除本機檔案失敗",
     localFilesActions: "本機檔案操作",
     localFilesRemoved: "本機檔案已移除",
@@ -1119,11 +1129,16 @@ const messages = {
       "「{{title}}」及其所有子頁面將被永久刪除。此操作無法復原。",
     deletePageQuestion: "刪除頁面？",
     localFiles: "本機檔案",
+    localFolder: "本機資料夾",
     files: "檔案",
     loadingFiles: "正在載入檔案…",
     new: "新增",
     newDatabase: "新增資料庫",
     newPage: "新頁面",
+    newWorkspace: "新增工作區",
+    newWorkspaceDescription: "建立一個擁有專屬 Files 資料庫的私人工作區。",
+    workspaceName: "工作區名稱",
+    createWorkspace: "建立工作區",
     nextStep: "下一步",
     notionConfigureOAuthAuthorize: "設定 OAuth，然後授權你的工作區。",
     notionConfigurePublicIntegration: "設定為公開整合",

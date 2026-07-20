@@ -8,6 +8,7 @@ import type {
   ContentDatabaseResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   getContentDatabaseResponse,
@@ -65,8 +66,16 @@ export default defineAction({
       };
     }
 
-    const access = await resolveAccess("document", database.documentId);
-    if (!access) throw new Error(`Database "${resolvedDatabaseId}" not found`);
+    let canRead = Boolean(await resolveAccess("document", database.documentId));
+    if (!canRead && database.systemRole === "files" && database.spaceId) {
+      try {
+        await resolveContentSpaceAccess(database.spaceId);
+        canRead = true;
+      } catch {
+        canRead = false;
+      }
+    }
+    if (!canRead) throw new Error(`Database "${resolvedDatabaseId}" not found`);
 
     if (database.deletedAt) {
       return {

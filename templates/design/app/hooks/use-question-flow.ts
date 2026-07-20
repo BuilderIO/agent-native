@@ -2,7 +2,7 @@ import {
   formatGuidedAnswersForAgent,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";

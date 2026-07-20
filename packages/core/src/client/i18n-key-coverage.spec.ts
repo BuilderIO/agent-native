@@ -56,6 +56,11 @@ function hasCatalogKey(key: string) {
 }
 
 describe("core i18n key coverage", () => {
+  it("keeps Context X-Ray and Snapshots as distinct labels", () => {
+    expect(defaultEnglishMessages.contextXray.panelTitle).toBe("Context X-Ray");
+    expect(defaultEnglishMessages.contextXray.snapshotsTitle).toBe("Snapshots");
+  });
+
   it("keeps literal useT keys covered by the default English catalog", () => {
     const missing: string[] = [];
 

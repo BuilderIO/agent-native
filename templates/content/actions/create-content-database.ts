@@ -160,7 +160,7 @@ export async function resolveContentDatabaseSpace(
   if (!userEmail) throw new Error("no authenticated user");
   const provisioned = await provisionContentSpaces(db, userEmail);
   const spaceId = args.spaceId ?? provisioned.personalSpaceId;
-  await resolveContentSpaceAccess(spaceId, "editor");
+  await resolveContentSpaceAccess(spaceId, "contributor");
   return spaceId;
 }
 
@@ -288,7 +288,7 @@ export async function createContentDatabaseRecord(
       }
       const spaceAccess = await (
         options.resolveSpaceAccess ?? resolveContentSpaceAccess
-      )(spaceId, "editor", { db });
+      )(spaceId, "contributor", { db });
       if (spaceAccess.space.id !== spaceId) {
         throw new Error("Resolved Content space does not match the request");
       }

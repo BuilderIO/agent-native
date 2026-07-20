@@ -1,8 +1,9 @@
-import { useDemoModeStatus, useT } from "@agent-native/core/client";
 import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/core/client/extensions";
+import { useDemoModeStatus } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowsSort,
   IconSortAscending,

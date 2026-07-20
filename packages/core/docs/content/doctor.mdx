@@ -23,7 +23,7 @@ A clean run:
 
 ```
 agent-native doctor: /path/to/app
-Guards run: no-drizzle-push, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback
+Guards run: no-drizzle-push, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback, migration-manifest
 Clean — no findings.
 ```
 
@@ -37,9 +37,9 @@ A run with findings prints one line per finding and exits `1`:
 agent-native doctor found issues above. Fix them, or add a `// guard:allow-<check> — reason` opt-out with reviewer approval.
 ```
 
-## The seven guards {#guards}
+## The eight guards {#guards}
 
-v1 ships 7 guards. Each is a pure scan over the app's source tree — `node_modules`, `.git`, `dist`, `build`, and other build-output directories are always skipped.
+v1 ships 8 guards. Each is a pure scan over the app's source tree — `node_modules`, `.git`, `dist`, `build`, and other build-output directories are always skipped.
 
 | Guard                     | What it catches                                                                                                                                                                                                                            | Why it matters                                                                                                                                                                                                                                                                             |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -50,8 +50,24 @@ v1 ships 7 guards. Each is a pure scan over the app's source tree — `node_modu
 | `db-tool-scoping`         | A table in `server/db/schema.ts` with no `owner_email` / `org_id` column and no matching entry in `agent-native.json`'s `doctor.dbToolScopingDenylist`                                                                                     | The agent's raw `db-query` / `db-exec` / `db-patch` tools can only safely expose tenant-scoped tables; an unscoped table needs an explicit, reviewed exception.                                                                                                                            |
 | `no-env-mutation`         | Production code assigning to, or `delete`-ing, `process.env.KEY`                                                                                                                                                                           | `process.env` is process-scoped, not request-scoped. A warm serverless container handles many concurrent requests in one process, so mutating `process.env` in a request handler leaks state across users. Use `runWithRequestContext` instead.                                            |
 | `no-localhost-fallback`   | The literal `"local@localhost"`, or `?? DEV_MODE_USER_EMAIL` / `\|\| DEV_MODE_USER_EMAIL`, used as a fallback identity                                                                                                                     | Falling back to a sentinel identity when there's no session pools every unauthenticated request onto one shared tenant. Throw or return 401 instead.                                                                                                                                       |
+| `migration-manifest`      | Imports listed in an installed package's `migration-manifest.json`                                                                                                                                                                         | The import is scheduled to move or disappear. Preview and apply the supported codemod before the upgrade makes it a hard error.                                                                                                                                                            |
 
 Guard names are stable identifiers — the same strings work in `--only`, `agent-native.json`'s `doctor.disabledGuards`, and every finding's `guard` field.
+
+Use the migration preflight directly:
+
+```bash
+agent-native doctor --only migration-manifest
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+```
+
+The first command reports a preview of imports that match the shipped manifest;
+the codemod command previews its diff by default, and `--yes` applies the
+reviewed rewrite. `migration-manifest` has no opt-out and cannot be disabled.
+Entries marked `planned` are warnings only and are not rewritten. Active entries
+are findings, and the codemod rewrites them only when the destination export is
+installed.
 
 ## Flags and exit codes {#flags}
 
@@ -104,7 +120,7 @@ If the doctor pre-step itself throws — an unreadable file, a bug in a guard �
 
 ## Opt-out markers {#opt-out}
 
-Five of the seven guards support a per-line comment marker with a required short reason after an em dash or hyphen:
+Five guards support a per-line comment marker with a required short reason after an em dash or hyphen:
 
 ```ts
 // guard:allow-unscoped-credential — support tool reads any user's key by design, gated on admin role
@@ -138,6 +154,7 @@ The actual `--json` payload also carries a `strict` field reflecting whether `--
       "message": "process.env mutated in production code: process.env.AGENT_USER_EMAIL = userEmail. process.env is process-scoped, not request-scoped — use runWithRequestContext instead."
     }
   ],
+  "warnings": [],
   "guardsRun": [
     "no-drizzle-push",
     "no-unscoped-credentials",
@@ -145,13 +162,17 @@ The actual `--json` payload also carries a `strict` field reflecting whether `--
     "no-env-credentials",
     "db-tool-scoping",
     "no-env-mutation",
-    "no-localhost-fallback"
+    "no-localhost-fallback",
+    "migration-manifest"
   ],
   "strict": false
 }
 ```
 
-`ok` is `true` only when `findings` is empty. `guardsRun` lists every guard that actually ran (after `--only` / `disabledGuards` filtering) — useful for confirming a guard wasn't silently skipped.
+`ok` is `true` when `findings` is empty; planned migration entries are listed
+under `warnings` and do not make the command fail. `guardsRun` lists every guard
+that actually ran (after `--only` / `disabledGuards` filtering) — useful for
+confirming a guard wasn't silently skipped.
 
 The JSON report always writes to **stdout**, whether the run is clean or has findings — the exit code (`0` clean, `1` findings present) is the signal for pass/fail, not which stream the report landed on. A plain `agent-native doctor --json > report.json` captures the full report in every case, including a non-clean run; no stream redirection tricks needed. (Usage/execution errors — a bad `--cwd`, an unknown `--only` guard — still print their own JSON error payload to stderr and exit `2`; those aren't the report.)
 

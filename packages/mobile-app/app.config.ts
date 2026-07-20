@@ -29,6 +29,7 @@ const withInstallPreviewNoPushPlugin =
 export default ({ config }: ConfigContext): ExpoConfig => {
   const base = appJson.expo as ExpoConfig;
   const plugins = withoutRemotePushPlugin(base.plugins);
+  const appleTeamId = process.env.AGENT_NATIVE_APPLE_TEAM_ID?.trim();
 
   return {
     ...config,
@@ -36,6 +37,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     plugins: DISABLE_REMOTE_PUSH
       ? [...(plugins ?? []), withInstallPreviewNoPushPlugin]
       : plugins,
+    ios: {
+      ...base.ios,
+      ...(appleTeamId ? { appleTeamId } : {}),
+    },
     extra: {
       ...base.extra,
       disableRemotePush: DISABLE_REMOTE_PUSH,

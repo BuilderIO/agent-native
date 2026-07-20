@@ -1,12 +1,14 @@
 import {
   agentNativePath,
   appBasePath,
-  callAction,
+} from "@agent-native/core/client/api-path";
+import {
   createLocalOpUndoController,
-  isEmbedAuthActive,
   type LocalOpUndoController,
   type LocalOpUndoEntry,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { callAction } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { nanoid } from "nanoid";
 import {
   createContext,

@@ -68,7 +68,7 @@ describe("update content database view", () => {
     });
   });
 
-  it("accepts sidebar as a saved database view type", () => {
+  it("normalizes retired sidebar saved views to tables", () => {
     const parsed = action.schema.parse({
       databaseId: "database",
       viewConfig: {
@@ -87,7 +87,7 @@ describe("update content database view", () => {
       },
     });
 
-    expect(parsed.viewConfig.views[0]?.type).toBe("sidebar");
+    expect(parsed.viewConfig.views[0]?.type).toBe("table");
   });
 
   it("keeps legacy JSON compatible and normalizes form questions on startup reads", () => {

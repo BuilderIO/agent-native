@@ -1,21 +1,21 @@
 ---
-title: "Espacio de trabajo"
+title: "Recursos del Agente"
 description: "Claude: personalización a nivel de código por usuario (skills, memoria, instrucciones, agentes personalizados, trabajos programados, servidores MCP) respaldados por SQL, no por un sistema de archivos."
 ---
 
-# Espacio de trabajo
+# Recursos del Agente
 
 <Callout tone="info">
 
-**¿Qué documento de espacio de trabajo?** Esta página cubre la **capa de personalización**: qué es un espacio de trabajo. Para conocer la forma de implementación (un monorepo, muchas aplicaciones), consulte [Multi-App Workspaces](/docs/multi-app-workspace); para conocer la gobernanza (quién revisa, aprueba y es propietario de qué), consulte [Workspace Governance](/docs/workspace-management).
+**¿Qué documento de espacio de trabajo?** Esta página cubre **Recursos del Agente**: la capa de personalización del agente. Para conocer la forma de implementación (un monorepo, muchas aplicaciones), consulte [Multi-App Workspaces](/docs/multi-app-workspace); para conocer la gobernanza (quién revisa, aprueba y es propietario de qué), consulte [Workspace Governance](/docs/workspace-management).
 
 </Callout>
 
-Cada aplicación nativa del agente viene con un **espacio de trabajo**: la capa de personalización que hace suyo al agente. Contiene instrucciones de equipo (`AGENTS.md`), aprendizajes compartidos (`LEARNINGS.md`), memoria estructurada personal (`memory/MEMORY.md`), skills que el agente utiliza según demanda, subagentes personalizados, trabajos programados y servidores MCP conectados: todo lo que esperarías de una configuración de código Claude/Codex.
+Cada aplicación nativa del agente viene con **recursos del agente**: la capa de personalización que hace suyo al agente. Contiene instrucciones de equipo (`AGENTS.md`), aprendizajes compartidos (`LEARNINGS.md`), memoria estructurada personal (`memory/MEMORY.md`), skills que el agente utiliza según demanda, subagentes personalizados, trabajos programados y servidores MCP conectados: todo lo que esperarías de una configuración de código Claude/Codex.
 
-El giro: **son filas SQL, no archivos del sistema de archivos.** Cada usuario obtiene su propio espacio de trabajo almacenado en la base de datos. No hay una caja de desarrollo que activar, ni un contenedor por usuario, ni archivos que montar. Un SaaS multiinquilino puede brindar a cada usuario un agente totalmente personalizable de forma esencialmente gratuita, porque todo son filas (memoria personal, servidores MCP personales, skills personal, subagentes personales) y el código base compartido los aloja todos a la vez.
+El giro: **son filas SQL, no archivos del sistema de archivos.** Cada usuario obtiene su propio conjunto de recursos del agente almacenado en la base de datos. No hay una caja de desarrollo que activar, ni un contenedor por usuario, ni archivos que montar. Un SaaS multiinquilino puede brindar a cada usuario un agente totalmente personalizable de forma esencialmente gratuita, porque todo son filas (memoria personal, servidores MCP personales, skills personal, subagentes personales) y el código base compartido los aloja todos a la vez.
 
-<Diagram id="doc-block-1v2thml" title="Un espacio de trabajo Claude-Code, pero almacenado en SQL" summary={"La misma capa de personalización (instrucciones, habilidades, memoria, agentes, trabajos, MCP) excepto que cada archivo es una fila en una base de datos compartida de múltiples inquilinos."}>
+<Diagram id="doc-block-1v2thml" title="Una configuración de Claude-Code, pero almacenada como recursos del agente en SQL" summary={"La misma capa de personalización (instrucciones, habilidades, memoria, agentes, trabajos, MCP) excepto que cada archivo es una fila en una base de datos compartida de múltiples inquilinos."}>
 
 ```html
 <div class="ws-map">
@@ -32,7 +32,7 @@ El giro: **son filas SQL, no archivos del sistema de archivos.** Cada usuario ob
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
-    <span class="diagram-pill accent">Workspace agent-native</span
+    <span class="diagram-pill accent">Recursos nativos del agente</span
     ><small class="diagram-muted">rows in one base de datos SQL</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
@@ -77,14 +77,14 @@ El giro: **son filas SQL, no archivos del sistema de archivos.** Cada usuario ob
 
 </Diagram>
 
-| Código Claude / Codex                           | Espacio de trabajo nativo del agente                                    |
-| ----------------------------------------------- | ----------------------------------------------------------------------- |
-| Archivos en su disco local                      | Filas en una base de datos SQL compartida                               |
-| Una base de código por desarrollador            | Una base de código, muchos usuarios                                     |
-| Necesita una caja de desarrollo o un contenedor | Se ejecuta en cualquier host perimetral/sin servidor                    |
-| Personalización en `~/.claude/`                 | Personalización por usuario, ámbito `u:<email>:…`                       |
-| `CLAUDE.md` / skills por proyecto               | `AGENTS.md` por aplicación + recursos de memoria del espacio de trabajo |
-| Configuración MCP en un archivo JSON            | Configuración MCP en JSON _o_ la configuración UI, según el alcance     |
+| Código Claude / Codex                           | Recursos nativos del agente                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| Archivos en su disco local                      | Filas en una base de datos SQL compartida                           |
+| Una base de código por desarrollador            | Una base de código, muchos usuarios                                 |
+| Necesita una caja de desarrollo o un contenedor | Se ejecuta en cualquier host perimetral/sin servidor                |
+| Personalización en `~/.claude/`                 | Personalización por usuario, ámbito `u:<email>:…`                   |
+| `CLAUDE.md` / skills por proyecto               | `AGENTS.md` por aplicación + recursos de memoria                    |
+| Configuración MCP en un archivo JSON            | Configuración MCP en JSON _o_ la configuración UI, según el alcance |
 
 Las mismas capacidades. Economía diferente. Consulte [Aplicaciones](/docs/cloneable-saas) para saber por qué esto es importante para SaaS.
 
@@ -96,7 +96,7 @@ Los recursos tienen tres alcances de ejecución:
 - **Compartido/organización**: visible para todos los usuarios de la aplicación u organización. Bueno para instrucciones de aplicación/equipo, skills y configuración compartida.
 - **Espacio de trabajo**: valores predeterminados globales heredados administrados desde Dispatch Resources. Bueno para datos de la empresa, posicionamiento, pautas de marca, barreras de seguridad globales, skills en todo el espacio de trabajo y servidores MCP compartidos. Las aplicaciones los leen en tiempo de ejecución; no se copian en cada aplicación.
 
-El panel Área de trabajo de la aplicación muestra los tres ámbitos. Los recursos personales y compartidos/de la organización se pueden editar allí. Los recursos del ámbito del espacio de trabajo son de solo lectura en los paneles de aplicaciones y se editan de forma centralizada desde Dispatch, por lo que cada aplicación ve los mismos archivos canónicos sin un paso de sincronización.
+La pestaña Recursos de la aplicación muestra los tres ámbitos. Los recursos personales y compartidos/de la organización se pueden editar allí. Los recursos del ámbito del espacio de trabajo son de solo lectura en los paneles de aplicaciones y se editan de forma centralizada desde Dispatch, por lo que cada aplicación ve los mismos archivos canónicos sin un paso de sincronización.
 
 Las rutas canónicas que controlan cómo el agente usa cada recurso:
 
@@ -170,7 +170,7 @@ Estas rutas se aplican en los tres ámbitos: espacio de trabajo, organización/a
 
 Cambia el comportamiento del agente en 60 segundos.
 
-1. Abra la pestaña **Espacio de trabajo** → **Compartido** → `AGENTS.md` (créelo con `+` → **Archivo** si falta).
+1. Abra la pestaña **Recursos** → **Compartido** → `AGENTS.md` (créelo con `+` → **Archivo** si falta).
 2. Agregue una regla, por ejemplo:
 
    ```rebaja
@@ -234,15 +234,15 @@ Por ejemplo:
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Panel de espacio de trabajo {#workspace-panel}
+## Pestaña Recursos {#workspace-panel}
 
-El panel del agente incluye una pestaña **Espacio de trabajo** junto a Chat y CLI. Muestra un árbol organizado en carpetas de todos los recursos, un editor en línea para cualquier archivo de texto (Markdown, JSON, YAML, texto sin formato) y los flujos de creación escritos del menú `+` (Archivos, Skills, Agentes, Tareas programadas). Los usuarios pueden explorar los valores predeterminados del espacio de trabajo heredado y crear, editar o eliminar recursos personales o de la organización.
+El panel del agente incluye una pestaña **Recursos** junto a Chat y CLI. Muestra un árbol organizado en carpetas de todos los recursos, un editor en línea para cualquier archivo de texto (Markdown, JSON, YAML, texto sin formato) y los flujos de creación escritos del menú `+` (Archivos, Skills, Agentes, Tareas programadas). Los usuarios pueden explorar los valores predeterminados del espacio de trabajo heredado y crear, editar o eliminar recursos personales o de la organización.
 
 Cuando abre un recurso, el editor muestra una franja de **Contexto efectivo** con la pila `workspace default -> organization/app override -> personal override`, para que pueda ver qué se heredó y por qué está activa una anulación. Dispatch muestra el mismo modelo desde el lado del plano de control: en la página **Recursos**, use **Efectivo en la aplicación** o expanda **Apilar** en una fila de recursos en el cuadro de diálogo **Contexto** de una tarjeta de aplicación.
 
 Cuando la política de aprobación de envío está habilitada, la creación, actualización o eliminación de un recurso **Todas las aplicaciones** pone en cola una solicitud de aprobación en lugar de aplicarla inmediatamente. Los cuadros de diálogo de creación/edición/eliminación muestran una vista previa del impacto antes de guardar.
 
-Haga clic en el icono `?` en la barra de herramientas del espacio de trabajo para volver a estos documentos en cualquier momento.
+Haga clic en el icono `?` en la barra de herramientas de Recursos para volver a estos documentos en cualquier momento.
 
 ## Cómo utiliza el agente los recursos {#how-the-agent-uses-resources}
 
@@ -266,7 +266,7 @@ El contexto empresarial reutilizable se encuentra bajo `context/` (personas, pos
 
 ### Memoria {#memory}
 
-El espacio de trabajo tiene dos superficies de memoria actuales:
+Los recursos del agente tienen dos superficies de memoria actuales:
 
 - `LEARNINGS.md` en alcance **compartido** para convenciones, correcciones y conocimiento duradero del equipo en todo el proyecto.
 - `memory/MEMORY.md` en el ámbito **Personal** para la memoria estructurada sobre el usuario actual.
@@ -277,31 +277,31 @@ El sistema de recursos también genera un `LEARNINGS.md` personal para compatibi
 
 **Donde cabe.**
 
-| Superficie         | Alcance                       | Escrito por                                                        | Leer cuando                                        |
-| ------------------ | ----------------------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
-| `AGENTS.md`        | Compartido                    | Humanos/agente bajo petición                                       | Cada turno                                         |
-| `LEARNINGS.md`     | Compartido                    | Humanos/agente bajo petición                                       | Cada turno (solo copia compartida)                 |
-| `memory/MEMORY.md` | Personales                    | Agente / humanos                                                   | Cada turno                                         |
-| `instructions/…`   | Compartido                    | Humanos/agente bajo petición                                       | Cada turno                                         |
-| `skills/…`         | Compartido                    | Humanos/agente bajo petición                                       | Bajo demanda (comando `/slash`)                    |
-| `context/…`        | Compartido                    | Humanos/agente bajo petición                                       | Indexado en cada turno, leído cuando sea relevante |
-| `mcp-servers/…`    | Espacio de trabajo/compartido | Humanos a través de Dispatch o espacio de trabajo de la aplicación | Actualización de configuración MCP                 |
+| Superficie         | Alcance                       | Escrito por                                              | Leer cuando                                        |
+| ------------------ | ----------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| `AGENTS.md`        | Compartido                    | Humanos/agente bajo petición                             | Cada turno                                         |
+| `LEARNINGS.md`     | Compartido                    | Humanos/agente bajo petición                             | Cada turno (solo copia compartida)                 |
+| `memory/MEMORY.md` | Personales                    | Agente / humanos                                         | Cada turno                                         |
+| `instructions/…`   | Compartido                    | Humanos/agente bajo petición                             | Cada turno                                         |
+| `skills/…`         | Compartido                    | Humanos/agente bajo petición                             | Bajo demanda (comando `/slash`)                    |
+| `context/…`        | Compartido                    | Humanos/agente bajo petición                             | Indexado en cada turno, leído cuando sea relevante |
+| `mcp-servers/…`    | Espacio de trabajo/compartido | Humanos a través de Dispatch o recursos de la aplicación | Actualización de configuración MCP                 |
 
-Los usuarios pueden editar estos archivos de memoria directamente en la pestaña Espacio de trabajo; son recursos regulares. Elimine líneas en las que el agente se equivocó, mantenga las preferencias personales en `memory/MEMORY.md` o promueva reglas para todo el equipo en `AGENTS.md`.
+Los usuarios pueden editar estos archivos de memoria directamente en la pestaña Recursos; son recursos regulares. Elimine líneas en las que el agente se equivocó, mantenga las preferencias personales en `memory/MEMORY.md` o promueva reglas para todo el equipo en `AGENTS.md`.
 
 Cada una de estas superficies (`AGENTS.md`, skills, memoria, agentes personalizados, servidores MCP) tiene la misma forma de recurso subyacente: un `path` + `scope` + `content`, direccionado y resuelto de la misma manera.
 
 <DataModel
   id="doc-block-1mx0tv0"
-  title="El modelo de recursos del espacio de trabajo"
+  title="El modelo de recursos del agente"
   summary={
-    "Una forma de recurso respalda cada archivo de espacio de trabajo. El tiempo de ejecución lo clave por ruta y alcance y resuelve el valor efectivo en la lectura."
+    "Una forma de recurso respalda cada archivo de recursos del agente. El tiempo de ejecución lo clave por ruta y alcance y resuelve el valor efectivo en la lectura."
   }
   entities={[
     {
       id: "resource",
-      name: "workspace resource",
-      note: "Un único archivo en el espacio de trabajo de un usuario: instrucciones, habilidad, memoria, agente, configuración MCP o trabajo.",
+      name: "agent resource",
+      note: "Un único archivo en los recursos del agente de un usuario: instrucciones, habilidad, memoria, agente, configuración MCP o trabajo.",
       fields: [
         {
           name: "path",
@@ -331,7 +331,7 @@ Cada una de estas superficies (`AGENTS.md`, skills, memoria, agentes personaliza
 
 ## Skills {#skills}
 
-Skills son archivos de recursos Markdown en la ruta `skills/` (preferiblemente `skills/<name>/SKILL.md`) que brindan al agente conocimiento del dominio bajo demanda, invocados en el chat con `/skill-name`. Agréguelos desde la pestaña Espacio de trabajo o, en modo Código, desde `.agents/skills/`.
+Skills son archivos de recursos Markdown en la ruta `skills/` (preferiblemente `skills/<name>/SKILL.md`) que brindan al agente conocimiento del dominio bajo demanda, invocados en el chat con `/skill-name`. Agréguelos desde la pestaña Recursos o, en modo Código, desde `.agents/skills/`.
 
 Consulte [Skills Guide](/docs/skills-guide): la fuente única de formato, alcance, descubrimiento y creación de habilidades.
 
@@ -384,7 +384,7 @@ Convenciones recomendadas:
 
 ### Agentes remotos versus agentes personalizados {#remote-vs-custom-agents}
 
-Hay dos tipos de agentes en Workspace:
+Los recursos del agente incluyen dos tipos de agentes:
 
 - **Agentes personalizados**: perfiles locales en `agents/*.md`, ejecutados dentro de la aplicación/tiempo de ejecución actual
 - **Agentes conectados**: pares remotos de A2A descritos por manifiestos en `remote-agents/*.json` (los manifiestos antiguos de `agents/*.json` aún se reconocen)
@@ -399,13 +399,13 @@ Escribe `@` en la entrada del chat para hacer referencia a un agente, archivo o 
 
 El sistema de recursos funciona de manera idéntica en ambos modos. Lo que difiere son las fuentes adicionales disponibles para el etiquetado `@` y los comandos `/`:
 
-| Característica               | Modo de código                                                                                          | Modo de aplicación                                                            |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| @ etiquetado                 | Archivos de código base + recursos del espacio de trabajo + agentes personalizados + agentes conectados | Recursos del espacio de trabajo + agentes personalizados + agentes conectados |
-| /comandos de barra diagonal  | .agents/skills/ + recurso skills                                                                        | Recurso skills únicamente                                                     |
-| Acceso al archivo del agente | Sistema de archivos + recursos                                                                          | Solo recursos                                                                 |
-| Panel de espacio de trabajo  | Acceso completo                                                                                         | Acceso completo                                                               |
-| AGENTS.md/memoria            | Disponible                                                                                              | Disponible                                                                    |
+| Característica               | Modo de código                                                                              | Modo de aplicación                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| @ etiquetado                 | Archivos de código base + recursos del agente + agentes personalizados + agentes conectados | Recursos del agente + agentes personalizados + agentes conectados |
+| /comandos de barra diagonal  | .agents/skills/ + recurso skills                                                            | Recurso skills únicamente                                         |
+| Acceso al archivo del agente | Sistema de archivos + recursos                                                              | Solo recursos                                                     |
+| Pestaña Recursos             | Acceso completo                                                                             | Acceso completo                                                   |
+| AGENTS.md/memoria            | Disponible                                                                                  | Disponible                                                        |
 
 ## Conexiones del espacio de trabajo {#workspace-connections}
 

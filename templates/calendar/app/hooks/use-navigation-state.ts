@@ -1,5 +1,6 @@
-import { useAgentRouteState, callAction } from "@agent-native/core/client";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { useRef } from "react";
 

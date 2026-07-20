@@ -1,14 +1,14 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  agentNativePath,
-  useT,
-} from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {

@@ -23,6 +23,7 @@ import {
 import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
+import { mergeDefinitionsById } from "../shared/merge-by-id.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import { resolveWorkspaceConnectionForApp } from "../workspace-connections/store.js";
 import type {
@@ -474,6 +475,8 @@ export type ProviderApiCredentialResolver = (
 export interface ProviderApiRuntimeOptions {
   appId: string;
   providerIds?: readonly (ProviderApiId | string)[];
+  /** App-owned definitions replace matching built-ins by id without dropping other providers. */
+  providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
@@ -1513,10 +1516,26 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
 
 export function getProviderApiConfig(
   provider: ProviderApiId | string,
+  overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig {
-  const config = PROVIDER_CONFIGS[provider as ProviderApiId];
+  const config = mergeProviderApiConfigs(overrides).find(
+    (candidate) => candidate.id === provider,
+  );
   if (!config) throw new Error(`Unsupported provider API: ${provider}`);
   return config;
+}
+
+export function mergeProviderApiConfigs(
+  overrides: readonly ProviderApiConfig[] = [],
+): ProviderApiConfig[] {
+  for (const override of overrides) {
+    if (!isProviderApiId(override.id)) {
+      throw new Error(
+        `Provider API overrides must replace a built-in id: ${override.id}`,
+      );
+    }
+  }
+  return mergeDefinitionsById(Object.values(PROVIDER_CONFIGS), overrides);
 }
 
 export function isProviderApiId(provider: string): provider is ProviderApiId {
@@ -1525,23 +1544,32 @@ export function isProviderApiId(provider: string): provider is ProviderApiId {
 
 export function listProviderApiIdsForTemplateUse(
   templateUse: WorkspaceConnectionTemplateUse,
+  overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiId[] {
+  const configs = new Map(
+    mergeProviderApiConfigs(overrides).map((config) => [config.id, config]),
+  );
   return PROVIDER_API_IDS.filter((id) =>
-    (PROVIDER_CONFIGS[id].templateUses ?? []).includes(templateUse),
+    (configs.get(id)?.templateUses ?? []).includes(templateUse),
   );
 }
 
 export function listProviderApiCatalog(
   provider?: ProviderApiId | string,
-  options: { providerIds?: readonly (ProviderApiId | string)[] } = {},
+  options: {
+    providerIds?: readonly (ProviderApiId | string)[];
+    providerOverrides?: readonly ProviderApiConfig[];
+  } = {},
 ) {
   const providerIds = normalizeProviderIds(options.providerIds);
   if (provider) {
     assertProviderAllowed(provider, providerIds);
   }
   const configs = provider
-    ? [getProviderApiConfig(provider)]
-    : providerIds.map((id) => getProviderApiConfig(id));
+    ? [getProviderApiConfig(provider, options.providerOverrides)]
+    : providerIds.map((id) =>
+        getProviderApiConfig(id, options.providerOverrides),
+      );
   return configs.map((config) => ({
     id: config.id,
     label: config.label,
@@ -1564,6 +1592,7 @@ export function listProviderApiCatalog(
 export function createProviderApiRuntime(
   options: ProviderApiRuntimeOptions,
 ): ProviderApiRuntime {
+  mergeProviderApiConfigs(options.providerOverrides);
   const providerIds = normalizeProviderIds(options.providerIds);
   const runtimeOptions: Required<
     Pick<ProviderApiRuntimeOptions, "appId" | "localCredentialSource">
@@ -1578,7 +1607,7 @@ export function createProviderApiRuntime(
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
         provider,
-        { providerIds },
+        { providerIds, providerOverrides: options.providerOverrides },
         runtimeOptions,
       ),
     fetchDocs: (docsOptions) =>
@@ -1607,7 +1636,7 @@ export async function fetchProviderApiDocs(
 
   // Resolve config — may be a built-in or a custom provider.
   const builtIn = isProviderApiId(options.provider)
-    ? getProviderApiConfig(options.provider)
+    ? getProviderApiConfig(options.provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
@@ -1621,7 +1650,9 @@ export async function fetchProviderApiDocs(
   }
 
   const catalog = builtIn
-    ? listProviderApiCatalog(options.provider)[0]
+    ? listProviderApiCatalog(options.provider, {
+        providerOverrides: runtime.providerOverrides,
+      })[0]
     : customProviderToCatalogEntry(customConfig!);
 
   if (!options.url) {
@@ -1699,7 +1730,7 @@ export async function executeProviderApiRequest(
 
   // Check whether this is a built-in or custom provider.
   const builtIn = isProviderApiId(args.provider)
-    ? getProviderApiConfig(args.provider)
+    ? getProviderApiConfig(args.provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
@@ -1933,7 +1964,7 @@ export async function resolveProviderApiOAuthAccessToken(
   runtime: ProviderApiRuntimeOptions,
 ): Promise<ProviderApiOAuthAccessToken> {
   await assertProviderAllowedAsync(args.provider, runtime);
-  const config = getProviderApiConfig(args.provider);
+  const config = getProviderApiConfig(args.provider, runtime.providerOverrides);
   const auth = config.auth;
   const oauthAuth =
     auth.type === "oauth-bearer"
@@ -3040,7 +3071,10 @@ function extractCredentialKeysFromCustomAuth(
  */
 async function listProviderApiCatalogWithCustom(
   provider: ProviderApiId | string | undefined,
-  options: { providerIds?: readonly (ProviderApiId | string)[] },
+  options: {
+    providerIds?: readonly (ProviderApiId | string)[];
+    providerOverrides?: readonly ProviderApiConfig[];
+  },
   runtime: ProviderApiRuntimeOptions,
 ): Promise<unknown[]> {
   const customConfigs = runtime.getCustomProviders
@@ -3923,7 +3957,7 @@ async function getGoogleServiceAccountToken(
   if (cached && Date.now() < cached.expiresAt - 30_000) return cached.token;
 
   const credsJson = await resolveCredentialValue({
-    config: getProviderApiConfig("gcloud"),
+    config: getProviderApiConfig("gcloud", runtime.providerOverrides),
     runtime,
     ctx,
     key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",

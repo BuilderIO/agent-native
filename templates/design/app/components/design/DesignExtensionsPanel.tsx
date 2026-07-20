@@ -1,12 +1,12 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
-  agentNativePath,
   useActionQuery,
   useActionMutation,
   useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
-import { EmbeddedExtension } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,

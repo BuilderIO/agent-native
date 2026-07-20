@@ -4,10 +4,10 @@ import {
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
-  useT,
   type GuidedQuestion,
   type GuidedQuestionOption,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

@@ -8,7 +8,7 @@ import type { A11yFinding } from "../../../shared/design-review.js";
 import { ReviewPanel } from "./ReviewPanel";
 
 const mutateAsync = vi.fn();
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   cn: (...values: Array<string | false | null | undefined>) =>
     values.filter(Boolean).join(" "),
   useActionMutation: () => ({

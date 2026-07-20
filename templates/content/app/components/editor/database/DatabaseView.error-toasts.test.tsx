@@ -77,53 +77,48 @@ const builderCmsModelsQuery = vi.hoisted(() => ({
   refetch: vi.fn(),
 }));
 
-// `@agent-native/core/client` is a large shared package (VisualEditor.tsx
-// alone pulls in several Tiptap-extension exports at module scope). Mock only
-// the hooks this render path actually needs to behave specially and keep
-// everything else real via `importOriginal` so we don't have to hand-roll
-// every export the transitive import graph happens to use.
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...actual,
-    // Real `useT` needs a react-i18next provider we don't set up here.
-    useT: () => (key: string) => key,
-    useCodeMode: () => ({
-      isCodeMode: false,
-      canToggle: false,
-      isLoading: false,
-      setCodeMode: vi.fn(),
-    }),
-    useBuilderStatus: () => ({
-      status: {
-        configured: true,
-        builderEnabled: true,
-        connectUrl: "",
-        appHost: "",
-        apiHost: "",
-        publicKeyConfigured: true,
-        privateKeyConfigured: true,
-        orgName: "Test Org",
-        spaces: [{ id: "space-1", name: "Test Space" }],
-      },
-      loading: false,
-      error: null,
-      stale: false,
-      refetch: vi.fn(),
-    }),
-    useBuilderConnectFlow: () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useCodeMode: () => ({
+    isCodeMode: false,
+    canToggle: false,
+    isLoading: false,
+    setCodeMode: vi.fn(),
+  }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/settings", () => ({
+  useBuilderStatus: () => ({
+    status: {
       configured: true,
-      envManaged: false,
       builderEnabled: true,
+      connectUrl: "",
+      appHost: "",
+      apiHost: "",
+      publicKeyConfigured: true,
+      privateKeyConfigured: true,
       orgName: "Test Org",
-      connecting: false,
-      error: null,
-      hasFetchedStatus: true,
-      start: vi.fn(),
-    }),
-  };
-});
+      spaces: [{ id: "space-1", name: "Test Space" }],
+    },
+    loading: false,
+    error: null,
+    stale: false,
+    refetch: vi.fn(),
+  }),
+  useBuilderConnectFlow: () => ({
+    configured: true,
+    envManaged: false,
+    builderEnabled: true,
+    orgName: "Test Org",
+    connecting: false,
+    error: null,
+    hasFetchedStatus: true,
+    start: vi.fn(),
+  }),
+}));
 
 vi.mock("@/hooks/use-content-database", () => ({
   isContentDatabaseUnavailable: () => false,

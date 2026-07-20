@@ -75,6 +75,49 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it("uses a canonical Files database rename as the workspace name", async () => {
+    const { provisionContentSpaces, systemIdsForContentSpace } =
+      await import("./_content-spaces.js");
+    const provisioned = await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const filesDocumentId = systemIdsForContentSpace(
+      provisioned.personalSpaceId,
+      "files",
+    ).documentId;
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: filesDocumentId, title: "Research" }),
+    );
+
+    const [space] = await getDb()
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, provisioned.personalSpaceId));
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.documentId, filesDocumentId));
+    const [catalogReference] = await getDb()
+      .select({ document: schema.documents })
+      .from(schema.contentSpaceCatalogItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentSpaceCatalogItems.documentId),
+      )
+      .where(
+        eq(
+          schema.contentSpaceCatalogItems.spaceId,
+          provisioned.personalSpaceId,
+        ),
+      );
+
+    expect(space.name).toBe("Research");
+    expect(database.title).toBe("Research");
+    expect((await documentRow(filesDocumentId)).title).toBe("Research");
+    expect(catalogReference.document.title).toBe("Research");
+  });
+
   it("applies a content save with no baseUpdatedAt exactly like today (no CAS)", async () => {
     const documentId = await createDocument({ content: "original" });
 

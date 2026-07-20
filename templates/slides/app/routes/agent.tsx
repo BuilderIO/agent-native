@@ -1,4 +1,5 @@
-import { AgentTabsPage, useT } from "@agent-native/core/client";
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 

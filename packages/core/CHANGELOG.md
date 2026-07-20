@@ -1,5 +1,183 @@
 # @agent-native/core
 
+## 0.114.3
+
+### Patch Changes
+
+- c47eb50: fix(core): keep feature-flag definitions out of the browser server graph
+
+  App-shared config that imported feature-flag definitions from
+  `@agent-native/core/feature-flags` pulled the barrel's server re-exports
+  (`store` → `settings/store` → `db/client` → request telemetry) into the client
+  dev graph. Vite's dev server does not tree-shake, so the browser evaluated that
+  server chain and `request-telemetry`'s top-level `new AsyncLocalStorage()` threw
+  against the externalized `node:async_hooks` stub, breaking app load in dev
+  (production tree-shakes it away and was unaffected).
+  - Add a client-safe `@agent-native/core/feature-flags/registry` entry for
+    `defineFeatureFlag` / `defineFeatureFlags` / `registerFeatureFlags` so shared
+    config no longer imports the server barrel.
+  - Make `db/request-telemetry` and `settings/store` resolve `AsyncLocalStorage` /
+    `EventEmitter` lazily via `process.getBuiltinModule` (matching
+    `server/request-context`) instead of a top-level value import, so the modules
+    can be evaluated in any runtime without tripping the browser stub.
+  - Add a regression guard asserting the client-safe registry entry never reaches
+    the server layer and that those modules never statically value-import the
+    builtins.
+
+## 0.114.2
+
+### Patch Changes
+
+- 3253e1d: Teach generated agents to discover Toolkit capabilities before composing or ejecting shared features.
+
+## 0.114.1
+
+### Patch Changes
+
+- c913280: Keep action mutations pending until asynchronous success callbacks finish.
+- c913280: Allow email-password signup without email verification on Netlify deploy previews while preserving explicit verification overrides, and hold auth requests until their serverless routes finish mounting.
+- c913280: Fence incompatible cached browser clients from newer action backends and reload version-aware tabs with a cache-busted build.
+- c913280: Honor an explicit Personal context for users who also belong to organizations.
+
+## 0.114.0
+
+### Minor Changes
+
+- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
+
+### Patch Changes
+
+- Updated dependencies [8453025]
+  - @agent-native/toolkit@0.8.0
+
+## 0.113.0
+
+### Minor Changes
+
+- e53a34e: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+- e53a34e: Add reusable Google and Slack OAuth compatibility helpers, including Slack's Basic-auth token exchange, Gong lookup utilities, and SSRF-safe JSON webhook delivery with shared Slack escaping.
+- e53a34e: Add reusable provider API and staged dataset action factories, including opt-in custom provider registration and sanitized provider request audit summaries that narrow recorded audit metadata to safe request context.
+
+### Patch Changes
+
+- e53a34e: Add a subscription-only Claude Code participant runtime with enforced read-only and driver permissions.
+- e53a34e: Add a ChatGPT-subscription Codex CLI participant runtime with enforced read-only and driver sandboxes.
+- e53a34e: Add durable, fenced local state for compound multi-frontier runs.
+- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
+- e53a34e: Keep interrupted local Codex runs paused and resumable across every runner command.
+- e53a34e: Harden local Code run persistence and cancellation for the packaged desktop runner.
+- e53a34e: Harden local Code run and transcript persistence with atomic replacements and idempotent events.
+- e53a34e: Persist bounded, redacted Desktop multi-frontier orchestration state for safe recovery.
+- Updated dependencies [e53a34e]
+  - @agent-native/toolkit@0.7.0
+
+## 0.112.0
+
+### Minor Changes
+
+- 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+
+### Patch Changes
+
+- 6acaad0: Add durable, fenced local state for compound multi-frontier runs.
+- 6acaad0: Harden local Code run persistence and cancellation for the packaged desktop runner.
+
+## 0.111.4
+
+### Patch Changes
+
+- 2f61097: Re-scan installed package exports after dependency installation before applying manifest import migrations.
+
+## 0.111.3
+
+### Patch Changes
+
+- 7843f92: Apply active import migrations to starter-owned source and install newly introduced migration dependencies before rewriting imports.
+
+## 0.111.2
+
+### Patch Changes
+
+- 736d8b0: Trim non-English reference locales from the published source corpus.
+
+## 0.111.1
+
+### Patch Changes
+
+- 1a0a0af: Rename the "Agent workspace" surface to "Manage agent" and the agent panel "Workspace" tab to "Resources"
+
+## 0.111.0
+
+### Minor Changes
+
+- 01a3f27: BREAKING: move the portable composer, rich editor, collaboration display, visual controls, and shared UI primitives to focused Toolkit entrypoints. Core's removed deep compatibility paths now throw an actionable migration error, and moved symbols are removed from the legacy `@agent-native/core/client` barrel. Run `npx @agent-native/core@latest upgrade --codemods --yes` to rewrite supported imports. Framework-wired composer APIs remain available from `@agent-native/core/client/composer`; bare reusable composer UI is available from `@agent-native/toolkit/composer`.
+
+### Patch Changes
+
+- Updated dependencies [01a3f27]
+  - @agent-native/toolkit@0.6.0
+
+## 0.110.3
+
+### Patch Changes
+
+- 168ce2f: Keep the framework-wired Context X-Ray panel on its existing Core entrypoint instead of suggesting an incompatible Toolkit view migration.
+
+## 0.110.2
+
+### Patch Changes
+
+- b3f04e7: Correct the prepublished registry editor migration so the framework-wired data provider remains on Core's blocks entry.
+
+## 0.110.1
+
+### Patch Changes
+
+- 8ed242f: Prepublish the complete planned composer and editor migration map so Doctor and upgrade codemods can guide apps before the breaking package flip.
+
+## 0.110.0
+
+### Minor Changes
+
+- 079e19a: Add focused client entrypoints, lazy built-in chat widgets, explicit route-chunk recovery initialization, and manifest-driven `upgrade --codemods` and doctor preflight infrastructure for upcoming package moves.
+
+### Patch Changes
+
+- Updated dependencies [079e19a]
+  - @agent-native/toolkit@0.5.1
+
+## 0.109.4
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+- Updated dependencies [b6d7f87]
+  - @agent-native/toolkit@0.5.0
+
+## 0.109.3
+
+### Patch Changes
+
+- 5199e0b: Make Chat the first and default starting point in the new-app CLI picker.
+- 5199e0b: Track browser, server, cold-start, framework-readiness, and database latency for app requests; retain action 4xx failures; parallelize legacy route bootstrap reads; and deduplicate session lookups without treating transient auth failures as signed-out sessions.
+- 5199e0b: Deliver remote-session Expo push notifications through a retrying, batched outbox worker and verify provider receipts before marking delivery complete.
+
+## 0.109.2
+
+### Patch Changes
+
+- 915c940: Allow HTML diagrams to opt into clean design rendering without the rough.js overlay.
+- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
+
+## 0.109.1
+
+### Patch Changes
+
+- d74a5a4: Return retryable responses for transient agent-chat database failures and back off active-run polling while the database recovers.
+- d74a5a4: Add bounded per-tool generation telemetry, delegated trace linkage, direct-read telemetry, and idempotent A2A submissions.
+
 ## 0.109.0
 
 ### Minor Changes

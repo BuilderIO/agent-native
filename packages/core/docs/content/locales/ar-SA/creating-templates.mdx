@@ -270,8 +270,10 @@ export default runMigrations(
 توجد المسارات في `app/routes/` وتستخدم توجيه الملفات React Router v8. الاستعلام عن البيانات من خلال معالجات actions أو API، وجعل الطفرات متفائلة بشكل افتراضي.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +289,7 @@ export default function ProjectsPage() {
 قم بتوصيل المزامنة المباشرة مرة واحدة بالقرب من غلاف التطبيق حتى يتم تحديث ذاكرة التخزين المؤقت للاستعلام React عندما يقوم الوكيل أو علامة تبويب أخرى أو إجراء بتغيير البيانات:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +302,7 @@ export function AppSync() {
 **الوعد الأصلي للوكيل: تظهر كتابات الوكيل في UI بدون تحديث يدوي. ** `useActionQuery` هو المسار السهل - يتم إعادة جلب كل خطاف عندما يصدر إجراء متحور `source: "action"`. إذا وصلت إلى `useQuery` الأولي باستخدام مفتاح مخصص (على سبيل المثال، مساعد عميل منخفض المستوى يقرأ حالة التكامل)، فقم بطي العداد لكل مصدر في queryKey للتحديثات المستهدفة:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +325,7 @@ useQuery({
 استخدم `useAgentRouteState` للربط UI حتى تظل عمليات الكتابة في حالة التطبيق، وقراءة الأوامر على مستوى علامة التبويب، والحذف بعد القراءة، وحماية الأوامر المكررة متسقة:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

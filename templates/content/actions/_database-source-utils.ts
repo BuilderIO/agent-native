@@ -86,6 +86,7 @@ import {
   organizationContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
@@ -6258,6 +6259,13 @@ export async function ensureDatabaseSourceProperty(args: {
   database: ContentDatabaseRow;
   now: string;
 }) {
+  if (args.database.systemRole === "files") {
+    await ensureFilesSystemPropertyDefinitions({
+      database: args.database,
+      now: args.now,
+    });
+    return;
+  }
   const db = getDb();
   const sources = await db
     .select({

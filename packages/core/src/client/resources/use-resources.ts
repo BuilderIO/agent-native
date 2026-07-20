@@ -400,23 +400,3 @@ export function useDeleteResource() {
     },
   });
 }
-
-export function useUploadResource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (formData: FormData) => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/resources/upload"),
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
-      if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
-      return res.json() as Promise<Resource>;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
-    },
-  });
-}

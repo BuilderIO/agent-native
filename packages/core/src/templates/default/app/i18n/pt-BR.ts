@@ -211,9 +211,8 @@ const messages = {
     chat: "Chat",
     cliTerminalMode: "Modo terminal CLI",
     cli: "CLI",
-    workspaceMode:
-      "Arquivos, agentes, habilidades e tarefas do espaço de trabalho",
-    workspace: "Espaço de trabalho",
+    workspaceMode: "Arquivos, agentes, habilidades e tarefas",
+    workspace: "Recursos",
     newChat: "Novo chat",
     newTerminal: "Novo terminal",
     panelOptions: "Opções do painel do agente",

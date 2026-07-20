@@ -42,6 +42,7 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
+import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -115,7 +116,11 @@ export default defineEventHandler(async (event: H3Event) => {
     const db = getDb();
 
     const [existing] = await db
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+      })
       .from(schema.recordings)
       .where(
         and(
@@ -127,6 +132,22 @@ export default defineEventHandler(async (event: H3Event) => {
     if (!existing) {
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
+    }
+
+    if (existing.status === "ready" && existing.videoUrl) {
+      setResponseStatus(event, 409);
+      return { error: "Recording is already ready" };
+    }
+
+    if (
+      await isMediaVerificationPending({
+        ownerEmail,
+        recordingId,
+        recordingStatus: existing.status,
+      })
+    ) {
+      setResponseStatus(event, 409);
+      return { error: "Recording is still being verified" };
     }
 
     const cleared = await deleteAppStateByPrefix(

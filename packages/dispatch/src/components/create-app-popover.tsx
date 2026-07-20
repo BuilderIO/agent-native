@@ -1,11 +1,11 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useDevMode } from "@agent-native/core/client/agent-chat";
 import {
-  PromptComposer,
   agentNativePath,
   appBasePath,
-  isInBuilderFrame,
-  sendToAgentChat,
-  useDevMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import {
   IconArrowLeft,

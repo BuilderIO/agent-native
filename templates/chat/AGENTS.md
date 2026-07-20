@@ -53,10 +53,17 @@ workflow needs durable UI around the conversation.
   first-party template implementation examples.
 - Prefer those installed docs over memory or public docs when package APIs,
   generated-app conventions, workspaces, actions, or agent surfaces are involved.
+- Before building common workspace or agent UI, read `agent-native-toolkit` to
+  inventory existing public kits and installed package seams.
+- Read `customizing-agent-native` before overriding the chat shell or shared UI.
+  Keep Core thread/runtime behavior and use the supported ladder: configure →
+  compose → eject the smallest presentation unit → propose a shared seam.
+  Preview before `--apply` and commit `agent-native.ejections.json`.
 
 ## Skills
 
 Read the relevant root skill before implementation: `adding-a-feature`,
-`actions`, `agent-native-docs`, `storing-data`, `real-time-sync`, `security`,
-`delegate-to-agent`, `frontend-design`, `shadcn-ui`, and
+`actions`, `agent-native-docs`, `agent-native-toolkit`,
+`customizing-agent-native`, `storing-data`,
+`real-time-sync`, `security`, `delegate-to-agent`, `frontend-design`, `shadcn-ui`, and
 `self-modifying-code`.

@@ -2,7 +2,6 @@
 # Keep this file sorted. Remove entries as localized coverage improves.
 # Format: locale|relative/doc-slug
 ar-SA|automation-connectors
-ar-SA|doctor
 ar-SA|durable-background-runs
 ar-SA|generative-ui
 ar-SA|integrations
@@ -20,7 +19,6 @@ ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
 de-DE|automation-connectors
-de-DE|doctor
 de-DE|durable-background-runs
 de-DE|generative-ui
 de-DE|integrations
@@ -38,7 +36,6 @@ de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
 es-ES|automation-connectors
-es-ES|doctor
 es-ES|durable-background-runs
 es-ES|generative-ui
 es-ES|integrations
@@ -56,7 +53,6 @@ es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
 fr-FR|automation-connectors
-fr-FR|doctor
 fr-FR|durable-background-runs
 fr-FR|generative-ui
 fr-FR|integrations
@@ -74,7 +70,6 @@ fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
 hi-IN|automation-connectors
-hi-IN|doctor
 hi-IN|durable-background-runs
 hi-IN|generative-ui
 hi-IN|integrations
@@ -92,7 +87,6 @@ hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
 ja-JP|automation-connectors
-ja-JP|doctor
 ja-JP|durable-background-runs
 ja-JP|generative-ui
 ja-JP|integrations
@@ -110,7 +104,6 @@ ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
 ko-KR|automation-connectors
-ko-KR|doctor
 ko-KR|durable-background-runs
 ko-KR|generative-ui
 ko-KR|integrations
@@ -128,7 +121,6 @@ ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
 pt-BR|automation-connectors
-pt-BR|doctor
 pt-BR|durable-background-runs
 pt-BR|generative-ui
 pt-BR|integrations
@@ -146,7 +138,6 @@ pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
 zh-CN|automation-connectors
-zh-CN|doctor
 zh-CN|durable-background-runs
 zh-CN|generative-ui
 zh-CN|integrations
@@ -164,7 +155,6 @@ zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
 zh-TW|automation-connectors
-zh-TW|doctor
 zh-TW|generative-ui
 zh-TW|integrations
 zh-TW|organizations-teams-permissions

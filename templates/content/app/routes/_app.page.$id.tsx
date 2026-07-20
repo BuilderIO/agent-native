@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useParams } from "react-router";
 
 import { DocumentEditor } from "@/components/editor/DocumentEditor";

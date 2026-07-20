@@ -70,6 +70,7 @@ import {
   exportBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
+  scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
   startRecording,
   type LocalExportedFile,
@@ -1835,6 +1836,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("clips:pending-uploads-changed", () => {
+      void loadPendingUploads();
+    })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [loadPendingUploads]);
+
+  useEffect(() => {
     if (popoverView === "meetings" && popoverVisible) {
       void fetchUpcomingMeetings();
     }
@@ -1894,12 +1912,23 @@ export function App() {
     try {
       const authToken = loadDesktopAuthToken(targetServerUrl);
       if (upload.kind === "native") {
-        await invoke("native_fullscreen_recording_retry_upload", {
-          serverUrl: targetServerUrl,
-          recordingId: upload.recordingId,
-          authToken,
-          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-        });
+        const result = await invoke<{ verificationPending?: boolean }>(
+          "native_fullscreen_recording_retry_upload",
+          {
+            serverUrl: targetServerUrl,
+            recordingId: upload.recordingId,
+            authToken,
+            cookie:
+              typeof document !== "undefined" ? document.cookie || "" : "",
+          },
+        );
+        if (result.verificationPending) {
+          scheduleNativeBackupCleanupAfterProcessing({
+            serverUrl: targetServerUrl,
+            recordingId: upload.recordingId,
+            authToken,
+          });
+        }
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,

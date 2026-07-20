@@ -2263,6 +2263,40 @@ describe("agent-native skills", () => {
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
   });
 
+  it("does not overwrite same-named skills in an unmarked UI template", async () => {
+    const root = tmpDir();
+    const skillPath = path.join(
+      root,
+      ".agents",
+      "skills",
+      "agent-native-toolkit",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "custom-ui-app",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(skillPath, "app-owned Toolkit guidance\n");
+
+    await runSkills(["update", "scaffold", "--scope", "project"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(fs.readFileSync(skillPath, "utf-8")).toBe(
+      "app-owned Toolkit guidance\n",
+    );
+  });
+
   it("registers the skill against a --mcp-url override (bare origin gets the mcp path)", async () => {
     const root = tmpDir();
 

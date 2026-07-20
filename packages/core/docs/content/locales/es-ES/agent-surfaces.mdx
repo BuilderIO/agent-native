@@ -15,8 +15,7 @@ que los modos Resources y Settings enlacen a la página completa sin duplicar
 estos flujos.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client";
-
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -420,8 +419,7 @@ export default createAgentNativeEmbeddedPlugin({
 El sidecar React pasa el contexto de la página y los comandos del host:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

@@ -1,11 +1,10 @@
 import {
-  appBasePath,
-  appPath,
   isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,

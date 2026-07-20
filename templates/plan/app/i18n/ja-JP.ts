@@ -30,10 +30,10 @@ const messages = {
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    agentTitle: "エージェント設定",
+    agentTitle: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    openAgentSettings: "エージェント設定を開く",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    openAgentSettings: "エージェントを管理",
     editorTitle: "VS Code 拡張機能",
     editorDescription:
       "別のブラウザータブではなく、VS Code のサイドパネルでプランを開いてレビューします。",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "先週リリースされた内容は？",
     suggestionUi: "この UI はどのように見えますか？",
     suggestionApi: "この API の形は？",
+  },
+  contextXray: {
+    panelTitle: "コンテキスト X 線",
+    snapshotsTitle: "スナップショット",
   },
   sidebar: {
     openNavigation: "ナビゲーションを開く",

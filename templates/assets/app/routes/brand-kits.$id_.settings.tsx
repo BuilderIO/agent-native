@@ -1,9 +1,9 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  sendToAgentChat,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,

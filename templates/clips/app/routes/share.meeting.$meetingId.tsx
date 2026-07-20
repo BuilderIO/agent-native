@@ -1,4 +1,6 @@
-import { PoweredByBadge, appPath, useT } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import { PoweredByBadge } from "@agent-native/core/client/ui";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {

@@ -7,6 +7,7 @@ import {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   workspaceConnectionProviderSupports,
 } from "./catalog.js";
 
@@ -76,6 +77,17 @@ describe("workspace connection provider catalog", () => {
       label: "GitHub",
       capabilities: expect.arrayContaining(["code", "search"]),
     });
+  });
+
+  it("replaces one provider definition without dropping the rest", () => {
+    const slack = getWorkspaceConnectionProvider("slack")!;
+    const merged = mergeWorkspaceConnectionProviders([
+      { ...slack, label: "Acme Slack" },
+    ]);
+
+    expect(merged).toHaveLength(WORKSPACE_CONNECTION_PROVIDERS.length);
+    expect(merged.find(({ id }) => id === "slack")?.label).toBe("Acme Slack");
+    expect(merged.find(({ id }) => id === "github")?.label).toBe("GitHub");
   });
 
   it("filters providers by template use and capability", () => {

@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -169,10 +169,10 @@ const enUS = {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",
@@ -4054,10 +4054,9 @@ export const messagesByLocale = {
       untitledDashboard: "未命名仪表板",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       account: "账户",
       signedInAs: "登录身份",
       credentials: "数据源凭据",
@@ -4269,10 +4268,10 @@ export const messagesByLocale = {
       untitledDashboard: "Panel sin título",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       account: "Cuenta",
       signedInAs: "Sesión iniciada como",
       credentials: "Credenciales de fuentes de datos",
@@ -4490,10 +4489,10 @@ export const messagesByLocale = {
       untitledDashboard: "Tableau de bord sans titre",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       account: "Compte",
       signedInAs: "Connecté en tant que",
       credentials: "Identifiants des sources de données",
@@ -4718,10 +4717,10 @@ export const messagesByLocale = {
       untitledDashboard: "Unbenanntes Dashboard",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       account: "Konto",
       signedInAs: "Angemeldet als",
       credentials: "Datenquellen-Anmeldedaten",
@@ -4937,10 +4936,10 @@ export const messagesByLocale = {
       untitledDashboard: "無題のダッシュボード",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       account: "アカウント",
       signedInAs: "サインイン中",
       credentials: "データソース認証情報",
@@ -5155,10 +5154,10 @@ export const messagesByLocale = {
       untitledDashboard: "제목 없는 대시보드",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       account: "계정",
       signedInAs: "로그인 계정",
       credentials: "데이터 소스 자격 증명",
@@ -5377,10 +5376,10 @@ export const messagesByLocale = {
       untitledDashboard: "Dashboard sem título",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       account: "Conta",
       signedInAs: "Conectado como",
       credentials: "Credenciais de fontes de dados",
@@ -5594,10 +5593,10 @@ export const messagesByLocale = {
       untitledDashboard: "शीर्षकहीन डैशबोर्ड",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       account: "खाता",
       signedInAs: "इस रूप में साइन इन",
       credentials: "डेटा स्रोत क्रेडेंशियल",
@@ -5810,10 +5809,10 @@ export const messagesByLocale = {
       untitledDashboard: "لوحة معلومات بلا عنوان",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       account: "الحساب",
       signedInAs: "تم تسجيل الدخول باسم",
       credentials: "بيانات اعتماد مصادر البيانات",

@@ -43,6 +43,9 @@ import {
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
 
+// Real libSQL access matrices run alongside every workspace suite in CI.
+vi.setConfig({ testTimeout: 60_000 });
+
 // ---------------------------------------------------------------------------
 // Test DB wiring. A single libSQL :memory: db is shared across the file; rows
 // are reset between tests. The plan resource is registered against it so the

@@ -2,7 +2,7 @@ import {
   callAction,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import {
   useQueryClient,

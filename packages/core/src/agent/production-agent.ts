@@ -2481,6 +2481,9 @@ export interface ExecuteAgentToolCallOptions {
   orgId?: string | null;
   /** Audit/action attribution for this externally selected call. */
   caller?: ActionCaller;
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
@@ -2576,6 +2579,9 @@ export async function executeAgentToolCall(
       ownerEmail: options.ownerEmail,
       orgId: options.orgId,
       actionCaller: options.caller,
+      networkProtocol: options.networkProtocol,
+      networkId: options.networkId,
+      networkPeer: options.networkPeer,
       executionMode: "act",
       maxIterations: 2,
       threadId: options.threadId,
@@ -3157,6 +3163,12 @@ export async function runAgentLoop(opts: {
   orgId?: string | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
+  /** Concrete execution id used for cross-app trace correlation. */
+  runId?: string;
+  /** Verified/telemetry-only delegated lineage supplied by the transport. */
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   /**
    * Attachments submitted with this turn (pasted text, files, images), passed
    * through to each tool's `ActionRunContext.attachments` so actions can
@@ -4215,6 +4227,9 @@ export async function runAgentLoop(opts: {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
                     caller: opts.actionCaller ?? "tool",
+                    networkProtocol: opts.networkProtocol,
+                    networkId: opts.networkId,
+                    networkPeer: opts.networkPeer,
                   }),
                 )
               : actionEntry.needsApproval === true;
@@ -4249,6 +4264,9 @@ export async function runAgentLoop(opts: {
               ctx: {
                 actionName: toolCall.name,
                 caller: opts.actionCaller ?? "tool",
+                networkProtocol: opts.networkProtocol,
+                networkId: opts.networkId,
+                networkPeer: opts.networkPeer,
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
                 ...(opts.threadId ? { threadId: opts.threadId } : {}),
@@ -4645,12 +4663,16 @@ export async function runAgentLoop(opts: {
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
           caller: opts.actionCaller ?? "tool",
+          networkProtocol: opts.networkProtocol,
+          networkId: opts.networkId,
+          networkPeer: opts.networkPeer,
           attachments: opts.attachments,
           signal,
           // Audit attribution: the action name + the agent thread/turn that
           // triggered this call, so a mutation can be traced to its run.
           actionName: toolCall.name,
           ...(opts.threadId ? { threadId: opts.threadId } : {}),
+          ...(opts.runId ? { runId: opts.runId } : {}),
           ...(opts.turnId ? { turnId: opts.turnId } : {}),
         };
         const requestContext = getRequestContext();
@@ -8004,6 +8026,7 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
+          runId,
           systemPrompt: requestSystemPrompt,
           tools: requestTools,
           availableTools: availableRequestTools,

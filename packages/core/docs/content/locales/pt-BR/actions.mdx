@@ -443,8 +443,7 @@ Dois ganchos, ambos em `@agent-native/core/client`. Os tipos são inferidos a pa
 Para actions que muda de estado:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +461,7 @@ Em caso de sucesso, a estrutura emite um evento de mudança com `source: "action
 Para GET actions somente leitura:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 

@@ -29,6 +29,7 @@ import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
@@ -178,12 +179,20 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    const [cleanupStateRaw, builderCreditsRaw] = await Promise.all([
-      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
-      canEditRecording
-        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    const [cleanupStateRaw, builderCreditsRaw, verificationPending] =
+      await Promise.all([
+        readAppState(`transcript-cleanup-${args.recordingId}`).catch(
+          () => null,
+        ),
+        canEditRecording
+          ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+          : Promise.resolve(null),
+        isMediaVerificationPending({
+          ownerEmail: rec.ownerEmail,
+          recordingId: args.recordingId,
+          recordingStatus: rec.status,
+        }),
+      ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
@@ -326,6 +335,7 @@ export default defineAction({
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
+        verificationPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that

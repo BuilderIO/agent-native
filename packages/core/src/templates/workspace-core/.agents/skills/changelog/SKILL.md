@@ -96,7 +96,7 @@ expose it in an app:
 2. **Settings** (optional) — drop the card on the settings page:
 
    ```tsx
-   import { ChangelogSettingsCard } from "@agent-native/core/client";
+   import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
    import changelog from "../CHANGELOG.md?raw";
    // ...
    <ChangelogSettingsCard markdown={changelog} />

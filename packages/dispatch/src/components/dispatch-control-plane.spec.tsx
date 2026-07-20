@@ -11,7 +11,16 @@ const clientState = vi.hoisted(() => ({
   navigateWithTransition: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  navigateWithAgentChatViewTransition: (
+    navigate: unknown,
+    path: string,
+    options?: unknown,
+  ) => clientState.navigateWithTransition(navigate, path, options),
+  useChatModels: () => ({ selectedModel: "auto" }),
+}));
+
+vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: ({
     onSubmit,
     placeholder,
@@ -27,19 +36,22 @@ vi.mock("@agent-native/core/client", () => ({
       Composer
     </button>
   ),
-  isInBuilderFrame: () => false,
-  navigateWithAgentChatViewTransition: (
-    navigate: unknown,
-    path: string,
-    options?: unknown,
-  ) => clientState.navigateWithTransition(navigate, path, options),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({
     data: [],
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
   }),
-  useChatModels: () => ({ selectedModel: "auto" }),
+}));
+
+vi.mock("@agent-native/core/client/host", () => ({
+  isInBuilderFrame: () => false,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { defaultValue?: string }) =>
     values?.defaultValue ?? key,
 }));

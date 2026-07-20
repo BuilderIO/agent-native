@@ -12,9 +12,7 @@ import {
   parseGridTemplate,
 } from "./layout-properties";
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...inputs: Array<string | false | null | undefined>) =>
-    inputs.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

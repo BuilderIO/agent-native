@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   A2ATaskTimeoutError,
@@ -9,6 +9,7 @@ import {
 import { invokeAgentAction } from "../a2a/invoke.js";
 import type {
   A2AApprovedAction,
+  A2ACorrelationMetadata,
   A2ASourceContext,
   Task,
 } from "../a2a/types.js";
@@ -31,6 +32,38 @@ import {
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
+
+function buildDelegationCorrelation(
+  context: ActionRunContext | undefined,
+  selfAppId: string | undefined,
+  invocationId?: string,
+): A2ACorrelationMetadata {
+  return {
+    ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
+    ...(context?.runId ? { parentRunId: context.runId } : {}),
+    ...(context?.turnId ? { parentTurnId: context.turnId } : {}),
+    ...(invocationId ? { invocationId } : {}),
+  };
+}
+
+function buildMessageIdempotencyKey(
+  originatingTurnId: string | undefined,
+  target: string,
+  exactMessage: string,
+): string | undefined {
+  if (!originatingTurnId) return undefined;
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        originatingTurnId,
+        target,
+        message: exactMessage,
+      }),
+    )
+    .digest("hex");
+  return `v1:${digest}`;
+}
 
 function parseTimeoutMs(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -73,8 +106,11 @@ function integrationSourceContext(): A2ASourceContext | undefined {
   const incoming = integration?.incoming;
   if (incoming?.platform !== "slack" || !incoming.sourceUrl) return undefined;
 
+  const rawSourceUrl = incoming.sourceUrl;
+  if (rawSourceUrl !== rawSourceUrl.trim()) return undefined;
+
   try {
-    const sourceUrl = new URL(incoming.sourceUrl);
+    const sourceUrl = new URL(rawSourceUrl);
     const isSlackHost =
       sourceUrl.hostname === "slack.com" ||
       sourceUrl.hostname.endsWith(".slack.com");
@@ -89,7 +125,7 @@ function integrationSourceContext(): A2ASourceContext | undefined {
     }
     return {
       platform: "slack",
-      sourceUrl: incoming.sourceUrl,
+      sourceUrl: rawSourceUrl,
     };
   } catch {
     return undefined;
@@ -209,6 +245,12 @@ export async function run(
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 
+  const correlation = buildDelegationCorrelation(context, selfAppId);
+  const idempotencyKey =
+    message && !taskId
+      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
+      : undefined;
+
   if (action) {
     if (context?.send) {
       context.send({ type: "agent_call", agent: agent.name, status: "start" });
@@ -218,6 +260,7 @@ export async function run(
         agent,
         action,
         input as Record<string, unknown>,
+        buildDelegationCorrelation(context, selfAppId, randomUUID()),
       );
       return output;
     } finally {
@@ -413,6 +456,9 @@ export async function run(
           orgSecret: callerOrgSecret,
           approvedActions,
           ...(sourceContext ? { sourceContext } : {}),
+          contextId: context.threadId,
+          correlation,
+          idempotencyKey,
           ...(taskId ? { taskId } : {}),
           onUpdate: onRemotePollUpdate,
           returnRecoverableArtifactsOnTimeout: false,
@@ -505,6 +551,9 @@ export async function run(
       orgSecret,
       approvedActions,
       ...(sourceContext ? { sourceContext } : {}),
+      contextId: context?.threadId,
+      correlation,
+      idempotencyKey,
       ...(taskId ? { taskId } : {}),
       returnRecoverableArtifactsOnTimeout: false,
     });
@@ -539,6 +588,7 @@ async function invokeReadOnlyAppAction(
   agent: { name: string; url: string },
   action: string,
   input: Record<string, unknown>,
+  correlation: A2ACorrelationMetadata,
 ): Promise<string> {
   const callerEmail = getRequestUserEmail();
   if (!callerEmail) {
@@ -569,6 +619,7 @@ async function invokeReadOnlyAppAction(
       userEmail: callerEmail,
       orgDomain: callerOrgDomain,
       orgSecret: callerOrgSecret,
+      correlation,
     });
     return invocation.result.status === "completed"
       ? invocation.result.output

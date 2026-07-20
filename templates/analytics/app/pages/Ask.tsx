@@ -1,8 +1,8 @@
 import {
   AgentChatSurface,
   useAgentChatContext,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { useEffect, useMemo, useState } from "react";
 

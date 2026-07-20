@@ -270,8 +270,10 @@ export default runMigrations(
 路由位於 `app/routes/` 中並使用 React Router v8 檔案路由。透過actions或 API 處理常式查詢資料，並預設使突變樂觀。
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +289,7 @@ export default function ProjectsPage() {
 在應用程式 shell 附近連線一次即時同步，以便在代理、另一個分頁或操作更改資料時重新整理 React 查詢快取：
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +302,7 @@ export function AppSync() {
 **Agent-Native 承諾：代理寫入顯示在 UI 中，無需手動重新整理。** `useActionQuery` 是簡單路徑 - 當變異操作發出 `source: "action"` 時，每個鉤子都會重新取得。如果您使用自訂金鑰（例如，讀取整合狀態的低階用戶端幫助程式）取得原始 `useQuery`，請將每個來源計數器折疊到 queryKey 中以進行有針對性的重新整理：
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +325,7 @@ useQuery({
 使用 `useAgentRouteState` 作為 UI 掛鉤，以便應用程式狀態寫入、分頁範圍指令讀取、讀取後刪除和重複指令保護保持一致：
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {

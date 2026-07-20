@@ -1,4 +1,5 @@
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import {
   IconDatabase,
   IconFileSearch,

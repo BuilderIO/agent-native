@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { AvailabilityConfig, DaySchedule } from "@shared/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";

@@ -1,4 +1,5 @@
-import { callAction, setClientAppState, useT } from "@agent-native/core/client";
+import { callAction, setClientAppState } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import type { Document } from "@shared/api";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
@@ -44,6 +45,11 @@ import {
   syncLocalControlResources,
   type LocalControlResourceFiles,
 } from "@/lib/local-control-resources";
+import {
+  hasInterruptedNativeFolderPickerAttempt,
+  runNativeFolderPickerWithCrashSentinel,
+} from "@/lib/local-folder-picker-safety";
+import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
 import { cn } from "@/lib/utils";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -193,7 +199,8 @@ function supportsDirectoryPicker() {
     typeof (window as WindowWithDirectoryPicker).showDirectoryPicker ===
       "function" &&
     !getDesktopContentFiles() &&
-    !isElectronLikeBrowser()
+    !hasInterruptedNativeFolderPickerAttempt() &&
+    !isUnsafeNativeFolderPickerHost()
   );
 }
 
@@ -202,11 +209,13 @@ function supportsLocalFolderSync() {
 }
 
 function isElectronLikeBrowser() {
-  if (typeof navigator === "undefined") return false;
-  return /\bElectron\//.test(navigator.userAgent);
+  return isUnsafeNativeFolderPickerHost();
 }
 
 function unsupportedLocalFolderSyncMessage(t: ReturnType<typeof useT>) {
+  if (hasInterruptedNativeFolderPickerAttempt()) {
+    return t("localFiles.interruptedPicker");
+  }
   if (isElectronLikeBrowser()) {
     return t("localFiles.unsupportedElectron");
   }
@@ -540,10 +549,12 @@ async function chooseDirectory(
   }
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
-  if (!picker || isElectronLikeBrowser()) {
+  if (!picker || isUnsafeNativeFolderPickerHost()) {
     throw new Error(unsupportedLocalFolderSyncMessage(t));
   }
-  const handle = await picker({ mode: "readwrite" });
+  const handle = await runNativeFolderPickerWithCrashSentinel(() =>
+    picker({ mode: "readwrite" }),
+  );
   const existing = await Promise.all(
     directories
       .filter((directory) => directory.kind === "browser")
@@ -740,6 +751,7 @@ export default function LocalFilesRoute() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const targetSpaceId = searchParams.get("spaceId") || undefined;
+  const targetDatabaseId = searchParams.get("databaseId") || undefined;
   const manifestConnectionId = searchParams.get("connectionId") || undefined;
   const manifestFile = searchParams.get("file") || undefined;
   const { data: documents = [] } = useDocuments();
@@ -915,7 +927,8 @@ export default function LocalFilesRoute() {
         connectionId: directory.id,
         label: directory.sourcePrefix || directory.name,
         spaceId: targetSpaceId,
-        createSourceBackedSpace: !targetSpaceId,
+        databaseId: targetDatabaseId,
+        createSourceBackedSpace: !targetSpaceId && !targetDatabaseId,
         truthPolicy: "source_primary",
         dryRun,
       } as never,

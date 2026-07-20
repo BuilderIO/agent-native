@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/creative-context",
-  "version": "0.5.1",
+  "version": "0.5.7",
   "description": "Shared creative context ingestion, versioning, search, brand DNA, and context-pack primitives for agent-native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -14,11 +14,16 @@
   },
   "files": [
     "agent-native.package.json",
+    "agent-native.eject.json",
     "docs",
     "dist",
-    "src"
+    "src",
+    "tsconfig.json"
   ],
   "type": "module",
+  "sideEffects": [
+    "dist/server/index.js"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./actions": "./dist/actions/index.js",
@@ -88,5 +93,6 @@
     "officeparser": "^7.3.0",
     "playwright": "^1.61.1"
   },
+  "agentNativeEjectManifest": "agent-native.eject.json",
   "agentNativeManifest": "agent-native.package.json"
 }

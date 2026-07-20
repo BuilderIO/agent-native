@@ -587,10 +587,9 @@ const messages = {
     pageTitle: "加入團隊 · Clips",
   },
   settings: {
-    openAgentSettings: "開啟代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    agentTitle: "代理設定",
+    openAgentSettings: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    agentTitle: "管理代理",
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "此 Clips 工作區的偏好設定和已連線服務。",

@@ -1,13 +1,15 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  deleteClientAppState,
-  readClientAppState,
   removeAgentChatContextItem,
   setAgentChatContextItem,
-  setClientAppState,
   type AgentSidebarStateChangeDetail,
   useAgentChatContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useState } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";

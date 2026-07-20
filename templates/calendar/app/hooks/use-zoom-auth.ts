@@ -1,4 +1,5 @@
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 

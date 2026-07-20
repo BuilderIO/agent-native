@@ -1,24 +1,24 @@
-import {
-  AgentToggleButton,
-  PresenceBar,
-  appPath,
-  useActionMutation,
-  useT,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { ShareButton } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { type CollabUser } from "@agent-native/core/client/collab";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconCheck,
   IconCopy,
   IconDownload,
   IconDotsVertical,
   IconExternalLink,
   IconFileTypeHtml,
   IconFileTypePdf,
+  IconFolder,
   IconLinkOff,
   IconLoader2,
   IconMarkdown,
@@ -27,15 +27,34 @@ import {
   IconFolderOpen,
   IconPlus,
   IconHistory,
+  IconInfoCircle,
   IconLink,
+  IconMessageCircle,
   IconRefresh,
   IconShare3,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -190,24 +209,27 @@ function ToolbarBreadcrumb({
   untitledLabel,
   onOpen,
 }: {
-  items: { id?: string; title: string; icon?: string | null }[];
+  items: ToolbarBreadcrumbItem[];
   currentDocumentId: string;
   ariaLabel: string;
   untitledLabel: string;
   onOpen: (id: string) => void;
 }) {
+  const visibleItems = compactToolbarBreadcrumbItems(items);
   return (
     <nav
       aria-label={ariaLabel}
       className="flex min-w-0 flex-1 items-center gap-1 text-sm text-foreground"
     >
-      {items.map((item, index) => {
-        const isLast = index === items.length - 1;
+      {visibleItems.map((item, index) => {
+        const isLast = index === visibleItems.length - 1;
         const label = item.title.trim() || untitledLabel;
         const content = (
           <>
             {item.icon ? (
               <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+            ) : item.iconKind === "folder" ? (
+              <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
             ) : null}
             <span className="truncate">{label}</span>
           </>
@@ -218,7 +240,18 @@ function ToolbarBreadcrumb({
             key={`${item.id ?? label}-${index}`}
             className="flex min-w-0 items-center gap-1"
           >
-            {item.id && item.id !== currentDocumentId ? (
+            {item.menuItems?.length ? (
+              <ToolbarBreadcrumbMenu
+                item={item}
+                label={label}
+                currentDocumentId={currentDocumentId}
+                current={isLast}
+                untitledLabel={untitledLabel}
+                onOpen={onOpen}
+              >
+                {content}
+              </ToolbarBreadcrumbMenu>
+            ) : item.id && item.id !== currentDocumentId ? (
               <button
                 type="button"
                 className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -246,11 +279,134 @@ function ToolbarBreadcrumb({
   );
 }
 
+export interface ToolbarBreadcrumbItem {
+  id?: string;
+  title: string;
+  icon?: string | null;
+  iconKind?: "folder";
+  menuItems?: Array<{
+    id: string;
+    title: string;
+    icon?: string | null;
+    iconKind?: "folder";
+  }>;
+}
+
+export function compactToolbarBreadcrumbItems(
+  items: ToolbarBreadcrumbItem[],
+): ToolbarBreadcrumbItem[] {
+  if (items.length <= 3) return items;
+  const hidden = items.slice(1, -2);
+  return [
+    items[0],
+    {
+      title: "…",
+      menuItems: hidden.flatMap((item) =>
+        item.id
+          ? [
+              {
+                id: item.id,
+                title: item.title,
+                icon: item.icon,
+                iconKind: item.iconKind,
+              },
+            ]
+          : [],
+      ),
+    },
+    ...items.slice(-2),
+  ];
+}
+
+function ToolbarBreadcrumbMenu({
+  item,
+  label,
+  currentDocumentId,
+  current,
+  untitledLabel,
+  onOpen,
+  children,
+}: {
+  item: ToolbarBreadcrumbItem;
+  label: string;
+  currentDocumentId: string;
+  current: boolean;
+  untitledLabel: string;
+  onOpen: (id: string) => void;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function cancelClose() {
+    if (!closeTimerRef.current) return;
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }
+
+  function scheduleClose() {
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => setOpen(false), 140);
+  }
+
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className={cn(
+            "flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            current ? "text-foreground" : "text-muted-foreground",
+          )}
+          onPointerEnter={() => {
+            cancelClose();
+            setOpen(true);
+          }}
+          onPointerLeave={scheduleClose}
+        >
+          {children}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-64"
+        onPointerEnter={cancelClose}
+        onPointerLeave={scheduleClose}
+      >
+        {item.menuItems?.map((menuItem) => {
+          const menuLabel = menuItem.title.trim() || untitledLabel;
+          return (
+            <DropdownMenuItem
+              key={menuItem.id}
+              className="gap-2"
+              onSelect={() => onOpen(menuItem.id)}
+            >
+              <span className="flex size-4 shrink-0 items-center justify-center">
+                {menuItem.id === currentDocumentId ? (
+                  <IconCheck className="size-3.5" />
+                ) : menuItem.icon ? (
+                  <span className="text-sm leading-none">{menuItem.icon}</span>
+                ) : menuItem.iconKind === "folder" ? (
+                  <IconFolder className="size-3.5 text-muted-foreground" />
+                ) : (
+                  <IconFileText className="size-3.5 text-muted-foreground" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{menuLabel}</span>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 interface DocumentToolbarProps {
   documentId: string;
   documentTitle?: string;
   documentContent?: string;
-  breadcrumbItems?: { id?: string; title: string; icon?: string | null }[];
+  breadcrumbItems?: ToolbarBreadcrumbItem[];
   documentUpdatedAt?: string | null;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
@@ -259,6 +415,13 @@ interface DocumentToolbarProps {
   canEdit?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
+  canDelete?: boolean;
+  deletePending?: boolean;
+  onDelete?: () => Promise<void>;
+  utilityPanel: "info" | "comments" | null;
+  onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
+  showCommentsControl?: boolean;
+  onOpenBreadcrumbItem?: (id: string) => void;
 }
 
 export function DocumentToolbar({
@@ -274,6 +437,13 @@ export function DocumentToolbar({
   canEdit = true,
   hideFromSearch = false,
   source,
+  canDelete = false,
+  deletePending = false,
+  onDelete,
+  utilityPanel,
+  onUtilityPanelChange,
+  showCommentsControl = true,
+  onOpenBreadcrumbItem,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -313,6 +483,7 @@ export function DocumentToolbar({
     boolean | null
   >(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
@@ -653,7 +824,13 @@ export function DocumentToolbar({
           currentDocumentId={documentId}
           ariaLabel={t("editor.toolbar.pageBreadcrumb")}
           untitledLabel={t("sidebar.untitled")}
-          onOpen={(id) => navigate(`/page/${id}`, { flushSync: true })}
+          onOpen={(id) => {
+            if (onOpenBreadcrumbItem) {
+              onOpenBreadcrumbItem(id);
+              return;
+            }
+            navigate(`/page/${id}`, { flushSync: true });
+          }}
         />
 
         <div className="ml-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
@@ -757,6 +934,50 @@ export function DocumentToolbar({
             </TooltipTrigger>
             <TooltipContent>{t("editor.toolbar.copyPageLink")}</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  utilityPanel === "info" && "bg-accent text-foreground",
+                )}
+                aria-label={t("editor.toolbar.info")}
+                aria-pressed={utilityPanel === "info"}
+                onClick={() =>
+                  onUtilityPanelChange(utilityPanel === "info" ? null : "info")
+                }
+              >
+                <IconInfoCircle size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editor.toolbar.info")}</TooltipContent>
+          </Tooltip>
+
+          {showCommentsControl ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    utilityPanel === "comments" && "bg-accent text-foreground",
+                  )}
+                  aria-label={t("comments.title")}
+                  aria-pressed={utilityPanel === "comments"}
+                  onClick={() =>
+                    onUtilityPanelChange(
+                      utilityPanel === "comments" ? null : "comments",
+                    )
+                  }
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.title")}</TooltipContent>
+            </Tooltip>
+          ) : null}
 
           <DropdownMenu modal={false}>
             <Tooltip>
@@ -1204,11 +1425,47 @@ export function DocumentToolbar({
                   </Popover>
                 ) : null}
               </DropdownMenuGroup>
+              {canDelete && onDelete ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setDeleteDialogOpen(true)}
+                  >
+                    <IconTrash className="me-2 h-4 w-4" />
+                    {t("database.delete")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
           <AgentToggleButton />
         </div>
       </div>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sidebar.deletePageDescription", {
+                title: documentTitle || t("sidebar.untitled"),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deletePending}
+              onClick={() => void onDelete?.()}
+            >
+              {t("database.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

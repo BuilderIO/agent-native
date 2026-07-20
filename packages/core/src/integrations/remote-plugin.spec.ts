@@ -1063,11 +1063,15 @@ describe("remote integration plugin routes", () => {
       orgId: "org-1",
       payload: expect.objectContaining({
         title: "Remote run completed",
+        body: "Open Agent Native to review the result.",
         commandId: "cmd-1",
         kind: "append-followup",
         status: "completed",
       }),
     });
+    expect(
+      queueRemotePushNotificationsMock.mock.calls.at(-1)?.[0].payload,
+    ).not.toHaveProperty("result");
   });
 
   it("accepts idempotent run events from the authenticated device", async () => {

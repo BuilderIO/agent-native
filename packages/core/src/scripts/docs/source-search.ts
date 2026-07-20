@@ -1,11 +1,12 @@
 /**
  * Core script: source-search
  *
- * Search and read the packaged Agent Native source corpus.
+ * Search and read the packaged Agent Native Core, Toolkit, and template corpus.
  * The corpus is generated into @agent-native/core/corpus during package build.
  *
  * Usage:
  *   pnpm action source-search --query "defineAction"
+ *   pnpm action source-search --path toolkit/src/index.ts
  *   pnpm action source-search --path templates/plan/AGENTS.md
  *   pnpm action source-search --list
  */

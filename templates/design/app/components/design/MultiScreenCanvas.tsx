@@ -1,8 +1,8 @@
-import { useT } from "@agent-native/core/client";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -84,6 +84,7 @@ import {
 } from "./canvas-primitive-style";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { DesignCanvas } from "./DesignCanvas";
+import { dndHostLog } from "./dnd-debug";
 import {
   gradientToCss,
   parseGradientCss,
@@ -154,6 +155,10 @@ const TRANSFORM_BADGE_MAX_WIDTH = 180;
 // (frame z-order is a small per-design integer) while staying well under the
 // reserved resize-handle stacking range (999_999+).
 const TOP_SCREEN_Z_BOOST = 100_000;
+// A live draw preview must paint above every screen — including the
+// TOP_SCREEN_Z_BOOSTed active one — or its outline hides behind the opaque
+// screen iframe until commit. Stays below the resize-handle range (999_999+).
+const DRAFT_PREVIEW_Z = TOP_SCREEN_Z_BOOST + 50_000;
 const EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN: Record<
   string,
   string[][]
@@ -2269,6 +2274,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
 
+      if (msg.phase !== "move") {
+        dndHostLog("overview:cross-screen", {
+          phase: msg.phase,
+          source: sourceScreenId,
+          selector: msg.selector,
+        });
+      }
       if (msg.phase === "start") {
         setCrossScreenSourceIsBoard(sourceScreenId === boardFileId);
         crossScreenDragMsgRef.current = {
@@ -5167,6 +5179,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             frameGeometryWithOverrides(after, state.originFrames),
             after,
           );
+          dndHostLog("overview:frame-commit", { ids: state.targetIds });
           suppressNextPick.current = true;
         }
         finishDrag();
@@ -8156,7 +8169,7 @@ function DraftPrimitiveLayer({
         ...frameStyleLeftTop(geometry),
         width: geometry.width,
         height: geometry.height,
-        zIndex: geometry.z ?? 40,
+        zIndex: preview ? DRAFT_PREVIEW_Z : (geometry.z ?? 40),
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
           : undefined,

@@ -1,4 +1,4 @@
-import { appendAgentChatContextToMessage } from "@agent-native/core/client";
+import { appendAgentChatContextToMessage } from "@agent-native/core/client/agent-chat";
 import { isNodeRewriteProposal } from "@shared/node-rewrite";
 import { describe, expect, it } from "vitest";
 

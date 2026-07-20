@@ -3,11 +3,17 @@ export {
   type AgentPresenceChipProps,
 } from "./AgentPresenceChip.js";
 export {
+  AGENT_CLIENT_ID,
+  DEFAULT_AGENT_IDENTITY,
+  type AgentIdentity,
+} from "./agent-identity.js";
+export {
   LiveCursorOverlay,
   type CursorMapFn,
   type LiveCursorOverlayProps,
 } from "./LiveCursorOverlay.js";
 export { PresenceBar, type PresenceBarProps } from "./PresenceBar.js";
+export { isReconcileLeadClient } from "./lead-client.js";
 export {
   RecentEditHighlights,
   type RecentEditHighlightsProps,

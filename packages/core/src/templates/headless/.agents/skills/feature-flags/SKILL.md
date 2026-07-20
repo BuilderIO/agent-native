@@ -37,7 +37,7 @@ Keep definitions in a shared TypeScript module so server and client code use the
 same stable key. Flags are boolean and default-off.
 
 ```ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",
@@ -81,7 +81,7 @@ run: async (args, ctx) => {
 Use the client hook only to hide or reveal hydrated UI:
 
 ```tsx
-import { useFeatureFlag } from "@agent-native/core/client";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 
 const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
 return enabled ? <FullAppOption /> : null;

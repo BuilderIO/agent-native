@@ -105,7 +105,7 @@ All of these honor the per-user / per-org data scoping — you can't read or wri
 The frontend calls actions using React Query hooks from the client API. The framework owns the HTTP transport behind these hooks, so components should not call action routes with raw `fetch`.
 
 ```ts
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client/hooks";
 
 // Read data
 const { data } = useActionQuery("list-meals", { date: "2025-01-01" });

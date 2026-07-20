@@ -1,4 +1,5 @@
-import { useAgentChatGenerating, useT } from "@agent-native/core/client";
+import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconMicrophone,
   IconMicrophoneOff,

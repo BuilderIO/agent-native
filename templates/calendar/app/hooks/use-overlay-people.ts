@@ -1,4 +1,4 @@
-import { callAction, useActionQuery } from "@agent-native/core/client";
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 

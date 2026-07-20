@@ -26,10 +26,11 @@ import {
 
 export type McpConnectionSuggestionVariant = "composer" | "response";
 
-interface McpConnectionSuggestionProps {
+export interface McpConnectionSuggestionProps {
   text: string;
   contextText?: string;
   variant?: McpConnectionSuggestionVariant;
+  integrations?: DefaultMcpIntegration[];
 }
 
 function compareUrl(value: string): string {
@@ -79,6 +80,7 @@ export function McpConnectionSuggestion({
   text,
   contextText = "",
   variant = "composer",
+  integrations: integrationOptions,
 }: McpConnectionSuggestionProps) {
   const t = useT();
   const mcpServersQuery = useMcpServers();
@@ -87,7 +89,10 @@ export function McpConnectionSuggestion({
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
+  const integrations = useMemo(
+    () => integrationOptions ?? getDefaultMcpIntegrations(),
+    [integrationOptions],
+  );
   const textIntegration = useMemo(
     () => findMcpIntegrationForText(text, integrations),
     [integrations, text],
@@ -264,6 +269,7 @@ export function McpConnectionSuggestion({
         hasOrg={Boolean(mcpServersQuery.data?.orgId)}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
         onCreated={() => setDismissedId(integration.id)}
+        integrations={integrations}
       />
     </>
   );

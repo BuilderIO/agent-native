@@ -1,4 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const getObservabilityConfigMock = vi.hoisted(() => vi.fn());
+const instrumentAgentLoopMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../observability/traces.js", () => ({
+  getObservabilityConfig: getObservabilityConfigMock,
+  instrumentAgentLoop: instrumentAgentLoopMock,
+}));
 
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
@@ -109,6 +117,11 @@ describe("delegated A2A recoverable artifact checkpoints", () => {
 });
 
 describe("delegated A2A final response guards", () => {
+  beforeEach(() => {
+    getObservabilityConfigMock.mockReset();
+    instrumentAgentLoopMock.mockReset();
+  });
+
   it("runs an Analytics-style real-data guard for delegated turns", async () => {
     const analyticsGuard = vi.fn(
       (context: { text: string; toolResults: unknown[] }) =>
@@ -163,7 +176,7 @@ describe("delegated A2A final response guards", () => {
         runSoftTimeoutMs: 12_345,
       },
       { backgroundFunction: true },
-      delegatedRunner as any,
+      { runner: delegatedRunner as any },
     );
 
     expect(analyticsGuard).toHaveBeenCalledOnce();
@@ -200,7 +213,7 @@ describe("delegated A2A final response guards", () => {
       },
       { finalResponseGuard: guard as any, runSoftTimeoutMs: 1_000 },
       { backgroundFunction: false },
-      runner as any,
+      { runner: runner as any },
     );
 
     expect(runner).toHaveBeenCalledWith(
@@ -212,6 +225,112 @@ describe("delegated A2A final response guards", () => {
       1_000,
       { backgroundFunction: false },
     );
+  });
+
+  it("instruments A2A loops with stable task correlation and user identity", async () => {
+    getObservabilityConfigMock.mockResolvedValueOnce({ enabled: true });
+    instrumentAgentLoopMock.mockImplementationOnce(async (options: any) =>
+      options.runAgentLoop(options.loopOpts),
+    );
+    const runner = vi.fn(async () => ({
+      inputTokens: 1,
+      outputTokens: 2,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        networkProtocol: "a2a",
+        networkId: "task-qa",
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {},
+      { backgroundFunction: true },
+      {
+        runner: runner as any,
+        telemetry: {
+          runId: "task-qa",
+          threadId: "caller-thread",
+          userId: "alice@example.test",
+          delegation: {
+            protocol: "a2a",
+            callerApp: "mail",
+            taskId: "task-qa",
+            parentRunId: "run-parent",
+            parentTurnId: "turn-parent",
+          },
+        },
+      },
+    );
+
+    expect(instrumentAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "task-qa",
+        threadId: "caller-thread",
+        userId: "alice@example.test",
+        loopOpts: expect.objectContaining({
+          networkProtocol: "a2a",
+          networkId: "task-qa",
+        }),
+        delegation: {
+          protocol: "a2a",
+          callerApp: "mail",
+          taskId: "task-qa",
+          parentRunId: "run-parent",
+          parentTurnId: "turn-parent",
+        },
+      }),
+    );
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the uninstrumented delegated loop when setup fails", async () => {
+    getObservabilityConfigMock.mockRejectedValueOnce(
+      new Error("observability database unavailable"),
+    );
+    const runner = vi.fn(async () => ({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await runMCPAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {},
+      { backgroundFunction: false },
+      {
+        runner: runner as any,
+        telemetry: {
+          runId: "mcp-request-qa",
+          threadId: "mcp-request-qa",
+          userId: "alice@example.test",
+          delegation: { protocol: "mcp" },
+        },
+      },
+    );
+
+    expect(instrumentAgentLoopMock).not.toHaveBeenCalled();
+    expect(runner).toHaveBeenCalledOnce();
   });
 });
 

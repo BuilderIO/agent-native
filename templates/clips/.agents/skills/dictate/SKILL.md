@@ -1,9 +1,9 @@
 ---
 name: dictate
 description: >-
-  The Dictate tab in Clips — press-and-hold dictation history (Hold-Fn / Cmd+Shift+Space),
-  AI cleanup, and the desktop-app integration that captures the audio. Use when listing
-  past dictations, polishing dictation text, or wiring the desktop tray hand-off.
+  The Dictate tab in Clips — press-and-hold desktop dictation, mobile voice
+  dictation, history, AI cleanup, and native capture hand-offs. Use when
+  listing past dictations, polishing dictation text, or wiring native capture.
 ---
 
 # Dictate
@@ -25,7 +25,9 @@ The press-and-hold UX intentionally mirrors **Wispr Flow**. See `templates/clips
 
 ## Data model touched
 
-- **`dictations`** — `id`, `fullText`, `cleanedText`, `durationMs`, `audioUrl`, `source` (`hold-fn` | `hotkey` | `manual`), `createdAt`, `ownableColumns()`.
+- **`dictations`** — `id`, `fullText`, `cleanedText`, `durationMs`, `audioUrl`,
+  `source` (desktop shortcuts, `manual`, or `mobile`), `createdAt`,
+  `ownableColumns()`.
 
 `fullText` is the raw native transcript captured on-device (macOS Speech / Web Speech). `cleanedText` is the optional AI-polished version produced by the shared `cleanup-transcript` pipeline. UI shows `cleanedText ?? fullText`.
 
@@ -81,7 +83,28 @@ The press-and-hold flow is **owned by the desktop app** (`src-tauri/`). On Hold-
 3. The dictation row is created via the framework HTTP layer — the agent does not start/stop dictations.
 4. AI cleanup is a background pass via `cleanup-dictation`, not in the hot path — never block paste-on-release on a network round-trip.
 
-Agents must **never** wire dictation start/stop server-side. The native key listener is the only entry point.
+Agents must **never** wire dictation start/stop server-side. Desktop key
+listeners and the mobile capture UI own those user gestures.
+
+## Mobile dictation
+
+The Agent Native iOS/Android app exposes Dictate from native Home, deep links,
+and OS quick actions. Mobile is click-to-toggle rather than hold-to-talk:
+
+1. `expo-audio` records mic-only M4A and persists it under the app documents
+   directory before any network request.
+2. A durable capture-queue row protects the audio across interruptions, app
+   restarts, and upload failures.
+3. The named mobile voice client posts multipart audio to the authenticated
+   `/_agent-native/transcribe-voice` route. Provider keys never enter the app.
+4. The cleaned transcript is editable, copied to the OS clipboard, and saved
+   with `create-dictation --source=mobile`; edits use `update-dictation`.
+5. The audio also syncs to Clips through the resumable recording upload path so
+   a failed transcription never destroys the captured speech.
+
+Do not auto-send mobile dictation to an agent or another app. iOS/Android quick
+actions open capture; clipboard is the cross-app fallback until platform
+keyboard/accessibility insertion is enabled.
 
 ## UI conventions (don't break)
 

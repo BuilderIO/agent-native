@@ -1,4 +1,8 @@
-import { postNavigate, isInAgentEmbed, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  postNavigate,
+  isInAgentEmbed,
+} from "@agent-native/core/client/navigation";
 import type { EmailMessage } from "@shared/types";
 import { IconExternalLink } from "@tabler/icons-react";
 import { useMemo } from "react";

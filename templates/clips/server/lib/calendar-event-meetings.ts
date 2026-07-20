@@ -81,7 +81,7 @@ export function shouldMarkNeedsReauth(message: string): boolean {
 export async function resolveCalendarAccessToken(
   account: CalendarAccountForEvents,
 ): Promise<string | null> {
-  const credentialCandidates = resolveGoogleOAuthCredentialCandidates();
+  const credentialCandidates = await resolveGoogleOAuthCredentialCandidates();
   if (!credentialCandidates.length || !account.ownerEmail) return null;
 
   let bundle: AccessTokenBundle | null = null;

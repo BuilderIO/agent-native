@@ -1,47 +1,57 @@
 import {
+  generateTabId,
+  AgentChatSurface,
+  setAgentChatContextItem,
+  removeAgentChatContextItem,
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
+import {
+  useCollaborativeDoc,
+  isReconcileLeadClient,
+  dedupeCollabUsersByEmail,
+  emailToColor,
+  emailToName,
+  usePresence,
+  useFollowUser,
+  useRecentEdits,
+  type CollabUser,
+  type AttributedRecentEdit,
+  type OtherPresence,
+} from "@agent-native/core/client/collab";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import {
   useActionQuery,
   useActionMutation,
   callAction,
   tryCallActionKeepalive,
   useSession,
-  useCollaborativeDoc,
-  isReconcileLeadClient,
-  generateTabId,
-  dedupeCollabUsersByEmail,
-  emailToColor,
-  emailToName,
-  AgentChatSurface,
-  ShareButton,
-  agentNativePath,
-  appBasePath,
-  isEmbedAuthActive,
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
   useReconciledState,
-  usePresence,
-  useFollowUser,
+  useChangeVersion,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import {
   useReviewComments,
   useSendReviewThreadToAgent,
+  type ReviewThread,
+} from "@agent-native/core/client/review";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import type { ReviewComment } from "@agent-native/core/review";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
   LiveCursorOverlay,
   RemoteSelectionRings,
   RecentEditHighlights,
-  useRecentEdits,
-  useFeatureFlag,
-  useT,
-  useChangeVersion,
-  setAgentChatContextItem,
-  removeAgentChatContextItem,
-  useAgentChatContext,
-  useAvatarUrl,
-  type CollabUser,
-  type AttributedRecentEdit,
-  type OtherPresence,
-  type PromptComposerSubmitOptions,
-  type ReviewThread,
-} from "@agent-native/core/client";
-import type { ReviewComment } from "@agent-native/core/review";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+} from "@agent-native/toolkit/collab-ui";
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
@@ -231,6 +241,7 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
+import { dndHostLog } from "@/components/design/dnd-debug";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
   EditPanel,
@@ -3180,7 +3191,10 @@ function DesignEditor() {
         return;
       }
       undoManagerRef.current?.clear(true, false);
-      recordLocalContentHistoryChangeFallback(change);
+      recordLocalContentHistoryChangeFallback({
+        ...change,
+        isCheckpoint: true,
+      });
       clearRedoStacks();
       syncUndoRedoState();
     },
@@ -3975,6 +3989,12 @@ function DesignEditor() {
     });
   }, [t]);
 
+  const warnChangesDiscarded = useCallback(() => {
+    toast.error(t("visualEditor.changesDiscarded"), {
+      id: "design-save-outbox-discarded",
+    });
+  }, [t]);
+
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
       try {
@@ -4018,12 +4038,21 @@ function DesignEditor() {
       if (result.failed.length > 0 && navigator.onLine === false) {
         warnChangesWillRetry();
       }
+      if (result.dropped.length > 0) {
+        warnChangesDiscarded();
+      }
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
       }
     }
-  }, [designSaveActorScope, id, queryClient, warnChangesWillRetry]);
+  }, [
+    designSaveActorScope,
+    id,
+    queryClient,
+    warnChangesWillRetry,
+    warnChangesDiscarded,
+  ]);
 
   useEffect(() => {
     const handleRetryOpportunity = () => void retryDesignSaveOutbox();
@@ -14097,6 +14126,13 @@ function DesignEditor() {
         anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
+      dndHostLog("persist:begin", {
+        selector,
+        anchorSelector,
+        placement,
+        dropMode: details?.dropMode,
+        source: activeCanvasSourceType,
+      });
       if (!canEditDesign) return false;
       if (!activeFile) return false;
       if (activeCanvasSourceType === "localhost") {
@@ -14135,6 +14171,10 @@ function DesignEditor() {
           ? { nodeId: anchorNode.id }
           : { selector: anchorSelector },
         placement,
+      });
+      dndHostLog("persist:rewrite", {
+        status: patch.result.status,
+        message: patch.result.message,
       });
       if (patch.result.status !== "applied") {
         toast.error(
@@ -14640,6 +14680,10 @@ function DesignEditor() {
           ? { nodeId: anchorNode.id }
           : { selector: anchorSelector },
         placement,
+      });
+      dndHostLog("persist:rewrite", {
+        status: patch.result.status,
+        message: patch.result.message,
       });
       if (patch.result.status !== "applied") {
         toast.error(
@@ -18350,6 +18394,12 @@ function DesignEditor() {
       sourcePointerOffset?: { x: number; y: number };
       styleSnapshot?: PortableStyleSnapshot;
     }) => {
+      dndHostLog("persist:cross-screen", {
+        sourceScreenId,
+        targetScreenId,
+        targetAnchorPlacement,
+        targetDropMode,
+      });
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
 
@@ -27260,7 +27310,10 @@ function DesignEditor() {
             details,
           ) => {
             activateResponsiveScope();
-            handleScreenVisualStructureChange(
+            // Return the result so the bridge gets a real applied/false/pending
+            // ack; without it a rejected drop could never roll back (undefined
+            // !== false read as applied).
+            return handleScreenVisualStructureChange(
               screen.id,
               selector,
               anchorSelector,

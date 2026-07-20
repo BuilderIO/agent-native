@@ -1,8 +1,5 @@
-import {
-  appBasePath,
-  appPath,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 import { TAB_ID } from "../lib/tab-id";
 

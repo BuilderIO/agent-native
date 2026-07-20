@@ -1,5 +1,5 @@
-import { callAction } from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import type { ComposeAttachment } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 

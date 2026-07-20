@@ -1,0 +1,73 @@
+@import "tailwindcss";
+@import "uniwind";
+
+@theme {
+  --color-primary: #c7f36b;
+  --color-background-dark: #0b0b0c;
+  --color-card-dark: #18181b;
+  --color-border-dark: #27272a;
+  --color-foreground: #fafafa;
+
+  --color-accent-green: #c7f36b;
+  --color-accent-lime-bright: #d9ff8a;
+  --color-accent-blue: #8dd7ff;
+  --color-accent-pink: #f4a7ff;
+  --color-accent-orange: #ffd38d;
+
+  --color-status-gray: #71717a;
+  --color-status-error: #fb7185;
+
+  --color-gray-light: #999999;
+  --color-gray-medium: #666666;
+  --color-gray-dark: #1a1a1a;
+  --color-error: #ef4444;
+
+  --color-text-bright: #fafafa;
+  --color-text-muted: #a1a1aa;
+  --color-text-light: #d4d4d8;
+
+  --color-accent-green-dim: #22251d;
+  --color-accent-green-dark: #171b12;
+  --color-accent-green-border: #344222;
+  --color-accent-green-medium: #232b19;
+  --color-accent-green-medium-dark: #24281f;
+  --color-gray-medium-dark: #202020;
+  --color-gray-border-light: #333333;
+  --color-gray-border-dim: rgba(51, 51, 51, 0.4);
+
+  --color-error-bg: #2b1115;
+  --color-error-text: #fda4af;
+  --color-error-border: #5f2029;
+
+  --color-warning-red-bg: #271715;
+  --color-warning-red-border: #63332d;
+
+  --color-warning-yellow-bg: #211805;
+  --color-warning-yellow-border: #5f420d;
+  --color-warning-yellow-text: #f5d999;
+
+  --color-success-bg: #102015;
+  --color-success-border: #14532d;
+  --color-success-text: #bbf7d0;
+
+  --color-background-pure: #111111;
+  --color-gray-charcoal: #27272a;
+  --color-gray-zinc: #52525b;
+  --color-red-danger: #dc2626;
+
+  --color-overlay-dark: rgba(18, 18, 18, 0.72);
+  --color-overlay-border: rgba(255, 255, 255, 0.18);
+  --color-status-recording-bg: rgba(30, 12, 10, 0.88);
+  --color-status-recording-border: rgba(255, 102, 87, 0.5);
+  --color-status-recording-dot: #ff5d4d;
+
+  --color-panel-bg: rgba(8, 8, 8, 0.76);
+  --color-banner-error-bg: rgba(37, 18, 16, 0.96);
+  --color-banner-error-text: #f1b1a9;
+  --color-banner-error-border: #62322c;
+
+  --color-divider-light: rgba(255, 255, 255, 0.14);
+  --color-text-medium-light: #d2d2d2;
+  --color-record-border-outer: rgba(255, 255, 255, 0.2);
+  --color-white-pure: #ffffff;
+}

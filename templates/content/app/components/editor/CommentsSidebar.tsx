@@ -1,4 +1,6 @@
-import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { emailToName } from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconMessageCircle,
@@ -186,6 +188,7 @@ interface CommentsSidebarProps {
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  forceVisible?: boolean;
 }
 
 export function CommentsSidebar({
@@ -200,6 +203,7 @@ export function CommentsSidebar({
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  forceVisible = false,
 }: CommentsSidebarProps) {
   const t = useT();
   const { data: members = [] } = useMentionMembers();
@@ -431,7 +435,7 @@ export function CommentsSidebar({
 
   const hasContent =
     openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
-  if (!hasContent && !isLoading) return null;
+  if (!hasContent && !isLoading && !forceVisible) return null;
 
   // Sort open threads by their position in the document.
   const sortedThreads = [...openThreads].sort((a, b) => {
@@ -486,6 +490,11 @@ export function CommentsSidebar({
       className="relative w-80 shrink-0 pb-16"
       data-comments-sidebar
     >
+      {!hasContent && !isLoading ? (
+        <div className="px-4 py-8 text-sm text-muted-foreground">
+          {t("comments.empty")}
+        </div>
+      ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
       {pendingComment && (
         <div

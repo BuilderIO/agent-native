@@ -1,18 +1,18 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  getBrowserTabId,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   InvitationBanner,
   OrgSwitcher,
   useOrgRole,
 } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconInbox,
   IconArchive,
@@ -384,12 +384,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           ) : (
             <>
               <div className="px-3 py-3">
-                <Button
-                  className="w-full gap-1.5"
-                  variant="outline"
-                  size="sm"
-                  asChild
-                >
+                <Button className="w-full gap-1.5" size="sm" asChild>
                   <NavLink to="/record">
                     <IconPlayerRecord className="h-4 w-4" />
                     {t("navigation.newRecording")}

@@ -7,7 +7,10 @@ import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
 } from "./client.js";
-import type { A2AReadOnlyActionResult } from "./types.js";
+import type {
+  A2ACorrelationMetadata,
+  A2AReadOnlyActionResult,
+} from "./types.js";
 
 export type AgentInvocationErrorCode =
   | "missing-target"
@@ -82,6 +85,8 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   timeoutMs?: number;
   pollIntervalMs?: number;
   includeInvocationHint?: boolean;
+  correlation?: A2ACorrelationMetadata;
+  idempotencyKey?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -94,6 +99,7 @@ export interface InvokeAgentActionOptions extends ResolveAgentInvocationTargetOp
   orgDomain?: string;
   orgSecret?: string;
   requestTimeoutMs?: number;
+  correlation?: A2ACorrelationMetadata;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -197,6 +203,8 @@ export async function invokeAgent(
     async: options.async,
     timeoutMs: options.timeoutMs,
     pollIntervalMs: options.pollIntervalMs,
+    correlation: options.correlation,
+    idempotencyKey: options.idempotencyKey,
   });
 
   return {
@@ -243,6 +251,7 @@ export async function invokeAgentAction(
     orgDomain: options.orgDomain,
     orgSecret: options.orgSecret,
     requestTimeoutMs: options.requestTimeoutMs,
+    correlation: options.correlation,
   });
 
   return { target, action, result };

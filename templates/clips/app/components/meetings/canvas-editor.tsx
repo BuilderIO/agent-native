@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Textarea } from "@/components/ui/textarea";

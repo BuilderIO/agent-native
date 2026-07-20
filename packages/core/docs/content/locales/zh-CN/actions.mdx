@@ -441,8 +441,7 @@ export default defineAction({
 对于改变状态的actions：
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -460,8 +459,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 对于只读 GET actions：
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 

@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -225,10 +225,10 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Calendar.",
     languageLabel: "Interface language",
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     googleCalendar: "Google Calendar",
     googleDescription: "Connect your Google Calendar to sync events.",
     googleFailed: "Google sign-in failed",
@@ -4236,10 +4236,9 @@ export const messagesByLocale = {
 const translatedCalendarExtras = {
   "zh-CN": {
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       zoomDescription: "连接 Zoom，为日历事件和预约创建会议链接。",
       zoomNotConfigured: "未配置",
       zoomCredentialsPrompt: "添加 Zoom OAuth 凭据以启用连接。",
@@ -4301,10 +4300,10 @@ const translatedCalendarExtras = {
   },
   "es-ES": {
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes de la barra lateral del agente para modelo, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       zoomDescription:
         "Conecta Zoom para crear enlaces de reunión para eventos y reservas.",
       zoomNotConfigured: "No configurado",
@@ -4371,10 +4370,10 @@ const translatedCalendarExtras = {
   },
   "fr-FR": {
     settings: {
-      agentTitle: "Paramètres de l'agent",
+      agentTitle: "Gérer l'agent",
       agentDescription:
-        "Ouvrez les paramètres de la barre latérale de l'agent pour le modèle, les clés API, les automatisations, la voix et les autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l'agent",
+        "Gérez le modèle de l'agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l'agent",
       zoomDescription:
         "Connectez Zoom pour créer des liens de réunion pour les événements et les réservations.",
       zoomNotConfigured: "Non configuré",
@@ -4442,10 +4441,10 @@ const translatedCalendarExtras = {
   },
   "de-DE": {
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffnet die Agent-Seitenleisten-Einstellungen für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Agent-Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       zoomDescription:
         "Verbinde Zoom, um Meeting-Links für Kalenderereignisse und Buchungen zu erstellen.",
       zoomNotConfigured: "Nicht konfiguriert",
@@ -4511,10 +4510,10 @@ const translatedCalendarExtras = {
   },
   "ja-JP": {
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "モデル、API キー、自動化、音声、その他のエージェント制御を管理するサイドバー設定を開きます。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       zoomDescription:
         "Zoom を接続して、カレンダーイベントと予約用の会議リンクを作成します。",
       zoomNotConfigured: "未設定",
@@ -4579,10 +4578,10 @@ const translatedCalendarExtras = {
   },
   "ko-KR": {
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "모델, API 키, 자동화, 음성 및 기타 에이전트 제어를 위한 에이전트 사이드바 설정을 엽니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       zoomDescription:
         "Zoom을 연결해 캘린더 이벤트와 예약용 회의 링크를 만듭니다.",
       zoomNotConfigured: "구성되지 않음",
@@ -4645,10 +4644,10 @@ const translatedCalendarExtras = {
   },
   "pt-BR": {
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações da barra lateral do agente para modelo, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       zoomDescription:
         "Conecte o Zoom para criar links de reunião para eventos e reservas.",
       zoomNotConfigured: "Não configurado",
@@ -4716,10 +4715,10 @@ const translatedCalendarExtras = {
   },
   "hi-IN": {
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और दूसरे एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       zoomDescription: "कैलेंडर इवेंट और बुकिंग के लिए मीटिंग लिंक बनाने हेतु Zoom कनेक्ट करें।",
       zoomNotConfigured: "कॉन्फ़िगर नहीं है",
       zoomCredentialsPrompt: "कनेक्शन सक्षम करने के लिए Zoom OAuth क्रेडेंशियल जोड़ें।",
@@ -4782,10 +4781,10 @@ const translatedCalendarExtras = {
   },
   "ar-SA": {
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الشريط الجانبي للوكيل للنموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       zoomDescription:
         "اربط Zoom لإنشاء روابط اجتماعات لأحداث التقويم والحجوزات.",
       zoomNotConfigured: "غير مكوّن",

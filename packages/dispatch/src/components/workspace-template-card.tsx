@@ -1,4 +1,4 @@
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import {
   IconArrowUpRight,
   IconCircleCheck,
