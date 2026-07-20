@@ -66,7 +66,7 @@ const MULTI_FRONTIER_RUN_MODES = [
   {
     value: "multi-frontier",
     label: "Multi-Frontier",
-    description: "Codex + Claude plan, cross-review, then one builds",
+    description: "Codex + Claude plan, review, then one builds",
   },
 ] as const;
 
@@ -1005,18 +1005,22 @@ export function MultiFrontierModeControl({
           ))}
         </SelectContent>
       </Select>
-      <MultiFrontierParticipantSettings
-        statuses={subscriptions}
-        busy={busy}
-        autoContinueAfterAgreement={autoContinueAfterAgreement}
-        defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
-        onConnect={onConnectSubscription}
-        onRefresh={onRefreshSubscription}
-        onAutoContinueAfterAgreementChange={onAutoContinueAfterAgreementChange}
-        onDefaultAutoContinueAfterAgreementChange={
-          onDefaultAutoContinueAfterAgreementChange
-        }
-      />
+      {active ? (
+        <MultiFrontierParticipantSettings
+          statuses={subscriptions}
+          busy={busy}
+          autoContinueAfterAgreement={autoContinueAfterAgreement}
+          defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
+          onConnect={onConnectSubscription}
+          onRefresh={onRefreshSubscription}
+          onAutoContinueAfterAgreementChange={
+            onAutoContinueAfterAgreementChange
+          }
+          onDefaultAutoContinueAfterAgreementChange={
+            onDefaultAutoContinueAfterAgreementChange
+          }
+        />
+      ) : null}
     </div>
   );
 }

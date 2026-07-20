@@ -3069,6 +3069,13 @@ describe("bundled PR visual recap workflow", () => {
       expect(workflow).toContain("steps.source_status.outputs.ready == 'true'");
       expect(workflow).toContain("provider quota was exceeded");
       expect(workflow).toContain(
+        "OpenAI API project's quota/budget is exhausted",
+      );
+      expect(workflow).toContain(
+        "Add API credits or raise that project's monthly budget, then rerun the workflow.",
+      );
+      expect(workflow).toContain("Anthropic provider quota is exhausted");
+      expect(workflow).toContain(
         "steps.source_status.outputs.reason || steps.url.outputs.reason",
       );
       expect(workflow.indexOf("Check recap source")).toBeLessThan(
@@ -3687,6 +3694,11 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("id: source_status");
     expect(content).toContain("steps.source_status.outputs.ready == 'true'");
     expect(content).toContain("provider quota was exceeded");
+    expect(content).toContain("OpenAI API project's quota/budget is exhausted");
+    expect(content).toContain(
+      "Add API credits or raise that project's monthly budget, then rerun the workflow.",
+    );
+    expect(content).toContain("Anthropic provider quota is exhausted");
     expect(content).toContain(
       "steps.source_status.outputs.reason || steps.url.outputs.reason",
     );
