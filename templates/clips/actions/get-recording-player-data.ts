@@ -29,10 +29,7 @@ import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  hasViewedPublicRecording,
-  isAgentRecordingCaller,
-} from "../server/lib/agent-recording-access.js";
+import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -130,12 +127,7 @@ export default defineAction({
       access.role !== "owner" &&
       isAgentRecordingCaller(ctx?.caller)
     ) {
-      hasExplicitShare = await hasViewedPublicRecording(
-        db,
-        schema.recordingViewers,
-        args.recordingId,
-        ctx?.userEmail,
-      );
+      hasExplicitShare = true;
     }
     if (
       rec.visibility === "public" &&

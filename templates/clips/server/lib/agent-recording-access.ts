@@ -19,7 +19,8 @@ function normalizeEmail(email: string | undefined): string | null {
 /**
  * Scope agent recording reads to normal access plus public recordings the
  * current signed-in user has already opened. Public visibility alone never
- * makes a recording discoverable.
+ * makes a recording discoverable, but explicit user and organization shares
+ * remain discoverable.
  */
 export function agentRecordingAccessFilter(
   resourceTable: any,
@@ -43,8 +44,8 @@ export function agentRecordingAccessFilter(
   return (
     or(
       owner,
+      normalAccess,
       and(eq(resourceTable.visibility, "public"), viewed),
-      and(normalAccess, viewed),
     ) ?? normalAccess
   );
 }

@@ -49,7 +49,7 @@ describe("agentRecordingAccessFilter", () => {
     mockGetRequestUserEmail.mockReturnValue(" Viewer@Example.com ");
   });
 
-  it("keeps agent reads scoped to owned or previously viewed recordings", () => {
+  it("keeps agent reads scoped to owned, explicitly shared, or previously viewed public recordings", () => {
     const filter = agentRecordingAccessFilter(recordings, shares, viewers, {
       agentOnly: true,
     });
@@ -64,6 +64,9 @@ describe("agentRecordingAccessFilter", () => {
           ),
         },
         {
+          kind: "normal",
+        },
+        {
           kind: "and",
           conditions: [
             {
@@ -71,16 +74,6 @@ describe("agentRecordingAccessFilter", () => {
               column: "recordings.visibility",
               value: "public",
             },
-            expect.objectContaining({
-              kind: "sql",
-              text: expect.stringContaining("exists"),
-            }),
-          ],
-        },
-        {
-          kind: "and",
-          conditions: [
-            { kind: "normal" },
             expect.objectContaining({
               kind: "sql",
               text: expect.stringContaining("exists"),

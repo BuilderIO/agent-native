@@ -525,6 +525,15 @@ async function addRecordingContext(
   if (bugReportSummary) screen.bugReport = bugReportSummary;
 }
 
+async function fetchShare(shareId: string) {
+  const db = getDb();
+  const [share] = await db
+    .select()
+    .from(schema.recordingShares)
+    .where(eq(schema.recordingShares.id, shareId));
+  return share ?? null;
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, visible clips on library/shared-with-me, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
@@ -604,7 +613,13 @@ export default defineAction({
       }
       case "share":
       case "embed": {
-        if (nav.shareId) await addRecordingContext(screen, nav.shareId);
+        if (nav.shareId) {
+          const share = await fetchShare(nav.shareId);
+          if (share) {
+            screen.share = share;
+            await addRecordingContext(screen, share.resourceId);
+          }
+        }
         break;
       }
       case "meetings": {

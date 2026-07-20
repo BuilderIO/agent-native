@@ -772,6 +772,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(standaloneKeyTools[0]?.error_message).toBe(
       "Provider rejected key [REDACTED]",
     );
+
+    events.length = 0;
+    await runOnce(true, "Stripe rejected key sk_live_1234567890abcdefghijk");
+    const stripeKeyTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(stripeKeyTools[0]?.error_message).toBe(
+      "Stripe rejected key [REDACTED]",
+    );
   });
 
   it("no-ops (emits no spans) when no provider is registered", async () => {

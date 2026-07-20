@@ -29,7 +29,7 @@ function costUsdFromCenticents(value: number): number {
 const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
 const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 const STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 
 type GenerationToolCall = {
   name: string;
