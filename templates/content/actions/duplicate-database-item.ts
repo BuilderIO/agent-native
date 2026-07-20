@@ -46,6 +46,7 @@ export default defineAction({
             ? eq(schema.contentDatabaseItems.id, itemId)
             : eq(schema.contentDatabaseItems.documentId, documentId!),
           isNull(schema.contentDatabases.deletedAt),
+          isNull(schema.documents.trashedAt),
         ),
       );
 

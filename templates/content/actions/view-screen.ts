@@ -4,7 +4,7 @@ import {
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, inArray } from "drizzle-orm";
+import { and, asc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -765,6 +765,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
         ),
       )

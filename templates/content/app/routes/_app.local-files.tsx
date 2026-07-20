@@ -17,7 +17,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -749,11 +749,17 @@ export default function LocalFilesRoute() {
   const t = useT();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const targetSpaceId = searchParams.get("spaceId") || undefined;
   const targetDatabaseId = searchParams.get("databaseId") || undefined;
   const manifestConnectionId = searchParams.get("connectionId") || undefined;
   const manifestFile = searchParams.get("file") || undefined;
+  const workspacePropertyValues = (
+    location.state as {
+      workspacePropertyValues?: Record<string, unknown>;
+    } | null
+  )?.workspacePropertyValues;
   const { data: documents = [] } = useDocuments();
   const [directories, setDirectories] = useState<SelectedDirectory[]>([]);
   const [status, setStatus] = useState<SyncStatus>({ kind: "idle" });
@@ -929,6 +935,7 @@ export default function LocalFilesRoute() {
         spaceId: targetSpaceId,
         databaseId: targetDatabaseId,
         createSourceBackedSpace: !targetSpaceId && !targetDatabaseId,
+        propertyValues: workspacePropertyValues,
         truthPolicy: "source_primary",
         dryRun,
       } as never,
