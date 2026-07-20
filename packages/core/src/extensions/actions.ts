@@ -48,6 +48,7 @@ import {
   hideExtension,
   listExtensionHistory,
   listExtensions,
+  notifyExtensionChangeForResource,
   restoreExtensionHistoryVersion,
   unhideExtension,
   updateExtension,
@@ -840,6 +841,15 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             now,
           ],
         });
+
+        // Bump the extension record's updated_at so mounted iframes
+        // (keyed by updatedAt) remount and re-fetch extensionData.
+        await client.execute({
+          sql: `UPDATE tools SET updated_at = ? WHERE id = ?`,
+          args: [now, extensionId],
+        });
+        await notifyExtensionChangeForResource(extensionId);
+
         return {
           ok: true,
           id: itemId,
