@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.114.9
+
+### Patch Changes
+
+- fb32d85: Run configurable PR Visual Recap jobs with Bash on every runner platform.
+- Updated dependencies [fb32d85]
+  - @agent-native/recap-cli@0.4.6
+
 ## 0.114.8
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.375
+
+### Patch Changes
+
+- Updated dependencies [fb32d85]
+  - @agent-native/core@0.114.9
+
 ## 0.2.374
 
 ### Patch Changes
