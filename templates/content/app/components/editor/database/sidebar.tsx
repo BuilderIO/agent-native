@@ -172,11 +172,11 @@ export function ContentFilesSidebarView({
     ),
     activeView.hideEmptyGroups === true,
   );
-  const hierarchyItems = data?.properties.some(
+  const hasFilesHierarchy = data?.properties.some(
     (property) => property.definition.systemRole === "files_parent",
-  )
-    ? items
-    : undefined;
+  );
+  const hierarchyItems = hasFilesHierarchy ? items : undefined;
+  const hierarchyUniverseItems = hasFilesHierarchy ? data?.items : undefined;
   return (
     <div className="min-w-0">
       {viewConfig.views.length > 1 && (
@@ -223,6 +223,7 @@ export function ContentFilesSidebarView({
         onDocumentExpandedChange={onDocumentExpandedChange}
         renderItem={renderItem}
         hierarchyItems={hierarchyItems}
+        hierarchyUniverseItems={hierarchyUniverseItems}
         scroll={scroll}
       />
     </div>
@@ -247,6 +248,7 @@ export function DatabaseSidebarView({
   onDocumentExpandedChange,
   renderItem,
   hierarchyItems,
+  hierarchyUniverseItems,
   scroll = true,
   loadingLabel,
   noMatchesLabel,
@@ -271,6 +273,7 @@ export function DatabaseSidebarView({
   onDocumentExpandedChange?: (documentId: string, expanded: boolean) => void;
   renderItem?: (item: ContentDatabaseItem) => ReactNode;
   hierarchyItems?: ContentDatabaseItem[];
+  hierarchyUniverseItems?: ContentDatabaseItem[];
   scroll?: boolean;
   loadingLabel: string;
   noMatchesLabel: string;
@@ -287,7 +290,13 @@ export function DatabaseSidebarView({
   const items = groups.flatMap((group) => group.items);
   const itemTree =
     !grouped && hierarchyItems
-      ? databaseSidebarItemTree(items, hierarchyItems)
+      ? databaseSidebarItemTree(
+          databaseSidebarRootItems(
+            items,
+            hierarchyUniverseItems ?? hierarchyItems,
+          ),
+          hierarchyItems,
+        )
       : null;
 
   function setGroupOpen(groupId: string, open: boolean) {
@@ -688,6 +697,19 @@ export function databaseSidebarRows(groups: DatabaseBoardGroup[]) {
 export interface DatabaseSidebarItemTreeNode {
   item: ContentDatabaseItem;
   children: DatabaseSidebarItemTreeNode[];
+}
+
+export function databaseSidebarRootItems(
+  visibleItems: ContentDatabaseItem[],
+  allItems: ContentDatabaseItem[],
+) {
+  const documentIds = new Set(allItems.map((item) => item.document.id));
+  return visibleItems.filter((item) => {
+    const parentId = item.document.parentId;
+    if (!parentId) return true;
+    if (item.document.databaseMembership) return false;
+    return !documentIds.has(parentId);
+  });
 }
 
 export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {

@@ -104,3 +104,14 @@ export function createContentSpaceSelectionQueue() {
     return next;
   };
 }
+
+export function createContentSidebarStateWriteQueue<T>(
+  write: (snapshot: T) => Promise<unknown>,
+) {
+  let pending: Promise<unknown> = Promise.resolve();
+  return (snapshot: T) => {
+    const next = pending.catch(() => undefined).then(() => write(snapshot));
+    pending = next;
+    return next;
+  };
+}

@@ -190,6 +190,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("expandedDocumentIds={expandedDocumentIdSet}");
     expect(sidebar).toContain("toggleExpandedWorkspaceIds(current, space.id)");
     expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
+    expect(sidebar).not.toContain(
+      "if (!selectedSpace || !sidebarStateHydratedRef.current) return",
+    );
+    expect(sidebar).toContain("createContentSidebarStateWriteQueue");
     expect(sidebar).toContain(
       '"group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md"',
     );

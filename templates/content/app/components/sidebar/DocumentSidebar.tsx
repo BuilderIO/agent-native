@@ -136,6 +136,7 @@ import { NotionButton } from "./NotionButton";
 import {
   contentSpaceAvailability,
   contentSpaceForStoredSelection,
+  createContentSidebarStateWriteQueue,
   createContentSpaceSelectionQueue,
   ensureWorkspaceExpanded,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -214,6 +215,11 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
 const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
   "content-sidebar-trash-collapsed-default-v2";
 const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
+interface ContentSidebarStateSnapshot {
+  version: typeof CONTENT_SIDEBAR_STATE_VERSION;
+  expandedWorkspaceIds: string[];
+  expandedDocumentIds: string[];
+}
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   favorites: false,
   "local-files": false,
@@ -409,6 +415,17 @@ export function DocumentSidebar({
       );
     },
   });
+  const updateSidebarStateRef = useRef(updateSidebarState);
+  updateSidebarStateRef.current = updateSidebarState;
+  const sidebarStateWriteQueueRef = useRef<
+    ((snapshot: ContentSidebarStateSnapshot) => Promise<unknown>) | null
+  >(null);
+  if (!sidebarStateWriteQueueRef.current) {
+    sidebarStateWriteQueueRef.current = createContentSidebarStateWriteQueue(
+      (snapshot: ContentSidebarStateSnapshot) =>
+        updateSidebarStateRef.current.mutateAsync(snapshot),
+    );
+  }
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<string[]>(
     [],
   );
@@ -478,14 +495,16 @@ export function DocumentSidebar({
       }
       sidebarStateWriteTimerRef.current = setTimeout(() => {
         sidebarStateWriteTimerRef.current = null;
-        updateSidebarState.mutate({
-          version: CONTENT_SIDEBAR_STATE_VERSION,
-          expandedWorkspaceIds: workspaceIds,
-          expandedDocumentIds: documentIds,
-        });
+        void sidebarStateWriteQueueRef
+          .current?.({
+            version: CONTENT_SIDEBAR_STATE_VERSION,
+            expandedWorkspaceIds: workspaceIds,
+            expandedDocumentIds: documentIds,
+          })
+          .catch(() => undefined);
       }, 150);
     },
-    [updateSidebarState],
+    [],
   );
 
   const updateExpandedWorkspaceIds = useCallback(
@@ -525,12 +544,6 @@ export function DocumentSidebar({
     [],
   );
 
-  useEffect(() => {
-    if (!selectedSpace || !sidebarStateHydratedRef.current) return;
-    updateExpandedWorkspaceIds((current) =>
-      ensureWorkspaceExpanded(current, selectedSpace.id),
-    );
-  }, [selectedSpace, updateExpandedWorkspaceIds]);
   const handleSelectContentSpace = useCallback(
     async (
       space: (typeof contentSpaces)[number],
