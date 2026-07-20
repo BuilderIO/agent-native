@@ -249,7 +249,7 @@ describe("integration pending task store", () => {
       "org-a",
     ]);
     expect(select?.sql).toContain("owner_email = ?");
-    expect(select?.sql).toContain("org_id IS NULL AND ? IS NULL");
+    expect(select?.sql).toContain("org_id IS NULL AND CAST(? AS TEXT) IS NULL");
     expect(select?.sql).toContain("platform = 'slack'");
     expect(select?.sql).not.toContain("SELECT *");
   });
