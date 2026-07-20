@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import {
+  BrainCaptureBlockedError,
   createCapture,
   ensureManualSource,
   serializeCapture,
@@ -26,23 +28,49 @@ export default defineAction({
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
   run: async (args) => {
+    const importerEmail = getRequestUserEmail()?.trim().toLowerCase();
+    let participants = args.participants;
+    if (!participants.length) {
+      if (!importerEmail) {
+        throw new Error(
+          "Importing a transcript without participants requires an authenticated importer.",
+        );
+      }
+      participants = [importerEmail];
+    }
     const source = args.sourceId
       ? null
       : await ensureManualSource(args.sourceTitle);
-    const capture = await createCapture({
-      sourceId: args.sourceId ?? source!.id,
-      externalId: args.externalId,
-      title: args.title,
-      kind: "transcript",
-      content: args.transcript,
-      capturedAt: args.capturedAt,
-      metadata: {
-        ...(args.metadata ?? {}),
-        participants: args.participants,
-        sourceUrl: args.sourceUrl,
-        tags: args.tags,
-      },
-    });
+    let capture;
+    try {
+      capture = await createCapture({
+        sourceId: args.sourceId ?? source!.id,
+        externalId: args.externalId,
+        title: args.title,
+        kind: "transcript",
+        content: args.transcript,
+        capturedAt: args.capturedAt,
+        metadata: {
+          ...(args.metadata ?? {}),
+          participants,
+          sourceUrl: args.sourceUrl,
+          tags: args.tags,
+        },
+        audience: {
+          kind: "meeting",
+          memberEmails: participants,
+          upstreamRefHash: args.externalId,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof BrainCaptureBlockedError)) throw error;
+      return {
+        source: source ? serializeSource(source) : undefined,
+        capture: undefined,
+        sensitivityReceipt: error.receipt,
+        nextAction: undefined,
+      };
+    }
     return {
       source: source ? serializeSource(source) : undefined,
       capture: serializeCapture(capture),

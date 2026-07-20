@@ -1,5 +1,20 @@
 # @agent-native/scheduling
 
+## 0.1.30
+
+### Patch Changes
+
+- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
+- Updated dependencies [8453025]
+  - @agent-native/toolkit@0.8.0
+
+## 0.1.29
+
+### Patch Changes
+
+- Updated dependencies [e53a34e]
+  - @agent-native/toolkit@0.7.0
+
 ## 0.1.28
 
 ### Patch Changes

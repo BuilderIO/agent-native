@@ -57,6 +57,9 @@ in the moment of agent use.
   missing-secret states, OAuth grants, and provider connection health.
 - **Agent UX kit**: sidebar, composer, staged context, mentions, voice, human
   approval, generative UI, progress, and screen-state exposure.
+- **Chat history kit**: presentational chat lists and recent-chat rails belong
+  in Toolkit; Core keeps thread persistence, agent execution, transport, and
+  page-to-sidebar handoff. Apps inject routing, labels, and domain actions.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home
@@ -83,6 +86,10 @@ When adding or refactoring one of these areas:
 5. Register app-specific labels, routes, resource adapters, and settings panels
    instead of hardcoding app names in core UI.
 6. Update docs and relevant skills so future apps discover the shared path.
+7. Keep the component easy to adopt piecemeal: expose props/slots first and
+   ship readable source plus a complete ejection unit so apps can take ownership
+   of the smallest feature when needed. See `customizing-agent-native` for the
+   configure → compose → eject → propose seam ladder.
 
 ## Related Skills
 

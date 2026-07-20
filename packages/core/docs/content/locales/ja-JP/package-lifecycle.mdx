@@ -17,8 +17,33 @@ agent-native package eject @agent-native/scheduling --apply
 
 追加と排出は既定でドライランです。`--apply` を指定した場合だけ書き込みと
 パッケージマネージャーを実行します。競合や未知の配置は拒否し、インストール
-失敗時にはファイルとロックファイルを復元します。パイロットでは Scheduling
-のみ排出可能で、Pinpoint は対象外です。
+失敗時にはファイルとロックファイルを復元します。
+
+## 機能を一つ排出する
+
+カスタマイズは、公開 API の設定、公開プリミティブの合成、最小単位の排出、
+複数アプリで同じ変更が必要な場合の共有シーム提案、の順で行います。
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+コマンドは既定でドライランです。適用すると、パッケージのバージョン、
+マニフェストのダイジェスト、ファイルハッシュ、import の書き換えを
+`agent-native.ejections.json` に記録し、リポジトリへコミットできます。
+Restore はファイルと import が未変更の場合だけ実行され、それ以外は差分を
+表示してローカル変更の削除を拒否します。
+
+First-party マニフェストは、すべての公開 Toolkit エントリポイントと
+integration カタログを網羅します。First-party のレシピ欠落は framework の
+coverage error です。未知の third-party パッケージには add 形式の blueprint を
+出力します。保護された Core contract はコピーせず、公開の設定、adapter、
+extension seam を案内します。
 
 ## 移行
 

@@ -17,8 +17,34 @@ agent-native package eject @agent-native/scheduling --apply
 
 L'ajout et l'éjection sont simulés par défaut. `--apply` autorise les écritures
 et le gestionnaire de paquets. La CLI refuse les collisions et dispositions
-inconnues, puis restaure fichiers et verrous si l'installation échoue. Seul
-Scheduling est éjectable pendant ce pilote; Pinpoint reste différé.
+inconnues, puis restaure fichiers et verrous si l'installation échoue.
+
+## Éjecter une fonctionnalité
+
+Suivez l'échelle de personnalisation dans cet ordre : configurer l'API publique,
+composer les primitives publiques, éjecter la plus petite unité, puis proposer
+un point d'extension partagé si plusieurs apps ont le même besoin.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+Ces commandes sont simulées par défaut. L'application enregistre une provenance
+versionnée dans `agent-native.ejections.json` : version du paquet, empreinte du
+manifeste, hachages des fichiers et réécritures d'imports. Restore ne réussit que
+si les fichiers et imports sont intacts ; sinon il affiche le diff et refuse de
+supprimer les changements locaux.
+
+Les manifestes first-party couvrent tous les points d'entrée publics de Toolkit
+et tous les catalogues d'intégration first-party. Une recette manquante est une
+erreur de couverture du framework ; un paquet tiers inconnu reçoit un blueprint
+de type add. Les contrats Core protégés ne sont pas copiés : la CLI indique le
+point public de configuration, d'adaptation ou d'extension.
 
 ## Migrations
 

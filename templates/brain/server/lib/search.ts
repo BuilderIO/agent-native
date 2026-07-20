@@ -11,7 +11,9 @@ import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 
 import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
+import { listAccessibleAudienceIds } from "./audiences.js";
 import { parseJson, safeCitationUrl } from "./brain.js";
+import { hybridSearchArtifacts } from "./hybrid-search.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -35,10 +37,14 @@ export interface UniversalSearchResult {
     captureTitle?: string | null;
     quote?: string | null;
     sourceUrl?: string | null;
+    preview?: string | null;
+    verbatim?: boolean;
   } | null;
   confidence: number | null;
   updatedAt: string;
   score: number;
+  reasons?: string[];
+  lane?: "lexical" | "semantic" | "hybrid" | "like";
 }
 
 export type FederatedDelegationTarget = "analytics" | "mail" | "dispatch";
@@ -364,12 +370,27 @@ async function searchKnowledgeResults(
   terms: string[],
   limit: number,
 ): Promise<UniversalSearchResult[]> {
+  const audienceIds = await listAccessibleAudienceIds();
+  const accessibleSourceExists = sql`exists (
+    select 1 from ${schema.brainSources}
+    where ${schema.brainSources.id} = ${schema.brainKnowledge.sourceId}
+      and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+  )`;
   const rows = await getDb()
     .select()
     .from(schema.brainKnowledge)
     .where(
       and(
         accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
+        or(
+          sql`${schema.brainKnowledge.captureId} IS NULL`,
+          audienceIds.length
+            ? and(
+                accessibleSourceExists,
+                inArray(schema.brainKnowledge.audienceId, audienceIds),
+              )
+            : undefined,
+        ),
         eq(schema.brainKnowledge.status, "published"),
         anyColumnMatches(
           [
@@ -437,6 +458,8 @@ async function searchCaptureResults(
   terms: string[],
   limit: number,
 ): Promise<UniversalSearchResult[]> {
+  const audienceIds = await listAccessibleAudienceIds();
+  if (!audienceIds.length) return [];
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainRawCaptures.sourceId}
@@ -448,6 +471,12 @@ async function searchCaptureResults(
     .where(
       and(
         accessibleSourceExists,
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        sql`exists (
+          select 1 from ${schema.brainCaptureAudiences}
+          where ${schema.brainCaptureAudiences.captureId} = ${schema.brainRawCaptures.id}
+            and ${inArray(schema.brainCaptureAudiences.audienceId, audienceIds)}
+        )`,
         anyColumnMatches(
           [
             schema.brainRawCaptures.title,
@@ -481,7 +510,9 @@ async function searchCaptureResults(
         citation: {
           captureId: row.id,
           captureTitle: redactSensitiveText(row.title),
-          quote: snippet,
+          quote: null,
+          preview: snippet,
+          verbatim: false,
           sourceUrl,
         },
         confidence: null,
@@ -560,22 +591,98 @@ export async function searchEverythingRows(args: {
   query: string;
   type?: UniversalSearchType | "all";
   provider?: string;
+  kind?: string;
+  projectId?: string;
   status?: string;
   limit?: number;
 }): Promise<UniversalSearchResult[]> {
   const terms = normalizeSearchTerms(args.query);
   if (!terms.length) return [];
+  const projectSourceIds = args.projectId
+    ? (
+        await getDb()
+          .select({ sourceId: schema.brainProjectSources.sourceId })
+          .from(schema.brainProjectSources)
+          .innerJoin(
+            schema.brainProjects,
+            eq(schema.brainProjects.id, schema.brainProjectSources.projectId),
+          )
+          .where(
+            and(
+              eq(schema.brainProjectSources.projectId, args.projectId),
+              accessFilter(schema.brainProjects, schema.brainProjectShares),
+            ),
+          )
+      ).map((row) => row.sourceId)
+    : undefined;
+  if (projectSourceIds && !projectSourceIds.length) return [];
+  const projectSourceSet = projectSourceIds
+    ? new Set(projectSourceIds)
+    : undefined;
   const limit = args.limit ?? 25;
   const perTypeLimit = Math.max(limit, 10);
   const searches: Array<Promise<UniversalSearchResult[]>> = [];
   if (!args.type || args.type === "all" || args.type === "knowledge") {
     searches.push(searchKnowledgeResults(terms, perTypeLimit));
   }
-  if (!args.type || args.type === "all" || args.type === "capture") {
+  if (
+    (!args.type || args.type === "all" || args.type === "capture") &&
+    !args.kind
+  ) {
     searches.push(searchCaptureResults(terms, perTypeLimit));
   }
   if (!args.type || args.type === "all" || args.type === "source") {
     searches.push(searchSourceResults(terms, perTypeLimit));
+  }
+  if (!args.type || args.type === "all" || args.type === "capture") {
+    searches.push(
+      hybridSearchArtifacts({
+        query: args.query,
+        provider: args.provider,
+        kind: args.kind,
+        projectId: args.projectId,
+        limit: perTypeLimit,
+      })
+        .then(async (artifacts) => {
+          const sources = await accessibleSourceMap(
+            artifacts.map((artifact) => artifact.sourceId),
+          );
+          return artifacts.flatMap((artifact) => {
+            const source = sources.get(artifact.sourceId);
+            if (!source) return [];
+            const snippet = redactSensitiveText(
+              buildSnippet(artifact.text, terms),
+            );
+            return [
+              {
+                type: "capture" as const,
+                id: artifact.captureId,
+                title: redactSensitiveText(artifact.title),
+                snippet,
+                summary: snippet,
+                status: "indexed",
+                provider: source.provider,
+                source: serializeSourceInfo(source),
+                sourceUrl: null,
+                citation: {
+                  captureId: artifact.captureId,
+                  captureTitle: redactSensitiveText(artifact.title),
+                  quote: null,
+                  preview: snippet,
+                  verbatim: false,
+                  sourceUrl: null,
+                },
+                confidence: null,
+                updatedAt: artifact.capturedAt,
+                score: artifact.score * 100,
+                reasons: artifact.reasons,
+                lane: artifact.lane,
+              },
+            ];
+          });
+        })
+        .catch(() => []),
+    );
   }
   const provider = args.provider?.toLowerCase();
   const status = args.status?.toLowerCase();
@@ -590,7 +697,10 @@ export async function searchEverythingRows(args: {
       const resultStatus = result.status.toLowerCase();
       const providerMatches = !provider || resultProvider === provider;
       const statusMatches = !status || resultStatus === status;
-      return providerMatches && statusMatches;
+      const projectMatches =
+        !projectSourceSet ||
+        Boolean(result.source?.id && projectSourceSet.has(result.source.id));
+      return providerMatches && statusMatches && projectMatches;
     })
     .sort(
       (a, b) =>
@@ -598,7 +708,13 @@ export async function searchEverythingRows(args: {
         Date.parse(b.updatedAt) - Date.parse(a.updatedAt) ||
         a.title.localeCompare(b.title),
     );
-  return results.slice(0, limit);
+  const deduped = new Map<string, UniversalSearchResult>();
+  for (const result of results) {
+    const key = `${result.type}:${result.id}`;
+    const current = deduped.get(key);
+    if (!current || result.score > current.score) deduped.set(key, result);
+  }
+  return Array.from(deduped.values()).slice(0, limit);
 }
 
 async function readBrainSourceProviderCoverage(): Promise<

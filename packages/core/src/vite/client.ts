@@ -947,6 +947,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
+    { specifier: "highlight.js/lib/core", packageName: "highlight.js" },
     { specifier: "html2canvas" },
     { specifier: "i18next" },
     { specifier: "input-otp" },
@@ -958,6 +959,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "react-day-picker" },
     { specifier: "react-i18next" },
     { specifier: "react-markdown" },
+    { specifier: "react-dom/server", packageName: "react-dom" },
     { specifier: "react-resizable-panels" },
     { specifier: "recharts" },
     ...(hasDep("react-router", cwd)
@@ -990,6 +992,25 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     },
     { specifier: "sonner" },
     { specifier: "tailwind-merge" },
+    ...(hasDep("@agent-native/toolkit", cwd)
+      ? [
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+            packageName: "@agent-native/toolkit",
+          },
+        ]
+      : []),
     { specifier: "vaul" },
     { specifier: "y-protocols/awareness", packageName: "y-protocols" },
     { specifier: "yjs" },
@@ -1330,6 +1351,12 @@ export interface ClientConfigOptions {
   optimizeDeps?: NonNullable<UserConfig["optimizeDeps"]>;
   /** Additional Vite define constants. */
   define?: UserConfig["define"];
+  /**
+   * Browser/server compatibility epoch for app changes that cannot safely run
+   * across a cached client and a newer action backend. Bump only for an
+   * incompatible protocol or data-model transition, not for every deploy.
+   */
+  clientCompatibilityVersion?: string;
   /**
    * Framework route warmup behavior mounted by AgentSidebar.
    *
@@ -2664,6 +2691,13 @@ function createAgentNativeConfig(
   userConfig: UserConfig = {},
 ): UserConfig {
   const cwd = process.cwd();
+  const buildId =
+    process.env.DEPLOY_ID?.trim() ||
+    process.env.COMMIT_REF?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.CF_PAGES_COMMIT_SHA?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
+    "development";
 
   // Workspace env fallback. If this app is inside a workspace, tell Vite to
   // also look for .env files at the workspace root. Per-app .env still wins
@@ -2689,9 +2723,11 @@ function createAgentNativeConfig(
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
-  const monorepoCoreAllow = [
+  const monorepoPackageAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
+    path.resolve(cwd, "../../packages/toolkit"),
+    path.resolve(cwd, "../toolkit"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
   const monorepoNodeModulesAllow = [
     path.resolve(cwd, "../../node_modules"),
@@ -2746,6 +2782,10 @@ function createAgentNativeConfig(
     define: {
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
+      __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
+        options.clientCompatibilityVersion?.trim() || "",
+      ),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
@@ -2796,7 +2836,7 @@ function createAgentNativeConfig(
         ...(userConfig.server?.fs ?? {}),
         allow: [
           ".",
-          ...monorepoCoreAllow,
+          ...monorepoPackageAllow,
           ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...localWorkspacePackageAllow,

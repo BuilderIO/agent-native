@@ -33,8 +33,11 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
 
 vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
 
-const { createProviderApiRuntime, resolveProviderApiOAuthAccessToken } =
-  await import("./index.js");
+const {
+  createProviderApiRuntime,
+  getProviderApiConfig,
+  resolveProviderApiOAuthAccessToken,
+} = await import("./index.js");
 const { createGitHubRepoFilesAction } =
   await import("./actions/github-repo-files.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
@@ -87,6 +90,28 @@ describe("provider API runtime", () => {
     await expect(runtime.listCatalog("gmail")).rejects.toThrow(
       /Provider API gmail is not enabled/,
     );
+  });
+
+  it("replaces one built-in provider definition without dropping the rest", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["slack", "stripe"],
+      providerOverrides: [
+        {
+          ...getProviderApiConfig("slack"),
+          label: "Acme Slack",
+        },
+      ],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const catalog = (await runtime.listCatalog()) as Array<{
+      id: string;
+      label: string;
+    }>;
+    expect(catalog.map(({ id }) => id)).toEqual(["slack", "stripe"]);
+    expect(catalog.find(({ id }) => id === "slack")?.label).toBe("Acme Slack");
+    expect(catalog.find(({ id }) => id === "stripe")?.label).toBe("Stripe");
   });
 
   it("injects Clay's public API key with the official header", async () => {

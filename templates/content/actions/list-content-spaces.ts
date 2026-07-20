@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,6 +26,7 @@ export default defineAction({
     const db = getDb();
     const personalSpaceId = personalContentSpaceId(email);
     const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
+    const favoritesIds = systemIdsForContentSpace(personalSpaceId, "favorites");
     const memberships = await listContentOrganizationMemberships(email);
     const roleByOrgId = new Map(
       memberships.map((membership) => [
@@ -65,11 +66,26 @@ export default defineAction({
           isNull(schema.contentSpaces.archivedAt),
         ),
       );
+    const filesDatabaseIds = rows.map((row) => row.space.filesDatabaseId);
+    const databaseIds = [...filesDatabaseIds, favoritesIds.databaseId];
+    const filesDatabases = databaseIds.length
+      ? await db
+          .select({
+            id: schema.contentDatabases.id,
+            documentId: schema.contentDatabases.documentId,
+          })
+          .from(schema.contentDatabases)
+          .where(inArray(schema.contentDatabases.id, databaseIds))
+      : [];
+    const filesDocumentIdByDatabaseId = new Map(
+      filesDatabases.map((database) => [database.id, database.documentId]),
+    );
     const spaces = [] as Array<{
       id: string;
       name: string;
       kind: string;
       filesDatabaseId: string;
+      filesDocumentId: string;
       orgId: string | null;
       role: string;
       catalogItemId: string;
@@ -87,17 +103,33 @@ export default defineAction({
           ? "owner"
           : undefined;
       if (!role) continue;
+      const filesDocumentId = filesDocumentIdByDatabaseId.get(
+        row.space.filesDatabaseId,
+      );
+      if (!filesDocumentId) continue;
       spaces.push({
         id: row.space.id,
         name: row.space.name,
         kind: row.space.kind,
         filesDatabaseId: row.space.filesDatabaseId,
+        filesDocumentId,
         orgId: row.space.orgId,
         role,
         catalogItemId: row.mapping.databaseItemId,
         catalogDocumentId: row.mapping.documentId,
       });
     }
-    return { catalogDatabaseId: catalogIds.databaseId, spaces };
+    return {
+      catalogDatabaseId: catalogIds.databaseId,
+      catalogDocumentId: catalogIds.documentId,
+      favoritesDatabaseId: filesDocumentIdByDatabaseId.has(
+        favoritesIds.databaseId,
+      )
+        ? favoritesIds.databaseId
+        : null,
+      favoritesDocumentId:
+        filesDocumentIdByDatabaseId.get(favoritesIds.databaseId) ?? null,
+      spaces,
+    };
   },
 });

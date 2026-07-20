@@ -44,6 +44,7 @@
   "scripts": {
     "build": "tsc && cp src/styles.css dist/styles.css",
     "prepublishOnly": "npm run build",
+    "test": "vitest run src/CodeAgentsApp.spec.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -59,7 +60,8 @@
     "@agent-native/shared-app-config": "workspace:*",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript-7": "catalog:"
+    "typescript-7": "catalog:",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "@agent-native/core": ">=0.24.0",

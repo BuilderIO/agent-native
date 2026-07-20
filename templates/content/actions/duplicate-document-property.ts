@@ -48,6 +48,9 @@ export default defineAction({
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
+    if (definition.systemRole) {
+      throw new Error("System properties cannot be duplicated.");
+    }
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();

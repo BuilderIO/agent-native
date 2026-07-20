@@ -414,8 +414,10 @@ export function assertPlatformCapability(
 export interface IntegrationsPluginOptions {
   /** App identifier used by call-agent to prevent self-calls (e.g. "dispatch"). */
   appId?: string;
-  /** Platform adapters to enable. Default: all built-in adapters with configured env keys. */
+  /** Full adapter set to enable. Default: all built-in adapters. */
   adapters?: PlatformAdapter[];
+  /** Replace built-in adapters by platform without removing the other defaults. */
+  adapterOverrides?: PlatformAdapter[];
   /** System prompt for the agent (same as agent-chat). Inherited from agent-chat plugin if not set. */
   systemPrompt?: string;
   /** Actions registry (same as agent-chat). */

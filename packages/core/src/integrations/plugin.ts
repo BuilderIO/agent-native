@@ -34,6 +34,7 @@ import {
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
+import { mergeIntegrationAdapters } from "./adapter-overrides.js";
 import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
 import { googleDocsAdapter } from "./adapters/google-docs.js";
@@ -230,17 +231,25 @@ async function verifyGoogleDocsPushToken(authHeader: string): Promise<void> {
   }
 }
 
-/** Built-in adapters, instantiated lazily */
-function getDefaultAdapters(): PlatformAdapter[] {
-  return [
-    slackAdapter(),
-    telegramAdapter(),
-    whatsappAdapter(),
-    microsoftTeamsAdapter(),
-    discordAdapter(),
-    googleDocsAdapter(),
-    emailAdapter(),
-  ];
+export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([
+  { platform: "slack", create: slackAdapter },
+  { platform: "telegram", create: telegramAdapter },
+  { platform: "whatsapp", create: whatsappAdapter },
+  { platform: "microsoft-teams", create: microsoftTeamsAdapter },
+  { platform: "discord", create: discordAdapter },
+  { platform: "google-docs", create: googleDocsAdapter },
+  { platform: "email", create: emailAdapter },
+] as const satisfies ReadonlyArray<{
+  platform: string;
+  create: () => PlatformAdapter;
+}>);
+
+export const BUILT_IN_INTEGRATION_ADAPTER_IDS = Object.freeze(
+  BUILT_IN_INTEGRATION_ADAPTER_FACTORIES.map(({ platform }) => platform),
+);
+
+export function createBuiltInIntegrationAdapters(): PlatformAdapter[] {
+  return BUILT_IN_INTEGRATION_ADAPTER_FACTORIES.map(({ create }) => create());
 }
 
 const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp, etc.).
@@ -618,9 +627,22 @@ function remoteCommandPushPayload(
 export function createIntegrationsPlugin(
   options?: IntegrationsPluginOptions,
 ): NitroPluginDef {
+  if (
+    options?.adapters !== undefined &&
+    options.adapterOverrides !== undefined
+  ) {
+    throw new Error(
+      "Choose either adapters for full replacement or adapterOverrides for per-platform customization.",
+    );
+  }
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "integrations");
-    const adapters = options?.adapters ?? getDefaultAdapters();
+    const adapters =
+      options?.adapters ??
+      mergeIntegrationAdapters(
+        createBuiltInIntegrationAdapters(),
+        options?.adapterOverrides,
+      );
     const adapterMap = new Map<string, PlatformAdapter>();
     for (const adapter of adapters) {
       adapterMap.set(adapter.platform, adapter);

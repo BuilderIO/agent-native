@@ -249,6 +249,82 @@ describe("ChatHistoryList", () => {
     expect(onTogglePin).toHaveBeenCalledWith("thread-1");
   });
 
+  it("uses custom labels for localized row actions", () => {
+    const onTogglePin = vi.fn();
+    const onDelete = vi.fn();
+    const labels = {
+      options: "Conversation actions",
+      renameInput: "Rename analytics conversation",
+      rename: "Rename conversation",
+      pin: "Keep at top",
+      unpin: "Remove from top",
+      delete: "Archive conversation",
+    };
+    const render = (pinned = false) => {
+      act(() => {
+        root.render(
+          <ChatHistoryList
+            key={String(pinned)}
+            items={[item({ id: "thread-1", titleText: "Campaign", pinned })]}
+            onSelect={() => {}}
+            onRename={() => {}}
+            onTogglePin={onTogglePin}
+            onDelete={onDelete}
+            labels={labels}
+          />,
+        );
+      });
+    };
+
+    render();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    expect(trigger?.getAttribute("aria-label")).toBe(labels.options);
+    act(() => {
+      trigger!.click();
+    });
+    expect(container.textContent).toContain(labels.rename);
+    expect(container.textContent).toContain(labels.pin);
+    expect(container.textContent).toContain(labels.delete);
+
+    const archiveItem = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((element) => element.textContent?.includes(labels.delete));
+    act(() => {
+      (archiveItem as HTMLButtonElement).click();
+    });
+    expect(onDelete).toHaveBeenCalledWith("thread-1");
+
+    render();
+    const renameTrigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      renameTrigger!.click();
+    });
+    const renameItem = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((element) => element.textContent?.includes(labels.rename));
+    act(() => {
+      (renameItem as HTMLButtonElement).click();
+    });
+    expect(
+      container
+        .querySelector<HTMLInputElement>(".an-chat-history-row__rename-input")
+        ?.getAttribute("aria-label"),
+    ).toBe(labels.renameInput);
+
+    render(true);
+    const pinnedTrigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      pinnedTrigger!.click();
+    });
+    expect(container.textContent).toContain(labels.unpin);
+  });
+
   it("supports inline rename via the row action menu", () => {
     const onRename = vi.fn();
     const items: ChatHistoryItem[] = [
@@ -260,6 +336,7 @@ describe("ChatHistoryList", () => {
           items={items}
           onSelect={() => {}}
           onRename={onRename}
+          renameMaxLength={160}
         />,
       );
     });
@@ -282,6 +359,7 @@ describe("ChatHistoryList", () => {
     );
     expect(input).not.toBeNull();
     expect(input!.value).toBe("Old title");
+    expect(input!.maxLength).toBe(160);
 
     act(() => {
       typeIntoInput(input!, "New title");
@@ -292,6 +370,72 @@ describe("ChatHistoryList", () => {
       );
     });
     expect(onRename).toHaveBeenCalledWith("thread-1", "New title");
+  });
+
+  it("supports item-aware labels and app-specific actions", () => {
+    const onShare = vi.fn();
+    const items: ChatHistoryItem[] = [
+      item({ id: "thread-1", title: "Campaign", titleText: "Campaign" }),
+    ];
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={items}
+          onSelect={() => {}}
+          onRename={() => {}}
+          labels={{
+            options: (chat) => `Options for ${chat.titleText}`,
+            renameInput: (chat) => `Rename ${chat.titleText}`,
+          }}
+          renderAdditionalRowActions={(chat, closeMenu) => (
+            <button
+              type="button"
+              className="an-chat-history-row__menu-item"
+              onClick={() => {
+                closeMenu();
+                onShare(chat.id);
+              }}
+            >
+              Share
+            </button>
+          )}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    expect(trigger?.getAttribute("aria-label")).toBe("Options for Campaign");
+    act(() => {
+      trigger!.click();
+    });
+
+    const shareItem = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((element) => element.textContent === "Share");
+    act(() => {
+      (shareItem as HTMLButtonElement).click();
+    });
+    expect(onShare).toHaveBeenCalledWith("thread-1");
+    expect(
+      container.querySelector(".an-chat-history-row__menu-content"),
+    ).toBeNull();
+
+    act(() => {
+      trigger!.click();
+    });
+    const renameItem = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((element) => element.textContent === "Rename");
+    act(() => {
+      (renameItem as HTMLButtonElement).click();
+    });
+    expect(
+      container
+        .querySelector<HTMLInputElement>(".an-chat-history-row__rename-input")
+        ?.getAttribute("aria-label"),
+    ).toBe("Rename Campaign");
   });
 
   it("renders the footer inside the scroll region regardless of list state", () => {

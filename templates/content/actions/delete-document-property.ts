@@ -44,6 +44,9 @@ export default defineAction({
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
+    if (definition.systemRole) {
+      throw new Error("System properties cannot be deleted.");
+    }
 
     const isBlocks = isBlocksPropertyType(
       definition.type as DocumentPropertyType,

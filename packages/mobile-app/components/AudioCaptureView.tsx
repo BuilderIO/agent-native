@@ -29,7 +29,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from "react-native";
@@ -411,37 +410,39 @@ export default function AudioCaptureView({
       : "Speak naturally. You can review and edit the transcript before copying it.";
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View className="flex-1 bg-background-dark px-5">
+      <View className="items-center flex-row justify-between pt-3.5">
         <Pressable
           accessibilityLabel="Close capture"
           accessibilityRole="button"
           hitSlop={12}
           onPress={handleClose}
-          style={styles.headerButton}
+          className="items-center h-11 justify-center w-11 active:opacity-75"
         >
           <IconChevronLeft color="#f4f4f5" size={24} strokeWidth={1.8} />
         </Pressable>
-        <Text style={styles.eyebrow}>
+        <Text className="text-status-gray text-xs font-bold tracking-[1.2px]">
           {kind === "meeting" ? "MEETING CAPTURE" : "VOICE DICTATION"}
         </Text>
-        <View style={styles.headerSpacer} />
+        <View className="w-11" />
       </View>
 
-      <View style={styles.hero}>
-        <View style={[styles.orb, isActive && styles.orbActive]}>
+      <View className="items-center flex-1 justify-center">
+        <View
+          className={`items-center bg-card-dark border border-border-dark rounded-full h-24 justify-center mb-7 w-24 ${isActive ? "bg-primary border-accent-lime-bright" : ""}`}
+        >
           <IconMicrophone
             color={isActive ? "#0b0b0c" : "#f4f4f5"}
             size={42}
             strokeWidth={1.6}
           />
         </View>
-        <Text style={styles.timer}>
+        <Text className="text-text-bright text-6xl font-[tabular-nums] font-light tracking-tighter">
           {formatDuration(
             pendingMedia?.durationMs ?? recorderState.durationMillis,
           )}
         </Text>
-        <Text style={styles.stateLabel}>
+        <Text className="text-text-muted text-sm mt-2">
           {captureState === "recording"
             ? "Listening"
             : captureState === "paused"
@@ -451,34 +452,40 @@ export default function AudioCaptureView({
                 : "Ready when you are"}
         </Text>
 
-        <View accessibilityElementsHidden style={styles.waveform}>
+        <View
+          accessibilityElementsHidden
+          className="items-center flex-row gap-1 h-18 justify-center mt-7.5"
+        >
           {Array.from({ length: 24 }, (_, index) => {
             const shape = 0.34 + ((index * 17) % 11) / 16;
             const height = isActive ? 8 + level * shape * 52 : 8;
             return (
               <View
                 key={index}
-                style={[
-                  styles.waveBar,
-                  { height },
-                  captureState === "paused" && styles.waveBarPaused,
-                ]}
+                style={{ height }}
+                className={`bg-primary rounded-sm w-[3px] ${
+                  captureState === "paused" ? "bg-gray-zinc" : ""
+                }`}
               />
             );
           })}
         </View>
       </View>
 
-      <View style={styles.bottom}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+      <View className="pb-6.5">
+        {error ? (
+          <Text className="bg-error-bg border border-error-border rounded-xl text-error-text text-xs leading-5 mb-4 p-3">
+            {error}
+          </Text>
+        ) : null}
         {captureState === "permission-denied" ? (
-          <View style={styles.permissionCard}>
-            <Text style={styles.permissionTitle}>
+          <View className="bg-card-dark border border-border-dark rounded-2xl p-4.5">
+            <Text className="text-text-bright text-lg font-bold">
               {permissionIssue === "notifications"
                 ? "Recording notification is off"
                 : "Microphone access is off"}
             </Text>
-            <Text style={styles.permissionBody}>
+            <Text className="text-text-muted text-sm leading-[20px] mb-4 mt-1.5">
               {permissionIssue === "notifications"
                 ? "Android requires a visible notification while a meeting records in the background. Enable notifications in system settings to continue."
                 : "Agent Native only records after you tap Start. Enable microphone access in system settings to continue."}
@@ -486,22 +493,26 @@ export default function AudioCaptureView({
             <Pressable
               accessibilityRole="button"
               onPress={() => void Linking.openSettings()}
-              style={styles.secondaryButton}
+              className="items-center self-start bg-gray-charcoal rounded-lg flex-row gap-8 min-h-[42px] px-3.5 active:opacity-75"
             >
               <IconSettings color="#f4f4f5" size={18} />
-              <Text style={styles.secondaryButtonText}>Open settings</Text>
+              <Text className="text-text-light text-sm font-semibold">
+                Open settings
+              </Text>
             </Pressable>
           </View>
         ) : (
           <>
-            <Text style={styles.help}>{statusCopy}</Text>
-            <View style={styles.controls}>
+            <Text className="text-status-gray text-xs leading-5 mb-5 text-center">
+              {statusCopy}
+            </Text>
+            <View className="items-center flex-row gap-3 justify-center">
               {captureState === "recording" ? (
                 <Pressable
                   accessibilityLabel="Pause recording"
                   accessibilityRole="button"
                   onPress={pause}
-                  style={styles.secondaryControl}
+                  className="items-center bg-card-dark border border-border-dark rounded-3xl h-14 justify-center w-14 active:opacity-75"
                 >
                   <IconPlayerPauseFilled color="#f4f4f5" size={24} />
                 </Pressable>
@@ -510,7 +521,7 @@ export default function AudioCaptureView({
                   accessibilityLabel="Resume recording"
                   accessibilityRole="button"
                   onPress={resume}
-                  style={styles.secondaryControl}
+                  className="items-center bg-card-dark border border-border-dark rounded-3xl h-14 justify-center w-14 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#f4f4f5" size={24} />
                 </Pressable>
@@ -521,30 +532,34 @@ export default function AudioCaptureView({
                   accessibilityLabel="Finish recording"
                   accessibilityRole="button"
                   onPress={() => void stop()}
-                  style={styles.stopButton}
+                  className="items-center bg-red-danger rounded-3xl flex-row gap-2 justify-center h-14 px-6.5 active:opacity-75"
                 >
                   <IconPlayerStopFilled color="#ffffff" size={28} />
-                  <Text style={styles.stopButtonText}>Finish</Text>
+                  <Text className="text-white text-base font-bold">Finish</Text>
                 </Pressable>
               ) : pendingMedia ? (
                 <Pressable
                   accessibilityLabel="Retry saving recording"
                   accessibilityRole="button"
                   onPress={() => void deliver(pendingMedia)}
-                  style={styles.startButton}
+                  className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#0b0b0c" size={22} />
-                  <Text style={styles.startButtonText}>Retry save</Text>
+                  <Text className="text-background-dark text-base font-bold">
+                    Retry save
+                  </Text>
                 </Pressable>
               ) : captureState === "error" ? (
                 <Pressable
                   accessibilityLabel="Prepare recorder again"
                   accessibilityRole="button"
                   onPress={() => void prepareRecorder()}
-                  style={styles.startButton}
+                  className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#0b0b0c" size={22} />
-                  <Text style={styles.startButtonText}>Try again</Text>
+                  <Text className="text-background-dark text-base font-bold">
+                    Try again
+                  </Text>
                 </Pressable>
               ) : (
                 <Pressable
@@ -555,10 +570,10 @@ export default function AudioCaptureView({
                     captureState === "saving"
                   }
                   onPress={start}
-                  style={styles.startButton}
+                  className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconMicrophone color="#0b0b0c" size={24} />
-                  <Text style={styles.startButtonText}>
+                  <Text className="text-background-dark text-base font-bold">
                     {captureState === "checking-permission"
                       ? "Getting ready…"
                       : "Start"}
@@ -572,159 +587,3 @@ export default function AudioCaptureView({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0b0b0c",
-    paddingHorizontal: 20,
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingTop: 14,
-  },
-  headerButton: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  headerSpacer: { width: 44 },
-  eyebrow: {
-    color: "#71717a",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-  },
-  hero: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-  },
-  orb: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 48,
-    borderWidth: 1,
-    height: 96,
-    justifyContent: "center",
-    marginBottom: 28,
-    width: 96,
-  },
-  orbActive: {
-    backgroundColor: "#c7f36b",
-    borderColor: "#d9ff8a",
-  },
-  timer: {
-    color: "#fafafa",
-    fontSize: 56,
-    fontVariant: ["tabular-nums"],
-    fontWeight: "300",
-    letterSpacing: -2,
-  },
-  stateLabel: {
-    color: "#a1a1aa",
-    fontSize: 15,
-    marginTop: 8,
-  },
-  waveform: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-    height: 72,
-    justifyContent: "center",
-    marginTop: 30,
-  },
-  waveBar: {
-    backgroundColor: "#c7f36b",
-    borderRadius: 2,
-    width: 3,
-  },
-  waveBarPaused: { backgroundColor: "#52525b" },
-  bottom: { paddingBottom: 26 },
-  help: {
-    color: "#71717a",
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  error: {
-    backgroundColor: "#2b1115",
-    borderColor: "#5f2029",
-    borderRadius: 12,
-    borderWidth: 1,
-    color: "#fda4af",
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 16,
-    padding: 12,
-  },
-  controls: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "center",
-  },
-  startButton: {
-    alignItems: "center",
-    backgroundColor: "#c7f36b",
-    borderRadius: 28,
-    flexDirection: "row",
-    gap: 9,
-    justifyContent: "center",
-    minHeight: 56,
-    paddingHorizontal: 28,
-  },
-  startButtonText: { color: "#0b0b0c", fontSize: 16, fontWeight: "700" },
-  stopButton: {
-    alignItems: "center",
-    backgroundColor: "#dc2626",
-    borderRadius: 28,
-    flexDirection: "row",
-    gap: 9,
-    justifyContent: "center",
-    minHeight: 56,
-    paddingHorizontal: 26,
-  },
-  stopButtonText: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  secondaryControl: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 28,
-    borderWidth: 1,
-    height: 56,
-    justifyContent: "center",
-    width: 56,
-  },
-  permissionCard: {
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 18,
-  },
-  permissionTitle: { color: "#fafafa", fontSize: 17, fontWeight: "700" },
-  permissionBody: {
-    color: "#a1a1aa",
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-    marginTop: 6,
-  },
-  secondaryButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "#27272a",
-    borderRadius: 10,
-    flexDirection: "row",
-    gap: 8,
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  secondaryButtonText: { color: "#f4f4f5", fontSize: 14, fontWeight: "600" },
-});

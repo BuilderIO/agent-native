@@ -159,6 +159,30 @@ const messages = {
     actionsUnavailableDetail:
       "此頁面連線到 get-brain-settings 和 update-brain-settings 並且目前使用預設值。",
     numberFieldRange: "必須介於 {{min}} 到 {{max}} 分鐘之間。",
+    privacySensitivityTitle: "隱私與敏感性",
+    privacySensitivityDescription: "分類器整備狀態與僅保留中繼資料的隔離邊界。",
+    privacyClassifier: "隱私分類器",
+    privacyModel: "分類器模型",
+    quarantineRetention: "隔離保留期",
+    tightenOnly:
+      "敏感性控制只能收緊擷取和處理。隔離材料絕不會提供給來源編輯者或搜尋結果。",
+    ready: "已就緒",
+    readinessPending: "整備狀態待定",
+    days: "{{count}} 天",
+    privacyClassifierModel: "隱私分類器模型",
+    privacyClassifierModelPlaceholder: "預設隱私分類器模型",
+    privacyClassifierEngine: "分類器引擎",
+    privacyClassifierEnginePlaceholder: "預設分類器引擎",
+    quarantineRetentionHours: "隔離保留時數",
+    quarantineRetentionHoursDescription:
+      "僅含中繼資料的隔離事件將在此期限後刪除。",
+    sensitivityCustomInstructions: "自訂敏感性指示",
+    sensitivityCustomInstructionsPlaceholder: "新增更嚴格的工作區分類規則。",
+    sensitivityCustomInstructionsDescription: "這些指示只能收緊基礎隱私政策。",
+    publicChannelExclusionPatterns: "公開 Slack 頻道排除項目",
+    publicChannelExclusionPatternsPlaceholder: "每行一個頻道名稱或模式",
+    publicChannelExclusionPatternsDescription:
+      "符合的公開頻道會排除於探索和擷取之外。",
   },
   review: {
     eyebrow: "審核",
@@ -286,6 +310,12 @@ const messages = {
     queued: "已排入佇列",
     currentDraft: "目前草案",
     current: "目前",
+    quarantine: "隔離",
+    quarantineEvent: "隔離事件",
+    metadataOnly: "僅中繼資料",
+    quarantineNoReason: "已依敏感性政策抑制。",
+    quarantineId: "事件 {{id}}",
+    quarantineSource: "來源 {{source}}",
   },
   sources: {
     eyebrow: "來源",
@@ -469,6 +499,18 @@ const messages = {
       "最小範圍為 channels:read 和 channels:history. 為私人頻道新增 groups:read 和 groups:history。",
     slackSetupPrivateChannels:
       "同步前邀請 Slack 應用程式加入私人頻道。 DMs 和 MPIMs 被排除在外。",
+    slackDiscoveryMode: "探索模式",
+    slackDiscoveryModeDescription:
+      "依來源規則探索公開頻道；私人頻道需要手動邀請應用程式。",
+    slackExclusions:
+      "會排除私訊、群組私訊、已封存頻道，以及未手動邀請應用程式的頻道。",
+    slackManualInvite: "私人頻道必須先手動邀請 Slack 應用程式才能驗證。",
+    sensitivityPreview: "敏感性預覽",
+    sensitivityPreviewDescription:
+      "原始訊息內容在此處保持隱藏。請改在隔離中檢閱分類中繼資料。",
+    includePublicChannels: "包含已核准的公開頻道",
+    includePublicChannelsDescription:
+      "預設關閉。啟用後，探索仍會遵循排除模式與頻道允許清單。",
     required: "必填",
     credentialProvenance: "憑證來源",
     workspaceConnections: "工作區連線",
@@ -649,6 +691,8 @@ const messages = {
     openRelatedSource: "開啟相關來源碼",
     inTheseResults: "在這些結果中",
     untitledResult: "無標題結果",
+    project: "專案",
+    allProjects: "所有專案",
   },
   ops: {
     allQueueItems: "所有佇列專案",
@@ -704,6 +748,14 @@ const messages = {
     items: "項目",
     retryError: "重試錯誤",
     retryErrors: "重試錯誤",
+    semanticIndex: "語意索引",
+    semanticIndexDescription:
+      "用於擷取涵蓋率與存取控制傳播的管理員健康訊號。計數絕不會暴露受保護內容。",
+    indexCoverage: "索引涵蓋率",
+    embeddingLag: "嵌入延遲",
+    aclFreshness: "ACL 新鮮度",
+    suppressed: "已抑制",
+    adminOnly: "管理員訊號",
   },
 };
 

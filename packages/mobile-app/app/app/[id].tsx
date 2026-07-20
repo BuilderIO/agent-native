@@ -6,13 +6,13 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   ActivityIndicator,
   Linking,
   AppState,
 } from "react-native";
-import { WebView } from "react-native-webview";
+import type { WebView as WebViewRef } from "react-native-webview";
 
+import { WebView } from "@/components/uniwind-interop";
 import { getSessionToken } from "@/lib/session-token-store";
 import { useApps } from "@/lib/use-apps";
 import {
@@ -38,7 +38,7 @@ function rememberOAuthState(url: string) {
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { apps } = useApps();
-  const webviewRef = useRef<WebView>(null);
+  const webviewRef = useRef<WebViewRef>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const openedExternal = useRef(false);
@@ -104,8 +104,10 @@ export default function AppScreen() {
 
   if (!app) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>App not found</Text>
+      <View className="flex-1 justify-center items-center bg-background-dark p-6">
+        <Text className="text-white text-lg font-semibold mt-4 mb-1.5">
+          App not found
+        </Text>
       </View>
     );
   }
@@ -135,7 +137,7 @@ export default function AppScreen() {
           headerRight: () => (
             <TouchableOpacity
               onPress={handleReload}
-              style={styles.headerButton}
+              className="p-2 active:opacity-75"
             >
               <Feather name="refresh-cw" size={20} color="#ffffff" />
             </TouchableOpacity>
@@ -143,22 +145,29 @@ export default function AppScreen() {
         }}
       />
 
-      <View style={styles.container}>
+      <View className="flex-1 bg-background-dark">
         {error ? (
-          <View style={styles.center}>
+          <View className="flex-1 justify-center items-center bg-background-dark p-6">
             <Feather name="alert-circle" size={48} color="#EF4444" />
-            <Text style={styles.errorText}>Failed to load {app.name}</Text>
-            <Text style={styles.errorUrl}>{baseUrl}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={handleReload}>
+            <Text className="text-white text-lg font-semibold mt-4 mb-1.5">
+              Failed to load {app.name}
+            </Text>
+            <Text className="text-gray-medium text-xs mb-5">{baseUrl}</Text>
+            <TouchableOpacity
+              className="flex-row items-center bg-white px-5 py-2.5 rounded-lg gap-2 active:opacity-75"
+              onPress={handleReload}
+            >
               <Feather name="refresh-cw" size={16} color="#ffffff" />
-              <Text style={styles.retryText}>Retry</Text>
+              <Text className="text-background-dark text-sm font-semibold">
+                Retry
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (
           <WebView
             ref={webviewRef}
             source={{ uri: url }}
-            style={styles.webview}
+            className="flex-1 bg-background-dark"
             onLoadStart={() => setLoading(true)}
             onLoadEnd={() => setLoading(false)}
             onError={() => {
@@ -183,7 +192,7 @@ export default function AppScreen() {
         )}
 
         {loading && !error && (
-          <View style={styles.loadingOverlay}>
+          <View className="absolute top-0 right-0 bottom-0 left-0 justify-center items-center bg-background-dark">
             <ActivityIndicator size="large" color="#ffffff" />
           </View>
         )}
@@ -191,60 +200,3 @@ export default function AppScreen() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-    padding: 24,
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-  },
-  headerButton: {
-    padding: 8,
-  },
-  errorText: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 16,
-    marginBottom: 6,
-  },
-  errorUrl: {
-    color: "#666666",
-    fontSize: 13,
-    marginBottom: 20,
-  },
-  retryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 8,
-  },
-  retryText: {
-    color: "#111111",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-});

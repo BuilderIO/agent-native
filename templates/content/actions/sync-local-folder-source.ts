@@ -14,8 +14,10 @@ import {
   isContentSourcePath,
   parseContentSourceFile,
 } from "../shared/content-source.js";
+import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { provisionContentSpaces } from "./_content-spaces.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -175,6 +177,7 @@ export default defineAction({
       throw new Error(`Local folder source "${sourceId}" not found`);
     }
     await resolveContentSpaceAccess(target.database.spaceId, "editor");
+    if (!dryRun) await provisionContentSpaces(db, userEmail);
     const targetSpaceId = target.database.spaceId;
 
     const parsed = entries.map(([path, value]) =>
@@ -570,6 +573,17 @@ export default defineAction({
               );
             }
           }
+        }
+
+        for (const plan of plans) {
+          if (plan.conflict || plan.existing || !plan.file.isFavorite) continue;
+          await setFavoriteMembership({
+            db: tx,
+            userEmail,
+            documentId: plan.id,
+            favorite: true,
+            now,
+          });
         }
 
         const materializedIds = plans

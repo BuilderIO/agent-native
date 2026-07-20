@@ -153,6 +153,9 @@ export {
   ResourcesPanel,
   ResourceTree,
   ResourceEditor,
+  DEFAULT_MCP_INTEGRATIONS,
+  getDefaultMcpIntegrations,
+  mergeDefaultMcpIntegrations,
   useResources,
   useResourceTree,
   useResource,
@@ -166,6 +169,7 @@ export {
   type ResourceScope,
   type ResourceTreeProps,
   type ResourceEditorProps,
+  type DefaultMcpIntegration,
 } from "./resources/index.js";
 export type { ResourcesPanelProps } from "./resources/ResourcesPanel.js";
 export {

@@ -1,10 +1,10 @@
 import { IconChevronRight, IconSettings } from "@tabler/icons-react-native";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, ScrollView, Text, View } from "react-native";
 
 import AppCard from "@/components/AppCard";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import { useApps } from "@/lib/use-apps";
 
 const APP_ID_TO_ROUTE: Record<string, string> = {
@@ -33,29 +33,33 @@ export default function AppsScreen() {
   );
 
   return (
-    <SafeAreaView edges={["top"]} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
+    <SafeAreaView edges={["top"]} className="bg-background-dark flex-1">
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }}>
+        <View className="items-center flex-row justify-between">
           <View>
-            <Text style={styles.eyebrow}>YOUR WORKSPACE</Text>
-            <Text style={styles.title}>Apps</Text>
+            <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px]">
+              YOUR WORKSPACE
+            </Text>
+            <Text className="text-foreground text-[34px] font-bold tracking-[-1px] mt-0.5">
+              Apps
+            </Text>
           </View>
           <Pressable
             accessibilityLabel="Open app settings"
             accessibilityRole="button"
             onPress={() => router.push("/settings" as never)}
-            style={styles.settingsButton}
+            className="items-center bg-card-dark border border-border-dark rounded-full h-11 w-11 justify-center active:opacity-75"
           >
             <IconSettings color="#f4f4f5" size={21} strokeWidth={1.8} />
           </Pressable>
         </View>
-        <Text style={styles.description}>
+        <Text className="text-text-muted text-[15px] leading-[22px] mb-[18px] mt-[14px]">
           Open the full workspace apps when you need them. Capture and remote
           work stay native and one tap away from Home.
         </Text>
-        <View style={styles.grid}>
+        <View className="flex-row flex-wrap -mx-[6px]">
           {enabledApps.map((app) => (
-            <View key={app.id} style={styles.cardCell}>
+            <View key={app.id} className="w-[50%]">
               <AppCard app={app} onPress={() => openApp(app.id)} />
             </View>
           ))}
@@ -63,14 +67,16 @@ export default function AppsScreen() {
         <Pressable
           accessibilityRole="button"
           onPress={() => router.push("/settings" as never)}
-          style={styles.manageRow}
+          className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row mt-[18px] p-[14px] active:opacity-75"
         >
-          <View style={styles.manageIcon}>
+          <View className="items-center bg-accent-green-dim rounded-xl h-[42px] w-[42px] justify-center">
             <IconSettings color="#c7f36b" size={20} strokeWidth={1.8} />
           </View>
-          <View style={styles.manageCopy}>
-            <Text style={styles.manageTitle}>Manage mobile apps</Text>
-            <Text style={styles.manageDescription}>
+          <View className="flex-1 ml-3">
+            <Text className="text-text-light text-[15px] font-semibold">
+              Manage mobile apps
+            </Text>
+            <Text className="text-status-gray text-xs leading-[17px] mt-0.5">
               Choose which workspace companions are available here.
             </Text>
           </View>
@@ -80,71 +86,3 @@ export default function AppsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: { backgroundColor: "#0b0b0c", flex: 1 },
-  content: { padding: 20, paddingBottom: 36 },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  eyebrow: {
-    color: "#71717a",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-  },
-  title: {
-    color: "#fafafa",
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: -1,
-    marginTop: 3,
-  },
-  settingsButton: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 22,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  description: {
-    color: "#a1a1aa",
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 18,
-    marginTop: 14,
-  },
-  grid: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 },
-  cardCell: { width: "50%" },
-  manageRow: {
-    alignItems: "center",
-    backgroundColor: "#18181b",
-    borderColor: "#27272a",
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    marginTop: 18,
-    padding: 14,
-  },
-  manageIcon: {
-    alignItems: "center",
-    backgroundColor: "#22251d",
-    borderRadius: 11,
-    height: 42,
-    justifyContent: "center",
-    width: 42,
-  },
-  manageCopy: { flex: 1, marginLeft: 12 },
-  manageTitle: { color: "#f4f4f5", fontSize: 15, fontWeight: "600" },
-  manageDescription: {
-    color: "#71717a",
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 2,
-  },
-});

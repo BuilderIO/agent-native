@@ -25,6 +25,7 @@ and docs. Dispatch is a separate product rather than a Toolkit module.
 
 ```tsx
 import { ToolkitProvider } from "@agent-native/toolkit/provider";
+import { ChatHistoryList } from "@agent-native/toolkit/chat-history";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ContextMeterView } from "@agent-native/toolkit/context-ui";
 import { VisualTweakControl } from "@agent-native/toolkit/design-tweaks";
@@ -38,7 +39,22 @@ import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
 
 Import `@agent-native/toolkit/styles.css` after Tailwind to include Toolkit's
 source scanning. If an app renders `SharedRichEditor`, also import
-`@agent-native/toolkit/editor.css`.
+`@agent-native/toolkit/editor.css`. If an app renders `ChatHistoryList`, also
+import `@agent-native/toolkit/chat-history.css`.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.
+
+## Customize Or Take Ownership
+
+Use public props, slots, callbacks, stable classes, and local adapters first.
+If a product needs a deeper override, the published package includes readable
+TypeScript under `node_modules/@agent-native/toolkit/src/`. Treat it as a
+read-only reference: copy the smallest component or helper into app-owned
+source, change the app import, and customize that copy. Do not edit
+`node_modules` or deep-import private `src` files at runtime.
+
+Keep Core runtime contracts intact when taking ownership of Toolkit UI. Actions,
+application state, auth/access, persistence, agent execution, chat transport,
+and page-to-sidebar thread handoff remain on their public Core APIs. Copied UI
+is an app-owned snapshot and will not receive upstream fixes automatically.
