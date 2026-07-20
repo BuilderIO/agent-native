@@ -408,7 +408,12 @@ export function ChatSettingsSheet({
                 />
                 {!!expandedGroups["api-keys"] && (
                   <>
-                    {PROVIDER_KEY_OPTIONS.map((option) => (
+                    {PROVIDER_KEY_OPTIONS.filter(
+                      (option) =>
+                        !catalog.configurableProviders ||
+                        catalog.configurableProviders.length === 0 ||
+                        catalog.configurableProviders.includes(option.provider),
+                    ).map((option) => (
                       <View key={option.provider}>
                         <Text className="text-zinc-400 text-[12px] font-semibold pl-10 pr-4 pt-3">
                           {option.label}

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   abortRun,
   AgentChatError,
+  DEFAULT_CHAT_BASE_URL,
   deleteNavigateCommand,
   fetchNavigateCommand,
   fetchThreadMessages,
@@ -17,6 +18,7 @@ import { reattachDroppedRun } from "./run-reattach";
 import type {
   ChatAttachment,
   ChatMessage,
+  ChatReference,
   ChatSendOptions,
   ChatTurnState,
   WireEvent,
@@ -39,6 +41,8 @@ export interface AgentChatSettings {
 
 export interface AgentChatController {
   threadId: string;
+  /** Origin app base URL of the active thread (defaults to the chat app). */
+  baseUrl: string;
   messages: ChatMessage[];
   isStreaming: boolean;
   activity: string | null;
@@ -46,13 +50,18 @@ export interface AgentChatController {
   errorCode: string | null;
   authRequired: boolean;
   historyLoading: boolean;
-  send: (text: string, attachments?: ChatAttachment[]) => void;
+  send: (
+    text: string,
+    attachments?: ChatAttachment[],
+    references?: ChatReference[],
+  ) => void;
   stop: () => void;
   approve: (approvalKey: string) => void;
   deny: (approvalKey?: string) => void;
   retry: () => void;
   newChat: () => void;
-  openThread: (threadId: string) => void;
+  /** Open a thread; pass its origin app base URL for cross-app threads. */
+  openThread: (threadId: string, baseUrl?: string) => void;
   clearAuthRequired: () => void;
   /** Run id of the turn that produced this assistant message, if known. */
   getRunId: (messageId: string) => string | null;
@@ -75,9 +84,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   }));
   const [authRequired, setAuthRequired] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_CHAT_BASE_URL);
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Async turn/resume closures read the live value, not the render-time one.
+  const baseUrlRef = useRef(baseUrl);
+  baseUrlRef.current = baseUrl;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const liveTurnRef = useRef<LiveTurn | null>(null);
@@ -99,7 +112,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       text: string,
       extra: Pick<
         ChatSendOptions & { approvedToolCalls?: string[] },
-        "approvedToolCalls" | "attachments"
+        "approvedToolCalls" | "attachments" | "references"
       > = {},
       currentThreadId?: string,
     ) => {
@@ -156,21 +169,28 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         const controller = new AbortController();
         liveTurnRef.current = { abort: () => controller.abort(), runId: null };
 
-        const turn = await sendChatTurn(text, {
-          threadId: activeThreadId,
-          history,
-          model: settingsRef.current.model,
-          engine: settingsRef.current.engine,
-          effort: settingsRef.current.effort,
-          mode: settingsRef.current.mode,
-          signal: controller.signal,
-          ...(extra.attachments?.length
-            ? { attachments: extra.attachments }
-            : {}),
-          ...(extra.approvedToolCalls
-            ? { approvedToolCalls: extra.approvedToolCalls }
-            : {}),
-        });
+        const turn = await sendChatTurn(
+          text,
+          {
+            threadId: activeThreadId,
+            history,
+            model: settingsRef.current.model,
+            engine: settingsRef.current.engine,
+            effort: settingsRef.current.effort,
+            mode: settingsRef.current.mode,
+            signal: controller.signal,
+            ...(extra.attachments?.length
+              ? { attachments: extra.attachments }
+              : {}),
+            ...(extra.references?.length
+              ? { references: extra.references }
+              : {}),
+            ...(extra.approvedToolCalls
+              ? { approvedToolCalls: extra.approvedToolCalls }
+              : {}),
+          },
+          baseUrlRef.current,
+        );
 
         if (activeGenerationRef.current !== currentGeneration) {
           return;
@@ -219,7 +239,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             signal: controller.signal,
             apply: applyEvent,
             resume: (runId, after, signal) =>
-              resumeRunEvents(runId, after, signal),
+              resumeRunEvents(runId, after, signal, baseUrlRef.current),
           });
           sawTerminal = result.sawTerminal;
         }
@@ -272,13 +292,20 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   );
 
   const send = useCallback(
-    (text: string, attachments?: ChatAttachment[]) => {
+    (
+      text: string,
+      attachments?: ChatAttachment[],
+      references?: ChatReference[],
+    ) => {
       const trimmed = text.trim();
       if ((!trimmed && !attachments?.length) || stateRef.current.isStreaming) {
         return;
       }
       lastPromptRef.current = trimmed;
-      void runTurn(trimmed, attachments?.length ? { attachments } : {});
+      void runTurn(trimmed, {
+        ...(attachments?.length ? { attachments } : {}),
+        ...(references?.length ? { references } : {}),
+      });
     },
     [runTurn],
   );
@@ -287,7 +314,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     const live = liveTurnRef.current;
     if (!live) return;
     live.abort();
-    if (live.runId) void abortRun(live.runId);
+    if (live.runId) void abortRun(live.runId, baseUrlRef.current);
   }, []);
 
   const approve = useCallback(
@@ -340,6 +367,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     activeGenerationRef.current++;
     liveTurnRef.current?.abort();
     setThreadId(newThreadId());
+    // New chats always start on the chat app.
+    setBaseUrl(DEFAULT_CHAT_BASE_URL);
     lastPromptRef.current = null;
     setState({
       messages: [],
@@ -385,7 +414,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         const controller = new AbortController();
         liveTurnRef.current = { abort: () => controller.abort(), runId };
 
-        const stream = await resumeRunEvents(runId, 0, controller.signal);
+        const stream = await resumeRunEvents(
+          runId,
+          0,
+          controller.signal,
+          baseUrlRef.current,
+        );
         if (activeGenerationRef.current !== currentGeneration) {
           return;
         }
@@ -424,7 +458,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             lastSeq,
             signal: controller.signal,
             apply: applyEvent,
-            resume: (id, after, signal) => resumeRunEvents(id, after, signal),
+            resume: (id, after, signal) =>
+              resumeRunEvents(id, after, signal, baseUrlRef.current),
           });
           sawTerminal = result.sawTerminal;
         }
@@ -471,9 +506,14 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   );
 
   const openThread = useCallback(
-    (nextThreadId: string) => {
+    (nextThreadId: string, nextBaseUrl?: string) => {
       const currentGeneration = ++activeGenerationRef.current;
       liveTurnRef.current?.abort();
+      const resolvedBaseUrl = nextBaseUrl ?? DEFAULT_CHAT_BASE_URL;
+      // Set synchronously so runTurn/reattach read the right app immediately,
+      // before the state update commits.
+      baseUrlRef.current = resolvedBaseUrl;
+      setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
       lastPromptRef.current = null;
       setHistoryLoading(true);
@@ -486,8 +526,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         runId: null,
       });
       Promise.all([
-        fetchThreadMessages(nextThreadId),
-        getActiveRun(nextThreadId).catch(() => ({ active: false as const })),
+        fetchThreadMessages(nextThreadId, resolvedBaseUrl),
+        getActiveRun(nextThreadId, resolvedBaseUrl).catch(() => ({
+          active: false as const,
+        })),
       ])
         .then(([messages, activeRun]) => {
           if (
@@ -561,6 +603,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
 
   return {
     threadId,
+    baseUrl,
     messages: state.messages,
     isStreaming: state.isStreaming,
     activity: state.activity,

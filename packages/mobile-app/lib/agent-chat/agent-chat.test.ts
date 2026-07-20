@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  activeMentionQuery,
+  mentionToReference,
+  replaceMention,
+} from "./mention-query";
 import { extractThreadId, navigateCommandDedupKey } from "./navigate-command";
 import { applyWireEvent, cancelTurnState, initialTurnState } from "./reducer";
 import { reattachDroppedRun } from "./run-reattach";
 import { JsonEventStreamParser } from "./stream";
-import type { ChatTurnState, WireEvent } from "./types";
+import { groupThreadsByApp } from "./thread-grouping";
+import type { ChatThreadSummary, ChatTurnState, WireEvent } from "./types";
 import { isTerminalWireEvent } from "./types";
 
 function run(events: WireEvent[], assistantId = "a1"): ChatTurnState {
@@ -325,6 +331,124 @@ describe("reattachDroppedRun", () => {
     });
     expect(calls).toBe(0);
     expect(result.sawTerminal).toBe(false);
+  });
+});
+
+describe("groupThreadsByApp", () => {
+  const thread = (
+    id: string,
+    appId: string,
+    updatedAt: number,
+  ): ChatThreadSummary => ({
+    id,
+    title: `${appId} ${id}`,
+    updatedAt,
+    appId,
+    appName: appId[0]!.toUpperCase() + appId.slice(1),
+    appIcon: "MessageSquare",
+    baseUrl: `https://${appId}.agent-native.com`,
+  });
+
+  it("groups threads under one header per app, preserving order", () => {
+    // Newest-first across apps (as listAllThreads returns).
+    const rows = groupThreadsByApp([
+      thread("t1", "dispatch", 300),
+      thread("t2", "content", 200),
+      thread("t3", "dispatch", 100),
+    ]);
+    expect(
+      rows.map((r) => (r.type === "header" ? `#${r.appName}` : r.key)),
+    ).toEqual([
+      "#Dispatch",
+      "https://dispatch.agent-native.com:t1",
+      "https://dispatch.agent-native.com:t3",
+      "#Content",
+      "https://content.agent-native.com:t2",
+    ]);
+  });
+
+  it("keeps thread ids that repeat across apps distinct by origin", () => {
+    const rows = groupThreadsByApp([
+      thread("shared", "content", 200),
+      thread("shared", "slides", 100),
+    ]);
+    const threadRows = rows.filter((r) => r.type === "thread");
+    expect(threadRows.map((r) => r.key)).toEqual([
+      "https://content.agent-native.com:shared",
+      "https://slides.agent-native.com:shared",
+    ]);
+  });
+
+  it("falls back to a Chat label when app metadata is absent", () => {
+    const rows = groupThreadsByApp([{ id: "t1", title: "x", updatedAt: 1 }]);
+    expect(rows[0]).toMatchObject({ type: "header", appName: "Chat" });
+  });
+});
+
+describe("activeMentionQuery", () => {
+  it("detects a mention being typed at the cursor", () => {
+    const text = "summarize @age";
+    expect(activeMentionQuery(text, text.length)).toEqual({
+      query: "age",
+      start: 10,
+      end: 14,
+    });
+  });
+
+  it("matches a bare @ with an empty query", () => {
+    expect(activeMentionQuery("hey @", 5)).toEqual({
+      query: "",
+      start: 4,
+      end: 5,
+    });
+  });
+
+  it("ignores an @ that is mid-word (e.g. an email) or after whitespace", () => {
+    expect(activeMentionQuery("mail me@x.com", 13)).toBeNull();
+    expect(activeMentionQuery("done @file now", 14)).toBeNull();
+  });
+
+  it("only considers the fragment before the cursor", () => {
+    const text = "a @one @two";
+    // Cursor sits after "on" inside the first mention.
+    expect(activeMentionQuery(text, 5)).toEqual({
+      query: "on",
+      start: 2,
+      end: 5,
+    });
+  });
+});
+
+describe("replaceMention", () => {
+  it("swaps the @query fragment for the inserted label and moves the cursor", () => {
+    const text = "summarize @age here";
+    const mention = activeMentionQuery("summarize @age", 14)!;
+    const result = replaceMention(text, mention, "@AGENTS.md ");
+    expect(result.text).toBe("summarize @AGENTS.md  here");
+    expect(result.cursor).toBe("summarize @AGENTS.md ".length);
+  });
+});
+
+describe("mentionToReference", () => {
+  it("maps refType to the turn reference type", () => {
+    expect(
+      mentionToReference({
+        id: "1",
+        label: "AGENTS.md",
+        source: "codebase",
+        refType: "file",
+        refPath: "AGENTS.md",
+      }).type,
+    ).toBe("file");
+    expect(
+      mentionToReference({
+        id: "2",
+        label: "Deck",
+        source: "resource",
+        refType: "deck",
+        refId: "d1",
+      }),
+    ).toMatchObject({ type: "mention", name: "Deck", refId: "d1", path: "" });
   });
 });
 

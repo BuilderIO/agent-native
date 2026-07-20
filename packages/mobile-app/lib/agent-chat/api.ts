@@ -14,6 +14,7 @@ import type {
   ChatModelGroup,
   ChatSendOptions,
   ChatThreadSummary,
+  MentionItem,
   WireEvent,
 } from "./types";
 
@@ -121,6 +122,7 @@ export async function sendChatTurn(
       ...(options.attachments?.length
         ? { attachments: options.attachments }
         : {}),
+      ...(options.references?.length ? { references: options.references } : {}),
       ...(options.approvedToolCalls?.length
         ? { approvedToolCalls: options.approvedToolCalls }
         : {}),
@@ -191,6 +193,108 @@ export async function deleteChatThread(
     { method: "DELETE" },
     baseUrl,
   );
+}
+
+export interface ChatCapableApp {
+  id: string;
+  name: string;
+  icon: string;
+  url: string;
+}
+
+/** Workspace apps that expose an agent chat surface at a known prod URL. */
+export function chatCapableApps(): ChatCapableApp[] {
+  return TEMPLATE_APPS.filter((app) => Boolean(app.url)).map((app) => ({
+    id: app.id,
+    name: app.name,
+    icon: app.icon,
+    url: app.url,
+  }));
+}
+
+async function listTaggedThreads(
+  app: ChatCapableApp,
+): Promise<ChatThreadSummary[]> {
+  const threads = await listChatThreads(app.url);
+  return threads.map((thread) => ({
+    ...thread,
+    appId: app.id,
+    appName: app.name,
+    appIcon: app.icon,
+    baseUrl: app.url,
+  }));
+}
+
+/**
+ * Cross-app thread history. Each workspace app is its own deployment with its
+ * own thread store, so aggregation means fanning out to every app's `/threads`
+ * endpoint and tagging each thread with its origin. Per-app failures (an app
+ * that is down, or one the session token can't authenticate against) are
+ * swallowed so the rest of the history still renders — never fail the whole
+ * list because one app rejected. Results are newest-first across all apps.
+ */
+export async function listAllThreads(): Promise<ChatThreadSummary[]> {
+  const apps = chatCapableApps();
+  const perApp = await Promise.all(
+    apps.map((app) => listTaggedThreads(app).catch(() => [])),
+  );
+  return perApp.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/**
+ * Threads for a single workspace app, newest-first. Unlike listAllThreads this
+ * surfaces the error (an unknown app id, or a failed/unauthorized fetch) so the
+ * filtered view can offer a retry rather than showing a misleading empty state.
+ */
+export async function listThreadsForApp(
+  appId: string,
+): Promise<ChatThreadSummary[]> {
+  const app = chatCapableApps().find((candidate) => candidate.id === appId);
+  if (!app) throw new AgentChatError(`Unknown app "${appId}"`);
+  const threads = await listTaggedThreads(app);
+  return threads.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/**
+ * `@`-mention candidates (files, workspace pages, skills, agents, …) from an
+ * app's unified mentions endpoint. The endpoint streams NDJSON batches of
+ * `{ items }`; each line is parsed and items are de-duplicated by id. Returns
+ * an empty list on any failure — mention search must never surface an error.
+ */
+export async function fetchMentions(
+  query: string,
+  signal?: AbortSignal,
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<MentionItem[]> {
+  try {
+    const headers = await authHeaders();
+    const response = await fetch(
+      `${baseUrl}${CHAT_PATH}/mentions?q=${encodeURIComponent(query)}`,
+      { headers, signal },
+    );
+    if (!response.ok) return [];
+    const body = await response.text();
+    const items: MentionItem[] = [];
+    const seen = new Set<string>();
+    for (const line of body.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as { items?: MentionItem[] };
+        for (const item of parsed.items ?? []) {
+          if (item?.id && !seen.has(item.id)) {
+            seen.add(item.id);
+            items.push(item);
+          }
+        }
+      } catch {
+        // Ignore a partial/garbled line; other batches still parse.
+      }
+    }
+    return items;
+  } catch {
+    return [];
+  }
 }
 
 function toThreadSummary(raw: unknown): ChatThreadSummary | null {
@@ -371,6 +475,7 @@ export async function fetchModelCatalog(
         label?: string;
         supportedModels?: string[];
         requiredEnvVars?: string[];
+        packageInstalled?: boolean;
       }>;
       current?: { engine?: string; model?: string };
     }>("manage-agent-engine", { action: "list" }, baseUrl),
@@ -384,10 +489,19 @@ export async function fetchModelCatalog(
   const configuredKeys = new Set(
     envKeys.filter((k) => k.configured && k.key).map((k) => k.key as string),
   );
+  // Env vars satisfiable by an engine whose package is installed — used to hide
+  // key inputs (e.g. Gemini) that could never yield a working model here.
+  const installableEnvVars = new Set<string>();
   const groups: ChatModelGroup[] = [];
   for (const engine of enginesData.engines ?? []) {
     const name = engine.name ?? "";
-    if (!name || HIDDEN_ENGINES.has(name)) continue;
+    if (!name) continue;
+    // An engine whose optional npm package is not installed in this app can be
+    // selected but never runs — "set" fails with "requires optional packages".
+    // Hide it, matching the web picker's `packageInstalled !== false` filter.
+    if (engine.packageInstalled === false) continue;
+    for (const key of engine.requiredEnvVars ?? []) installableEnvVars.add(key);
+    if (HIDDEN_ENGINES.has(name)) continue;
     const models = engine.supportedModels ?? [];
     if (models.length === 0) continue;
     const required = engine.requiredEnvVars ?? [];
@@ -400,10 +514,14 @@ export async function fetchModelCatalog(
       groups.push({ engine: name, label: engine.label ?? name, models });
     }
   }
+  const configurableProviders = PROVIDER_KEY_OPTIONS.filter((option) =>
+    installableEnvVars.has(option.envVar),
+  ).map((option) => option.provider);
   return {
     groups,
     currentEngine: enginesData.current?.engine,
     currentModel: enginesData.current?.model,
+    configurableProviders,
   };
 }
 
@@ -520,9 +638,24 @@ export async function deleteNavigateCommand(
 
 /** Providers whose API keys can be configured from the app. */
 export const PROVIDER_KEY_OPTIONS = [
-  { provider: "anthropic", label: "Anthropic", placeholder: "sk-ant-..." },
-  { provider: "openai", label: "OpenAI", placeholder: "sk-..." },
-  { provider: "google", label: "Google Gemini", placeholder: "AI..." },
+  {
+    provider: "anthropic",
+    label: "Anthropic",
+    placeholder: "sk-ant-...",
+    envVar: "ANTHROPIC_API_KEY",
+  },
+  {
+    provider: "openai",
+    label: "OpenAI",
+    placeholder: "sk-...",
+    envVar: "OPENAI_API_KEY",
+  },
+  {
+    provider: "google",
+    label: "Google Gemini",
+    placeholder: "AI...",
+    envVar: "GOOGLE_GENERATIVE_AI_API_KEY",
+  },
 ] as const;
 
 export type ProviderKeyOption = (typeof PROVIDER_KEY_OPTIONS)[number];

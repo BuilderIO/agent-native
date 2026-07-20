@@ -133,7 +133,7 @@ export default function ChatTab() {
 
   const shareThread = () => {
     if (chat.messages.length === 0) return;
-    void createThreadShareLink(chat.threadId)
+    void createThreadShareLink(chat.threadId, chat.baseUrl)
       .then((url) => {
         if (url) return Share.share({ message: url });
         showNotice("Could not create share link");
@@ -163,10 +163,10 @@ export default function ChatTab() {
 
   const forkChat = () => {
     setActionsFor(null);
-    void forkChatThread(chat.threadId)
+    void forkChatThread(chat.threadId, chat.baseUrl)
       .then((forkedId) => {
         if (forkedId) {
-          chat.openThread(forkedId);
+          chat.openThread(forkedId, chat.baseUrl);
           showNotice("Chat forked");
         } else {
           showNotice("Could not fork chat");
@@ -232,6 +232,7 @@ export default function ChatTab() {
         <Composer
           isStreaming={chat.isStreaming}
           settings={settings}
+          baseUrl={chat.baseUrl}
           onSend={chat.send}
           onStop={chat.stop}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -286,6 +287,7 @@ export default function ChatTab() {
       <ThreadHistorySheet
         visible={historyOpen}
         activeThreadId={chat.threadId}
+        activeBaseUrl={chat.baseUrl}
         onSelect={chat.openThread}
         onClose={() => setHistoryOpen(false)}
       />

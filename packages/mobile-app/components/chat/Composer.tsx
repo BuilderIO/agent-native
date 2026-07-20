@@ -1,14 +1,18 @@
 import {
   IconArrowUp,
+  IconAt,
+  IconFileText,
   IconMicrophone,
   IconPhoto,
   IconPlayerStopFilled,
+  IconRobot,
   IconX,
 } from "@tabler/icons-react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -17,9 +21,29 @@ import {
   View,
 } from "react-native";
 
-import type { ChatAttachment } from "@/lib/agent-chat/types";
+import { fetchMentions } from "@/lib/agent-chat/api";
+import {
+  activeMentionQuery,
+  mentionToReference,
+  replaceMention,
+} from "@/lib/agent-chat/mention-query";
+import type {
+  ChatAttachment,
+  ChatReference,
+  MentionItem,
+} from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
 import { getAndClearLastDictatedText } from "@/lib/voice-api";
+
+function MentionRowIcon({ refType }: { refType: string }) {
+  if (refType === "agent" || refType === "custom-agent") {
+    return <IconRobot color="#a1a1aa" size={17} strokeWidth={1.8} />;
+  }
+  if (refType === "file" || refType === "skill") {
+    return <IconFileText color="#a1a1aa" size={17} strokeWidth={1.8} />;
+  }
+  return <IconAt color="#a1a1aa" size={17} strokeWidth={1.8} />;
+}
 
 function settingsSummary(settings: AgentChatSettings): string {
   const model = settings.model ? settings.model.replace(/-\d{8}$/, "") : "Auto";
@@ -52,6 +76,7 @@ async function pickImageAttachment(): Promise<ChatAttachment | null> {
 export function Composer({
   isStreaming,
   settings,
+  baseUrl,
   onSend,
   onStop,
   onOpenSettings,
@@ -59,7 +84,13 @@ export function Composer({
 }: {
   isStreaming: boolean;
   settings: AgentChatSettings;
-  onSend: (text: string, attachments: ChatAttachment[]) => void;
+  /** Active thread's app — mentions are fetched from this app. */
+  baseUrl?: string;
+  onSend: (
+    text: string,
+    attachments: ChatAttachment[],
+    references: ChatReference[],
+  ) => void;
   onStop: () => void;
   onOpenSettings: () => void;
   onToggleMode: () => void;
@@ -67,8 +98,65 @@ export function Composer({
   const router = useRouter();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [references, setReferences] = useState<ChatReference[]>([]);
+  const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
   const canSend =
     (text.trim().length > 0 || attachments.length > 0) && !isStreaming;
+
+  // A mention is being typed only when the caret is a collapsed cursor.
+  const activeMention = useMemo(
+    () =>
+      selection.start === selection.end
+        ? activeMentionQuery(text, selection.start)
+        : null,
+    [text, selection],
+  );
+  const mentionQuery = activeMention?.query ?? null;
+
+  useEffect(() => {
+    if (mentionQuery === null) {
+      setMentionItems([]);
+      setMentionLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setMentionLoading(true);
+    const timer = setTimeout(
+      () => {
+        void fetchMentions(mentionQuery, controller.signal, baseUrl).then(
+          (items) => {
+            if (controller.signal.aborted) return;
+            setMentionItems(items);
+            setMentionLoading(false);
+          },
+        );
+      },
+      mentionQuery.length === 0 ? 0 : 150,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [mentionQuery, baseUrl]);
+
+  const pickMention = (item: MentionItem) => {
+    if (!activeMention) return;
+    const { text: next, cursor } = replaceMention(
+      text,
+      activeMention,
+      `@${item.label} `,
+    );
+    setText(next);
+    setSelection({ start: cursor, end: cursor });
+    setReferences((current) =>
+      current.some((r) => r.name === item.label && r.refId === item.refId)
+        ? current
+        : [...current, mentionToReference(item)],
+    );
+    setMentionItems([]);
+  };
 
   const navigation = useNavigation();
 
@@ -89,9 +177,16 @@ export function Composer({
   const submit = () => {
     if (!canSend) return;
     const value = text.trim();
+    // Only send references still present in the text — a mention the user
+    // deleted should not silently travel with the turn.
+    const activeReferences = references.filter((r) =>
+      value.includes(`@${r.name}`),
+    );
     setText("");
     setAttachments([]);
-    onSend(value, attachments);
+    setReferences([]);
+    setSelection({ start: 0, end: 0 });
+    onSend(value, attachments, activeReferences);
   };
 
   const attach = () => {
@@ -135,6 +230,49 @@ export function Composer({
         </ScrollView>
       )}
 
+      {activeMention && (mentionLoading || mentionItems.length > 0) && (
+        <View className="mb-2 rounded-2xl bg-card-dark border border-border-dark overflow-hidden max-h-56">
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {mentionItems.map((item) => (
+              <Pressable
+                key={item.id}
+                className="flex-row items-center gap-2.5 px-3.5 py-2.5 border-b border-border-dark active:bg-white/5"
+                onPress={() => pickMention(item)}
+                accessibilityRole="button"
+                accessibilityLabel={`Mention ${item.label}`}
+              >
+                <MentionRowIcon refType={item.refType} />
+                <View className="flex-1">
+                  <Text
+                    className="text-white text-[14px] font-medium"
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
+                  {item.description ? (
+                    <Text
+                      className="text-status-gray text-[12px] mt-0.5"
+                      numberOfLines={1}
+                    >
+                      {item.description}
+                    </Text>
+                  ) : null}
+                </View>
+              </Pressable>
+            ))}
+            {mentionLoading && mentionItems.length === 0 && (
+              <View className="flex-row items-center gap-2 px-3.5 py-3">
+                <ActivityIndicator size="small" color="#71717a" />
+                <Text className="text-status-gray text-[13px]">Searching…</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      )}
+
       <View className="rounded-3xl bg-card-dark border border-border-dark px-1.5 pt-1.5 pb-1">
         <View className="flex-row items-end">
           <Pressable
@@ -159,7 +297,11 @@ export function Composer({
             className="flex-1 text-white text-[15px] leading-5 max-h-30 py-2"
             value={text}
             onChangeText={setText}
-            placeholder="Message the agent…"
+            selection={selection}
+            onSelectionChange={(event) =>
+              setSelection(event.nativeEvent.selection)
+            }
+            placeholder="Message the agent…  (@ to mention)"
             placeholderTextColor="#71717a"
             multiline
             keyboardAppearance="dark"

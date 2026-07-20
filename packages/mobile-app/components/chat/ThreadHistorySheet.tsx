@@ -1,16 +1,23 @@
 import { IconTrash, IconX } from "@tabler/icons-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   Text,
   View,
 } from "react-native";
 
+import { AppIcon } from "@/components/AppCard";
 import { SafeAreaView } from "@/components/uniwind-interop";
-import { deleteChatThread, listChatThreads } from "@/lib/agent-chat/api";
+import {
+  chatCapableApps,
+  deleteChatThread,
+  listThreadsForApp,
+} from "@/lib/agent-chat/api";
+import { groupThreadsByApp, threadKey } from "@/lib/agent-chat/thread-grouping";
 import type { ChatThreadSummary } from "@/lib/agent-chat/types";
 
 function formatWhen(timestamp: number): string {
@@ -29,28 +36,80 @@ function formatWhen(timestamp: number): string {
   });
 }
 
+function AppFilterChip({
+  label,
+  icon,
+  selected,
+  onPress,
+}: {
+  label: string;
+  icon?: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`flex-row items-center gap-1.5 rounded-full px-3 py-1.5 active:opacity-75 ${
+        selected ? "bg-white" : "bg-card-dark border border-border-dark"
+      }`}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`Show ${label} chats`}
+    >
+      {icon ? (
+        <AppIcon
+          iconName={icon}
+          size={13}
+          color={selected ? "#18181b" : "#a1a1aa"}
+        />
+      ) : null}
+      <Text
+        className={`text-[13px] font-semibold ${
+          selected ? "text-background-dark" : "text-text-light"
+        }`}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function ThreadHistorySheet({
   visible,
   activeThreadId,
+  activeBaseUrl,
   onSelect,
   onClose,
 }: {
   visible: boolean;
   activeThreadId: string;
-  onSelect: (threadId: string) => void;
+  activeBaseUrl: string;
+  onSelect: (threadId: string, baseUrl?: string) => void;
   onClose: () => void;
 }) {
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+  const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string | null>(
     null,
+  );
+  // History shows one app at a time, defaulting to Chat.
+  const [selectedAppId, setSelectedAppId] = useState<string>("chat");
+
+  // Chat first (the default view), then the rest in registry order.
+  const apps = useMemo(
+    () =>
+      [...chatCapableApps()].sort((a, b) =>
+        a.id === "chat" ? -1 : b.id === "chat" ? 1 : 0,
+      ),
+    [],
   );
 
   const refresh = useCallback(() => {
     setLoading(true);
     setLoadError(null);
-    listChatThreads()
+    listThreadsForApp(selectedAppId)
       .then(setThreads)
       .catch((error) => {
         setLoadError(
@@ -58,23 +117,31 @@ export function ThreadHistorySheet({
         );
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedAppId]);
 
   useEffect(() => {
     if (visible) {
-      setConfirmingDeleteId(null);
+      setConfirmingDeleteKey(null);
       refresh();
     }
   }, [visible, refresh]);
 
-  const handleDelete = (threadId: string) => {
-    if (confirmingDeleteId !== threadId) {
-      setConfirmingDeleteId(threadId);
+  // The chip row already names the app, so the per-app section header is
+  // redundant — keep only the thread rows.
+  const rows = useMemo(
+    () => groupThreadsByApp(threads).filter((r) => r.type !== "header"),
+    [threads],
+  );
+
+  const handleDelete = (thread: ChatThreadSummary) => {
+    const key = threadKey(thread);
+    if (confirmingDeleteKey !== key) {
+      setConfirmingDeleteKey(key);
       return;
     }
-    setConfirmingDeleteId(null);
-    setThreads((current) => current.filter((t) => t.id !== threadId));
-    void deleteChatThread(threadId).catch(() => refresh());
+    setConfirmingDeleteKey(null);
+    setThreads((current) => current.filter((t) => threadKey(t) !== key));
+    void deleteChatThread(thread.id, thread.baseUrl).catch(() => refresh());
   };
 
   return (
@@ -100,6 +167,24 @@ export function ThreadHistorySheet({
           </Pressable>
         </View>
 
+        <View className="border-b border-border-dark">
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerClassName="flex-row items-center gap-2 px-3 py-3"
+          >
+            {apps.map((app) => (
+              <AppFilterChip
+                key={app.id}
+                label={app.name}
+                icon={app.icon}
+                selected={selectedAppId === app.id}
+                onPress={() => setSelectedAppId(app.id)}
+              />
+            ))}
+          </ScrollView>
+        </View>
+
         {loading && threads.length === 0 ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator color="#c7f36b" />
@@ -121,64 +206,69 @@ export function ThreadHistorySheet({
         ) : threads.length === 0 ? (
           <View className="flex-1 items-center justify-center px-8">
             <Text className="text-status-gray text-sm text-center">
-              No chats yet. Start a conversation and it will show up here.
+              {`No ${apps.find((a) => a.id === selectedAppId)?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
             </Text>
           </View>
         ) : (
           <FlatList
-            data={threads}
-            keyExtractor={(thread) => thread.id}
-            renderItem={({ item }) => (
-              <Pressable
-                className={`flex-row items-center gap-3 px-4 py-3 border-b border-border-dark active:opacity-75 ${
-                  item.id === activeThreadId ? "bg-card-dark" : ""
-                }`}
-                onPress={() => {
-                  onSelect(item.id);
-                  onClose();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`Open chat ${item.title}`}
-              >
-                <View className="flex-1">
-                  <Text
-                    className="text-white text-[15px] font-medium"
-                    numberOfLines={1}
-                  >
-                    {item.title}
-                  </Text>
-                  {item.preview ? (
+            data={rows}
+            keyExtractor={(row) => row.key}
+            renderItem={({ item }) => {
+              const thread = item.thread;
+              const isActive =
+                thread.id === activeThreadId &&
+                (thread.baseUrl ?? "") === activeBaseUrl;
+              const confirming = confirmingDeleteKey === item.key;
+              return (
+                <Pressable
+                  className={`flex-row items-center gap-3 px-4 py-3 border-b border-border-dark active:opacity-75 ${
+                    isActive ? "bg-card-dark" : ""
+                  }`}
+                  onPress={() => {
+                    onSelect(thread.id, thread.baseUrl);
+                    onClose();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open chat ${thread.title}`}
+                >
+                  <View className="flex-1">
                     <Text
-                      className="text-status-gray text-[13px] mt-0.5"
+                      className="text-white text-[15px] font-medium"
                       numberOfLines={1}
                     >
-                      {item.preview}
+                      {thread.title}
                     </Text>
-                  ) : null}
-                </View>
-                <Text className="text-status-gray text-xs">
-                  {formatWhen(item.updatedAt)}
-                </Text>
-                <Pressable
-                  className="p-1.5 active:opacity-75"
-                  onPress={() => handleDelete(item.id)}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    confirmingDeleteId === item.id
-                      ? "Confirm delete"
-                      : `Delete chat ${item.title}`
-                  }
-                >
-                  <IconTrash
-                    color={
-                      confirmingDeleteId === item.id ? "#fb7185" : "#71717a"
+                    {thread.preview ? (
+                      <Text
+                        className="text-status-gray text-[13px] mt-0.5"
+                        numberOfLines={1}
+                      >
+                        {thread.preview}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text className="text-status-gray text-xs">
+                    {formatWhen(thread.updatedAt)}
+                  </Text>
+                  <Pressable
+                    className="p-1.5 active:opacity-75"
+                    onPress={() => handleDelete(thread)}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      confirming
+                        ? "Confirm delete"
+                        : `Delete chat ${thread.title}`
                     }
-                    size={17}
-                    strokeWidth={1.8}
-                  />
+                  >
+                    <IconTrash
+                      color={confirming ? "#fb7185" : "#71717a"}
+                      size={17}
+                      strokeWidth={1.8}
+                    />
+                  </Pressable>
                 </Pressable>
-              </Pressable>
-            )}
+              );
+            }}
           />
         )}
       </SafeAreaView>
