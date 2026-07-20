@@ -425,6 +425,9 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  shareTranscript: integer("share_transcript", { mode: "boolean" })
+    .notNull()
+    .default(false),
   summaryMd: text("summary_md").notNull().default(""),
   // JSON array of `{ text }` bullets.
   bulletsJson: text("bullets_json").notNull().default("[]"),

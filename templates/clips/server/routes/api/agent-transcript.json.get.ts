@@ -12,7 +12,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { buildAgentApiUrls } from "../../../shared/agent-context.js";
+import {
+  buildAgentApiUrls,
+  getAgentClipReadiness,
+} from "../../../shared/agent-context.js";
 import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 import {
   applyAgentJsonHeaders,
@@ -50,6 +53,8 @@ export default defineEventHandler(async (event: H3Event) => {
     token: accessResult.access.apiToken,
   });
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const agentReadiness = getAgentClipReadiness(recording.status);
+  const clipIsReady = agentReadiness.state === "ready";
 
   return {
     type: "agent-native.clip.transcript",
@@ -57,11 +62,13 @@ export default defineEventHandler(async (event: H3Event) => {
       id: recording.id,
       title: recording.title,
       durationMs: recording.durationMs,
+      status: recording.status,
+      agentReadiness,
     },
     apis: {
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
-      ...(isLoomEmbedBacked
+      ...(!clipIsReady || isLoomEmbedBacked
         ? {}
         : {
             frame: {
@@ -79,6 +86,9 @@ export default defineEventHandler(async (event: H3Event) => {
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
-    instructions: transcriptStatusInstructions(transcript),
+    instructions: [
+      ...(agentReadiness.instruction ? [agentReadiness.instruction] : []),
+      ...transcriptStatusInstructions(transcript),
+    ],
   };
 });
