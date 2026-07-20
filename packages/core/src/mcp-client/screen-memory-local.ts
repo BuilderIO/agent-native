@@ -490,6 +490,17 @@ function firstFiniteNumber(
   return null;
 }
 
+function firstBoolean(
+  raw: Record<string, unknown>,
+  keys: string[],
+): boolean | null {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === "boolean") return value;
+  }
+  return null;
+}
+
 function normalizeContextItem(
   value: unknown,
   sourceFile: string,
@@ -532,6 +543,52 @@ function itemTime(item: ScreenMemoryContextItem): number {
 interface LocalContextRow {
   item: ScreenMemoryContextItem;
   raw: Record<string, unknown>;
+}
+
+function isPrivacyExcludedRow(
+  row: LocalContextRow,
+  config: ScreenMemoryConfig,
+): boolean {
+  const bundleId = row.item.bundleId?.trim().toLowerCase();
+  if (
+    bundleId &&
+    config.excludedBundleIds.some(
+      (excluded) => excluded.trim().toLowerCase() === bundleId,
+    )
+  ) {
+    return true;
+  }
+
+  if (!config.excludePrivateWindows) return false;
+  if (
+    firstBoolean(row.raw, [
+      "isPrivate",
+      "is_private",
+      "privateWindow",
+      "private_window",
+      "incognito",
+    ]) === true
+  ) {
+    return true;
+  }
+  const title = row.item.windowTitle?.toLowerCase() ?? "";
+  return ["incognito", "inprivate", "private browsing", "private window"].some(
+    (marker) => title.includes(marker),
+  );
+}
+
+function rowTimeRange(
+  rows: LocalContextRow[],
+  fallback: ScreenMemoryTimeRange,
+): ScreenMemoryTimeRange {
+  const times = rows
+    .map(({ item }) => itemTime(item))
+    .filter((time) => time > 0);
+  if (times.length === 0) return fallback;
+  return {
+    startedAt: new Date(Math.min(...times)).toISOString(),
+    endedAt: new Date(Math.max(...times)).toISOString(),
+  };
 }
 
 interface LocalTranscriptSpan {
@@ -917,13 +974,21 @@ export async function queryScreenMemoryContext(
 
   const needle = query?.toLowerCase() ?? null;
   const source = await readRows(files);
-  const candidateRows = source.rows.filter((row) => {
+  const rangeRows = source.rows.filter((row) => {
     const { item } = row;
     if (cutoff !== null) {
       const time = itemTime(item);
       if (!time || time < cutoff) return false;
     }
+    return true;
+  });
+  const privacyExcludedRows = rangeRows.filter((row) =>
+    isPrivacyExcludedRow(row, info.config),
+  );
+  const candidateRows = rangeRows.filter((row) => {
+    if (isPrivacyExcludedRow(row, info.config)) return false;
     if (!needle) return true;
+    const { item } = row;
     return JSON.stringify({ item, raw: row.raw })
       .toLowerCase()
       .includes(needle);
@@ -960,6 +1025,12 @@ export async function queryScreenMemoryContext(
     endedAt: now.toISOString(),
   };
   const gaps: ScreenMemoryCoverageGap[] = [];
+  if (privacyExcludedRows.length > 0) {
+    gaps.push({
+      ...rowTimeRange(privacyExcludedRows, requestedRange),
+      reason: "privacy-excluded-or-unretained",
+    });
+  }
   if (candidateRows.length > rows.length) {
     gaps.push({
       ...requestedRange,

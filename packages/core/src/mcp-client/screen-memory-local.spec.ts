@@ -120,6 +120,66 @@ describe("local Screen Memory helpers", () => {
     });
   });
 
+  it("applies configured privacy exclusions before searching local rows", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "context.jsonl"),
+      [
+        {
+          capturedAt: "2026-06-29T12:00:00.000Z",
+          bundleId: "com.example.secret",
+          windowTitle: "Secret notes",
+          text: "excluded bundle words",
+        },
+        {
+          capturedAt: "2026-06-29T12:01:00.000Z",
+          bundleId: "com.example.browser",
+          windowTitle: "Private Browsing",
+          text: "private window words",
+        },
+        {
+          capturedAt: "2026-06-29T12:01:30.000Z",
+          bundleId: "com.example.browser",
+          windowTitle: "Browser",
+          isPrivate: true,
+          text: "explicit private words",
+        },
+        {
+          capturedAt: "2026-06-29T12:02:00.000Z",
+          bundleId: "com.example.clips",
+          windowTitle: "Clips",
+          text: "visible local words",
+        },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n") + "\n",
+      "utf8",
+    );
+    await configureScreenMemory(
+      {
+        enabled: true,
+        excludedBundleIds: ["com.example.secret"],
+        excludePrivateWindows: true,
+      },
+      options,
+    );
+
+    const result = await queryScreenMemoryContext({}, options);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.evidence).toEqual([
+      expect.objectContaining({ excerpt: "visible local words" }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("excluded bundle words");
+    expect(JSON.stringify(result)).not.toContain("private window words");
+    expect(JSON.stringify(result)).not.toContain("explicit private words");
+    expect(result.coverage.gaps).toContainEqual({
+      startedAt: "2026-06-29T12:00:00.000Z",
+      endedAt: "2026-06-29T12:01:30.000Z",
+      reason: "privacy-excluded-or-unretained",
+    });
+  });
+
   it("redacts paths and credentials and logs only a content-free receipt", async () => {
     const { root, options } = await tempScreenMemoryEnv();
     await writeFile(
