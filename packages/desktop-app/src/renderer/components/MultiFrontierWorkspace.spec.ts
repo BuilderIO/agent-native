@@ -191,6 +191,12 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
       await Promise.resolve();
     });
 
+    const participantPopover = document.body.querySelector<HTMLElement>(
+      '[data-agent-native-multi-frontier-popover="true"]',
+    );
+    expect(participantPopover).toBeInstanceOf(HTMLElement);
+    expect(participantPopover?.classList.contains("border-0")).toBe(false);
+
     const details = document.body.querySelector<HTMLButtonElement>(
       '[aria-label="Show Codex subscription details"]',
     );
@@ -209,6 +215,30 @@ describe("MultiFrontierWorkspace presentation helpers", () => {
     expect(details?.getAttribute("aria-expanded")).toBe("true");
     expect(document.body.textContent).toContain("ChatGPT subscription");
     expect(document.body.textContent).toContain("Pro");
+
+    const usage = document.body.querySelector<HTMLButtonElement>(
+      '[aria-label="View Codex usage"]',
+    );
+    await act(async () => {
+      usage?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      usage?.click();
+      await Promise.resolve();
+    });
+
+    const popovers = Array.from(
+      document.body.querySelectorAll<HTMLElement>(
+        '[data-agent-native-multi-frontier-popover="true"]',
+      ),
+    );
+    expect(popovers.length).toBeGreaterThanOrEqual(2);
+    expect(
+      popovers.some((popover) => popover.textContent?.includes("Codex usage")),
+    ).toBe(true);
+    expect(
+      popovers.every((popover) => !popover.classList.contains("border-0")),
+    ).toBe(true);
   });
 
   it("uses an existing run's persisted agreement policy rather than the new-run draft", () => {

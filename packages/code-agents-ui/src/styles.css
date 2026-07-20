@@ -1134,7 +1134,8 @@
    scope through the DOM and need their own light/dark copy of the same
    tokens. */
 [data-agent-native-tooltip="true"],
-[data-agent-native-composer-popover="true"] {
+[data-agent-native-composer-popover="true"],
+[data-agent-native-multi-frontier-popover="true"] {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
   --popover: 0 0% 100%;
@@ -1150,7 +1151,8 @@
 }
 
 .dark [data-agent-native-tooltip="true"],
-.dark [data-agent-native-composer-popover="true"] {
+.dark [data-agent-native-composer-popover="true"],
+.dark [data-agent-native-multi-frontier-popover="true"] {
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --popover: 0 0% 15%;
@@ -1166,7 +1168,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) [data-agent-native-tooltip="true"],
-  :root:not(.light) [data-agent-native-composer-popover="true"] {
+  :root:not(.light) [data-agent-native-composer-popover="true"],
+  :root:not(.light) [data-agent-native-multi-frontier-popover="true"] {
     --background: 0 0% 13%;
     --foreground: 0 0% 90%;
     --popover: 0 0% 15%;
@@ -1178,6 +1181,42 @@
     --border: 0 0% 24%;
     --primary: 0 0% 75%;
     --primary-foreground: 0 0% 10%;
+  }
+}
+
+[data-agent-native-multi-frontier-popover="true"] {
+  z-index: 300;
+  max-height: min(520px, calc(100vh - 24px));
+  overflow-y: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 hsl(var(--foreground) / 0.04);
+}
+
+.dark [data-agent-native-multi-frontier-popover="true"] {
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 hsl(var(--foreground) / 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-agent-native-multi-frontier-popover="true"] {
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.48),
+      inset 0 1px 0 hsl(var(--foreground) / 0.05);
   }
 }
 
@@ -1490,6 +1529,55 @@
 
 .code-agents-select-content .desktop-select-item__indicator {
   top: 10px;
+}
+
+.code-agents-multi-frontier-mode-menu {
+  min-width: 264px;
+  max-width: 288px;
+}
+
+.code-agents-multi-frontier-mode-menu
+  .code-agents-multi-frontier-mode-menu-item {
+  min-height: 46px;
+  align-items: flex-start;
+  border-radius: calc(var(--radius) - 3px);
+  padding: 7px 9px 7px 28px;
+  color: hsl(var(--foreground) / 0.88);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.code-agents-multi-frontier-mode-menu
+  .code-agents-multi-frontier-mode-menu-item
+  > span:first-child {
+  top: 9px;
+}
+
+.code-agents-multi-frontier-mode-option {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.code-agents-multi-frontier-mode-option__label,
+.code-agents-multi-frontier-mode-option__description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-multi-frontier-mode-option__label {
+  color: hsl(var(--foreground) / 0.9);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.code-agents-multi-frontier-mode-option__description {
+  color: hsl(var(--muted-foreground) / 0.78);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .code-agents-button,

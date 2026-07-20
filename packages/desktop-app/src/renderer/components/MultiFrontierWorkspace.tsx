@@ -367,10 +367,11 @@ export function MultiFrontierParticipantSettings({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[min(26rem,calc(100vw-2rem))] rounded-xl border-0 p-3 shadow-xl"
+        data-agent-native-multi-frontier-popover="true"
+        className="w-[min(24rem,calc(100vw-1.5rem))] p-3"
       >
         <div className="space-y-2">
-          <p className="px-1 text-sm font-medium">Participants</p>
+          <p className="px-1 text-xs font-semibold">Participants</p>
           <div className="grid gap-1.5">
             {PROVIDERS.map((providerId) => (
               <SubscriptionCard
@@ -582,7 +583,8 @@ function UsagePopover({
       <PopoverContent
         align="start"
         sideOffset={8}
-        className="w-80 rounded-xl border-0 p-4 shadow-xl"
+        data-agent-native-multi-frontier-popover="true"
+        className="w-80 p-4"
       >
         <div className="flex items-start justify-between gap-3">
           <p className="text-sm font-medium">

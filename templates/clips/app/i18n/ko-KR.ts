@@ -928,6 +928,17 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     summary: "요약",
     keyPoints: "핵심 포인트",
     actionItems: "작업 항목",
+    sharedContent: "공유 콘텐츠",
+    summaryIncluded: "요약, 핵심 포인트 및 작업 항목",
+    includeTranscript: "전체 스크립트 포함",
+    includeTranscriptDescription:
+      "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
+    transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    transcript: "스크립트",
+    copyTranscript: "스크립트 복사",
+    transcriptCopied: "스크립트가 복사되었습니다",
+    copyTranscriptFailed: "스크립트를 복사하지 못했습니다",
+    updateTranscriptSharingFailed: "스크립트 공유를 업데이트하지 못했습니다",
   },
   deleteRecordingMenu: {
     movedToTrash: "클립이 휴지통으로 이동됨",

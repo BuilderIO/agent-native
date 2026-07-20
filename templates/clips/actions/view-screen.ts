@@ -414,6 +414,7 @@ async function fetchMeetingDetail(meetingId: string) {
       source: meeting.source,
       userNotesMd: meeting.userNotesMd,
       transcriptStatus: meeting.transcriptStatus,
+      shareTranscript: Boolean(meeting.shareTranscript),
       summaryMd: meeting.summaryMd,
       bullets: safeJsonArray<{ text: string }>(meeting.bulletsJson),
     },

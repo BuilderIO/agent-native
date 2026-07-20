@@ -689,6 +689,28 @@ async function discoverWorkspaceAgents(
     .filter((agent): agent is DiscoveredAgent => !!agent);
 }
 
+/** Resolve only the Dispatch app designated by the receiver's own manifest. */
+export function findWorkspaceDispatchAgent(): DiscoveredAgent | undefined {
+  const app = loadWorkspaceAppsManifest()?.find(
+    (candidate) => candidate.isDispatch === true,
+  );
+  if (!app) return undefined;
+
+  const builtin = BUILTIN_AGENTS.find((agent) => agent.id === "dispatch");
+  const url = workspaceAppUrl(app, builtin?.url);
+  if (!url) return undefined;
+  return {
+    id: app.id,
+    name: app.name,
+    description:
+      app.description ||
+      builtin?.description ||
+      `Workspace app mounted at ${app.path}`,
+    url,
+    color: builtin?.color || "#6B7280",
+  };
+}
+
 /**
  * Like `getBuiltinAgents`, but always returns the production URL — never the
  * env-resolved devUrl. Used by the resource seeder so that a one-time seed
