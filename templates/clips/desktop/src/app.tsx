@@ -3171,8 +3171,13 @@ export function App() {
           },
         },
       });
-      const status = await invoke<ScreenMemoryStatus>("screen_memory_status");
-      setHomeScreenMemoryStatus(status);
+      // The native producer can take a moment to finish pausing. Do not keep
+      // the Home switch locked while that status request waits; the existing
+      // change event and bounded poll will reconcile it, and this best-effort
+      // refresh can do the same without blocking the next resume action.
+      void invoke<ScreenMemoryStatus>("screen_memory_status")
+        .then(setHomeScreenMemoryStatus)
+        .catch(() => {});
     } catch (err) {
       console.error(
         "[clips-tray] update Rewind remembering state failed:",
