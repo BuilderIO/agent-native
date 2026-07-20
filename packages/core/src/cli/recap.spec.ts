@@ -3050,6 +3050,32 @@ describe("bundled PR visual recap workflow", () => {
       "self-hosted runner mode requires a trusted same-repository PR author",
     );
   });
+
+  it("short-circuits an absent recap source before deterministic publish in every workflow", () => {
+    const workflows = [
+      PR_VISUAL_RECAP_WORKFLOW_YML,
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-reusable.yml"),
+        "utf8",
+      ),
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-fork.yml"),
+        "utf8",
+      ),
+    ];
+    for (const workflow of workflows) {
+      expect(workflow).toContain("Check recap source");
+      expect(workflow).toContain("id: source_status");
+      expect(workflow).toContain("steps.source_status.outputs.ready == 'true'");
+      expect(workflow).toContain("provider quota was exceeded");
+      expect(workflow).toContain(
+        "steps.source_status.outputs.reason || steps.url.outputs.reason",
+      );
+      expect(workflow.indexOf("Check recap source")).toBeLessThan(
+        workflow.indexOf("Publish recap source"),
+      );
+    }
+  });
 });
 
 describe("bundled workflow stays in sync with the source file", () => {
@@ -3656,6 +3682,13 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("RECAP_AGENT_SUMMARY:");
     expect(content).toContain(
       "Visual recap agent failed with a non-retryable provider error",
+    );
+    expect(content).toContain("Check recap source");
+    expect(content).toContain("id: source_status");
+    expect(content).toContain("steps.source_status.outputs.ready == 'true'");
+    expect(content).toContain("provider quota was exceeded");
+    expect(content).toContain(
+      "steps.source_status.outputs.reason || steps.url.outputs.reason",
     );
     expect(content).toContain(
       "GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary",
