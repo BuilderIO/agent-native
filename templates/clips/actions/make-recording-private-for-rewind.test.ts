@@ -28,7 +28,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ conditions }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  notExists: (query: unknown) => ({ notExists: query }),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -72,10 +74,11 @@ describe("make-recording-private-for-rewind", () => {
 
   it("refuses to mutate a Clip with an active direct share", async () => {
     mockShareRows.mockResolvedValue([{ id: "share_1" }]);
+    mockReturning.mockResolvedValue([]);
 
     await expect(action.run({ recordingId: "rec_1" })).rejects.toThrow(
       DIRECT_SHARE_REWIND_ERROR,
     );
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledOnce();
   });
 });

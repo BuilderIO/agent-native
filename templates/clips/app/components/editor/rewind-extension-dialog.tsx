@@ -1,8 +1,9 @@
 import {
   agentNativePath,
   appBasePath,
-  useActionMutation,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconHistory, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -78,6 +79,7 @@ export function RewindExtensionDialog({
   onVisibilityChanged,
   onApplied,
 }: RewindExtensionDialogProps) {
+  const t = useT();
   const makePrivateForRewind = useActionMutation(
     "make-recording-private-for-rewind",
   );
@@ -112,16 +114,14 @@ export function RewindExtensionDialog({
       await onVisibilityChanged();
       setPrivacyConfirmed(true);
       setStatus(null);
-      toast.success(
-        "This Clip is private. You can now add local Rewind history.",
-      );
+      toast.success(t("rewindExtension.privateReady"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
       setStatus(null);
     } finally {
       setBusy(false);
     }
-  }, [makePrivateForRewind, onVisibilityChanged, recordingId]);
+  }, [makePrivateForRewind, onVisibilityChanged, recordingId, t]);
 
   const addFromRewind = useCallback(
     async (seconds: 30 | 300) => {
@@ -242,11 +242,10 @@ export function RewindExtensionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconHistory className="h-4 w-4 text-primary" />
-            Add what happened before
+            {t("rewindExtension.title")}
           </DialogTitle>
           <DialogDescription>
-            Pull a specific interval from local Rewind and add it to the start
-            of this Clip. Nothing is added automatically.
+            {t("rewindExtension.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -268,7 +267,7 @@ export function RewindExtensionDialog({
                 <div
                   className="h-full bg-primary transition-[width]"
                   role="progressbar"
-                  aria-label="Rewind history processing progress"
+                  aria-label={t("rewindExtension.progressLabel")}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round(progress * 100)}
@@ -280,16 +279,15 @@ export function RewindExtensionDialog({
         ) : visibility !== "private" && !privacyConfirmed ? (
           <div className="grid gap-3">
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-              <strong className="block">Make this Clip private first</strong>
+              <strong className="block">
+                {t("rewindExtension.privateFirstTitle")}
+              </strong>
               <span className="mt-1 block text-muted-foreground">
-                Local Rewind history can contain context from before you chose
-                to record. This changes the Clip to private. If anyone still has
-                direct access, Clips will stop here so you can remove them in
-                Share first.
+                {t("rewindExtension.privateFirstDescription")}
               </span>
             </div>
             <Button onClick={() => void makePrivate()}>
-              Make private and continue
+              {t("rewindExtension.makePrivateContinue")}
             </Button>
           </div>
         ) : (
@@ -300,7 +298,9 @@ export function RewindExtensionDialog({
               onClick={() => void addFromRewind(30)}
             >
               <span>
-                <strong className="block">Add the previous 30 seconds</strong>
+                <strong className="block">
+                  {t("rewindExtension.add30Seconds")}
+                </strong>
                 <span className="text-xs font-normal text-muted-foreground">
                   Useful when you clicked Record just after the important bit.
                 </span>
@@ -312,9 +312,11 @@ export function RewindExtensionDialog({
               onClick={() => void addFromRewind(300)}
             >
               <span>
-                <strong className="block">Add the previous 5 minutes</strong>
+                <strong className="block">
+                  {t("rewindExtension.add5Minutes")}
+                </strong>
                 <span className="text-xs font-normal text-muted-foreground">
-                  Good for recovering the lead-in to a longer explanation.
+                  {t("rewindExtension.add5MinutesDescription")}
                 </span>
               </span>
             </Button>

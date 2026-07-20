@@ -80,6 +80,7 @@ import {
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
+import { prepareRewindRecordingStart } from "./rewind-recording-start";
 import { singleFlight } from "./single-flight";
 import {
   startTranscriptionCapture,
@@ -874,7 +875,7 @@ export function scheduleNativeBackupCleanupAfterProcessing(args: {
         timeoutMs: 12 * 60 * 1000,
       }),
     onReady: () =>
-      invoke("native_fullscreen_recording_dismiss_upload", {
+      invoke("native_fullscreen_recording_clear_upload", {
         recordingId: args.recordingId,
       }),
     onUnresolved: () => flagNativeBackupAfterProcessing(args.recordingId),
@@ -914,6 +915,38 @@ async function recoverAcceptedRecordingAfterFinalizeError({
     recordingId,
     "Upload completed, but its final receipt could not be verified. The local backup was kept.",
   ).catch(() => {});
+  return "ready";
+}
+
+async function recoverAcceptedNativeRecordingAfterFinalizeError({
+  serverUrl,
+  recordingId,
+  authToken,
+}: {
+  serverUrl: string;
+  recordingId: string;
+  authToken?: string;
+}): Promise<"processing" | "ready" | null> {
+  const recovered = await waitForAcceptedRecordingAfterFinalizeError({
+    uploadUrl: chunkUrl(serverUrl, recordingId, 0, false),
+    recordingId,
+    authToken,
+    preferAuthenticated: true,
+  });
+  if (!recovered) return null;
+  if (recovered.status === "processing") {
+    scheduleNativeBackupCleanupAfterProcessing({
+      serverUrl,
+      recordingId,
+      authToken,
+    });
+    return "processing";
+  }
+  await invoke("native_fullscreen_recording_clear_upload", {
+    recordingId,
+  }).catch((error) => {
+    console.warn("[clips-recorder] native backup cleanup failed:", error);
+  });
   return "ready";
 }
 
@@ -1880,70 +1913,84 @@ async function selectRegionForRecording(): Promise<RegionCaptureRect> {
   }
 }
 
-function waitForCountdownEvent(timeoutMs = 4000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const unlistens: UnlistenFn[] = [];
-    // Flag so that if the timeout fires BEFORE `listen()` resolves we can
-    // still call the unlisten the instant it arrives — otherwise the
-    // event handler closure stays registered for the life of the webview
-    // (leaks the `resolve` / `reject` closures + anything they pin).
-    let done = false;
+async function prepareCountdownEventWaiter(timeoutMs = 4000): Promise<{
+  event: Promise<string>;
+  cleanup: () => void;
+}> {
+  let resolveEvent!: (cause: string) => void;
+  let rejectEvent!: (error: Error) => void;
+  const event = new Promise<string>((resolve, reject) => {
+    resolveEvent = resolve;
+    rejectEvent = reject;
+  });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const unlistens: UnlistenFn[] = [];
+  let done = false;
+  const onKeyDown = (keyboardEvent: KeyboardEvent) => {
+    if (keyboardEvent.key !== "Enter" && keyboardEvent.key !== "Escape") {
+      return;
+    }
+    keyboardEvent.preventDefault();
+    const cancelled = keyboardEvent.key === "Escape";
+    void emit(cancelled ? "clips:countdown-cancel" : "clips:countdown-done", {
+      cause: cancelled ? "escape" : "return",
+    });
+  };
+  // The parked popover deliberately keeps focus while the non-activating
+  // countdown is visible. Listen here as well as in the overlay/global-hotkey
+  // paths so Return is reliable even when macOS declines a bare global key.
+  window.addEventListener("keydown", onKeyDown);
 
-    const cleanup = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
+  const cleanup = () => {
+    window.removeEventListener("keydown", onKeyDown);
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    for (const unlisten of unlistens.splice(0)) {
+      try {
+        unlisten();
+      } catch {
+        // ignore
       }
-      for (const unlisten of unlistens.splice(0)) {
-        try {
-          unlisten();
-        } catch {
-          // ignore
-        }
-      }
-    };
-    const finish = (kind: "done" | "cancel") => {
-      if (done) return;
-      done = true;
-      cleanup();
-      if (kind === "cancel") {
-        reject(new CountdownCancelledError());
-      } else {
-        resolve();
-      }
-    };
-    const track = (listener: Promise<UnlistenFn>) => {
-      listener
-        .then((u) => {
-          if (done) {
-            try {
-              u();
-            } catch {
-              // ignore
-            }
-            return;
-          }
-          unlistens.push(u);
-        })
-        .catch((err) => {
-          if (done) return;
-          done = true;
-          cleanup();
-          reject(err);
-        });
-    };
+    }
+  };
+  const finish = (kind: "done" | "cancel", cause = "unknown") => {
+    if (done) return;
+    done = true;
+    cleanup();
+    if (kind === "cancel") {
+      rejectEvent(new CountdownCancelledError());
+    } else {
+      resolveEvent(cause);
+    }
+  };
 
-    track(listen("clips:countdown-done", () => finish("done")));
-    track(listen("clips:countdown-cancel", () => finish("cancel")));
-
+  // Await both registrations before the countdown can become visible. A fast
+  // Return previously closed the overlay before these asynchronous listeners
+  // were ready, so the UI disappeared while the recorder waited for timeout.
+  const [doneUnlisten, cancelUnlisten] = await Promise.all([
+    listen<{ cause?: string }>("clips:countdown-done", (event) =>
+      finish("done", event.payload?.cause),
+    ),
+    listen<{ cause?: string }>("clips:countdown-cancel", (event) =>
+      finish("cancel", event.payload?.cause),
+    ),
+  ]);
+  if (done) {
+    doneUnlisten();
+    cancelUnlisten();
+  } else {
+    unlistens.push(doneUnlisten, cancelUnlisten);
     timer = setTimeout(() => {
       if (done) return;
       done = true;
       cleanup();
-      reject(new Error("timeout waiting for clips:countdown-done"));
+      rejectEvent(new Error("timeout waiting for clips:countdown-done"));
     }, timeoutMs);
-  });
+  }
+
+  return { event, cleanup };
 }
 
 async function showRegionGuidesForRecording(wantsScreen: boolean) {
@@ -1974,15 +2021,21 @@ async function runRecordingCountdown(wantsScreen: boolean) {
   // `audioCue.playBeforeCapture()` at the real capture-start (right before the
   // recorder/native capture is kicked off) so the beep lines up with the moment
   // recording actually begins — not one second early on the countdown's "1".
-  const countdownEvent = waitForCountdownEvent(COUNTDOWN_EVENT_TIMEOUT_MS);
+  const countdown = await prepareCountdownEventWaiter(
+    COUNTDOWN_EVENT_TIMEOUT_MS,
+  );
   await showRegionGuidesForRecording(wantsScreen);
+  let countdownGeneration: number;
   try {
-    await invoke("show_countdown");
+    countdownGeneration = await invoke<number>("show_countdown");
   } catch (err) {
     console.error("[clips-recorder] show_countdown failed:", err);
+    countdown.cleanup();
+    throw err;
   }
   try {
-    await countdownEvent;
+    const cause = await countdown.event;
+    console.log(`[rewind-latency] countdown completion cause=${cause}`);
   } catch (err) {
     if (isCountdownCancelledError(err)) {
       await invoke("hide_recording_chrome").catch(() => {});
@@ -1990,6 +2043,11 @@ async function runRecordingCountdown(wantsScreen: boolean) {
     }
     console.warn("[clips-recorder] countdown timed out — proceeding");
     return;
+  } finally {
+    countdown.cleanup();
+    await invoke("finish_countdown_shortcuts", {
+      generation: countdownGeneration,
+    }).catch(() => {});
   }
 }
 
@@ -2200,7 +2258,7 @@ async function tryStartRewindFullscreenRecording(
   const hasAudio = includeMic || includeSystemAudio;
   let id = folderName;
   let uploadMode: UploadMode = "buffered";
-  const countdownPromise = runRecordingCountdown(true);
+  await invoke("show_preparing");
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
         id: folderName,
@@ -2228,17 +2286,43 @@ async function tryStartRewindFullscreenRecording(
         );
       })();
   try {
-    const [, recording] = await Promise.all([
-      countdownPromise,
-      recordingPromise,
-    ]);
-    id = recording.id;
-    uploadMode = recording.uploadMode ?? "buffered";
-    await audioCue.playBeforeCapture();
-    await invoke<RewindClipBackendStatus>("rewind_clip_start", {
-      includeMic,
-      includeSystemAudio,
+    const recording = await prepareRewindRecordingStart({
+      async prepare() {
+        const preparedRecording = await recordingPromise;
+        id = preparedRecording.id;
+        uploadMode = preparedRecording.uploadMode ?? "buffered";
+        await invoke<RewindClipBackendStatus>("rewind_clip_prepare", {
+          artifactLabel: id,
+          serverUrl: localOnly ? null : params.serverUrl,
+          recordingId: localOnly ? null : id,
+          authToken: localOnly ? null : (params.authToken ?? ""),
+          cookie: localOnly ? null : (params.cookie ?? ""),
+          includeMic,
+          includeSystemAudio,
+          hasCamera: wantsCamera,
+        });
+        return preparedRecording;
+      },
+      async countdown() {
+        console.log("[rewind-latency] countdown shown after preparation");
+        await invoke("hide_preparing").catch(() => {});
+        await runRecordingCountdown(true);
+        console.log("[rewind-latency] countdown completed");
+      },
+      async activate(preparedRecording) {
+        const activationStarted = performance.now();
+        await invoke<RewindClipBackendStatus>("rewind_clip_start");
+        console.log(
+          `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
+        );
+        return preparedRecording;
+      },
+      onActivated() {
+        // The capture boundary must never wait for an audible affordance.
+        void audioCue.playBeforeCapture();
+      },
     });
+    id = recording.id;
     const originalStartedAt = new Date().toISOString();
     if (!localOnly) {
       rememberRewindClipOrigin({
@@ -2250,6 +2334,7 @@ async function tryStartRewindFullscreenRecording(
       });
     }
   } catch (err) {
+    await invoke("hide_preparing").catch(() => {});
     if (id) forgetRewindClipOrigin(id);
     await invoke("rewind_clip_cancel").catch(() => {});
     audioCue.cleanup();
@@ -2313,11 +2398,9 @@ async function tryStartRewindFullscreenRecording(
         stopped = true;
         cleanupUi();
         if (!localOnly) showFinalizingFeedback();
-        await invoke("hide_recording_chrome").catch(() => {});
-        if (wantsCamera) await invoke("close_bubble").catch(() => {});
         try {
           if (localOnly) {
-            const saved = await invoke<NativeFullscreenSaveResult>(
+            const savePromise = invoke<NativeFullscreenSaveResult>(
               "rewind_clip_stop_and_save",
               {
                 folderName,
@@ -2326,6 +2409,10 @@ async function tryStartRewindFullscreenRecording(
                 includeSystemAudio,
               },
             );
+            savePromise.catch(() => {});
+            await invoke("hide_recording_chrome").catch(() => {});
+            if (wantsCamera) await invoke("close_bubble").catch(() => {});
+            const saved = await savePromise;
             return {
               recordingId: saved.recordingId,
               viewUrl: "",
@@ -2336,6 +2423,7 @@ async function tryStartRewindFullscreenRecording(
           }
 
           const viewUrl = `/r/${id}`;
+          const stopStarted = performance.now();
           const uploadPromise = invoke<NativeFullscreenUploadResult>(
             "rewind_clip_stop_and_upload",
             {
@@ -2349,17 +2437,29 @@ async function tryStartRewindFullscreenRecording(
               hasCamera: wantsCamera,
             },
           );
+          console.log(
+            `[rewind-latency] stop command dispatched in ${Math.round(performance.now() - stopStarted)}ms`,
+          );
           uploadPromise.catch(() => {});
+          await invoke("hide_recording_chrome").catch(() => {});
+          if (wantsCamera) await invoke("close_bubble").catch(() => {});
           await openNativeUploadUrl(
             id,
             `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
           );
           try {
             const uploaded = await uploadPromise;
+            if (uploaded.verificationPending) {
+              scheduleNativeBackupCleanupAfterProcessing({
+                serverUrl: params.serverUrl,
+                recordingId: id,
+                authToken: params.authToken,
+              });
+            }
             return { recordingId: uploaded.recordingId, viewUrl };
           } catch (err) {
             if (
-              await recoverAcceptedRecordingAfterFinalizeError({
+              await recoverAcceptedNativeRecordingAfterFinalizeError({
                 serverUrl: params.serverUrl,
                 recordingId: id,
                 authToken: params.authToken,
@@ -3036,7 +3136,7 @@ async function startNativeFullscreenRecording(
             uploadResult = await uploadPromise;
           } catch (err) {
             if (
-              await recoverAcceptedRecordingAfterFinalizeError({
+              await recoverAcceptedNativeRecordingAfterFinalizeError({
                 serverUrl: params.serverUrl,
                 recordingId: id,
                 authToken: params.authToken,

@@ -257,12 +257,7 @@ fn load_config(app: &AppHandle) -> FeatureConfig {
     let Ok(bytes) = std::fs::read(&path) else {
         return FeatureConfig::default();
     };
-    let mut config: FeatureConfig = serde_json::from_slice(&bytes).unwrap_or_default();
-    // Rewind privacy is app-based. Older Alpha builds exposed a separate
-    // private-window title heuristic; keep the serialized field for backward
-    // compatibility, but never preserve that hidden policy after upgrading.
-    config.screen_memory.exclude_private_windows = false;
-    config
+    serde_json::from_slice(&bytes).unwrap_or_default()
 }
 
 /// Persist the feature config to disk (atomic write via temp + rename).
@@ -337,9 +332,8 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 
 /// Save feature config to disk and emit a change event.
 #[tauri::command]
-pub async fn set_feature_config(app: AppHandle, mut config: FeatureConfig) -> Result<(), String> {
+pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
     let previous = load_config(&app);
-    config.screen_memory.exclude_private_windows = false;
     if (crate::rewind_clip::is_active(&app) || crate::util::is_recording_active(&app))
         && rewind_capture_contract_changed(&previous.screen_memory, &config.screen_memory)
     {

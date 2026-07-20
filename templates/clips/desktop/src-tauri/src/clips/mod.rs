@@ -41,6 +41,7 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 // countdown overlay so only the button zones are interactive.
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
@@ -51,6 +52,7 @@ const OVERLAY_LABELS: &[&str] = &[
     COUNTDOWN_LABEL,
     TOOLBAR_LABEL,
     BUBBLE_LABEL,
+    PREPARING_LABEL,
     FINALIZING_LABEL,
     FLOW_BAR_LABEL,
     REGION_GUIDES_LABEL,
@@ -356,12 +358,11 @@ fn load_bubble_position(app: &AppHandle) -> Option<(i32, i32)> {
 /// cursor events so the user can still click into whatever they're about to
 /// record, and closes itself when the countdown finishes.
 #[tauri::command]
-pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
+pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
     dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         stop_countdown_control_tracking();
-        let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
@@ -380,11 +381,10 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .shadow(false)
         .visible(false)
-        // Don't steal focus from the popover when the overlay opens —
-        // otherwise macOS fires Focused(false) on the popover, which
-        // kicks off a cascade of blur-related React re-renders and
-        // eventually (past the 1500ms guard) auto-hides the popover.
-        .focused(false)
+        // The countdown is intentionally modal for three seconds so its
+        // advertised Return/Escape controls work without system-wide key
+        // monitoring. The recorder has already parked the popover.
+        .focused(true)
         .build()
         .map_err(|e| {
             eprintln!("[clips-tray] countdown build failed: {}", e);
@@ -395,11 +395,26 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
-    let _ = win.show();
-    let _ = app.emit("clips:countdown-shortcuts-active", true);
+    let generation = match crate::shortcuts::prepare_countdown_shortcuts(app.clone()).await {
+        Ok(generation) => generation,
+        Err(error) => {
+            let _ = win.close();
+            return Err(error);
+        }
+    };
+    // This is a short, explicit modal moment. Making the overlay the actual
+    // key window lets its ordinary DOM handler receive Return/Escape without
+    // broad, system-wide Input Monitoring. Closing it restores the user's
+    // prior application before capture begins.
+    present_interactive_window(&win);
     start_countdown_control_tracking(&app);
     dlog!("[clips-tray] countdown shown");
-    Ok(())
+    Ok(generation)
+}
+
+#[tauri::command]
+pub async fn finish_countdown_shortcuts(app: AppHandle, generation: u64) -> Result<(), String> {
+    crate::shortcuts::finish_countdown_shortcuts(app, generation).await
 }
 
 /// True when the global cursor sits inside either circular cancel/skip button
@@ -457,6 +472,65 @@ fn start_countdown_control_tracking(app: &AppHandle) {
 
 fn stop_countdown_control_tracking() {
     COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
+}
+
+/// Compact visible readiness state for the slow work that intentionally runs
+/// before the numeric countdown. This capture-excluded card briefly takes
+/// focus as the first stage of the explicit modal start flow, so the user sees
+/// that Start was accepted without changing the exact countdown-zero boundary.
+#[tauri::command]
+pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(PREPARING_LABEL) {
+        let _ = existing.close();
+    }
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
+    let content_w: u32 = (260.0 * scale).round() as u32;
+    let content_h: u32 = (58.0 * scale).round() as u32;
+    let margin: i32 = (14.0 * scale).round() as i32;
+    let gutter = overlay_shadow_gutter_physical(&app);
+    let w = content_w + gutter * 2;
+    let h = content_h + gutter * 2;
+    let x = (mx + (mw.saturating_sub(w) / 2) as i32).max(mx);
+    let y = (my + mh as i32 - h as i32 - margin).max(my);
+    let win = WebviewWindowBuilder::new(&app, PREPARING_LABEL, build_overlay_url("preparing"))
+        .title("Preparing recording")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .focused(true)
+        .build()
+        .map_err(|error| format!("preparing window build failed: {error}"))?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
+    // Preparation and countdown are one explicit modal start flow. Making the
+    // compact readiness card key ensures it gets a real first paint and is
+    // announced before the full-screen countdown replaces it.
+    present_interactive_window(&win);
+    let _ = app.emit("clips:toolbar-preparing", true);
+    // A newly-created webview needs one paint before the async preparation can
+    // race ahead and replace it with the countdown. Without this brief yield,
+    // fast machines can show only a disabled toolbar and never render the
+    // promised textual readiness state.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    dlog!("[clips-tray] preparing recording shown");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_preparing(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:toolbar-preparing", false);
+    if let Some(window) = app.get_webview_window(PREPARING_LABEL) {
+        let _ = window.close();
+    }
+    Ok(())
 }
 
 /// Compact bottom-left status window shown while the recorder flushes its
@@ -989,7 +1063,6 @@ pub async fn hide_overlays(
     preserve_finalizing: Option<bool>,
 ) -> Result<(), String> {
     stop_countdown_control_tracking();
-    let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in overlay_labels_to_hide(preserve_finalizing.unwrap_or(false)) {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -1012,7 +1085,6 @@ pub async fn hide_overlays(
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
     stop_countdown_control_tracking();
-    let _ = app.emit("clips:countdown-shortcuts-active", false);
     // The countdown + toolbar always tear down on recording stop. The region
     // guides only tear down when they aren't pinned on-screen via the always-on
     // toggle — otherwise we'd flicker close→reopen right after stop.

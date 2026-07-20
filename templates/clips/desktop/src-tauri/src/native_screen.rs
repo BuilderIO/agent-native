@@ -129,15 +129,20 @@ const NATIVE_CAPTURE_FPS: u32 = 24;
 mod custom_capture;
 #[cfg(target_os = "macos")]
 use custom_capture::{
-    start_custom_screencapturekit_backend_at, ClosedSegmentFile, CustomCaptureResume,
-    CustomScreenCaptureWriter, SegmentFence,
+    prepare_clip_sink, start_custom_screencapturekit_backend_at, ClosedSegmentFile,
+    CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink, SegmentFence,
 };
 // Live chunk uploader: tails the fragmented MP4 and streams it during
 // recording; attached/finalized/abandoned from the session logic here.
 #[cfg(target_os = "macos")]
 mod live_upload;
 #[cfg(target_os = "macos")]
-use live_upload::{attach_live_uploader_to_session, LiveUpload};
+pub(crate) use live_upload::ClipLiveUploadConfig;
+#[cfg(target_os = "macos")]
+use live_upload::{
+    attach_live_uploader_to_session, cancel_clip_live_upload, finalize_clip_live_upload,
+    start_clip_live_uploader, LiveUpload,
+};
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
@@ -338,7 +343,249 @@ pub(crate) enum NativeFullscreenBackend {
         /// resume, keeping one continuous append-only file so live upload is
         /// never interrupted.
         resume: CustomCaptureResume,
+        /// Single temporary Clip writer slot sharing this producer's sample
+        /// callbacks. It is intentionally absent from the audio bus.
+        clip_sink: Arc<Mutex<Option<custom_capture::ClipSinkSlot>>>,
     },
+}
+
+/// Metadata and explicit remote-upload authority for a temporary Clip sink.
+/// Passing `upload.server_url: None` creates a local-only artifact.
+#[cfg(target_os = "macos")]
+pub(crate) struct SharedClipSinkRequest {
+    pub(crate) path: PathBuf,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) include_mic: bool,
+    pub(crate) include_system_audio: bool,
+    pub(crate) has_camera: bool,
+    pub(crate) upload: ClipLiveUploadConfig,
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) struct SharedClipSinkResult {
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: u64,
+    pub(crate) verification_pending: bool,
+    pub(crate) duration_ms: u64,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+}
+
+#[cfg(target_os = "macos")]
+impl SharedClipSinkResult {
+    pub(crate) fn into_native_upload_result(
+        self,
+        recording_id: String,
+    ) -> NativeFullscreenUploadResult {
+        NativeFullscreenUploadResult {
+            recording_id,
+            duration_ms: self.duration_ms as u128,
+            width: Some(self.width),
+            height: Some(self.height),
+            bytes: self.bytes,
+            verification_pending: self.verification_pending,
+        }
+    }
+}
+
+/// Narrow handle exposed to Rewind orchestration. It mirrors the callbacks of
+/// an already-running physical producer; it never owns an SCStream or audio
+/// bus producer of its own.
+#[cfg(target_os = "macos")]
+pub(crate) struct SharedClipSink {
+    sink: PreparedClipSink,
+    path: PathBuf,
+    width: u32,
+    height: u32,
+    live_upload: Option<LiveUpload>,
+    upload_reset: Option<ClipLiveUploadConfig>,
+}
+
+#[cfg(target_os = "macos")]
+impl SharedClipSink {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    pub(crate) fn duration_ms(&self) -> u64 {
+        self.sink.duration_ms()
+    }
+
+    pub(crate) fn activate(&mut self) -> Result<(), String> {
+        self.sink.activate()?;
+        Ok(())
+    }
+
+    pub(crate) fn pause(&self) -> Result<(), String> {
+        self.sink.pause()
+    }
+
+    pub(crate) fn resume(&self) -> Result<(), String> {
+        self.sink.resume()
+    }
+
+    /// Close callback admission now; callers may defer `finalize` to a worker
+    /// without extending the logical capture interval.
+    pub(crate) fn deactivate(&self) {
+        self.sink.deactivate();
+    }
+
+    /// Return only bytes the server has acknowledged so far.
+    pub(crate) fn uploaded_bytes_now(&self) -> Option<u64> {
+        self.live_upload
+            .as_ref()
+            .map(|live| live.ctrl.uploaded_bytes.load(Ordering::SeqCst))
+    }
+
+    /// Finalize and verify the local artifact before any server finalization.
+    /// The caller can persist retry metadata at this durable boundary, so an
+    /// app exit or network failure while awaiting the server never strands an
+    /// unindexed file.
+    pub(crate) fn finalize_writer(&mut self) -> Result<SharedClipSinkResult, String> {
+        if let Err(error) = self.sink.finalize() {
+            if let Some(live) = self.live_upload.as_ref() {
+                cancel_clip_live_upload(live);
+            }
+            return Err(error);
+        }
+        let bytes = std::fs::metadata(&self.path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if bytes == 0 {
+            if let Some(live) = self.live_upload.as_ref() {
+                cancel_clip_live_upload(live);
+            }
+            return Err("shared Clip writer produced an empty local artifact".into());
+        }
+        let logical_duration_ms = self.sink.duration_ms() as u128;
+        let measured_duration_ms = match probe_local_media_duration_ms(&self.path) {
+            Ok(duration_ms) => duration_ms,
+            Err(error) => {
+                if let Some(live) = self.live_upload.as_ref() {
+                    cancel_clip_live_upload(live);
+                }
+                return Err(error);
+            }
+        };
+        if !media_durations_materially_match(logical_duration_ms, measured_duration_ms) {
+            if let Some(live) = self.live_upload.as_ref() {
+                cancel_clip_live_upload(live);
+            }
+            return Err(format!(
+                "Clip may be incomplete. The local media duration ({measured_duration_ms} ms) did not match the recorded duration ({logical_duration_ms} ms)."
+            ));
+        }
+        Ok(SharedClipSinkResult {
+            path: self.path.clone(),
+            bytes,
+            verification_pending: false,
+            duration_ms: measured_duration_ms as u64,
+            width: self.width,
+            height: self.height,
+        })
+    }
+
+    pub(crate) async fn finalize_upload(&mut self, duration_ms: u64) -> Result<bool, String> {
+        match self.live_upload.take() {
+            Some(live) => {
+                let result = finalize_clip_live_upload(live, duration_ms).await?;
+                Ok(result.verification_pending)
+            }
+            None => Ok(false),
+        }
+    }
+
+    pub(crate) fn cancel_upload(&mut self) {
+        if let Some(live) = self.live_upload.take() {
+            cancel_clip_live_upload(&live);
+        }
+    }
+
+    pub(crate) fn cancel(mut self) {
+        if let Some(live) = self.live_upload.take() {
+            cancel_clip_live_upload(&live);
+        }
+        self.sink.cancel();
+    }
+
+    /// Use when Add previous 30s/5m switches to Rewind's exact local
+    /// materializer. A partially streamed live file must never be combined
+    /// with pre-roll; cancel it and reset the server sequence before the
+    /// materialized whole artifact takes over upload.
+    pub(crate) async fn abandon_for_rewind_materialization(mut self) -> Result<(), String> {
+        if let Some(live) = self.live_upload.take() {
+            cancel_clip_live_upload(&live);
+        }
+        self.sink.cancel();
+        if let Some(config) = self.upload_reset.take() {
+            let Some((server_url, recording_id, auth_token, cookie)) = config.validated()? else {
+                return Ok(());
+            };
+            reset_upload_chunks(
+                &server_url,
+                &recording_id,
+                MP4_RECORDING_MIME_TYPE,
+                &auth_token,
+                &cookie,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn prepare_shared_clip_sink(
+    app: &AppHandle,
+    backend: &NativeFullscreenBackend,
+    request: SharedClipSinkRequest,
+) -> Result<SharedClipSink, String> {
+    let NativeFullscreenBackend::CustomScreenCaptureKit { clip_sink, .. } = backend else {
+        return Err("shared Clip sinks require the active custom ScreenCaptureKit producer".into());
+    };
+    let has_audio = request.include_mic || request.include_system_audio;
+    // Validate remote authority before allocating/installing the sink, so a
+    // malformed remote request cannot leave a prepared local writer attached.
+    let upload_reset = request.upload.clone();
+    let live_upload = start_clip_live_uploader(
+        app,
+        request.path.clone(),
+        MP4_RECORDING_MIME_TYPE.to_string(),
+        Some(request.width),
+        Some(request.height),
+        has_audio,
+        request.has_camera,
+        request.upload,
+    )?;
+    let sink = match prepare_clip_sink(
+        Arc::clone(clip_sink),
+        &request.path,
+        request.width,
+        request.height,
+        request.include_mic,
+        request.include_system_audio,
+    ) {
+        Ok(sink) => sink,
+        Err(error) => {
+            if let Some(live) = live_upload.as_ref() {
+                cancel_clip_live_upload(live);
+            }
+            return Err(error);
+        }
+    };
+    Ok(SharedClipSink {
+        sink,
+        path: request.path,
+        width: request.width,
+        height: request.height,
+        live_upload,
+        upload_reset: Some(upload_reset),
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -667,7 +914,7 @@ pub fn native_fullscreen_claim_upload_open(recording_id: String) -> bool {
     true
 }
 
-fn emit_native_upload_finished(
+pub(crate) fn emit_native_upload_finished(
     app: &AppHandle,
     server_url: &str,
     recording_id: &str,
@@ -758,12 +1005,12 @@ pub struct NativeFullscreenStartInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeFullscreenUploadResult {
-    recording_id: String,
-    duration_ms: u128,
-    width: Option<u32>,
-    height: Option<u32>,
-    bytes: u64,
-    verification_pending: bool,
+    pub(crate) recording_id: String,
+    pub(crate) duration_ms: u128,
+    pub(crate) width: Option<u32>,
+    pub(crate) height: Option<u32>,
+    pub(crate) bytes: u64,
+    pub(crate) verification_pending: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -2828,6 +3075,17 @@ pub async fn native_fullscreen_recording_mark_upload_error(
 }
 
 #[tauri::command]
+pub async fn native_fullscreen_recording_clear_upload(
+    app: AppHandle,
+    recording_id: String,
+) -> Result<(), String> {
+    let saved = read_saved_recording_metadata(&app, &recording_id)?;
+    clear_saved_recording(&app, &saved)?;
+    let _ = app.emit("clips:pending-uploads-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn native_fullscreen_recording_dismiss_upload(
     app: AppHandle,
     recording_id: String,
@@ -3482,6 +3740,67 @@ fn persist_saved_recording_error(app: &AppHandle, saved: &mut SavedNativeRecordi
     saved.last_error = Some(error.to_string());
     saved.retry_count = saved.retry_count.saturating_add(1);
     let _ = write_saved_recording_metadata(app, saved);
+}
+
+/// Index a finalized shared-producer Clip in the ordinary pending-upload
+/// store. The file may live in Rewind's temporary artifact directory; the
+/// metadata is the durable pointer that makes restart/retry and user-visible
+/// recovery use the same flow as every other native recording.
+pub(crate) fn persist_shared_clip_recording(
+    app: &AppHandle,
+    path: &Path,
+    server_url: &str,
+    recording_id: &str,
+    duration_ms: u128,
+    width: u32,
+    height: u32,
+    include_mic: bool,
+    include_system_audio: bool,
+    has_camera: bool,
+    error: Option<&str>,
+) -> Result<(), String> {
+    let bytes = std::fs::metadata(path)
+        .map_err(|source| format!("shared Clip local artifact unavailable: {source}"))?
+        .len();
+    if bytes == 0 {
+        return Err("shared Clip local artifact is empty".into());
+    }
+    let saved = SavedNativeRecording {
+        recording_id: recording_id.to_string(),
+        server_url: server_url.trim_end_matches('/').to_string(),
+        file_path: path.to_path_buf(),
+        segment_paths: Vec::new(),
+        mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
+        duration_ms,
+        width: Some(width),
+        height: Some(height),
+        bytes,
+        has_audio: include_mic || include_system_audio,
+        mic_captured: include_mic,
+        system_audio_captured: include_system_audio,
+        has_camera,
+        saved_at: now_iso(),
+        last_attempt_at: error.map(|_| now_iso()),
+        last_error: error.map(ToString::to_string),
+        retry_count: u32::from(error.is_some()),
+        custom_pipeline: true,
+        corrupt: false,
+    };
+    write_saved_recording_metadata(app, &saved)?;
+    let _ = app.emit("clips:pending-uploads-changed", ());
+    Ok(())
+}
+
+/// Remove the shared Clip's temporary artifact and pending metadata after a
+/// conclusive server success (or after a local export has its own copy).
+pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, path: &Path) {
+    let saved = read_saved_recording_metadata(app, recording_id).ok();
+    if let Some(saved) = saved {
+        clear_saved_recording_after_success(app, &saved);
+    } else if let Err(error) = remove_saved_file(path, "shared Clip temporary artifact") {
+        eprintln!("[clips-tray] shared Clip cleanup failed: {error}");
+    }
+    let _ = app.emit("clips:pending-uploads-changed", ());
 }
 
 #[cfg(target_os = "macos")]

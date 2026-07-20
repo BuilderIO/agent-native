@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 
 /** Upload a browser-produced file through Clips' authenticated file route. */
 export async function uploadFileClient(

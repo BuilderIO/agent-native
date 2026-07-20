@@ -22,11 +22,18 @@ pub(crate) struct RewindClipState(Mutex<Option<ActiveRewindClip>>);
 
 pub(crate) fn is_active(app: &AppHandle) -> bool {
     app.try_state::<RewindClipState>()
-        .and_then(|state| state.0.lock().ok().map(|active| active.is_some()))
+        .and_then(|state| {
+            state
+                .0
+                .lock()
+                .ok()
+                .map(|active| active.as_ref().is_some_and(|clip| clip.activated))
+        })
         .unwrap_or(false)
 }
 
 struct ActiveRewindClip {
+    activated: bool,
     lease_id: Option<String>,
     pin_id: String,
     started_elapsed_ms: u64,
@@ -35,9 +42,9 @@ struct ActiveRewindClip {
     retrospective_seconds: u64,
     intervals: Vec<CaptureInterval>,
     paused: bool,
-    include_mic: bool,
-    include_system_audio: bool,
     temporary_audio: Option<screen_memory::TemporaryAudioLease>,
+    #[cfg(target_os = "macos")]
+    shared_sink: Option<native_screen::SharedClipSink>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -67,7 +74,7 @@ pub(crate) fn rewind_clip_status(
     state: State<'_, RewindClipState>,
 ) -> Result<RewindClipStatus, String> {
     let active_guard = state.0.lock().map_err(|error| error.to_string())?;
-    let active = active_guard.is_some();
+    let active = active_guard.as_ref().is_some_and(|clip| clip.activated);
     let compatible = screen_memory::rewind_clip_compatible(&app)?;
     Ok(RewindClipStatus {
         compatibility: if compatible {
@@ -88,15 +95,21 @@ pub(crate) fn rewind_clip_status(
     })
 }
 
-/// Called after countdown zero. Requested audio upgrades the one rolling
-/// producer before the zero fence; fencing then discards all prior media so
-/// the Clip interval begins on a clean successor with the requested sources.
+/// Perform every potentially slow operation before the numeric countdown.
+/// The resulting secondary writer shares Rewind's physical producer but is
+/// still closed to samples until `rewind_clip_start` activates it at zero.
 #[tauri::command]
-pub(crate) fn rewind_clip_start(
+pub(crate) fn rewind_clip_prepare(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    artifact_label: String,
+    server_url: Option<String>,
+    recording_id: Option<String>,
+    auth_token: Option<String>,
+    cookie: Option<String>,
     include_mic: bool,
     include_system_audio: bool,
+    has_camera: bool,
 ) -> Result<RewindClipStatus, String> {
     if !screen_memory::rewind_clip_compatible(&app)? {
         return Err(not_compatible(
@@ -104,7 +117,7 @@ pub(crate) fn rewind_clip_start(
         ));
     }
     if state.0.lock().map_err(|error| error.to_string())?.is_some() {
-        return Err("a Rewind-derived clip is already active".into());
+        return Err("a Rewind-derived clip is already prepared or active".into());
     }
     let temporary_audio = if include_mic || include_system_audio {
         screen_memory::acquire_temporary_audio_consumer(
@@ -120,51 +133,123 @@ pub(crate) fn rewind_clip_start(
     if (include_mic || include_system_audio) && temporary_audio.is_none() {
         return Err(not_compatible("Screen Memory has no active audio producer"));
     }
-    if let Err(error) = screen_memory::fence_active_for_clip(&app) {
-        release_temporary_audio(&app, temporary_audio);
-        return Err(error);
-    }
     let sources = screen_memory::rewind_clip_sources(&app);
-    let lease = match app
-        .state::<CaptureGraphState>()
-        .0
-        .lock()
-        .map_err(|error| error.to_string())?
-        .start_consumer(CaptureConsumer::Clip, sources.iter().copied())
-    {
-        Ok(lease) => lease,
+    let output = artifact_path(&app, &artifact_label)?;
+    #[cfg(target_os = "macos")]
+    let shared_sink = match screen_memory::prepare_shared_clip_sink(
+        &app,
+        output,
+        include_mic,
+        include_system_audio,
+        has_camera,
+        native_screen::ClipLiveUploadConfig {
+            server_url,
+            recording_id,
+            auth_token,
+            cookie,
+        },
+    ) {
+        Ok(sink) => sink,
         Err(error) => {
             release_temporary_audio(&app, temporary_audio);
-            return Err(error.to_string());
+            return Err(error);
         }
     };
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (
+            output,
+            server_url,
+            recording_id,
+            auth_token,
+            cookie,
+            has_camera,
+        );
+        release_temporary_audio(&app, temporary_audio);
+        return Err(not_compatible("shared Rewind Clip sinks require macOS"));
+    }
     let response_sources = sources.clone();
     let mut active = state.0.lock().map_err(|error| error.to_string())?;
     if active.is_some() {
-        end_clip_graph_lease(&app, &lease.id);
         drop(active);
+        #[cfg(target_os = "macos")]
+        shared_sink.cancel();
         release_temporary_audio(&app, temporary_audio);
-        return Err("a Rewind-derived clip is already active".into());
+        return Err("a Rewind-derived clip is already prepared or active".into());
     }
     *active = Some(ActiveRewindClip {
-        pin_id: format!("rewind-clip-{}", lease.id),
-        lease_id: Some(lease.id),
-        started_elapsed_ms: lease.interval.started_elapsed_ms,
+        activated: false,
+        pin_id: format!("rewind-clip-{}", Utc::now().timestamp_micros()),
+        lease_id: None,
+        started_elapsed_ms: 0,
         pinned_segments: BTreeSet::new(),
         sources,
         retrospective_seconds: 0,
         intervals: Vec::new(),
         paused: false,
-        include_mic,
-        include_system_audio,
         temporary_audio,
+        #[cfg(target_os = "macos")]
+        shared_sink: Some(shared_sink),
     });
+    Ok(RewindClipStatus {
+        compatibility: RewindClipCompatibility::Compatible,
+        active: false,
+        retrospective_seconds: 0,
+        paused: false,
+        sources: response_sources,
+    })
+}
+
+/// Countdown zero/Enter boundary. Preparation has already installed the Clip
+/// writer, so this path performs only in-memory graph and callback admission.
+#[tauri::command]
+pub(crate) fn rewind_clip_start(
+    app: AppHandle,
+    state: State<'_, RewindClipState>,
+) -> Result<RewindClipStatus, String> {
+    let started = std::time::Instant::now();
+    let mut active_guard = state.0.lock().map_err(|error| error.to_string())?;
+    let active = active_guard
+        .as_mut()
+        .ok_or_else(|| "no prepared Rewind-derived clip is available".to_string())?;
+    if active.activated {
+        return Err("a Rewind-derived clip is already active".into());
+    }
+    let boundary = std::time::Instant::now();
+    let lease = app
+        .state::<CaptureGraphState>()
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .start_consumer_at(
+            CaptureConsumer::Clip,
+            active.sources.iter().copied(),
+            boundary,
+        )
+        .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = active
+        .shared_sink
+        .as_mut()
+        .ok_or_else(|| "prepared Rewind Clip sink is missing".to_string())?
+        .activate()
+    {
+        end_clip_graph_lease(&app, &lease.id);
+        return Err(error);
+    }
+    active.lease_id = Some(lease.id);
+    active.started_elapsed_ms = lease.interval.started_elapsed_ms;
+    active.activated = true;
+    crate::logfile::diagnostic(&format!(
+        "[rewind-latency] start boundary accepted in {}ms",
+        started.elapsed().as_millis()
+    ));
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: true,
         retrospective_seconds: 0,
         paused: false,
-        sources: response_sources,
+        sources: active.sources.clone(),
     })
 }
 
@@ -241,51 +326,60 @@ pub(crate) fn rewind_clip_pause(
     app: AppHandle,
     state: State<'_, RewindClipState>,
 ) -> Result<RewindClipStatus, String> {
-    let lease_id = {
-        let active = state.0.lock().map_err(|error| error.to_string())?;
-        let active = active
-            .as_ref()
-            .ok_or_else(|| "no Rewind-derived clip is active".to_string())?;
-        if active.paused {
-            return Err("Rewind-derived clip is already paused".into());
-        }
-        active
-            .lease_id
-            .clone()
-            .ok_or_else(|| "active Clip lease is missing".to_string())?
-    };
-    let fenced = screen_memory::fence_active_for_clip(&app)?;
-    let closed = app
+    let mut active_guard = state.0.lock().map_err(|error| error.to_string())?;
+    let active = active_guard
+        .as_mut()
+        .ok_or_else(|| "no Rewind-derived clip is active".to_string())?;
+    if !active.activated || active.paused {
+        return Err("Rewind-derived clip is already paused".into());
+    }
+    let lease_id = active
+        .lease_id
+        .clone()
+        .ok_or_else(|| "active Clip lease is missing".to_string())?;
+    let sources = active.sources.clone();
+    let retrospective_seconds = active.retrospective_seconds;
+    #[cfg(target_os = "macos")]
+    let sink = active
+        .shared_sink
+        .as_ref()
+        .ok_or_else(|| "active Rewind Clip sink is missing".to_string())?;
+    #[cfg(target_os = "macos")]
+    sink.pause()?;
+
+    let close_result = app
         .state::<CaptureGraphState>()
         .0
         .lock()
-        .map_err(|e| e.to_string())?
-        .end_consumer(&lease_id)
-        .map_err(|e| e.to_string())?;
-    let mut interval = closed.lease.interval;
-    interval.ended_elapsed_ms = interval.ended_elapsed_ms.min(fenced.graph_ended_elapsed_ms);
-    let (status, temporary_audio) = {
-        let mut active = state.0.lock().map_err(|e| e.to_string())?;
-        let active = active
-            .as_mut()
-            .ok_or_else(|| "no Rewind-derived clip is active".to_string())?;
-        active.intervals.push(interval);
-        active.lease_id = None;
-        active.paused = true;
-        let temporary_audio = active.temporary_audio.take();
-        (
-            RewindClipStatus {
-                compatibility: RewindClipCompatibility::Compatible,
-                active: true,
-                retrospective_seconds: active.retrospective_seconds,
-                paused: true,
-                sources: active.sources.clone(),
-            },
-            temporary_audio,
-        )
+        .map_err(|error| error.to_string())
+        .and_then(|mut graph| {
+            graph
+                .end_consumer(&lease_id)
+                .map_err(|error| error.to_string())
+        });
+    let closed = match close_result {
+        Ok(closed) => closed,
+        Err(error) => {
+            #[cfg(target_os = "macos")]
+            if let Err(rollback_error) = sink.resume() {
+                return Err(format!(
+                    "{error}. Clip pause rollback also failed: {rollback_error}"
+                ));
+            }
+            return Err(error);
+        }
     };
-    release_temporary_audio(&app, temporary_audio);
-    Ok(status)
+    let interval = closed.lease.interval;
+    active.intervals.push(interval);
+    active.lease_id = None;
+    active.paused = true;
+    Ok(RewindClipStatus {
+        compatibility: RewindClipCompatibility::Compatible,
+        active: true,
+        retrospective_seconds,
+        paused: true,
+        sources,
+    })
 }
 
 #[tauri::command]
@@ -293,7 +387,7 @@ pub(crate) fn rewind_clip_resume(
     app: AppHandle,
     state: State<'_, RewindClipState>,
 ) -> Result<RewindClipStatus, String> {
-    let (include_mic, include_system_audio) = {
+    let sources = {
         let active = state.0.lock().map_err(|e| e.to_string())?;
         let active = active
             .as_ref()
@@ -301,27 +395,8 @@ pub(crate) fn rewind_clip_resume(
         if !active.paused {
             return Err("Rewind-derived clip is not paused".into());
         }
-        (active.include_mic, active.include_system_audio)
+        active.sources.clone()
     };
-    let temporary_audio = if include_mic || include_system_audio {
-        screen_memory::acquire_temporary_audio_consumer(
-            &app,
-            REWIND_CLIP_AUDIO_OWNER,
-            CaptureConsumer::Clip,
-            include_mic,
-            include_system_audio,
-        )?
-    } else {
-        None
-    };
-    if (include_mic || include_system_audio) && temporary_audio.is_none() {
-        return Err(not_compatible("Screen Memory has no active audio producer"));
-    }
-    if let Err(error) = screen_memory::fence_active_for_clip(&app) {
-        release_temporary_audio(&app, temporary_audio);
-        return Err(error);
-    }
-    let sources = screen_memory::rewind_clip_sources(&app);
     let lease = match app
         .state::<CaptureGraphState>()
         .0
@@ -330,20 +405,26 @@ pub(crate) fn rewind_clip_resume(
         .start_consumer(CaptureConsumer::Clip, sources.iter().copied())
     {
         Ok(lease) => lease,
-        Err(error) => {
-            release_temporary_audio(&app, temporary_audio);
-            return Err(error.to_string());
-        }
+        Err(error) => return Err(error.to_string()),
     };
     let mut active = state.0.lock().map_err(|e| e.to_string())?;
     let active = active
         .as_mut()
         .ok_or_else(|| "no Rewind-derived clip is active".to_string())?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = active
+        .shared_sink
+        .as_ref()
+        .ok_or_else(|| "active Rewind Clip sink is missing".to_string())?
+        .resume()
+    {
+        end_clip_graph_lease(&app, &lease.id);
+        return Err(error);
+    }
     active.lease_id = Some(lease.id);
     active.started_elapsed_ms = lease.interval.started_elapsed_ms;
     active.sources = sources;
     active.paused = false;
-    active.temporary_audio = temporary_audio;
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: true,
@@ -360,6 +441,40 @@ fn take_active(state: &State<'_, RewindClipState>) -> Result<ActiveRewindClip, S
         .map_err(|error| error.to_string())?
         .take()
         .ok_or_else(|| "no Rewind-derived clip is active".to_string())
+}
+
+fn close_direct_clip_interval(
+    app: &AppHandle,
+    active: &mut ActiveRewindClip,
+) -> Result<(), String> {
+    if !active.activated {
+        return Err("prepared Rewind-derived clip never reached countdown zero".into());
+    }
+    #[cfg(target_os = "macos")]
+    active
+        .shared_sink
+        .as_ref()
+        .ok_or_else(|| "active Rewind Clip sink is missing".to_string())?
+        .deactivate();
+    if let Some(lease_id) = active.lease_id.take() {
+        let closed = app
+            .state::<CaptureGraphState>()
+            .0
+            .lock()
+            .map_err(|error| error.to_string())?
+            .end_consumer(&lease_id)
+            .map_err(|error| error.to_string())?;
+        active.intervals.push(closed.lease.interval);
+    }
+    active.paused = false;
+    Ok(())
+}
+
+fn release_active_resources(app: &AppHandle, active: &mut ActiveRewindClip) {
+    for segment_id in std::mem::take(&mut active.pinned_segments) {
+        let _ = screen_memory::unpin_segment(app, &segment_id, &active.pin_id);
+    }
+    release_temporary_audio(app, active.temporary_audio.take());
 }
 
 fn artifact_path(app: &AppHandle, label: &str) -> Result<PathBuf, String> {
@@ -1021,6 +1136,153 @@ pub(crate) async fn rewind_clip_stop_and_upload(
     include_system_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let stop_started = std::time::Instant::now();
+        let mut active = take_active(&state)?;
+        if let Err(error) = close_direct_clip_interval(&app, &mut active) {
+            if let Some(sink) = active.shared_sink.take() {
+                sink.cancel();
+            }
+            release_active_resources(&app, &mut active);
+            return Err(error);
+        }
+        let uploaded_before_stop = active
+            .shared_sink
+            .as_ref()
+            .and_then(|sink| sink.uploaded_bytes_now());
+        crate::logfile::diagnostic(&format!(
+            "[rewind-latency] stop boundary accepted in {}ms",
+            stop_started.elapsed().as_millis()
+        ));
+        let mut sink = active
+            .shared_sink
+            .take()
+            .ok_or_else(|| "active Rewind Clip sink is missing".to_string())?;
+        if active.retrospective_seconds == 0 {
+            let sink_path = sink.path().to_path_buf();
+            let (sink_width, sink_height) = sink.dimensions();
+            let logical_duration_ms = sink.duration_ms();
+            let result = sink.finalize_writer();
+            release_active_resources(&app, &mut active);
+            let mut result = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    let recovery_error = native_screen::persist_shared_clip_recording(
+                        &app,
+                        &sink_path,
+                        &server_url,
+                        &recording_id,
+                        logical_duration_ms as u128,
+                        sink_width,
+                        sink_height,
+                        include_mic,
+                        include_system_audio,
+                        has_camera,
+                        Some(&error),
+                    )
+                    .err();
+                    let error = match recovery_error {
+                        Some(recovery_error) => {
+                            format!("{error}. Recovery metadata also failed: {recovery_error}")
+                        }
+                        None => error,
+                    };
+                    native_screen::emit_native_upload_finished(
+                        &app,
+                        &server_url,
+                        &recording_id,
+                        false,
+                        Some(error.clone()),
+                        Some(&sink_path),
+                    );
+                    return Err(error);
+                }
+            };
+            if let Err(error) = native_screen::persist_shared_clip_recording(
+                &app,
+                &result.path,
+                &server_url,
+                &recording_id,
+                result.duration_ms as u128,
+                result.width,
+                result.height,
+                include_mic,
+                include_system_audio,
+                has_camera,
+                None,
+            ) {
+                sink.cancel_upload();
+                native_screen::emit_native_upload_finished(
+                    &app,
+                    &server_url,
+                    &recording_id,
+                    false,
+                    Some(error.clone()),
+                    Some(&result.path),
+                );
+                return Err(error);
+            }
+            result.verification_pending = match sink.finalize_upload(result.duration_ms).await {
+                Ok(pending) => pending,
+                Err(error) => {
+                    let _ = native_screen::persist_shared_clip_recording(
+                        &app,
+                        &result.path,
+                        &server_url,
+                        &recording_id,
+                        result.duration_ms as u128,
+                        result.width,
+                        result.height,
+                        include_mic,
+                        include_system_audio,
+                        has_camera,
+                        Some(&error),
+                    );
+                    native_screen::emit_native_upload_finished(
+                        &app,
+                        &server_url,
+                        &recording_id,
+                        false,
+                        Some(error.clone()),
+                        Some(&result.path),
+                    );
+                    return Err(format!(
+                        "{error}. The clip was saved locally and can be retried from the Clips menu."
+                    ));
+                }
+            };
+            if let Some(uploaded) = uploaded_before_stop {
+                let percent = if result.bytes == 0 {
+                    0
+                } else {
+                    uploaded.saturating_mul(100) / result.bytes
+                };
+                crate::logfile::diagnostic(&format!(
+                    "[rewind-latency] uploaded before Stop: {uploaded}/{} bytes ({percent}%)",
+                    result.bytes
+                ));
+            }
+            native_screen::emit_native_upload_finished(
+                &app,
+                &server_url,
+                &recording_id,
+                true,
+                None,
+                Some(&result.path),
+            );
+            if !result.verification_pending {
+                native_screen::clear_shared_clip_recording(&app, &recording_id, &result.path);
+            }
+            return Ok(result.into_native_upload_result(recording_id));
+        }
+
+        if let Err(error) = sink.abandon_for_rewind_materialization().await {
+            release_active_resources(&app, &mut active);
+            return Err(error);
+        }
+        *state.0.lock().map_err(|error| error.to_string())? = Some(active);
+    }
     let artifact = materialize(
         &app,
         &state,
@@ -1051,6 +1313,52 @@ pub(crate) async fn rewind_clip_stop_and_save(
     include_mic: bool,
     include_system_audio: bool,
 ) -> Result<NativeFullscreenSaveResult, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let stop_started = std::time::Instant::now();
+        let mut active = take_active(&state)?;
+        if let Err(error) = close_direct_clip_interval(&app, &mut active) {
+            if let Some(sink) = active.shared_sink.take() {
+                sink.cancel();
+            }
+            release_active_resources(&app, &mut active);
+            return Err(error);
+        }
+        eprintln!(
+            "[rewind-latency] local stop boundary accepted in {}ms",
+            stop_started.elapsed().as_millis()
+        );
+        let mut sink = active
+            .shared_sink
+            .take()
+            .ok_or_else(|| "active Rewind Clip sink is missing".to_string())?;
+        if active.retrospective_seconds == 0 {
+            let result = sink.finalize_writer();
+            release_active_resources(&app, &mut active);
+            let result = result?;
+            let artifact = FinalizedNativeArtifact::rewind_mp4(
+                result.path,
+                result.duration_ms as u128,
+                Some(result.width),
+                Some(result.height),
+                include_mic,
+                include_system_audio,
+            );
+            let saved = native_screen::save_finalized_native_artifact_to_local_export(
+                &app,
+                &artifact,
+                &folder_name,
+                &file_role,
+            )?;
+            native_screen::clear_shared_clip_recording(&app, &folder_name, &artifact.path);
+            return Ok(saved);
+        }
+        if let Err(error) = sink.abandon_for_rewind_materialization().await {
+            release_active_resources(&app, &mut active);
+            return Err(error);
+        }
+        *state.0.lock().map_err(|error| error.to_string())? = Some(active);
+    }
     let artifact = materialize(
         &app,
         &state,
@@ -1072,7 +1380,7 @@ pub(crate) fn rewind_clip_cancel(
     state: State<'_, RewindClipState>,
 ) -> Result<(), String> {
     let active = state.0.lock().map_err(|error| error.to_string())?.take();
-    if let Some(active) = active {
+    if let Some(mut active) = active {
         if let Some(lease_id) = active.lease_id.as_deref() {
             let _ = app
                 .state::<CaptureGraphState>()
@@ -1081,10 +1389,11 @@ pub(crate) fn rewind_clip_cancel(
                 .map_err(|error| error.to_string())?
                 .end_consumer(lease_id);
         }
-        for segment_id in active.pinned_segments {
-            let _ = screen_memory::unpin_segment(&app, &segment_id, &active.pin_id);
+        #[cfg(target_os = "macos")]
+        if let Some(sink) = active.shared_sink.take() {
+            sink.cancel();
         }
-        release_temporary_audio(&app, active.temporary_audio);
+        release_active_resources(&app, &mut active);
     }
     Ok(())
 }
@@ -1105,7 +1414,7 @@ pub(crate) fn pin_finalized_segment_if_active(
     let Some(active) = active.as_mut() else {
         return Ok(());
     };
-    if active.paused {
+    if !active.activated || active.paused {
         return Ok(());
     }
     if segment.graph_ended_elapsed_ms >= active.started_elapsed_ms {

@@ -305,13 +305,14 @@ describe("local Screen Memory helpers", () => {
       })}\n`,
       "utf8",
     );
+    await writeFile(join(root, "segment-1.mp4"), "retained-test-media", "utf8");
     await writeFile(
       join(root, "segment-1.json"),
       `${JSON.stringify({
         id: "segment-1",
         startedAt: "2026-06-29T11:59:00.000Z",
         endedAt: "2026-06-29T12:02:00.000Z",
-        path: "/private/local/segment.mp4",
+        path: join(root, "segment-1.mp4"),
         bytes: 123,
       })}\n`,
       "utf8",
@@ -331,7 +332,7 @@ describe("local Screen Memory helpers", () => {
         endedAt: "2026-06-29T12:02:00.000Z",
       },
     ]);
-    expect(JSON.stringify(result.evidence)).not.toContain("segment.mp4");
+    expect(JSON.stringify(result.evidence)).not.toContain("segment-1.mp4");
     expect(JSON.stringify(result.evidence)).not.toContain('"bytes"');
   });
 
@@ -422,6 +423,64 @@ describe("local Screen Memory helpers", () => {
       expect.objectContaining({
         reason: "index-pending",
         startedAt: "2026-06-29T12:03:00.000Z",
+      }),
+    );
+  });
+
+  it("never returns evidence backed only by tainted or pruned segments", async () => {
+    const { root, options } = await tempScreenMemoryEnv();
+    await writeFile(
+      join(root, "events.jsonl"),
+      [
+        {
+          segmentId: "segment-tainted",
+          capturedAt: "2026-06-29T12:00:10.000Z",
+          text: "private excluded window",
+        },
+        {
+          segmentId: "segment-pruned",
+          capturedAt: "2026-06-29T12:01:10.000Z",
+          text: "already pruned media",
+        },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n") + "\n",
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-tainted.mp4"),
+      "retained-test-media",
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-tainted.json"),
+      `${JSON.stringify({
+        id: "segment-tainted",
+        startedAt: "2026-06-29T12:00:00.000Z",
+        endedAt: "2026-06-29T12:01:00.000Z",
+        path: join(root, "segment-tainted.mp4"),
+        exclusionTainted: true,
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(root, "segment-pruned.json"),
+      `${JSON.stringify({
+        id: "segment-pruned",
+        startedAt: "2026-06-29T12:01:00.000Z",
+        endedAt: "2026-06-29T12:02:00.000Z",
+        path: join(root, "segment-pruned.mp4"),
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await queryScreenMemoryContext({ limit: 10 }, options);
+
+    expect(result.items).toEqual([]);
+    expect(result.evidence).toEqual([]);
+    expect(result.coverage.gaps).toContainEqual(
+      expect.objectContaining({
+        reason: "privacy-excluded-or-unretained",
       }),
     );
   });

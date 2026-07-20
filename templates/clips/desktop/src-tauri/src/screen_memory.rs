@@ -587,7 +587,6 @@ fn normalize_screen_memory_config(mut config: ScreenMemoryConfig) -> ScreenMemor
         .sample_interval_seconds
         .clamp(1, config.segment_seconds);
     config.excluded_bundle_ids = normalize_excluded_bundle_ids(config.excluded_bundle_ids);
-    config.exclude_private_windows = false;
     config
 }
 
@@ -1217,6 +1216,56 @@ pub(crate) fn fence_active_for_clip(
     }
 }
 
+/// Prepare an independent Clip artifact writer on the already-running Rewind
+/// producer. The transition lock keeps the backend stable while the writer is
+/// installed; no samples enter the Clip until its handle is activated at zero.
+#[cfg(target_os = "macos")]
+pub(crate) fn prepare_shared_clip_sink(
+    app: &AppHandle,
+    path: PathBuf,
+    include_mic: bool,
+    include_system_audio: bool,
+    has_camera: bool,
+    upload: native_screen::ClipLiveUploadConfig,
+) -> Result<native_screen::SharedClipSink, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    let active = runtime
+        .active
+        .as_ref()
+        .ok_or_else(|| "rewind-not-compatible: Screen Memory is not recording".to_string())?;
+    if active.exclusion_tainted.load(Ordering::SeqCst) {
+        return Err(not_compatible_clip_sink(
+            "recognized privacy exclusion created a coverage gap",
+        ));
+    }
+    let width = active
+        .width
+        .ok_or_else(|| not_compatible_clip_sink("Screen Memory width is unavailable"))?;
+    let height = active
+        .height
+        .ok_or_else(|| not_compatible_clip_sink("Screen Memory height is unavailable"))?;
+    native_screen::prepare_shared_clip_sink(
+        app,
+        &active.backend,
+        native_screen::SharedClipSinkRequest {
+            path,
+            width,
+            height,
+            include_mic,
+            include_system_audio,
+            has_camera,
+            upload,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn not_compatible_clip_sink(detail: &str) -> String {
+    format!("rewind-not-compatible: {detail}")
+}
+
 fn ensure_running(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
@@ -1444,7 +1493,7 @@ fn sample_active_window(config: &ScreenMemoryConfig) -> (ScreenMemoryEvent, Opti
 fn event_exclusion_reason(
     config: &ScreenMemoryConfig,
     bundle_id: Option<&str>,
-    _window_title: Option<&str>,
+    window_title: Option<&str>,
 ) -> Option<&'static str> {
     let normalized_bundle_id = bundle_id.map(|value| value.trim().to_ascii_lowercase());
     if normalized_bundle_id.as_deref().is_some_and(|bundle_id| {
@@ -1454,6 +1503,22 @@ fn event_exclusion_reason(
             .any(|excluded| excluded.eq_ignore_ascii_case(bundle_id))
     }) {
         return Some("excluded-bundle-id");
+    }
+
+    if config.exclude_private_windows
+        && window_title.is_some_and(|title| {
+            let title = title.to_ascii_lowercase();
+            [
+                "incognito",
+                "inprivate",
+                "private browsing",
+                "private window",
+            ]
+            .iter()
+            .any(|marker| title.contains(marker))
+        })
+    {
+        return Some("excluded-private-window");
     }
 
     None
@@ -3353,6 +3418,18 @@ command = "keep"
                 Some("Search - Incognito")
             ),
             None
+        );
+        let private_window_config = ScreenMemoryConfig {
+            exclude_private_windows: true,
+            ..ScreenMemoryConfig::default()
+        };
+        assert_eq!(
+            event_exclusion_reason(
+                &private_window_config,
+                Some("com.example.browser"),
+                Some("Search - Incognito")
+            ),
+            Some("excluded-private-window")
         );
         let gap = coverage_gap_event("privacy-exclusion");
         assert_eq!(gap.source, "coverage-gap");

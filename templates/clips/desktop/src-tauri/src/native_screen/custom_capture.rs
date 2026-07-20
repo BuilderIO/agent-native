@@ -179,16 +179,33 @@ impl CaptureWatch {
 const AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION: isize = 1;
 const AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE: isize = 2;
 
-fn segmented_output_enabled(force_segmented_output: bool, live_upload_enabled: bool) -> bool {
-    force_segmented_output || live_upload_enabled
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CustomWriterOutput {
+    Standard,
+    RewindCmaf,
+    ClipHls,
+}
+
+impl CustomWriterOutput {
+    fn segmented(self) -> bool {
+        !matches!(self, Self::Standard)
+    }
+
+    fn preserves_separate_audio(self) -> bool {
+        matches!(self, Self::RewindCmaf)
+    }
+}
+
+fn segmented_output_enabled(output: CustomWriterOutput, live_upload_enabled: bool) -> bool {
+    output.segmented() || live_upload_enabled
 }
 
 fn live_audio_mixing_enabled(
-    force_segmented_output: bool,
+    output: CustomWriterOutput,
     include_audio: bool,
     capture_system_audio: bool,
 ) -> bool {
-    include_audio && capture_system_audio && !force_segmented_output
+    include_audio && capture_system_audio && !output.preserves_separate_audio()
 }
 
 pub(crate) fn audio_sidecar_path(video_path: &Path, source: &str) -> PathBuf {
@@ -962,9 +979,258 @@ unsafe impl Send for CustomScreenCaptureWriterState {}
 /// keeps receiving samples over the whole recording.
 struct CustomScreenCaptureOutputHandler {
     writer: CustomScreenCaptureWriter,
+    /// At most one temporary Clips writer may mirror this physical producer.
+    /// It deliberately lives beside the callback handler rather than the
+    /// audio bus: the bus has one producer contract and must never publish a
+    /// second copy just because a Clip starts.
+    clip_sink: Arc<Mutex<Option<ClipSinkSlot>>>,
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
     watch: Arc<CaptureWatch>,
+}
+
+pub(crate) struct ClipSinkSlot {
+    writer: CustomScreenCaptureWriter,
+    gate: Arc<ClipSinkGate>,
+}
+
+fn install_only_slot<T>(slot: &mut Option<T>, value: T) -> Result<(), String> {
+    if slot.is_some() {
+        return Err("a Clip sink is already attached to this capture producer".into());
+    }
+    *slot = Some(value);
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum ClipSinkState {
+    Prepared = 0,
+    Active = 1,
+    Paused = 2,
+    Closed = 3,
+}
+
+struct ClipSinkGate {
+    state: AtomicU64,
+    activated_at: Mutex<Option<Instant>>,
+    paused_at: Mutex<Option<Instant>>,
+    paused_total: Mutex<Duration>,
+    logical_end: Mutex<Option<Instant>>,
+}
+
+impl ClipSinkGate {
+    fn new() -> Self {
+        Self {
+            state: AtomicU64::new(ClipSinkState::Prepared as u64),
+            activated_at: Mutex::new(None),
+            paused_at: Mutex::new(None),
+            paused_total: Mutex::new(Duration::ZERO),
+            logical_end: Mutex::new(None),
+        }
+    }
+
+    fn state(&self) -> ClipSinkState {
+        match self.state.load(Ordering::SeqCst) {
+            1 => ClipSinkState::Active,
+            2 => ClipSinkState::Paused,
+            3 => ClipSinkState::Closed,
+            _ => ClipSinkState::Prepared,
+        }
+    }
+
+    fn accepts(&self) -> bool {
+        self.state() == ClipSinkState::Active
+    }
+
+    fn media_duration_ms(&self) -> u64 {
+        let started = self.activated_at.lock().ok().and_then(|value| *value);
+        let Some(started) = started else {
+            return 0;
+        };
+        let paused_total = self
+            .paused_total
+            .lock()
+            .map(|value| *value)
+            .unwrap_or_default();
+        let current_pause = self
+            .paused_at
+            .lock()
+            .ok()
+            .and_then(|value| *value)
+            .map(|value| value.elapsed())
+            .unwrap_or_default();
+        started
+            .elapsed()
+            .saturating_sub(paused_total)
+            .saturating_sub(current_pause)
+            .as_millis() as u64
+    }
+}
+
+/// Handle for the one temporary Clip writer attached to an existing custom
+/// ScreenCaptureKit producer. Preparation allocates the writer but does not
+/// admit callbacks; activation is a single in-memory state transition.
+pub(crate) struct PreparedClipSink {
+    slot: Arc<Mutex<Option<ClipSinkSlot>>>,
+    writer: CustomScreenCaptureWriter,
+    gate: Arc<ClipSinkGate>,
+}
+
+impl PreparedClipSink {
+    pub(crate) fn activate(&self) -> Result<(), String> {
+        let slot = self.slot.lock().map_err(|error| error.to_string())?;
+        let installed = slot
+            .as_ref()
+            .is_some_and(|installed| Arc::ptr_eq(&installed.gate, &self.gate));
+        if !installed || self.gate.state() != ClipSinkState::Prepared {
+            return Err("Clip sink is not prepared".to_string());
+        }
+        *self
+            .gate
+            .activated_at
+            .lock()
+            .map_err(|error| error.to_string())? = Some(Instant::now());
+        // Publish Active last, while holding the same slot lock callbacks use.
+        self.gate
+            .state
+            .store(ClipSinkState::Active as u64, Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub(crate) fn pause(&self) -> Result<(), String> {
+        let _slot = self.slot.lock().map_err(|error| error.to_string())?;
+        if self.gate.state() != ClipSinkState::Active {
+            return Err("Clip sink is not active".into());
+        }
+        *self
+            .gate
+            .paused_at
+            .lock()
+            .map_err(|error| error.to_string())? = Some(Instant::now());
+        // Close callback admission only after the pause boundary is durable.
+        self.gate
+            .state
+            .store(ClipSinkState::Paused as u64, Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub(crate) fn resume(&self) -> Result<(), String> {
+        let _slot = self.slot.lock().map_err(|error| error.to_string())?;
+        if self.gate.state() != ClipSinkState::Paused {
+            return Err("Clip sink is no longer paused".into());
+        }
+        let paused_at = self
+            .gate
+            .paused_at
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take()
+            .ok_or_else(|| "Clip sink is not paused".to_string())?;
+        let paused_for = paused_at.elapsed();
+        let mut paused_total = self
+            .gate
+            .paused_total
+            .lock()
+            .map_err(|error| error.to_string())?;
+        *paused_total = paused_total.saturating_add(paused_for);
+        self.writer
+            .set_pause_offset(self.writer.pause_offset() + paused_for.as_secs_f64());
+        // Re-open callback admission only after every timestamp offset is in
+        // place. The slot lock prevents an in-flight append from observing a
+        // half-resumed writer.
+        self.gate
+            .state
+            .store(ClipSinkState::Active as u64, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Logical close is synchronous and precedes the potentially slow writer
+    /// finalization. This makes Stop's accepted-sample boundary exact.
+    pub(crate) fn deactivate(&self) {
+        // The callback holds this same lock across its accepted append. Taking
+        // it here makes the return from deactivate the exact no-more-samples
+        // boundary: a callback either completed before logical end or sees
+        // Closed after it. No disk/network/finalize work occurs under it.
+        if let Ok(_slot) = self.slot.lock() {
+            self.gate
+                .state
+                .store(ClipSinkState::Closed as u64, Ordering::SeqCst);
+        }
+        if let Ok(mut end) = self.gate.logical_end.lock() {
+            *end = Some(Instant::now());
+        }
+    }
+
+    pub(crate) fn duration_ms(&self) -> u64 {
+        self.gate.media_duration_ms()
+    }
+
+    pub(crate) fn finalize(&self) -> Result<(), String> {
+        self.deactivate();
+        let result = self.writer.finish(true);
+        self.remove();
+        result
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.deactivate();
+        let _ = self.writer.finish(false);
+        self.remove();
+    }
+
+    fn remove(&self) {
+        if let Ok(mut slot) = self.slot.lock() {
+            let same_sink = slot
+                .as_ref()
+                .is_some_and(|installed| Arc::ptr_eq(&installed.gate, &self.gate));
+            if same_sink {
+                *slot = None;
+            }
+        }
+    }
+}
+
+/// Allocate an Apple-HLS, append-only Clip writer and install it as the only
+/// secondary sink on a running physical producer. This does not start any
+/// ScreenCaptureKit or audio input and is deliberately independent of the
+/// ordinary remote-live-upload feature flag.
+pub(crate) fn prepare_clip_sink(
+    slot: Arc<Mutex<Option<ClipSinkSlot>>>,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    include_mic: bool,
+    include_system_audio: bool,
+) -> Result<PreparedClipSink, String> {
+    let mut installed = slot.lock().map_err(|e| e.to_string())?;
+    if installed.is_some() {
+        return Err("a Clip sink is already attached to this capture producer".into());
+    }
+    let writer = CustomScreenCaptureWriter::new(
+        output_path,
+        width,
+        height,
+        include_system_audio,
+        include_mic,
+        live_audio_mixing_enabled(
+            CustomWriterOutput::ClipHls,
+            include_mic,
+            include_system_audio,
+        ),
+        CustomWriterOutput::ClipHls,
+        None,
+    )?;
+    let gate = Arc::new(ClipSinkGate::new());
+    install_only_slot(
+        &mut installed,
+        ClipSinkSlot {
+            writer: writer.clone(),
+            gate: Arc::clone(&gate),
+        },
+    )?;
+    drop(installed);
+    Ok(PreparedClipSink { slot, writer, gate })
 }
 
 impl Clone for CustomScreenCaptureWriter {
@@ -1055,6 +1321,16 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
                 );
             }
         }
+        // Mirror into the temporary Clip writer only after its atomic
+        // activation. Do not call `publish_audio_sample` here: this is a
+        // second consumer of existing callbacks, not another audio producer.
+        if let Ok(slot) = self.clip_sink.lock() {
+            if let Some(clip) = slot.as_ref().filter(|clip| clip.gate.accepts()) {
+                let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                    clip.writer.append_sample(&sample_buffer, of_type);
+                }));
+            }
+        }
         // ScreenCaptureKit invokes this from its own dispatch queues through an
         // Objective-C boundary. Two failure modes can abort the whole process:
         //   - an Objective-C exception (e.g. AVFoundation), which `catch_unwind`
@@ -1094,7 +1370,7 @@ impl CustomScreenCaptureWriter {
         capture_system_audio: bool,
         include_audio: bool,
         mix_live: bool,
-        force_segmented_output: bool,
+        output: CustomWriterOutput,
         audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     ) -> Result<Self, String> {
         use objc2::msg_send;
@@ -1115,7 +1391,7 @@ impl CustomScreenCaptureWriter {
         // Rewind's local rolling buffer always needs append-only fMP4 output,
         // independent of whether the remote live uploader is enabled.
         let segmented = segmented_output_enabled(
-            force_segmented_output,
+            output,
             crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled,
         );
         unsafe {
@@ -1160,7 +1436,7 @@ impl CustomScreenCaptureWriter {
                 // contain a live-mixed AAC track, and applying Rewind's CMAF
                 // profile to that writer graph makes AVAssetWriter reject
                 // startWriting before the first byte reaches disk.
-                let output_profile = if force_segmented_output {
+                let output_profile = if output.preserves_separate_audio() {
                     AVFileTypeProfileMPEG4CMAFCompliant
                 } else {
                     AVFileTypeProfileMPEG4AppleHLS
@@ -1223,8 +1499,8 @@ impl CustomScreenCaptureWriter {
             let _: () = msg_send![&*writer, addInput: &*video_input];
 
             let sidecar_sources = crate::capture_audio_bus::AudioSources::new(
-                include_audio && force_segmented_output,
-                capture_system_audio && force_segmented_output,
+                include_audio && output.preserves_separate_audio(),
+                capture_system_audio && output.preserves_separate_audio(),
             );
             let audio_sidecars = (sidecar_sources.microphone || sidecar_sources.system)
                 .then(|| AudioSidecarManager::create(output_path, sidecar_sources))
@@ -1242,12 +1518,13 @@ impl CustomScreenCaptureWriter {
                     Some(LiveAudioMixer::new(segmented)?),
                 )
             } else {
-                let system_audio_input = if capture_system_audio && !force_segmented_output {
-                    Some(av_make_audio_writer_input(input_cls, &writer)?)
-                } else {
-                    None
-                };
-                let mic_audio_input = if include_audio && !force_segmented_output {
+                let system_audio_input =
+                    if capture_system_audio && !output.preserves_separate_audio() {
+                        Some(av_make_audio_writer_input(input_cls, &writer)?)
+                    } else {
+                        None
+                    };
+                let mic_audio_input = if include_audio && !output.preserves_separate_audio() {
                     Some(av_make_audio_writer_input(input_cls, &writer)?)
                 } else {
                     None
@@ -3479,8 +3756,12 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     // Rewind keeps microphone and system audio on separate writer tracks for
     // later local transcription. The ordinary recorder retains its existing
     // live-mix behavior (needed for its remote upload path).
-    let mix_live =
-        live_audio_mixing_enabled(force_segmented_output, include_audio, capture_system_audio);
+    let output = if force_segmented_output {
+        CustomWriterOutput::RewindCmaf
+    } else {
+        CustomWriterOutput::Standard
+    };
+    let mix_live = live_audio_mixing_enabled(output, include_audio, capture_system_audio);
     // The active custom capture is the single physical owner of mic/system
     // audio for both Rewind and ordinary Clips. Live transcription subscribes
     // to this producer instead of opening a competing SCK/AVAudioEngine input,
@@ -3499,14 +3780,16 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         capture_system_audio,
         include_audio,
         mix_live,
-        force_segmented_output,
+        output,
         audio_producer,
     )?;
     let recording_enabled = Arc::new(AtomicBool::new(!defer_recording_output));
+    let clip_sink = Arc::new(Mutex::new(None));
     let mic_ready = include_audio.then(|| Arc::new(AtomicBool::new(false)));
     let watch = Arc::new(CaptureWatch::new());
     let handler = CustomScreenCaptureOutputHandler {
         writer: writer.clone(),
+        clip_sink: Arc::clone(&clip_sink),
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
         watch: Arc::clone(&watch),
@@ -3571,6 +3854,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
             recording_enabled,
             watchdog_shutdown,
             resume,
+            clip_sink,
         },
         Some(width),
         Some(height),
@@ -3669,9 +3953,48 @@ mod fragment_fence_tests {
 
     #[test]
     fn forced_segmented_rewind_disables_live_mix_for_selectable_sidecars() {
-        assert!(segmented_output_enabled(true, false));
-        assert!(!live_audio_mixing_enabled(true, true, true));
-        assert!(live_audio_mixing_enabled(false, true, true));
+        assert!(segmented_output_enabled(
+            CustomWriterOutput::RewindCmaf,
+            false
+        ));
+        assert!(!live_audio_mixing_enabled(
+            CustomWriterOutput::RewindCmaf,
+            true,
+            true
+        ));
+        assert!(live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            true,
+            true
+        ));
+        // Clip HLS is forced segmented regardless of the ordinary remote flag,
+        // but keeps a single live-mixed AAC track and no Rewind sidecars.
+        assert!(segmented_output_enabled(CustomWriterOutput::ClipHls, false));
+        assert!(live_audio_mixing_enabled(
+            CustomWriterOutput::ClipHls,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn clip_sink_gate_orders_prepare_activate_and_logical_close() {
+        let gate = ClipSinkGate::new();
+        assert!(!gate.accepts(), "prepared sinks ignore callbacks");
+        gate.state
+            .store(ClipSinkState::Active as u64, Ordering::SeqCst);
+        assert!(gate.accepts(), "activated sink accepts callbacks");
+        gate.state
+            .store(ClipSinkState::Closed as u64, Ordering::SeqCst);
+        assert!(!gate.accepts(), "logical close wins before finalization");
+    }
+
+    #[test]
+    fn clip_sink_slot_rejects_second_install() {
+        let mut slot = None;
+        install_only_slot(&mut slot, 1_u8).unwrap();
+        assert!(install_only_slot(&mut slot, 2_u8).is_err());
+        assert_eq!(slot, Some(1));
     }
 
     #[test]

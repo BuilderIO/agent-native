@@ -3338,6 +3338,45 @@ body[data-clips-route="recording-pill"] #root {
 /* Overlay: finalizing spinner                                                */
 /* ------------------------------------------------------------------------- */
 
+.preparing-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 10px;
+  background: transparent;
+}
+
+.preparing-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.preparing-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #ffffff;
+  animation: finalizing-spin 0.9s linear infinite;
+}
+
 /*
  * Compact transparent window shown after the user clicks Stop. Keeping the OS
  * window close to the card's bounds lets its open/dismiss controls stay
@@ -3745,6 +3784,11 @@ body[data-clips-route="recording-pill"] #root {
 .toolbar-v-time:focus-visible {
   background: rgba(255, 255, 255, 0.1);
   outline: none;
+}
+
+.toolbar-v-time-preparing {
+  font-size: 9px;
+  letter-spacing: 0;
 }
 
 .toolbar-v-pause {

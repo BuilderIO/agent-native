@@ -63,7 +63,8 @@ export interface ScreenMemoryCoverageGap {
     | "timestamps-unavailable"
     | "index-pending"
     | "index-failed"
-    | "index-skipped";
+    | "index-skipped"
+    | "privacy-excluded-or-unretained";
 }
 
 export interface ScreenMemorySegmentReference {
@@ -260,9 +261,10 @@ function normalizeConfig(value: unknown): ScreenMemoryConfig {
       raw.excludedBundleIds,
       DEFAULT_CONFIG.excludedBundleIds,
     ),
-    // Retained for compatibility with older config files. Application
-    // exclusions are now the only Rewind privacy exclusion model.
-    excludePrivateWindows: false,
+    excludePrivateWindows:
+      typeof raw.excludePrivateWindows === "boolean"
+        ? raw.excludePrivateWindows
+        : DEFAULT_CONFIG.excludePrivateWindows,
   };
 }
 
@@ -544,6 +546,7 @@ interface LocalSegment {
   id: string;
   startedAt: string | null;
   endedAt: string | null;
+  clean: boolean;
 }
 
 function stableId(prefix: string, value: string): string {
@@ -634,7 +637,11 @@ function segmentReferences(
           return moment >= started && moment <= ended;
         })
       : [];
-  return matched.slice(0, 3).map((segment) => ({ ...segment }));
+  return matched.slice(0, 3).map((segment) => ({
+    id: segment.id,
+    startedAt: segment.startedAt,
+    endedAt: segment.endedAt,
+  }));
 }
 
 function normalizeEvidence(
@@ -826,10 +833,24 @@ async function readSegments(dataDirs: string[]): Promise<LocalSegment[]> {
       const raw = asRecord(await readJson(path.join(dir, name)));
       const id = raw && firstString(raw, ["id"]);
       if (!raw || !id) continue;
+      const mediaPath = firstString(raw, ["path"]);
+      let retained = true;
+      if (mediaPath) {
+        try {
+          await fs.access(mediaPath);
+        } catch {
+          retained = false;
+        }
+      }
       segments.push({
         id,
         startedAt: firstString(raw, ["startedAt"]),
         endedAt: firstString(raw, ["endedAt"]),
+        clean:
+          retained &&
+          raw.exclusionTainted !== true &&
+          raw.corrupt !== true &&
+          !firstString(raw, ["error"]),
       });
     }
   }
@@ -896,7 +917,7 @@ export async function queryScreenMemoryContext(
 
   const needle = query?.toLowerCase() ?? null;
   const source = await readRows(files);
-  const rows = source.rows.filter((row) => {
+  const candidateRows = source.rows.filter((row) => {
     const { item } = row;
     if (cutoff !== null) {
       const time = itemTime(item);
@@ -907,10 +928,23 @@ export async function queryScreenMemoryContext(
       .toLowerCase()
       .includes(needle);
   });
-  const items = rows.map(({ item }) => item);
   const segments = await readSegments(paths.dataDirs);
+  const cleanSegments = segments.filter((segment) => segment.clean);
+  // Modern stores bind every evidence row to retained segment metadata. Once
+  // segment metadata exists, refuse rows that only point at tainted, corrupt,
+  // or pruned media. Legacy context-only stores (no segment metadata at all)
+  // remain readable for backwards compatibility.
+  const rows =
+    segments.length === 0
+      ? candidateRows
+      : candidateRows.filter(
+          (row) =>
+            segmentReferences(row.raw, row.item.capturedAt, cleanSegments)
+              .length > 0,
+        );
+  const items = rows.map(({ item }) => item);
   const ocrIndexStates = await readOcrIndexStates(paths.dataDirs);
-  const evidence = rows.flatMap((row) => normalizeEvidence(row, segments));
+  const evidence = rows.flatMap((row) => normalizeEvidence(row, cleanSegments));
   const returnedEvidence = evidence.slice(0, limit);
   const evidenceTimes = evidence
     .map((item) => (item.capturedAt ? Date.parse(item.capturedAt) : NaN))
@@ -926,6 +960,12 @@ export async function queryScreenMemoryContext(
     endedAt: now.toISOString(),
   };
   const gaps: ScreenMemoryCoverageGap[] = [];
+  if (candidateRows.length > rows.length) {
+    gaps.push({
+      ...requestedRange,
+      reason: "privacy-excluded-or-unretained",
+    });
+  }
   for (const index of ocrIndexStates) {
     if (index.state === "ready") continue;
     const segment = segments.find(

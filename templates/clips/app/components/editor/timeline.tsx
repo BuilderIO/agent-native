@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useMemo } from "react";
 
 import {
@@ -51,6 +52,7 @@ export function Timeline({
   onClickChapter,
   className,
 }: TimelineProps) {
+  const t = useT();
   const ticks = useMemo(() => {
     if (durationMs <= 0) return [];
     // Target ~1 tick per 100px at the current zoom, rounded to a human interval.
@@ -147,7 +149,7 @@ export function Timeline({
                 aria-label={`Original Clip start at ${formatMs(originalStartMs)}`}
               >
                 <span className="absolute left-1 top-0 whitespace-nowrap rounded-sm bg-amber-500 px-1 text-[9px] font-semibold text-black">
-                  Clip started here
+                  {t("timeline.clipStartedHere")}
                 </span>
               </div>
             </TooltipTrigger>

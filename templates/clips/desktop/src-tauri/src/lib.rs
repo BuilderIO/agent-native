@@ -81,6 +81,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // clips commands
             clips::show_countdown,
+            clips::finish_countdown_shortcuts,
+            clips::show_preparing,
+            clips::hide_preparing,
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
@@ -154,6 +157,7 @@ pub fn run() {
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
             native_screen::native_fullscreen_recording_mark_upload_error,
+            native_screen::native_fullscreen_recording_clear_upload,
             native_screen::native_fullscreen_recording_dismiss_upload,
             native_screen::native_fullscreen_open_drafts_folder,
             // local-only always-on screen memory compatibility helpers
@@ -179,6 +183,7 @@ pub fn run() {
             rewind_meeting_history::rewind_meeting_history_collect,
             rewind_meeting_history::rewind_meeting_history_cancel,
             rewind_clip::rewind_clip_status,
+            rewind_clip::rewind_clip_prepare,
             rewind_clip::rewind_clip_start,
             rewind_clip::rewind_clip_extend,
             rewind_clip::rewind_clip_pause,
@@ -337,8 +342,8 @@ pub fn run() {
             // toggle is off).
             clips::reconcile_region_guides(app.handle());
             shortcuts::register_shortcuts(app)?;
+            shortcuts::install_countdown_local_key_monitor(app);
             shortcuts::install_popover_dismiss_handler(app);
-            shortcuts::install_countdown_shortcut_handler(app);
 
             // Spawn the upcoming-meetings poller. Idempotent — gated by a
             // OnceLock inside `spawn_watcher`. The frontend wires the

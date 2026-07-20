@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, notExists } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -25,15 +25,30 @@ export default defineAction({
   schema: z.object({ recordingId: z.string() }),
   run: async ({ recordingId }) => {
     await assertAccess("recording", recordingId, "owner");
-    await assertNoDirectRecordingShares(recordingId);
 
     const now = new Date().toISOString();
-    const [recording] = await getDb()
+    const db = getDb();
+    const [recording] = await db
       .update(schema.recordings)
       .set({ visibility: "private", updatedAt: now })
-      .where(eq(schema.recordings.id, recordingId))
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          notExists(
+            db
+              .select({ id: schema.recordingShares.id })
+              .from(schema.recordingShares)
+              .where(eq(schema.recordingShares.resourceId, recordingId)),
+          ),
+        ),
+      )
       .returning({ id: schema.recordings.id });
-    if (!recording) throw new Error("This Clip is unavailable.");
+    if (!recording) {
+      // The conditional UPDATE is the invariant. This follow-up read only
+      // chooses the useful error message after the atomic mutation declined.
+      await assertNoDirectRecordingShares(recordingId);
+      throw new Error("This Clip is unavailable.");
+    }
 
     return { recordingId, visibility: "private" as const };
   },

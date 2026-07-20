@@ -1523,6 +1523,23 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Lokalisiert)",
   },
+  rewindExtension: {
+    title: "Frühere Aufnahme hinzufügen",
+    description:
+      "Wähle einen Zeitraum aus dem lokalen Rewind und füge ihn am Anfang dieses Clips ein. Nichts wird automatisch hinzugefügt.",
+    progressLabel: "Fortschritt der Rewind-Verarbeitung",
+    privateFirstTitle: "Diesen Clip zuerst privat machen",
+    privateFirstDescription:
+      "Der lokale Rewind-Verlauf kann Kontext von vor dem Aufnahmestart enthalten. Der Clip wird privat. Falls jemand direkten Zugriff hat, hält Clips an, damit du ihn zuerst unter Teilen entfernen kannst.",
+    makePrivateContinue: "Privat machen und fortfahren",
+    add30Seconds: "Vorherige 30 Sekunden hinzufügen",
+    add5Minutes: "Vorherige 5 Minuten hinzufügen",
+    add5MinutesDescription:
+      "Hilfreich, um den Einstieg in eine längere Erklärung wiederherzustellen.",
+    privateReady:
+      "Dieser Clip ist privat. Du kannst jetzt lokalen Rewind-Verlauf hinzufügen.",
+  },
+  timeline: { clipStartedHere: "Clip begann hier" },
 };
 
 export default messages;
