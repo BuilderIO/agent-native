@@ -151,7 +151,7 @@ function AssistantPart({
   /** True while this part is the live tail of a streaming message. */
   streaming: boolean;
   onApprove?: (approvalKey: string) => void;
-  onDeny?: () => void;
+  onDeny?: (approvalKey?: string) => void;
 }) {
   if (part.type === "text") return <MarkdownText text={part.text} />;
   if (part.type === "reasoning") {
@@ -186,7 +186,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   /** True when this is the live message of an in-flight turn. */
   isStreamingMessage?: boolean;
   onApprove?: (approvalKey: string) => void;
-  onDeny?: () => void;
+  onDeny?: (approvalKey?: string) => void;
   onActions?: (message: ChatMessage) => void;
 }) {
   const contextValue = useMemo(

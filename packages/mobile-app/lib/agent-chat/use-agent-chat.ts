@@ -3,20 +3,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   abortRun,
   AgentChatError,
+  deleteNavigateCommand,
+  fetchNavigateCommand,
   fetchThreadMessages,
   getActiveRun,
   newThreadId,
   resumeRunEvents,
   sendChatTurn,
 } from "./api";
+import { extractThreadId, navigateCommandDedupKey } from "./navigate-command";
 import { applyWireEvent, cancelTurnState, nextLocalId } from "./reducer";
+import { reattachDroppedRun } from "./run-reattach";
 import type {
   ChatAttachment,
   ChatMessage,
   ChatSendOptions,
   ChatTurnState,
+  WireEvent,
 } from "./types";
-import { messageText } from "./types";
+import { isTerminalWireEvent, messageText } from "./types";
 
 /**
  * Renders are throttled: wire deltas can arrive dozens of times per second,
@@ -44,7 +49,7 @@ export interface AgentChatController {
   send: (text: string, attachments?: ChatAttachment[]) => void;
   stop: () => void;
   approve: (approvalKey: string) => void;
-  deny: () => void;
+  deny: (approvalKey?: string) => void;
   retry: () => void;
   newChat: () => void;
   openThread: (threadId: string) => void;
@@ -79,6 +84,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const mountedRef = useRef(true);
   const lastPromptRef = useRef<string | null>(null);
   const runIdsRef = useRef(new Map<string, string>());
+  const activeGenerationRef = useRef(0);
+  const lastProcessedWriteIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -96,6 +103,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       > = {},
       currentThreadId?: string,
     ) => {
+      const currentGeneration = ++activeGenerationRef.current;
       const activeThreadId = currentThreadId ?? threadId;
       const committed = stateRef.current.messages;
       const history = committed
@@ -134,13 +142,20 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
 
       let dirty = false;
       const flushTimer = setInterval(() => {
-        if (dirty && mountedRef.current) {
+        if (
+          dirty &&
+          mountedRef.current &&
+          activeGenerationRef.current === currentGeneration
+        ) {
           dirty = false;
           setState(buffered);
         }
       }, FLUSH_INTERVAL_MS);
 
       try {
+        const controller = new AbortController();
+        liveTurnRef.current = { abort: () => controller.abort(), runId: null };
+
         const turn = await sendChatTurn(text, {
           threadId: activeThreadId,
           history,
@@ -148,6 +163,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           engine: settingsRef.current.engine,
           effort: settingsRef.current.effort,
           mode: settingsRef.current.mode,
+          signal: controller.signal,
           ...(extra.attachments?.length
             ? { attachments: extra.attachments }
             : {}),
@@ -155,17 +171,78 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             ? { approvedToolCalls: extra.approvedToolCalls }
             : {}),
         });
-        liveTurnRef.current = { abort: turn.abort, runId: turn.runId };
+
+        if (activeGenerationRef.current !== currentGeneration) {
+          return;
+        }
+
+        liveTurnRef.current = {
+          abort: () => {
+            controller.abort();
+            turn.abort();
+          },
+          runId: turn.runId,
+        };
+
         if (turn.runId) runIdsRef.current.set(assistantId, turn.runId);
         buffered = { ...buffered, runId: turn.runId };
         dirty = true;
 
-        for await (const event of turn.events) {
+        let sawTerminal = false;
+        let lastSeq = -1;
+        const applyEvent = (event: WireEvent) => {
+          if (typeof event.seq === "number") lastSeq = event.seq;
+          if (isTerminalWireEvent(event)) sawTerminal = true;
           buffered = applyWireEvent(buffered, event, assistantId);
           dirty = true;
+        };
+
+        for await (const event of turn.events) {
+          if (activeGenerationRef.current !== currentGeneration) {
+            break;
+          }
+          applyEvent(event);
         }
-        buffered = { ...buffered, isStreaming: false, activity: null };
+
+        // The server always closes a finished run with a terminal event. A
+        // stream that just stopped was dropped mid-run — reattach instead of
+        // presenting the truncated turn as finished with no feedback.
+        if (
+          !sawTerminal &&
+          turn.runId &&
+          !controller.signal.aborted &&
+          activeGenerationRef.current === currentGeneration
+        ) {
+          const result = await reattachDroppedRun({
+            runId: turn.runId,
+            lastSeq,
+            signal: controller.signal,
+            apply: applyEvent,
+            resume: (runId, after, signal) =>
+              resumeRunEvents(runId, after, signal),
+          });
+          sawTerminal = result.sawTerminal;
+        }
+
+        if (activeGenerationRef.current === currentGeneration) {
+          if (!sawTerminal && !controller.signal.aborted) {
+            buffered = applyWireEvent(
+              buffered,
+              {
+                type: "error",
+                error:
+                  "The connection to the agent dropped before it finished. Retry to continue.",
+                errorCode: "stream_dropped",
+              },
+              assistantId,
+            );
+          }
+          buffered = { ...buffered, isStreaming: false, activity: null };
+        }
       } catch (error) {
+        if (activeGenerationRef.current !== currentGeneration) {
+          return;
+        }
         const aborted = error instanceof Error && error.name === "AbortError";
         if (error instanceof AgentChatError && error.authRequired) {
           if (mountedRef.current) setAuthRequired(true);
@@ -185,8 +262,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             };
       } finally {
         clearInterval(flushTimer);
-        liveTurnRef.current = null;
-        if (mountedRef.current) setState(buffered);
+        if (activeGenerationRef.current === currentGeneration) {
+          liveTurnRef.current = null;
+          if (mountedRef.current) setState(buffered);
+        }
       }
     },
     [threadId],
@@ -221,13 +300,15 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     [runTurn],
   );
 
-  const deny = useCallback(() => {
+  const deny = useCallback((approvalKey?: string) => {
     setState((current) => ({
       ...current,
       messages: current.messages.map((message) => ({
         ...message,
         parts: message.parts.map((part) =>
-          part.type === "tool-call" && part.status === "awaiting-approval"
+          part.type === "tool-call" &&
+          part.status === "awaiting-approval" &&
+          (!approvalKey || part.approvalKey === approvalKey)
             ? { ...part, status: "failed" as const, error: "Denied" }
             : part,
         ),
@@ -256,6 +337,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   }, [runTurn]);
 
   const newChat = useCallback(() => {
+    activeGenerationRef.current++;
     liveTurnRef.current?.abort();
     setThreadId(newThreadId());
     lastPromptRef.current = null;
@@ -275,53 +357,122 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
    * assistant message — the persisted history never contains the in-flight
    * assistant reply, so no duplication.
    */
-  const resumeRun = useCallback(async (runId: string) => {
-    const assistantId = nextLocalId("assistant");
-    runIdsRef.current.set(assistantId, runId);
-    let buffered: ChatTurnState = {
-      ...stateRef.current,
-      isStreaming: true,
-      activity: "Resuming…",
-      error: null,
-      errorCode: null,
-      runId,
-    };
-    setState(buffered);
-    let dirty = false;
-    const flushTimer = setInterval(() => {
-      if (dirty && mountedRef.current) {
-        dirty = false;
-        setState(buffered);
+  const resumeRun = useCallback(
+    async (runId: string, currentGeneration: number) => {
+      const assistantId = nextLocalId("assistant");
+      runIdsRef.current.set(assistantId, runId);
+      let buffered: ChatTurnState = {
+        ...stateRef.current,
+        isStreaming: true,
+        activity: "Resuming…",
+        error: null,
+        errorCode: null,
+        runId,
+      };
+      setState(buffered);
+      let dirty = false;
+      const flushTimer = setInterval(() => {
+        if (
+          dirty &&
+          mountedRef.current &&
+          activeGenerationRef.current === currentGeneration
+        ) {
+          dirty = false;
+          setState(buffered);
+        }
+      }, FLUSH_INTERVAL_MS);
+      try {
+        const controller = new AbortController();
+        liveTurnRef.current = { abort: () => controller.abort(), runId };
+
+        const stream = await resumeRunEvents(runId, 0, controller.signal);
+        if (activeGenerationRef.current !== currentGeneration) {
+          return;
+        }
+
+        liveTurnRef.current = {
+          abort: () => {
+            controller.abort();
+            stream.abort();
+          },
+          runId,
+        };
+
+        let sawTerminal = false;
+        let lastSeq = -1;
+        const applyEvent = (event: WireEvent) => {
+          if (typeof event.seq === "number") lastSeq = event.seq;
+          if (isTerminalWireEvent(event)) sawTerminal = true;
+          buffered = applyWireEvent(buffered, event, assistantId);
+          dirty = true;
+        };
+
+        for await (const event of stream.events) {
+          if (activeGenerationRef.current !== currentGeneration) {
+            break;
+          }
+          applyEvent(event);
+        }
+
+        if (
+          !sawTerminal &&
+          !controller.signal.aborted &&
+          activeGenerationRef.current === currentGeneration
+        ) {
+          const result = await reattachDroppedRun({
+            runId,
+            lastSeq,
+            signal: controller.signal,
+            apply: applyEvent,
+            resume: (id, after, signal) => resumeRunEvents(id, after, signal),
+          });
+          sawTerminal = result.sawTerminal;
+        }
+
+        if (activeGenerationRef.current === currentGeneration) {
+          if (!sawTerminal && !controller.signal.aborted) {
+            buffered = applyWireEvent(
+              buffered,
+              {
+                type: "error",
+                error:
+                  "The connection to the agent dropped before it finished. Retry to continue.",
+                errorCode: "stream_dropped",
+              },
+              assistantId,
+            );
+          }
+          buffered = { ...buffered, isStreaming: false, activity: null };
+        }
+      } catch (error) {
+        if (activeGenerationRef.current !== currentGeneration) {
+          return;
+        }
+        const aborted = error instanceof Error && error.name === "AbortError";
+        buffered = aborted
+          ? cancelTurnState(buffered, assistantId)
+          : {
+              ...buffered,
+              isStreaming: false,
+              activity: null,
+              error:
+                error instanceof Error ? error.message : "Failed to resume",
+              errorCode: null,
+            };
+      } finally {
+        clearInterval(flushTimer);
+        if (activeGenerationRef.current === currentGeneration) {
+          liveTurnRef.current = null;
+          if (mountedRef.current) setState(buffered);
+        }
       }
-    }, FLUSH_INTERVAL_MS);
-    try {
-      const stream = await resumeRunEvents(runId, 0);
-      liveTurnRef.current = { abort: stream.abort, runId };
-      for await (const event of stream.events) {
-        buffered = applyWireEvent(buffered, event, assistantId);
-        dirty = true;
-      }
-      buffered = { ...buffered, isStreaming: false, activity: null };
-    } catch (error) {
-      const aborted = error instanceof Error && error.name === "AbortError";
-      buffered = aborted
-        ? cancelTurnState(buffered, assistantId)
-        : {
-            ...buffered,
-            isStreaming: false,
-            activity: null,
-            error: error instanceof Error ? error.message : "Failed to resume",
-            errorCode: null,
-          };
-    } finally {
-      clearInterval(flushTimer);
-      liveTurnRef.current = null;
-      if (mountedRef.current) setState(buffered);
-    }
-  }, []);
+    },
+    [],
+  );
 
   const openThread = useCallback(
     (nextThreadId: string) => {
+      const currentGeneration = ++activeGenerationRef.current;
       liveTurnRef.current?.abort();
       setThreadId(nextThreadId);
       lastPromptRef.current = null;
@@ -339,15 +490,25 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         getActiveRun(nextThreadId).catch(() => ({ active: false as const })),
       ])
         .then(([messages, activeRun]) => {
-          if (!mountedRef.current) return;
+          if (
+            !mountedRef.current ||
+            activeGenerationRef.current !== currentGeneration
+          ) {
+            return;
+          }
           setState((current) => ({ ...current, messages }));
           setHistoryLoading(false);
           if (activeRun.active && activeRun.runId) {
-            void resumeRun(activeRun.runId);
+            void resumeRun(activeRun.runId, currentGeneration);
           }
         })
         .catch((error) => {
-          if (!mountedRef.current) return;
+          if (
+            !mountedRef.current ||
+            activeGenerationRef.current !== currentGeneration
+          ) {
+            return;
+          }
           setHistoryLoading(false);
           if (error instanceof AgentChatError && error.authRequired) {
             setAuthRequired(true);
@@ -363,6 +524,33 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     },
     [resumeRun],
   );
+
+  // Poll for navigate commands from the agent
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    const pollInterval = setInterval(async () => {
+      // Don't poll while streaming
+      if (stateRef.current.isStreaming) return;
+
+      const command = await fetchNavigateCommand();
+      if (!command) return;
+
+      const dedupKey = navigateCommandDedupKey(command);
+      if (lastProcessedWriteIdRef.current === dedupKey) {
+        void deleteNavigateCommand();
+        return;
+      }
+      lastProcessedWriteIdRef.current = dedupKey;
+      void deleteNavigateCommand();
+
+      const targetThreadId = extractThreadId(command);
+      if (targetThreadId && targetThreadId !== threadId) {
+        openThread(targetThreadId);
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [threadId, openThread]);
 
   const getRunId = useCallback(
     (messageId: string) => runIdsRef.current.get(messageId) ?? null,

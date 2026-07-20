@@ -3,6 +3,7 @@ import { fetch as expoFetch } from "expo/fetch";
 
 import { getSessionToken } from "@/lib/session-token-store";
 
+import type { NavigateCommand } from "./navigate-command";
 import { nextLocalId } from "./reducer";
 import { readJsonEventStream } from "./stream";
 import type {
@@ -126,6 +127,15 @@ export async function sendChatTurn(
     }),
   });
   if (!response.ok) {
+    throw new AgentChatError(await readErrorMessage(response), response.status);
+  }
+  // Some proxies/middleware return failures as 200 JSON instead of an event
+  // stream — surface them instead of parsing an empty stream as success.
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (
+    contentType.includes("application/json") &&
+    !contentType.includes("text/event-stream")
+  ) {
     throw new AgentChatError(await readErrorMessage(response), response.status);
   }
   const runId = response.headers.get("X-Run-Id");
@@ -299,10 +309,14 @@ export function newThreadId(): string {
   return `thread-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Invoke an app action over the framework's HTTP action surface. */
-async function callChatAppAction<T>(
+/**
+ * Invoke any registered framework action over the HTTP action surface.
+ * Pass another workspace app's base URL to control that app natively —
+ * the same `POST /_agent-native/actions/:name` contract every app exposes.
+ */
+export async function callAppAction<T>(
   name: string,
-  args: Record<string, unknown>,
+  args: Record<string, unknown> = {},
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<T> {
   return jsonRequest<T>(
@@ -351,7 +365,7 @@ export async function fetchModelCatalog(
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<ChatModelCatalog> {
   const [enginesData, envKeys] = await Promise.all([
-    callChatAppAction<{
+    callAppAction<{
       engines?: Array<{
         name?: string;
         label?: string;
@@ -417,10 +431,15 @@ export async function getActiveRun(
 export async function resumeRunEvents(
   runId: string,
   after = 0,
+  signal?: AbortSignal,
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<Pick<ChatTurnHandle, "events" | "abort">> {
   const headers = await authHeaders();
   const controller = new AbortController();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", () => controller.abort());
+  }
   const response = await expoFetch(
     `${baseUrl}${CHAT_PATH}/runs/${encodeURIComponent(runId)}/events?after=${after}`,
     { headers, signal: controller.signal },
@@ -464,4 +483,76 @@ export async function createThreadShareLink(
     baseUrl,
   );
   return typeof data.url === "string" ? data.url : null;
+}
+
+/** One-shot agent navigation command, or null when none is pending. */
+export async function fetchNavigateCommand(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<NavigateCommand | null> {
+  try {
+    const data = await jsonRequest<unknown>(
+      "/_agent-native/application-state/navigate",
+      {},
+      baseUrl,
+    );
+    return data && typeof data === "object" && !Array.isArray(data)
+      ? (data as NavigateCommand)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Acknowledge (consume) the pending navigation command. Best effort. */
+export async function deleteNavigateCommand(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<void> {
+  try {
+    const headers = await authHeaders();
+    await fetch(`${baseUrl}/_agent-native/application-state/navigate`, {
+      method: "DELETE",
+      headers,
+    });
+  } catch {
+    // Consuming again on the next poll is harmless.
+  }
+}
+
+/** Providers whose API keys can be configured from the app. */
+export const PROVIDER_KEY_OPTIONS = [
+  { provider: "anthropic", label: "Anthropic", placeholder: "sk-ant-..." },
+  { provider: "openai", label: "OpenAI", placeholder: "sk-..." },
+  { provider: "google", label: "Google Gemini", placeholder: "AI..." },
+] as const;
+
+export type ProviderKeyOption = (typeof PROVIDER_KEY_OPTIONS)[number];
+
+/**
+ * Persist a provider API key in the server's scoped secrets vault via the
+ * framework's `agent-engine/api-key` route — the same named surface the web
+ * settings panel uses. The key never touches device storage.
+ */
+export async function saveProviderApiKey(
+  provider: string,
+  apiKey: string,
+  options: { scope?: "user" | "org"; baseUrl?: string } = {},
+): Promise<void> {
+  const trimmed = apiKey.trim();
+  if (!trimmed) throw new AgentChatError("Enter an API key first.");
+  const headers = await authHeaders();
+  const response = await fetch(
+    `${options.baseUrl ?? DEFAULT_CHAT_BASE_URL}/_agent-native/agent-engine/api-key`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider,
+        value: trimmed,
+        ...(options.scope ? { scope: options.scope } : {}),
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new AgentChatError(await readErrorMessage(response), response.status);
+  }
 }

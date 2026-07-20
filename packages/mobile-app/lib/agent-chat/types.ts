@@ -26,12 +26,14 @@ export interface WireEvent {
   label?: string;
   tool?: string;
   id?: string;
+  toolCallId?: string;
   input?: unknown;
   result?: unknown;
   error?: string;
   errorCode?: string;
   recoverable?: boolean;
   approvalKey?: string;
+  isError?: boolean;
 }
 
 export type ChatContentPart =
@@ -113,6 +115,24 @@ export interface ActiveRunInfo {
   active: boolean;
   runId?: string;
   status?: string;
+}
+
+/**
+ * Events after which the server closes the stream on purpose. A stream that
+ * ends without one of these was dropped mid-run (network cut, proxy timeout,
+ * hosted background handoff) — the client must reattach or surface an error,
+ * never present the truncated turn as finished.
+ */
+const TERMINAL_WIRE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "done",
+  "error",
+  "missing_api_key",
+  "loop_limit",
+  "auto_continue",
+]);
+
+export function isTerminalWireEvent(event: WireEvent): boolean {
+  return TERMINAL_WIRE_EVENT_TYPES.has(event.type);
 }
 
 export function messageText(message: ChatMessage): string {

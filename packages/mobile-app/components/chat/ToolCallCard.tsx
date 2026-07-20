@@ -71,7 +71,7 @@ export function ToolCallCard({
 }: {
   part: Extract<ChatContentPart, { type: "tool-call" }>;
   onApprove?: (approvalKey: string) => void;
-  onDeny?: () => void;
+  onDeny?: (approvalKey?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
@@ -146,7 +146,7 @@ export function ToolCallCard({
             </Pressable>
             <Pressable
               className="flex-1 h-9 rounded-lg border border-gray-border-light items-center justify-center active:opacity-75"
-              onPress={() => onDeny?.()}
+              onPress={() => onDeny?.(part.approvalKey)}
               accessibilityRole="button"
               accessibilityLabel="Deny tool call"
             >

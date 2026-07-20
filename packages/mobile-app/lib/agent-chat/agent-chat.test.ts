@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { extractThreadId, navigateCommandDedupKey } from "./navigate-command";
 import { applyWireEvent, cancelTurnState, initialTurnState } from "./reducer";
+import { reattachDroppedRun } from "./run-reattach";
 import { JsonEventStreamParser } from "./stream";
 import type { ChatTurnState, WireEvent } from "./types";
+import { isTerminalWireEvent } from "./types";
 
 function run(events: WireEvent[], assistantId = "a1"): ChatTurnState {
   const start: ChatTurnState = { ...initialTurnState(), isStreaming: true };
@@ -102,6 +105,24 @@ describe("applyWireEvent", () => {
     });
   });
 
+  it("matches tool_done by toolCallId and flags isError results", () => {
+    const state = run([
+      { type: "tool_start", id: "t1", tool: "run-query" },
+      {
+        type: "tool_done",
+        toolCallId: "t1",
+        tool: "run-query",
+        result: "permission denied",
+        isError: true,
+      },
+    ]);
+    expect(state.messages[0]!.parts[0]).toMatchObject({
+      status: "failed",
+      error: "permission denied",
+      resultText: "permission denied",
+    });
+  });
+
   it("flags approval_required on the pending tool call", () => {
     const state = run([
       { type: "tool_start", id: "t1", tool: "delete-all" },
@@ -115,6 +136,37 @@ describe("applyWireEvent", () => {
     expect(state.messages[0]!.parts[0]).toMatchObject({
       status: "awaiting-approval",
       approvalKey: "k1",
+    });
+  });
+
+  it("targets approval_required by toolCallId", () => {
+    const state = run([
+      { type: "tool_start", id: "t1", tool: "send-email" },
+      { type: "approval_required", toolCallId: "t1", approvalKey: "k1" },
+    ]);
+    expect(state.messages[0]!.parts).toHaveLength(1);
+    expect(state.messages[0]!.parts[0]).toMatchObject({
+      status: "awaiting-approval",
+      approvalKey: "k1",
+    });
+  });
+
+  it("creates a standalone approval card when no tool_start preceded it", () => {
+    const state = run([
+      {
+        type: "approval_required",
+        toolCallId: "t9",
+        tool: "delete-database",
+        approvalKey: "k9",
+        input: { id: 1 },
+      },
+    ]);
+    expect(state.messages[0]!.parts[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "t9",
+      toolName: "delete-database",
+      status: "awaiting-approval",
+      approvalKey: "k9",
     });
   });
 
@@ -138,6 +190,153 @@ describe("applyWireEvent", () => {
     const state = run([{ type: "text", text: "hi" }, { type: "done" }]);
     expect(state.isStreaming).toBe(false);
     expect(state.error).toBeNull();
+  });
+});
+
+describe("extractThreadId", () => {
+  it("prefers an explicit threadId", () => {
+    expect(extractThreadId({ threadId: "t-1", path: "/chat/t-2" })).toBe("t-1");
+  });
+
+  it("reads threadId from a query string", () => {
+    expect(extractThreadId({ path: "/chat?threadId=thread-123" })).toBe(
+      "thread-123",
+    );
+    expect(
+      extractThreadId({ path: "/dispatch/chat?threadId=a%2Fb&tab=x" }),
+    ).toBe("a/b");
+  });
+
+  it("reads thread ids from chat paths of any app", () => {
+    expect(extractThreadId({ path: "/chat/thread-123" })).toBe("thread-123");
+    expect(extractThreadId({ path: "/dispatch/chat/thread-123" })).toBe(
+      "thread-123",
+    );
+    expect(extractThreadId({ path: "/slides/chat/t-9?x=1#top" })).toBe("t-9");
+  });
+
+  it("returns null for non-chat commands", () => {
+    expect(extractThreadId({ path: "/settings" })).toBeNull();
+    expect(extractThreadId({ view: "inbox" })).toBeNull();
+    expect(extractThreadId({})).toBeNull();
+  });
+});
+
+describe("isTerminalWireEvent", () => {
+  it("marks server-completion events as terminal", () => {
+    for (const type of [
+      "done",
+      "error",
+      "missing_api_key",
+      "loop_limit",
+      "auto_continue",
+    ]) {
+      expect(isTerminalWireEvent({ type })).toBe(true);
+    }
+    for (const type of ["text", "thinking", "tool_start", "tool_done"]) {
+      expect(isTerminalWireEvent({ type })).toBe(false);
+    }
+  });
+});
+
+describe("reattachDroppedRun", () => {
+  async function* events(...items: WireEvent[]): AsyncGenerator<WireEvent> {
+    for (const item of items) yield item;
+  }
+
+  it("resumes from lastSeq+1 and stops at the terminal event", async () => {
+    const applied: WireEvent[] = [];
+    const resumeCalls: number[] = [];
+    const result = await reattachDroppedRun({
+      runId: "r1",
+      lastSeq: 4,
+      signal: new AbortController().signal,
+      apply: (event) => applied.push(event),
+      resume: async (_runId, after) => {
+        resumeCalls.push(after);
+        return {
+          events: events(
+            { type: "text", text: "tail", seq: 5 },
+            { type: "done", seq: 6 },
+          ),
+        };
+      },
+      delayMs: 0,
+    });
+    expect(resumeCalls).toEqual([5]);
+    expect(applied.map((e) => e.type)).toEqual(["text", "done"]);
+    expect(result).toEqual({ sawTerminal: true, lastSeq: 6 });
+  });
+
+  it("retries dropped resume streams and advances the cursor", async () => {
+    const resumeCalls: number[] = [];
+    let attempt = 0;
+    const result = await reattachDroppedRun({
+      runId: "r1",
+      lastSeq: -1,
+      signal: new AbortController().signal,
+      apply: () => {},
+      resume: async (_runId, after) => {
+        resumeCalls.push(after);
+        attempt++;
+        if (attempt === 1) {
+          return { events: events({ type: "text", text: "a", seq: 0 }) };
+        }
+        return { events: events({ type: "done", seq: 1 }) };
+      },
+      delayMs: 0,
+    });
+    expect(resumeCalls).toEqual([0, 1]);
+    expect(result.sawTerminal).toBe(true);
+  });
+
+  it("gives up after the attempt budget without a terminal event", async () => {
+    let calls = 0;
+    const result = await reattachDroppedRun({
+      runId: "r1",
+      lastSeq: -1,
+      signal: new AbortController().signal,
+      apply: () => {},
+      resume: async () => {
+        calls++;
+        throw new Error("unreachable server");
+      },
+      attempts: 3,
+      delayMs: 0,
+    });
+    expect(calls).toBe(3);
+    expect(result.sawTerminal).toBe(false);
+  });
+
+  it("stops immediately when aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const result = await reattachDroppedRun({
+      runId: "r1",
+      lastSeq: -1,
+      signal: controller.signal,
+      apply: () => {},
+      resume: async () => {
+        calls++;
+        return { events: events({ type: "done", seq: 0 }) };
+      },
+      delayMs: 0,
+    });
+    expect(calls).toBe(0);
+    expect(result.sawTerminal).toBe(false);
+  });
+});
+
+describe("navigateCommandDedupKey", () => {
+  it("uses _writeId when present", () => {
+    expect(navigateCommandDedupKey({ path: "/x", _writeId: "w1" })).toBe("w1");
+  });
+
+  it("falls back to JSON content", () => {
+    expect(navigateCommandDedupKey({ path: "/x" })).toBe(
+      JSON.stringify({ path: "/x" }),
+    );
   });
 });
 

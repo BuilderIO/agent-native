@@ -12,11 +12,16 @@ import {
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
 import { SafeAreaView } from "@/components/uniwind-interop";
-import { fetchModelCatalog } from "@/lib/agent-chat/api";
+import {
+  fetchModelCatalog,
+  PROVIDER_KEY_OPTIONS,
+  saveProviderApiKey,
+} from "@/lib/agent-chat/api";
 import type { ChatModelCatalog } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
 
@@ -143,6 +148,86 @@ function AutoItem({
       </Text>
       {selected && <IconCheck color="#2563eb" size={15} strokeWidth={2.5} />}
     </Pressable>
+  );
+}
+
+function ProviderKeyRow({
+  label,
+  placeholder,
+  onSave,
+}: {
+  label: string;
+  placeholder: string;
+  onSave: (apiKey: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+  const [status, setStatus] = useState<
+    "idle" | "saving" | "saved" | { error: string }
+  >("idle");
+
+  const save = async () => {
+    if (!value.trim() || status === "saving") return;
+    setStatus("saving");
+    try {
+      await onSave(value);
+      setValue("");
+      setStatus("saved");
+    } catch (error) {
+      setStatus({
+        error: error instanceof Error ? error.message : "Could not save key",
+      });
+    }
+  };
+
+  return (
+    <View className="pl-10 pr-4 py-3 gap-2 border-b border-zinc-800/30">
+      <View className="flex-row items-center gap-2">
+        <TextInput
+          className="flex-1 h-10 rounded-lg bg-zinc-900 border border-zinc-800 px-3 text-white text-[13px]"
+          value={value}
+          onChangeText={(next) => {
+            setValue(next);
+            if (status !== "idle") setStatus("idle");
+          }}
+          placeholder={placeholder}
+          placeholderTextColor="#52525b"
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          accessibilityLabel={`${label} API key`}
+        />
+        <Pressable
+          className={`h-10 px-4 rounded-lg items-center justify-center ${
+            value.trim() && status !== "saving"
+              ? "bg-white active:opacity-75"
+              : "bg-zinc-800"
+          }`}
+          onPress={() => void save()}
+          disabled={!value.trim() || status === "saving"}
+          accessibilityRole="button"
+          accessibilityLabel={`Save ${label} API key`}
+        >
+          {status === "saving" ? (
+            <ActivityIndicator size="small" color="#71717a" />
+          ) : (
+            <Text
+              className={`text-[13px] font-bold ${
+                value.trim() ? "text-zinc-950" : "text-zinc-500"
+              }`}
+            >
+              Save
+            </Text>
+          )}
+        </Pressable>
+      </View>
+      {status === "saved" ? (
+        <Text className="text-emerald-400 text-xs">
+          Saved to your workspace vault.
+        </Text>
+      ) : typeof status === "object" ? (
+        <Text className="text-red-400 text-xs">{status.error}</Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -313,13 +398,46 @@ export function ChatSettingsSheet({
                   </>
                 )}
               </View>
+
+              {/* API Keys Section */}
+              <View>
+                <GroupHeader
+                  label="API Keys"
+                  expanded={!!expandedGroups["api-keys"]}
+                  onPress={() => toggleGroup("api-keys")}
+                />
+                {!!expandedGroups["api-keys"] && (
+                  <>
+                    {PROVIDER_KEY_OPTIONS.map((option) => (
+                      <View key={option.provider}>
+                        <Text className="text-zinc-400 text-[12px] font-semibold pl-10 pr-4 pt-3">
+                          {option.label}
+                        </Text>
+                        <ProviderKeyRow
+                          label={option.label}
+                          placeholder={option.placeholder}
+                          onSave={async (apiKey) => {
+                            await saveProviderApiKey(option.provider, apiKey);
+                            setCatalog(null);
+                          }}
+                        />
+                      </View>
+                    ))}
+                    <Text className="text-zinc-600 text-[11px] leading-4 pl-10 pr-4 py-3">
+                      Keys are stored server-side in your workspace vault, not
+                      on this device. Newly configured providers appear in the
+                      model list above.
+                    </Text>
+                  </>
+                )}
+              </View>
             </View>
           )}
 
           {catalog && catalog.groups.length === 0 && !catalogLoading && (
             <View className="px-4 py-8 items-center justify-center">
               <Text className="text-zinc-500 text-sm text-center">
-                No models available. Add API keys in the settings.
+                No models available. Add an API key in the API Keys section.
               </Text>
             </View>
           )}

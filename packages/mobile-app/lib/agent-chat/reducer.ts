@@ -177,29 +177,32 @@ export function applyWireEvent(
     }
     case "tool_done":
       return withUpdatedAssistant(state, assistantId, (parts) =>
-        updateToolPart(parts, event.id ?? "", (part) => ({
+        updateToolPart(parts, event.toolCallId ?? event.id ?? "", (part) => ({
           ...part,
-          status: event.error ? "failed" : "completed",
+          status: event.isError || !!event.error ? "failed" : "completed",
           resultText: stringifyResult(event.result),
-          error: event.error,
+          error:
+            event.error ??
+            (event.isError ? stringifyResult(event.result) : undefined),
         })),
       );
     case "approval_required": {
       const approvalKey = event.approvalKey ?? event.id ?? "";
+      const targetId = event.toolCallId ?? event.id;
       const withExisting = withUpdatedAssistant(state, assistantId, (parts) => {
-        const updated = event.id
-          ? updateToolPart(parts, event.id, (part) => ({
-              ...part,
-              status: "awaiting-approval",
-              approvalKey,
-            }))
-          : parts;
-        if (updated !== parts || event.id) return updated;
+        if (targetId) {
+          const updated = updateToolPart(parts, targetId, (part) => ({
+            ...part,
+            status: "awaiting-approval",
+            approvalKey,
+          }));
+          if (updated !== parts) return updated;
+        }
         return [
           ...parts,
           {
             type: "tool-call",
-            toolCallId: approvalKey,
+            toolCallId: targetId ?? approvalKey,
             toolName: event.tool ?? "tool",
             inputText:
               event.input !== undefined ? JSON.stringify(event.input) : "",
