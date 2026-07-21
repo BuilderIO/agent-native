@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -91,6 +93,59 @@ describe("interactive agent run options", () => {
       runNoProgressTimeoutMs: 3 * 60_000,
       durableBackgroundRuns: true,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
+// nothing about whether the value it returns actually reaches the run
+// manager — that wiring lives inside `createAgentChatPlugin`'s and
+// `createProductionAgentHandler`'s multi-thousand-line request-handler
+// closures, which have no cheap unit seam (same rationale as the
+// "prompt-caching wiring guards" in runtime-context.spec.ts). These source
+// guards close that gap: they fail if a future call site forgets to spread
+// `resolveInteractiveAgentRunOptions(options)`, or if `startRun` stops
+// receiving `runNoProgressTimeoutMs` as its `noProgressTimeoutMs` option —
+// exactly the class of bug the run-manager's own no-progress-backstop tests
+// (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
+describe("interactive agent run options — wiring guards", () => {
+  it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
+    const spreadSites = source.match(
+      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+    );
+
+    // Three interactive handlers are created today (prod, anonymous
+    // read-only, dev). If this count changes, a new call site was added or
+    // removed — update this guard alongside it, and confirm the new/changed
+    // site still spreads the run options immediately before
+    // `finalResponseGuard`.
+    expect(handlerCallSites).toHaveLength(3);
+    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+  });
+
+  it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
+    const source = readFileSync("src/agent/production-agent.ts", {
+      encoding: "utf-8",
+    });
+
+    // There is exactly one `startRun(...)` call in production-agent.ts — the
+    // interactive/production run start. Confirm it stays singular so the
+    // adjacency assertion below can't silently start matching a different,
+    // unrelated call site.
+    expect(source.match(/\n {4}startRun\(\n/g)).toHaveLength(1);
+
+    // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
+    // (not hardcoded, not dropped) and live in the same options object as
+    // `turnId`/`dispatchMode`, which are unambiguously the literal passed as
+    // startRun's final argument.
+    expect(source).toMatch(
+      /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
+    );
   });
 });
 

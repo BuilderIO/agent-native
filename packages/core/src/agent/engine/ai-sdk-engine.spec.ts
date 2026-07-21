@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 async function drain(iterable: AsyncIterable<unknown>) {
   for await (const _ of iterable) {
@@ -402,5 +402,86 @@ describe("AISDKEngine OpenAI model selection", () => {
       expect.objectContaining({ model: chatModel }),
     );
     expect(engine.preserveCustomModels).toBe(true);
+  });
+});
+
+describe("AISDKEngine first-event deadline", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aborts with a retryable network error when the stream produces no parts within 120s", async () => {
+    const streamText = vi.fn((params: any) => ({
+      fullStream: (async function* () {
+        await new Promise((_resolve, reject) => {
+          const signal: AbortSignal | undefined = params.abortSignal;
+          if (signal?.aborted) {
+            reject(signal.reason ?? new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        });
+      })(),
+    }));
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    vi.useFakeTimers();
+
+    const events: any[] = [];
+    let settledEarly = false;
+    const runPromise = (async () => {
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+    })();
+    void runPromise
+      .catch(() => {})
+      .then(() => {
+        settledEarly = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(runPromise).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+    expect(stopEvent?.error).toContain("120s");
+  });
+
+  it("does not abort once the stream has produced a real part (a synthetic 'start' part alone does not count)", async () => {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "start" };
+        yield { type: "text-delta", text: "hi" };
+        yield { type: "finish", finishReason: "stop", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("end_turn");
+    expect(stopEvent?.errorCode).toBeUndefined();
   });
 });
