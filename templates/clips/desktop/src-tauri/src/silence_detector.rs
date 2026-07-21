@@ -353,6 +353,20 @@ fn install_sleep_watcher(_app: &AppHandle) {}
 
 // --- call-ended heuristic --------------------------------------------------
 
+const GENERIC_BROWSER_BUNDLE_IDS: &[&str] = &[
+    "com.google.chrome",
+    "company.thebrowser.browser",
+    "com.apple.safari",
+    "org.mozilla.firefox",
+];
+
+fn is_configured_generic_browser(bundle_id: &str, call_app_bundle_ids: &[String]) -> bool {
+    GENERIC_BROWSER_BUNDLE_IDS.contains(&bundle_id)
+        && call_app_bundle_ids
+            .iter()
+            .any(|candidate| GENERIC_BROWSER_BUNDLE_IDS.contains(&candidate.as_str()))
+}
+
 #[cfg(target_os = "macos")]
 fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
     static INSTALLED: OnceLock<()> = OnceLock::new();
@@ -375,10 +389,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
             // (DetectorInner.mic/system), never on the frontmost-app poll
             // alone — matching the granola-ux.md "transcript length +
             // calendar times" model instead of raw frontmost tracking.
-            let generic_browser_bundles: &[&str] = &[
-                "com.google.chrome",
-                "company.thebrowser.browser", // Arc
-            ];
             let mut ever_seen_front = false;
             let mut last_front_at: Option<Instant> = None;
             let mut fired = false;
@@ -418,6 +428,15 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     configured_bundle_ids
                 };
                 let front = crate::util::frontmost_bundle_id();
+                let is_generic_browser = front
+                    .as_ref()
+                    .map(|bundle_id| {
+                        is_configured_generic_browser(
+                            &bundle_id.to_lowercase(),
+                            &call_app_bundle_ids,
+                        )
+                    })
+                    .unwrap_or(false);
                 let is_strong_vc = front
                     .as_ref()
                     .map(|bundle_id| {
@@ -425,16 +444,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                         call_app_bundle_ids
                             .iter()
                             .any(|candidate| candidate == &bundle_id)
-                    })
-                    .unwrap_or(false);
-                let is_generic_browser = front
-                    .as_ref()
-                    .map(|bundle_id| {
-                        let bundle_id = bundle_id.to_lowercase();
-                        generic_browser_bundles.contains(&bundle_id.as_str())
-                            && call_app_bundle_ids
-                                .iter()
-                                .any(|candidate| candidate == &bundle_id)
+                            && !is_generic_browser
                     })
                     .unwrap_or(false);
                 if is_strong_vc || is_generic_browser {
@@ -672,7 +682,10 @@ fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: 
 mod tests {
     use std::time::Duration;
 
-    use super::{calendar_end_stop_ready, microphone_release_stop_ready, scheduled_end_reached};
+    use super::{
+        calendar_end_stop_ready, is_configured_generic_browser, microphone_release_stop_ready,
+        scheduled_end_reached,
+    };
 
     #[test]
     fn calendar_end_requires_a_known_end_and_allows_the_exact_boundary() {
@@ -704,5 +717,21 @@ mod tests {
             true,
             Some(Duration::from_secs(30))
         ));
+    }
+
+    #[test]
+    fn browser_calls_require_a_configured_browser_bundle() {
+        let browser_call = vec!["com.google.chrome".to_owned()];
+        let native_call = vec!["us.zoom.xos".to_owned()];
+
+        for browser in [
+            "com.google.chrome",
+            "company.thebrowser.browser",
+            "com.apple.safari",
+            "org.mozilla.firefox",
+        ] {
+            assert!(is_configured_generic_browser(browser, &browser_call));
+            assert!(!is_configured_generic_browser(browser, &native_call));
+        }
     }
 }
