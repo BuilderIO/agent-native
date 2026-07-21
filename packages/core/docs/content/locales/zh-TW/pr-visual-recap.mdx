@@ -180,7 +180,7 @@ npx @agent-native/recap-cli@latest recap doctor
 - **固定使用較便宜的模型。** 對於 Claude，為簡單或小型儲存庫設定 `VISUAL_RECAP_MODEL=claude-haiku-4-5` — 這是最便宜的 Claude 層級；`claude-sonnet-5`（預設值）是均衡層級。
 - **切換到使用較便宜模型的 Codex。** 設定 `VISUAL_RECAP_AGENT=codex` 並搭配 `VISUAL_RECAP_MODEL=gpt-5.6-luna`（最便宜的 GPT-5.6 層級）或 `gpt-5.6-terra`（中間層級），並設定 `VISUAL_RECAP_REASONING=low` 以進一步減少推理 token 花費。推理深度僅適用於 Codex。
 - **指向較便宜的 OpenAI 相容供應商。** 設定 `VISUAL_RECAP_AGENT=openai-compatible`，並搭配指向 DeepSeek、Kimi 或任何其他 OpenAI 相容端點的 `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`。
-- **降低回顧頻率。** 將已安裝工作流程的 `on.pull_request.types` 從 `[opened, synchronize, reopened, ready_for_review, closed]` 編輯為 `[opened, ready_for_review, closed]`，使其僅在 PR 開啟和合併時回顧，而不是每次推送都回顧。
+- **降低回顧頻率。** 將已安裝工作流程的 `on.pull_request.types` 從 `[opened, synchronize, reopened, ready_for_review, labeled, closed]` 編輯為 `[opened, ready_for_review, closed]`，使其僅在 PR 開啟和合併時回顧，而不是每次推送都回顧。
 
 每次執行都會記錄實際花費：工作流程的 `recap usage` 步驟會將 token 和成本使用情況附加到已發布的計畫中，因此你可以查看每次執行的實際花費，而不是靠猜測。
 
@@ -477,10 +477,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -500,6 +501,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

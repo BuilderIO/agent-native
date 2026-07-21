@@ -2883,7 +2883,10 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Publish recap source");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap publish");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "VISUAL_RECAP_REQUIRED_LABELS",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
@@ -3396,7 +3399,7 @@ describe("reusable caller workflow builder", () => {
     const yml = buildReusableCallerWorkflow();
     // Trigger: same event types as the canonical workflow.
     expect(yml).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
     );
     // Uses the reusable workflow in the agent-native repo.
     expect(yml).toContain(
@@ -3416,6 +3419,9 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(yml).toContain(
       "VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}",
+    );
+    expect(yml).toContain(
+      "required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}",
     );
     expect(yml).toContain(
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",

@@ -1168,10 +1168,19 @@ describe("@agent-native/skills", () => {
       "pr-visual-recap-reusable.yml@main",
     );
     expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      "if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''",
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
       `runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}`,
     );
     expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
       `gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}`,
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `required-labels: \${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}`,
     );
   });
 });
