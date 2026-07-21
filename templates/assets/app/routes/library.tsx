@@ -33,6 +33,8 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClipboard,
+  IconDownload,
+  IconInfoCircle,
   IconLibraryPhoto,
   IconPhotoPlus,
   IconSearch,
@@ -162,6 +164,12 @@ type Asset = {
   downloadUrl?: string;
   embedUrl?: string;
   embedPath?: string;
+  folderId?: string | null;
+  category?: string | null;
+  model?: string | null;
+  aspectRatio?: string | null;
+  durationSeconds?: number | null;
+  metadata?: Record<string, unknown> | null;
   libraryTitle?: string | null;
   lineage?: {
     label?: string | null;
@@ -826,7 +834,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
       src={source}
       crossOrigin={isCrossOriginPreview(source) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
-      className="max-h-[85vh] w-full rounded-lg object-contain"
+      className="max-h-[72vh] max-w-full rounded-lg object-contain"
       onError={() =>
         setSourceIndex((index) =>
           index + 1 < sources.length ? index + 1 : index,
@@ -1540,6 +1548,8 @@ function AssetPreviewDialog({
   onAssetChange: (asset: Asset | null) => void;
 }) {
   const t = useT();
+  const exportAsset = useActionMutation("export-asset");
+  const [showDetails, setShowDetails] = useState(true);
   return (
     <Dialog
       open={Boolean(asset)}
@@ -1560,6 +1570,20 @@ function AssetPreviewDialog({
           const showNextAsset = () => {
             if (hasNext) onAssetChange(assets[previewIndex + 1]);
           };
+          const isVideo =
+            asset.mediaType === "video" ||
+            Boolean(asset.mimeType?.startsWith("video/"));
+          const downloadAsset = () => {
+            exportAsset.mutate(
+              { assetId: asset.id },
+              {
+                onSuccess: (result: any) => {
+                  const url = result?.downloadUrl;
+                  if (url) window.location.href = url;
+                },
+              },
+            );
+          };
           return (
             <DialogContent
               hideClose
@@ -1567,7 +1591,7 @@ function AssetPreviewDialog({
                 if (event.key === "ArrowLeft") showPreviousAsset();
                 if (event.key === "ArrowRight") showNextAsset();
               }}
-              className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
+              className="assets-preview-dialog flex max-h-[92vh] w-[94vw] max-w-6xl flex-col gap-0 overflow-hidden p-0"
             >
               <DialogTitle className="sr-only">
                 {assetDisplayTitle(asset)}
@@ -1577,42 +1601,66 @@ function AssetPreviewDialog({
                   title: assetDisplayTitle(asset),
                 })}
               </DialogDescription>
-              <div className="relative">
-                <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/asset/${encodeURIComponent(asset.id)}`}>
-                      {t("library.viewDetails")}
-                    </Link>
-                  </Button>
-                  <DialogClose
-                    aria-label={t("library.closePreview")}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                  >
-                    <IconX className="h-5 w-5" />
-                  </DialogClose>
+
+              <div className="flex items-center justify-end gap-1 border-b border-border px-3 py-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2"
+                  disabled={exportAsset.isPending}
+                  onClick={downloadAsset}
+                >
+                  <IconDownload className="h-4 w-4" />
+                  {t("assetDetail.download")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2"
+                  aria-pressed={showDetails}
+                  onClick={() => setShowDetails((value) => !value)}
+                >
+                  <IconInfoCircle className="h-4 w-4" />
+                  {t("library.viewDetails")}
+                </Button>
+                <DialogClose
+                  aria-label={t("library.closePreview")}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <IconX className="h-5 w-5" />
+                </DialogClose>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+                <div className="relative flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-4">
+                  {isVideo ? (
+                    <video
+                      src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
+                      poster={asset.thumbnailUrl}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="max-h-[72vh] max-w-full rounded-lg bg-black object-contain"
+                    />
+                  ) : (
+                    <AssetOverlayImage asset={asset} />
+                  )}
                 </div>
-                {asset.mediaType === "video" ||
-                asset.mimeType?.startsWith("video/") ? (
-                  <video
-                    src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                    poster={asset.thumbnailUrl}
-                    controls
-                    autoPlay
-                    playsInline
-                    className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                  />
-                ) : (
-                  <AssetOverlayImage asset={asset} />
+                {showDetails && (
+                  <aside className="w-full shrink-0 overflow-y-auto border-t border-border p-5 md:w-80 md:border-l md:border-t-0">
+                    <AssetPreviewDetails asset={asset} isVideo={isVideo} />
+                  </aside>
                 )}
               </div>
+
               {(hasPrev || hasNext) && (
-                <div className="mt-5 flex justify-center gap-2">
+                <div className="flex justify-center gap-2 border-t border-border py-3">
                   <button
                     type="button"
                     aria-label={t("library.previousImage")}
                     onClick={showPreviousAsset}
                     disabled={!hasPrev}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground transition hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <IconChevronLeft className="h-5 w-5" />
                   </button>
@@ -1621,7 +1669,7 @@ function AssetPreviewDialog({
                     aria-label={t("library.nextImage")}
                     onClick={showNextAsset}
                     disabled={!hasNext}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground transition hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <IconChevronRight className="h-5 w-5" />
                   </button>
@@ -1632,6 +1680,120 @@ function AssetPreviewDialog({
         })()}
     </Dialog>
   );
+}
+
+function AssetPreviewDetails({
+  asset,
+  isVideo,
+}: {
+  asset: Asset;
+  isVideo: boolean;
+}) {
+  const t = useT();
+  const category = assetPreviewCategoryLabel(asset, t);
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-base font-semibold leading-tight tracking-tight">
+          {assetDisplayTitle(asset)}
+        </h2>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {asset.status ? (
+            <Badge variant="secondary">{asset.status}</Badge>
+          ) : null}
+          {asset.role ? <Badge variant="outline">{asset.role}</Badge> : null}
+          <Badge variant="outline">{isVideo ? "video" : "image"}</Badge>
+          {category ? <Badge variant="outline">{category}</Badge> : null}
+        </div>
+      </div>
+      <div className="space-y-4 text-sm">
+        {isVideo ? (
+          <PreviewField
+            label={t("assetDetail.video")}
+            value={`${asset.durationSeconds || "?"}s · ${asset.aspectRatio || "n/a"} · ${asset.model || "n/a"}`}
+          />
+        ) : (
+          <PreviewField
+            label={t("assetDetail.dimensions")}
+            value={formatPreviewDimensions(asset.width, asset.height)}
+          />
+        )}
+        <PreviewField label="MIME" value={asset.mimeType || "n/a"} />
+        <PreviewField
+          label={t("assetDetail.folder")}
+          value={asset.folderId || t("assetDetail.unfiled")}
+        />
+        <PreviewField
+          label={t("assetDetail.description")}
+          value={
+            asset.description || asset.altText || t("assetDetail.noDescription")
+          }
+          multiline
+        />
+        <PreviewField
+          label={t("assetDetail.prompt")}
+          value={asset.prompt || t("assetDetail.noPrompt")}
+          multiline
+        />
+      </div>
+    </div>
+  );
+}
+
+function PreviewField({
+  label,
+  value,
+  multiline,
+}: {
+  label: string;
+  value: ReactNode;
+  multiline?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className={multiline ? "mt-1 whitespace-pre-wrap" : "mt-1 truncate"}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function assetPreviewCategoryLabel(
+  asset: Asset,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | null {
+  const metadata = (asset.metadata ?? {}) as Record<string, unknown>;
+  if (metadata.intent === "subject" || asset.role === "subject_reference") {
+    return t("assetDetail.contentOnly");
+  }
+  const category = (metadata.category as string | undefined) ?? asset.category;
+  if (typeof category !== "string") return null;
+  if (category === "style-only") return t("assetDetail.styleReference");
+  if (category === "skeleton") return t("assetDetail.skeletonPlate");
+  return category.replace(/-/g, " ");
+}
+
+function formatPreviewDimensions(
+  width?: number | null,
+  height?: number | null,
+) {
+  const dimensions = `${width || "?"} x ${height || "?"}`;
+  if (!width || !height) return dimensions;
+  const divisor = previewGcd(width, height);
+  return (
+    <span className="flex items-center gap-2">
+      {dimensions}
+      <span className="h-4 w-px bg-border" />
+      {`${width / divisor}:${height / divisor}`}
+    </span>
+  );
+}
+
+function previewGcd(a: number, b: number): number {
+  return b === 0 ? a : previewGcd(b, a % b);
 }
 
 function variantSlotTime(slot: AssetVariantState["slots"][number]): number {
@@ -3481,103 +3643,11 @@ export function AssetPickerSurface() {
         )}
       </main>
 
-      <Dialog
-        open={Boolean(previewAsset)}
-        onOpenChange={(open) => {
-          if (!open) setPreviewAsset(null);
-        }}
-      >
-        {previewAsset &&
-          (() => {
-            const previewIndex = assets.findIndex(
-              (asset) => asset.id === previewAsset.id,
-            );
-            const hasPrev = previewIndex > 0;
-            const hasNext =
-              previewIndex >= 0 && previewIndex < assets.length - 1;
-            const showPreviousAsset = () => {
-              if (hasPrev) setPreviewAsset(assets[previewIndex - 1]);
-            };
-            const showNextAsset = () => {
-              if (hasNext) setPreviewAsset(assets[previewIndex + 1]);
-            };
-            return (
-              <DialogContent
-                hideClose
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowLeft") showPreviousAsset();
-                  if (event.key === "ArrowRight") showNextAsset();
-                }}
-                className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
-              >
-                <DialogTitle className="sr-only">
-                  {assetDisplayTitle(previewAsset)}
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  {t("library.fullSizePreview", {
-                    title: assetDisplayTitle(previewAsset),
-                  })}
-                </DialogDescription>
-                <div className="relative">
-                  <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                    <Button asChild variant="outline" size="sm">
-                      <Link
-                        to={`/asset/${encodeURIComponent(previewAsset.id)}`}
-                      >
-                        {t("library.viewDetails")}
-                      </Link>
-                    </Button>
-                    <DialogClose
-                      aria-label={t("library.closePreview")}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                    >
-                      <IconX className="h-5 w-5" />
-                    </DialogClose>
-                  </div>
-                  {previewAsset.mediaType === "video" ||
-                  previewAsset.mimeType?.startsWith("video/") ? (
-                    <video
-                      src={
-                        previewAsset.previewUrl ??
-                        previewAsset.downloadUrl ??
-                        previewAsset.url
-                      }
-                      poster={previewAsset.thumbnailUrl}
-                      controls
-                      autoPlay
-                      playsInline
-                      className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                    />
-                  ) : (
-                    <AssetOverlayImage asset={previewAsset} />
-                  )}
-                </div>
-                {(hasPrev || hasNext) && (
-                  <div className="mt-5 flex justify-center gap-2">
-                    <button
-                      type="button"
-                      aria-label={t("library.previousImage")}
-                      onClick={showPreviousAsset}
-                      disabled={!hasPrev}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <IconChevronLeft className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t("library.nextImage")}
-                      onClick={showNextAsset}
-                      disabled={!hasNext}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <IconChevronRight className="h-5 w-5" />
-                    </button>
-                  </div>
-                )}
-              </DialogContent>
-            );
-          })()}
-      </Dialog>
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={assets}
+        onAssetChange={setPreviewAsset}
+      />
     </div>
   );
 }
