@@ -824,6 +824,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
              DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`;
 
         await client.execute({
+          sql: `UPDATE tools SET updated_at = ? WHERE id = ?`,
+          args: [now, extensionId],
+        });
+        await client.execute({
           sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, scope, org_id, scope_key, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ${conflictClause}`,
@@ -840,13 +844,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             now,
             now,
           ],
-        });
-
-        // Bump the extension record's updated_at so mounted iframes
-        // (keyed by updatedAt) remount and re-fetch extensionData.
-        await client.execute({
-          sql: `UPDATE tools SET updated_at = ? WHERE id = ?`,
-          args: [now, extensionId],
         });
         await notifyExtensionChangeForResource(extensionId);
 
