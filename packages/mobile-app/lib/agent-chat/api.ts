@@ -255,41 +255,54 @@ export async function listThreadsForApp(
   return threads.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export interface FetchMentionsOptions {
+  signal?: AbortSignal;
+  baseUrl?: string;
+  /**
+   * Called with the accumulated, de-duplicated list every time a batch lands.
+   * Lets the UI show fast sources (resources) before slow ones (codebase scans,
+   * custom providers) finish.
+   */
+  onItems?: (items: MentionItem[]) => void;
+}
+
 /**
  * `@`-mention candidates (files, workspace pages, skills, agents, …) from an
- * app's unified mentions endpoint. The endpoint streams NDJSON batches of
- * `{ items }`; each line is parsed and items are de-duplicated by id. Returns
- * an empty list on any failure — mention search must never surface an error.
+ * app's unified mentions endpoint. The endpoint streams NDJSON `{ items }`
+ * batches as each source completes; this consumes the body incrementally (via
+ * expo/fetch's real stream) so already-ready suggestions surface immediately
+ * instead of waiting for the slowest provider. Items are de-duplicated by id.
+ * Returns an empty list on any failure — mention search must never throw.
  */
 export async function fetchMentions(
   query: string,
-  signal?: AbortSignal,
-  baseUrl = DEFAULT_CHAT_BASE_URL,
+  options: FetchMentionsOptions = {},
 ): Promise<MentionItem[]> {
+  const { signal, baseUrl = DEFAULT_CHAT_BASE_URL, onItems } = options;
   try {
     const headers = await authHeaders();
-    const response = await fetch(
+    const response = await expoFetch(
       `${baseUrl}${CHAT_PATH}/mentions?q=${encodeURIComponent(query)}`,
       { headers, signal },
     );
-    if (!response.ok) return [];
-    const body = await response.text();
+    if (!response.ok || !response.body) return [];
     const items: MentionItem[] = [];
     const seen = new Set<string>();
-    for (const line of body.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed) as { items?: MentionItem[] };
-        for (const item of parsed.items ?? []) {
-          if (item?.id && !seen.has(item.id)) {
-            seen.add(item.id);
-            items.push(item);
-          }
+    for await (const raw of readJsonEventStream(
+      response.body as ReadableStream<Uint8Array>,
+    )) {
+      if (signal?.aborted) break;
+      const batch = (raw as { items?: MentionItem[] })?.items;
+      if (!Array.isArray(batch)) continue;
+      let added = false;
+      for (const item of batch) {
+        if (item?.id && !seen.has(item.id)) {
+          seen.add(item.id);
+          items.push(item);
+          added = true;
         }
-      } catch {
-        // Ignore a partial/garbled line; other batches still parse.
       }
+      if (added) onItems?.([...items]);
     }
     return items;
   } catch {
@@ -507,8 +520,10 @@ export async function fetchModelCatalog(
     const models = engine.supportedModels ?? [];
     if (models.length === 0) continue;
     const required = engine.requiredEnvVars ?? [];
+    // Every required key must be present — a multi-key engine (e.g. Builder's
+    // public+private pair) with only one key set cannot run, so don't offer it.
     const configured =
-      required.length === 0 || required.some((key) => configuredKeys.has(key));
+      required.length === 0 || required.every((key) => configuredKeys.has(key));
     if (!configured) continue;
     if (models.some((m) => m.includes("-"))) {
       groups.push(...groupByProviderPrefix(name, models));

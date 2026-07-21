@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -95,6 +95,18 @@ export default function ChatTab() {
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
   const chat = useAgentChat(settings);
+
+  // A model/engine chosen for one app may not exist in another deployment.
+  // Reset the selection to Auto when the active thread's app changes so we
+  // never submit a model the origin can't run; effort/mode stay app-agnostic.
+  const prevBaseUrlRef = useRef(chat.baseUrl);
+  useEffect(() => {
+    // Guard makes re-runs on unrelated `settings` changes a no-op, so reading
+    // `settings` here is current without resetting the user's fresh pick.
+    if (prevBaseUrlRef.current === chat.baseUrl) return;
+    prevBaseUrlRef.current = chat.baseUrl;
+    setSettings({ ...settings, model: undefined, engine: undefined });
+  }, [chat.baseUrl, settings, setSettings]);
 
   const refreshAuth = useCallback(async () => {
     const token = await getSessionToken().catch(() => null);

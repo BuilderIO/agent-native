@@ -125,13 +125,16 @@ export function Composer({
     setMentionLoading(true);
     const timer = setTimeout(
       () => {
-        void fetchMentions(mentionQuery, controller.signal, baseUrl).then(
-          (items) => {
-            if (controller.signal.aborted) return;
-            setMentionItems(items);
-            setMentionLoading(false);
+        void fetchMentions(mentionQuery, {
+          signal: controller.signal,
+          baseUrl,
+          // Surface each batch as it arrives so fast sources show immediately.
+          onItems: (items) => {
+            if (!controller.signal.aborted) setMentionItems(items);
           },
-        );
+        }).then(() => {
+          if (!controller.signal.aborted) setMentionLoading(false);
+        });
       },
       mentionQuery.length === 0 ? 0 : 150,
     );

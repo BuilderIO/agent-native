@@ -1,5 +1,5 @@
 import { IconTrash, IconX } from "@tabler/icons-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -96,6 +96,8 @@ export function ThreadHistorySheet({
   );
   // History shows one app at a time, defaulting to Chat.
   const [selectedAppId, setSelectedAppId] = useState<string>("chat");
+  // Discards results from a superseded app-filter request.
+  const requestIdRef = useRef(0);
 
   // Chat first (the default view), then the rest in registry order.
   const apps = useMemo(
@@ -107,16 +109,22 @@ export function ThreadHistorySheet({
   );
 
   const refresh = useCallback(() => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
     listThreadsForApp(selectedAppId)
-      .then(setThreads)
+      .then((result) => {
+        if (requestIdRef.current === requestId) setThreads(result);
+      })
       .catch((error) => {
+        if (requestIdRef.current !== requestId) return;
         setLoadError(
           error instanceof Error ? error.message : "Failed to load chats",
         );
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (requestIdRef.current === requestId) setLoading(false);
+      });
   }, [selectedAppId]);
 
   useEffect(() => {
