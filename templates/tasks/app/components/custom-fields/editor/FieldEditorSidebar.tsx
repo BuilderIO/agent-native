@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -19,10 +20,15 @@ export function FieldEditorSidebar({
   disabled: boolean;
   onClose: () => void;
 }) {
+  const t = useT();
   if (!field) return null;
 
   return (
-    <SidePanel title="Field" closeLabel="Close field editor" onClose={onClose}>
+    <SidePanel
+      title={t("fieldEditor.panelTitle")}
+      closeLabel={t("fieldEditor.closeLabel")}
+      onClose={onClose}
+    >
       <FieldEditorSidebarPanel field={field} disabled={disabled} />
     </SidePanel>
   );
@@ -35,6 +41,7 @@ function FieldEditorSidebarPanel({
   field: FieldDefinition;
   disabled: boolean;
 }) {
+  const t = useT();
   const updateField = useUpdateCustomField();
 
   const saveUpdate = useCallback(
@@ -42,10 +49,12 @@ function FieldEditorSidebarPanel({
       void updateField
         .mutateAsync({ fieldId: field.id, ...payload })
         .catch((caught) => {
-          toast.error((caught as Error)?.message ?? "Could not update field.");
+          toast.error(
+            (caught as Error)?.message ?? t("fieldEditor.updateError"),
+          );
         });
     },
-    [field.id, updateField],
+    [field.id, updateField, t],
   );
 
   return (

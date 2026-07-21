@@ -1445,6 +1445,9 @@ export function installDesktopVoiceDictation(
         // the tail because Web Speech only marks a segment as `isFinal`
         // after a confidence-threshold pass.
         next.browserTranscript = (finalSoFar + interim).trim();
+        emit("voice:dictation-preview", {
+          text: next.browserTranscript,
+        }).catch(() => {});
       };
       recognition.onerror = (ev) => {
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
@@ -2038,15 +2041,16 @@ export function installDesktopVoiceDictation(
 
   // Native (SFSpeechRecognizer) event subscriptions. These are always
   // installed — the events only fire when the Rust side has an active
-  // session, so subscribing on non-native sessions is harmless. The
-  // flow-bar listens to `voice:partial-transcript` independently so we
-  // don't re-emit it here.
+  // session, so subscribing on non-native sessions is harmless.
   onPartialTranscript(({ text }) => {
     const current = session;
     if (!current || (current.kind !== "native" && current.kind !== "whisper"))
       return;
     if (current.cancelled || current.stopping) return;
     setInterimTranscript(current, text);
+    emit("voice:dictation-preview", {
+      text: current.browserTranscript,
+    }).catch(() => {});
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
@@ -2065,6 +2069,13 @@ export function installDesktopVoiceDictation(
     if (!current) return;
     if (current.cancelled) return;
     appendFinalTranscript(current, text);
+    const supersededLingeringSession =
+      current === lingeringSession && session !== null && session !== current;
+    if (!supersededLingeringSession) {
+      emit("voice:dictation-preview", {
+        text: current.browserTranscript,
+      }).catch(() => {});
+    }
     if (current === lingeringSession) {
       current.onNativeFinalize?.();
     }

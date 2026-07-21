@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.0
+
+### Minor Changes
+
+- f8fe58b: Add `VISUAL_RECAP_REQUIRED_LABELS` so PR Visual Recap can run only when a pull request has an opt-in label.
+
 ## 0.4.7
 
 ### Patch Changes

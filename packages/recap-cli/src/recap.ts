@@ -109,6 +109,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  VISUAL_RECAP_REASONING (variable) — reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   '  VISUAL_RECAP_RUNS_ON (variable) — JSON hosted label or self-hosted label array; defaults to "ubuntu-latest"',
   "  VISUAL_RECAP_GATE_RUNS_ON (variable) — trusted same-repo authors only; plain single gate label; defaults to ubuntu-latest",
+  "  VISUAL_RECAP_REQUIRED_LABELS (variable) — comma-separated PR labels; when set, recaps run only when the PR has at least one listed label",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
@@ -166,7 +167,8 @@ export function writePrVisualRecapWorkflow(
  *
  * Callers must trigger on the same `pull_request` event types so that
  * `github.event.pull_request.*` expressions in the reusable workflow resolve
- * correctly (workflow_call inherits the caller's event context).
+ * correctly (workflow_call inherits the caller's event context). The `labeled`
+ * event lets required-label configurations run as soon as a maintainer opts in.
  *
  * @param options.cliVersion  Semver or tag to pin (default "main" / latest).
  * @param options.ref         Git ref to pin the reusable workflow to (default "@main").
@@ -178,6 +180,7 @@ export function buildReusableCallerWorkflow(
     model?: string;
     runsOn?: string;
     gateRunsOn?: string;
+    requiredLabels?: string;
   } = {},
 ): string {
   const ref = (options.ref ?? "main").replace(/^@/, "");
@@ -192,6 +195,16 @@ export function buildReusableCallerWorkflow(
     options.gateRunsOn === undefined
       ? "${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}"
       : JSON.stringify(options.gateRunsOn);
+  const requiredLabelsValue =
+    options.requiredLabels === undefined
+      ? "${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}"
+      : JSON.stringify(options.requiredLabels);
+  const labeledEventEnabled =
+    options.requiredLabels === undefined
+      ? "vars.VISUAL_RECAP_REQUIRED_LABELS != ''"
+      : options.requiredLabels.trim()
+        ? "true"
+        : "false";
   return (
     `name: PR Visual Recap\n` +
     `\n` +
@@ -202,10 +215,11 @@ export function buildReusableCallerWorkflow(
     `\n` +
     `on:\n` +
     `  pull_request:\n` +
-    `    types: [opened, synchronize, reopened, ready_for_review, closed]\n` +
+    `    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]\n` +
     `\n` +
     `jobs:\n` +
     `  visual-recap:\n` +
+    `    if: github.event.action != 'labeled' || ${labeledEventEnabled}\n` +
     `    permissions:\n` +
     `      actions: write\n` +
     `      contents: read\n` +
@@ -230,6 +244,7 @@ export function buildReusableCallerWorkflow(
     `      core-cli-version: \${{ vars.CORE_CLI_VERSION || 'latest' }}\n` +
     `      runs-on: ${runsOnValue}\n` +
     `      gate-runs-on: ${gateRunsOnValue}\n` +
+    `      required-labels: ${requiredLabelsValue}\n` +
     `      # Pin recap-cli and core-cli independently when using the openai-compatible backend.\n` +
     ``
   );
@@ -248,6 +263,7 @@ export function writePrVisualRecapReusableCallerWorkflow(
     model?: string;
     runsOn?: string;
     gateRunsOn?: string;
+    requiredLabels?: string;
   } = {},
 ): WriteWorkflowResult {
   const dir = path.resolve(baseDir, ".github", "workflows");
@@ -260,6 +276,7 @@ export function writePrVisualRecapReusableCallerWorkflow(
     model: options.model,
     runsOn: options.runsOn,
     gateRunsOn: options.gateRunsOn,
+    requiredLabels: options.requiredLabels,
   });
   if (fs.existsSync(file)) {
     const current = fs.readFileSync(file, "utf8");
@@ -745,6 +762,7 @@ export function buildRecapSetupPlan(input: {
   repo?: string;
   runsOn?: string;
   gateRunsOn?: string;
+  requiredLabels?: string;
   env?: NodeJS.ProcessEnv;
 }): RecapSetupPlan {
   const env = input.env ?? process.env;
@@ -771,6 +789,7 @@ export function buildRecapSetupPlan(input: {
     "VISUAL_RECAP_MODEL",
     "VISUAL_RECAP_REASONING",
     "VISUAL_RECAP_SKILL_SOURCE",
+    "VISUAL_RECAP_REQUIRED_LABELS",
   ]) {
     const value = envValue(env, key);
     if (value) variableValues[key] = value;
@@ -801,6 +820,10 @@ export function buildRecapSetupPlan(input: {
       variableValues.VISUAL_RECAP_GATE_RUNS_ON =
         parseRecapGateRunsOn(gateRunsOn);
   }
+  const requiredLabels =
+    input.requiredLabels ?? envValue(env, "VISUAL_RECAP_REQUIRED_LABELS");
+  if (requiredLabels)
+    variableValues.VISUAL_RECAP_REQUIRED_LABELS = requiredLabels;
   return {
     agent,
     appUrl,
@@ -841,6 +864,7 @@ function runSetup(args: Record<string, string | boolean>): void {
     repo,
     runsOn: optionalArg(args, "runs-on"),
     gateRunsOn: optionalArg(args, "gate-runs-on"),
+    requiredLabels: optionalArg(args, "required-labels"),
   });
   const runnerProblem = plan.variableProblems.find(
     (problem) =>
@@ -873,6 +897,7 @@ function runSetup(args: Record<string, string | boolean>): void {
       agent: plan.agent !== "claude" ? plan.agent : undefined,
       runsOn: plan.variableValues.VISUAL_RECAP_RUNS_ON,
       gateRunsOn: plan.variableValues.VISUAL_RECAP_GATE_RUNS_ON,
+      requiredLabels: plan.variableValues.VISUAL_RECAP_REQUIRED_LABELS,
     });
     if (result.status === "refused") {
       process.stderr.write(`recap setup: ${result.message}\n`);
@@ -3937,6 +3962,7 @@ export interface RecapGatePullRequest {
   author_association?: string | null;
   head?: { repo?: { full_name?: string | null } | null } | null;
   user?: { login?: string | null; type?: string | null } | null;
+  labels?: Array<string | { name?: string | null } | null> | null;
 }
 
 export interface RecapGateInput {
@@ -3962,6 +3988,8 @@ export interface RecapGateInput {
   baseUrl?: string;
   /** Raw VISUAL_RECAP_SKILL_SOURCE value (auto/latest/repo; may be undefined). */
   skillSource: string | undefined;
+  /** Comma-separated PR labels required before the recap runs. */
+  requiredLabels?: string;
   /** Filenames changed by the PR (for the self-modifying guard). */
   changedFiles: string[];
 }
@@ -3979,6 +4007,22 @@ function normalizeRecapSkillSourceMode(value: string | undefined): string {
 
 function isRepoPinnedRecapSkillSource(value: string | undefined): boolean {
   return normalizeRecapSkillSourceMode(value) === "repo";
+}
+
+function parseRequiredRecapLabels(value: string | undefined): string[] {
+  return (value || "")
+    .split(",")
+    .map((label) => label.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function pullRequestLabelNames(pr: RecapGatePullRequest): Set<string> {
+  return new Set(
+    (Array.isArray(pr.labels) ? pr.labels : [])
+      .map((label) => (typeof label === "string" ? label : label && label.name))
+      .filter((label): label is string => Boolean(label))
+      .map((label) => label.toLowerCase()),
+  );
 }
 
 export function isRecapSensitivePath(
@@ -4020,6 +4064,15 @@ export function evaluateRecapGate(input: RecapGateInput): {
 
   if (!pr) reasons.push("no pull_request payload");
   if (pr && pr.draft) reasons.push("draft PR");
+  const requiredLabels = parseRequiredRecapLabels(input.requiredLabels);
+  if (pr && requiredLabels.length > 0) {
+    const prLabels = pullRequestLabelNames(pr);
+    if (!requiredLabels.some((label) => prLabels.has(label))) {
+      reasons.push(
+        `missing required recap label (${requiredLabels.join(", ")})`,
+      );
+    }
+  }
 
   // Fork PRs only receive repo secrets when the org/repo opts into GitHub's
   // "Send secrets to workflows from pull requests" setting (common in private
@@ -4238,6 +4291,7 @@ async function runGate(): Promise<void> {
     model: process.env.VISUAL_RECAP_MODEL,
     baseUrl: process.env.VISUAL_RECAP_BASE_URL,
     skillSource: process.env.VISUAL_RECAP_SKILL_SOURCE,
+    requiredLabels: process.env.VISUAL_RECAP_REQUIRED_LABELS,
     changedFiles,
   });
 
@@ -5007,7 +5061,7 @@ function runAgentSummary(args: Record<string, string | boolean>): void {
 const HELP = `npx @agent-native/recap-cli@latest recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
-  npx @agent-native/recap-cli@latest recap setup [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>] [--runs-on <json>] [--gate-runs-on <label>] [--skip-secrets] [--dry-run] [--force]
+  npx @agent-native/recap-cli@latest recap setup [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>] [--runs-on <json>] [--gate-runs-on <label>] [--required-labels <labels>] [--skip-secrets] [--dry-run] [--force]
   npx @agent-native/recap-cli@latest recap doctor [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>]
   npx @agent-native/recap-cli@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   npx @agent-native/recap-cli@latest recap block-reference [--app-url <url>] [--out recap-blocks.md]
@@ -5070,7 +5124,9 @@ Usage:
     MEMBER, or COLLABORATOR authors. The stock gate does not check out the PR
     tree; it evaluates workflow logic and PR metadata. Fork and untrusted PRs
     use GitHub-hosted ubuntu-latest instead, so they may remain unscheduled when
-    a repository disables GitHub-hosted runners.
+    a repository disables GitHub-hosted runners. Pass
+    --required-labels "visual recap" to run recaps only after a PR has a listed
+    label; comma-separated labels are OR-matched.
   npx @agent-native/recap-cli@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
     repo access, and required GitHub Actions secrets and variables for the

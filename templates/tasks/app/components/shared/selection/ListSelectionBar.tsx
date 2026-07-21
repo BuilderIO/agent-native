@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCircleCheck, IconCircle } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -26,6 +27,7 @@ export function ListSelectionBar<
   toolbarBusy,
   onOpenBulkDelete,
 }: ListSelectionBarProps<T>) {
+  const t = useT();
   const bulkUpdateTasks = useBulkUpdateTasks();
   const bulkMarkInboxItemsReady = useBulkMarkInboxItemsReady();
 
@@ -35,8 +37,6 @@ export function ListSelectionBar<
   const allVisibleSelected =
     items.length > 0 && items.every((item) => selectedIdSet.has(item.id));
 
-  const entityLabel = promotedToTask ? "task" : "item";
-
   async function markSelectedReady() {
     if (selectedCount === 0) return;
 
@@ -45,11 +45,13 @@ export function ListSelectionBar<
         inboxItemIds: selectedItems.map((item) => item.id),
       });
       toast.success(
-        `Marked ${selectedCount} ${selectedCount === 1 ? "item" : "items"} ready`,
+        selectedCount === 1
+          ? t("selection.markedReadyOne", { count: selectedCount })
+          : t("selection.markedReadyOther", { count: selectedCount }),
       );
       selection.actions.clearSelection();
     } catch {
-      toast.error("Could not mark selected items ready.");
+      toast.error(t("selection.couldNotMarkReady"));
     }
   }
 
@@ -59,8 +61,8 @@ export function ListSelectionBar<
     if (applicableTasks.length === 0) {
       toast.info(
         done
-          ? "All selected tasks are already complete."
-          : "All selected tasks are already incomplete.",
+          ? t("selection.allTasksAlreadyComplete")
+          : t("selection.allTasksAlreadyIncomplete"),
       );
       return;
     }
@@ -70,19 +72,33 @@ export function ListSelectionBar<
     try {
       await bulkUpdateTasks.mutateAsync({ taskIds, done });
 
-      const countLabel = applicableTasks.length === 1 ? "task" : "tasks";
+      const unit =
+        applicableTasks.length === 1
+          ? t("tasks.entitySingular")
+          : t("tasks.entityPlural");
       toast.success(
         done
           ? skippedCount > 0
-            ? `Marked ${applicableTasks.length} ${countLabel} complete (${skippedCount} already complete)`
-            : `Marked ${applicableTasks.length} ${countLabel} complete`
+            ? t("selection.markedDoneWithSkipped", {
+                count: applicableTasks.length,
+                unit,
+                skipped: skippedCount,
+              })
+            : t("selection.markedDone", { count: applicableTasks.length, unit })
           : skippedCount > 0
-            ? `Marked ${applicableTasks.length} ${countLabel} incomplete (${skippedCount} already incomplete)`
-            : `Marked ${applicableTasks.length} ${countLabel} incomplete`,
+            ? t("selection.markedNotDoneWithSkipped", {
+                count: applicableTasks.length,
+                unit,
+                skipped: skippedCount,
+              })
+            : t("selection.markedNotDone", {
+                count: applicableTasks.length,
+                unit,
+              }),
       );
       selection.actions.clearSelection();
     } catch {
-      toast.error("Could not update selected tasks.");
+      toast.error(t("selection.couldNotUpdateTasks"));
     }
   }
 
@@ -101,9 +117,15 @@ export function ListSelectionBar<
   return (
     <ListSelectionToolbar
       ariaLabel={
-        promotedToTask ? "Task selection actions" : "Inbox selection actions"
+        promotedToTask
+          ? t("selection.taskSelectionActionsAriaLabel")
+          : t("selection.inboxSelectionActionsAriaLabel")
       }
-      emptySelectionHint={`Tap ${entityLabel}s to select them.`}
+      emptySelectionHint={
+        promotedToTask
+          ? t("selection.tapToSelectTasks")
+          : t("selection.tapToSelectItems")
+      }
       visibleCount={items.length}
       selectedCount={selectedCount}
       allVisibleSelected={allVisibleSelected}
@@ -120,11 +142,13 @@ export function ListSelectionBar<
             disabled={
               selectedCount === 0 || toolbarDisabled || allSelectedComplete
             }
-            aria-label="Mark complete"
+            aria-label={t("selection.markComplete")}
             onClick={() => void markSelectedDone(true)}
           >
             <IconCircleCheck className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Complete</span>
+            <span className="hidden sm:inline">
+              {t("selection.completeLabel")}
+            </span>
           </Button>
           <Button
             variant="ghost"
@@ -133,11 +157,13 @@ export function ListSelectionBar<
             disabled={
               selectedCount === 0 || toolbarDisabled || allSelectedIncomplete
             }
-            aria-label="Mark incomplete"
+            aria-label={t("selection.markIncomplete")}
             onClick={() => void markSelectedDone(false)}
           >
             <IconCircle className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Incomplete</span>
+            <span className="hidden sm:inline">
+              {t("selection.incompleteLabel")}
+            </span>
           </Button>
         </>
       ) : (
@@ -146,11 +172,11 @@ export function ListSelectionBar<
           size="sm"
           className="h-8 shrink-0 gap-1 px-2 text-xs"
           disabled={selectedCount === 0 || toolbarDisabled}
-          aria-label="Mark ready"
+          aria-label={t("common.markReady")}
           onClick={() => void markSelectedReady()}
         >
           <IconCircleCheck className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Mark ready</span>
+          <span className="hidden sm:inline">{t("common.markReady")}</span>
         </Button>
       )}
     </ListSelectionToolbar>

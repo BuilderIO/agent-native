@@ -856,6 +856,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     loadFailedBody:
       "Une erreur s’est produite lors du chargement de cette liste. Vos enregistrements sont en sécurité — réessayez.",
     retry: "Réessayer",
+    paginationRange: "{{start}}–{{end}} sur {{total}}",
+    paginationPrevious: "Précédent",
+    paginationNext: "Suivant",
+    paginationPage: "Page {{page}} sur {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Alertes · Clips",
@@ -1403,6 +1407,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
   clipsFinalRaw: {
     splitAtPlayhead: "Couper à la tête de lecture (S)",
     selectedCount: "{{count}} sélectionnés",
+    selectAll: "Tout sélectionner",
+    deselectAll: "Tout désélectionner",
     move: "Déplacer",
     moveSelected: "Déplacer {{count}} sélectionnés",
     current: "Actuel",

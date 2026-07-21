@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.114.10",
+  "version": "0.114.16",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -153,6 +153,7 @@
     "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
+    "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./guards": {
