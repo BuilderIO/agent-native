@@ -12,6 +12,7 @@ import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconArrowUp,
   IconPlus,
+  IconLoader2,
   IconMenu2,
   IconX,
   IconMessageCircle,
@@ -171,6 +172,9 @@ export function Sidebar() {
             onClick={handleSkip}
             disabled={createForm.isPending}
           >
+            {createForm.isPending && (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            )}
             {t("sidebar.skipPrompt")}
           </Button>
           <span className="text-[11px] text-muted-foreground/70">

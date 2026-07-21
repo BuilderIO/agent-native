@@ -7,6 +7,7 @@ import {
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconPlus,
+  IconLoader2,
   IconDots,
   IconTrash,
   IconCopy,
@@ -116,7 +117,11 @@ export function FormsListPage() {
         size="sm"
         className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
       >
-        <IconPlus className="h-3.5 w-3.5" />
+        {createForm.isPending ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconPlus className="h-3.5 w-3.5" />
+        )}
         <span className="hidden sm:inline">{t("forms.newForm")}</span>
         <span className="sm:hidden">{t("forms.new")}</span>
       </Button>
