@@ -42,13 +42,13 @@ import {
   buildBookingEventTitle,
 } from "../lib/booking-event-details.js";
 import {
-  getBookingLinkCoHostEmails,
-  getBookingLinkRequiredHostEmails,
-} from "../lib/booking-link-utils.js";
-import {
   getEligibleHostAvailability,
   type EligibleHostAvailability,
 } from "../lib/booking-host-availability.js";
+import {
+  getBookingLinkCoHostEmails,
+  getBookingLinkRequiredHostEmails,
+} from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import * as googleCalendar from "../lib/google-calendar.js";
@@ -596,8 +596,7 @@ function getScheduleWindowsForLocalDate(
 ): ScheduleWindow[] {
   const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
   const dayName = DAY_NAMES[getDayOfWeekInTimezone(targetNoon, timezone)];
-  const daySchedule =
-    weeklySchedule[dayName as keyof typeof weeklySchedule];
+  const daySchedule = weeklySchedule[dayName as keyof typeof weeklySchedule];
   if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
     return [];
   }
@@ -654,7 +653,8 @@ function intersectScheduleWindows(
   const result: ScheduleWindow[] = [];
   for (const windowA of a) {
     for (const windowB of b) {
-      const start = windowA.start > windowB.start ? windowA.start : windowB.start;
+      const start =
+        windowA.start > windowB.start ? windowA.start : windowB.start;
       const end = windowA.end < windowB.end ? windowA.end : windowB.end;
       if (end > start) result.push({ start, end });
     }

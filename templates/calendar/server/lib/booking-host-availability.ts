@@ -2,6 +2,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 
 import type {
   AvailabilityConfig,
+  BookingLink,
   OverlayPerson,
 } from "../../shared/api.js";
 import { safeBookingTimeZone } from "./booking-timezone.js";
@@ -62,4 +63,31 @@ export async function getEligibleHostAvailability(
       };
     }),
   );
+}
+
+/**
+ * Attaches the owner's time zone and each eligible host's time zone to a
+ * booking link for the public read response. Never attaches schedule
+ * windows — only the resolved IANA time zone string, and only for hosts the
+ * caller already determined are overlay-eligible.
+ */
+export function withHostTimezones(
+  bookingLink: BookingLink,
+  ownerTimezone: string,
+  eligibleHosts: EligibleHostAvailability[],
+): BookingLink {
+  const hostTimezoneByEmail = new Map(
+    eligibleHosts
+      .filter((host) => host.timezone)
+      .map((host) => [host.email.toLowerCase(), host.timezone as string]),
+  );
+
+  return {
+    ...bookingLink,
+    ownerTimezone,
+    hosts: bookingLink.hosts?.map((host) => {
+      const timezone = hostTimezoneByEmail.get(host.email.toLowerCase());
+      return timezone ? { ...host, timezone } : host;
+    }),
+  };
 }

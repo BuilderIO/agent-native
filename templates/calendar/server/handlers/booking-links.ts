@@ -21,7 +21,10 @@ import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
 import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
-import { getEligibleHostAvailability } from "../lib/booking-host-availability.js";
+import {
+  getEligibleHostAvailability,
+  withHostTimezones,
+} from "../lib/booking-host-availability.js";
 import {
   getBookingLinkRequiredHostEmails,
   rowToBookingLink,
@@ -246,20 +249,8 @@ export const getPublicBookingLink = defineEventHandler(
           getBookingLinkRequiredHostEmails(rows[0]),
         ),
       ]);
-      const hostTimezoneByEmail = new Map(
-        eligibleHosts
-          .filter((host) => host.timezone)
-          .map((host) => [host.email, host.timezone as string]),
-      );
 
-      return {
-        ...bookingLink,
-        ownerTimezone,
-        hosts: bookingLink.hosts?.map((host) => {
-          const timezone = hostTimezoneByEmail.get(host.email.toLowerCase());
-          return timezone ? { ...host, timezone } : host;
-        }),
-      };
+      return withHostTimezones(bookingLink, ownerTimezone, eligibleHosts);
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: error.message };

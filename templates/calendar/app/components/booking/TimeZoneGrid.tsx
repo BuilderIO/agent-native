@@ -2,7 +2,10 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { getTimezoneCity, TimezoneCombobox } from "@/components/TimezoneCombobox";
+import {
+  getTimezoneCity,
+  TimezoneCombobox,
+} from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -101,23 +104,22 @@ export function TimeZoneGrid({
                     {row.timezone}
                   </p>
                 </div>
-                {row.id !== "you" &&
-                  extraTimezones.includes(row.timezone) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExtraTimezones((prev) =>
-                          prev.filter((tz) => tz !== row.timezone),
-                        )
-                      }
-                      className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      aria-label={t("bookingLinks.removeTimeZone", {
-                        timezone: row.timezone,
-                      })}
-                    >
-                      <IconX className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+                {row.id !== "you" && extraTimezones.includes(row.timezone) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExtraTimezones((prev) =>
+                        prev.filter((tz) => tz !== row.timezone),
+                      )
+                    }
+                    className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label={t("bookingLinks.removeTimeZone", {
+                      timezone: row.timezone,
+                    })}
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
               <div className="flex gap-2">
                 {slots.map((slot) => {

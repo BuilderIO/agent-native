@@ -69,7 +69,12 @@ ladder.
 - `create-booking-link` and `update-booking-link` accept `hosts` for required
   co-hosts besides the owner, e.g. `hosts: ["brent@example.com"]`. Group links
   only offer times when the owner and all co-hosts are free, then invite
-  co-hosts to the created Google Calendar event.
+  co-hosts to the created Google Calendar event. A co-host who is also in the
+  owner's calendar overlay ("subscribed peer") list additionally gets a hard
+  filter against their own saved working-hours schedule and time zone, not
+  just free/busy; co-hosts outside the overlay list keep free/busy-only
+  behavior. The public booking page can reveal each eligible host's time zone
+  in a multi-time-zone grid.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
 - Event detail (panel and popover) exposes `calendar.event-detail.bottom` as an

@@ -13,11 +13,14 @@ import type {
   ConferencingConfig,
   CustomField,
   DaySchedule,
+  OverlayPerson,
 } from "@shared/api";
 import {
   IconBrandGoogle,
   IconBrandZoom,
   IconCalendar,
+  IconCheck,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconCircleCheck,
@@ -53,6 +56,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
@@ -78,6 +82,14 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -85,6 +97,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -113,6 +130,7 @@ import {
   OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -501,10 +519,41 @@ function BookingHostsEditor({
   onChange: (hosts: BookingHost[]) => void;
 }) {
   const t = useT();
-  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  const [manualInput, setManualInput] = useState("");
+  const [addCalendarOpen, setAddCalendarOpen] = useState(false);
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople: OverlayPerson[] = Array.isArray(rawOverlayPeople)
+    ? rawOverlayPeople
+    : [];
 
-  function addHosts() {
-    const entries = input
+  const selectedEmails = new Set(hosts.map((host) => host.email.toLowerCase()));
+
+  function addHost(email: string, displayName?: string) {
+    const normalized = normalizeHostEmail(email);
+    if (!normalized) {
+      toast.error(t("bookingLinks.invalidEmail", { email }));
+      return;
+    }
+    if (selectedEmails.has(normalized)) return;
+    onChange([
+      ...hosts,
+      displayName ? { email: normalized, displayName } : { email: normalized },
+    ]);
+  }
+
+  function toggleOverlayPerson(person: OverlayPerson) {
+    const normalized = normalizeHostEmail(person.email);
+    if (!normalized) return;
+    if (selectedEmails.has(normalized)) {
+      onChange(hosts.filter((host) => host.email !== normalized));
+      return;
+    }
+    addHost(person.email, person.name);
+  }
+
+  function addManualEmails() {
+    const entries = manualInput
       .split(/[\s,;]+/)
       .map((entry) => entry.trim())
       .filter(Boolean);
@@ -530,7 +579,7 @@ function BookingHostsEditor({
     }
     if (next.length !== hosts.length) {
       onChange(next);
-      setInput("");
+      setManualInput("");
     }
   }
 
@@ -549,15 +598,100 @@ function BookingHostsEditor({
           {t("bookingLinks.requiredHostsDescription")}
         </p>
       </div>
+
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between font-normal"
+          >
+            <span className="truncate text-left text-muted-foreground">
+              {t("bookingLinks.overlayHostsPlaceholder")}
+            </span>
+            <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[--radix-popover-trigger-width] p-0"
+        >
+          <Command>
+            <CommandInput
+              placeholder={t("bookingLinks.overlayHostsPlaceholder")}
+            />
+            <CommandList className="max-h-[280px]">
+              <CommandEmpty>{t("bookingLinks.overlayHostsEmpty")}</CommandEmpty>
+              {overlayPeople.length > 0 && (
+                <CommandGroup heading={t("bookingLinks.overlayHostsLabel")}>
+                  {overlayPeople.map((person) => {
+                    const normalized = normalizeHostEmail(person.email);
+                    const isSelected =
+                      !!normalized && selectedEmails.has(normalized);
+                    return (
+                      <CommandItem
+                        key={person.email}
+                        value={`${person.name ?? ""} ${person.email}`}
+                        onSelect={() => toggleOverlayPerson(person)}
+                      >
+                        <IconCheck
+                          className={cn(
+                            "mr-2 h-4 w-4 shrink-0",
+                            isSelected ? "opacity-100" : "opacity-0",
+                          )}
+                        />
+                        <span
+                          className="mr-2 h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: person.color }}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            {person.name || person.email}
+                          </p>
+                          {person.name && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {person.email}
+                            </p>
+                          )}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+              <CommandGroup>
+                <CommandItem
+                  value="add-overlay-person"
+                  onSelect={() => {
+                    setOpen(false);
+                    setAddCalendarOpen(true);
+                  }}
+                >
+                  <IconPlus className="mr-2 h-4 w-4 shrink-0" />
+                  {t("bookingLinks.addOverlayPersonCta")}
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      <p className="text-xs text-muted-foreground">
+        {overlayPeople.length > 0
+          ? t("bookingLinks.overlayHostsHint")
+          : t("bookingLinks.noOverlayPeopleYet")}
+      </p>
+
       <div className="flex gap-2">
         <Input
           type="email"
-          value={input}
-          onChange={(event) => setInput(event.currentTarget.value)}
+          value={manualInput}
+          onChange={(event) => setManualInput(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              addHosts();
+              addManualEmails();
             }
           }}
           placeholder="teammate@example.com"
@@ -565,13 +699,14 @@ function BookingHostsEditor({
         <Button
           type="button"
           variant="outline"
-          onClick={addHosts}
-          disabled={!input.trim()}
+          onClick={addManualEmails}
+          disabled={!manualInput.trim()}
           className="shrink-0"
         >
-          {t("bookingLinks.add")}
+          {t("bookingLinks.addOtherEmail")}
         </Button>
       </div>
+
       {hosts.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {hosts.map((host) => (
@@ -599,6 +734,12 @@ function BookingHostsEditor({
           {t("bookingLinks.onlyYouRequired")}
         </p>
       )}
+
+      <AddCalendarDialog
+        open={addCalendarOpen}
+        onOpenChange={setAddCalendarOpen}
+        defaultTab="people"
+      />
     </div>
   );
 }

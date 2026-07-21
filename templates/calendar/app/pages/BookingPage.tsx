@@ -24,6 +24,10 @@ import {
 } from "@/components/booking/BookingForm";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
+import {
+  TimeZoneGrid,
+  type TimeZoneGridHost,
+} from "@/components/booking/TimeZoneGrid";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -104,6 +108,7 @@ export default function BookingPage() {
   const [step, setStep] = useState<Step>("date");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [showTimeZones, setShowTimeZones] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(
     null,
   );
@@ -250,6 +255,24 @@ export default function BookingPage() {
   const pageDescription = bookingLink?.description || description;
   const requiredHostCount = (bookingLink?.hosts?.length ?? 0) + 1;
   const availabilityErrorMessage = t("bookingLinks.availabilityUnavailable");
+  const timeZoneHosts: TimeZoneGridHost[] = [
+    ...(bookingLink?.ownerTimezone
+      ? [
+          {
+            id: "owner",
+            label: t("bookingLinks.hostLabel"),
+            timezone: bookingLink.ownerTimezone,
+          },
+        ]
+      : []),
+    ...(bookingLink?.hosts ?? [])
+      .filter((host) => host.timezone)
+      .map((host) => ({
+        id: host.email,
+        label: host.displayName || host.email,
+        timezone: host.timezone as string,
+      })),
+  ];
 
   useEffect(() => {
     if (hasDurationChoice && step === "date" && selectedDuration === null) {
@@ -453,18 +476,47 @@ export default function BookingPage() {
                   {t("bookingLinks.changeDate")}
                 </Button>
               </div>
-              {selectedDate && (
-                <p className="mb-4 text-sm text-muted-foreground">
-                  {format(selectedDate, "EEEE, MMMM d, yyyy")}
-                </p>
+              <div className="mb-4 flex items-center justify-between gap-2">
+                {selectedDate ? (
+                  <p className="text-sm text-muted-foreground">
+                    {format(selectedDate, "EEEE, MMMM d, yyyy")}
+                  </p>
+                ) : (
+                  <span />
+                )}
+                <Button
+                  variant="link"
+                  size="sm"
+                  className={BRAND_LINK_CLASS}
+                  onClick={() => setShowTimeZones((prev) => !prev)}
+                >
+                  {showTimeZones
+                    ? t("bookingLinks.hideTimeZones")
+                    : t("bookingLinks.showTimeZones")}
+                </Button>
+              </div>
+              {showTimeZones ? (
+                <TimeZoneGrid
+                  slots={slots}
+                  selectedSlot={selectedSlot}
+                  onSelect={handleSlotSelect}
+                  loading={slotsLoading}
+                  errorMessage={
+                    slotsError ? availabilityErrorMessage : undefined
+                  }
+                  hosts={timeZoneHosts}
+                />
+              ) : (
+                <TimeSlotPicker
+                  slots={slots}
+                  selectedSlot={selectedSlot}
+                  onSelect={handleSlotSelect}
+                  loading={slotsLoading}
+                  errorMessage={
+                    slotsError ? availabilityErrorMessage : undefined
+                  }
+                />
               )}
-              <TimeSlotPicker
-                slots={slots}
-                selectedSlot={selectedSlot}
-                onSelect={handleSlotSelect}
-                loading={slotsLoading}
-                errorMessage={slotsError ? availabilityErrorMessage : undefined}
-              />
             </div>
           )}
 

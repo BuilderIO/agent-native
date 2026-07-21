@@ -9634,8 +9634,7 @@ const translatedBookingHostAvailability = {
       overlayHostsPlaceholder:
         "Selecione pessoas que você adicionou ao seu calendário",
       overlayHostsEmpty: "Ninguém encontrado.",
-      noOverlayPeopleYet:
-        "Você ainda não adicionou colegas ao seu calendário.",
+      noOverlayPeopleYet: "Você ainda não adicionou colegas ao seu calendário.",
       addOverlayPersonCta: "Adicionar o calendário de um colega",
       addOtherEmail: "Adicionar outro e-mail",
       overlayHostsHint:
@@ -9663,24 +9662,6 @@ const translatedBookingHostAvailability = {
       youLabel: "你",
       hostLabel: "主持人",
       addTimeZone: "添加时区",
-      removeTimeZone: "移除 {{timezone}}",
-    },
-  },
-  "zh-TW": {
-    bookingLinks: {
-      overlayHostsLabel: "來自你的行事曆",
-      overlayHostsPlaceholder: "選取你已新增到行事曆的人",
-      overlayHostsEmpty: "未找到任何人。",
-      noOverlayPeopleYet: "你尚未在行事曆中新增任何同事。",
-      addOverlayPersonCta: "新增同事的行事曆",
-      addOtherEmail: "新增其他電子郵件",
-      overlayHostsHint:
-        "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
-      showTimeZones: "顯示時區",
-      hideTimeZones: "隱藏時區",
-      youLabel: "你",
-      hostLabel: "主持人",
-      addTimeZone: "新增時區",
       removeTimeZone: "移除 {{timezone}}",
     },
   },
@@ -9723,11 +9704,9 @@ const translatedBookingHostAvailability = {
   "hi-IN": {
     bookingLinks: {
       overlayHostsLabel: "आपके कैलेंडर से",
-      overlayHostsPlaceholder:
-        "उन लोगों को चुनें जिन्हें आपने अपने कैलेंडर में जोड़ा है",
+      overlayHostsPlaceholder: "उन लोगों को चुनें जिन्हें आपने अपने कैलेंडर में जोड़ा है",
       overlayHostsEmpty: "कोई नहीं मिला।",
-      noOverlayPeopleYet:
-        "आपने अभी तक अपने कैलेंडर में कोई सहकर्मी नहीं जोड़ा है।",
+      noOverlayPeopleYet: "आपने अभी तक अपने कैलेंडर में कोई सहकर्मी नहीं जोड़ा है।",
       addOverlayPersonCta: "किसी सहकर्मी का कैलेंडर जोड़ें",
       addOtherEmail: "एक और ईमेल जोड़ें",
       overlayHostsHint:
