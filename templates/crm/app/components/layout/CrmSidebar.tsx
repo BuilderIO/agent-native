@@ -8,7 +8,7 @@ import {
   IconUsers,
   IconViewfinder,
 } from "@tabler/icons-react";
-import { NavLink } from "react-router";
+import { Link, NavLink } from "react-router";
 
 import { cn } from "@/lib/utils";
 
@@ -67,10 +67,10 @@ export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {
           size="sm"
           className="justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
-          <a href="/settings/connections">
+          <Link to="/settings#connections" onClick={onNavigate}>
             <IconSettings className="size-4" />
             Connections
-          </a>
+          </Link>
         </Button>
       </div>
     </nav>

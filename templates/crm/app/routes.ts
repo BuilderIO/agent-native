@@ -9,5 +9,6 @@ export default [
   route("views", "./routes/views.tsx"),
   route("ask", "./routes/ask.tsx"),
   route("setup", "./routes/setup.tsx"),
+  route("settings/*", "./routes/settings.tsx"),
   route("agent", "./routes/agent.tsx"),
 ] satisfies RouteConfig;

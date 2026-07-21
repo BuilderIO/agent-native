@@ -1,6 +1,7 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { IconArrowUpRight, IconDatabaseOff } from "@tabler/icons-react";
+import { Link } from "react-router";
 
 export function PageHeader({
   eyebrow,
@@ -63,9 +64,9 @@ export function SetupEmptyState({
           {description}
         </p>
         <Button asChild variant="outline" className="mt-5 gap-2">
-          <a href="/settings/connections">
+          <Link to="/settings#connections">
             Open shared connections <IconArrowUpRight className="size-4" />
-          </a>
+          </Link>
         </Button>
       </div>
     </div>

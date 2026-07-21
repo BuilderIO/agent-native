@@ -11,6 +11,7 @@ const viewSchema = z.enum([
   "views",
   "ask",
   "setup",
+  "settings",
 ]);
 
 const paths = {
@@ -21,6 +22,7 @@ const paths = {
   views: "/views",
   ask: "/ask",
   setup: "/setup",
+  settings: "/settings",
 } as const;
 
 export default defineAction({

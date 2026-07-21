@@ -1,6 +1,13 @@
 import type { CrmKind } from "@/lib/types";
 
-export type CrmView = "work" | CrmKind | "record" | "views" | "ask" | "setup";
+export type CrmView =
+  | "work"
+  | CrmKind
+  | "record"
+  | "views"
+  | "ask"
+  | "setup"
+  | "settings";
 
 export const CRM_VIEW_PATHS: Record<Exclude<CrmView, "record">, string> = {
   work: "/",
@@ -10,6 +17,7 @@ export const CRM_VIEW_PATHS: Record<Exclude<CrmView, "record">, string> = {
   views: "/views",
   ask: "/ask",
   setup: "/setup",
+  settings: "/settings",
 };
 
 export function viewFromPath(pathname: string): CrmView {
@@ -20,6 +28,7 @@ export function viewFromPath(pathname: string): CrmView {
   if (pathname.startsWith("/views")) return "views";
   if (pathname.startsWith("/ask")) return "ask";
   if (pathname.startsWith("/setup")) return "setup";
+  if (pathname.startsWith("/settings")) return "settings";
   return "work";
 }
 

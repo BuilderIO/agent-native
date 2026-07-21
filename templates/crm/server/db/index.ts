@@ -1,3 +1,4 @@
+import { registerDataProgramsShareable } from "@agent-native/core/data-programs";
 import { createGetDb } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
@@ -5,6 +6,8 @@ import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
 export { schema };
+
+registerDataProgramsShareable();
 
 const registrations = [
   [
