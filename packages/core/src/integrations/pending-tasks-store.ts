@@ -316,7 +316,7 @@ export async function resolveIntegrationSourceContext(
           FROM integration_pending_tasks
           WHERE id = ?
             AND owner_email = ?
-            AND (org_id = ? OR (org_id IS NULL AND ? IS NULL))
+            AND (org_id = ? OR (org_id IS NULL AND CAST(? AS TEXT) IS NULL))
             AND platform = 'slack'
           LIMIT 1`,
     args: [id, ownerEmail, orgId, orgId],

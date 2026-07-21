@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
@@ -10,19 +9,15 @@ import {
   IconX,
   IconClock,
   IconMapPin,
-  IconUser,
   IconVideo,
   IconRefresh,
   IconBell,
-  IconChevronRight,
   IconLayoutSidebarRight,
   IconFileText,
   IconExternalLink,
   IconAlignLeft,
   IconPlus,
   IconBrandZoom,
-  IconMessage,
-  IconPalette,
   IconPaperclip,
   IconCalendarTime,
 } from "@tabler/icons-react";
@@ -42,14 +37,18 @@ import {
 } from "@/components/calendar/EventDescription";
 import {
   AttachmentControls,
-  EventColorSwatches,
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import {
+  DatePickerPopover,
+  RepeatPicker,
+  TimePickerPopover,
+  TimezonePickerPopover,
+} from "@/components/calendar/InlineEventPickers";
 import { WorkingLocationEditor } from "@/components/calendar/WorkingLocationEditor";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -78,13 +77,11 @@ import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { defaultColorForAccount } from "@/lib/calendar-view-preferences";
 import { shouldShowEventAccountSelector } from "@/lib/event-account-selection";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   attachmentsToDrafts,
   buildRecurrenceRules,
   buildReminderPayload,
   dateTimeInTimezoneToIso,
-  formatRecurrenceText,
   formatReminderText,
   getEventEndValidationMessage,
   getLocalTimezone,
@@ -312,6 +309,31 @@ type EventUpdatePatch = Partial<CalendarEvent> & {
   workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
   workingLocationLabel?: string;
 };
+
+interface TimeEditValues {
+  date: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  timezone: string;
+}
+
+function addMinutesToTimeValue(
+  date: string,
+  time: string,
+  minutes: number,
+): { date: string; time: string } {
+  const [hour, minute] = time.split(":").map(Number);
+  const total = (hour || 0) * 60 + (minute || 0) + minutes;
+  const dayOffset = Math.floor(total / (24 * 60));
+  const minuteOfDay = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  const nextDate = new Date(`${date}T00:00:00`);
+  nextDate.setDate(nextDate.getDate() + dayOffset);
+  return {
+    date: format(nextDate, "yyyy-MM-dd"),
+    time: `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`,
+  };
+}
 
 function mergeAttendeesForPrompt(
   existing: CalendarEvent["attendees"] | undefined,
@@ -569,8 +591,6 @@ export function EventDetailPopover({
   const [editMeetingLink, setEditMeetingLink] = useState("");
   const [editTimeScope, setEditTimeScope] =
     useState<UpdateEventScope>("single");
-  const [editRecurrencePreset, setEditRecurrencePreset] =
-    useState<RecurrencePreset>(() => getRecurrencePreset(event.recurrence));
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
     "meet" | "zoom" | null
   >(null);
@@ -591,9 +611,7 @@ export function EventDetailPopover({
   const isRecurringEvent = !!(
     event.recurringEventId || recurrenceRules?.length
   );
-  const recurrenceLoading =
-    isRecurringEvent && !recurrenceRules?.length && masterEvent.isLoading;
-  const canEditRecurrence = !isDraft && !isOverlay && !!recurrenceRules?.length;
+  const canEditRecurrence = !isOverlay && !isWorkingLocation;
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
@@ -649,10 +667,6 @@ export function EventDetailPopover({
     event.attachments,
     editableLocationValue,
   ]);
-
-  useEffect(() => {
-    setEditRecurrencePreset(getRecurrencePreset(recurrenceRules));
-  }, [recurrenceRules]);
 
   // When defaultOpen changes to true (new event created), open the popover
   useEffect(() => {
@@ -793,39 +807,6 @@ export function EventDetailPopover({
     setEditingField(null);
     return saved;
   }, [editAttachments, saveField]);
-
-  const handleColorChange = useCallback(
-    (nextColorId: string | undefined) => {
-      if (!nextColorId) return;
-      saveField({
-        colorId: nextColorId,
-        color: getGoogleEventColorHex(nextColorId),
-      });
-    },
-    [saveField],
-  );
-
-  const handleDraftDescription = useCallback(() => {
-    sendToAgentChat({
-      message: t("eventForm.ai.descriptionMessage", {
-        title: event.title,
-      }),
-      context: t("eventForm.ai.existingDescriptionContext", {
-        id: event.id,
-        title: event.title,
-        start: event.start,
-        end: event.end,
-        timezone: event.startTimeZone || getLocalTimezone(),
-        location: event.location || t("eventForm.ai.none"),
-        attendees:
-          (event.attendees ?? [])
-            .map((attendee) => attendee.email)
-            .join(", ") || t("eventForm.ai.none"),
-        description: event.description || t("eventForm.ai.empty"),
-      }),
-      submit: true,
-    });
-  }, [event, t]);
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -1030,64 +1011,166 @@ export function EventDetailPopover({
     [event, isDraft, onDraftUpdate, t, updateEvent],
   );
 
-  const handleSaveTime = useCallback(() => {
-    const normalizedEndDate = normalizeAllDayEditEndDate(
+  const saveTimeValues = useCallback(
+    (values: TimeEditValues) => {
+      const normalizedEndDate = normalizeAllDayEditEndDate(
+        isSingleDayWorkingLocation,
+        values.date,
+        values.endDate,
+      );
+      const allDayEnd = new Date(`${normalizedEndDate}T00:00:00`);
+      allDayEnd.setDate(allDayEnd.getDate() + 1);
+      const newStart = event.allDay
+        ? new Date(`${values.date}T00:00:00`).toISOString()
+        : dateTimeInTimezoneToIso(
+            values.date,
+            values.startTime,
+            values.timezone,
+          );
+      const newEnd = event.allDay
+        ? allDayEnd.toISOString()
+        : dateTimeInTimezoneToIso(
+            values.endDate,
+            values.endTime,
+            values.timezone,
+          );
+      if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
+        toast.error(
+          getEventEndValidationMessage({
+            allDay: event.allDay ?? false,
+            startDate: values.date,
+            endDate: values.endDate,
+            startTime: values.startTime,
+            endTime: values.endTime,
+          }),
+        );
+        return false;
+      }
+      let saved = false;
+      if (newStart !== event.start || newEnd !== event.end) {
+        saved = saveField({
+          start: newStart,
+          end: newEnd,
+          allDay: event.allDay,
+          startTimeZone: event.allDay ? undefined : values.timezone,
+          endTimeZone: event.allDay ? undefined : values.timezone,
+          scope: resolveTimeEditScope(
+            isRecurringEvent,
+            isSingleDayWorkingLocation,
+            editTimeScope,
+          ),
+        });
+      }
+      setEditTimeScope("single");
+      return saved;
+    },
+    [
+      event.start,
+      event.end,
+      event.allDay,
       isSingleDayWorkingLocation,
+      isRecurringEvent,
+      editTimeScope,
+      saveField,
+    ],
+  );
+
+  const handleInlineTimeChange = useCallback(
+    (field: "startTime" | "endTime", nextValue: string) => {
+      let nextDate = editDate;
+      let nextEndDate = editEndDate;
+      let nextStartTime = editStartTime;
+      let nextEndTime = editEndTime;
+
+      if (field === "startTime") {
+        nextStartTime = nextValue;
+        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
+          const duration = Math.max(
+            15,
+            differenceInMinutes(parseISO(event.end), parseISO(event.start)),
+          );
+          const nextEnd = addMinutesToTimeValue(
+            nextDate,
+            nextStartTime,
+            duration,
+          );
+          nextEndDate = nextEnd.date;
+          nextEndTime = nextEnd.time;
+        }
+      } else {
+        nextEndTime = nextValue;
+        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
+          const nextEnd = addMinutesToTimeValue(nextDate, nextEndTime, 24 * 60);
+          nextEndDate = nextEnd.date;
+        }
+      }
+
+      setEditDate(nextDate);
+      setEditEndDate(nextEndDate);
+      setEditStartTime(nextStartTime);
+      setEditEndTime(nextEndTime);
+      saveTimeValues({
+        date: nextDate,
+        endDate: nextEndDate,
+        startTime: nextStartTime,
+        endTime: nextEndTime,
+        timezone: editTimezone,
+      });
+    },
+    [
       editDate,
       editEndDate,
-    );
-    const allDayEnd = new Date(`${normalizedEndDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
-    const newStart = event.allDay
-      ? new Date(`${editDate}T00:00:00`).toISOString()
-      : dateTimeInTimezoneToIso(editDate, editStartTime, editTimezone);
-    const newEnd = event.allDay
-      ? allDayEnd.toISOString()
-      : dateTimeInTimezoneToIso(editEndDate, editEndTime, editTimezone);
-    if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
-      toast.error(
-        getEventEndValidationMessage({
-          allDay: event.allDay ?? false,
-          startDate: editDate,
-          endDate: editEndDate,
-          startTime: editStartTime,
-          endTime: editEndTime,
-        }),
-      );
-      return false;
-    }
-    let saved = false;
-    if (newStart !== event.start || newEnd !== event.end) {
-      saved = saveField({
-        start: newStart,
-        end: newEnd,
-        allDay: event.allDay,
-        startTimeZone: event.allDay ? undefined : editTimezone,
-        endTimeZone: event.allDay ? undefined : editTimezone,
-        scope: resolveTimeEditScope(
-          isRecurringEvent,
-          isSingleDayWorkingLocation,
-          editTimeScope,
-        ),
+      editStartTime,
+      editEndTime,
+      editTimezone,
+      event.end,
+      event.start,
+      saveTimeValues,
+    ],
+  );
+
+  const handleInlineDateChange = useCallback(
+    (field: "date" | "endDate", nextValue: string) => {
+      const nextDate = field === "date" ? nextValue : editDate;
+      const nextEndDate =
+        field === "endDate"
+          ? nextValue
+          : nextValue > editEndDate
+            ? nextValue
+            : editEndDate;
+      setEditDate(nextDate);
+      setEditEndDate(nextEndDate < nextDate ? nextDate : nextEndDate);
+      saveTimeValues({
+        date: nextDate,
+        endDate: nextEndDate < nextDate ? nextDate : nextEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+        timezone: editTimezone,
       });
-    }
-    setEditTimeScope("single");
-    setEditingField(null);
-    return saved;
-  }, [
-    editDate,
-    editEndDate,
-    editStartTime,
-    editEndTime,
-    editTimezone,
-    event.start,
-    event.end,
-    event.allDay,
-    isSingleDayWorkingLocation,
-    isRecurringEvent,
-    editTimeScope,
-    saveField,
-  ]);
+    },
+    [
+      editDate,
+      editEndDate,
+      editEndTime,
+      editStartTime,
+      editTimezone,
+      saveTimeValues,
+    ],
+  );
+
+  const handleInlineTimezoneChange = useCallback(
+    (nextTimezone: string) => {
+      setEditTimezone(nextTimezone);
+      saveTimeValues({
+        date: editDate,
+        endDate: editEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+        timezone: nextTimezone,
+      });
+    },
+    [editDate, editEndDate, editEndTime, editStartTime, saveTimeValues],
+  );
 
   const schedulingAttendees = useMemo(
     () =>
@@ -1132,27 +1215,29 @@ export function EventDetailPopover({
     [editTimeScope, findTimeTimezone, isRecurringEvent, saveField],
   );
 
-  const handleSaveRecurrence = useCallback(() => {
-    const recurrence = buildRecurrenceRules(
-      editRecurrencePreset,
-      masterEvent.data?.start || event.start,
-      masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
-    );
-    if (!recurrence) {
-      toast.error(t("eventForm.customRepeatGoogleCalendar"));
-      return;
-    }
-    saveField({ recurrence, scope: "all" });
-    setEditingField(null);
-  }, [
-    editRecurrencePreset,
-    editTimezone,
-    event.start,
-    event.startTimeZone,
-    masterEvent.data?.start,
-    masterEvent.data?.startTimeZone,
-    saveField,
-  ]);
+  const handleSaveRecurrence = useCallback(
+    (preset: RecurrencePreset) => {
+      const recurrence = buildRecurrenceRules(
+        preset,
+        masterEvent.data?.start || event.start,
+        masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
+      );
+      if (!recurrence) {
+        toast.error(t("eventForm.customRepeatGoogleCalendar"));
+        return;
+      }
+      saveField({ recurrence, scope: "all" });
+    },
+    [
+      editTimezone,
+      event.start,
+      event.startTimeZone,
+      masterEvent.data?.start,
+      masterEvent.data?.startTimeZone,
+      saveField,
+      t,
+    ],
+  );
 
   const handleAddAttendee = useCallback(
     (attendee: AttendeeRecipient) => {
@@ -1275,10 +1360,6 @@ export function EventDetailPopover({
   const locationIsUrl = event.location ? isUrl(event.location) : false;
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
-  const recurrenceText = recurrenceLoading
-    ? t("eventForm.loadingRepeat")
-    : formatRecurrenceText(recurrenceRules) ||
-      (isRecurringEvent ? t("eventForm.repeats") : null);
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       const isPopoverSuppressed =
@@ -1302,8 +1383,6 @@ export function EventDetailPopover({
           savedPendingChange = handleSaveDescription() || savedPendingChange;
         } else if (editingField === "location") {
           savedPendingChange = handleSaveLocation() || savedPendingChange;
-        } else if (editingField === "time") {
-          savedPendingChange = handleSaveTime() || savedPendingChange;
         } else if (editingField === "meetingLink") {
           savedPendingChange = handleSaveMeetingLink() || savedPendingChange;
         } else if (editingField === "reminders") {
@@ -1336,7 +1415,6 @@ export function EventDetailPopover({
       editingField,
       handleSaveDescription,
       handleSaveLocation,
-      handleSaveTime,
       handleSaveMeetingLink,
       handleSaveReminders,
       handleSaveAttachments,
@@ -1396,7 +1474,8 @@ export function EventDetailPopover({
           const target = e.target as HTMLElement;
           if (
             target.closest("[data-apollo-popover]") ||
-            target.closest("[data-attendee-autocomplete]")
+            target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-time-picker-popover]")
           ) {
             e.preventDefault();
             return;
@@ -1414,9 +1493,7 @@ export function EventDetailPopover({
                   ? t("eventForm.workingLocation")
                   : isOutOfOffice
                     ? t("eventForm.outOfOffice")
-                    : isDraft
-                      ? t("eventForm.draftEvent")
-                      : t("eventForm.event")}
+                    : t("eventForm.event")}
               </span>
             </div>
             <div className="flex items-center gap-0.5">
@@ -1524,185 +1601,112 @@ export function EventDetailPopover({
                 />
               )}
 
-              {/* Time — editable */}
-              {editingField === "time" ? (
-                <div className="flex items-start gap-3 py-1.5">
-                  <IconClock className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="flex-1 space-y-2">
-                    <div
-                      className={`grid gap-2 ${
-                        isSingleDayWorkingLocation
-                          ? "grid-cols-1"
-                          : "grid-cols-2"
-                      }`}
-                    >
-                      <input
-                        type="date"
+              {/* Time, date, timezone, and repeat stay editable in place. */}
+              <div className="flex items-start gap-3 rounded-md py-1.5">
+                <IconClock className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  {event.allDay ? (
+                    <div className="flex flex-wrap items-center gap-1 text-sm">
+                      <span className="text-muted-foreground">
+                        {t("eventForm.allDay")}
+                      </span>
+                      <DatePickerPopover
                         value={editDate}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setEditDate(next);
-                          setEditEndDate((current) =>
-                            // i18n-ignore -- this expression selects a date; it is not visible copy.
-                            isSingleDayWorkingLocation
-                              ? next
-                              : current < next
-                                ? next
-                                : current,
-                          );
-                        }}
-                        className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                        aria-label={t("eventForm.startDate")}
+                        label={t("eventForm.startDate")}
+                        onChange={(value) =>
+                          handleInlineDateChange("date", value)
+                        }
                       />
-                      {!isSingleDayWorkingLocation && (
-                        <input
-                          type="date"
-                          min={editDate}
-                          value={editEndDate}
-                          onChange={(e) =>
-                            setEditEndDate(e.target.value || editDate)
-                          }
-                          className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                          aria-label={t("eventForm.endDate")}
-                        />
-                      )}
-                    </div>
-                    {!event.allDay && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="time"
-                          value={editStartTime}
-                          onChange={(e) => setEditStartTime(e.target.value)}
-                          className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                        />
-                        <span className="text-muted-foreground/50 text-xs">
-                          &rarr;
-                        </span>
-                        <input
-                          type="time"
-                          value={editEndTime}
-                          onChange={(e) => setEditEndTime(e.target.value)}
-                          className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                        />
-                      </div>
-                    )}
-                    {!event.allDay && (
-                      <TimezoneCombobox
-                        id={`event-timezone-${event.id}`}
-                        value={editTimezone}
-                        onChange={setEditTimezone}
-                      />
-                    )}
-                    {isRecurringEvent &&
-                      !isDraft &&
-                      !isSingleDayWorkingLocation && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
-                            {t("eventForm.applyTo")}
-                          </span>
-                          <Select
-                            value={editTimeScope}
-                            onValueChange={(value) =>
-                              setEditTimeScope(value as UpdateEventScope)
+                      {editEndDate !== editDate && (
+                        <>
+                          <span className="text-muted-foreground/50">→</span>
+                          <DatePickerPopover
+                            value={editEndDate}
+                            label={t("eventForm.endDate")}
+                            onChange={(value) =>
+                              handleInlineDateChange("endDate", value)
                             }
-                          >
-                            <SelectTrigger className="h-7 flex-1 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="single">
-                                {isWorkingLocation
-                                  ? t("eventForm.thisDayOnly")
-                                  : t("eventForm.thisEvent")}
-                              </SelectItem>
-                              <SelectItem value="all">
-                                {isWorkingLocation
-                                  ? t("eventForm.allDays")
-                                  : t("eventForm.allEvents")}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                          />
+                        </>
                       )}
-                    <div className="flex justify-end gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => {
-                          setEditDate(toDateInputValue(event.start));
-                          setEditEndDate(
-                            event.allDay
-                              ? toAllDayEndDateInputValue(event.end)
-                              : toDateInputValue(event.end),
-                          );
-                          setEditStartTime(toTimeInputValue(event.start));
-                          setEditEndTime(toTimeInputValue(event.end));
-                          setEditTimezone(
-                            event.startTimeZone || getLocalTimezone(),
-                          );
-                          setEditTimeScope("single");
-                          setEditingField(null);
-                        }}
-                      >
-                        {t("eventForm.cancel")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={handleSaveTime}
-                      >
-                        {t("eventForm.save")}
-                      </Button>
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className={`flex items-start gap-3 py-1.5 rounded-md px-0 -mx-0 ${!isOverlay ? "cursor-pointer hover:bg-muted/50" : ""}`}
-                  onClick={() => {
-                    if (isOverlay) return;
-                    setEditingField("time");
-                  }}
-                >
-                  <IconClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="text-sm">
-                    {event.allDay ? (
-                      <div>
-                        <span className="text-foreground">
-                          {t("eventForm.allDay")}
-                        </span>
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          {formatEventDateRange(
-                            event.start,
-                            event.end,
-                            event.allDay,
-                          )}
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-baseline gap-1">
+                        <TimePickerPopover
+                          value={editStartTime}
+                          label={t("eventForm.start")}
+                          onChange={(value) =>
+                            handleInlineTimeChange("startTime", value)
+                          }
+                        />
+                        <span className="text-muted-foreground/50">→</span>
+                        <TimePickerPopover
+                          value={editEndTime}
+                          label={t("eventForm.end")}
+                          getOptionMeta={(value) => {
+                            const [hour, minute] = value.split(":").map(Number);
+                            const [startHour, startMinute] = editStartTime
+                              .split(":")
+                              .map(Number);
+                            const duration =
+                              hour * 60 +
+                              minute -
+                              (startHour * 60 + startMinute) +
+                              (editEndDate !== editDate ? 24 * 60 : 0);
+                            if (duration <= 0) return undefined;
+                            if (duration < 60) return `${duration}min`;
+                            const hours = Math.floor(duration / 60);
+                            const minutes = duration % 60;
+                            return minutes
+                              ? `${hours}h ${minutes}min`
+                              : `${hours}h`;
+                          }}
+                          onChange={(value) =>
+                            handleInlineTimeChange("endTime", value)
+                          }
+                        />
+                        <span className="text-xs text-muted-foreground/70">
+                          {formatDuration(event.start, event.end)}
                         </span>
                       </div>
-                    ) : (
-                      <>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-foreground font-medium">
-                            {formatTimeShort(event.start)}
-                          </span>
-                          <span className="text-muted-foreground/50 mx-0.5">
-                            &rarr;
-                          </span>
-                          <span className="text-foreground font-medium">
-                            {formatTimeShort(event.end)}
-                          </span>
-                          <span className="text-muted-foreground/50 text-xs ml-1">
-                            {formatDuration(event.start, event.end)}
-                          </span>
-                        </div>
-                        <div className="text-muted-foreground text-xs mt-0.5">
-                          {formatEventDateRange(event.start, event.end)}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-sm">
+                        <DatePickerPopover
+                          value={editDate}
+                          label={t("eventForm.startDate")}
+                          onChange={(value) =>
+                            handleInlineDateChange("date", value)
+                          }
+                        />
+                        {editEndDate !== editDate && (
+                          <>
+                            <span className="text-muted-foreground/50">→</span>
+                            <DatePickerPopover
+                              value={editEndDate}
+                              label={t("eventForm.endDate")}
+                              onChange={(value) =>
+                                handleInlineDateChange("endDate", value)
+                              }
+                            />
+                          </>
+                        )}
+                      </div>
+                      <TimezonePickerPopover
+                        value={editTimezone}
+                        label={t("eventForm.timezone")}
+                        onChange={handleInlineTimezoneChange}
+                      />
+                    </>
+                  )}
                 </div>
+              </div>
+
+              {canEditRecurrence && (
+                <RepeatPicker
+                  preset={getRecurrencePreset(recurrenceRules)}
+                  referenceDate={event.start}
+                  onChange={handleSaveRecurrence}
+                />
               )}
 
               {!event.allDay && !isOverlay && !isWorkingLocation && (
@@ -1741,93 +1745,6 @@ export function EventDetailPopover({
                 />
               )}
 
-              {/* Recurrence */}
-              {editingField === "recurrence" ? (
-                <div className="flex items-start gap-3 py-1.5">
-                  <IconRefresh className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="flex-1 space-y-2">
-                    <Select
-                      value={editRecurrencePreset}
-                      onValueChange={(value) =>
-                        setEditRecurrencePreset(value as RecurrencePreset)
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">
-                          {t("eventForm.doesNotRepeat")}
-                        </SelectItem>
-                        <SelectItem value="daily">
-                          {t("eventForm.daily")}
-                        </SelectItem>
-                        <SelectItem value="weekdays">
-                          {t("eventForm.everyWeekday")}
-                        </SelectItem>
-                        <SelectItem value="weekly">
-                          {t("eventForm.weekly")}
-                        </SelectItem>
-                        <SelectItem value="monthly">
-                          {t("eventForm.monthly")}
-                        </SelectItem>
-                        <SelectItem value="yearly">
-                          {t("eventForm.yearly")}
-                        </SelectItem>
-                        {editRecurrencePreset === "custom" && (
-                          <SelectItem value="custom" disabled>
-                            {t("eventForm.customSchedule")}
-                          </SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <div className="flex justify-end gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => {
-                          setEditRecurrencePreset(
-                            getRecurrencePreset(recurrenceRules),
-                          );
-                          setEditingField(null);
-                        }}
-                      >
-                        {t("eventForm.cancel")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={handleSaveRecurrence}
-                        disabled={editRecurrencePreset === "custom"}
-                      >
-                        {t("eventForm.save")}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : recurrenceText ? (
-                <button
-                  type="button"
-                  className={`group flex w-full items-center gap-3 rounded-md py-1.5 text-left ${canEditRecurrence ? "cursor-pointer hover:bg-muted/50" : ""}`}
-                  onClick={() => {
-                    if (!canEditRecurrence) return;
-                    setEditRecurrencePreset(
-                      getRecurrencePreset(recurrenceRules),
-                    );
-                    setEditingField("recurrence");
-                  }}
-                >
-                  <IconRefresh className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {recurrenceText}
-                  </span>
-                  {canEditRecurrence && (
-                    <IconChevronRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
-                  )}
-                </button>
-              ) : null}
-
               {isWorkingLocation && (
                 <WorkingLocationEditor
                   event={event}
@@ -1851,15 +1768,6 @@ export function EventDetailPopover({
                     canEditOptional={!isOverlay}
                     onToggleOptional={handleToggleAttendeeOptional}
                   />
-                ) : !isOverlay ? (
-                  <div className="px-4 py-1">
-                    <div className="flex items-start gap-3">
-                      <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground/60">
-                        {t("eventForm.noGuests")}
-                      </span>
-                    </div>
-                  </div>
                 ) : null}
 
                 {/* Add guest input */}
@@ -1872,7 +1780,7 @@ export function EventDetailPopover({
                           (attendee) => attendee.email,
                         )}
                         onAdd={handleAddAttendee}
-                        placeholder={t("eventForm.addGuests")}
+                        placeholder={t("eventForm.addGuest")}
                         variant="inline"
                         showChips={false}
                         showAddButton
@@ -1897,7 +1805,6 @@ export function EventDetailPopover({
                   <ExtensionSlot
                     id="calendar.event-detail.bottom"
                     context={buildEventDetailSlotContext(event)}
-                    showEmptyAffordance
                   />
                 </div>
               </>
@@ -2269,18 +2176,6 @@ export function EventDetailPopover({
                   <div className="flex items-start gap-3">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
-                      {!isOverlay && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="mb-1 h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-                          onClick={handleDraftDescription}
-                        >
-                          <IconMessage className="h-3 w-3" />
-                          {t("eventForm.askAi")}
-                        </Button>
-                      )}
                       {isOverlay ? (
                         event.description ? (
                           <RenderedDescription
@@ -2464,13 +2359,6 @@ export function EventDetailPopover({
                           </SelectContent>
                         </Select>
                       </div>
-                    </div>
-                    <div className="mt-2 flex items-center gap-3">
-                      <IconPalette className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <EventColorSwatches
-                        value={event.colorId}
-                        onChange={handleColorChange}
-                      />
                     </div>
                   </div>
                 </>

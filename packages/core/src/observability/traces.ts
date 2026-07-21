@@ -27,6 +27,9 @@ function costUsdFromCenticents(value: number): number {
 }
 
 const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
+const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
+const STANDALONE_API_KEY_PATTERN =
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 
 type GenerationToolCall = {
   name: string;
@@ -34,7 +37,34 @@ type GenerationToolCall = {
   duration_ms: number;
   status: "success" | "error";
   error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_message?: string;
 };
+
+function truncateToolErrorMessage(value: string): string {
+  return value.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
+    : value;
+}
+
+function redactToolErrorMessage(value: string): string {
+  const credentialName =
+    "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
+  const labeledCredential = `(["']?\\b(?:${credentialName})\\b["']?\\s*[:=]\\s*["']?)`;
+  return value
+    .replace(
+      new RegExp(
+        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
+        "gi",
+      ),
+      "$1[REDACTED]",
+    )
+    .replace(
+      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
+      "$1[REDACTED]",
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
+    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+}
 
 function emitLlmGenerationTrackingEvent(args: {
   runId: string;
@@ -439,6 +469,10 @@ export async function instrumentAgentLoop(opts: {
               : explicitError
                 ? "tool_error"
                 : "legacy_inferred_error",
+            error_message:
+              isError && config.captureToolResults
+                ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
+                : undefined,
           });
         }
 
@@ -532,6 +566,7 @@ export async function instrumentAgentLoop(opts: {
       for (const [counter, pending] of pendingTools) {
         toolCallCount += 1;
         failedTools += 1;
+        const interruptedMessage = "Tool call interrupted before completion";
         if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
           generationToolCalls.set(counter, {
             name: pending.toolName,
@@ -539,9 +574,11 @@ export async function instrumentAgentLoop(opts: {
             duration_ms: Math.max(0, runEnd - pending.startMs),
             status: "error",
             error_class: "interrupted",
+            error_message: config.captureToolResults
+              ? interruptedMessage
+              : undefined,
           });
         }
-        const interruptedMessage = "Tool call interrupted before completion";
         if (pending.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
           endAgentSpan(pending.otelSpan, {

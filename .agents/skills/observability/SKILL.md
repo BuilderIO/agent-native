@@ -32,7 +32,7 @@ await putSetting("observability-config", {
   enabled: true,
   capturePrompts: false,
   captureToolArgs: true,    // capture action input args
-  captureToolResults: false,
+  captureToolResults: false, // include failed tool error text on tracked $ai_generation tool call entries
   evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
   inferredSentimentEnabled: false,
   inferredSentimentSampleRate: 0,

@@ -284,9 +284,14 @@ function emitTelemetry(
 function requestTelemetryState(
   event: H3Event,
 ): HttpRequestTelemetryState | undefined {
-  return (event.context as Record<PropertyKey, unknown>)[
+  return (event.context as Record<PropertyKey, unknown> | undefined)?.[
     REQUEST_TELEMETRY_KEY
   ] as HttpRequestTelemetryState | undefined;
+}
+
+/** Return the durable request id while a request is still being handled. */
+export function getHttpRequestTelemetryId(event: H3Event): string | undefined {
+  return requestTelemetryState(event)?.requestId;
 }
 
 function appendServerTiming(

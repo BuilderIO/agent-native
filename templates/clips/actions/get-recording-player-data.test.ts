@@ -8,6 +8,7 @@ const { MockForbiddenError } = vi.hoisted(() => {
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockIsAgentRecordingCaller = vi.hoisted(() => vi.fn());
 const mockShareLimit = vi.hoisted(() => vi.fn(async () => []));
 const mockShareQuery = vi.hoisted(() => {
   const query = {
@@ -68,6 +69,11 @@ vi.mock("../server/db/index.js", () => ({
       principalId: "recordingShares.principalId",
       resourceId: "recordingShares.resourceId",
     },
+    recordingViewers: {
+      id: "recordingViewers.id",
+      recordingId: "recordingViewers.recordingId",
+      viewerEmail: "recordingViewers.viewerEmail",
+    },
     recordingTranscripts: { recordingId: "recordingTranscripts.recordingId" },
     recordingComments: {
       recordingId: "recordingComments.recordingId",
@@ -92,6 +98,11 @@ vi.mock("../server/db/index.js", () => ({
       recordingId: "meetings.recordingId",
     },
   },
+}));
+
+vi.mock("../server/lib/agent-recording-access.js", () => ({
+  isAgentRecordingCaller: (...args: unknown[]) =>
+    mockIsAgentRecordingCaller(...args),
 }));
 
 vi.mock("../server/lib/player-video-url.js", () => ({
@@ -134,6 +145,9 @@ describe("get-recording-player-data direct public access", () => {
     vi.clearAllMocks();
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
     mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsAgentRecordingCaller.mockImplementation(
+      (caller: string | undefined) => caller === "tool",
+    );
     mockShareLimit.mockResolvedValue([]);
   });
 
@@ -160,4 +174,22 @@ describe("get-recording-player-data direct public access", () => {
       expect(mockShareLimit).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("keeps password-protected public recordings on the share flow for agents", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        visibility: "public",
+        password: "protected",
+        expiresAt: null,
+      },
+    });
+
+    await expect(
+      action.run({ recordingId: "rec-1" }, { caller: "tool" } as never),
+    ).rejects.toThrow(
+      "Open this recording from its share link instead of the direct recording URL",
+    );
+  });
 });

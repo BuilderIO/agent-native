@@ -243,7 +243,7 @@ export async function getRemoteDeviceForOwner(input: {
     sql: `SELECT * FROM integration_remote_devices
           WHERE id = ?
             AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           LIMIT 1`,
     args: [
       input.id,
@@ -287,7 +287,7 @@ export async function listRemoteDevicesForOwner(input: {
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_remote_devices
           WHERE owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)${statusClause}
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)${statusClause}
           ORDER BY COALESCE(last_seen_at, updated_at) DESC
           LIMIT ?`,
     args,
@@ -379,7 +379,7 @@ export async function revokeRemoteDeviceForOwner(input: {
               updated_at = ?
           WHERE id = ?
             AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)`,
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)`,
     args: [
       now,
       now,

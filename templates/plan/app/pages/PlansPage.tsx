@@ -270,6 +270,7 @@ import {
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
 import {
+  fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
   localNetworkAccessPermissionState,
   localPlanBridgeUrlFromLocation,
@@ -2082,26 +2083,24 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   // Bridge bundles carry no comments; load comments.json from the colocated
   // folder so they render and survive refresh in bridge mode too.
-  const localPlanBridgeCommentsQuery = useActionQuery<LocalPlanBundle>(
-    "get-local-plan-folder",
-    localPlanBundleQueryParams(localPlanSlug ?? "", localPlanRepoPath),
-    {
-      enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
-      refetchInterval: false,
-      retry: false,
-    },
-  );
+  const localPlanBridgeCommentsQuery = useQuery<LocalPlanBundle["comments"]>({
+    queryKey: ["local-plan-bridge-comments", localPlanBridgeUrl],
+    enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
+    refetchInterval: false,
+    retry: false,
+    queryFn: () => fetchLocalPlanBridgeComments(localPlanBridgeUrl ?? ""),
+  });
   const localPlanData = useMemo(
     () =>
       localPlanBridgeUrl
         ? mergeLocalBridgeComments(
             localPlanBridgeQuery.data,
-            localPlanBridgeCommentsQuery.data?.comments,
+            localPlanBridgeCommentsQuery.data,
           )
         : localPlanQuery.data,
     [
       localPlanBridgeQuery.data,
-      localPlanBridgeCommentsQuery.data?.comments,
+      localPlanBridgeCommentsQuery.data,
       localPlanBridgeUrl,
       localPlanQuery.data,
     ],

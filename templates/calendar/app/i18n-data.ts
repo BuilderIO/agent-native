@@ -703,6 +703,7 @@ const enUS = {
     addCalendar: "Add Calendar",
     addCalendarFailed: "Failed to add calendar",
     addCalendarFromUrl: "Add calendar from URL",
+    addGuest: "Add guest",
     addGuests: "Add guests",
     addNote: "Add note",
     addLocation: "Add location",
@@ -766,6 +767,7 @@ const enUS = {
     eventTitlePlaceholder: "Event title",
     events: "Events",
     everyWeekday: "Every weekday",
+    everyTwoWeeks: "Every 2 weeks",
     findTime: "Find a time",
     focusTime: "Focus time",
     focusTimeTimedOnly:
@@ -821,6 +823,7 @@ const enUS = {
     quickCreate: "Quick create",
     recurringResponseScope: "Recurring response scope",
     repeats: "Repeats",
+    repeat: "Repeat",
     reviewInvite: "Review Invite",
     responseAwaitingCount: "{{count}} awaiting",
     responseMaybeCount: "{{count}} maybe",
@@ -872,6 +875,10 @@ const enUS = {
     viewingOwnerCalendar: "Viewing {{owner}}'s calendar",
     yourResponse: "Your response: {{status}}",
     visibility: "Visibility",
+    onDate: "on {{date}}",
+    onDay: "on {{day}}",
+    onMonthDay: "on the {{day}}",
+    weekdaysShort: "Mon–Fri",
     weekly: "Weekly",
     workingFrom: "Working from",
     workingLocation: "Working location",
@@ -6122,6 +6129,108 @@ const translatedCalendarDebtTranslations = {
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
+const translatedCalendarInlineEditorLabels = {
+  "zh-CN": {
+    eventForm: {
+      addGuest: "添加客人",
+      everyTwoWeeks: "每两周",
+      repeat: "重复",
+      onDate: "于 {{date}}",
+      onDay: "于 {{day}}",
+      onMonthDay: "于 {{day}}日",
+      weekdaysShort: "周一至周五",
+    },
+  },
+  "es-ES": {
+    eventForm: {
+      addGuest: "Añadir invitado",
+      everyTwoWeeks: "Cada 2 semanas",
+      repeat: "Repetir",
+      onDate: "el {{date}}",
+      onDay: "el {{day}}",
+      onMonthDay: "el día {{day}}",
+      weekdaysShort: "lun–vie",
+    },
+  },
+  "fr-FR": {
+    eventForm: {
+      addGuest: "Ajouter un invité",
+      everyTwoWeeks: "Toutes les 2 semaines",
+      repeat: "Répéter",
+      onDate: "le {{date}}",
+      onDay: "le {{day}}",
+      onMonthDay: "le {{day}}",
+      weekdaysShort: "lun–ven",
+    },
+  },
+  "de-DE": {
+    eventForm: {
+      addGuest: "Gast hinzufügen",
+      everyTwoWeeks: "Alle 2 Wochen",
+      repeat: "Wiederholen",
+      onDate: "am {{date}}",
+      onDay: "am {{day}}",
+      onMonthDay: "am {{day}}.",
+      weekdaysShort: "Mo–Fr",
+    },
+  },
+  "ja-JP": {
+    eventForm: {
+      addGuest: "ゲストを追加",
+      everyTwoWeeks: "2週間ごと",
+      repeat: "繰り返し",
+      onDate: "{{date}}",
+      onDay: "{{day}}に",
+      onMonthDay: "{{day}}日",
+      weekdaysShort: "月〜金",
+    },
+  },
+  "ko-KR": {
+    eventForm: {
+      addGuest: "게스트 추가",
+      everyTwoWeeks: "2주마다",
+      repeat: "반복",
+      onDate: "{{date}}",
+      onDay: "{{day}}에",
+      onMonthDay: "{{day}}일",
+      weekdaysShort: "월–금",
+    },
+  },
+  "pt-BR": {
+    eventForm: {
+      addGuest: "Adicionar convidado",
+      everyTwoWeeks: "A cada 2 semanas",
+      repeat: "Repetir",
+      onDate: "em {{date}}",
+      onDay: "em {{day}}",
+      onMonthDay: "no dia {{day}}",
+      weekdaysShort: "seg–sex",
+    },
+  },
+  "hi-IN": {
+    eventForm: {
+      addGuest: "अतिथि जोड़ें",
+      everyTwoWeeks: "हर 2 सप्ताह",
+      repeat: "दोहराएं",
+      onDate: "{{date}} को",
+      onDay: "{{day}} को",
+      onMonthDay: "{{day}} को",
+      weekdaysShort: "सोम–शुक्र",
+    },
+  },
+  "ar-SA": {
+    eventForm: {
+      addGuest: "إضافة ضيف",
+      everyTwoWeeks: "كل أسبوعين",
+      repeat: "تكرار",
+      onDate: "في {{date}}",
+      onDay: "في {{day}}",
+      onMonthDay: "في اليوم {{day}}",
+      weekdaysShort: "الإثنين–الجمعة",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 const translatedCalendarRemainingRaw = {
   "zh-CN": {
     agentSidebar: {
@@ -9555,6 +9664,7 @@ function applyTranslatedCalendarOverrides(
 
 applyTranslatedCalendarOverrides(translatedCalendarExtras);
 applyTranslatedCalendarOverrides(translatedCalendarDebtTranslations);
+applyTranslatedCalendarOverrides(translatedCalendarInlineEditorLabels);
 applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);

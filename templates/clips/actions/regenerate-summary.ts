@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import cleanupTranscript from "./cleanup-transcript.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
@@ -62,6 +63,37 @@ export default defineAction({
         reason: "transcript_not_ready",
         recordingId: args.recordingId,
         transcriptStatus: transcript?.status ?? "missing",
+      };
+    }
+
+    if (!includeFullVideoInAi) {
+      const result = await cleanupTranscript.run({
+        transcript: transcript?.fullText ?? "",
+        task: "summary",
+        context: `Clip title: ${rec.title}`,
+      });
+      const description = result.summaryMd?.trim();
+      if (!description) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "summary_empty",
+          recordingId: args.recordingId,
+          provider: result.provider,
+        };
+      }
+
+      await db
+        .update(schema.recordings)
+        .set({ description, updatedAt: new Date().toISOString() })
+        .where(eq(schema.recordings.id, args.recordingId));
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      return {
+        updated: true,
+        recordingId: args.recordingId,
+        description,
+        provider: result.provider,
       };
     }
 

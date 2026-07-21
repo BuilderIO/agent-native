@@ -539,7 +539,6 @@ export function EventDetailPanel({
                   <ExtensionSlot
                     id="calendar.event-detail.bottom"
                     context={eventDetailSlotContext}
-                    showEmptyAffordance
                   />
                 )}
               </div>
