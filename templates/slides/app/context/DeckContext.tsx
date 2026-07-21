@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/client/collab";
 import { callAction } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useOrg } from "@agent-native/core/client/org";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -950,6 +951,7 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
 };
 
 export function DeckProvider({ children }: { children: ReactNode }) {
+  const { data: org } = useOrg();
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -1268,6 +1270,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
   }, [resetDeckBaseline]);
+
+  // Switching orgs re-scopes list-decks server-side but leaves this context's
+  // in-memory list untouched, so the previous org's decks linger. Reload when
+  // the org id actually changes; skip the first observed id so we don't double
+  // up on the mount fetch above.
+  const lastOrgIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const orgId = org?.orgId ?? null;
+    if (lastOrgIdRef.current === undefined) {
+      lastOrgIdRef.current = orgId;
+      return;
+    }
+    if (lastOrgIdRef.current === orgId) return;
+    lastOrgIdRef.current = orgId;
+    void reloadDecks();
+  }, [org?.orgId, reloadDecks]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle
