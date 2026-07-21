@@ -106,6 +106,11 @@ function createPage(
     readyWaitFails?: boolean;
     screenshot?: Buffer;
     pageUrl?: string;
+    gotoError?: Error;
+    cookieError?: Error;
+    captureBox?: { width: number; height: number };
+    renderedPanelIds?: string[];
+    unresponsive?: boolean;
   } = {},
 ) {
   const locator = {
@@ -113,18 +118,24 @@ function createPage(
       if (options.waitForFails)
         throw new Error("Target page, context or browser has been closed");
     }),
-    boundingBox: vi.fn(async () => ({ width: 960, height: 1200 })),
+    boundingBox: vi.fn(
+      async () => options.captureBox ?? { width: 960, height: 1200 },
+    ),
     scrollIntoViewIfNeeded: vi.fn(async () => {}),
     screenshot: vi.fn(async () => options.screenshot ?? Buffer.from("png")),
   };
-  const addCookies = vi.fn(async () => {});
+  const addCookies = vi.fn(async () => {
+    if (options.cookieError) throw options.cookieError;
+  });
   return {
     page: {
       close: vi.fn(async () => {}),
       setDefaultTimeout: vi.fn(),
       emulateMedia: vi.fn(async () => {}),
       addInitScript: vi.fn(async () => {}),
-      goto: vi.fn(async (_url: string, _options: unknown) => {}),
+      goto: vi.fn(async (_url: string, _options: unknown) => {
+        if (options.gotoError) throw options.gotoError;
+      }),
       locator: vi.fn(() => locator),
       waitForFunction: vi.fn(async () => {
         if (options.readyWaitFails) {
@@ -132,6 +143,12 @@ function createPage(
         }
       }),
       evaluate: vi.fn(async (script: string) => {
+        if (options.unresponsive && script === "1") {
+          return new Promise(() => {});
+        }
+        if (script.includes("data-dashboard-report-panel-ids")) {
+          return JSON.stringify(options.renderedPanelIds ?? ["panel-0"]);
+        }
         if (script.includes("data-dashboard-report-ready")) {
           return {
             ready: "true",
@@ -206,11 +223,27 @@ describe("dashboard report email", () => {
 
   it("captures every chunk in one browser, closes each page, and attaches CID images in order", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(39));
-    const first = createPage({ screenshot: Buffer.from("first") });
-    const second = createPage({ screenshot: Buffer.from("second") });
-    const third = createPage({ screenshot: Buffer.from("third") });
-    const fourth = createPage({ screenshot: Buffer.from("fourth") });
-    const fifth = createPage({ screenshot: Buffer.from("fifth") });
+    const ids = Array.from({ length: 39 }, (_, index) => `panel-${index}`);
+    const first = createPage({
+      screenshot: Buffer.from("first"),
+      renderedPanelIds: ids.slice(0, 8),
+    });
+    const second = createPage({
+      screenshot: Buffer.from("second"),
+      renderedPanelIds: ids.slice(8, 16),
+    });
+    const third = createPage({
+      screenshot: Buffer.from("third"),
+      renderedPanelIds: ids.slice(16, 24),
+    });
+    const fourth = createPage({
+      screenshot: Buffer.from("fourth"),
+      renderedPanelIds: ids.slice(24, 32),
+    });
+    const fifth = createPage({
+      screenshot: Buffer.from("fifth"),
+      renderedPanelIds: ids.slice(32),
+    });
     const { browser } = createBrowser([first, second, third, fourth, fifth]);
     mocks.launch.mockResolvedValue(browser);
 
@@ -283,8 +316,16 @@ describe("dashboard report email", () => {
 
   it("fails the entire screenshot when any chunk fails and never sends partial images", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(9));
-    const first = createPage();
-    const failed = createPage({ waitForFails: true });
+    const first = createPage({
+      renderedPanelIds: Array.from(
+        { length: 8 },
+        (_, index) => `panel-${index}`,
+      ),
+    });
+    const failed = createPage({
+      waitForFails: true,
+      renderedPanelIds: ["panel-8"],
+    });
     const { browser } = createBrowser([first, failed]);
     mocks.launch.mockResolvedValue(browser);
 
@@ -320,8 +361,13 @@ describe("dashboard report email", () => {
 
   it("pre-seeds each chunk's signed embed token before navigation", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(9));
-    const first = createPage();
-    const second = createPage();
+    const first = createPage({
+      renderedPanelIds: Array.from(
+        { length: 8 },
+        (_, index) => `panel-${index}`,
+      ),
+    });
+    const second = createPage({ renderedPanelIds: ["panel-8"] });
     const { browser } = createBrowser([first, second]);
     mocks.launch.mockResolvedValue(browser);
 
