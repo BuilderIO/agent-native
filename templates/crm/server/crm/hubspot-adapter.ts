@@ -230,10 +230,10 @@ function decodedCursor(cursor: string | undefined): {
 } {
   if (!cursor) return { index: 0 };
   try {
-    const padded = cursor.replace(/-/g, "+").replace(/_/g, "/").padEnd(
-      Math.ceil(cursor.length / 4) * 4,
-      "=",
-    );
+    const padded = cursor
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(cursor.length / 4) * 4, "=");
     const binary = atob(padded);
     const decoded = JSON.parse(
       new TextDecoder().decode(
@@ -699,14 +699,13 @@ export class HubSpotCrmAdapter implements CrmAdapter {
     const recordIds = uniqueStrings(input.scope.recordIds ?? []);
     let page: HubSpotListResponse;
     if (recordIds.length) {
-      if (input.cursor) {
-        return { records: [], relationships: [], complete: true };
-      }
+      const state = decodedCursor(input.cursor);
+      const offset = Math.min(state.index, recordIds.length);
       page = await this.request<HubSpotListResponse>({
         method: "POST",
         path: `/crm/v3/objects/${encodeURIComponent(objectType)}/batch/read`,
         body: {
-          inputs: recordIds.slice(0, limit).map((id) => ({ id })),
+          inputs: recordIds.slice(offset, offset + limit).map((id) => ({ id })),
           ...(fields.length ? { properties: fields } : {}),
           ...(input.scope.includeDeleted ? { archived: true } : {}),
         },
@@ -732,7 +731,14 @@ export class HubSpotCrmAdapter implements CrmAdapter {
         projectRecord(this.workspaceConnection, objectType, record, fields),
       )
       .filter((record): record is CrmRecord => record !== null);
-    const nextCursor = page.paging?.next?.after;
+    const nextCursor = recordIds.length
+      ? (() => {
+          const offset = decodedCursor(input.cursor).index + limit;
+          return offset < recordIds.length
+            ? encodeCursorState({ index: offset })
+            : undefined;
+        })()
+      : page.paging?.next?.after;
     return {
       records,
       relationships: [],
@@ -801,10 +807,7 @@ export class HubSpotCrmAdapter implements CrmAdapter {
     const nextCursor = after
       ? encodedCursor(index, after)
       : index + 1 < objectTypes.length
-        ? (encodedCursor(index + 1, "") ??
-          Buffer.from(JSON.stringify({ index: index + 1 }), "utf8").toString(
-            "base64url",
-          ))
+        ? encodeCursorState({ index: index + 1 })
         : undefined;
     return {
       records,
@@ -879,9 +882,7 @@ export class HubSpotCrmAdapter implements CrmAdapter {
     const nextCursor = after
       ? encodedCursor(index, after)
       : index + 1 < targetObjectTypes.length
-        ? Buffer.from(JSON.stringify({ index: index + 1 }), "utf8").toString(
-            "base64url",
-          )
+        ? encodeCursorState({ index: index + 1 })
         : undefined;
     return {
       relationships,

@@ -50,7 +50,7 @@ export default function SavedViewsRoute() {
     "list-crm-saved-views" as never,
     {} as never,
   );
-  const saveView = useActionMutation("save-crm-view" as never);
+  const saveView = useActionMutation("save-crm-saved-view" as never);
   const views = savedViews(viewsQuery.data);
   return (
     <>
